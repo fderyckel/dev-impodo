@@ -1,0 +1,4 @@
+line_key,bom_code,line_number,component_code,component_quantity
+BOM-001-L10,BOM-001,10,COLOR-BLUE,0.4500
+BOM-001-L20,BOM-001,20,CAP-001,1.0000
+

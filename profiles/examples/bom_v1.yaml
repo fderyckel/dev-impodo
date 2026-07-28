@@ -1,0 +1,77 @@
+contract_version: 2
+
+profile:
+  id: bom_example
+  version: 2.0.0
+  description: Portable parent/child BOM preparation example
+
+datasets:
+  - name: bom_headers
+    source:
+      file: bom_headers.csv
+    target:
+      model: mrp.bom
+      mode: upsert
+    source_identity:
+      fields: [bom_code]
+    target_identity:
+      components:
+        - source_fields: [bom_code]
+          target_fields: [code]
+          type: string
+          normalize:
+            trim: true
+    fields:
+      product_qty:
+        source: quantity
+        type: decimal
+        required: true
+        compare: true
+        normalize:
+          decimal_places: 4
+    relations: {}
+
+  - name: bom_lines
+    source:
+      file: bom_lines.csv
+    target:
+      model: mrp.bom.line
+      mode: upsert
+    source_identity:
+      fields: [line_key]
+    target_identity:
+      components:
+        - source_fields: [bom_code]
+          target_fields: [bom_id]
+          resolve:
+            dataset: bom_headers
+            target_source_fields: [bom_code]
+        - source_fields: [line_number]
+          target_fields: [sequence]
+          type: integer
+    fields:
+      product_qty:
+        source: component_quantity
+        type: decimal
+        required: true
+        compare: true
+        normalize:
+          decimal_places: 4
+    relations:
+      bom_id:
+        kind: many2one
+        source_fields: [bom_code]
+        resolve:
+          dataset: bom_headers
+          target_source_fields: [bom_code]
+        required: true
+        compare: true
+      product_id:
+        kind: many2one
+        source_fields: [component_code]
+        resolve:
+          target_model: product.product
+          target_fields: [default_code]
+        required: true
+        compare: true
+

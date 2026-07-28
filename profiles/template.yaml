@@ -1,0 +1,78 @@
+contract_version: 2
+
+profile:
+  id: replace_me
+  version: 2.0.0
+  description: Replace with a governed migration profile
+
+datasets:
+  - name: records
+    source:
+      file: records.csv
+
+    target:
+      model: x_target.model
+      mode: upsert
+
+    source_identity:
+      fields: [source_key]
+
+    target_identity:
+      components:
+        - source_fields: [source_key]
+          target_fields: [x_business_key]
+          type: string
+          normalize:
+            trim: true
+
+      # Scope is optional. Use it when the business key is only unique within
+      # a company, site, parent, or other governed boundary.
+      scope: []
+
+    target_domain: []
+
+    fields:
+      name:
+        source: name
+        type: string
+        required: true
+        required_on_create: true
+        compare: true
+        validate_only: false
+        normalize:
+          trim: true
+          collapse_whitespace: true
+          empty_as_null: true
+        null_policy: distinct
+
+    relations:
+      uom_id:
+        kind: many2one
+        source_fields: [uom_code]
+        resolve:
+          target_model: uom.uom
+          target_fields: [x_uc_code]
+        required: true
+        required_on_create: true
+        compare: true
+        validate_only: false
+        on_missing: error
+        on_ambiguous: error
+        operation: replace
+        null_policy: distinct
+
+      tag_ids:
+        kind: many2many
+        source_fields: [tag_codes]
+        separator: ";"
+        resolve:
+          target_model: x_uc.tag
+          target_fields: [x_uc_code]
+        required: false
+        compare: true
+        validate_only: false
+        on_missing: error
+        on_ambiguous: error
+        operation: replace
+        null_policy: equivalent
+

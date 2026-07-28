@@ -1,0 +1,311 @@
+{
+  "metadata": {
+    "contract_version": 1,
+    "kind": "metadata",
+    "complete": true,
+    "fingerprint": {
+      "environment": "FIXTURE",
+      "database": "golden-slice",
+      "odoo_version": "19.0",
+      "snapshot_timestamp": "2026-07-28T12:00:00Z",
+      "module_versions": {
+        "uc_core": "2.0.0",
+        "uc_assets": "2.0.0"
+      }
+    },
+    "models": {
+      "res.company": {
+        "description": "Companies",
+        "fields": {
+          "x_uc_code": {
+            "type": "char",
+            "required": true,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          }
+        }
+      },
+      "res.partner": {
+        "description": "Contacts",
+        "fields": {
+          "ref": {
+            "type": "char",
+            "required": false,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          },
+          "name": {
+            "type": "char",
+            "required": true,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          }
+        }
+      },
+      "uom.uom": {
+        "description": "Units of Measure",
+        "fields": {
+          "x_uc_code": {
+            "type": "char",
+            "required": true,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          }
+        }
+      },
+      "product.tag": {
+        "description": "Product Tags",
+        "fields": {
+          "x_uc_code": {
+            "type": "char",
+            "required": true,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          }
+        }
+      },
+      "product.template": {
+        "description": "Products",
+        "fields": {
+          "default_code": {
+            "type": "char",
+            "required": false,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          },
+          "company_id": {
+            "type": "many2one",
+            "required": false,
+            "readonly": false,
+            "relation": "res.company",
+            "relation_field": null
+          },
+          "name": {
+            "type": "char",
+            "required": true,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          },
+          "active": {
+            "type": "boolean",
+            "required": false,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          },
+          "uom_id": {
+            "type": "many2one",
+            "required": true,
+            "readonly": false,
+            "relation": "uom.uom",
+            "relation_field": null
+          },
+          "tag_ids": {
+            "type": "many2many",
+            "required": false,
+            "readonly": false,
+            "relation": "product.tag",
+            "relation_field": null
+          }
+        }
+      },
+      "x_uc.asset": {
+        "description": "UC Assets",
+        "fields": {
+          "code": {
+            "type": "char",
+            "required": true,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          },
+          "name": {
+            "type": "char",
+            "required": true,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          }
+        }
+      },
+      "x_uc.asset.line": {
+        "description": "UC Asset Lines",
+        "fields": {
+          "asset_id": {
+            "type": "many2one",
+            "required": true,
+            "readonly": false,
+            "relation": "x_uc.asset",
+            "relation_field": null
+          },
+          "line_no": {
+            "type": "integer",
+            "required": true,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          },
+          "quantity": {
+            "type": "float",
+            "required": true,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          },
+          "service_date": {
+            "type": "date",
+            "required": false,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          },
+          "checked_at": {
+            "type": "datetime",
+            "required": false,
+            "readonly": false,
+            "relation": null,
+            "relation_field": null
+          },
+          "product_tmpl_id": {
+            "type": "many2one",
+            "required": true,
+            "readonly": false,
+            "relation": "product.template",
+            "relation_field": null
+          }
+        }
+      }
+    }
+  },
+  "records": {
+    "contract_version": 1,
+    "kind": "records",
+    "complete": true,
+    "fingerprint": {
+      "environment": "FIXTURE",
+      "database": "golden-slice",
+      "odoo_version": "19.0",
+      "snapshot_timestamp": "2026-07-28T12:00:00Z",
+      "module_versions": {
+        "uc_core": "2.0.0",
+        "uc_assets": "2.0.0"
+      }
+    },
+    "models": {
+      "res.company": {
+        "records": [
+          {"id": 1, "values": {"x_uc_code": "BE"}},
+          {"id": 2, "values": {"x_uc_code": "FR"}}
+        ]
+      },
+      "res.partner": {
+        "records": []
+      },
+      "uom.uom": {
+        "records": [
+          {"id": 10, "values": {"x_uc_code": "UNIT"}},
+          {"id": 11, "values": {"x_uc_code": "KG"}}
+        ]
+      },
+      "product.tag": {
+        "records": [
+          {"id": 20, "values": {"x_uc_code": "BLUE"}},
+          {"id": 21, "values": {"x_uc_code": "FOOD"}}
+        ]
+      },
+      "product.template": {
+        "records": [
+          {
+            "id": 100,
+            "values": {
+              "default_code": "P-UPDATE",
+              "company_id": [1, "Belgium"],
+              "name": "Old product name",
+              "active": true,
+              "uom_id": [10, "Unit"],
+              "tag_ids": [20]
+            }
+          },
+          {
+            "id": 101,
+            "values": {
+              "default_code": "P-SAME",
+              "company_id": [1, "Belgium"],
+              "name": "Stable product",
+              "active": false,
+              "uom_id": [11, "Kilogram"],
+              "tag_ids": [20, 21]
+            }
+          },
+          {
+            "id": 102,
+            "values": {
+              "default_code": "P-AMB",
+              "company_id": [1, "Belgium"],
+              "name": "Ambiguous product A",
+              "active": true,
+              "uom_id": [10, "Unit"],
+              "tag_ids": [20]
+            }
+          },
+          {
+            "id": 103,
+            "values": {
+              "default_code": "P-AMB",
+              "company_id": [1, "Belgium"],
+              "name": "Ambiguous product B",
+              "active": true,
+              "uom_id": [10, "Unit"],
+              "tag_ids": [20]
+            }
+          },
+          {
+            "id": 104,
+            "values": {
+              "default_code": "P-SCOPE",
+              "company_id": [2, "France"],
+              "name": "Scoped product",
+              "active": true,
+              "uom_id": [10, "Unit"],
+              "tag_ids": [20]
+            }
+          }
+        ]
+      },
+      "x_uc.asset": {
+        "records": [
+          {
+            "id": 300,
+            "values": {
+              "code": "ASSET-1",
+              "name": "Existing asset"
+            }
+          }
+        ]
+      },
+      "x_uc.asset.line": {
+        "records": [
+          {
+            "id": 400,
+            "values": {
+              "asset_id": [300, "ASSET-1"],
+              "line_no": 1,
+              "quantity": 1.0,
+              "service_date": "2026-07-28",
+              "checked_at": "2026-07-28T10:00:00Z",
+              "product_tmpl_id": [100, "P-UPDATE"]
+            }
+          }
+        ]
+      }
+    }
+  }
+}
+

@@ -1,0 +1,148 @@
+# Architecture decisions
+
+These decisions are accepted for the read-only milestone. Reversing one
+requires an explicit architecture decision update and review of affected
+contracts.
+
+## ADR-001 — Prepared records are the portable domain boundary
+
+**Status:** Accepted  
+**Decision:** Source adapters produce immutable, typed,
+environment-independent `PreparedRecord` objects with structured issues.
+Comparison consumes prepared records, never raw source rows.
+
+**Why:** The old shape checked values without retaining typed mappings.
+Keeping parsing and comparison separate prevents repeated conversion and makes
+fixture testing independent of spreadsheets.
+
+**Consequences:**
+
+- type and normalization behavior must be complete before target comparison;
+- raw source values are confined to source diagnostics;
+- prepared-record contract versioning becomes a compatibility concern;
+- no Odoo ID can be used to make an otherwise incomplete prepared record
+  valid.
+
+## ADR-002 — Target evidence is captured in immutable snapshots
+
+**Status:** Accepted  
+**Decision:** Target metadata and records are captured as separate,
+content-addressed, environment-specific snapshots. Comparison can run entirely
+offline from those files.
+
+**Why:** It separates live connectivity from domain correctness, makes tests
+repeatable, and binds a review result to exact target evidence.
+
+**Consequences:**
+
+- snapshots may contain Odoo IDs and must be protected as environment data;
+- snapshot completeness and hashing are mandatory;
+- a preflight result becomes stale when the target changes and must not be
+  presented as current without a new snapshot;
+- fixture and live connectors must return equivalent normalized data.
+
+## ADR-003 — The connector is read-only by capability
+
+**Status:** Accepted  
+**Decision:** `OdooReadConnector` exposes fingerprint, metadata, and record
+catalog reads only. There is no generic RPC method.
+
+**Why:** Naming a class "read-only" is not a security boundary if it can call
+arbitrary model methods. A narrow interface makes accidental writes impossible
+through normal application code and makes the milestone auditable.
+
+**Consequences:**
+
+- unusual reads must be expressed as versioned request types, not escape
+  hatches;
+- live credentials still require Odoo-level read-only ACLs;
+- a future executor uses a separate interface, package, configuration, and
+  security review.
+
+## ADR-004 — Relations compare by natural identity
+
+**Status:** Accepted  
+**Decision:** Prepared references and portable differences use target model,
+ordered natural identity, and natural scope. Snapshot relation IDs are
+reverse-resolved before comparison.
+
+**Why:** Numeric IDs vary between fixture, DEV, TEST, and future environments.
+Comparing them or approving them would make the plan environment-dependent.
+
+**Consequences:**
+
+- reference catalogs require bidirectional indexes;
+- unresolved target IDs block affected records;
+- scoped and composite reference identities must be supported from the start;
+- report and manifest serializers reject Odoo ID keys recursively.
+
+## ADR-005 — Classification fails closed with fixed precedence
+
+**Status:** Accepted  
+**Decision:** The only row classifications are `CREATE`, `UPDATE`,
+`UNCHANGED`, `AMBIGUOUS`, and `BLOCKED`, evaluated in this order:
+
+```text
+blocking issue?
+  yes → BLOCKED
+  no  → target matches > 1?
+          yes → AMBIGUOUS
+          no  → target matches = 0?
+                  yes → CREATE
+                  no  → differences?
+                          yes → UPDATE
+                          no  → UNCHANGED
+```
+
+**Why:** A complete and deterministic outcome model is necessary for
+reconciliation and review. Uncertain evidence must never imply a create or
+update.
+
+**Consequences:**
+
+- ambiguous target identity is a classification;
+- ambiguous relation resolution is a blocking issue because target matching
+  cannot safely begin;
+- incomplete target snapshots stop the run rather than classifying rows;
+- all rows in non-reference datasets must reconcile to exactly one outcome.
+
+## ADR-006 — Canonical serialization defines reproducibility
+
+**Status:** Accepted  
+**Decision:** Domain values have canonical JSON forms, arrays have declared
+stable ordering, and source/snapshot inputs plus outputs are hashed.
+
+**Why:** Semantic repeatability alone is difficult to audit. Canonical
+serialization allows fixtures to prove byte-level stability and lets reviewers
+bind a decision to exact evidence.
+
+**Consequences:**
+
+- decimals use typed lossless strings and integers use JSON integers;
+- the snapshot timestamp is part of the environment fingerprint and therefore
+  part of the semantic hash;
+- the manifest adds no separate generated timestamp or run ID;
+- profile identity/version is hashed through the manifest, but version 0.2.0
+  does not hash the profile file bytes;
+- output writers do not depend on hash-map iteration or locale;
+- engine upgrades are recorded and may intentionally change hashes.
+
+## ADR-007 — The requirements plan precedes connector access
+
+**Status:** Accepted  
+**Decision:** Profile compilation and prepared natural keys produce a
+deterministic tuple of `MetadataRequest` or `RecordRequest` values. Connectors
+accept only requests derived by those planner functions.
+
+**Why:** This enforces data minimization, enables request auditing, and ensures
+fixture and live execution ask the same questions.
+
+**Consequences:**
+
+- requests have deterministic ordering, but version 0.2.0 does not yet persist
+  a requirements-plan hash in snapshots;
+- the metadata plan can be built before source preparation, while bounded
+  record domains are finalized after prepared identities are known;
+- single-field identities produce bounded `in` domains; composite identities
+  can require a broader profile-domain read;
+- snapshots record exact projected fields, but not the requested domain.

@@ -1,0 +1,8 @@
+article_code,company_code,description,active,uom_code,tag_codes
+P-CREATE,BE,Created product,true,UNIT,BLUE
+P-UPDATE,BE,New product name,true,UNIT,BLUE;FOOD
+P-SAME,BE,Stable product,false,KG,BLUE;FOOD
+P-AMB,BE,Ambiguous product,true,UNIT,BLUE
+P-BLOCK,BE,Blocked product,true,MISSING,BLUE
+P-SCOPE,BE,Scoped product,true,UNIT,BLUE
+

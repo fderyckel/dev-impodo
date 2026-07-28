@@ -1,0 +1,167 @@
+contract_version: 2
+
+profile:
+  id: golden_slice
+  version: 2.0.0
+  description: Offline acceptance slice for generic read-only preflight
+
+datasets:
+  - name: partners
+    source:
+      file: partners.csv
+    target:
+      model: res.partner
+      mode: upsert
+    source_identity:
+      fields: [reference]
+    target_identity:
+      components:
+        - source_fields: [reference]
+          target_fields: [ref]
+          type: string
+          normalize: {trim: true}
+    fields:
+      name:
+        source: name
+        type: string
+        required: true
+        required_on_create: true
+        compare: true
+        normalize: {trim: true, collapse_whitespace: true}
+    relations: {}
+
+  - name: products
+    source:
+      file: products.csv
+    target:
+      model: product.template
+      mode: upsert
+    source_identity:
+      fields: [article_code, company_code]
+    target_identity:
+      components:
+        - source_fields: [article_code]
+          target_fields: [default_code]
+          type: string
+          normalize: {trim: true}
+      scope:
+        - source_fields: [company_code]
+          target_fields: [company_id]
+          resolve:
+            target_model: res.company
+            target_fields: [x_uc_code]
+    fields:
+      name:
+        source: description
+        type: string
+        required: true
+        required_on_create: true
+        compare: true
+        normalize: {trim: true, collapse_whitespace: true}
+      active:
+        source: active
+        type: boolean
+        required: true
+        compare: true
+    relations:
+      uom_id:
+        kind: many2one
+        source_fields: [uom_code]
+        resolve:
+          target_model: uom.uom
+          target_fields: [x_uc_code]
+        required: true
+        required_on_create: true
+        compare: true
+        on_missing: error
+        on_ambiguous: error
+      tag_ids:
+        kind: many2many
+        source_fields: [tag_codes]
+        separator: ";"
+        resolve:
+          target_model: product.tag
+          target_fields: [x_uc_code]
+        required: false
+        compare: true
+        operation: replace
+        on_missing: error
+        on_ambiguous: error
+
+  - name: assets
+    source:
+      file: assets.csv
+    target:
+      model: x_uc.asset
+      mode: upsert
+    source_identity:
+      fields: [asset_code]
+    target_identity:
+      components:
+        - source_fields: [asset_code]
+          target_fields: [code]
+          type: string
+          normalize: {trim: true}
+    fields:
+      name:
+        source: name
+        type: string
+        required: true
+        required_on_create: true
+        compare: true
+        normalize: {trim: true}
+    relations: {}
+
+  - name: asset_lines
+    source:
+      file: asset_lines.csv
+    target:
+      model: x_uc.asset.line
+      mode: upsert
+    source_identity:
+      fields: [line_key]
+    target_identity:
+      components:
+        - source_fields: [asset_code]
+          target_fields: [asset_id]
+          resolve:
+            dataset: assets
+            target_source_fields: [asset_code]
+        - source_fields: [line_number]
+          target_fields: [line_no]
+          type: integer
+    fields:
+      quantity:
+        source: quantity
+        type: decimal
+        required: true
+        compare: true
+        normalize: {decimal_places: 2}
+      service_date:
+        source: service_date
+        type: date
+        required: false
+        compare: true
+      checked_at:
+        source: checked_at
+        type: datetime
+        required: false
+        compare: true
+    relations:
+      asset_id:
+        kind: many2one
+        source_fields: [asset_code]
+        resolve:
+          dataset: assets
+          target_source_fields: [asset_code]
+        required: true
+        compare: true
+      product_tmpl_id:
+        kind: many2one
+        source_fields: [product_code]
+        resolve:
+          target_model: product.template
+          target_fields: [default_code]
+        required: true
+        compare: true
+
