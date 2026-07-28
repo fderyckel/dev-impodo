@@ -1,23 +1,21 @@
-# Profile contract v2
+# Profile contract
 
 The executable profile contract is defined by strict Pydantic models in
 `src/uc_migration_profiler/profile.py`. The authoring reference is
 [PROFILE_AUTHORING.md](../../PROFILE_AUTHORING.md), and the canonical starter
 is [profiles/template.yaml](../../profiles/template.yaml).
 
-## Contract identity
+## Profile identity
 
 ```yaml
-contract_version: 2
 profile:
   id: governed_identifier
-  version: 2.0.0
   description: Optional description
 datasets: []
 ```
 
-Unknown keys are rejected. Version 1 is accepted only when it uses the same
-strict structural shape and version 2 defaults; new profiles use version 2.
+Unknown keys are rejected. The proof of concept supports one current profile
+shape and does not include legacy compatibility logic.
 
 ## Dataset contract
 
@@ -104,16 +102,17 @@ references. Compared relations must fail on ambiguity.
 source identity/reference restrictions. It must not intentionally hide
 legitimate identity matches.
 
-Version 0.2.0 validates that the value is a YAML sequence but does not
-implement the complete Odoo domain grammar. The live server validates domain
-semantics. Fixture and saved-snapshot runs assume that the recorded catalog
-was already captured with the intended domain.
+The current proof of concept validates that the value is a YAML sequence but
+does not implement the complete Odoo domain grammar. The live server validates
+domain semantics. Fixture and saved-snapshot runs assume that the recorded
+catalog was already captured with the intended domain.
 
-## Versioning
+## Change policy
 
-Increment `profile.version` whenever mapping, identity, scope, type,
-normalization, comparison, relation, or domain meaning changes. A future
-incompatible YAML structure requires `contract_version: 3`.
+There is one current profile shape. When mapping, identity, scope, type,
+normalization, comparison, relation, or domain meaning changes, update the
+profile in place and regenerate its prepared records, snapshots, and review
+artifacts.
 
 Profiles never contain environment URLs, database identifiers, credentials,
 tokens, or numeric Odoo record IDs.

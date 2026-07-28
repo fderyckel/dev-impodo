@@ -1,6 +1,5 @@
 {
   "metadata": {
-    "contract_version": 1,
     "kind": "metadata",
     "complete": true,
     "fingerprint": {
@@ -185,7 +184,6 @@
     }
   },
   "records": {
-    "contract_version": 1,
     "kind": "records",
     "complete": true,
     "fingerprint": {
@@ -308,4 +306,3 @@
     }
   }
 }
-

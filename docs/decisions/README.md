@@ -19,7 +19,8 @@ fixture testing independent of spreadsheets.
 
 - type and normalization behavior must be complete before target comparison;
 - raw source values are confined to source diagnostics;
-- prepared-record contract versioning becomes a compatibility concern;
+- prepared-record shape changes require coordinated fixture and artifact
+  regeneration during the proof of concept;
 - no Odoo ID can be used to make an otherwise incomplete prepared record
   valid.
 
@@ -53,7 +54,7 @@ through normal application code and makes the milestone auditable.
 
 **Consequences:**
 
-- unusual reads must be expressed as versioned request types, not escape
+- unusual reads must be expressed as explicit request types, not escape
   hatches;
 - live credentials still require Odoo-level read-only ACLs;
 - a future executor uses a separate interface, package, configuration, and
@@ -122,10 +123,10 @@ bind a decision to exact evidence.
 - the snapshot timestamp is part of the environment fingerprint and therefore
   part of the semantic hash;
 - the manifest adds no separate generated timestamp or run ID;
-- profile identity/version is hashed through the manifest, but version 0.2.0
+- profile identity is hashed through the manifest, but the proof of concept
   does not hash the profile file bytes;
 - output writers do not depend on hash-map iteration or locale;
-- engine upgrades are recorded and may intentionally change hashes.
+- engine changes may intentionally change hashes.
 
 ## ADR-007 — The requirements plan precedes connector access
 
@@ -139,7 +140,7 @@ fixture and live execution ask the same questions.
 
 **Consequences:**
 
-- requests have deterministic ordering, but version 0.2.0 does not yet persist
+- requests have deterministic ordering, but the proof of concept does not yet persist
   a requirements-plan hash in snapshots;
 - the metadata plan can be built before source preparation, while bounded
   record domains are finalized after prepared identities are known;

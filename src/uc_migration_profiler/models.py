@@ -166,7 +166,6 @@ class ReferenceResolution:
 @dataclass(frozen=True, slots=True)
 class PreflightResult:
     profile_id: str
-    profile_version: str
     source_hashes: Mapping[str, str]
     fingerprint: EnvironmentFingerprint
     metadata_snapshot_hash: str | None
@@ -194,12 +193,8 @@ class PreflightResult:
 
     def to_portable_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            "contract_version": 1,
-            "engine": {"name": "uc-profiler", "version": "0.2.0"},
-            "profile": {
-                "id": self.profile_id,
-                "version": self.profile_version,
-            },
+            "engine": {"name": "uc-profiler"},
+            "profile": {"id": self.profile_id},
             "source_hashes": dict(sorted(self.source_hashes.items())),
             "snapshot_hashes": {
                 "metadata": self.metadata_snapshot_hash,

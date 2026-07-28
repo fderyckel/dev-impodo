@@ -9,10 +9,8 @@ Start from [profiles/template.yaml](profiles/template.yaml).
 ## Root
 
 ```yaml
-contract_version: 2
 profile:
   id: products
-  version: 2.0.0
   description: Governed product preflight
 datasets:
   - name: products
@@ -32,13 +30,6 @@ datasets:
     fields: {}
     relations: {}
 ```
-
-Version 1 is accepted only when it uses this strict structural shape and v2
-defaults. New profiles must use `contract_version: 2`.
-
-For compatibility with an early draft, a nested
-`profile.contract_version` is moved to the root only when the root key is
-absent. This is migration support, not the authoring format for new profiles.
 
 Profile IDs must start with a lowercase letter and contain only lowercase
 letters, digits, `_`, or `-`. Dataset names follow the same rule except that
@@ -213,7 +204,7 @@ resolve:
   target_scope_fields: [company_code]
 ```
 
-In 0.2.0 these scope fields are used when reverse-rendering an existing Odoo
+In the proof of concept these scope fields are used when reverse-rendering an existing Odoo
 relation. Forward source-to-target resolution still matches only
 `target_fields`; duplicate codes across scopes are therefore ambiguous.
 
@@ -292,9 +283,12 @@ complete Odoo-domain grammar. Live Odoo validates its semantics. Offline
 fixtures and saved record snapshots are assumed to have been captured with
 the intended domain; `SnapshotConnector` does not re-evaluate it.
 
-## Profile evolution
+## Profile changes
 
-Increment `profile.version` when changing:
+This proof of concept has one current profile shape and no compatibility
+promise for saved profiles. When changing any of the following, update the
+profile in place and regenerate prepared records, snapshots, and review
+artifacts:
 
 - source/target mapping;
 - identity or scope;
@@ -310,7 +304,7 @@ usernames, passwords, API keys, or tokens.
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m uc_migration_profiler profile \
-  --profile profiles/examples/products_v1.yaml \
+  --profile profiles/examples/products.yaml \
   --input examples/golden \
   --output build/products/prepared-records.json
 ```

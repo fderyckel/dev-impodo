@@ -105,7 +105,6 @@ class PreflightEngine:
         )
         return PreflightResult(
             profile_id=profile.profile.id,
-            profile_version=profile.profile.version,
             source_hashes=prepared.source_hashes,
             fingerprint=record_snapshot.fingerprint,
             metadata_snapshot_hash=metadata_snapshot.content_hash,

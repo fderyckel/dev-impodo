@@ -1,8 +1,8 @@
 # Architecture review
 
-**Review date:** 2026-07-28  
-**Reviewed version:** 0.2.0  
-**Verdict:** the 0.2.0 local fixture path is implemented and validated; UC
+**Review date:** 2026-07-28
+**Reviewed artifact:** current proof of concept
+**Verdict:** the local fixture path is implemented and validated; UC
 acceptance remains pending on the larger sanitized slice, live DEV/TEST
 evidence, and Odoo-side access controls
 
@@ -93,7 +93,7 @@ semantics.
 
 - source files are SHA-256 hashed;
 - saved metadata and record snapshots are SHA-256 hashed;
-- CLI-written snapshots include profile ID/version and record snapshots include
+- CLI-written snapshots include the profile ID and record snapshots include
   source hashes;
 - records, decisions, issues, and references have stable ordering;
 - portable decimals/dates/datetimes have canonical forms;
@@ -102,7 +102,7 @@ semantics.
 The generated workbook is a projection of the canonical manifest and is not a
 second decision source.
 
-The manifest binds the profile by ID/version rather than profile-file hash.
+The manifest binds the profile by ID rather than profile-file hash.
 Its semantic hash includes source hashes, saved snapshot file hashes, and the
 environment fingerprint including snapshot timestamp. Snapshot envelopes do
 not yet persist the request domain or a requirements-plan hash.
@@ -123,7 +123,7 @@ end-to-end source/snapshot/workbook benchmark.
 
 ## Local verification status
 
-- 42 automated tests pass when the real workbook integration flag is enabled.
+- 41 automated tests pass when the real workbook integration flag is enabled.
 - The committed fixture contains 12 import candidates and all five
   classifications.
 - The manifest is byte-deterministic for unchanged saved inputs.

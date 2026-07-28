@@ -43,7 +43,7 @@ class CatalogTests(unittest.TestCase):
 class MetadataValidationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.profile = load_profile(
-            ROOT / "profiles/examples/golden_slice_v2.yaml"
+            ROOT / "profiles/examples/golden_slice.yaml"
         )
         connector = SnapshotConnector(
             combined_path=ROOT / "fixtures/golden/target_snapshot.json"

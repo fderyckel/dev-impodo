@@ -11,7 +11,7 @@ The installed executable is `uc-profiler`. The equivalent development form is
 
 ## Configuration
 
-The 0.2.0 CLI reads:
+The CLI reads:
 
 - `UC_ODOO_BASE_URL`;
 - `UC_ODOO_DATABASE`;
@@ -29,7 +29,7 @@ Production aliases must be rejected in this milestone.
 `UC_ODOO_ENVIRONMENT` is restricted to `DEV` or `TEST`, and the base URL must
 use HTTPS. `Json2Config` also supports a context and relevant-module list when
 constructed in Python, but the CLI environment loader does not expose those
-two settings in 0.2.0.
+two settings.
 
 ## Commands
 
@@ -37,7 +37,7 @@ two settings in 0.2.0.
 
 ```bash
 uc-profiler profile \
-  --profile profiles/examples/bom_v1.yaml \
+  --profile profiles/examples/bom.yaml \
   --input examples/bom \
   --output build/bom-profile/prepared-records.json
 ```
@@ -49,7 +49,7 @@ contact Odoo.
 
 ```bash
 uc-profiler snapshot-metadata \
-  --profile profiles/examples/golden_slice_v2.yaml \
+  --profile profiles/examples/golden_slice.yaml \
   --connector json2 \
   --output snapshots/run-20260728/dev-metadata.json
 ```
@@ -69,7 +69,7 @@ metadata snapshot is evaluated together with the prepared records.
 
 ```bash
 uc-profiler snapshot-records \
-  --profile profiles/examples/golden_slice_v2.yaml \
+  --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --connector json2 \
   --output snapshots/run-20260728/dev-records.json
@@ -85,7 +85,7 @@ fingerprints are compared later by `preflight`.
 
 ```bash
 uc-profiler preflight \
-  --profile profiles/examples/golden_slice_v2.yaml \
+  --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --metadata snapshots/run-20260728/dev-metadata.json \
   --records snapshots/run-20260728/dev-records.json \
@@ -168,7 +168,7 @@ workbook/report errors to `6`.
 
 ## Operator runbook
 
-1. Confirm the source package and profile version intended for review.
+1. Confirm the source package and profile intended for review.
 2. Confirm the selected alias is DEV or TEST, never production.
 3. Validate the profile offline.
 4. Capture metadata and address any model/field mismatch.
@@ -194,7 +194,7 @@ Operators must recapture records when:
 - the requirements plan changes;
 - a snapshot integrity check fails.
 
-Version 0.2.0 displays the snapshot timestamp prominently but does not
+The proof of concept displays the snapshot timestamp prominently but does not
 invent a universal maximum age; that is an operational policy decision.
 
 ## Credentials and logs
@@ -208,4 +208,4 @@ The connector reads `UC_ODOO_BASE_URL`, `UC_ODOO_DATABASE`,
 - exception text is sanitized;
 - shell examples never inline secrets;
 - successful commands print bounded counts, output paths, and the semantic
-  hash; there is no separate structured logging subsystem in 0.2.0.
+  hash; there is no separate structured logging subsystem.

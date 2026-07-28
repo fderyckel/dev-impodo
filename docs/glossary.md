@@ -56,7 +56,7 @@ including proposed scalars, natural-key references, and any preparation
 issues.
 
 **Profile**  
-A versioned YAML declaration describing source layout, target models,
+A strict YAML declaration describing source layout, target models,
 identities, scopes, types, relations, and comparison policy.
 
 **Reference catalog**  

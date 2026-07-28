@@ -32,7 +32,7 @@ class CliTests(unittest.TestCase):
                 [
                     "profile",
                     "--profile",
-                    str(ROOT / "profiles/examples/bom_v1.yaml"),
+                    str(ROOT / "profiles/examples/bom.yaml"),
                     "--input",
                     str(ROOT / "examples/bom"),
                     "--output",
@@ -41,6 +41,7 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(exit_code, 0)
             payload = json.loads(output.read_text())
+            self.assertEqual(payload["profile"], {"id": "bom_example"})
             self.assertEqual(len(payload["records"]), 3)
             self.assertNotIn("odoo_id", output.read_text())
 
@@ -81,4 +82,3 @@ class WorkbookIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -1,7 +1,7 @@
 # Examples and edge cases
 
 This guide is the practical companion to the normative contracts. Every
-example describes version `0.2.0` as implemented in this repository. Where a
+example describes the current proof of concept in this repository. Where a
 planned acceptance target is not yet implemented or verified, it is called out
 explicitly.
 
@@ -11,20 +11,20 @@ Run these commands from `/Users/francois/dev-impodo`.
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-metadata \
-  --profile profiles/examples/golden_slice_v2.yaml \
+  --profile profiles/examples/golden_slice.yaml \
   --connector snapshot \
   --snapshot fixtures/golden/target_snapshot.json \
   --output build/golden/metadata.json
 
 PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-records \
-  --profile profiles/examples/golden_slice_v2.yaml \
+  --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --connector snapshot \
   --snapshot fixtures/golden/target_snapshot.json \
   --output build/golden/records.json
 
 PYTHONPATH=src .venv/bin/python -m uc_migration_profiler preflight \
-  --profile profiles/examples/golden_slice_v2.yaml \
+  --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --metadata build/golden/metadata.json \
   --records build/golden/records.json \
@@ -72,7 +72,7 @@ Prepare the BOM sources without contacting Odoo:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m uc_migration_profiler profile \
-  --profile profiles/examples/bom_v1.yaml \
+  --profile profiles/examples/bom.yaml \
   --input examples/bom \
   --output build/bom-profile/prepared-records.json
 ```
@@ -302,7 +302,7 @@ turn that record into `CREATE`, so domains require business review.
 | Date `2026-07-28` | Becomes a date and serializes as a typed date object |
 | Datetime with offset | Converts to the equivalent UTC instant |
 | Naive datetime with timezone `UTC` | Treated as UTC |
-| Naive datetime with another profile timezone | Rejected; version 0.2.0 does not guess the offset |
+| Naive datetime with another profile timezone | Rejected; the proof of concept does not guess the offset |
 | Target Odoo `false` for a boolean | Boolean false |
 | Target Odoo `false` for a nullable non-boolean | Null |
 
@@ -363,16 +363,16 @@ string parsing. Target matching uses the separately typed
 `target_identity`. Therefore source keys that are different strings can still
 normalize to the same target key—for example source keys `01` and `1` mapped
 to an integer target identity. Profiles should choose a source identity that
-also prevents this semantic duplicate. Version `0.2.0` does not add a second
+also prevents this semantic duplicate. The proof of concept does not add a second
 duplicate check over canonical target identities.
 
 ## 6. Snapshot and connector edge cases
 
-| Condition | Version 0.2.0 behavior |
+| Condition | Current behavior |
 | --- | --- |
 | Metadata and record fingerprints differ | Preflight rejects the run |
 | Saved record source hashes differ from current CSV bytes | Snapshot loading rejects the run when the binding is present |
-| Saved profile ID or version differs | Snapshot loading rejects the run when the binding is present |
+| Saved profile ID differs | Snapshot loading rejects the run when the binding is present |
 | Record snapshot has `complete: false` | Snapshot loading stops; no decisions are produced |
 | Metadata snapshot has `complete: false` | A global blocking issue is applied to import candidates |
 | Pagination repeats an Odoo ID | Live connector rejects the result as incomplete |
@@ -390,8 +390,7 @@ Current snapshot limitations:
 
 - snapshot envelopes are loaded from trusted local files and are not yet
   validated by a complete JSON Schema;
-- contract version and `kind` are written but not strictly rejected when
-  absent or changed;
+- `kind` is written but not strictly rejected when absent or changed;
 - profile/source bindings are checked when those fields are present, so
   operators must use snapshots produced by this CLI rather than hand-trimmed
   JSON;
@@ -407,7 +406,7 @@ evidence.
 ### Live module versions and context
 
 `Json2Config` supports `relevant_modules` and an Odoo `context` when it is
-constructed in Python. The `0.2.0` CLI environment loader does not expose
+constructed in Python. The CLI environment loader does not expose
 either setting, so CLI-created live fingerprints currently have an empty
 module-version map and use an empty context. Company-specific context must be
 added and reviewed before a UC deployment that depends on it.
@@ -424,7 +423,7 @@ Target-only resolver keys are matched exactly against captured catalog values;
 source reference parts are trimmed strings, and resolvers have no independent
 type/normalization declaration. Governed Odoo key fields must therefore use
 the same canonical text representation. Although `target_scope_fields` are
-requested, metadata coverage in 0.2.0 explicitly validates only
+requested, metadata coverage currently validates only
 `target_fields`.
 
 ## 7. Metadata edge cases
@@ -441,7 +440,7 @@ requested, metadata coverage in 0.2.0 explicitly validates only
 | One2many has no inverse field | `TARGET_INVERSE_RELATION_MISSING` |
 
 Selection metadata is captured when Odoo returns it. Decimal comparison
-precision is governed by the profile's `decimal_places`; version `0.2.0` does
+precision is governed by the profile's `decimal_places`; the proof of concept does
 not infer digits or rounding from Odoo field metadata.
 
 ## 8. Output safety edge cases
@@ -507,7 +506,7 @@ evidence.
 | JSON-2 headers, pagination, timeout redaction, closed public surface | `tests/test_connectors.py` |
 | CLI and real workbook generation | `tests/test_reporting_cli.py` |
 
-Run all 42 tests, including the workbook integration:
+Run all 41 tests, including the workbook integration:
 
 ```bash
 UC_RUN_WORKBOOK_TESTS=1 \

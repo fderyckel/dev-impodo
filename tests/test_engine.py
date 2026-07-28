@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def golden_result():
-    profile = load_profile(ROOT / "profiles/examples/golden_slice_v2.yaml")
+    profile = load_profile(ROOT / "profiles/examples/golden_slice.yaml")
     prepared = prepare_sources(profile, ROOT / "examples/golden")
     connector = SnapshotConnector(
         combined_path=ROOT / "fixtures/golden/target_snapshot.json"
@@ -163,6 +163,8 @@ class PreflightClassificationTests(unittest.TestCase):
     def test_manifest_has_no_numeric_odoo_identifiers(self) -> None:
         manifest = self.result.to_portable_dict()
         text = canonical_json_bytes(manifest).decode()
+        self.assertEqual(manifest["engine"], {"name": "uc-profiler"})
+        self.assertEqual(manifest["profile"], {"id": "golden_slice"})
         self.assertNotIn("odoo_id", text)
         self.assertNotIn('"id":100', text)
         self.assertNotIn('"id":300', text)
@@ -173,7 +175,7 @@ class PreflightClassificationTests(unittest.TestCase):
         self.assertEqual(first, second)
 
     def test_create_only_dataset_blocks_existing_identity(self) -> None:
-        profile = load_profile(ROOT / "profiles/examples/golden_slice_v2.yaml")
+        profile = load_profile(ROOT / "profiles/examples/golden_slice.yaml")
         products = profile.dataset("products")
         changed_target = products.target.model_copy(
             update={"mode": "create", "on_existing": "block"}

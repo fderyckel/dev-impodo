@@ -2,9 +2,9 @@
 
 ## Current conclusion
 
-The local 0.2.0 implementation is green:
+The local proof of concept is green:
 
-- 42 tests pass with the real workbook integration enabled;
+- 41 tests pass with the real workbook integration enabled;
 - the BOM preparation example succeeds;
 - the committed 12-candidate golden fixture produces all five outcomes;
 - the manifest is deterministic for unchanged saved inputs;
@@ -30,7 +30,7 @@ Without `UC_RUN_WORKBOOK_TESTS=1`, the workbook integration test is skipped.
 
 | File | Current coverage |
 | --- | --- |
-| `tests/test_profile_and_values.py` | all scalar types, decimal quantization, explicit booleans, null policies, example profiles, unknown keys, validate-only contradiction, cycles, v1-shaped compatibility |
+| `tests/test_profile_and_values.py` | all scalar types, decimal quantization, explicit booleans, null policies, example profiles, unknown keys, validate-only contradiction, and cycles |
 | `tests/test_source_and_planner.py` | typed BOM preparation, symbolic references, duplicate source identity, minimal metadata fields, one request per model, target-domain preservation |
 | `tests/test_catalog_metadata.py` | target duplicate preservation, ID-to-business-reference conversion, complete golden metadata, readonly fields, relation mismatch, missing reference model |
 | `tests/test_engine.py` | all five outcomes, exact scalar/many2many differences, target-only resolution, composite relational identity, decimal comparison, scoped matching, missing parent, target ambiguity, grouped evidence, ID leakage, byte determinism, create-only policy, many2many operations |
@@ -108,7 +108,7 @@ Without `UC_RUN_WORKBOOK_TESTS=1`, the workbook integration test is skipped.
 - selection value outside the captured selection list;
 - target value that cannot be normalized.
 
-Selection metadata is captured, but 0.2.0 does not validate source values
+Selection metadata is captured, but the proof of concept does not validate source values
 against the Odoo selection list. That should be an explicit policy decision,
 not an assumed passing case.
 
@@ -125,14 +125,13 @@ not an assumed passing case.
 
 ### Hardening required before trusted live evidence
 
-- require supported `contract_version`;
 - require the expected `kind`;
 - require profile binding on both files;
 - require source binding on record files;
 - persist and verify a requirements/request hash;
 - persist the requested domain;
 - validate the complete envelope with a schema;
-- add corrupted/truncated/wrong-kind/wrong-version tests;
+- add corrupted, truncated, and wrong-kind tests;
 - decide whether metadata incompleteness should stop the run rather than
   produce all-blocked decisions.
 
@@ -225,7 +224,7 @@ Current deterministic guarantee:
 - identical profile selection;
 - identical source file bytes;
 - identical saved snapshot bytes;
-- identical engine version;
+- identical engine identity;
 
 produce byte-identical canonical manifest JSON.
 
@@ -308,9 +307,9 @@ Structural requirements already apply:
 | Live DEV and TEST | not complete | execute smoke tests |
 | Historical-scale memory | not complete | profile and document |
 
-## Release gate
+## Acceptance gate
 
-Local 0.2.0 engineering validation is complete when all 42 tests pass and the
+Local proof-of-concept validation is complete when all 41 tests pass and the
 offline commands reproduce the documented result.
 
 UC milestone acceptance additionally requires:
@@ -318,8 +317,8 @@ UC milestone acceptance additionally requires:
 - the reviewed 100–300-record slice;
 - live DEV and TEST smoke runs;
 - Odoo-side read-only account evidence;
-- partner confirmation of version, routing, context, keys, scopes, decimal,
-  and timezone rules;
+- partner confirmation of Odoo version, routing, context, keys, scopes,
+  decimal, and timezone rules;
 - approved snapshot/report retention;
 - no unresolved high-severity architecture or data-leak issue.
 

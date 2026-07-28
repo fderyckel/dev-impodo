@@ -53,7 +53,7 @@ not expose that library or arbitrary method execution through the connector.
 The adapter configuration contains the DEV/TEST environment label, database,
 base URL, credentials, timeout, page size, and optional programmatic context
 and module names. The response contains the fields defined in the
-[snapshot contract](snapshots-v1.md). The base URL and credential remain
+[snapshot contract](snapshots.md). The base URL and credential remain
 adapter-private.
 
 ## Metadata request
@@ -72,7 +72,7 @@ Each `RecordRequest` contains:
 - compiled Odoo domain.
 
 The connector supplies deterministic `id asc` ordering and its configured page
-size. Version 0.2.0 does not persist a request hash, page evidence, or domain
+size. The proof of concept does not persist a request hash, page evidence, or domain
 in the saved record snapshot, and does not split very large `in` domains into
 transport-sized chunks.
 

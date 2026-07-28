@@ -51,15 +51,15 @@ class CanonicalValueTests(unittest.TestCase):
         self.assertTrue(values_equal(None, "target", "ignore_source_null"))
 
 
-class ProfileContractTests(unittest.TestCase):
+class ProfileTests(unittest.TestCase):
     def test_example_profiles_validate(self) -> None:
         for path in (ROOT / "profiles/examples").glob("*.yaml"):
             with self.subTest(path=path.name):
-                self.assertEqual(load_profile(path).contract_version, 2)
+                self.assertTrue(load_profile(path).datasets)
 
     def test_unknown_keys_are_rejected_actionably(self) -> None:
         data = yaml.safe_load(
-            (ROOT / "profiles/examples/products_v1.yaml").read_text()
+            (ROOT / "profiles/examples/products.yaml").read_text()
         )
         data["datasets"][0]["fields"]["name"]["compar"] = True
         with tempfile.TemporaryDirectory() as directory:
@@ -101,17 +101,5 @@ class ProfileContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ProfileLoadError, "cycle"):
                 load_profile(path)
 
-    def test_v1_contract_is_interpreted_with_v2_shape(self) -> None:
-        data = yaml.safe_load(
-            (ROOT / "profiles/examples/products_v1.yaml").read_text()
-        )
-        data["contract_version"] = 1
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "v1.yaml"
-            path.write_text(yaml.safe_dump(data, sort_keys=False))
-            self.assertEqual(load_profile(path).contract_version, 1)
-
-
 if __name__ == "__main__":
     unittest.main()
-

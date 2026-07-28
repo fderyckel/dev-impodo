@@ -307,7 +307,6 @@ const environmentRows = [
   ["Odoo Version", environment.odoo_version],
   ["Snapshot Timestamp", environment.snapshot_timestamp],
   ["Profile ID", manifest.profile?.id],
-  ["Profile Version", manifest.profile?.version],
   ["Semantic Hash", manifest.semantic_hash],
   ["Metadata Snapshot Hash", manifest.snapshot_hashes?.metadata],
   ["Record Snapshot Hash", manifest.snapshot_hashes?.records],
@@ -356,7 +355,7 @@ dashboard.getRange("D4:H9").values = [
   ["Run assurance", "", "", "", ""],
   ["Connector capability", "Read only", "", "", ""],
   ["Portable IDs", "Numeric Odoo IDs excluded", "", "", ""],
-  ["Profile", `${manifest.profile?.id} ${manifest.profile?.version}`, "", "", ""],
+  ["Profile", manifest.profile?.id, "", "", ""],
   ["Target", `${environment.environment} / ${environment.database}`, "", "", ""],
   ["Semantic hash", manifest.semantic_hash, "", "", ""],
 ];

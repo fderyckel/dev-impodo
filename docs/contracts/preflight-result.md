@@ -1,4 +1,4 @@
-# Preflight result contract v1
+# Preflight result contract
 
 The canonical output is `uc_preflight_manifest.json`. It is portable: it
 contains business keys, typed values, and a separated environment fingerprint,
@@ -8,9 +8,8 @@ but no numeric Odoo IDs.
 
 ```json
 {
-  "contract_version": 1,
-  "engine": {"name": "uc-profiler", "version": "0.2.0"},
-  "profile": {"id": "golden_slice", "version": "2.0.0"},
+  "engine": {"name": "uc-profiler"},
+  "profile": {"id": "golden_slice"},
   "source_hashes": {"products.csv": "sha256:…"},
   "snapshot_hashes": {
     "metadata": "sha256:…",

@@ -35,7 +35,6 @@ def build_parser() -> argparse.ArgumentParser:
             "Model-agnostic, read-only Odoo migration profiling and preflight"
         ),
     )
-    parser.add_argument("--version", action="version", version="uc-profiler 0.2.0")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     profile_parser = subparsers.add_parser(
@@ -88,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _add_profile_input(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--profile", required=True, help="versioned YAML profile")
+    parser.add_argument("--profile", required=True, help="YAML profile")
     parser.add_argument(
         "--input",
         required=True,
@@ -140,11 +139,7 @@ def _profile_command(arguments: argparse.Namespace) -> int:
     profile = load_profile(arguments.profile)
     prepared = prepare_sources(profile, arguments.input)
     payload = {
-        "contract_version": 1,
-        "profile": {
-            "id": profile.profile.id,
-            "version": profile.profile.version,
-        },
+        "profile": {"id": profile.profile.id},
         "source_hashes": prepared.source_hashes,
         "records": [_portable_prepared(record) for record in prepared.records],
         "issues": [portable_issue(issue) for issue in prepared.issues],
@@ -168,7 +163,6 @@ def _snapshot_metadata_command(arguments: argparse.Namespace) -> int:
         snapshot,
         arguments.output,
         profile_id=profile.profile.id,
-        profile_version=profile.profile.version,
     )
     print(f"Metadata snapshot written to {arguments.output}")
     return 0
@@ -185,7 +179,6 @@ def _snapshot_records_command(arguments: argparse.Namespace) -> int:
         snapshot,
         arguments.output,
         profile_id=profile.profile.id,
-        profile_version=profile.profile.version,
         source_hashes=prepared.source_hashes,
     )
     print(f"Record snapshot written to {arguments.output}")
@@ -199,7 +192,6 @@ def _preflight_command(arguments: argparse.Namespace) -> int:
         metadata_path=arguments.metadata,
         records_path=arguments.records,
         expected_profile_id=profile.profile.id,
-        expected_profile_version=profile.profile.version,
         expected_source_hashes=prepared.source_hashes,
     )
     metadata = connector.get_model_metadata(plan_metadata_requests(profile))

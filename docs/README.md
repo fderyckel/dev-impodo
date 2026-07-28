@@ -15,16 +15,19 @@ milestone. Where an example and a normative rule disagree, text marked
   constrain implementation.
 - [Implementation plan](implementation-plan.md) — package layout, sequence,
   deliverables, and definition of done.
+- [Data-quality rules implementation plan](data-quality-rules-implementation-plan.md)
+  — governed source corrections, structured formats, rule evidence, package
+  quality gates, manager authoring, rollout, and acceptance criteria.
 
 ## Contracts
 
-- [Profile contract v2](contracts/profile-v2.md) — how a profile maps,
+- [Profile contract](contracts/profile.md) — how a profile maps,
   types, identifies, resolves, and compares data.
-- [Prepared record contract v1](contracts/prepared-record-v1.md) — the
+- [Prepared record contract](contracts/prepared-record.md) — the
   environment-independent boundary after source validation.
-- [Snapshot contracts v1](contracts/snapshots-v1.md) — environment
+- [Snapshot contracts](contracts/snapshots.md) — environment
   fingerprint, model metadata, and target-record catalogs.
-- [Preflight result contract v1](contracts/preflight-result-v1.md) —
+- [Preflight result contract](contracts/preflight-result.md) —
   classifications, field differences, reference evidence, and portable
   manifest rules.
 - [Read connector contract](contracts/read-connector.md) — the intentionally
@@ -40,12 +43,12 @@ milestone. Where an example and a normative rule disagree, text marked
   slice, determinism checks, and acceptance traceability.
 - [Glossary](glossary.md) — canonical project terminology.
 
-## Versioning
+## Proof-of-concept status
 
-The profile, prepared-record, snapshot, and result contracts each carry an
-independent integer `contract_version`. Backward-compatible additions do not
-change the integer. A change in meaning, a removed field, or a newly required
-field requires a new contract version and an explicit migration.
+These documents describe one current contract shape. There are no released
+contract generations or compatibility guarantees yet. When the shape changes,
+the examples, fixtures, generated artifacts, implementation, and documentation
+change together.
 
 All source, fixtures, examples, generated review packages, and documentation
 belong under `/Users/francois/dev-impodo`. No commit, push, publication, or

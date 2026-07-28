@@ -1,8 +1,5 @@
-contract_version: 2
-
 profile:
   id: replace_me
-  version: 2.0.0
   description: Replace with a governed migration profile
 
 datasets:
@@ -75,4 +72,3 @@ datasets:
         on_ambiguous: error
         operation: replace
         null_policy: equivalent
-

@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class PreparedRecordTests(unittest.TestCase):
     def test_bom_values_and_references_are_preserved(self) -> None:
-        profile = load_profile(ROOT / "profiles/examples/bom_v1.yaml")
+        profile = load_profile(ROOT / "profiles/examples/bom.yaml")
         bundle = prepare_sources(profile, ROOT / "examples/bom")
         self.assertEqual(len(bundle.records), 3)
         line = next(record for record in bundle.records if record.dataset == "bom_lines")
@@ -31,7 +31,7 @@ class PreparedRecordTests(unittest.TestCase):
         self.assertNotIn("odoo", repr(line).casefold())
 
     def test_duplicate_source_identity_blocks_all_duplicates(self) -> None:
-        profile = load_profile(ROOT / "profiles/examples/bom_v1.yaml")
+        profile = load_profile(ROOT / "profiles/examples/bom.yaml")
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
             shutil.copytree(ROOT / "examples/bom", target / "input")
@@ -60,7 +60,7 @@ class PreparedRecordTests(unittest.TestCase):
 class PlannerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.profile = load_profile(
-            ROOT / "profiles/examples/golden_slice_v2.yaml"
+            ROOT / "profiles/examples/golden_slice.yaml"
         )
         self.bundle = prepare_sources(self.profile, ROOT / "examples/golden")
 

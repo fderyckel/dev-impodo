@@ -1,4 +1,4 @@
-# Prepared record contract v1
+# Prepared record contract
 
 A prepared record is the explicit environment-independent boundary after
 source parsing. Every CSV row produces one record, including invalid rows.

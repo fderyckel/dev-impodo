@@ -4,7 +4,7 @@
 
 The engine answers:
 
-> For this versioned source package, profile, and target snapshot, which
+> For this source package, profile, and target snapshot, which
 > candidates would be created or updated, which are unchanged, and which
 > cannot be decided safely?
 
@@ -14,7 +14,7 @@ Odoo is an input. The only outputs are evidence files.
 
 ```mermaid
 flowchart LR
-    Profile["Strict YAML profile v2"]
+    Profile["Strict YAML profile"]
     Source["CSV source package"]
     Prepare["Typed preparation"]
     Plan["Minimal target request planner"]
@@ -43,7 +43,7 @@ flowchart LR
 
 | Module | Responsibility |
 | --- | --- |
-| `profile.py` | Strict Pydantic profile v2 contract and dependency-cycle checks |
+| `profile.py` | Strict Pydantic profile models and dependency-cycle checks |
 | `canonical.py` | Lossless parsing, normalization, null policy, decimal safety |
 | `source.py` | CSV inventory, source hashing, prepared records, duplicate detection |
 | `planner.py` | Batched minimum metadata/record requirements |
@@ -175,11 +175,11 @@ one target match without differences → UNCHANGED
 - Decimals never pass through binary floating point.
 - Target and decision ordering is explicit.
 - Source, metadata snapshot, and record snapshot hashes enter the manifest.
-- The semantic hash covers the serialized manifest payload: profile
-  ID/version, source and snapshot hashes, fingerprint, and conclusions.
+- The semantic hash covers the serialized manifest payload: profile ID,
+  source and snapshot hashes, fingerprint, and conclusions.
 - Repeating the golden run produces byte-identical manifest bytes.
 
-Version 0.2.0 does not include a profile-file hash or requirements-plan hash.
+The proof of concept does not include a profile-file hash or requirements-plan hash.
 Saved snapshots written by the CLI contain profile/source bindings, but their
 envelopes are not yet validated with a complete JSON Schema.
 

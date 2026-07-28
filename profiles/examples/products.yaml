@@ -1,8 +1,5 @@
-contract_version: 2
-
 profile:
   id: products_example
-  version: 2.0.0
   description: Product profile with scoped identity and target-only references
 
 datasets:
@@ -52,4 +49,3 @@ datasets:
         required: true
         required_on_create: true
         compare: true
-

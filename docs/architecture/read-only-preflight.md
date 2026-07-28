@@ -2,9 +2,9 @@
 
 ## 1. Purpose and status
 
-Version `0.2.0` answers one question without changing Odoo:
+This proof of concept answers one question without changing Odoo:
 
-> Given a versioned CSV source package, mapping profile, and specific target
+> Given a CSV source package, mapping profile, and specific target
 > snapshots, what would be created or changed, what is already equal, and what
 > cannot be decided safely?
 
@@ -75,8 +75,8 @@ Every arrow is a separate architecture and security review gate.
    produce `AMBIGUOUS`.
 8. **Fail closed.** Blocking source, metadata, relation, and comparison issues
    do not become proposed actions.
-9. **Deterministic evidence.** Identical source bytes, profile, snapshots, and
-   engine version produce identical manifest bytes.
+9. **Deterministic evidence.** Identical source bytes, profile, and snapshots
+   produce identical manifest bytes.
 10. **Generic core.** Dataset and Odoo model names come from profiles. No
     product, BOM, contact, invoice, or golden-fixture branch exists in engine
     code.
@@ -144,14 +144,13 @@ Workbook construction consumes the completed manifest and contains no matching
 logic.
 
 The Python package does not define abstract source-reader, clock, or artifact
-store ports in 0.2.0. The current replacement boundaries are the CSV
+store ports. The current replacement boundaries are the CSV
 preparation functions, connector protocol, and reporting functions.
 
 ## 6. Profile and source preparation
 
-The loader accepts `contract_version` 2 and a compatibility form using version
-1 with the same v2 structure and defaults. Pydantic forbids unknown fields.
-The loader also rejects:
+The loader accepts one current strict profile shape. Pydantic forbids unknown
+fields. The loader also rejects:
 
 - duplicate dataset names;
 - unknown incoming datasets;
@@ -206,7 +205,7 @@ Requests are sorted by model and field.
 Composite identities and composite reference keys do not currently generate a
 tuple-wise bounded domain. They use the profile domain, which can retrieve a
 broader candidate catalog. Very large `in` lists are not split into smaller
-transport batches in 0.2.0.
+transport batches in the proof of concept.
 
 The request objects are deterministic but have no separately persisted
 requirements hash.
@@ -267,8 +266,7 @@ validation.
 
 Current trust boundary:
 
-- `contract_version` and `kind` are written but not strictly schema-validated
-  on load;
+- `kind` is written but not strictly schema-validated on load;
 - missing profile/source envelope bindings are not rejected;
 - requested domains and request hashes are not persisted;
 - fixture/saved records are assumed already scoped and the adapter does not
@@ -321,7 +319,8 @@ relational identity values are reverse-resolved from IDs to
 
 Source duplicate detection uses the string source identity. A profile can
 still map two different source trace keys to the same typed target identity;
-0.2.0 does not add a second duplicate-source check at that boundary.
+the proof of concept does not add a second duplicate-source check at that
+boundary.
 
 ## 11. Relationship resolution
 
@@ -410,7 +409,7 @@ An incomplete record snapshot stops the run before any decisions.
 
 `PreflightResult.to_portable_dict()` creates the manifest envelope with:
 
-- result, engine, and profile versions;
+- engine name and profile ID;
 - source hashes;
 - exact metadata and record snapshot hashes;
 - target environment fingerprint;
@@ -453,10 +452,10 @@ decimal/date/datetime values, and stable list ordering supplied by the engine.
 
 The manifest includes:
 
-- profile ID and version, but not a hash of the profile file;
+- profile ID, but not a hash of the profile file;
 - exact source-file byte hashes;
 - exact saved snapshot byte hashes;
-- engine name and version;
+- engine name;
 - environment fingerprint, including snapshot timestamp;
 - semantic hash over the complete payload except the semantic hash field.
 
@@ -476,7 +475,7 @@ Indexed preparation, resolution, matching, and comparison are approximately
 `O(S × F + T)`. Connector calls scale with requested models and pages, not
 source rows.
 
-Version 0.2.0 holds source and target records in memory. The source and
+The proof of concept holds source and target records in memory. The source and
 snapshot boundaries are future substitution points for DuckDB/Parquet.
 
 Implemented controls:

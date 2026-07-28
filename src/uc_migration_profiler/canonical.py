@@ -84,11 +84,11 @@ def parse_value(
             else:
                 parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
             if parsed.tzinfo is None:
-                # Version 2 supports UTC source timestamps. Other profile
-                # timezones are validated but intentionally not guessed.
+                # UTC source timestamps are supported. Other profile timezones
+                # are validated but intentionally not guessed.
                 if normalization.timezone != "UTC":
                     raise ValueParseError(
-                        "naive datetime requires UTC in version 2"
+                        "naive datetime requires a UTC normalization timezone"
                     )
                 parsed = parsed.replace(tzinfo=timezone.utc)
             return parsed.astimezone(timezone.utc)
@@ -115,4 +115,3 @@ def values_equal(source: Any, target: Any, null_policy: str) -> bool:
         source = None if source == "" else source
         target = None if target == "" else target
     return source == target
-

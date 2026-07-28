@@ -1,6 +1,6 @@
 # UC Migration Profiler
 
-Version `0.2.0` is a model-agnostic, read-only Odoo preflight engine. It
+This proof of concept is a model-agnostic, read-only Odoo preflight engine. It
 prepares governed source records, captures narrowly scoped Odoo evidence,
 resolves business-key relationships, compares source and target values, and
 produces an Excel review workbook plus a portable JSON manifest.
@@ -11,7 +11,7 @@ It never writes to Odoo.
 
 Implemented:
 
-- strict profile contract v2 with v1-version acceptance;
+- one strict current profile shape;
 - typed prepared records for strings, integers, decimals, booleans, dates,
   datetimes, and nulls;
 - composite and company/site/parent-scoped identities;
@@ -108,7 +108,7 @@ The original command remains available:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m uc_migration_profiler profile \
-  --profile profiles/examples/bom_v1.yaml \
+  --profile profiles/examples/bom.yaml \
   --input examples/bom \
   --output build/bom-profile/prepared-records.json
 ```
@@ -121,7 +121,7 @@ Capture normalized fixture metadata:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-metadata \
-  --profile profiles/examples/golden_slice_v2.yaml \
+  --profile profiles/examples/golden_slice.yaml \
   --connector snapshot \
   --snapshot fixtures/golden/target_snapshot.json \
   --output build/golden/metadata.json
@@ -131,7 +131,7 @@ Capture only planned target records and fields:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-records \
-  --profile profiles/examples/golden_slice_v2.yaml \
+  --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --connector snapshot \
   --snapshot fixtures/golden/target_snapshot.json \
@@ -142,7 +142,7 @@ Run comparison entirely offline:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m uc_migration_profiler preflight \
-  --profile profiles/examples/golden_slice_v2.yaml \
+  --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --metadata build/golden/metadata.json \
   --records build/golden/records.json \
@@ -189,7 +189,7 @@ Capture live metadata:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-metadata \
-  --profile profiles/examples/golden_slice_v2.yaml \
+  --profile profiles/examples/golden_slice.yaml \
   --connector json2 \
   --output snapshots/dev-metadata.json
 ```
@@ -198,7 +198,7 @@ Capture live records:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-records \
-  --profile profiles/examples/golden_slice_v2.yaml \
+  --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --connector json2 \
   --output snapshots/dev-records.json
@@ -254,14 +254,14 @@ use at larger scales requires it; it is not needed for this milestone.
   separately reviewed read adapter.
 - Module version visibility is best-effort; access denial is recorded as a
   limitation rather than invalidating otherwise complete metadata. The
-  programmatic connector accepts relevant module names, but the 0.2.0 CLI
+  programmatic connector accepts relevant module names, but the current CLI
   environment loader does not yet expose that list.
 - Snapshot domains are optimized for single-field identities. Composite keys
   remain grouped in one model request, but may retrieve a broad candidate set
   and can become an unbounded model read when no `target_domain` is supplied.
   Govern and volume-test those profiles before live use.
 - Snapshot files written by the CLI carry profile and source bindings, but
-  version 0.2.0 does not persist a requirements-plan hash or requested domain
+  the proof of concept does not persist a requirements-plan hash or requested domain
   and does not apply a full JSON Schema on load. Do not hand-edit live
   evidence files.
 - The committed fixture has 12 candidates. The planned 100–300-record

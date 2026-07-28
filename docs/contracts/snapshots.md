@@ -1,4 +1,4 @@
-# Snapshot contracts v1
+# Snapshot contracts
 
 Snapshots are immutable, environment-specific inputs. Metadata and record
 snapshots share the same fingerprint:
@@ -19,9 +19,8 @@ Secrets and connection URLs are forbidden.
 
 ```json
 {
-  "contract_version": 1,
   "kind": "metadata",
-  "profile": {"id": "golden_slice", "version": "2.0.0"},
+  "profile": {"id": "golden_slice"},
   "fingerprint": {},
   "complete": true,
   "limitations": [],
@@ -52,9 +51,8 @@ and does not invalidate otherwise complete metadata.
 
 ```json
 {
-  "contract_version": 1,
   "kind": "records",
-  "profile": {"id": "golden_slice", "version": "2.0.0"},
+  "profile": {"id": "golden_slice"},
   "fingerprint": {},
   "source_hashes": {"products.csv": "sha256:…"},
   "complete": true,
@@ -89,7 +87,7 @@ through reference catalogs before comparison.
 When preflight loads saved snapshots, it verifies:
 
 - identical environment fingerprints;
-- selected profile ID and version when the binding is present;
+- selected profile ID when the binding is present;
 - record-snapshot source hashes against the current source package when the
   binding is present;
 - `complete: true`.
@@ -99,11 +97,11 @@ Changing file bytes changes the semantic result hash.
 
 Snapshot output uses canonical JSON and atomic `.partial` replacement.
 
-Version 0.2.0 writes `contract_version`, `kind`, profile binding, and source
-binding, but the loader does not yet apply a complete JSON Schema or require
-every envelope field. It also does not persist a requirements-plan hash or
-the requested domain. Saved live evidence should therefore be created by this
-CLI, retained unchanged, and not replaced with hand-edited JSON.
+The proof of concept writes `kind`, profile binding, and source binding, but
+the loader does not yet apply a complete JSON Schema or require every envelope
+field. It also does not persist a requirements-plan hash or the requested
+domain. Saved live evidence should therefore be created by this CLI, retained
+unchanged, and not replaced with hand-edited JSON.
 
 ## Fixture format
 

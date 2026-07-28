@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "uc-migration-profiler"
-version = "0.2.0"
+version = "0.0.0"
 description = "Model-agnostic, read-only Odoo migration preflight engine"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,4 +25,3 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 uc_migration_profiler = ["resources/*.mjs"]
-

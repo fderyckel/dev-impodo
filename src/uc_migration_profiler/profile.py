@@ -1,4 +1,4 @@
-"""Strict profile contract and profile loading."""
+"""Strict profile models and profile loading."""
 
 from __future__ import annotations
 
@@ -25,7 +25,6 @@ class StrictModel(BaseModel):
 
 class ProfileIdentity(StrictModel):
     id: str = Field(min_length=1, pattern=r"^[a-z][a-z0-9_-]*$")
-    version: str = Field(min_length=1)
     description: str | None = None
 
 
@@ -195,7 +194,6 @@ class DatasetSpec(StrictModel):
 
 
 class ProfileDocument(StrictModel):
-    contract_version: Literal[1, 2] = 2
     profile: ProfileIdentity
     datasets: tuple[DatasetSpec, ...] = Field(min_length=1)
 
@@ -293,18 +291,6 @@ def load_profile(path: str | Path) -> ProfileDocument:
         raise ProfileLoadError(f"cannot read profile {profile_path}: {exc}") from exc
     if not isinstance(loaded, dict):
         raise ProfileLoadError(f"profile {profile_path} must contain a YAML object")
-
-    # Early v1 drafts sometimes put the contract version under `profile`.
-    nested_profile = loaded.get("profile")
-    if (
-        "contract_version" not in loaded
-        and isinstance(nested_profile, dict)
-        and "contract_version" in nested_profile
-    ):
-        loaded = dict(loaded)
-        nested_profile = dict(nested_profile)
-        loaded["contract_version"] = nested_profile.pop("contract_version")
-        loaded["profile"] = nested_profile
 
     try:
         return ProfileDocument.model_validate(loaded)

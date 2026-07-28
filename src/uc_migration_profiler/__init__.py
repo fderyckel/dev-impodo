@@ -15,6 +15,3 @@ __all__ = [
     "PreparedRecord",
     "PreflightResult",
 ]
-
-__version__ = "0.2.0"
-

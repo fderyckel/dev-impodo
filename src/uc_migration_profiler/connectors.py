@@ -95,7 +95,6 @@ class SnapshotConnector:
         records_path: str | Path | None = None,
         combined_path: str | Path | None = None,
         expected_profile_id: str | None = None,
-        expected_profile_version: str | None = None,
         expected_source_hashes: Mapping[str, str] | None = None,
     ) -> None:
         if combined_path is not None:
@@ -124,13 +123,11 @@ class SnapshotConnector:
         _validate_snapshot_binding(
             self._metadata_data,
             expected_profile_id,
-            expected_profile_version,
             None,
         )
         _validate_snapshot_binding(
             self._records_data,
             expected_profile_id,
-            expected_profile_version,
             expected_source_hashes,
         )
         self._fingerprint = _parse_fingerprint(
@@ -486,7 +483,7 @@ class Json2ReadConnector:
             "Authorization": f"bearer {self._config.api_key}",
             "Content-Type": "application/json; charset=utf-8",
             "X-Odoo-Database": self._config.database,
-            "User-Agent": "uc-migration-profiler/0.2.0",
+            "User-Agent": "uc-migration-profiler-poc",
         }
         transient_statuses = {429, 502, 503, 504}
         for attempt in range(self._config.retries + 1):
@@ -517,12 +514,10 @@ def write_metadata_snapshot(
     output_path: str | Path,
     *,
     profile_id: str,
-    profile_version: str,
 ) -> None:
     payload = {
-        "contract_version": 1,
         "kind": "metadata",
-        "profile": {"id": profile_id, "version": profile_version},
+        "profile": {"id": profile_id},
         "fingerprint": snapshot.fingerprint.portable_dict(),
         "complete": snapshot.complete,
         "limitations": list(snapshot.limitations),
@@ -552,13 +547,11 @@ def write_record_snapshot(
     output_path: str | Path,
     *,
     profile_id: str,
-    profile_version: str,
     source_hashes: Mapping[str, str],
 ) -> None:
     payload = {
-        "contract_version": 1,
         "kind": "records",
-        "profile": {"id": profile_id, "version": profile_version},
+        "profile": {"id": profile_id},
         "fingerprint": snapshot.fingerprint.portable_dict(),
         "source_hashes": dict(sorted(source_hashes.items())),
         "complete": snapshot.complete,
@@ -615,7 +608,6 @@ def _load_json(path: str | Path) -> dict[str, Any]:
 def _validate_snapshot_binding(
     data: Mapping[str, Any],
     expected_profile_id: str | None,
-    expected_profile_version: str | None,
     expected_source_hashes: Mapping[str, str] | None,
 ) -> None:
     profile = data.get("profile")
@@ -623,11 +615,6 @@ def _validate_snapshot_binding(
         if profile.get("id") != expected_profile_id:
             raise ConnectorConfigurationError(
                 "snapshot profile ID does not match selected profile"
-            )
-    if expected_profile_version is not None and profile is not None:
-        if profile.get("version") != expected_profile_version:
-            raise ConnectorConfigurationError(
-                "snapshot profile version does not match selected profile"
             )
     if expected_source_hashes is not None and "source_hashes" in data:
         actual = {

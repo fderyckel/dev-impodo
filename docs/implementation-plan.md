@@ -2,14 +2,19 @@
 
 ## Current status
 
-Version `0.2.0` is implemented in `/Users/francois/dev-impodo`. The referenced
-scratch-workspace baseline was unavailable in this workspace, so the engine was
-implemented from the supplied milestone brief and contracts. The current suite
-has 42 tests when the real-workbook integration is enabled. The original BOM
-preparation command remains a compatibility check.
+The proof of concept is implemented in `/Users/francois/dev-impodo`. The
+referenced scratch-workspace baseline was unavailable in this workspace, so
+the engine was implemented from the supplied milestone brief and contracts.
+The current suite has 41 tests when the real-workbook integration is enabled.
+The original BOM preparation command remains a regression check.
 
 This document separates completed local engineering from the evidence still
 required for UC acceptance.
+
+The proposed governed source-rules extension is planned separately in
+[Data-quality rules implementation plan](data-quality-rules-implementation-plan.md).
+It preserves this milestone's read-only boundary while adding auditable source
+correction, structured-format validation, and a package-level quality gate.
 
 ## Actual package shape
 
@@ -59,15 +64,14 @@ transport, or workbook builder; reporting consumes completed results.
 
 ## Delivery slices
 
-### Slice 0 — Baseline and compatibility
+### Slice 0 — Baseline
 
 Completed:
 
-- versioned Python package and editable installation;
+- editable Python package;
 - exact setup and test commands;
 - original `profile` command preserved;
 - BOM example prepares three typed records;
-- package version set to `0.2.0`;
 - all repository files remain under `/Users/francois/dev-impodo`.
 
 External note: the original five-test scratch baseline was not available for a
@@ -99,8 +103,7 @@ Verified examples:
 
 Completed:
 
-- strict Pydantic v2 shape;
-- compatibility acceptance of v1 only with the same structural shape;
+- strict Pydantic models;
 - profile, dataset, field, identity, scope, relation, and domain declarations;
 - create/upsert/reference modes;
 - incoming dependency validation and cycle rejection;
@@ -131,7 +134,7 @@ Completed:
 Known limits:
 
 - no complete JSON Schema enforcement on load;
-- contract version and `kind` are not strictly required;
+- `kind` is not strictly required;
 - missing optional envelope bindings can pass;
 - request domain and requirements hash are not stored;
 - fixture/saved snapshot domains are not locally re-evaluated.
@@ -229,7 +232,7 @@ Still required:
 - end-to-end scale, memory, snapshot-size, and workbook timing evidence;
 - retention and access policy;
 - strict snapshot trust decision;
-- reviewed release notes and partner confirmations.
+- reviewed change notes and partner confirmations.
 
 ## Pull-request boundaries for later work
 
@@ -246,10 +249,10 @@ Do not combine any of those with a future write executor.
 
 ## Local definition of done
 
-The local 0.2.0 implementation is complete when:
+The local proof of concept is complete when:
 
 - contracts describe actual behavior;
-- all 42 tests, including the workbook integration, pass;
+- all 41 tests, including the workbook integration, pass;
 - BOM preparation succeeds;
 - offline golden preflight produces all five classifications;
 - every update has exact business-key differences;
