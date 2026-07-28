@@ -162,6 +162,7 @@ These fail the command with exit code `3` before Odoo is contacted:
 | File larger than 50 MiB | Rejected |
 | XLSX expands beyond 512 MiB or has a suspicious ratio | Rejected |
 | More than 10,000 XLSX members | Rejected |
+| More than 256 worksheets or oversized Office metadata | Rejected |
 | More than 500,000 data rows or 2,048 columns | Rejected |
 | Cell string exceeds 1,000,000 characters | Rejected |
 

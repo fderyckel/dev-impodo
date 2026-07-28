@@ -297,3 +297,30 @@ Before on-premise access:
 - DEV/TEST sentinel `write_date` comparison;
 - access-revocation drill;
 - incident and data-deletion procedure.
+
+## 12. Primary references
+
+- [Uvicorn settings](https://www.uvicorn.org/settings/) — loopback is the
+  default host; `0.0.0.0` exposes the service on the local network.
+- [OWASP File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)
+  — extension allowlists, type validation, generated names, size limits,
+  storage isolation, and decompression-bomb controls.
+- [OWASP CSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)
+  — synchronizer tokens, origin checks, Fetch Metadata, and SameSite
+  defense-in-depth.
+- [OWASP Content Security Policy Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html)
+  — CSP delivery and restrictive policy guidance.
+- [openpyxl optimized modes](https://openpyxl.readthedocs.io/en/stable/optimized.html)
+  and [openpyxl package security note](https://pypi.org/project/openpyxl/) —
+  read-only workbook processing and the need for `defusedxml`.
+- [Python ZIP-file decompression warning](https://docs.python.org/3/library/zipfile.html#decompression-pitfalls)
+  — archive resource-exhaustion risk.
+- [DuckDB security overview](https://duckdb.org/docs/current/operations_manual/securing_duckdb/overview)
+  and [extension security](https://duckdb.org/docs/current/operations_manual/securing_duckdb/securing_extensions)
+  — external access, extension, and configuration controls.
+- [Odoo 19 External JSON-2 API](https://www.odoo.com/documentation/19.0/developer/reference/external_api.html)
+  — bearer API keys, access controls, dedicated bot users, and key rotation.
+- [Docker port publishing](https://docs.docker.com/engine/network/port-publishing/)
+  — host-interface binding behavior.
+- [Official Odoo container image](https://hub.docker.com/_/odoo) — local
+  laboratory image source.

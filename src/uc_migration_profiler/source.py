@@ -64,6 +64,8 @@ MAX_SOURCE_FILE_BYTES = 50 * 1024 * 1024
 MAX_XLSX_ARCHIVE_ENTRIES = 10_000
 MAX_XLSX_EXPANDED_BYTES = 512 * 1024 * 1024
 MAX_XLSX_MEMBER_COMPRESSION_RATIO = 1_000
+MAX_XLSX_METADATA_BYTES = 5 * 1024 * 1024
+MAX_XLSX_WORKSHEETS = 256
 MAX_SOURCE_ROWS = 500_000
 MAX_SOURCE_COLUMNS = 2_048
 MAX_CELL_STRING_LENGTH = 1_000_000
@@ -200,6 +202,10 @@ def _load_xlsx(
     except Exception as exc:
         raise SourceLoadError(f"cannot parse XLSX source: {path.name}") from exc
     try:
+        if len(workbook.sheetnames) > MAX_XLSX_WORKSHEETS:
+            raise SourceLoadError(
+                f"workbook exceeds {MAX_XLSX_WORKSHEETS} worksheets: {path.name}"
+            )
         if sheet not in workbook.sheetnames:
             available = ", ".join(workbook.sheetnames)
             raise SourceLoadError(
@@ -210,6 +216,10 @@ def _load_xlsx(
         if worksheet.max_column > MAX_SOURCE_COLUMNS:
             raise SourceLoadError(
                 f"worksheet {sheet!r} exceeds {MAX_SOURCE_COLUMNS} columns"
+            )
+        if worksheet.max_row - header_row > MAX_SOURCE_ROWS:
+            raise SourceLoadError(
+                f"worksheet {sheet!r} exceeds {MAX_SOURCE_ROWS} possible data rows"
             )
 
         iterator = worksheet.iter_rows(min_row=header_row)
@@ -352,7 +362,12 @@ def _validate_xlsx_container(path: Path) -> None:
                         f"{member.filename!r}: {path.name}"
                     )
 
-            content_types = archive.read("[Content_Types].xml")
+            content_types_info = archive.getinfo("[Content_Types].xml")
+            if content_types_info.file_size > MAX_XLSX_METADATA_BYTES:
+                raise SourceLoadError(
+                    f"XLSX content-type metadata is too large: {path.name}"
+                )
+            content_types = archive.read(content_types_info)
             if b"macroEnabled" in content_types or b"vbaProject" in content_types:
                 raise SourceLoadError(
                     f"macro-enabled XLSX content rejected: {path.name}"
@@ -418,10 +433,13 @@ def prepare_sources(
     return PreparedBundle(
         records=tuple(records),
         issues=tuple(issues),
-        source_hashes={
-            str(table.path.relative_to(Path(input_directory).resolve())): table.content_hash
+        source_hashes=dict(
+            (
+                table.path.relative_to(Path(input_directory).resolve()).as_posix(),
+                table.content_hash,
+            )
             for table in sorted(tables, key=lambda item: item.dataset)
-        },
+        ),
     )
 
 
