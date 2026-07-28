@@ -43,7 +43,9 @@ uc-profiler profile \
 ```
 
 Performs strict profile validation and typed source preparation. It does not
-contact Odoo.
+contact Odoo. The input directory may contain profile-declared `.csv` and
+`.xlsx` files. XLSX profiles must select a worksheet explicitly; see
+[Profile authoring](../../PROFILE_AUTHORING.md).
 
 ### Capture target metadata
 
@@ -144,7 +146,7 @@ numeric Odoo IDs.
 | ---: | --- |
 | `0` | Command completed and artifacts are valid; row-level blocked or ambiguous outcomes may exist |
 | `2` | CLI usage or configuration error |
-| `3` | Profile or source package structural validation failed |
+| `3` | Profile or source package structural/security validation failed |
 | `4` | Connector, authentication, authorization, or transport failure |
 | `6` | Manifest/workbook report generation failed |
 

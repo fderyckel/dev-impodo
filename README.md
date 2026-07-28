@@ -7,11 +7,22 @@ produces an Excel review workbook plus a portable JSON manifest.
 
 It never writes to Odoo.
 
+This proof of concept is the safety and comparison foundation of a larger
+end-to-end migration product for Excel and CSV exports from AX 2012, Dynamics
+365, Salesforce, and other systems. The complete goal includes source
+inspection, Odoo schema discovery, a guided mapping workspace, normalization
+and validation, durable staging, approval, controlled Odoo loading, and
+reconciliation. See
+[End-to-end migration product vision](docs/product-vision.md).
+
 ## Milestone status
 
 Implemented:
 
 - one strict current profile shape;
+- profile-declared CSV and XLSX worksheets with exact source hashes;
+- contained source paths, bounded Office containers, XML-bomb protection,
+  duplicate-header checks, and formula/error-cell rejection;
 - typed prepared records for strings, integers, decimals, booleans, dates,
   datetimes, and nulls;
 - composite and company/site/parent-scoped identities;
@@ -56,7 +67,7 @@ Explicitly excluded:
 ```text
 src/uc_migration_profiler/   Domain engine, connectors, CLI, and reporting
 profiles/                    Profile template and examples
-examples/                    CSV source packages
+examples/                    CSV/XLSX source-package examples and fixtures
 fixtures/                    Normalized offline Odoo snapshots
 tests/                       Unit, contract, integration, and golden tests
 docs/                        Detailed architecture and contracts
@@ -74,6 +85,9 @@ Python 3.11 or newer is required.
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
 ```
+
+CSV ingestion uses Python's standard library. XLSX ingestion uses `openpyxl`
+in read-only mode with `defusedxml`; both are installed with the package.
 
 The Excel report writer uses `@oai/artifact-tool` through Node.js. In the
 Codex desktop runtime, expose the bundled runtime:
@@ -248,8 +262,13 @@ use at larger scales requires it; it is not needed for this milestone.
 
 ## Current limitations
 
-- Source adapters currently accept profile-declared CSV files. Workbook source
-  ingestion can be added behind the same prepared-record boundary.
+- Source adapters accept `.csv` and `.xlsx` only. XLSX input requires an
+  explicit worksheet and rejects formulas, error cells, macros, external
+  links/connections, embedded objects, encryption, and suspicious Office
+  containers. Legacy `.xls` and direct source-system connections are deferred.
+- The current XLSX capability reads a profile-declared sheet; the planned
+  browser workspace will add workbook inventory, preview, type inference, and
+  guided selection before a profile exists.
 - The live connector targets Odoo 19 JSON-2. Earlier Odoo versions need a
   separately reviewed read adapter.
 - Module version visibility is best-effort; access denial is recorded as a

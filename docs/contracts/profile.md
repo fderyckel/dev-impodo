@@ -22,7 +22,7 @@ shape and does not include legacy compatibility logic.
 Each dataset declares:
 
 - stable `name`;
-- one CSV source file and encoding/delimiter;
+- one contained CSV file or explicit XLSX worksheet;
 - target model and `upsert`, `create`, or `reference` mode;
 - non-empty source identity;
 - non-empty target identity components;
@@ -33,6 +33,15 @@ Each dataset declares:
 
 Dataset names are unique. Incoming references must target a declared dataset.
 Dependency cycles are rejected.
+
+CSV sources may declare `encoding` and a one-character `delimiter`. XLSX
+sources must declare `sheet` and may declare `header_row`, which defaults to
+`1`. CSV-only settings are invalid on XLSX, and a non-default header row is
+invalid on CSV. Only `.csv` and `.xlsx` are accepted; `.xls`, `.xlsm`, and
+direct source-system connections are outside the current contract.
+
+The source file path is relative to the selected input directory. Absolute
+paths and parent-directory traversal are invalid.
 
 Source identity fields are prepared as trimmed strings and are used for source
 traceability and duplicate detection. Target identity components are prepared

@@ -6,7 +6,10 @@ import csv
 from dataclasses import dataclass, replace
 from hashlib import sha256
 from pathlib import Path
+from pathlib import PurePosixPath
+import stat
 from typing import Any, Iterable
+import zipfile
 
 from .canonical import ValueParseError, parse_field, parse_value
 from .models import (
@@ -30,8 +33,14 @@ class SourceTable:
     dataset: str
     path: Path
     headers: tuple[str, ...]
-    rows: tuple[dict[str, str | None], ...]
+    rows: tuple["SourceRow", ...]
     content_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class SourceRow:
+    number: int
+    values: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,23 +56,57 @@ class PreparedBundle:
         }
 
 
+class SourceLoadError(ValueError):
+    """Raised when an input file violates the governed source contract."""
+
+
+MAX_SOURCE_FILE_BYTES = 50 * 1024 * 1024
+MAX_XLSX_ARCHIVE_ENTRIES = 10_000
+MAX_XLSX_EXPANDED_BYTES = 512 * 1024 * 1024
+MAX_XLSX_MEMBER_COMPRESSION_RATIO = 1_000
+MAX_SOURCE_ROWS = 500_000
+MAX_SOURCE_COLUMNS = 2_048
+MAX_CELL_STRING_LENGTH = 1_000_000
+
+
 def load_source_tables(
     profile: ProfileDocument,
     input_directory: str | Path,
 ) -> tuple[SourceTable, ...]:
-    root = Path(input_directory)
+    root = Path(input_directory).resolve()
+    if not root.is_dir():
+        raise SourceLoadError(f"source input directory does not exist: {root}")
+
     tables: list[SourceTable] = []
     for dataset in profile.datasets:
-        path = root / dataset.source.file
+        path = _contained_source_path(root, dataset.source.file)
+        file_size = path.stat().st_size
+        if file_size > MAX_SOURCE_FILE_BYTES:
+            raise SourceLoadError(
+                f"source file exceeds {MAX_SOURCE_FILE_BYTES} bytes: "
+                f"{dataset.source.file}"
+            )
         data = path.read_bytes()
-        with path.open(
-            "r",
-            encoding=dataset.source.encoding,
-            newline="",
-        ) as handle:
-            reader = csv.DictReader(handle, delimiter=dataset.source.delimiter)
-            headers = tuple(reader.fieldnames or ())
-            rows = tuple(dict(row) for row in reader)
+
+        try:
+            if path.suffix.casefold() == ".csv":
+                headers, rows = _load_csv(
+                    path,
+                    dataset.source.encoding,
+                    dataset.source.delimiter,
+                )
+            else:
+                headers, rows = _load_xlsx(
+                    path,
+                    sheet=dataset.source.sheet or "",
+                    header_row=dataset.source.header_row,
+                )
+        except SourceLoadError:
+            raise
+        except (csv.Error, LookupError, UnicodeError) as exc:
+            raise SourceLoadError(
+                f"cannot parse source file {dataset.source.file}: {exc}"
+            ) from exc
         tables.append(
             SourceTable(
                 dataset=dataset.name,
@@ -74,6 +117,270 @@ def load_source_tables(
             )
         )
     return tuple(tables)
+
+
+def _contained_source_path(root: Path, relative_name: str) -> Path:
+    candidate = root / relative_name
+    if candidate.is_symlink():
+        raise SourceLoadError(f"source file must not be a symlink: {relative_name}")
+    path = candidate.resolve()
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise SourceLoadError(
+            f"source file escapes the input directory: {relative_name}"
+        ) from exc
+    if not path.is_file():
+        raise SourceLoadError(f"source file does not exist: {relative_name}")
+    return path
+
+
+def _load_csv(
+    path: Path,
+    encoding: str,
+    delimiter: str,
+) -> tuple[tuple[str, ...], tuple[SourceRow, ...]]:
+    with path.open("r", encoding=encoding, newline="") as handle:
+        reader = csv.reader(handle, delimiter=delimiter)
+        try:
+            raw_headers = next(reader)
+        except StopIteration as exc:
+            raise SourceLoadError(f"CSV source has no header row: {path.name}") from exc
+        headers = _validate_headers(raw_headers, path.name)
+        rows: list[SourceRow] = []
+        for values in reader:
+            row_number = reader.line_num
+            if not values:
+                continue
+            if len(rows) >= MAX_SOURCE_ROWS:
+                raise SourceLoadError(
+                    f"source exceeds {MAX_SOURCE_ROWS} data rows: {path.name}"
+                )
+            if len(values) > len(headers):
+                raise SourceLoadError(
+                    f"row {row_number} has {len(values)} cells but the header has "
+                    f"{len(headers)}: {path.name}"
+                )
+            padded = [*values, *([None] * (len(headers) - len(values)))]
+            _validate_cell_lengths(padded, path.name, row_number)
+            rows.append(
+                SourceRow(
+                    number=row_number,
+                    values=dict(zip(headers, padded, strict=True)),
+                )
+            )
+    return headers, tuple(rows)
+
+
+def _load_xlsx(
+    path: Path,
+    *,
+    sheet: str,
+    header_row: int,
+) -> tuple[tuple[str, ...], tuple[SourceRow, ...]]:
+    _validate_xlsx_container(path)
+
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.xml import DEFUSEDXML
+    except ImportError as exc:
+        raise SourceLoadError(
+            "XLSX support requires openpyxl and defusedxml"
+        ) from exc
+    if not DEFUSEDXML:
+        raise SourceLoadError("XLSX parsing requires active defusedxml protection")
+
+    try:
+        workbook = load_workbook(
+            filename=path,
+            read_only=True,
+            data_only=False,
+            keep_links=False,
+        )
+    except Exception as exc:
+        raise SourceLoadError(f"cannot parse XLSX source: {path.name}") from exc
+    try:
+        if sheet not in workbook.sheetnames:
+            available = ", ".join(workbook.sheetnames)
+            raise SourceLoadError(
+                f"worksheet {sheet!r} does not exist in {path.name}; "
+                f"available sheets: {available}"
+            )
+        worksheet = workbook[sheet]
+        if worksheet.max_column > MAX_SOURCE_COLUMNS:
+            raise SourceLoadError(
+                f"worksheet {sheet!r} exceeds {MAX_SOURCE_COLUMNS} columns"
+            )
+
+        iterator = worksheet.iter_rows(min_row=header_row)
+        try:
+            header_cells = next(iterator)
+        except StopIteration as exc:
+            raise SourceLoadError(
+                f"worksheet {sheet!r} has no header row {header_row}"
+            ) from exc
+        _reject_unsafe_cells(header_cells, path.name, header_row)
+        headers = _validate_headers(
+            [cell.value for cell in header_cells],
+            f"{path.name}#{sheet}",
+        )
+
+        rows: list[SourceRow] = []
+        for cells in iterator:
+            row_number = cells[0].row if cells else header_row + len(rows) + 1
+            _reject_unsafe_cells(cells, path.name, row_number)
+            values = [cell.value for cell in cells[: len(headers)]]
+            if len(cells) > len(headers) and any(
+                cell.value is not None for cell in cells[len(headers) :]
+            ):
+                raise SourceLoadError(
+                    f"row {row_number} has data beyond the declared headers: "
+                    f"{path.name}#{sheet}"
+                )
+            if not any(value is not None for value in values):
+                continue
+            if len(rows) >= MAX_SOURCE_ROWS:
+                raise SourceLoadError(
+                    f"source exceeds {MAX_SOURCE_ROWS} data rows: "
+                    f"{path.name}#{sheet}"
+                )
+            padded = [*values, *([None] * (len(headers) - len(values)))]
+            _validate_cell_lengths(padded, path.name, row_number)
+            rows.append(
+                SourceRow(
+                    number=row_number,
+                    values=dict(zip(headers, padded, strict=True)),
+                )
+            )
+        return headers, tuple(rows)
+    finally:
+        workbook.close()
+
+
+def _validate_headers(raw_headers: Iterable[Any], label: str) -> tuple[str, ...]:
+    values = list(raw_headers)
+    if not values:
+        raise SourceLoadError(f"source has no columns: {label}")
+    if len(values) > MAX_SOURCE_COLUMNS:
+        raise SourceLoadError(
+            f"source exceeds {MAX_SOURCE_COLUMNS} columns: {label}"
+        )
+
+    headers: list[str] = []
+    for index, value in enumerate(values, start=1):
+        if value is None or str(value).strip() == "":
+            raise SourceLoadError(f"column {index} has an empty header: {label}")
+        header = str(value)
+        if len(header) > MAX_CELL_STRING_LENGTH:
+            raise SourceLoadError(f"column {index} header is too long: {label}")
+        headers.append(header)
+
+    duplicates = sorted({header for header in headers if headers.count(header) > 1})
+    if duplicates:
+        raise SourceLoadError(f"duplicate headers {duplicates!r}: {label}")
+    return tuple(headers)
+
+
+def _validate_cell_lengths(values: Iterable[Any], label: str, row_number: int) -> None:
+    for column_number, value in enumerate(values, start=1):
+        if isinstance(value, str) and len(value) > MAX_CELL_STRING_LENGTH:
+            raise SourceLoadError(
+                f"cell at row {row_number}, column {column_number} exceeds "
+                f"{MAX_CELL_STRING_LENGTH} characters: {label}"
+            )
+
+
+def _reject_unsafe_cells(cells: Iterable[Any], label: str, row_number: int) -> None:
+    for column_number, cell in enumerate(cells, start=1):
+        if cell.data_type == "f":
+            raise SourceLoadError(
+                f"formula cell rejected at row {row_number}, column "
+                f"{column_number}: {label}"
+            )
+        if cell.data_type == "e":
+            raise SourceLoadError(
+                f"Excel error cell rejected at row {row_number}, column "
+                f"{column_number}: {label}"
+            )
+
+
+def _validate_xlsx_container(path: Path) -> None:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            members = archive.infolist()
+            if len(members) > MAX_XLSX_ARCHIVE_ENTRIES:
+                raise SourceLoadError(
+                    f"XLSX archive exceeds {MAX_XLSX_ARCHIVE_ENTRIES} entries: "
+                    f"{path.name}"
+                )
+            names = {member.filename for member in members}
+            required = {"[Content_Types].xml", "xl/workbook.xml"}
+            if not required.issubset(names):
+                raise SourceLoadError(f"file is not a valid XLSX container: {path.name}")
+
+            expanded_bytes = 0
+            for member in members:
+                member_path = PurePosixPath(member.filename)
+                if member_path.is_absolute() or ".." in member_path.parts:
+                    raise SourceLoadError(
+                        f"unsafe XLSX archive member {member.filename!r}: {path.name}"
+                    )
+                if member.flag_bits & 0x1:
+                    raise SourceLoadError(
+                        f"encrypted XLSX archive member rejected: {path.name}"
+                    )
+                if stat.S_ISLNK(member.external_attr >> 16):
+                    raise SourceLoadError(
+                        f"symlink XLSX archive member rejected: {path.name}"
+                    )
+                expanded_bytes += member.file_size
+                if expanded_bytes > MAX_XLSX_EXPANDED_BYTES:
+                    raise SourceLoadError(
+                        f"XLSX expands beyond {MAX_XLSX_EXPANDED_BYTES} bytes: "
+                        f"{path.name}"
+                    )
+                if (
+                    member.file_size > 0
+                    and (
+                        member.compress_size == 0
+                        or member.file_size / member.compress_size
+                        > MAX_XLSX_MEMBER_COMPRESSION_RATIO
+                    )
+                ):
+                    raise SourceLoadError(
+                        f"suspicious XLSX compression ratio in "
+                        f"{member.filename!r}: {path.name}"
+                    )
+
+            content_types = archive.read("[Content_Types].xml")
+            if b"macroEnabled" in content_types or b"vbaProject" in content_types:
+                raise SourceLoadError(
+                    f"macro-enabled XLSX content rejected: {path.name}"
+                )
+
+            prohibited_prefixes = (
+                "xl/externalLinks/",
+                "xl/embeddings/",
+            )
+            prohibited_names = {
+                "xl/vbaProject.bin",
+                "xl/connections.xml",
+            }
+            unsafe = sorted(
+                name
+                for name in names
+                if name in prohibited_names
+                or any(name.startswith(prefix) for prefix in prohibited_prefixes)
+            )
+            if unsafe:
+                raise SourceLoadError(
+                    f"XLSX contains prohibited active or external content "
+                    f"{unsafe!r}: {path.name}"
+                )
+    except zipfile.BadZipFile as exc:
+        raise SourceLoadError(
+            f"file is not a readable, unencrypted XLSX container: {path.name}"
+        ) from exc
 
 
 def prepare_sources(
@@ -95,8 +402,10 @@ def prepare_sources(
                     dataset=dataset.name,
                 )
             )
-        for row_index, row in enumerate(table.rows, start=2):
-            records.append(_prepare_row(dataset, row, row_index, missing_headers))
+        for row in table.rows:
+            records.append(
+                _prepare_row(dataset, row.values, row.number, missing_headers)
+            )
 
     records = _mark_duplicate_source_identities(records)
     issues.extend(
@@ -110,7 +419,7 @@ def prepare_sources(
         records=tuple(records),
         issues=tuple(issues),
         source_hashes={
-            str(table.path.name): table.content_hash
+            str(table.path.relative_to(Path(input_directory).resolve())): table.content_hash
             for table in sorted(tables, key=lambda item: item.dataset)
         },
     )
@@ -131,7 +440,7 @@ def _required_headers(dataset: DatasetSpec) -> set[str]:
 
 def _prepare_row(
     dataset: DatasetSpec,
-    row: dict[str, str | None],
+    row: dict[str, Any],
     row_index: int,
     missing_headers: Iterable[str],
 ) -> PreparedRecord:
@@ -226,7 +535,7 @@ def _prepare_row(
 
 def _prepare_identity_component(
     component: IdentityComponent,
-    row: dict[str, str | None],
+    row: dict[str, Any],
     dataset_name: str,
     row_index: int,
     issues: list[Issue],
@@ -277,7 +586,7 @@ def _prepare_identity_component(
 
 def _prepare_relation(
     relation: RelationSpec,
-    row: dict[str, str | None],
+    row: dict[str, Any],
     dataset_name: str,
     row_index: int,
     target_field: str,
@@ -304,7 +613,7 @@ def _prepare_relation(
         )
 
     raw = row.get(relation.source_fields[0])
-    if raw is None or raw.strip() == "":
+    if raw is None or str(raw).strip() == "":
         if relation.required:
             issues.append(
                 Issue(
@@ -316,7 +625,7 @@ def _prepare_relation(
                 )
             )
         return ()
-    keys = [item.strip() for item in raw.split(relation.separator)]
+    keys = [item.strip() for item in str(raw).split(relation.separator)]
     if any(item == "" for item in keys):
         issues.append(
             Issue(
@@ -352,7 +661,7 @@ def _prepare_relation(
 
 def _parse_reference_key(
     source_fields: Iterable[str],
-    row: dict[str, str | None],
+    row: dict[str, Any],
     dataset_name: str,
     row_index: int,
     target_field: str,
@@ -407,4 +716,3 @@ def _mark_duplicate_source_identities(
             )
             result[index] = replace(record, issues=(*record.issues, issue))
     return result
-

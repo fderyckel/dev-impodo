@@ -1,7 +1,12 @@
 # Prepared record contract
 
 A prepared record is the explicit environment-independent boundary after
-source parsing. Every CSV row produces one record, including invalid rows.
+source parsing. Every nonblank CSV record or XLSX data row produces one
+record, including rows with field-level validation errors.
+
+`source_row` starts at `2` for a normal CSV header. For XLSX it is the actual
+worksheet row, including any title rows before the configured `header_row`.
+Blank XLSX rows are skipped without renumbering later rows.
 
 ## Domain shape
 

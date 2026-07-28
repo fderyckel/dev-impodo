@@ -4,8 +4,18 @@ This documentation is the design authority for the read-only Odoo preflight
 milestone. Where an example and a normative rule disagree, text marked
 **MUST**, **MUST NOT**, **SHOULD**, or **MAY** is authoritative.
 
+The read-only milestone is one part of the larger Impodo migration product.
+See [End-to-end migration product vision](product-vision.md) for source
+inspection, mapping, staging, approval, loading, and reconciliation.
+
 ## Architecture
 
+- [End-to-end migration product vision](product-vision.md) — complete product
+  workflow, mapping architecture, staging, relation handling, executor
+  boundary, edge cases, and roadmap.
+- [Local application and security architecture](local-application-security.md)
+  — recommended local browser stack, file/staging hardening, local Odoo
+  laboratory, secrets, and eventual on-premise access.
 - [Architecture review](architecture-review.md) — current-state evidence,
   fitness assessment, risks, and readiness gates.
 - [Read-only preflight architecture](architecture/read-only-preflight.md) —

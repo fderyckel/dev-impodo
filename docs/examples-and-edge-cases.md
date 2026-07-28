@@ -103,7 +103,78 @@ A BOM line retains typed values and symbolic references:
 
 No numeric Odoo ID is needed to prepare or inspect this record.
 
-## 3. Profile examples
+## 3. CSV and XLSX source examples
+
+### CSV source
+
+```yaml
+source:
+  file: products.csv
+  encoding: utf-8-sig
+  delimiter: ","
+```
+
+The path is relative to `--input`. The first record is the header. Physical
+blank lines are skipped; a row containing delimiters and empty fields remains
+a data row and will normally fail its required identity checks.
+
+### XLSX source
+
+```yaml
+source:
+  file: D365 Products.xlsx
+  sheet: Released products
+  header_row: 3
+```
+
+The worksheet is always explicit, even when the workbook has only one sheet.
+Rows 1 and 2 may contain export titles; row 3 supplies headers and the first
+data row retains worksheet row number 4. Empty worksheet rows are skipped
+without changing later source row numbers.
+
+XLSX native booleans, numbers, dates, and datetimes enter the same canonical
+value parser used for CSV strings. A workbook date cell may therefore map to a
+`date` or `datetime`, while a business code displayed with leading zeroes must
+be stored as text or mapped under an explicit conversion rule.
+
+One workbook may supply several datasets by declaring the same file with
+different sheet names. Its byte hash is recorded once; the profile binds each
+dataset to its worksheet.
+
+### Structural and security edge cases
+
+These fail the command with exit code `3` before Odoo is contacted:
+
+| Input | Current behavior |
+| --- | --- |
+| `.xls`, `.xlsm`, `.xlsb`, or another extension | Rejected by the strict profile |
+| Absolute source path or `../` traversal | Rejected by the strict profile |
+| Source file is a symlink | Rejected by the loader |
+| XLSX omits `sheet` | Rejected by the strict profile |
+| Named worksheet does not exist | Rejected with the available sheet names |
+| Blank or duplicate header | Rejected; columns are never silently renamed |
+| CSV row has more cells than headers | Rejected with its row number |
+| XLSX formula or Excel error cell | Entire source is rejected; no cached result is trusted |
+| Encrypted/password-protected workbook | Rejected as an unreadable/encrypted container |
+| Macro, external link/connection, or embedded object | Rejected |
+| Renamed arbitrary ZIP | Rejected because required XLSX members are absent |
+| Unsafe ZIP member or symlink | Rejected |
+| File larger than 50 MiB | Rejected |
+| XLSX expands beyond 512 MiB or has a suspicious ratio | Rejected |
+| More than 10,000 XLSX members | Rejected |
+| More than 500,000 data rows or 2,048 columns | Rejected |
+| Cell string exceeds 1,000,000 characters | Rejected |
+
+CSV cells beginning with formula markers remain inert source strings. If they
+later appear in the generated review workbook, the workbook writer forces
+them to text. XLSX formula cells are stricter: they are rejected at ingestion.
+
+Legacy `.xls` conversion is intentionally not performed by Impodo. Convert it
+to `.xlsx` with an approved desktop tool, preserve the original as governed
+evidence, and review any formulas or type changes before using the converted
+file.
+
+## 4. Profile examples
 
 ### Composite identity
 
@@ -287,7 +358,7 @@ does not implement a full Odoo-domain grammar; Odoo remains the authority on
 domain semantics. A domain that excludes a legitimate match can incorrectly
 turn that record into `CREATE`, so domains require business review.
 
-## 4. Canonical-value edge cases
+## 5. Canonical-value edge cases
 
 | Input or condition | Implemented behavior |
 | --- | --- |
@@ -323,7 +394,7 @@ For many2one, `ignore_source_null` preserves the existing reference. For
 many2many, an empty CSV cell is represented as an empty set; list operations
 therefore follow the operation table above rather than scalar null behavior.
 
-## 5. Classification edge cases
+## 6. Classification edge cases
 
 Classification is evaluated in this order:
 
@@ -366,12 +437,12 @@ to an integer target identity. Profiles should choose a source identity that
 also prevents this semantic duplicate. The proof of concept does not add a second
 duplicate check over canonical target identities.
 
-## 6. Snapshot and connector edge cases
+## 7. Snapshot and connector edge cases
 
 | Condition | Current behavior |
 | --- | --- |
 | Metadata and record fingerprints differ | Preflight rejects the run |
-| Saved record source hashes differ from current CSV bytes | Snapshot loading rejects the run when the binding is present |
+| Saved record source hashes differ from current CSV/XLSX bytes | Snapshot loading rejects the run when the binding is present |
 | Saved profile ID differs | Snapshot loading rejects the run when the binding is present |
 | Record snapshot has `complete: false` | Snapshot loading stops; no decisions are produced |
 | Metadata snapshot has `complete: false` | A global blocking issue is applied to import candidates |
@@ -426,7 +497,7 @@ the same canonical text representation. Although `target_scope_fields` are
 requested, metadata coverage currently validates only
 `target_fields`.
 
-## 7. Metadata edge cases
+## 8. Metadata edge cases
 
 | Metadata condition | Issue |
 | --- | --- |
@@ -443,7 +514,7 @@ Selection metadata is captured when Odoo returns it. Decimal comparison
 precision is governed by the profile's `decimal_places`; the proof of concept does
 not infer digits or rounding from Odoo field metadata.
 
-## 8. Output safety edge cases
+## 9. Output safety edge cases
 
 - Portable serialization rejects keys named `odoo_id`, `odoo_ids`,
   `record_id`, or `record_ids` anywhere in the manifest.
@@ -462,11 +533,15 @@ not infer digits or rounding from Odoo field metadata.
 The JSON manifest is the decision source. The workbook is a review projection
 and must never be used as an independent classifier.
 
-## 9. Issue-code reference
+## 10. Issue-code reference
+
+File/container failures are structural `SourceLoadError` failures and exit
+with code `3`; they do not become row-level issue codes. Row-level problems
+that survive structural loading use the codes below.
 
 | Code | Meaning |
 | --- | --- |
-| `SOURCE_FIELD_MISSING` | A mapped CSV header is absent |
+| `SOURCE_FIELD_MISSING` | A mapped CSV/XLSX header is absent |
 | `SOURCE_TYPE_INVALID` | A source value or many2many list shape cannot be parsed |
 | `SOURCE_REQUIRED_VALUE_MISSING` | A required scalar or relation key is empty |
 | `SOURCE_IDENTITY_INVALID` | A source/target identity component is empty or invalid |
@@ -495,18 +570,18 @@ classification and therefore may appear as a process error rather than a
 manifest issue. `TARGET_SNAPSHOT_INCOMPLETE` is used for incomplete metadata
 evidence.
 
-## 10. Test pointers
+## 11. Test pointers
 
 | Behavior | Automated evidence |
 | --- | --- |
 | Types, booleans, null policies, strict profiles | `tests/test_profile_and_values.py` |
-| Prepared records, duplicate source identities, batching, domains | `tests/test_source_and_planner.py` |
+| CSV/XLSX safety, prepared records, duplicate source identities, batching, domains | `tests/test_source_and_planner.py` |
 | Catalog duplicates, business references, metadata mismatch | `tests/test_catalog_metadata.py` |
 | Five classifications, scopes, composite identity, relations, determinism | `tests/test_engine.py` |
 | JSON-2 headers, pagination, timeout redaction, closed public surface | `tests/test_connectors.py` |
 | CLI and real workbook generation | `tests/test_reporting_cli.py` |
 
-Run all 41 tests, including the workbook integration:
+Run all 46 tests, including the workbook integration:
 
 ```bash
 UC_RUN_WORKBOOK_TESTS=1 \

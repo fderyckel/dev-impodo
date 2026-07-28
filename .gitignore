@@ -23,6 +23,9 @@ dist/
 # Generated review packages
 outputs/
 
+# Local migration projects and customer data
+var/
+
 # OS and editor files
 .DS_Store
 .idea/

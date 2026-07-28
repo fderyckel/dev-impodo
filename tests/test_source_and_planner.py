@@ -5,14 +5,18 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+import zipfile
+
+from openpyxl import Workbook
+from pydantic import ValidationError
 
 from uc_migration_profiler.models import LogicalReference
 from uc_migration_profiler.planner import (
     plan_metadata_requests,
     plan_record_requests,
 )
-from uc_migration_profiler.profile import load_profile
-from uc_migration_profiler.source import prepare_sources
+from uc_migration_profiler.profile import SourceSpec, load_profile
+from uc_migration_profiler.source import SourceLoadError, prepare_sources
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,6 +59,132 @@ class PreparedRecordTests(unittest.TestCase):
                     for record in duplicates
                 )
             )
+
+    def test_xlsx_sheet_is_prepared_with_native_cell_types(self) -> None:
+        profile = load_profile(ROOT / "profiles/examples/products.yaml")
+        products = profile.dataset("products")
+        source = products.source.model_copy(
+            update={
+                "file": "products.xlsx",
+                "sheet": "Products",
+                "header_row": 3,
+            }
+        )
+        xlsx_profile = profile.model_copy(
+            update={
+                "datasets": (
+                    products.model_copy(update={"source": source}),
+                )
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            workbook = Workbook()
+            worksheet = workbook.active
+            worksheet.title = "Products"
+            worksheet.append(["Export generated for a governed test"])
+            worksheet.append([])
+            worksheet.append(
+                [
+                    "article_code",
+                    "company_code",
+                    "description",
+                    "active",
+                    "uom_code",
+                ]
+            )
+            worksheet.append(["P-001", "BE", "Product one", True, "UNIT"])
+            workbook.save(target / "products.xlsx")
+
+            bundle = prepare_sources(xlsx_profile, target)
+
+        self.assertEqual(len(bundle.records), 1)
+        self.assertEqual(bundle.records[0].source_row, 4)
+        self.assertEqual(bundle.records[0].source_identity, ("P-001", "BE"))
+        self.assertIs(bundle.records[0].scalar_values["active"], True)
+        self.assertEqual(set(bundle.source_hashes), {"products.xlsx"})
+
+    def test_xlsx_formula_cells_are_rejected(self) -> None:
+        profile = load_profile(ROOT / "profiles/examples/products.yaml")
+        products = profile.dataset("products")
+        source = products.source.model_copy(
+            update={"file": "products.xlsx", "sheet": "Products"}
+        )
+        xlsx_profile = profile.model_copy(
+            update={
+                "datasets": (
+                    products.model_copy(update={"source": source}),
+                )
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            workbook = Workbook()
+            worksheet = workbook.active
+            worksheet.title = "Products"
+            worksheet.append(
+                [
+                    "article_code",
+                    "company_code",
+                    "description",
+                    "active",
+                    "uom_code",
+                ]
+            )
+            worksheet.append(["P-001", "BE", "=1+1", True, "UNIT"])
+            workbook.save(target / "products.xlsx")
+
+            with self.assertRaisesRegex(SourceLoadError, "formula cell rejected"):
+                prepare_sources(xlsx_profile, target)
+
+    def test_xlsx_missing_sheet_and_arbitrary_zip_are_rejected(self) -> None:
+        profile = load_profile(ROOT / "profiles/examples/products.yaml")
+        products = profile.dataset("products")
+        source = products.source.model_copy(
+            update={"file": "products.xlsx", "sheet": "Products"}
+        )
+        xlsx_profile = profile.model_copy(
+            update={
+                "datasets": (
+                    products.model_copy(update={"source": source}),
+                )
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            workbook = Workbook()
+            workbook.active.title = "Other sheet"
+            workbook.save(target / "products.xlsx")
+            with self.assertRaisesRegex(SourceLoadError, "does not exist"):
+                prepare_sources(xlsx_profile, target)
+
+            with zipfile.ZipFile(target / "products.xlsx", "w") as archive:
+                archive.writestr("not-an-office-file.txt", "data")
+            with self.assertRaisesRegex(SourceLoadError, "valid XLSX container"):
+                prepare_sources(xlsx_profile, target)
+
+    def test_duplicate_csv_headers_are_rejected(self) -> None:
+        profile = load_profile(ROOT / "profiles/examples/products.yaml")
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            (target / "products.csv").write_text(
+                "article_code,company_code,description,active,uom_code,uom_code\n"
+                "P-001,BE,Product one,true,UNIT,UNIT\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(SourceLoadError, "duplicate headers"):
+                prepare_sources(profile, target)
+
+    def test_source_profile_rejects_legacy_and_escaping_paths(self) -> None:
+        with self.assertRaisesRegex(ValidationError, ".csv or .xlsx"):
+            SourceSpec(file="legacy.xls")
+        with self.assertRaisesRegex(ValidationError, "contained relative path"):
+            SourceSpec(file="../outside.csv")
+        with self.assertRaisesRegex(ValidationError, "source.sheet is required"):
+            SourceSpec(file="products.xlsx")
 
 
 class PlannerTests(unittest.TestCase):

@@ -6,6 +6,12 @@
 acceptance remains pending on the larger sanitized slice, live DEV/TEST
 evidence, and Odoo-side access controls
 
+This verdict applies only to the read-only preflight component. It is not a
+verdict that the end-to-end migration product is complete. Excel discovery,
+interactive source-to-Odoo mapping, durable staging, approval, controlled
+execution, and reconciliation remain roadmap capabilities documented in
+[End-to-end migration product vision](product-vision.md).
+
 ## Review scope
 
 The review traced:
@@ -123,7 +129,7 @@ end-to-end source/snapshot/workbook benchmark.
 
 ## Local verification status
 
-- 41 automated tests pass when the real workbook integration flag is enabled.
+- 46 automated tests pass when the real workbook integration flag is enabled.
 - The committed fixture contains 12 import candidates and all five
   classifications.
 - The manifest is byte-deterministic for unchanged saved inputs.
@@ -143,8 +149,8 @@ end-to-end source/snapshot/workbook benchmark.
 4. Confirm governed business-key fields and uniqueness scopes for each real
    model.
 5. Confirm decimal precision and timezone rules.
-6. Confirm whether CSV is sufficient for the first source packages or an XLSX
-   source adapter is required.
+6. CSV and XLSX are confirmed for the first source packages and both strict
+   adapters are implemented. Legacy XLS and direct connections are deferred.
 7. Confirm required Odoo company/context values; the CLI currently supplies an
    empty context.
 8. Build and review the planned 100–300-record sanitized UC slice; the current

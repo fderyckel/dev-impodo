@@ -2,9 +2,14 @@
 
 ## 1. Purpose and status
 
+This document covers the current read-only proof of concept. It is one
+component of the [end-to-end migration product](../product-vision.md), which
+also includes Excel/CSV discovery, interactive mapping, durable staging,
+approval, controlled loading, and reconciliation.
+
 This proof of concept answers one question without changing Odoo:
 
-> Given a CSV source package, mapping profile, and specific target
+> Given a CSV/XLSX source package, mapping profile, and specific target
 > snapshots, what would be created or changed, what is already equal, and what
 > cannot be decided safely?
 
@@ -18,7 +23,7 @@ remain external acceptance gates.
 Implemented:
 
 - strict YAML profile loading;
-- CSV source ingestion;
+- strict CSV and profile-declared XLSX worksheet ingestion;
 - typed source preparation;
 - environment-independent prepared records;
 - composite and relational target identities;
@@ -35,7 +40,7 @@ Implemented:
 
 Not implemented:
 
-- XLSX source ingestion;
+- workbook discovery and visual preview before a profile exists;
 - Odoo versions before 19;
 - production access;
 - create, write, unlink, import, generic RPC, or SQL;
@@ -86,7 +91,7 @@ Every arrow is a separate architecture and security review gate.
 ```mermaid
 flowchart LR
     Profile["Strict YAML profile"]
-    CSV["Profile-declared CSV files"]
+    Source["Profile-declared CSV files<br/>or XLSX worksheets"]
     Prepare["Typed source preparation"]
     MetaPlan["Metadata request planner"]
     RecordPlan["Record request planner"]
@@ -101,7 +106,7 @@ flowchart LR
     Workbook["Excel review projection"]
 
     Profile --> Prepare
-    CSV --> Prepare
+    Source --> Prepare
     Profile --> MetaPlan
     Profile --> RecordPlan
     Prepare --> RecordPlan
@@ -129,7 +134,7 @@ Odoo is an input to this milestone, never an output.
 | --- | --- |
 | `profile.py` | strict Pydantic profile objects and dependency-cycle validation |
 | `canonical.py` | scalar parsing, normalization, decimal quantization, null equality |
-| `source.py` | CSV reading, byte hashes, prepared records, source duplicate detection |
+| `source.py` | strict CSV/XLSX reading, byte hashes, prepared records, source duplicate detection |
 | `planner.py` | deterministic metadata and record request functions |
 | `connectors.py` | connector protocol, fixture/saved snapshots, live JSON-2 reads |
 | `metadata.py` | profile-to-Odoo model/field/type/relation validation |
@@ -144,7 +149,7 @@ Workbook construction consumes the completed manifest and contains no matching
 logic.
 
 The Python package does not define abstract source-reader, clock, or artifact
-store ports. The current replacement boundaries are the CSV
+store ports. The current replacement boundaries are the tabular source
 preparation functions, connector protocol, and reporting functions.
 
 ## 6. Profile and source preparation
@@ -161,8 +166,18 @@ fields. The loader also rejects:
 - contradictory validate-only/comparison settings.
 
 Each declared CSV file is read with its configured encoding and one-character
-delimiter. Its exact bytes are SHA-256 hashed. CSV row numbers start at 2
-because row 1 is the header.
+delimiter. Each XLSX dataset declares a worksheet and optional header row and
+is opened read-only with XML protections. Exact source bytes are SHA-256
+hashed. CSV row numbers start at 2 because row 1 is the header; XLSX records
+retain their actual worksheet row number.
+
+The loader rejects source-path escape, symlinks, files over 50 MiB, more than
+500,000 data rows, more than 2,048 columns, duplicate or blank headers, and
+oversized cell strings. XLSX adds archive-entry, expanded-size,
+compression-ratio, encrypted-member, unsafe-path, macro, external
+link/connection, embedded-object, formula-cell, and error-cell checks.
+Workbook discovery and formula cached-value policies remain future UI work;
+the current profile adapter fails closed.
 
 Every read row becomes a frozen `PreparedRecord` containing:
 
@@ -402,7 +417,8 @@ Precedence is fixed:
 dataset uses its explicit `on_existing` policy. A reference dataset produces
 resolution evidence and issues but no decision.
 
-Every CSV row in an import-candidate dataset receives exactly one decision.
+Every prepared CSV/XLSX row in an import-candidate dataset receives exactly
+one decision.
 An incomplete record snapshot stops the run before any decisions.
 
 ## 14. Portable result and workbook
@@ -489,8 +505,8 @@ Implemented controls:
 
 Not yet implemented or measured:
 
-- maximum source/snapshot row limits;
-- streaming CSV preparation;
+- maximum target-snapshot row limits;
+- streaming CSV preparation and durable XLSX staging;
 - composite-domain batching;
 - transport-sized splitting of large `in` domains;
 - live call/page/timing metrics in artifacts;

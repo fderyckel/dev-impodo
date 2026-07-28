@@ -7,6 +7,11 @@ preflight engine. The objective is not merely to reformat cells. It is to
 ensure that every proposed import value satisfies an approved, auditable
 data-quality policy before it can be considered releasable.
 
+This is the normalization and validation portion of the
+[end-to-end migration product](product-vision.md). Source/workbook discovery,
+interactive mapping, durable staging, approval, execution, and reconciliation
+are defined there and are not silently included in this rules slice.
+
 **Status:** Proposed for implementation and architecture approval.
 
 The feature remains inside the current safety boundary:

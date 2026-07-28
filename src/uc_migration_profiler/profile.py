@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 
 import yaml
@@ -31,7 +31,38 @@ class ProfileIdentity(StrictModel):
 class SourceSpec(StrictModel):
     file: str = Field(min_length=1)
     encoding: str = "utf-8-sig"
-    delimiter: str = ","
+    delimiter: str = Field(default=",", min_length=1, max_length=1)
+    sheet: str | None = None
+    header_row: int = Field(default=1, ge=1, le=1_048_576)
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "SourceSpec":
+        posix_path = PurePosixPath(self.file)
+        windows_path = PureWindowsPath(self.file)
+        if (
+            posix_path.is_absolute()
+            or windows_path.is_absolute()
+            or ".." in posix_path.parts
+            or ".." in windows_path.parts
+        ):
+            raise ValueError("source.file must be a contained relative path")
+
+        suffix = Path(self.file).suffix.casefold()
+        if suffix not in {".csv", ".xlsx"}:
+            raise ValueError("source.file must use the .csv or .xlsx extension")
+        if suffix == ".xlsx":
+            if self.sheet is None or not self.sheet.strip():
+                raise ValueError("source.sheet is required for .xlsx files")
+            if "encoding" in self.model_fields_set or "delimiter" in self.model_fields_set:
+                raise ValueError(
+                    "source.encoding and source.delimiter are only valid for CSV"
+                )
+        else:
+            if self.sheet is not None:
+                raise ValueError("source.sheet is only valid for .xlsx files")
+            if self.header_row != 1:
+                raise ValueError("source.header_row can differ from 1 only for .xlsx")
+        return self
 
 
 class TargetSpec(StrictModel):

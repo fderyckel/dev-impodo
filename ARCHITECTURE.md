@@ -2,6 +2,11 @@
 
 ## Objective
 
+This document describes the implemented read-only proof-of-concept component.
+The complete product architecture—including Excel discovery, interactive
+mapping, durable staging, approval, controlled loading, and reconciliation—is
+defined in [docs/product-vision.md](docs/product-vision.md).
+
 The engine answers:
 
 > For this source package, profile, and target snapshot, which
@@ -15,7 +20,7 @@ Odoo is an input. The only outputs are evidence files.
 ```mermaid
 flowchart LR
     Profile["Strict YAML profile"]
-    Source["CSV source package"]
+    Source["CSV or XLSX source package"]
     Prepare["Typed preparation"]
     Plan["Minimal target request planner"]
     Connector["Snapshot or JSON-2 read connector"]
@@ -45,7 +50,7 @@ flowchart LR
 | --- | --- |
 | `profile.py` | Strict Pydantic profile models and dependency-cycle checks |
 | `canonical.py` | Lossless parsing, normalization, null policy, decimal safety |
-| `source.py` | CSV inventory, source hashing, prepared records, duplicate detection |
+| `source.py` | Strict CSV/XLSX loading, source hashing, prepared records, duplicate detection |
 | `planner.py` | Batched minimum metadata/record requirements |
 | `connectors.py` | Read port, deterministic snapshot adapter, Odoo 19 JSON-2 adapter |
 | `metadata.py` | Model, field, type, relation, related-model, inverse, and readonly checks |

@@ -91,7 +91,7 @@ def _add_profile_input(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--input",
         required=True,
-        help="directory containing profile-declared CSV source files",
+        help="directory containing profile-declared CSV/XLSX source files",
     )
 
 

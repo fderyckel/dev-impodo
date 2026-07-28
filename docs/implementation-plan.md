@@ -1,11 +1,16 @@
 # Implementation plan and status
 
+This plan records the read-only proof-of-concept implementation. The roadmap
+from source-file discovery through mapping, staging, approval, Odoo execution,
+and reconciliation is maintained in
+[End-to-end migration product vision](product-vision.md).
+
 ## Current status
 
 The proof of concept is implemented in `/Users/francois/dev-impodo`. The
 referenced scratch-workspace baseline was unavailable in this workspace, so
 the engine was implemented from the supplied milestone brief and contracts.
-The current suite has 41 tests when the real-workbook integration is enabled.
+The current suite has 46 tests when the real-workbook integration is enabled.
 The original BOM preparation command remains a regression check.
 
 This document separates completed local engineering from the evidence still
@@ -72,6 +77,7 @@ Completed:
 - exact setup and test commands;
 - original `profile` command preserved;
 - BOM example prepares three typed records;
+- strict CSV and XLSX source preparation;
 - all repository files remain under `/Users/francois/dev-impodo`.
 
 External note: the original five-test scratch baseline was not available for a
@@ -242,7 +248,7 @@ separate:
 1. strict snapshot envelope/request binding;
 2. large-domain batching and scale controls;
 3. CLI context/module configuration;
-4. optional XLSX source adapter;
+4. workbook discovery and preview UI above the implemented XLSX adapter;
 5. live DEV/TEST evidence and acceptance fixtures.
 
 Do not combine any of those with a future write executor.
@@ -252,7 +258,7 @@ Do not combine any of those with a future write executor.
 The local proof of concept is complete when:
 
 - contracts describe actual behavior;
-- all 41 tests, including the workbook integration, pass;
+- all 46 tests, including the workbook integration, pass;
 - BOM preparation succeeds;
 - offline golden preflight produces all five classifications;
 - every update has exact business-key differences;

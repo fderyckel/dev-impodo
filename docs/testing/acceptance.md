@@ -4,7 +4,7 @@
 
 The local proof of concept is green:
 
-- 41 tests pass with the real workbook integration enabled;
+- 46 tests pass with the real workbook integration enabled;
 - the BOM preparation example succeeds;
 - the committed 12-candidate golden fixture produces all five outcomes;
 - the manifest is deterministic for unchanged saved inputs;
@@ -31,7 +31,7 @@ Without `UC_RUN_WORKBOOK_TESTS=1`, the workbook integration test is skipped.
 | File | Current coverage |
 | --- | --- |
 | `tests/test_profile_and_values.py` | all scalar types, decimal quantization, explicit booleans, null policies, example profiles, unknown keys, validate-only contradiction, and cycles |
-| `tests/test_source_and_planner.py` | typed BOM preparation, symbolic references, duplicate source identity, minimal metadata fields, one request per model, target-domain preservation |
+| `tests/test_source_and_planner.py` | typed BOM preparation, strict CSV/XLSX loading, native XLSX values, actual worksheet rows, formula rejection, duplicate headers, safe paths/formats, symbolic references, duplicate source identity, minimal metadata fields, one request per model, target-domain preservation |
 | `tests/test_catalog_metadata.py` | target duplicate preservation, ID-to-business-reference conversion, complete golden metadata, readonly fields, relation mismatch, missing reference model |
 | `tests/test_engine.py` | all five outcomes, exact scalar/many2many differences, target-only resolution, composite relational identity, decimal comparison, scoped matching, missing parent, target ambiguity, grouped evidence, ID leakage, byte determinism, create-only policy, many2many operations |
 | `tests/test_connectors.py` | official JSON-2 endpoint shape, bearer/database headers, named `fields_get`, pagination, timeout redaction, closed public surface, API-key redaction |
@@ -269,8 +269,8 @@ PYTHONPATH=src .venv/bin/python -m uc_migration_profiler benchmark \
   --rows 360000
 ```
 
-It is non-gating and does not read CSV, call the connector, build catalogs, run
-comparisons, measure memory, or generate a workbook.
+It is non-gating and does not read source files, call the connector, build
+catalogs, run comparisons, measure memory, or generate a workbook.
 
 Before production sizing, record for the 100–300-row slice and historical-scale
 synthetic data:
@@ -309,7 +309,7 @@ Structural requirements already apply:
 
 ## Acceptance gate
 
-Local proof-of-concept validation is complete when all 41 tests pass and the
+Local proof-of-concept validation is complete when all 46 tests pass and the
 offline commands reproduce the documented result.
 
 UC milestone acceptance additionally requires:

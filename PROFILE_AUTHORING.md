@@ -58,7 +58,29 @@ Modes:
 - `reference`: available to other datasets but not an import candidate.
 
 `source.encoding` defaults to `utf-8-sig` and `source.delimiter` defaults to
-`,` when omitted. The current adapter reads CSV only.
+`,` when omitted.
+
+For XLSX, name the worksheet explicitly:
+
+```yaml
+- name: products
+  source:
+    file: D365 Products.xlsx
+    sheet: Released products
+    header_row: 3
+```
+
+`sheet` is required for `.xlsx` and forbidden for `.csv`. `header_row`
+defaults to `1`; a different value is allowed only for `.xlsx`. CSV-only
+`encoding` and `delimiter` settings are rejected when explicitly supplied for
+an XLSX source.
+
+Only contained relative `.csv` and `.xlsx` paths are valid. Absolute paths,
+parent traversal, legacy `.xls`, macro-enabled workbooks, encrypted files,
+formulas, Excel error cells, external links/connections, embedded objects,
+duplicate or blank headers, and unsafe Office containers are rejected before
+record preparation. XLSX blank rows are skipped while `source_row` retains the
+actual worksheet row number.
 
 ## Target identity and scope
 
