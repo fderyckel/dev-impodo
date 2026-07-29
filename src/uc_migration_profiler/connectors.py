@@ -25,7 +25,7 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .models import (
     EnvironmentFingerprint,
@@ -268,6 +268,7 @@ class Json2Config:
     database: str
     api_key: str = field(repr=False)
     environment: str
+    allow_insecure_loopback: bool = False
     timeout_seconds: float = 30.0
     page_size: int = 500
     retries: int = 2
@@ -275,11 +276,41 @@ class Json2Config:
     relevant_modules: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        """Enforce HTTPS, a non-production environment, and valid pagination."""
+        """Enforce a safe target URL, non-production use, and valid pagination."""
 
-        if not self.base_url.startswith("https://"):
+        try:
+            parsed_url = urlparse(self.base_url)
+            parsed_url.port
+        except ValueError as error:
             raise ConnectorConfigurationError(
-                "UC_ODOO_BASE_URL must use HTTPS"
+                "Odoo base URL contains an invalid port"
+            ) from error
+        if (
+            not parsed_url.hostname
+            or parsed_url.username
+            or parsed_url.password
+            or parsed_url.query
+            or parsed_url.fragment
+        ):
+            raise ConnectorConfigurationError(
+                "Odoo base URL cannot contain credentials, query parameters, "
+                "or fragments"
+            )
+        hostname = parsed_url.hostname.casefold()
+        is_literal_loopback = hostname in {"127.0.0.1", "::1"}
+        if self.allow_insecure_loopback:
+            if (
+                parsed_url.scheme not in {"http", "https"}
+                or not is_literal_loopback
+                or parsed_url.path not in {"", "/"}
+            ):
+                raise ConnectorConfigurationError(
+                    "insecure local mode permits only a literal loopback "
+                    "Odoo URL"
+                )
+        elif parsed_url.scheme != "https":
+            raise ConnectorConfigurationError(
+                "Odoo base URL must use HTTPS"
             )
         if self.environment.upper() not in {"DEV", "TEST"}:
             raise ConnectorConfigurationError(
@@ -776,7 +807,7 @@ def _urllib_transport(
     timeout: float,
     method: str,
 ) -> tuple[int, Any]:
-    """Execute one JSON request while blocking redirects to another host.
+    """Execute one JSON request without forwarding credentials on redirects.
 
     HTTP error bodies are intentionally discarded.  Other network exceptions
     propagate to :meth:`Json2ReadConnector._request_url`, which owns retry and
@@ -790,11 +821,25 @@ def _urllib_transport(
         method=method,
     )
     try:
-        with urlopen(request, timeout=timeout) as response:
-            if urlparse(response.geturl()).hostname != urlparse(url).hostname:
-                raise URLError("redirected to an unexpected host")
+        opener = build_opener(_NoRedirectHandler())
+        with opener.open(request, timeout=timeout) as response:
             raw = response.read()
             return response.status, json.loads(raw or b"null")
     except HTTPError as exc:
         # Do not expose response bodies; they can contain data or internals.
         return exc.code, None
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    """Prevent bearer credentials from being forwarded to any redirect."""
+
+    def redirect_request(
+        self,
+        req,
+        fp,
+        code,
+        msg,
+        headers,
+        newurl,
+    ):
+        return None

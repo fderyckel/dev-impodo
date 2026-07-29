@@ -16,11 +16,11 @@ class SecretStoreError(RuntimeError):
 
 
 class SecretStore(Protocol):
-    def get(self, project_id: str) -> str | None: ...
+    def get(self, credential_id: str) -> str | None: ...
 
-    def set(self, project_id: str, secret: str, *, persistent: bool) -> None: ...
+    def set(self, credential_id: str, secret: str, *, persistent: bool) -> None: ...
 
-    def delete(self, project_id: str) -> None: ...
+    def delete(self, credential_id: str) -> None: ...
 
 
 class CredentialVault:
@@ -29,34 +29,34 @@ class CredentialVault:
     def __init__(self) -> None:
         self._session: dict[str, str] = {}
 
-    def get(self, project_id: str) -> str | None:
-        if project_id in self._session:
-            return self._session[project_id]
+    def get(self, credential_id: str) -> str | None:
+        if credential_id in self._session:
+            return self._session[credential_id]
         try:
-            return keyring.get_password(SERVICE_NAME, project_id)
+            return keyring.get_password(SERVICE_NAME, credential_id)
         except KeyringError as error:
             raise SecretStoreError(
                 "Windows Credential Manager is unavailable"
             ) from error
 
-    def set(self, project_id: str, secret: str, *, persistent: bool) -> None:
+    def set(self, credential_id: str, secret: str, *, persistent: bool) -> None:
         clean_secret = secret.strip()
         if not clean_secret:
             raise SecretStoreError("API key is empty")
-        self._session[project_id] = clean_secret
+        self._session[credential_id] = clean_secret
         if persistent:
             try:
-                keyring.set_password(SERVICE_NAME, project_id, clean_secret)
+                keyring.set_password(SERVICE_NAME, credential_id, clean_secret)
             except KeyringError as error:
                 raise SecretStoreError(
                     "Could not save the API key in Windows Credential Manager"
                 ) from error
 
-    def delete(self, project_id: str) -> None:
-        self._session.pop(project_id, None)
+    def delete(self, credential_id: str) -> None:
+        self._session.pop(credential_id, None)
         try:
-            if keyring.get_password(SERVICE_NAME, project_id) is not None:
-                keyring.delete_password(SERVICE_NAME, project_id)
+            if keyring.get_password(SERVICE_NAME, credential_id) is not None:
+                keyring.delete_password(SERVICE_NAME, credential_id)
         except KeyringError as error:
             raise SecretStoreError(
                 "Could not delete the API key from Windows Credential Manager"
@@ -69,12 +69,12 @@ class MemorySecretStore:
     def __init__(self) -> None:
         self.values: dict[str, str] = {}
 
-    def get(self, project_id: str) -> str | None:
-        return self.values.get(project_id)
+    def get(self, credential_id: str) -> str | None:
+        return self.values.get(credential_id)
 
-    def set(self, project_id: str, secret: str, *, persistent: bool) -> None:
+    def set(self, credential_id: str, secret: str, *, persistent: bool) -> None:
         del persistent
-        self.values[project_id] = secret
+        self.values[credential_id] = secret
 
-    def delete(self, project_id: str) -> None:
-        self.values.pop(project_id, None)
+    def delete(self, credential_id: str) -> None:
+        self.values.pop(credential_id, None)

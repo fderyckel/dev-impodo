@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from hmac import compare_digest
+from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -39,8 +40,13 @@ class LoopbackSecurityMiddleware(BaseHTTPMiddleware):
             )
         if request.method not in SAFE_METHODS:
             origin = request.headers.get("origin")
+            referer = request.headers.get("referer")
             fetch_site = request.headers.get("sec-fetch-site")
-            if origin != self.expected_origin or fetch_site != "same-origin":
+            source_origin = origin or _referer_origin(referer)
+            if (
+                source_origin != self.expected_origin
+                or fetch_site not in {None, "same-origin"}
+            ):
                 return self._secure(
                     PlainTextResponse("Untrusted request origin", status_code=403)
                 )
@@ -80,10 +86,25 @@ class LoopbackSecurityMiddleware(BaseHTTPMiddleware):
         response.headers["Permissions-Policy"] = (
             "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
         )
-        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Vary"] = "Origin, Sec-Fetch-Site"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         return response
+
+
+def _referer_origin(value: str | None) -> str | None:
+    if not value:
+        return None
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+    ):
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
 
 
 def require_session(request: Request) -> None:

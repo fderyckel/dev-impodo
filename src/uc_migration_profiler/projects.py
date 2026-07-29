@@ -56,6 +56,11 @@ class TargetEnvironment(StrEnum):
     TEST = "TEST"
 
 
+class OdooConnectionMode(StrEnum):
+    LOCAL = "LOCAL"
+    REMOTE = "REMOTE"
+
+
 @dataclass(frozen=True, slots=True)
 class SourceFile:
     """Immutable evidence for one governed source file."""
@@ -93,6 +98,7 @@ class MigrationProject:
     data_classification: DataClassification = DataClassification.CONFIDENTIAL
     retention_days: int = 90
     support_access: bool = False
+    odoo_connection_mode: OdooConnectionMode | None = None
     target_environment: TargetEnvironment | None = None
     odoo_base_url: str = ""
     odoo_database: str = ""
@@ -217,6 +223,7 @@ class ProjectService:
         project_id: str,
         *,
         expected_revision: int,
+        odoo_connection_mode: str,
         target_environment: str,
         odoo_base_url: str,
         odoo_database: str,
@@ -224,21 +231,11 @@ class ProjectService:
         intended_models: Sequence[str],
     ) -> MigrationProject:
         project = self._editable(project_id, expected_revision)
-        base_url = odoo_base_url.strip().rstrip("/")
-        if base_url:
-            parsed_url = urlsplit(base_url)
-            if (
-                parsed_url.scheme != "https"
-                or not parsed_url.hostname
-                or parsed_url.username
-                or parsed_url.password
-                or parsed_url.query
-                or parsed_url.fragment
-            ):
-                raise ProjectError(
-                    "The Odoo URL must be an HTTPS server URL without "
-                    "credentials, query parameters, or fragments"
-                )
+        try:
+            connection_mode = OdooConnectionMode(odoo_connection_mode)
+        except ValueError as error:
+            raise ProjectError("Choose Local Odoo or Remote Odoo") from error
+        base_url = _validated_odoo_base_url(odoo_base_url, connection_mode)
         try:
             environment = TargetEnvironment(target_environment)
         except ValueError as error:
@@ -246,6 +243,7 @@ class ProjectService:
         database = _optional_text(odoo_database, "Odoo database")
         updated = replace(
             project,
+            odoo_connection_mode=connection_mode,
             target_environment=environment,
             odoo_base_url=base_url,
             odoo_database=database,
@@ -344,6 +342,8 @@ def registration_problems(project: MigrationProject) -> tuple[str, ...]:
         problems.append("Responsible data manager is required")
     if not project.functional_owner:
         problems.append("Functional owner is required")
+    if project.odoo_connection_mode is None:
+        problems.append("Choose a Local Odoo or Remote Odoo connection")
     if project.target_environment is None:
         problems.append("A DEV or TEST target environment is required")
     if not project.odoo_base_url:
@@ -388,6 +388,50 @@ def _optional_date(value: str) -> date | None:
 def _clean_choices(values: Sequence[str]) -> tuple[str, ...]:
     cleaned = {value.strip() for value in values if value.strip()}
     return tuple(sorted(cleaned, key=str.casefold))
+
+
+def _validated_odoo_base_url(
+    value: str,
+    connection_mode: OdooConnectionMode,
+) -> str:
+    base_url = value.strip().rstrip("/")
+    if not base_url:
+        return ""
+    try:
+        parsed_url = urlsplit(base_url)
+        parsed_url.port
+    except ValueError as error:
+        raise ProjectError("The Odoo URL contains an invalid port") from error
+    if (
+        not parsed_url.hostname
+        or parsed_url.username
+        or parsed_url.password
+        or parsed_url.query
+        or parsed_url.fragment
+    ):
+        raise ProjectError(
+            "The Odoo URL cannot contain credentials, query parameters, "
+            "or fragments"
+        )
+
+    hostname = parsed_url.hostname.casefold()
+    is_literal_loopback = hostname in {"127.0.0.1", "::1"}
+    if connection_mode is OdooConnectionMode.LOCAL:
+        if (
+            parsed_url.scheme not in {"http", "https"}
+            or not is_literal_loopback
+            or parsed_url.path not in {"", "/"}
+        ):
+            raise ProjectError(
+                "Local Odoo must use http://127.0.0.1:<port> or "
+                "http://[::1]:<port> without an extra path"
+            )
+    elif parsed_url.scheme != "https" or is_literal_loopback or hostname == "localhost":
+        raise ProjectError(
+            "Remote Odoo must use an HTTPS server URL; choose Local Odoo "
+            "for a loopback instance"
+        )
+    return base_url
 
 
 def _canonical_project_id(project_id: str) -> str:

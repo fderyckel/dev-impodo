@@ -9,7 +9,9 @@ import unittest
 from uc_migration_profiler.intake import SourceIntakeError, SourceIntakeService
 from uc_migration_profiler.project_store import DuckDbProjectRepository
 from uc_migration_profiler.projects import (
+    OdooConnectionMode,
     ProjectConflictError,
+    ProjectError,
     ProjectRegistrationError,
     ProjectService,
     ProjectStatus,
@@ -90,6 +92,92 @@ class ProjectLifecycleTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(settings, (False, False, False, False, True))
 
+    def test_local_and_remote_target_urls_are_kept_separate(self) -> None:
+        project = self.service.create_project(
+            name="Connection modes",
+            source_system="CSV",
+        )
+        local = self.service.update_target(
+            project.project_id,
+            expected_revision=project.revision,
+            odoo_connection_mode="LOCAL",
+            target_environment="DEV",
+            odoo_base_url="http://127.0.0.1:8069",
+            odoo_database="odoo19_dev",
+            intended_applications=["Contacts"],
+            intended_models=["res.partner"],
+        )
+        self.assertEqual(local.odoo_connection_mode, OdooConnectionMode.LOCAL)
+
+        remote = self.service.update_target(
+            local.project_id,
+            expected_revision=local.revision,
+            odoo_connection_mode="REMOTE",
+            target_environment="TEST",
+            odoo_base_url="https://odoo-test.example.com",
+            odoo_database="uc_test",
+            intended_applications=["Contacts"],
+            intended_models=["res.partner"],
+        )
+        self.assertEqual(remote.odoo_connection_mode, OdooConnectionMode.REMOTE)
+
+        invalid_targets = (
+            ("LOCAL", "http://localhost:8069"),
+            ("LOCAL", "http://192.168.1.20:8069"),
+            ("LOCAL", "http://127.0.0.1:8069/odoo"),
+            ("REMOTE", "http://odoo-test.example.com"),
+            ("REMOTE", "https://127.0.0.1:8069"),
+        )
+        for mode, base_url in invalid_targets:
+            with self.subTest(mode=mode, base_url=base_url), self.assertRaises(
+                ProjectError
+            ):
+                self.service.update_target(
+                    remote.project_id,
+                    expected_revision=remote.revision,
+                    odoo_connection_mode=mode,
+                    target_environment="TEST",
+                    odoo_base_url=base_url,
+                    odoo_database="uc_test",
+                    intended_applications=["Contacts"],
+                    intended_models=[],
+                )
+
+    def test_version_one_project_database_is_migrated(self) -> None:
+        project = self.service.create_project(
+            name="Legacy project",
+            source_system="CSV",
+        )
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            connection.execute("DROP TABLE source_catalog")
+            connection.execute(
+                "ALTER TABLE project DROP COLUMN odoo_connection_mode"
+            )
+            connection.execute("UPDATE schema_version SET version = 1")
+
+        migrated = self.repository.get(project.project_id)
+        self.assertEqual(
+            migrated.odoo_connection_mode,
+            OdooConnectionMode.REMOTE,
+        )
+        with self.repository._connect(database_path) as connection:
+            version = connection.execute(
+                "SELECT version FROM schema_version"
+            ).fetchone()
+            catalog_table = connection.execute(
+                """
+                SELECT table_name
+                  FROM information_schema.tables
+                 WHERE table_name = 'source_catalog'
+                """
+            ).fetchone()
+        self.assertEqual(version, (3,))
+        self.assertEqual(catalog_table, ("source_catalog",))
+
     def test_complete_project_can_be_registered(self) -> None:
         project = self.service.create_project(
             name="Products migration",
@@ -117,6 +205,7 @@ class ProjectLifecycleTests(unittest.TestCase):
         project = self.service.update_target(
             project.project_id,
             expected_revision=project.revision,
+            odoo_connection_mode="REMOTE",
             target_environment="TEST",
             odoo_base_url="https://odoo.example.test",
             odoo_database="uc_test",
@@ -147,7 +236,9 @@ class ProjectLifecycleTests(unittest.TestCase):
             / f"project-registration-r{registered.revision}.json"
         )
         self.assertTrue(manifest.is_file())
-        self.assertIn('"approval_status":"NOT_STARTED"', manifest.read_text())
+        manifest_text = manifest.read_text()
+        self.assertIn('"approval_status":"NOT_STARTED"', manifest_text)
+        self.assertIn('"odoo_connection_mode":"REMOTE"', manifest_text)
 
 
 class SourceIntakeTests(unittest.TestCase):

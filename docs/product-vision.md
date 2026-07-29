@@ -489,12 +489,13 @@ flowchart TB
 ```
 
 The current repository implements the Phase A local-browser project workflow,
-governed source intake and project metadata storage, strict CSV and
-declared-sheet XLSX loading, mapping through the profile, normalization and
-validation, and the read-only preflight path. It does not yet implement Stage
-B workbook inventory and preview, the interactive mapping workspace, full
-schema discovery, durable canonical staging, the approval service, executor,
-or reconciliation service.
+governed source intake and project metadata storage, the first Stage B
+profile-free source catalog and browser preview, strict CSV and declared-sheet
+XLSX loading, mapping through the profile, normalization and validation, and
+the read-only preflight path. It does not yet implement interactive Stage B
+source-setting confirmation, the mapping workspace, full schema discovery,
+durable canonical staging, the approval service, executor, or reconciliation
+service.
 
 ## 7. Delivery roadmap
 
@@ -505,6 +506,11 @@ or reconciliation service.
 - source profiling and preview;
 - immutable source manifest and hashes;
 - file edge-case tests.
+
+Current status: the first browser slice implements hash-bound CSV detection,
+XLSX worksheet/named-table inventory, candidate headers, bounded previews,
+streaming column profiles, and warnings. Interactive confirmation/override and
+broader file-edge acceptance remain before Phase 1 is complete.
 
 ### Phase 2 — Mapping workspace and schema discovery
 

@@ -6,31 +6,61 @@
   <section class="form-card">
     <p class="eyebrow">Phase A · Odoo target</p>
     <h1>Choose the read-only target</h1>
-    <p>Only Odoo DEV and TEST environments are accepted.</p>
+    <p>Use a local Odoo 19 instance for development, or an HTTPS
+      on-premises server for realistic DEV and TEST validation.</p>
     <form method="post" action="/projects/{{ project.project_id }}/target">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ project.revision }}">
+
+      <fieldset>
+        <legend>Connection mode</legend>
+        <div class="mode-grid">
+          <label class="mode-card">
+            <input type="radio" name="odoo_connection_mode" value="LOCAL"
+              {% if not project.odoo_connection_mode or project.odoo_connection_mode.value == "LOCAL" %}checked{% endif %}>
+            <span>
+              <strong>Local Odoo</strong>
+              <small>For this computer. HTTP is allowed only on the literal
+                loopback addresses <code>127.0.0.1</code> and <code>::1</code>.</small>
+            </span>
+          </label>
+          <label class="mode-card">
+            <input type="radio" name="odoo_connection_mode" value="REMOTE"
+              {% if project.odoo_connection_mode and project.odoo_connection_mode.value == "REMOTE" %}checked{% endif %}>
+            <span>
+              <strong>Remote / on-premises Odoo</strong>
+              <small>For a server-hosted DEV or TEST instance. HTTPS is mandatory.</small>
+            </span>
+          </label>
+        </div>
+      </fieldset>
+
       <div class="form-grid">
         <label>
           Environment
           <select name="target_environment" required>
             <option value="">Choose an environment</option>
-            <option value="DEV" {% if project.target_environment and project.target_environment.value == "DEV" %}selected{% endif %}>DEV</option>
+            <option value="DEV" {% if not project.target_environment or project.target_environment.value == "DEV" %}selected{% endif %}>DEV</option>
             <option value="TEST" {% if project.target_environment and project.target_environment.value == "TEST" %}selected{% endif %}>TEST</option>
           </select>
         </label>
         <label>
           Odoo base URL
-          <input type="url" name="odoo_base_url" required placeholder="https://odoo-test.example.com" value="{{ project.odoo_base_url }}">
+          <input type="url" name="odoo_base_url" required
+            placeholder="Local: http://127.0.0.1:8069 · Remote: https://odoo-test.example.com"
+            value="{{ project.odoo_base_url }}">
+          <small>Local mode cannot contact another machine. Remote mode cannot use HTTP.</small>
         </label>
         <label>
           Database
-          <input name="odoo_database" maxlength="200" required value="{{ project.odoo_database }}">
+          <input name="odoo_database" maxlength="200" required
+            placeholder="For example: odoo19_dev" value="{{ project.odoo_database }}">
         </label>
         <label>
           Read-only API key
           <input type="password" name="api_key" autocomplete="off">
-          <small>Never stored in the project database or returned to the browser.</small>
+          <small>Generate this for a least-privilege Odoo user. It is never
+            stored in the project database or returned to the browser.</small>
         </label>
       </div>
       <label class="checkbox">

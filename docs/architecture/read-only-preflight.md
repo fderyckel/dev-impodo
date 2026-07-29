@@ -247,7 +247,8 @@ call, or SQL surface.
 
 ### Live JSON-2 behavior
 
-- rejects non-HTTPS base URLs;
+- requires HTTPS, except for an explicitly enabled literal-loopback local
+  development target;
 - accepts only `DEV` and `TEST`;
 - sends bearer authorization and `X-Odoo-Database`;
 - calls `POST /json/2/<model>/<method>`;
@@ -255,7 +256,7 @@ call, or SQL surface.
 - uses deterministic `id asc` pagination;
 - retries timeouts and HTTP 429/502/503/504 reads;
 - rejects duplicate IDs across pages;
-- rejects redirects to another hostname;
+- rejects redirects before bearer credentials can be forwarded;
 - omits response bodies and secrets from errors.
 
 The Odoo version endpoint is best-effort. Programmatic configuration supports

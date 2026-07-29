@@ -19,6 +19,9 @@ reconciliation. See
 
 Implemented:
 
+- local-browser project registration and governed source-file intake;
+- profile-free CSV detection, XLSX worksheet/named-table inventory, bounded
+  preview, candidate types, and column statistics;
 - one strict current profile shape;
 - profile-declared CSV and XLSX worksheets with exact source hashes;
 - contained source paths, bounded Office containers, XML-bomb protection,
@@ -102,10 +105,10 @@ available, those environment variables are unnecessary.
 
 No Odoo credentials are needed for tests or the offline example.
 
-## Local Phase A browser
+## Local project browser
 
-The local browser now implements Stage A project registration without manual
-YAML editing:
+The local browser implements Stage A project registration and the first Stage
+B source-inventory and preview slice without manual YAML editing:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e .
@@ -113,12 +116,16 @@ YAML editing:
 ```
 
 It opens on an ephemeral `127.0.0.1` port, accepts governed CSV/XLSX source
-files, records project ownership and retention, configures an HTTPS Odoo DEV or
-TEST target, and writes a local DuckDB project plus canonical registration
-evidence. It never writes to Odoo.
+files, records project ownership and retention, configures either a
+literal-loopback local Odoo 19 instance or an HTTPS on-premises DEV/TEST
+target, and writes a local DuckDB project plus canonical registration evidence.
+After registration it verifies the stored source hashes and presents detected
+CSV structure or XLSX worksheets, named tables, candidate headers, bounded
+samples, statistics, and warnings. It never writes to Odoo.
 
-See [Local Phase A browser](docs/operations/local-browser.md) and the
-[migration project contract](docs/contracts/migration-project.md).
+See [Local project browser](docs/operations/local-browser.md), the
+[migration project contract](docs/contracts/migration-project.md), and the
+[source catalog contract](docs/contracts/source-catalog.md).
 
 ## Run the tests
 
@@ -284,9 +291,10 @@ use at larger scales requires it; it is not needed for this milestone.
   explicit worksheet and rejects formulas, error cells, macros, external
   links/connections, embedded objects, encryption, and suspicious Office
   containers. Legacy `.xls` and direct source-system connections are deferred.
-- The current XLSX capability reads a profile-declared sheet; the planned
-  browser workspace will add workbook inventory, preview, type inference, and
-  guided selection before a profile exists.
+- The CLI preparation path reads a profile-declared XLSX sheet. The browser
+  now inventories and previews worksheets before a profile exists, but
+  interactive encoding, delimiter, worksheet, and header confirmation remain
+  a later Phase B slice.
 - The live connector targets Odoo 19 JSON-2. Earlier Odoo versions need a
   separately reviewed read adapter.
 - Module version visibility is best-effort; access denial is recorded as a

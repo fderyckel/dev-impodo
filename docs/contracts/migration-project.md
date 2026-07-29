@@ -35,8 +35,9 @@ Those transitions must be added before downstream phases depend on them.
 | Data classification | Defaults to `CONFIDENTIAL` | Yes |
 | Retention days | Defaults to `90` | Yes |
 | Authorised support access | Defaults to false | Yes |
+| Odoo connection mode | Optional | `LOCAL` or `REMOTE` |
 | Target environment | Optional | `DEV` or `TEST` |
-| Odoo base URL | Optional | HTTPS URL |
+| Odoo base URL | Optional | Literal loopback URL for `LOCAL`; HTTPS server URL for `REMOTE` |
 | Odoo database | Optional | Yes |
 | Intended applications | Optional | At least one |
 | Intended technical models | Optional | No; confirmed in Stage C |
@@ -54,7 +55,9 @@ Those transitions must be added before downstream phases depend on them.
 - audit-event identifiers and timestamps.
 
 An Odoo API key is not a project field. It is held in memory for the current
-process or saved separately in the operating-system credential store.
+process or saved separately in the operating-system credential store. The
+credential identifier binds it to the project, connection mode, exact URL, and
+database so it cannot be silently reused after a target change.
 
 ## Source-file evidence
 
@@ -96,7 +99,10 @@ to `audit/project-registration-r<revision>.json`.
 
 - The browser binds only to an ephemeral IPv4 loopback port.
 - State-changing requests require an authenticated launch session, exact
-  origin, same-origin Fetch Metadata, and CSRF token.
-- Production environments and non-HTTPS Odoo URLs are rejected.
+  Origin or Referer, a CSRF token, and non-cross-site Fetch Metadata when that
+  optional browser header is present.
+- Production environments are rejected.
+- Local mode permits HTTP only for literal `127.0.0.1` or `::1` loopback
+  addresses. Remote mode requires HTTPS and rejects loopback targets.
 - Connection testing uses only the existing Odoo read connector.
 - No browser route creates, writes, unlinks, imports, or executes SQL in Odoo.

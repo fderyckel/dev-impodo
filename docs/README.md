@@ -10,6 +10,10 @@ inspection, mapping, staging, approval, loading, and reconciliation.
 
 ## Architecture
 
+- [Security and infrastructure approval brief](security-and-infrastructure-approval.md)
+  — concise architecture, implemented controls, infrastructure requirements,
+  verification evidence, open gates, and reviewer decision.
+
 - [End-to-end migration product vision](product-vision.md) — complete product
   workflow, mapping architecture, staging, relation handling, executor
   boundary, edge cases, and roadmap.
@@ -33,6 +37,8 @@ inspection, mapping, staging, approval, loading, and reconciliation.
 
 - [Migration project contract](contracts/migration-project.md) — Phase A
   fields, lifecycle, source evidence, persistence, and browser safety boundary.
+- [Source catalog contract](contracts/source-catalog.md) — Phase B file
+  inventory, bounded preview, candidate types, statistics, and hash binding.
 - [Profile contract](contracts/profile.md) — how a profile maps,
   types, identifies, resolves, and compares data.
 - [Prepared record contract](contracts/prepared-record.md) — the
@@ -47,8 +53,8 @@ inspection, mapping, staging, approval, loading, and reconciliation.
 
 ## Operations and quality
 
-- [Local Phase A browser](operations/local-browser.md) — installation,
-  project registration, storage, and shutdown runbook.
+- [Local project browser](operations/local-browser.md) — installation,
+  project registration, source inspection, storage, and shutdown runbook.
 - [DuckDB on a Windows laptop](operations/duckdb-windows.md) - approved
   user-local DuckDB CLI installation, verification, troubleshooting, and the
   boundary between the CLI and Impodo-managed data.

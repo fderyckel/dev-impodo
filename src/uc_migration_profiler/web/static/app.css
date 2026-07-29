@@ -193,10 +193,31 @@ small {
 
 .form-grid,
 .summary-grid,
-.choice-grid {
+.choice-grid,
+.mode-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.1rem 1.5rem;
+}
+
+.mode-card {
+  display: flex;
+  gap: .75rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  margin: .6rem 0;
+  padding: .9rem;
+}
+
+.mode-card input {
+  flex: 0 0 auto;
+  width: auto;
+  margin-top: .28rem;
+}
+
+.mode-card strong,
+.mode-card small {
+  display: block;
 }
 
 label,
@@ -355,14 +376,95 @@ dd {
   overflow-wrap: anywhere;
 }
 
+.phase-empty,
+.catalog-card {
+  margin-top: 1.25rem;
+}
+
+.catalog-heading,
+.table-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.source-table {
+  border-top: 1px solid var(--line);
+  margin-top: 1.75rem;
+  padding-top: 1.5rem;
+}
+
+.source-table h3,
+.source-table h4 {
+  margin: 0 0 .5rem;
+}
+
+.source-table h4 {
+  margin-top: 1.4rem;
+}
+
+.named-table-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  margin: .8rem 0 1rem;
+}
+
+.named-table-list span {
+  color: var(--muted);
+}
+
+.table-scroll {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .88rem;
+}
+
+.data-table th,
+.data-table td {
+  border-bottom: 1px solid var(--line);
+  padding: .62rem .72rem;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.data-table thead th {
+  background: #eef2ef;
+  color: var(--ink);
+  font-size: .78rem;
+  letter-spacing: .02em;
+}
+
+.data-table tbody tr:last-child th,
+.data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.preview-table td {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (max-width: 720px) {
   .form-grid,
   .summary-grid,
-  .choice-grid {
+  .choice-grid,
+  .mode-grid {
     grid-template-columns: 1fr;
   }
 
   .page-heading,
+  .catalog-heading,
+  .table-heading,
   .project-card,
   .file-row,
   .site-header {

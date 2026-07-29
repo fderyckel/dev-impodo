@@ -8,7 +8,7 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-from uc_migration_profiler.projects import ProjectStatus
+from uc_migration_profiler.projects import OdooConnectionMode, ProjectStatus
 from uc_migration_profiler.secrets import MemorySecretStore
 from uc_migration_profiler.web import create_app
 
@@ -76,17 +76,68 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         )
         self.assertEqual(missing_origin.status_code, 403)
 
+        origin_fallback = self.client.post(
+            "/projects/new",
+            data={
+                "csrf_token": csrf,
+                "name": "Origin fallback",
+                "source_system": "Other",
+            },
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        self.assertEqual(origin_fallback.status_code, 303)
+
+        referer_fallback = self.client.post(
+            "/projects/new",
+            data={
+                "csrf_token": csrf,
+                "name": "Referer fallback",
+                "source_system": "Other",
+            },
+            headers={"Referer": "http://testserver/projects/new"},
+            follow_redirects=False,
+        )
+        self.assertEqual(referer_fallback.status_code, 303)
+
+        cross_site = self.client.post(
+            "/projects/new",
+            data={
+                "csrf_token": csrf,
+                "name": "Cross-site",
+                "source_system": "Other",
+            },
+            headers={
+                "Origin": "http://testserver",
+                "Sec-Fetch-Site": "cross-site",
+            },
+        )
+        self.assertEqual(cross_site.status_code, 403)
+
+        hostile_referer = self.client.post(
+            "/projects/new",
+            data={
+                "csrf_token": csrf,
+                "name": "Hostile",
+                "source_system": "Other",
+            },
+            headers={"Referer": "http://testserver.attacker.example/projects/new"},
+        )
+        self.assertEqual(hostile_referer.status_code, 403)
+
 
 class PhaseAWizardTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.secrets = MemorySecretStore()
-        self.connection_calls: list[tuple[str, str]] = []
+        self.connection_calls: list[tuple[str, str, OdooConnectionMode | None]] = []
 
         def connection_tester(project, api_key):
-            self.connection_calls.append((project.project_id, api_key))
-            return "Read-only connection succeeded: TEST / Odoo 19.4"
+            self.connection_calls.append(
+                (project.project_id, api_key, project.odoo_connection_mode)
+            )
+            return "Read-only local connection succeeded: DEV / Odoo 19.4"
 
         self.app = create_app(
             self.temporary.name,
@@ -167,9 +218,10 @@ class PhaseAWizardTests(unittest.TestCase):
             data={
                 "csrf_token": self.csrf,
                 "revision": "4",
-                "target_environment": "TEST",
-                "odoo_base_url": "https://odoo.example.test",
-                "odoo_database": "uc_test",
+                "odoo_connection_mode": "LOCAL",
+                "target_environment": "DEV",
+                "odoo_base_url": "http://127.0.0.1:8069",
+                "odoo_database": "odoo19_dev",
                 "intended_applications": ["Contacts"],
                 "intended_models": "res.partner",
                 "api_key": "super-secret-token",
@@ -181,10 +233,16 @@ class PhaseAWizardTests(unittest.TestCase):
         self.assertEqual(target.status_code, 303)
         self.assertEqual(
             self.connection_calls,
-            [(project_id, "super-secret-token")],
+            [
+                (
+                    project_id,
+                    "super-secret-token",
+                    OdooConnectionMode.LOCAL,
+                )
+            ],
         )
         target_page = self.client.get(target.headers["location"])
-        self.assertIn("Read-only connection succeeded", target_page.text)
+        self.assertIn("Read-only local connection succeeded", target_page.text)
         self.assertNotIn("super-secret-token", target_page.text)
 
         review = self.client.get(f"/projects/{project_id}/review")
@@ -198,8 +256,16 @@ class PhaseAWizardTests(unittest.TestCase):
         self.assertEqual(registered.status_code, 303)
         summary = self.client.get(registered.headers["location"])
         self.assertIn("Registered migration project", summary.text)
+        self.assertIn(
+            f'href="/projects/{project_id}/sources"',
+            summary.text,
+        )
         project = self.app.state.context.repository.get(project_id)
         self.assertEqual(project.status, ProjectStatus.REGISTERED)
+        self.assertEqual(
+            project.odoo_connection_mode,
+            OdooConnectionMode.LOCAL,
+        )
         self.assertEqual(project.mapping_version, None)
         self.assertNotIn(
             b"super-secret-token",
@@ -215,6 +281,75 @@ class PhaseAWizardTests(unittest.TestCase):
         )
         self.assertTrue(manifest.is_file())
         self.assertNotIn("super-secret-token", manifest.read_text())
+
+        phase_b = self.client.get(f"/projects/{project_id}/sources")
+        self.assertEqual(phase_b.status_code, 200)
+        self.assertIn("No source catalog yet", phase_b.text)
+        inspected = self.client.post(
+            f"/projects/{project_id}/sources/inspect",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(inspected.status_code, 303)
+        inspection_page = self.client.get(inspected.headers["location"])
+        self.assertIn("Inspected 1 source file", inspection_page.text)
+        self.assertIn("customers.csv", inspection_page.text)
+        self.assertIn("C001", inspection_page.text)
+        self.assertIn("Candidate type", inspection_page.text)
+        catalogs = self.app.state.context.repository.get_source_catalogs(project_id)
+        self.assertEqual(len(catalogs), 1)
+        self.assertEqual(catalogs[0].source_sha256, project.source_files[0].sha256)
+
+    def test_saved_key_is_not_reused_after_target_change(self) -> None:
+        created = self._post(
+            "/projects/new",
+            {
+                "csrf_token": self.csrf,
+                "name": "Credential binding",
+                "source_system": "Other",
+            },
+        )
+        project_id = created.headers["location"].split("/")[2]
+        local = self._post(
+            f"/projects/{project_id}/target",
+            {
+                "csrf_token": self.csrf,
+                "revision": "1",
+                "odoo_connection_mode": "LOCAL",
+                "target_environment": "DEV",
+                "odoo_base_url": "http://127.0.0.1:8069",
+                "odoo_database": "odoo19_dev",
+                "intended_applications": ["Contacts"],
+                "intended_models": "res.partner",
+                "api_key": "local-only-key",
+                "action": "test",
+            },
+        )
+        self.assertEqual(local.status_code, 303)
+
+        remote = self.client.post(
+            f"/projects/{project_id}/target",
+            data={
+                "csrf_token": self.csrf,
+                "revision": "2",
+                "odoo_connection_mode": "REMOTE",
+                "target_environment": "TEST",
+                "odoo_base_url": "https://odoo-test.example.com",
+                "odoo_database": "uc_test",
+                "intended_applications": ["Contacts"],
+                "intended_models": "res.partner",
+                "action": "test",
+            },
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(remote.status_code, 422)
+        self.assertIn(
+            "Enter an Odoo API key for this exact target",
+            remote.text,
+        )
+        self.assertEqual(len(self.connection_calls), 1)
+        self.assertEqual(self.connection_calls[0][1], "local-only-key")
 
     def _post(self, path: str, data: dict[str, str]):
         return self.client.post(

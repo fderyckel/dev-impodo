@@ -6,11 +6,13 @@ from pathlib import Path
 import unittest
 
 from uc_migration_profiler.connectors import (
+    ConnectorConfigurationError,
     ConnectorTransportError,
     Json2Config,
     Json2ReadConnector,
     MetadataRequest,
     RecordRequest,
+    _NoRedirectHandler,
 )
 
 
@@ -136,6 +138,50 @@ class Json2ConnectorTests(unittest.TestCase):
 
     def test_config_repr_redacts_api_key(self) -> None:
         self.assertNotIn("super-secret-token", repr(self.config()))
+
+    def test_http_is_allowed_only_for_explicit_literal_loopback_mode(self) -> None:
+        local = self.config(
+            base_url="http://127.0.0.1:8069",
+            environment="DEV",
+            allow_insecure_loopback=True,
+        )
+        self.assertTrue(local.allow_insecure_loopback)
+
+        rejected = (
+            {
+                "base_url": "http://127.0.0.1:8069",
+                "allow_insecure_loopback": False,
+            },
+            {
+                "base_url": "http://localhost:8069",
+                "allow_insecure_loopback": True,
+            },
+            {
+                "base_url": "http://192.168.1.20:8069",
+                "allow_insecure_loopback": True,
+            },
+            {
+                "base_url": "https://odoo.example.test",
+                "allow_insecure_loopback": True,
+            },
+        )
+        for values in rejected:
+            with self.subTest(values=values), self.assertRaises(
+                ConnectorConfigurationError
+            ):
+                self.config(**values)
+
+    def test_authenticated_transport_refuses_redirects(self) -> None:
+        handler = _NoRedirectHandler()
+        redirected = handler.redirect_request(
+            None,
+            None,
+            302,
+            "Found",
+            {},
+            "http://127.0.0.1:9999/capture",
+        )
+        self.assertIsNone(redirected)
 
 
 if __name__ == "__main__":

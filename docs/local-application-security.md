@@ -13,13 +13,15 @@ This gives the data manager a guided UI without introducing a hosted
 multi-user platform before identity, tenancy, infrastructure, and retention
 requirements are known.
 
-**Implementation status:** the Phase A browser now implements the secured
+**Implementation status:** the local browser now implements the secured
 loopback launch/session boundary, governed project forms, a resource-bounded
 source-validation worker, per-project DuckDB storage, Windows credential-store
-integration, and registration evidence. The CLI continues to implement strict
-CSV/XLSX preparation and read-only Odoo preflight. Source discovery and
-preview, mapping, signed packaging, and the local Odoo Compose laboratory
-remain later delivery slices.
+integration, registration evidence, and explicit local-versus-remote Odoo
+connection modes. Its first Phase B slice also provides resource-bounded,
+hash-bound CSV/XLSX inventory, preview, and column profiles. The CLI continues
+to implement strict CSV/XLSX preparation and read-only Odoo preflight.
+Interactive source-setting confirmation, mapping, signed packaging, and a
+packaged Odoo Compose laboratory remain later delivery slices.
 
 ## 2. Proposed stack
 
@@ -34,7 +36,7 @@ remain later delivery slices.
 | Bulk staging | Embedded DuckDB behind internal repositories | Handles typed tabular data locally without a separate database service |
 | Mapping/project metadata | Governed tables in the same local project store initially | Binds mappings, evidence, and staged rows to one project |
 | Secrets | Operating-system credential store; memory-only use during a run | Avoids project files, browser storage, logs, and source control |
-| Local Odoo laboratory | Docker Compose with official Odoo and PostgreSQL images | Creates a disposable, isolated target without on-premise access |
+| Local Odoo laboratory | Loopback-bound Odoo 19 checkout initially; pinned Compose stack later | Enables immediate read-only testing without weakening remote HTTPS rules |
 | Packaging | Signed local launcher/installer after the workflow stabilizes | Gives the data manager a verifiable desktop entry point |
 
 The UI does not need React, Electron, a public web server, or a Node.js runtime.
@@ -80,7 +82,8 @@ The application must:
 7. transfer the launch token into an `HttpOnly`, `SameSite=Strict` session and
    remove it from the visible URL;
 8. require a synchronizer CSRF token on every state-changing request;
-9. verify `Origin` or `Referer` and Fetch Metadata headers;
+9. require an exact same-origin `Origin` or `Referer`, and reject cross-site
+   Fetch Metadata when that optional browser header is present;
 10. reject state changes through `GET`;
 11. set a strict Content Security Policy using local assets only;
 12. deny framing with `frame-ancestors 'none'`;
@@ -230,7 +233,12 @@ A read credential must never be silently upgraded to write capability.
 
 ## 8. Local Odoo laboratory
 
-For current development and demonstrations, use Docker Compose with:
+The browser can use an existing Odoo 19 development checkout when it is bound
+to a literal loopback address. Local HTTP is allowed only in this explicit
+mode. PostgreSQL must not be exposed through Impodo, and the same API-key and
+read-only connector boundary applies.
+
+For a future reproducible and disposable laboratory, use Docker Compose with:
 
 - an official Odoo 19 image pinned to an immutable digest;
 - an official PostgreSQL image pinned to an immutable digest;

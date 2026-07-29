@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import json
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 from uuid import UUID
 
 import duckdb
 
+from .inspection import SourceFileCatalog, SourceInspectionError
 from .projects import (
     DataClassification,
     ExportStatus,
     MigrationProject,
+    OdooConnectionMode,
     ProjectConflictError,
     ProjectNotFoundError,
     ProjectStatus,
@@ -24,7 +26,7 @@ from .projects import (
 )
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 
 class DuckDbProjectRepository:
@@ -80,6 +82,7 @@ class DuckDbProjectRepository:
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
             row = connection.execute("SELECT * FROM project").fetchone()
             if row is None:
                 raise ProjectNotFoundError("Project not found")
@@ -115,6 +118,93 @@ class DuckDbProjectRepository:
             for row in rows
         )
 
+    def get_source_catalogs(
+        self,
+        project_id: str,
+    ) -> tuple[SourceFileCatalog, ...]:
+        """Load Phase B catalogs in the same order as registered source files."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            rows = connection.execute(
+                """
+                SELECT catalog.catalog_json
+                  FROM source_file AS source
+                  JOIN source_catalog AS catalog
+                    ON catalog.file_id = source.file_id
+                 ORDER BY source.received_at, source.file_id
+                """
+            ).fetchall()
+        return tuple(SourceFileCatalog.from_json(str(row[0])) for row in rows)
+
+    def save_source_catalogs(
+        self,
+        project_id: str,
+        catalogs: Iterable[SourceFileCatalog],
+    ) -> None:
+        """Atomically replace the complete hash-bound catalog set."""
+
+        catalog_set = tuple(catalogs)
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            source_rows = connection.execute(
+                "SELECT file_id, sha256 FROM source_file"
+            ).fetchall()
+            registered = {str(row[0]): str(row[1]) for row in source_rows}
+            supplied = {
+                catalog.file_id: catalog.source_sha256
+                for catalog in catalog_set
+            }
+            if supplied != registered or len(supplied) != len(catalog_set):
+                raise SourceInspectionError(
+                    "Source catalogs do not match the registered project files"
+                )
+            revision_row = connection.execute(
+                "SELECT revision FROM project"
+            ).fetchone()
+            if revision_row is None:
+                raise ProjectNotFoundError("Project not found")
+
+            connection.begin()
+            try:
+                connection.execute("DELETE FROM source_catalog")
+                for catalog in catalog_set:
+                    connection.execute(
+                        """
+                        INSERT INTO source_catalog
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        [
+                            catalog.file_id,
+                            catalog.source_sha256,
+                            catalog.contract_version,
+                            catalog.inspected_at.isoformat(),
+                            catalog.to_json(),
+                        ],
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO audit_event
+                    VALUES (nextval('audit_event_sequence'), ?, ?, ?, ?)
+                    """,
+                    [
+                        "SOURCE_FILES_INSPECTED",
+                        int(revision_row[0]),
+                        datetime.now(timezone.utc).isoformat(),
+                        f"{len(catalog_set)} source file(s)",
+                    ],
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
     def save(
         self,
         project: MigrationProject,
@@ -127,6 +217,7 @@ class DuckDbProjectRepository:
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
             connection.begin()
             try:
                 current = connection.execute(
@@ -233,6 +324,7 @@ class DuckDbProjectRepository:
                 data_classification VARCHAR NOT NULL,
                 retention_days INTEGER NOT NULL,
                 support_access BOOLEAN NOT NULL,
+                odoo_connection_mode VARCHAR,
                 target_environment VARCHAR,
                 odoo_base_url VARCHAR NOT NULL,
                 odoo_database VARCHAR NOT NULL,
@@ -257,6 +349,14 @@ class DuckDbProjectRepository:
                 received_at VARCHAR NOT NULL
             );
 
+            CREATE TABLE source_catalog (
+                file_id VARCHAR PRIMARY KEY,
+                source_sha256 VARCHAR NOT NULL,
+                contract_version INTEGER NOT NULL,
+                inspected_at VARCHAR NOT NULL,
+                catalog_json VARCHAR NOT NULL
+            );
+
             CREATE TABLE audit_event (
                 event_id BIGINT PRIMARY KEY,
                 event_type VARCHAR NOT NULL,
@@ -275,7 +375,7 @@ class DuckDbProjectRepository:
         project: MigrationProject,
     ) -> None:
         connection.execute(
-            f"INSERT INTO project VALUES ({', '.join('?' for _ in range(25))})",
+            f"INSERT INTO project VALUES ({', '.join('?' for _ in range(26))})",
             _project_values(project),
         )
 
@@ -298,6 +398,7 @@ class DuckDbProjectRepository:
                 data_classification = ?,
                 retention_days = ?,
                 support_access = ?,
+                odoo_connection_mode = ?,
                 target_environment = ?,
                 odoo_base_url = ?,
                 odoo_database = ?,
@@ -315,6 +416,51 @@ class DuckDbProjectRepository:
             """,
             _project_values(project)[1:] + [project.project_id],
         )
+
+    def _migrate_project_database(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+    ) -> None:
+        row = connection.execute("SELECT version FROM schema_version").fetchone()
+        if row is None:
+            raise RuntimeError("Project database has no schema version")
+        version = int(row[0])
+        if version > SCHEMA_VERSION:
+            raise RuntimeError(
+                "Project database was created by a newer Impodo version"
+            )
+        if version < SCHEMA_VERSION:
+            connection.begin()
+            try:
+                if version == 1:
+                    connection.execute(
+                        """
+                        ALTER TABLE project
+                        ADD COLUMN odoo_connection_mode VARCHAR DEFAULT 'REMOTE'
+                        """
+                    )
+                    version = 2
+                if version == 2:
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS source_catalog (
+                            file_id VARCHAR PRIMARY KEY,
+                            source_sha256 VARCHAR NOT NULL,
+                            contract_version INTEGER NOT NULL,
+                            inspected_at VARCHAR NOT NULL,
+                            catalog_json VARCHAR NOT NULL
+                        )
+                        """
+                    )
+                    version = 3
+                connection.execute(
+                    "UPDATE schema_version SET version = ?",
+                    [version],
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
     def _insert_audit(
         self,
@@ -339,7 +485,7 @@ class DuckDbProjectRepository:
 
     def _write_registration_manifest(self, project: MigrationProject) -> Path:
         payload = {
-            "contract_version": 1,
+            "contract_version": 2,
             "project": {
                 "project_id": project.project_id,
                 "name": project.name,
@@ -354,6 +500,11 @@ class DuckDbProjectRepository:
                 "data_classification": project.data_classification.value,
                 "retention_days": project.retention_days,
                 "support_access": project.support_access,
+                "odoo_connection_mode": (
+                    project.odoo_connection_mode.value
+                    if project.odoo_connection_mode
+                    else None
+                ),
                 "target_environment": (
                     project.target_environment.value
                     if project.target_environment
@@ -420,6 +571,11 @@ def _project_values(project: MigrationProject) -> list[object]:
         project.data_classification.value,
         project.retention_days,
         project.support_access,
+        (
+            project.odoo_connection_mode.value
+            if project.odoo_connection_mode
+            else None
+        ),
         project.target_environment.value if project.target_environment else None,
         project.odoo_base_url,
         project.odoo_database,
@@ -449,6 +605,11 @@ def _project_from_rows(
         if data["target_environment"]
         else None
     )
+    connection_mode = (
+        OdooConnectionMode(str(data["odoo_connection_mode"]))
+        if data.get("odoo_connection_mode")
+        else None
+    )
     return MigrationProject(
         project_id=str(data["project_id"]),
         name=str(data["name"]),
@@ -464,6 +625,7 @@ def _project_from_rows(
         ),
         retention_days=int(data["retention_days"]),
         support_access=bool(data["support_access"]),
+        odoo_connection_mode=connection_mode,
         target_environment=target_environment,
         odoo_base_url=str(data["odoo_base_url"]),
         odoo_database=str(data["odoo_database"]),

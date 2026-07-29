@@ -1,0 +1,1092 @@
+"""Profile-free source inspection for the local Phase B browser workflow.
+
+The inspector reads an immutable project inbox file and produces a bounded,
+portable catalog.  It never changes the source file and never requires a
+mapping profile.  Values exposed to the browser are deliberately sampled and
+truncated, while statistics are accumulated in one streaming pass.
+"""
+
+from __future__ import annotations
+
+import csv
+from dataclasses import asdict, dataclass
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
+from hashlib import sha256
+import json
+from pathlib import Path
+import posixpath
+import re
+from typing import Any, Iterable, Protocol
+import zipfile
+
+from defusedxml import ElementTree as SafeElementTree
+
+from .projects import ProjectError, ProjectStatus, SourceFile
+from .source import (
+    MAX_CELL_STRING_LENGTH,
+    MAX_SOURCE_COLUMNS,
+    MAX_SOURCE_ROWS,
+    MAX_XLSX_METADATA_BYTES,
+    MAX_XLSX_WORKSHEETS,
+    SourceLoadError,
+    validate_source_file,
+)
+
+
+CATALOG_CONTRACT_VERSION = 1
+PREVIEW_ROW_LIMIT = 20
+HEADER_SCAN_ROW_LIMIT = 25
+DISTINCT_VALUE_LIMIT = 10_000
+DISTINCT_TABLE_VALUE_LIMIT = 100_000
+DISPLAY_VALUE_LIMIT = 200
+MAX_CATALOG_HEADER_LENGTH = 1_000
+CSV_SAMPLE_BYTES = 64 * 1024
+SUPPORTED_CSV_ENCODINGS = ("utf-8-sig", "utf-8", "cp1252")
+SUPPORTED_CSV_DELIMITERS = (",", ";", "\t", "|")
+
+_MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_DOCUMENT_REL_NS = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+)
+_PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
+
+
+class SourceInspectionError(ProjectError):
+    """Raised when a governed source file cannot be cataloged safely."""
+
+
+@dataclass(frozen=True, slots=True)
+class NamedTableCatalog:
+    """One named Excel table discovered in a worksheet."""
+
+    name: str
+    display_name: str
+    cell_range: str
+
+
+@dataclass(frozen=True, slots=True)
+class SourceColumnProfile:
+    """Bounded statistics and a non-binding candidate type for one column."""
+
+    ordinal: int
+    name: str
+    candidate_type: str
+    null_count: int
+    non_null_count: int
+    distinct_count: int
+    distinct_count_is_exact: bool
+    duplicate_count: int | None
+    minimum: str | None
+    maximum: str | None
+    minimum_length: int | None
+    maximum_length: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class SourceTableCatalog:
+    """Inventory, preview, and statistics for one CSV table or worksheet."""
+
+    table_key: str
+    name: str
+    kind: str
+    hidden: bool
+    header_row: int | None
+    row_count: int
+    column_count: int
+    columns: tuple[SourceColumnProfile, ...]
+    preview_rows: tuple[tuple[str | None, ...], ...]
+    named_tables: tuple[NamedTableCatalog, ...] = ()
+    formula_cell_count: int = 0
+    error_cell_count: int = 0
+    merged_range_count: int = 0
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFileCatalog:
+    """Hash-bound Phase B catalog for one immutable project source file."""
+
+    contract_version: int
+    file_id: str
+    display_name: str
+    source_sha256: str
+    source_size_bytes: int
+    format: str
+    inspected_at: datetime
+    encoding: str | None
+    delimiter: str | None
+    tables: tuple[SourceTableCatalog, ...]
+    warnings: tuple[str, ...] = ()
+
+    def to_json(self) -> str:
+        """Return deterministic JSON suitable for DuckDB and portable evidence."""
+
+        payload = asdict(self)
+        payload["inspected_at"] = self.inspected_at.isoformat()
+        return json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+
+    @classmethod
+    def from_json(cls, value: str) -> "SourceFileCatalog":
+        """Rehydrate a catalog stored by :meth:`to_json`."""
+
+        try:
+            payload = json.loads(value)
+            return cls(
+                contract_version=int(payload["contract_version"]),
+                file_id=str(payload["file_id"]),
+                display_name=str(payload["display_name"]),
+                source_sha256=str(payload["source_sha256"]),
+                source_size_bytes=int(payload["source_size_bytes"]),
+                format=str(payload["format"]),
+                inspected_at=datetime.fromisoformat(str(payload["inspected_at"])),
+                encoding=(
+                    str(payload["encoding"])
+                    if payload.get("encoding") is not None
+                    else None
+                ),
+                delimiter=(
+                    str(payload["delimiter"])
+                    if payload.get("delimiter") is not None
+                    else None
+                ),
+                tables=tuple(
+                    _table_from_payload(item) for item in payload.get("tables", ())
+                ),
+                warnings=tuple(str(item) for item in payload.get("warnings", ())),
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise SourceInspectionError("Stored source catalog is invalid") from error
+
+
+class SourceCatalogRepository(Protocol):
+    """Structural protocol implemented by the local DuckDB repository."""
+
+    def get(self, project_id: str): ...
+
+    def project_directory(self, project_id: str) -> Path: ...
+
+    def get_source_catalogs(
+        self,
+        project_id: str,
+    ) -> tuple[SourceFileCatalog, ...]: ...
+
+    def save_source_catalogs(
+        self,
+        project_id: str,
+        catalogs: Iterable[SourceFileCatalog],
+    ) -> None: ...
+
+
+class SourceInspectionService:
+    """Inspect registered project files and persist their hash-bound catalogs."""
+
+    def __init__(self, repository: SourceCatalogRepository) -> None:
+        self.repository = repository
+
+    def inspect_project(self, project_id: str) -> tuple[SourceFileCatalog, ...]:
+        project = self.repository.get(project_id)
+        if project.status is not ProjectStatus.REGISTERED:
+            raise SourceInspectionError(
+                "Register the migration project before inspecting its sources"
+            )
+
+        # Import here to keep multiprocessing bootstrapping independent of the
+        # domain module import path.
+        from .source_worker import inspect_source_file_isolated
+
+        inbox = self.repository.project_directory(project_id) / "inbox"
+        catalogs: list[SourceFileCatalog] = []
+        for source_file in project.source_files:
+            path = _contained_inbox_path(inbox, source_file)
+            catalogs.append(
+                inspect_source_file_isolated(
+                    path,
+                    source_file=source_file,
+                )
+            )
+        self.repository.save_source_catalogs(project_id, catalogs)
+        return tuple(catalogs)
+
+
+def inspect_source_file(
+    path: str | Path,
+    *,
+    source_file: SourceFile,
+) -> SourceFileCatalog:
+    """Inspect one immutable source file without a profile or Odoo access."""
+
+    source_path = Path(path)
+    try:
+        actual_size, actual_sha256 = _hash_file(source_path)
+        if actual_size != source_file.size_bytes or actual_sha256 != source_file.sha256:
+            raise SourceInspectionError(
+                "The stored source file no longer matches its registered evidence"
+            )
+        validate_source_file(source_path)
+        if source_path.suffix.casefold() == ".csv":
+            encoding, delimiter, table, warnings = _inspect_csv(source_path)
+            format_name = "CSV"
+            tables = (table,)
+        elif source_path.suffix.casefold() == ".xlsx":
+            tables, warnings = _inspect_xlsx(source_path)
+            encoding = None
+            delimiter = None
+            format_name = "XLSX"
+        else:
+            raise SourceInspectionError(
+                "Only registered CSV and XLSX files can be inspected"
+            )
+    except SourceInspectionError:
+        raise
+    except (SourceLoadError, csv.Error, LookupError, UnicodeError) as error:
+        raise SourceInspectionError(str(error)) from error
+    except OSError as error:
+        raise SourceInspectionError(
+            f"Could not read the registered source file {source_file.display_name}"
+        ) from error
+
+    return SourceFileCatalog(
+        contract_version=CATALOG_CONTRACT_VERSION,
+        file_id=source_file.file_id,
+        display_name=source_file.display_name,
+        source_sha256=source_file.sha256,
+        source_size_bytes=source_file.size_bytes,
+        format=format_name,
+        inspected_at=datetime.now(timezone.utc),
+        encoding=encoding,
+        delimiter=delimiter,
+        tables=tables,
+        warnings=warnings,
+    )
+
+
+def _inspect_csv(
+    path: Path,
+) -> tuple[str, str, SourceTableCatalog, tuple[str, ...]]:
+    sample = path.read_bytes()[:CSV_SAMPLE_BYTES]
+    encoding, encoding_warning = _detect_csv_encoding(sample)
+    decoded = sample.decode(encoding)
+    delimiter, delimiter_warning = _detect_csv_delimiter(decoded)
+    warnings = [
+        warning
+        for warning in (encoding_warning, delimiter_warning)
+        if warning is not None
+    ]
+
+    with path.open("r", encoding=encoding, newline="") as handle:
+        reader = csv.reader(handle, delimiter=delimiter)
+        try:
+            raw_headers = next(reader)
+        except StopIteration as error:
+            raise SourceInspectionError("CSV source has no header row") from error
+        if not raw_headers:
+            raise SourceInspectionError("CSV source has no columns")
+        if len(raw_headers) > MAX_SOURCE_COLUMNS:
+            raise SourceInspectionError(
+                f"CSV source exceeds {MAX_SOURCE_COLUMNS} columns"
+            )
+
+        headers, header_warnings = _catalog_headers(raw_headers)
+        warnings.extend(header_warnings)
+        distinct_budget = _DistinctBudget()
+        accumulators = [
+            _ColumnAccumulator(distinct_budget) for _header in headers
+        ]
+        preview_rows: list[tuple[str | None, ...]] = []
+        row_count = 0
+        short_rows = 0
+        long_rows = 0
+        for values in reader:
+            if not values or not any(value != "" for value in values):
+                continue
+            row_count += 1
+            if row_count > MAX_SOURCE_ROWS:
+                raise SourceInspectionError(
+                    f"CSV source exceeds {MAX_SOURCE_ROWS} data rows"
+                )
+            if len(values) < len(headers):
+                short_rows += 1
+            if len(values) > len(headers):
+                long_rows += 1
+            row_values: list[Any] = [
+                *values[: len(headers)],
+                *([None] * max(0, len(headers) - len(values))),
+            ]
+            for value in row_values:
+                if isinstance(value, str) and len(value) > MAX_CELL_STRING_LENGTH:
+                    raise SourceInspectionError(
+                        f"CSV cell at row {reader.line_num} exceeds "
+                        f"{MAX_CELL_STRING_LENGTH} characters"
+                    )
+            for accumulator, value in zip(accumulators, row_values, strict=True):
+                accumulator.observe(value)
+            if len(preview_rows) < PREVIEW_ROW_LIMIT:
+                preview_rows.append(
+                    tuple(_display_value(value) for value in row_values)
+                )
+
+    if short_rows:
+        warnings.append(f"{short_rows} data row(s) contain fewer cells than the header")
+    if long_rows:
+        warnings.append(
+            f"{long_rows} data row(s) contain cells beyond the detected header"
+        )
+    return (
+        encoding,
+        delimiter,
+        SourceTableCatalog(
+            table_key="csv",
+            name=path.stem,
+            kind="CSV",
+            hidden=False,
+            header_row=1,
+            row_count=row_count,
+            column_count=len(headers),
+            columns=tuple(
+                accumulator.profile(index, header)
+                for index, (header, accumulator) in enumerate(
+                    zip(headers, accumulators, strict=True),
+                    start=1,
+                )
+            ),
+            preview_rows=tuple(preview_rows),
+            warnings=tuple(header_warnings),
+        ),
+        tuple(warnings),
+    )
+
+
+def _inspect_xlsx(
+    path: Path,
+) -> tuple[tuple[SourceTableCatalog, ...], tuple[str, ...]]:
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.xml import DEFUSEDXML
+    except ImportError as error:
+        raise SourceInspectionError(
+            "XLSX inspection requires openpyxl and defusedxml"
+        ) from error
+    if not DEFUSEDXML:
+        raise SourceInspectionError(
+            "XLSX parsing requires active defusedxml protection"
+        )
+
+    metadata = _xlsx_metadata(path)
+    try:
+        workbook = load_workbook(
+            filename=path,
+            read_only=True,
+            data_only=False,
+            keep_links=False,
+        )
+    except Exception as error:
+        raise SourceInspectionError(f"Cannot parse XLSX source {path.name}") from error
+
+    try:
+        if len(workbook.sheetnames) > MAX_XLSX_WORKSHEETS:
+            raise SourceInspectionError(
+                f"Workbook exceeds {MAX_XLSX_WORKSHEETS} worksheets"
+            )
+        tables: list[SourceTableCatalog] = []
+        workbook_warnings: list[str] = []
+        for worksheet in workbook.worksheets:
+            if worksheet.max_column > MAX_SOURCE_COLUMNS:
+                raise SourceInspectionError(
+                    f"Worksheet {worksheet.title!r} exceeds "
+                    f"{MAX_SOURCE_COLUMNS} columns"
+                )
+            if worksheet.max_row > MAX_SOURCE_ROWS + HEADER_SCAN_ROW_LIMIT:
+                raise SourceInspectionError(
+                    f"Worksheet {worksheet.title!r} exceeds "
+                    f"{MAX_SOURCE_ROWS} possible data rows"
+                )
+            sheet_metadata = metadata.get(
+                worksheet.title,
+                _WorksheetMetadata(),
+            )
+            table = _inspect_worksheet(
+                worksheet,
+                hidden=sheet_metadata.hidden,
+                named_tables=sheet_metadata.named_tables,
+                merged_range_count=sheet_metadata.merged_range_count,
+                formula_cell_count=sheet_metadata.formula_cell_count,
+            )
+            tables.append(table)
+            if table.hidden:
+                workbook_warnings.append(
+                    f"Worksheet {worksheet.title!r} is hidden"
+                )
+        return tuple(tables), tuple(workbook_warnings)
+    finally:
+        workbook.close()
+
+
+def _inspect_worksheet(
+    worksheet: Any,
+    *,
+    hidden: bool,
+    named_tables: tuple[NamedTableCatalog, ...],
+    merged_range_count: int,
+    formula_cell_count: int,
+) -> SourceTableCatalog:
+    first_rows = list(worksheet.iter_rows(max_row=HEADER_SCAN_ROW_LIMIT))
+    header_row = _candidate_header_row(first_rows, named_tables)
+    if header_row is None:
+        warnings = ["No non-empty candidate header row was found"]
+        if merged_range_count:
+            warnings.append(f"{merged_range_count} merged range(s) detected")
+        if formula_cell_count:
+            warnings.append(f"{formula_cell_count} formula cell(s) detected")
+        return SourceTableCatalog(
+            table_key=f"sheet:{worksheet.title}",
+            name=worksheet.title,
+            kind="WORKSHEET",
+            hidden=hidden,
+            header_row=None,
+            row_count=0,
+            column_count=0,
+            columns=(),
+            preview_rows=(),
+            named_tables=named_tables,
+            formula_cell_count=formula_cell_count,
+            merged_range_count=merged_range_count,
+            warnings=tuple(warnings),
+        )
+
+    if header_row <= len(first_rows):
+        header_cells = first_rows[header_row - 1]
+    else:
+        try:
+            header_cells = next(
+                worksheet.iter_rows(min_row=header_row, max_row=header_row)
+            )
+        except StopIteration as error:
+            raise SourceInspectionError(
+                f"Worksheet {worksheet.title!r} has no candidate header row "
+                f"{header_row}"
+            ) from error
+    last_header_column = _last_non_empty_index(
+        [cell.value for cell in header_cells]
+    )
+    if last_header_column > MAX_SOURCE_COLUMNS:
+        raise SourceInspectionError(
+            f"Worksheet {worksheet.title!r} exceeds {MAX_SOURCE_COLUMNS} columns"
+        )
+    raw_headers = [
+        cell.value for cell in header_cells[:last_header_column]
+    ]
+    headers, header_warnings = _catalog_headers(raw_headers)
+    distinct_budget = _DistinctBudget()
+    accumulators = [
+        _ColumnAccumulator(distinct_budget) for _header in headers
+    ]
+    preview_rows: list[tuple[str | None, ...]] = []
+    row_count = 0
+    error_cell_count = 0
+    data_beyond_headers = 0
+
+    for cells in worksheet.iter_rows(min_row=header_row + 1):
+        values = [cell.value for cell in cells[: len(headers)]]
+        overflow_cells = cells[len(headers) :]
+        if any(cell.value is not None for cell in overflow_cells):
+            data_beyond_headers += 1
+        if not any(value is not None and value != "" for value in values):
+            continue
+        row_count += 1
+        if row_count > MAX_SOURCE_ROWS:
+            raise SourceInspectionError(
+                f"Worksheet {worksheet.title!r} exceeds "
+                f"{MAX_SOURCE_ROWS} data rows"
+            )
+        padded = [*values, *([None] * (len(headers) - len(values)))]
+        for cell in cells[: len(headers)]:
+            if cell.data_type == "e":
+                error_cell_count += 1
+        for accumulator, value in zip(accumulators, padded, strict=True):
+            if isinstance(value, str) and len(value) > MAX_CELL_STRING_LENGTH:
+                raise SourceInspectionError(
+                    f"Worksheet {worksheet.title!r} contains a cell exceeding "
+                    f"{MAX_CELL_STRING_LENGTH} characters"
+                )
+            accumulator.observe(value)
+        if len(preview_rows) < PREVIEW_ROW_LIMIT:
+            preview_rows.append(tuple(_display_value(value) for value in padded))
+
+    warnings = list(header_warnings)
+    if merged_range_count:
+        warnings.append(f"{merged_range_count} merged range(s) detected")
+    if formula_cell_count:
+        warnings.append(f"{formula_cell_count} formula cell(s) detected")
+    if error_cell_count:
+        warnings.append(f"{error_cell_count} Excel error cell(s) detected")
+    if data_beyond_headers:
+        warnings.append(
+            f"{data_beyond_headers} data row(s) contain cells beyond the "
+            "candidate header"
+        )
+    return SourceTableCatalog(
+        table_key=f"sheet:{worksheet.title}",
+        name=worksheet.title,
+        kind="WORKSHEET",
+        hidden=hidden,
+        header_row=header_row,
+        row_count=row_count,
+        column_count=len(headers),
+        columns=tuple(
+            accumulator.profile(index, header)
+            for index, (header, accumulator) in enumerate(
+                zip(headers, accumulators, strict=True),
+                start=1,
+            )
+        ),
+        preview_rows=tuple(preview_rows),
+        named_tables=named_tables,
+        formula_cell_count=formula_cell_count,
+        error_cell_count=error_cell_count,
+        merged_range_count=merged_range_count,
+        warnings=tuple(warnings),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _WorksheetMetadata:
+    hidden: bool = False
+    named_tables: tuple[NamedTableCatalog, ...] = ()
+    merged_range_count: int = 0
+    formula_cell_count: int = 0
+
+
+def _xlsx_metadata(path: Path) -> dict[str, _WorksheetMetadata]:
+    """Read workbook inventory XML without loading worksheet cells into memory."""
+
+    with zipfile.ZipFile(path) as archive:
+        workbook_root = _read_xml(archive, "xl/workbook.xml")
+        workbook_relationships = _relationship_targets(
+            archive,
+            "xl/_rels/workbook.xml.rels",
+        )
+        result: dict[str, _WorksheetMetadata] = {}
+        for sheet in workbook_root.findall(f".//{{{_MAIN_NS}}}sheet"):
+            name = str(sheet.attrib.get("name", ""))
+            relationship_id = sheet.attrib.get(f"{{{_DOCUMENT_REL_NS}}}id", "")
+            target = workbook_relationships.get(relationship_id)
+            if not name or not target:
+                continue
+            sheet_path = _resolve_relationship_target("xl/workbook.xml", target)
+            relationship_path = _relationship_part_path(sheet_path)
+            sheet_relationships = _relationship_targets(
+                archive,
+                relationship_path,
+                missing_ok=True,
+            )
+            named_tables: list[NamedTableCatalog] = []
+            for relationship_target, relationship_type in sheet_relationships.values():
+                if not relationship_type.endswith("/table"):
+                    continue
+                table_path = _resolve_relationship_target(
+                    sheet_path,
+                    relationship_target,
+                )
+                table_root = _read_xml(archive, table_path)
+                named_tables.append(
+                    NamedTableCatalog(
+                        name=str(table_root.attrib.get("name", "")),
+                        display_name=str(table_root.attrib.get("displayName", "")),
+                        cell_range=str(table_root.attrib.get("ref", "")),
+                    )
+                )
+            merged_ranges, formula_cells = _count_sheet_features(
+                archive,
+                sheet_path,
+            )
+            result[name] = _WorksheetMetadata(
+                hidden=sheet.attrib.get("state", "visible") != "visible",
+                named_tables=tuple(
+                    sorted(named_tables, key=lambda item: item.display_name.casefold())
+                ),
+                merged_range_count=merged_ranges,
+                formula_cell_count=formula_cells,
+            )
+        return result
+
+
+def _relationship_targets(
+    archive: zipfile.ZipFile,
+    path: str,
+    *,
+    missing_ok: bool = False,
+) -> dict[str, tuple[str, str]] | dict[str, str]:
+    try:
+        root = _read_xml(archive, path)
+    except KeyError:
+        if missing_ok:
+            return {}
+        raise
+    relationships = {
+        str(item.attrib.get("Id", "")): (
+            str(item.attrib.get("Target", "")),
+            str(item.attrib.get("Type", "")),
+        )
+        for item in root.findall(f".//{{{_PACKAGE_REL_NS}}}Relationship")
+    }
+    if path == "xl/_rels/workbook.xml.rels":
+        return {
+            relationship_id: target
+            for relationship_id, (target, _relationship_type) in relationships.items()
+        }
+    return relationships
+
+
+def _read_xml(archive: zipfile.ZipFile, path: str):
+    information = archive.getinfo(path)
+    if information.file_size > MAX_XLSX_METADATA_BYTES:
+        raise SourceInspectionError(f"XLSX metadata part is too large: {path}")
+    return SafeElementTree.fromstring(archive.read(information))
+
+
+def _count_sheet_features(
+    archive: zipfile.ZipFile,
+    sheet_path: str,
+) -> tuple[int, int]:
+    merged_ranges = 0
+    formula_cells = 0
+    with archive.open(sheet_path) as stream:
+        for _event, element in SafeElementTree.iterparse(stream, events=("end",)):
+            if element.tag == f"{{{_MAIN_NS}}}mergeCell":
+                merged_ranges += 1
+            elif element.tag == f"{{{_MAIN_NS}}}f":
+                formula_cells += 1
+            element.clear()
+    return merged_ranges, formula_cells
+
+
+def _resolve_relationship_target(base_path: str, target: str) -> str:
+    if target.startswith("/"):
+        resolved = target.lstrip("/")
+    else:
+        resolved = posixpath.normpath(
+            posixpath.join(posixpath.dirname(base_path), target)
+        )
+    if resolved.startswith("../") or resolved == "..":
+        raise SourceInspectionError("XLSX relationship escapes the workbook")
+    return resolved
+
+
+def _relationship_part_path(part_path: str) -> str:
+    directory, filename = posixpath.split(part_path)
+    return posixpath.join(directory, "_rels", f"{filename}.rels")
+
+
+def _candidate_header_row(
+    rows: list[tuple[Any, ...]],
+    named_tables: tuple[NamedTableCatalog, ...],
+) -> int | None:
+    named_header_rows = [
+        _range_start_row(table.cell_range)
+        for table in named_tables
+        if table.cell_range
+    ]
+    if named_header_rows:
+        first_named_header = min(named_header_rows)
+        if first_named_header >= 1:
+            return first_named_header
+
+    best: tuple[int, int] | None = None
+    for row_number, cells in enumerate(rows, start=1):
+        values = [cell.value for cell in cells]
+        populated = [
+            str(value).strip()
+            for value in values
+            if value is not None and str(value).strip()
+        ]
+        if not populated:
+            continue
+        text_count = sum(
+            1
+            for cell in cells
+            if isinstance(cell.value, str) and cell.value.strip()
+        )
+        unique_count = len(set(populated))
+        score = (text_count * 4) + (unique_count * 2) + len(populated)
+        candidate = (score, -row_number)
+        if best is None or candidate > best:
+            best = candidate
+    return -best[1] if best is not None else None
+
+
+def _range_start_row(cell_range: str) -> int:
+    first_cell = cell_range.split(":", 1)[0].replace("$", "")
+    matched = re.search(r"(\d+)$", first_cell)
+    return int(matched.group(1)) if matched else 1
+
+
+def _last_non_empty_index(values: Iterable[Any]) -> int:
+    last = 0
+    for index, value in enumerate(values, start=1):
+        if value is not None and str(value).strip():
+            last = index
+    return last
+
+
+def _catalog_headers(values: Iterable[Any]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    headers: list[str] = []
+    warnings: list[str] = []
+    for index, value in enumerate(values, start=1):
+        cleaned = "" if value is None else str(value).strip()
+        if not cleaned:
+            cleaned = f"Column {index}"
+            warnings.append(f"Column {index} has an empty candidate header")
+        if len(cleaned) > MAX_CATALOG_HEADER_LENGTH:
+            raise SourceInspectionError(
+                f"Column {index} candidate header exceeds "
+                f"{MAX_CATALOG_HEADER_LENGTH} characters"
+            )
+        headers.append(cleaned)
+    duplicates = sorted(
+        {
+            header
+            for header in headers
+            if sum(item.casefold() == header.casefold() for item in headers) > 1
+        },
+        key=str.casefold,
+    )
+    if duplicates:
+        warnings.append(
+            "Duplicate candidate headers require correction before mapping: "
+            + ", ".join(duplicates)
+        )
+    return tuple(headers), tuple(warnings)
+
+
+class _DistinctBudget:
+    def __init__(self) -> None:
+        self.remaining = DISTINCT_TABLE_VALUE_LIMIT
+
+    def claim(self) -> bool:
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
+
+class _ColumnAccumulator:
+    def __init__(self, distinct_budget: _DistinctBudget) -> None:
+        self.distinct_budget = distinct_budget
+        self.null_count = 0
+        self.non_null_count = 0
+        self.distinct_values: set[str] = set()
+        self.distinct_is_exact = True
+        self.duplicate_count = 0
+        self.minimum_length: int | None = None
+        self.maximum_length: int | None = None
+        self.kinds: set[str] = set()
+        self.minimum_by_kind: dict[str, tuple[Any, str]] = {}
+        self.maximum_by_kind: dict[str, tuple[Any, str]] = {}
+
+    def observe(self, value: Any) -> None:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            self.null_count += 1
+            return
+        rendered = _render_value(value)
+        if rendered is None:
+            self.null_count += 1
+            return
+        display = _bounded_display(rendered)
+        self.non_null_count += 1
+        length = len(rendered)
+        self.minimum_length = (
+            length if self.minimum_length is None else min(self.minimum_length, length)
+        )
+        self.maximum_length = (
+            length if self.maximum_length is None else max(self.maximum_length, length)
+        )
+        if self.distinct_is_exact:
+            distinct_key = sha256(rendered.encode("utf-8")).hexdigest()
+            if distinct_key in self.distinct_values:
+                self.duplicate_count += 1
+            elif (
+                len(self.distinct_values) < DISTINCT_VALUE_LIMIT
+                and self.distinct_budget.claim()
+            ):
+                self.distinct_values.add(distinct_key)
+            else:
+                self.distinct_is_exact = False
+
+        kind, comparison_key = _value_kind(value)
+        self.kinds.add(kind)
+        minimum = self.minimum_by_kind.get(kind)
+        maximum = self.maximum_by_kind.get(kind)
+        if minimum is None or comparison_key < minimum[0]:
+            self.minimum_by_kind[kind] = (comparison_key, display)
+        if maximum is None or comparison_key > maximum[0]:
+            self.maximum_by_kind[kind] = (comparison_key, display)
+
+    def profile(self, ordinal: int, name: str) -> SourceColumnProfile:
+        candidate_type = _candidate_type(self.kinds)
+        minimum, maximum = self._range(candidate_type)
+        distinct_count = len(self.distinct_values) + (
+            0 if self.distinct_is_exact else 1
+        )
+        return SourceColumnProfile(
+            ordinal=ordinal,
+            name=name,
+            candidate_type=candidate_type,
+            null_count=self.null_count,
+            non_null_count=self.non_null_count,
+            distinct_count=distinct_count,
+            distinct_count_is_exact=self.distinct_is_exact,
+            duplicate_count=(
+                self.duplicate_count if self.distinct_is_exact else None
+            ),
+            minimum=minimum,
+            maximum=maximum,
+            minimum_length=self.minimum_length,
+            maximum_length=self.maximum_length,
+        )
+
+    def _range(self, candidate_type: str) -> tuple[str | None, str | None]:
+        if not self.kinds:
+            return None, None
+        if candidate_type == "decimal":
+            entries = [
+                self.minimum_by_kind[kind]
+                for kind in ("integer", "decimal")
+                if kind in self.minimum_by_kind
+            ]
+            maximum_entries = [
+                self.maximum_by_kind[kind]
+                for kind in ("integer", "decimal")
+                if kind in self.maximum_by_kind
+            ]
+            return (
+                min(entries, key=lambda item: Decimal(str(item[0])))[1],
+                max(maximum_entries, key=lambda item: Decimal(str(item[0])))[1],
+            )
+        if len(self.kinds) == 1:
+            kind = next(iter(self.kinds))
+            return self.minimum_by_kind[kind][1], self.maximum_by_kind[kind][1]
+        return None, None
+
+
+def _candidate_type(kinds: set[str]) -> str:
+    if not kinds:
+        return "empty"
+    if kinds == {"boolean"}:
+        return "boolean"
+    if kinds == {"integer"}:
+        return "integer"
+    if kinds <= {"integer", "decimal"}:
+        return "decimal"
+    if kinds == {"date"}:
+        return "date"
+    if kinds <= {"date", "datetime"}:
+        return "datetime"
+    if kinds == {"string"}:
+        return "string"
+    return "mixed"
+
+
+def _value_kind(value: Any) -> tuple[str, Any]:
+    if isinstance(value, bool):
+        return "boolean", value
+    if isinstance(value, datetime):
+        normalized = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return "datetime", normalized.astimezone(timezone.utc)
+    if isinstance(value, date):
+        return "date", value
+    if isinstance(value, int):
+        return "integer", Decimal(value)
+    if isinstance(value, (float, Decimal)):
+        return "decimal", Decimal(str(value))
+
+    cleaned = str(value).strip()
+    lowered = cleaned.casefold()
+    if lowered in {"true", "false"}:
+        return "boolean", lowered == "true"
+    if _INTEGER_PATTERN.fullmatch(cleaned):
+        unsigned = cleaned.lstrip("+-")
+        if len(unsigned) > 1 and unsigned.startswith("0"):
+            return "string", cleaned.casefold()
+        return "integer", Decimal(cleaned)
+    try:
+        decimal_value = Decimal(cleaned)
+    except InvalidOperation:
+        decimal_value = None
+    if decimal_value is not None and any(
+        marker in cleaned for marker in (".", "e", "E")
+    ):
+        return "decimal", decimal_value
+    try:
+        if "T" in cleaned or " " in cleaned:
+            parsed_datetime = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+            if parsed_datetime.tzinfo is None:
+                parsed_datetime = parsed_datetime.replace(tzinfo=timezone.utc)
+            return "datetime", parsed_datetime.astimezone(timezone.utc)
+        return "date", date.fromisoformat(cleaned)
+    except ValueError:
+        return "string", cleaned.casefold()
+
+
+def _display_value(value: Any) -> str | None:
+    rendered = _render_value(value)
+    return _bounded_display(rendered) if rendered is not None else None
+
+
+def _render_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _bounded_display(rendered: str) -> str:
+    if len(rendered) > DISPLAY_VALUE_LIMIT:
+        return rendered[: DISPLAY_VALUE_LIMIT - 1] + "…"
+    return rendered
+
+
+def _detect_csv_encoding(sample: bytes) -> tuple[str, str | None]:
+    if sample.startswith(b"\xef\xbb\xbf"):
+        return "utf-8-sig", None
+    for encoding in SUPPORTED_CSV_ENCODINGS[1:]:
+        try:
+            sample.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        warning = (
+            "Encoding was detected as Windows-1252 and should be confirmed"
+            if encoding == "cp1252"
+            else None
+        )
+        return encoding, warning
+    raise SourceInspectionError(
+        "CSV encoding is not supported; use UTF-8 or Windows-1252"
+    )
+
+
+def _detect_csv_delimiter(sample: str) -> tuple[str, str | None]:
+    try:
+        dialect = csv.Sniffer().sniff(
+            sample,
+            delimiters="".join(SUPPORTED_CSV_DELIMITERS),
+        )
+        return dialect.delimiter, None
+    except csv.Error:
+        first_line = sample.splitlines()[0] if sample.splitlines() else ""
+        counts = {
+            delimiter: first_line.count(delimiter)
+            for delimiter in SUPPORTED_CSV_DELIMITERS
+        }
+        delimiter = max(counts, key=counts.get)
+        if counts[delimiter] == 0:
+            raise SourceInspectionError(
+                "CSV delimiter could not be detected"
+            )
+        return (
+            delimiter,
+            "CSV delimiter detection was uncertain and should be confirmed",
+        )
+
+
+def _hash_file(path: Path) -> tuple[int, str]:
+    digest = sha256()
+    size = 0
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            size += len(chunk)
+            digest.update(chunk)
+    return size, digest.hexdigest()
+
+
+def _contained_inbox_path(inbox: Path, source_file: SourceFile) -> Path:
+    candidate = inbox / source_file.stored_name
+    if candidate.is_symlink():
+        raise SourceInspectionError("Stored source files must not be symbolic links")
+    resolved_inbox = inbox.resolve()
+    resolved = candidate.resolve()
+    if resolved.parent != resolved_inbox or not resolved.is_file():
+        raise SourceInspectionError(
+            f"Registered source file is missing: {source_file.display_name}"
+        )
+    return resolved
+
+
+def _table_from_payload(payload: dict[str, Any]) -> SourceTableCatalog:
+    return SourceTableCatalog(
+        table_key=str(payload["table_key"]),
+        name=str(payload["name"]),
+        kind=str(payload["kind"]),
+        hidden=bool(payload["hidden"]),
+        header_row=(
+            int(payload["header_row"])
+            if payload.get("header_row") is not None
+            else None
+        ),
+        row_count=int(payload["row_count"]),
+        column_count=int(payload["column_count"]),
+        columns=tuple(
+            SourceColumnProfile(
+                ordinal=int(column["ordinal"]),
+                name=str(column["name"]),
+                candidate_type=str(column["candidate_type"]),
+                null_count=int(column["null_count"]),
+                non_null_count=int(column["non_null_count"]),
+                distinct_count=int(column["distinct_count"]),
+                distinct_count_is_exact=bool(column["distinct_count_is_exact"]),
+                duplicate_count=(
+                    int(column["duplicate_count"])
+                    if column.get("duplicate_count") is not None
+                    else None
+                ),
+                minimum=(
+                    str(column["minimum"])
+                    if column.get("minimum") is not None
+                    else None
+                ),
+                maximum=(
+                    str(column["maximum"])
+                    if column.get("maximum") is not None
+                    else None
+                ),
+                minimum_length=(
+                    int(column["minimum_length"])
+                    if column.get("minimum_length") is not None
+                    else None
+                ),
+                maximum_length=(
+                    int(column["maximum_length"])
+                    if column.get("maximum_length") is not None
+                    else None
+                ),
+            )
+            for column in payload.get("columns", ())
+        ),
+        preview_rows=tuple(
+            tuple(str(value) if value is not None else None for value in row)
+            for row in payload.get("preview_rows", ())
+        ),
+        named_tables=tuple(
+            NamedTableCatalog(
+                name=str(table["name"]),
+                display_name=str(table["display_name"]),
+                cell_range=str(table["cell_range"]),
+            )
+            for table in payload.get("named_tables", ())
+        ),
+        formula_cell_count=int(payload.get("formula_cell_count", 0)),
+        error_cell_count=int(payload.get("error_cell_count", 0)),
+        merged_range_count=int(payload.get("merged_range_count", 0)),
+        warnings=tuple(str(item) for item in payload.get("warnings", ())),
+    )

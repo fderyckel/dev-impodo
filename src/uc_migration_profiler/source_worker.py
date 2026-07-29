@@ -1,4 +1,4 @@
-"""Resource-bounded worker for untrusted source-container validation."""
+"""Resource-bounded workers for untrusted source validation and inspection."""
 
 from __future__ import annotations
 
@@ -9,10 +9,17 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .inspection import (
+    SourceFileCatalog,
+    SourceInspectionError,
+    inspect_source_file,
+)
+from .projects import SourceFile
 from .source import SourceLoadError, validate_source_file
 
 
 VALIDATION_TIMEOUT_SECONDS = 30
+INSPECTION_TIMEOUT_SECONDS = 60
 VALIDATION_MEMORY_BYTES = 512 * 1024 * 1024
 
 
@@ -39,7 +46,12 @@ def validate_source_file_isolated(path: str | Path) -> None:
             process.terminate()
             process.join(timeout=5)
             raise SourceLoadError("Source validation exceeded its time limit")
-        status, message = receiver.recv()
+        try:
+            status, message = receiver.recv()
+        except EOFError as error:
+            raise SourceLoadError(
+                "Source validation worker stopped unexpectedly"
+            ) from error
         process.join(timeout=5)
         if process.is_alive():
             process.terminate()
@@ -49,6 +61,58 @@ def validate_source_file_isolated(path: str | Path) -> None:
             raise SourceLoadError(message)
         if process.exitcode != 0:
             raise SourceLoadError("Source validation worker failed")
+    finally:
+        receiver.close()
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=5)
+        if job_handle is not None:
+            _windows_kernel32().CloseHandle(job_handle)
+
+
+def inspect_source_file_isolated(
+    path: str | Path,
+    *,
+    source_file: SourceFile,
+) -> SourceFileCatalog:
+    """Inspect an accepted file in a spawned, resource-bounded process."""
+
+    context = multiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    start_event = context.Event()
+    process = context.Process(
+        target=_inspection_worker,
+        args=(str(Path(path)), source_file, sender, start_event),
+        name="impodo-source-inspector",
+        daemon=True,
+    )
+    process.start()
+    sender.close()
+    job_handle: int | None = None
+    try:
+        if os.name == "nt":
+            job_handle = _assign_windows_job(process.pid)
+        start_event.set()
+        if not receiver.poll(INSPECTION_TIMEOUT_SECONDS):
+            process.terminate()
+            process.join(timeout=5)
+            raise SourceInspectionError("Source inspection exceeded its time limit")
+        try:
+            status, payload = receiver.recv()
+        except EOFError as error:
+            raise SourceInspectionError(
+                "Source inspection worker stopped unexpectedly"
+            ) from error
+        process.join(timeout=5)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=5)
+            raise SourceInspectionError("Source inspection worker did not exit")
+        if status != "ok":
+            raise SourceInspectionError(str(payload))
+        if process.exitcode != 0:
+            raise SourceInspectionError("Source inspection worker failed")
+        return SourceFileCatalog.from_json(str(payload))
     finally:
         receiver.close()
         if process.is_alive():
@@ -68,6 +132,25 @@ def _worker(path: str, sender: Any, start_event: Any) -> None:
         sender.send(("error", str(error)))
     else:
         sender.send(("ok", ""))
+    finally:
+        sender.close()
+
+
+def _inspection_worker(
+    path: str,
+    source_file: SourceFile,
+    sender: Any,
+    start_event: Any,
+) -> None:
+    try:
+        if os.name != "nt":
+            _limit_unix_memory()
+        start_event.wait()
+        catalog = inspect_source_file(path, source_file=source_file)
+    except Exception as error:
+        sender.send(("error", str(error)))
+    else:
+        sender.send(("ok", catalog.to_json()))
     finally:
         sender.close()
 

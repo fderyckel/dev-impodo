@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Source inspection · {{ project.name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Phase B · Source inspection</p>
+      <h1>Inspect source files</h1>
+      <p>Inventory and profile the immutable files registered to {{ project.name }}.</p>
+    </div>
+    <span class="status registered">{{ catalogs|length }}/{{ project.source_files|length }} cataloged</span>
+  </div>
+
+  <section class="form-card">
+    <h2>Registered evidence</h2>
+    <p>Inspection verifies each stored file against its registered size and SHA-256 hash. Preview values are bounded and the files are never modified.</p>
+    <div class="file-list">
+      {% for file in project.source_files %}
+        <div class="file-row">
+          <div>
+            <strong>{{ file.display_name }}</strong>
+            <span>{{ file.size_bytes }} bytes · <code>{{ file.sha256[:16] }}…</code></span>
+          </div>
+          <span class="status">
+            {% if catalogs|selectattr("file_id", "equalto", file.file_id)|list %}
+              Inspected
+            {% else %}
+              Pending
+            {% endif %}
+          </span>
+        </div>
+      {% endfor %}
+    </div>
+    <form method="post" action="/projects/{{ project.project_id }}/sources/inspect">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="actions">
+        <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to project</a>
+        <button class="button primary" type="submit">
+          {% if catalogs %}Inspect again{% else %}Inspect source files{% endif %}
+        </button>
+      </div>
+    </form>
+  </section>
+
+  {% if not catalogs %}
+    <section class="empty-state phase-empty">
+      <h2>No source catalog yet</h2>
+      <p>Run inspection to detect CSV structure or inventory workbook sheets, headers, samples, and data-quality signals.</p>
+    </section>
+  {% endif %}
+
+  {% for catalog in catalogs %}
+    <section class="form-card catalog-card">
+      <div class="catalog-heading">
+        <div>
+          <p class="eyebrow">{{ catalog.format }} source</p>
+          <h2>{{ catalog.display_name }}</h2>
+          <p class="muted">
+            {{ catalog.source_size_bytes }} bytes · inspected
+            {{ catalog.inspected_at.strftime("%Y-%m-%d %H:%M") }} UTC
+            {% if catalog.encoding %}· {{ catalog.encoding }}{% endif %}
+            {% if catalog.delimiter %}· delimiter <code>{{ catalog.delimiter|replace("\t", "TAB") }}</code>{% endif %}
+          </p>
+        </div>
+        <span class="status registered">Hash verified</span>
+      </div>
+
+      {% for warning in catalog.warnings %}
+        <div class="notice warning">{{ warning }}</div>
+      {% endfor %}
+
+      {% for table in catalog.tables %}
+        <article class="source-table">
+          <div class="table-heading">
+            <div>
+              <h3>{{ table.name }}</h3>
+              <p class="muted">
+                {{ table.kind|title }} ·
+                {% if table.header_row %}candidate header row {{ table.header_row }} ·{% endif %}
+                {{ table.row_count }} data row(s) · {{ table.column_count }} column(s)
+                {% if table.hidden %}· hidden{% endif %}
+              </p>
+            </div>
+          </div>
+
+          {% if table.named_tables %}
+            <div class="named-table-list">
+              <strong>Named tables</strong>
+              {% for named_table in table.named_tables %}
+                <span><code>{{ named_table.display_name }}</code> · {{ named_table.cell_range }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          {% for warning in table.warnings %}
+            <div class="notice warning">{{ warning }}</div>
+          {% endfor %}
+
+          {% if table.columns %}
+            <h4>Bounded preview</h4>
+            <div class="table-scroll">
+              <table class="data-table preview-table">
+                <thead>
+                  <tr>
+                    {% for column in table.columns %}
+                      <th>{{ column.name }}</th>
+                    {% endfor %}
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in table.preview_rows %}
+                    <tr>
+                      {% for value in row %}
+                        <td>{{ value if value is not none else "—" }}</td>
+                      {% endfor %}
+                    </tr>
+                  {% else %}
+                    <tr><td colspan="{{ table.column_count }}">No data rows</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+
+            <h4>Column profile</h4>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Column</th>
+                    <th>Candidate type</th>
+                    <th>Null</th>
+                    <th>Distinct</th>
+                    <th>Duplicates</th>
+                    <th>Minimum</th>
+                    <th>Maximum</th>
+                    <th>Length</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for column in table.columns %}
+                    <tr>
+                      <th>{{ column.name }}</th>
+                      <td><span class="status">{{ column.candidate_type }}</span></td>
+                      <td>{{ column.null_count }}</td>
+                      <td>{% if not column.distinct_count_is_exact %}≥{% endif %}{{ column.distinct_count }}</td>
+                      <td>{{ column.duplicate_count if column.duplicate_count is not none else "Not exact" }}</td>
+                      <td>{{ column.minimum if column.minimum is not none else "—" }}</td>
+                      <td>{{ column.maximum if column.maximum is not none else "—" }}</td>
+                      <td>
+                        {% if column.minimum_length is not none %}
+                          {{ column.minimum_length }}–{{ column.maximum_length }}
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </section>
+  {% endfor %}
+{% endblock %}

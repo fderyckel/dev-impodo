@@ -114,8 +114,9 @@ Responsibilities:
 - obtain the API key from `UC_ODOO_API_KEY`;
 - translate requirements into narrowly projected, paginated reads;
 - capture required model metadata;
-- enforce HTTPS, DEV/TEST environment selection, timeout, deterministic
-  ordering, retry rules, and rejection of cross-host redirects;
+- enforce HTTPS except for explicitly enabled literal-loopback local mode,
+  DEV/TEST environment selection, timeout, deterministic ordering, retry
+  rules, and rejection of redirects before credentials can be forwarded;
 - write no artifact containing credentials or authorization state.
 
 The exact JSON-2 endpoint and authentication shape must be implemented against

@@ -1,8 +1,9 @@
-"""FastAPI application for the local Impodo Phase A workflow."""
+"""FastAPI application for local Impodo project registration and inspection."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 import re
 import secrets
@@ -23,9 +24,11 @@ from ..connectors import (
     MetadataRequest,
 )
 from ..intake import SourceIntakeError, SourceIntakeService
+from ..inspection import SourceInspectionError, SourceInspectionService
 from ..project_store import DuckDbProjectRepository
 from ..projects import (
     MigrationProject,
+    OdooConnectionMode,
     ProjectError,
     ProjectNotFoundError,
     ProjectRegistrationError,
@@ -64,6 +67,7 @@ class WebContext:
     repository: DuckDbProjectRepository
     projects: ProjectService
     intake: SourceIntakeService
+    inspections: SourceInspectionService
     secret_store: SecretStore
     launch_token: str
     connection_tester: ConnectionTester
@@ -86,6 +90,7 @@ def create_app(
         repository=repository,
         projects=projects,
         intake=SourceIntakeService(repository, projects),
+        inspections=SourceInspectionService(repository),
         secret_store=secret_store or CredentialVault(),
         launch_token=launch_token or secrets.token_urlsafe(32),
         connection_tester=connection_tester or _test_connection,
@@ -366,6 +371,7 @@ def create_app(
             {
                 "csrf_token",
                 "revision",
+                "odoo_connection_mode",
                 "target_environment",
                 "odoo_base_url",
                 "odoo_database",
@@ -380,6 +386,7 @@ def create_app(
             project = context.projects.update_target(
                 project_id,
                 expected_revision=_revision(form),
+                odoo_connection_mode=_text(form, "odoo_connection_mode"),
                 target_environment=_text(form, "target_environment"),
                 odoo_base_url=_text(form, "odoo_base_url"),
                 odoo_database=_text(form, "odoo_database"),
@@ -387,16 +394,19 @@ def create_app(
                 intended_models=_split_models(_text(form, "intended_models")),
             )
             submitted_key = _text(form, "api_key")
+            credential_id = _target_credential_id(project)
             if submitted_key:
                 context.secret_store.set(
-                    project_id,
+                    credential_id,
                     submitted_key,
                     persistent="remember_api_key" in form,
                 )
             if _text(form, "action") == "test":
-                api_key = context.secret_store.get(project_id)
+                api_key = context.secret_store.get(credential_id)
                 if not api_key:
-                    raise SecretStoreError("Enter an Odoo API key to test")
+                    raise SecretStoreError(
+                        "Enter an Odoo API key for this exact target to test"
+                    )
                 result = await run_in_threadpool(
                     context.connection_tester,
                     project,
@@ -475,6 +485,51 @@ def create_app(
         project = context.repository.get(project_id)
         return _render(request, "project_summary.html", project=project)
 
+    @app.get("/projects/{project_id}/sources", response_class=HTMLResponse)
+    async def project_sources(request: Request, project_id: str):
+        require_session(request)
+        project = context.repository.get(project_id)
+        if project.status is not ProjectStatus.REGISTERED:
+            return RedirectResponse(
+                f"/projects/{project.project_id}/details",
+                status_code=303,
+            )
+        return _render(
+            request,
+            "project_sources.html",
+            project=project,
+            catalogs=context.repository.get_source_catalogs(project_id),
+        )
+
+    @app.post("/projects/{project_id}/sources/inspect")
+    async def inspect_project_sources(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        project = context.repository.get(project_id)
+        try:
+            catalogs = await run_in_threadpool(
+                context.inspections.inspect_project,
+                project_id,
+            )
+        except SourceInspectionError as error:
+            return _render(
+                request,
+                "project_sources.html",
+                project=project,
+                catalogs=context.repository.get_source_catalogs(project_id),
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            f"Inspected {len(catalogs)} source file(s) against their "
+            "registered hashes.",
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/sources",
+            status_code=303,
+        )
+
     @app.post("/quit", response_class=HTMLResponse)
     async def quit_impodo(request: Request):
         form = await request.form()
@@ -488,6 +543,8 @@ def create_app(
 
 
 def _test_connection(project: MigrationProject, api_key: str) -> str:
+    if project.odoo_connection_mode is None:
+        raise ProjectError("Choose Local Odoo or Remote Odoo")
     if project.target_environment is None:
         raise ProjectError("Choose a DEV or TEST environment")
     connector = Json2ReadConnector(
@@ -496,6 +553,9 @@ def _test_connection(project: MigrationProject, api_key: str) -> str:
             database=project.odoo_database,
             api_key=api_key,
             environment=project.target_environment.value,
+            allow_insecure_loopback=(
+                project.odoo_connection_mode is OdooConnectionMode.LOCAL
+            ),
         )
     )
     metadata = connector.get_model_metadata(
@@ -510,9 +570,30 @@ def _test_connection(project: MigrationProject, api_key: str) -> str:
             f"Expected Odoo 19, received Odoo {fingerprint.odoo_version}"
         )
     return (
-        f"Read-only connection succeeded: {fingerprint.environment} / "
+        f"Read-only {project.odoo_connection_mode.value.casefold()} connection "
+        f"succeeded: {fingerprint.environment} / "
         f"Odoo {fingerprint.odoo_version}"
     )
+
+
+def _target_credential_id(project: MigrationProject) -> str:
+    """Bind a stored API key to one project and exact Odoo destination."""
+
+    connection_mode = (
+        project.odoo_connection_mode.value
+        if project.odoo_connection_mode
+        else ""
+    )
+    target = "\0".join(
+        (
+            project.project_id,
+            connection_mode,
+            project.odoo_base_url,
+            project.odoo_database,
+        )
+    ).encode("utf-8")
+    digest = hashlib.sha256(target).hexdigest()[:24]
+    return f"{project.project_id}:{digest}"
 
 
 def _render(
