@@ -23,6 +23,7 @@ class Capability(StrEnum):
     SOURCE_CONFIGURE = "source.configure"
     SOURCE_SELECT = "source.select"
     SCHEMA_DISCOVER = "schema.discover"
+    SCHEMA_GOVERN = "schema.govern"
     MAPPING_EDIT = "mapping.edit"
     MAPPING_SUBMIT = "mapping.submit"
     NORMALIZATION_DECIDE = "normalization.decide"

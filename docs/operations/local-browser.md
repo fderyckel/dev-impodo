@@ -1,5 +1,9 @@
 # Local project browser
 
+This is the technical installation and operating runbook. Data analysts and
+data managers should start with the
+[screenshot-led local-browser user guide](local-browser-user-guide.md).
+
 ## Install
 
 From a normal PowerShell window in the repository:
@@ -75,20 +79,31 @@ Inspection recalculates each stored file's size and SHA-256 hash before parsing
 it. Results are stored in the project DuckDB database and can be regenerated
 without modifying the source file or the registered project.
 
-## Capture the Odoo schema and start mapping
+## Govern the Odoo schema and build a mapping
 
 After freezing datasets:
 
 1. Open **Odoo schema** and capture the field catalog.
-2. Confirm that the target identity and permitted model list are correct.
-3. Open **Mapping draft**.
-4. Select a writable Odoo field for each source column you want to map.
-5. Save a draft for continued work or submit it for the later review slice.
+2. For each model used by the migration, enter its natural business-key fields
+   and any company or tenant scope fields using Odoo technical field names.
+3. Confirm the governed keys. Do not use a guessed key: it must be unique in
+   the intended Odoo environment.
+4. For every frozen dataset, choose a target model and map its source trace
+   identity and confirmed target identity/scope.
+5. Map writable scalar fields.
+6. Configure many2one and many2many relationships using either an incoming
+   dataset or a confirmed existing-target business key. For one2many, map the
+   child dataset's inverse many2one instead.
+7. Save and validate a draft. Resolve every blocking semantic finding.
+8. Submit the exact validated revision. Displayed warnings require explicit
+   acknowledgement.
 
 Schema discovery issues one `fields_get` call per explicitly permitted model;
 it does not read target records or invoke an Odoo write method. Source
-reinspection, source reconfirmation, dataset refreezing, or schema recapture
-invalidates any mapping draft that could otherwise become stale.
+reinspection, source reconfirmation, dataset refreezing, schema recapture, or
+business-key governance change invalidates the active mapping pointer. Its
+immutable revision, validation, and submission history remains available in
+the project database.
 
 ### Local Odoo mode
 
@@ -132,10 +147,10 @@ stops it.
 ## Current boundary
 
 The browser implements Phase A, the complete current CSV/XLSX Phase 1 source
-discovery flow, and the first Phase 2 schema/mapping draft slice. Advanced
-mapping semantics, durable canonical staging, mapping approval, and execution
-are not yet implemented. There is no Odoo write capability and no Production
-option.
+discovery flow, and Phase 2B relationship authoring and semantic validation.
+Constants and transformations, mapping import/export and approval, durable
+canonical staging, and execution are not yet implemented. There is no Odoo
+write capability and no Production option.
 
 ## Verify
 

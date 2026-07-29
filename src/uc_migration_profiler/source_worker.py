@@ -7,7 +7,11 @@ from ctypes import wintypes
 import multiprocessing
 import os
 from pathlib import Path
+import sys
+import time
 from typing import Any
+
+import psutil
 
 from .inspection import (
     SourceFileCatalog,
@@ -43,7 +47,13 @@ def validate_source_file_isolated(path: str | Path) -> None:
         if os.name == "nt":
             job_handle = _assign_windows_job(process.pid)
         start_event.set()
-        if not receiver.poll(VALIDATION_TIMEOUT_SECONDS):
+        if not _poll_with_memory_limit(
+            receiver,
+            process,
+            timeout_seconds=VALIDATION_TIMEOUT_SECONDS,
+            operation="validation",
+            error_type=SourceLoadError,
+        ):
             process.terminate()
             process.join(timeout=5)
             raise SourceLoadError("Source validation exceeded its time limit")
@@ -95,7 +105,13 @@ def inspect_source_file_isolated(
         if os.name == "nt":
             job_handle = _assign_windows_job(process.pid)
         start_event.set()
-        if not receiver.poll(INSPECTION_TIMEOUT_SECONDS):
+        if not _poll_with_memory_limit(
+            receiver,
+            process,
+            timeout_seconds=INSPECTION_TIMEOUT_SECONDS,
+            operation="inspection",
+            error_type=SourceInspectionError,
+        ):
             process.terminate()
             process.join(timeout=5)
             raise SourceInspectionError("Source inspection exceeded its time limit")
@@ -126,7 +142,7 @@ def inspect_source_file_isolated(
 
 def _worker(path: str, sender: Any, start_event: Any) -> None:
     try:
-        if os.name != "nt":
+        if os.name != "nt" and sys.platform != "darwin":
             _limit_unix_memory()
         start_event.wait()
         validate_source_file(path)
@@ -146,7 +162,7 @@ def _inspection_worker(
     start_event: Any,
 ) -> None:
     try:
-        if os.name != "nt":
+        if os.name != "nt" and sys.platform != "darwin":
             _limit_unix_memory()
         start_event.wait()
         catalog = inspect_source_file(
@@ -169,10 +185,48 @@ def _limit_unix_memory() -> None:
         raise SourceLoadError(
             "This platform cannot enforce the source-validator memory limit"
         ) from error
-    resource.setrlimit(
-        resource.RLIMIT_AS,
-        (VALIDATION_MEMORY_BYTES, VALIDATION_MEMORY_BYTES),
-    )
+    _soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+    limit = min(VALIDATION_MEMORY_BYTES, hard)
+    resource.setrlimit(resource.RLIMIT_AS, (limit, hard))
+
+
+def _poll_with_memory_limit(
+    receiver: Any,
+    process: multiprocessing.Process,
+    *,
+    timeout_seconds: int,
+    operation: str,
+    error_type: type[Exception],
+) -> bool:
+    """Wait for a worker while enforcing macOS resident-memory bounds.
+
+    macOS cannot reliably lower ``RLIMIT_AS`` after Python and its native
+    libraries are loaded.  The parent therefore watches the spawned process's
+    resident set and fails closed if it crosses the same 512 MiB boundary.
+    Linux keeps the kernel-enforced address-space limit and Windows uses a Job
+    Object configured by the caller.
+    """
+
+    if sys.platform != "darwin":
+        return receiver.poll(timeout_seconds)
+    deadline = time.monotonic() + timeout_seconds
+    monitored = psutil.Process(process.pid)
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        if receiver.poll(min(0.05, remaining)):
+            return True
+        try:
+            resident = monitored.memory_info().rss
+        except psutil.NoSuchProcess:
+            return receiver.poll(0)
+        if resident > VALIDATION_MEMORY_BYTES:
+            process.terminate()
+            process.join(timeout=5)
+            raise error_type(
+                f"Source {operation} exceeded its memory limit"
+            )
 
 
 class _IoCounters(ctypes.Structure):

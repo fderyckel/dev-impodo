@@ -38,6 +38,19 @@ from ..inspection import (
     SourceInspectionService,
 )
 from ..jobs import InlineJobDispatcher, JobDispatcher
+from ..mapping_semantics import (
+    BusinessKeyDefinition,
+    BusinessKeyStatus,
+    DatasetMapping,
+    IdentityComponentMapping,
+    MappingTargetMode,
+    ReferenceKeyMapping,
+    RelationshipMapping,
+    RelationshipResolver,
+    ResolverOrigin,
+    ScalarFieldMapping,
+    mapping_issue_fingerprint,
+)
 from ..project_store import DuckDbProjectRepository
 from ..projects import (
     MigrationProject,
@@ -51,7 +64,6 @@ from ..projects import (
 )
 from ..secrets import CredentialVault, SecretStore, SecretStoreError
 from ..workspace import (
-    FieldMapping,
     MappingWorkspaceService,
     SchemaWorkspaceService,
     SourceWorkspaceService,
@@ -734,13 +746,7 @@ def create_local_app(
     @app.get("/projects/{project_id}/schema", response_class=HTMLResponse)
     async def project_schema(request: Request, project_id: str):
         require_session(request)
-        return _render(
-            request,
-            "project_schema.html",
-            project=context.repository.get(project_id),
-            selection=context.repository.get_source_selection(project_id),
-            schema=context.repository.get_odoo_schema_catalog(project_id),
-        )
+        return _render_schema(request, context, project_id)
 
     @app.post("/projects/{project_id}/schema/capture")
     async def capture_project_schema(request: Request, project_id: str):
@@ -769,16 +775,78 @@ def create_local_app(
             SecretStoreError,
             WorkspaceError,
         ) as error:
-            return _render(
+            return _render_schema(
                 request,
-                "project_schema.html",
-                project=project,
-                selection=context.repository.get_source_selection(project_id),
-                schema=context.repository.get_odoo_schema_catalog(project_id),
+                context,
+                project_id,
                 error=str(error),
                 status_code=422,
             )
         _flash(request, f"Captured {len(schema.models)} permitted Odoo model(s).")
+        return RedirectResponse(
+            f"/projects/{project_id}/schema",
+            status_code=303,
+        )
+
+    @app.post("/projects/{project_id}/schema/govern")
+    async def govern_project_schema(request: Request, project_id: str):
+        form = await request.form()
+        schema = context.repository.get_odoo_schema_catalog(project_id)
+        if schema is None:
+            raise HTTPException(status_code=422, detail="Odoo schema missing")
+        allowed = {"csrf_token"} | {
+            name
+            for index, _model in enumerate(schema.models)
+            for name in (
+                f"key_fields_{index}",
+                f"scope_fields_{index}",
+                f"key_description_{index}",
+            )
+        }
+        _secure_form(request, form, allowed)
+        definitions: list[BusinessKeyDefinition] = []
+        for index, model in enumerate(schema.models):
+            key_fields = _comma_values(
+                _text(form, f"key_fields_{index}")
+            )
+            if not key_fields:
+                continue
+            scope_fields = _comma_values(
+                _text(form, f"scope_fields_{index}")
+            )
+            definitions.append(
+                BusinessKeyDefinition(
+                    key_id=_business_key_id(
+                        model.name, key_fields, scope_fields
+                    ),
+                    model=model.name,
+                    key_fields=key_fields,
+                    scope_fields=scope_fields,
+                    description=_text(form, f"key_description_{index}"),
+                    status=BusinessKeyStatus.CONFIRMED,
+                )
+            )
+        try:
+            governance = context.schema_workspace.govern(
+                project_id,
+                business_keys=definitions,
+                actor=context.actor,
+            )
+        except (ValueError, WorkspaceError) as error:
+            return _render_schema(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            (
+                f"Confirmed schema governance version {governance.version} "
+                f"with {len(governance.business_keys)} business key(s)."
+            ),
+        )
         return RedirectResponse(
             f"/projects/{project_id}/mapping",
             status_code=303,
@@ -795,43 +863,39 @@ def create_local_app(
         selection = context.repository.get_source_selection(project_id)
         if selection is None:
             raise HTTPException(status_code=422, detail="Source selection missing")
-        source_columns = [
-            (dataset.name, column.source_name)
-            for dataset in selection.datasets
-            for column in dataset.columns
-        ]
-        allowed = {"csrf_token", "action"} | {
-            f"target_{index}" for index, _item in enumerate(source_columns)
-        }
+
+        schema = context.repository.get_odoo_schema_catalog(project_id)
+        governance = context.repository.get_schema_governance(project_id)
+        if schema is None:
+            raise HTTPException(status_code=422, detail="Odoo schema missing")
+        allowed = _mapping_allowed_fields(form, selection, schema)
         _secure_form(request, form, allowed)
-        proposals: list[FieldMapping] = []
-        for index, (dataset_name, source_column) in enumerate(source_columns):
-            target = _text(form, f"target_{index}")
-            if not target:
-                continue
-            try:
-                target_model, target_field = target.split("::", 1)
-            except ValueError as error:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Invalid target field",
-                ) from error
-            proposals.append(
-                FieldMapping(
-                    dataset_name=dataset_name,
-                    source_column=source_column,
-                    target_model=target_model,
-                    target_field=target_field,
+        try:
+            action = _text(form, "action")
+            if action not in {"draft", "submit"}:
+                raise WorkspaceError("Choose save draft or submit")
+            expected_parent = _optional_int(
+                _text(form, "expected_parent_version")
+            )
+            datasets = _mapping_datasets_from_form(
+                form,
+                selection,
+                schema,
+                governance,
+            )
+            revision, validation, submission = (
+                context.mapping_workspace.save_definition(
+                    project_id,
+                    datasets=datasets,
+                    expected_parent_version=expected_parent,
+                    submit=action == "submit",
+                    warning_acknowledgements=_texts(
+                        form, "warning_acknowledgement"
+                    ),
+                    actor=context.actor,
                 )
             )
-        try:
-            draft = context.mapping_workspace.save(
-                project_id,
-                proposals=proposals,
-                submit=_text(form, "action") == "submit",
-                actor=context.actor,
-            )
-        except WorkspaceError as error:
+        except (ValueError, WorkspaceError) as error:
             return _render_mapping(
                 request,
                 context,
@@ -839,10 +903,19 @@ def create_local_app(
                 error=str(error),
                 status_code=422,
             )
-        _flash(
-            request,
-            f"Mapping {draft.status.value.casefold()} as version {draft.version}.",
-        )
+        if submission is not None:
+            _flash(
+                request,
+                f"Mapping submitted as version {revision.version}.",
+            )
+        else:
+            _flash(
+                request,
+                (
+                    f"Saved mapping version {revision.version}: "
+                    f"{validation.status.value.replace('_', ' ').casefold()}."
+                ),
+            )
         return RedirectResponse(
             f"/projects/{project_id}/mapping",
             status_code=303,
@@ -1051,6 +1124,34 @@ def _dataset_choices(
     return tuple(choices)
 
 
+def _render_schema(
+    request: Request,
+    context: WebContext,
+    project_id: str,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+):
+    schema = context.repository.get_odoo_schema_catalog(project_id)
+    governance = context.repository.get_schema_governance(project_id)
+    governed_by_model = (
+        {item.model: item for item in governance.business_keys}
+        if governance
+        else {}
+    )
+    return _render(
+        request,
+        "project_schema.html",
+        project=context.repository.get(project_id),
+        selection=context.repository.get_source_selection(project_id),
+        schema=schema,
+        governance=governance,
+        governed_by_model=governed_by_model,
+        error=error,
+        status_code=status_code,
+    )
+
+
 def _render_mapping(
     request: Request,
     context: WebContext,
@@ -1061,30 +1162,44 @@ def _render_mapping(
 ):
     selection = context.repository.get_source_selection(project_id)
     schema = context.repository.get_odoo_schema_catalog(project_id)
-    draft = context.repository.get_mapping_draft(project_id)
-    existing = (
-        {
-            (entry.dataset_name, entry.source_column): (
-                f"{entry.target_model}::{entry.target_field}"
-            )
-            for entry in draft.entries
-        }
-        if draft
-        else {}
-    )
-    source_columns = (
-        tuple(
-            {
-                "dataset": dataset.name,
-                "column": column.source_name,
-                "candidate_type": column.candidate_type,
-                "selected": existing.get((dataset.name, column.source_name), ""),
-            }
-            for dataset in selection.datasets
-            for column in dataset.columns
+    governance = context.repository.get_schema_governance(project_id)
+    revision = context.repository.get_mapping_revision(project_id)
+    validation = (
+        context.repository.get_mapping_validation(
+            project_id, revision.version
         )
-        if selection
+        if revision
+        else None
+    )
+    submission = (
+        context.repository.get_mapping_submission(
+            project_id, revision.version
+        )
+        if revision
+        else None
+    )
+    legacy_draft = context.repository.get_mapping_draft(project_id)
+    dataset_views = (
+        _mapping_dataset_views(
+            selection,
+            schema,
+            governance,
+            revision.definition.datasets if revision else (),
+            {
+                index: request.query_params.get(f"target_model_{index}", "")
+                for index, _item in enumerate(selection.datasets)
+            },
+        )
+        if selection and schema
         else ()
+    )
+    warning_issues = tuple(
+        {
+            "issue": item,
+            "fingerprint": mapping_issue_fingerprint(item),
+        }
+        for item in (validation.issues if validation else ())
+        if item.severity == "warning"
     )
     return _render(
         request,
@@ -1092,11 +1207,662 @@ def _render_mapping(
         project=context.repository.get(project_id),
         selection=selection,
         schema=schema,
-        draft=draft,
-        source_columns=source_columns,
+        governance=governance,
+        revision=revision,
+        validation=validation,
+        submission=submission,
+        legacy_draft=legacy_draft,
+        dataset_views=dataset_views,
+        warning_issues=warning_issues,
         error=error,
         status_code=status_code,
     )
+
+
+def _mapping_dataset_views(
+    selection,
+    schema,
+    governance,
+    existing_datasets,
+    selected_models=None,
+) -> tuple[dict[str, object], ...]:
+    existing_by_id = {item.dataset_id: item for item in existing_datasets}
+    models = {item.name: item for item in schema.models}
+    keys = tuple(governance.business_keys) if governance else ()
+    confirmed = tuple(
+        item
+        for item in keys
+        if item.status is BusinessKeyStatus.CONFIRMED
+    )
+    result: list[dict[str, object]] = []
+    for dataset_index, source_dataset in enumerate(selection.datasets):
+        existing = existing_by_id.get(source_dataset.dataset_id)
+        selected_override = (
+            selected_models.get(dataset_index, "")
+            if selected_models is not None
+            else ""
+        )
+        selected_model_name = (
+            selected_override
+            if selected_override in models
+            else (
+                existing.target_model
+                if existing and existing.target_model in models
+                else (
+                    next(
+                        (
+                            item.model
+                            for item in confirmed
+                            if item.model in models
+                        ),
+                        schema.models[0].name if schema.models else "",
+                    )
+                )
+            )
+        )
+        model = models.get(selected_model_name)
+        model_keys = tuple(
+            item for item in confirmed if item.model == selected_model_name
+        )
+        existing_identity_fields = tuple(
+            target
+            for component in (
+                (*existing.target_identity, *existing.target_scope)
+                if existing
+                else ()
+            )
+            for target in component.target_fields
+        )
+        selected_key = next(
+            (
+                item
+                for item in model_keys
+                if (*item.key_fields, *item.scope_fields)
+                == existing_identity_fields
+            ),
+            model_keys[0] if model_keys else None,
+        )
+        field_by_name = (
+            {item.name: item for item in model.fields} if model else {}
+        )
+        existing_components = {
+            item.target_fields[0]: item
+            for item in (
+                (*existing.target_identity, *existing.target_scope)
+                if existing
+                else ()
+            )
+            if len(item.target_fields) == 1
+        }
+        identity_rows: list[dict[str, object]] = []
+        if selected_key is not None:
+            for target_field in (
+                *selected_key.key_fields,
+                *selected_key.scope_fields,
+            ):
+                metadata = field_by_name.get(target_field)
+                component = existing_components.get(target_field)
+                related_keys = tuple(
+                    item
+                    for item in confirmed
+                    if metadata is not None
+                    and item.model == metadata.relation
+                )
+                selected_related_key = _resolver_business_key(
+                    component.resolver if component else None,
+                    related_keys,
+                )
+                identity_rows.append(
+                    {
+                        "target_field": target_field,
+                        "scope": target_field in selected_key.scope_fields,
+                        "metadata": metadata,
+                        "relational": (
+                            metadata is not None
+                            and metadata.type == "many2one"
+                        ),
+                        "selected_sources": (
+                            component.source_column_keys if component else ()
+                        ),
+                        "related_keys": related_keys,
+                        "selected_related_key": selected_related_key,
+                    }
+                )
+        identity_targets = {
+            row["target_field"] for row in identity_rows
+        }
+        scalar_by_target = (
+            {item.target_field: item for item in existing.fields}
+            if existing
+            else {}
+        )
+        all_scalar_fields = tuple(
+            field
+            for field in (model.fields if model else ())
+            if field.type not in {"many2one", "many2many", "one2many"}
+        )
+        scalar_rows = tuple(
+            {
+                "index": field_index,
+                "metadata": field,
+                "mapping": scalar_by_target.get(field.name),
+                "canonical_type": _canonical_mapping_type(field.type),
+            }
+            for field_index, field in enumerate(all_scalar_fields)
+            if field.name not in identity_targets
+        )
+        relation_by_target = (
+            {item.target_field: item for item in existing.relationships}
+            if existing
+            else {}
+        )
+        relation_rows: list[dict[str, object]] = []
+        all_relation_fields = tuple(
+            field
+            for field in (model.fields if model else ())
+            if field.type in {"many2one", "many2many", "one2many"}
+        )
+        for relation_index, field in enumerate(all_relation_fields):
+            if field.name in identity_targets:
+                continue
+            mapping = relation_by_target.get(field.name)
+            related_keys = tuple(
+                item for item in confirmed if item.model == field.relation
+            )
+            relation_rows.append(
+                {
+                    "index": relation_index,
+                    "metadata": field,
+                    "mapping": mapping,
+                    "related_keys": related_keys,
+                    "selected_key": _resolver_business_key(
+                        mapping.resolver if mapping else None,
+                        related_keys,
+                    ),
+                }
+            )
+        result.append(
+            {
+                "index": dataset_index,
+                "source": source_dataset,
+                "mapping": existing,
+                "selected_model": selected_model_name,
+                "model": model,
+                "models": schema.models,
+                "business_keys": model_keys,
+                "selected_key": selected_key,
+                "identity_rows": tuple(identity_rows),
+                "scalar_rows": scalar_rows,
+                "relation_rows": tuple(relation_rows),
+                "other_datasets": tuple(
+                    item
+                    for item in selection.datasets
+                    if item.dataset_id != source_dataset.dataset_id
+                ),
+            }
+        )
+    return tuple(result)
+
+
+def _mapping_allowed_fields(form, selection, schema) -> set[str]:
+    allowed = {
+        "csrf_token",
+        "action",
+        "expected_parent_version",
+        "warning_acknowledgement",
+    }
+    model_names = {item.name for item in schema.models}
+    models = {item.name: item for item in schema.models}
+    for dataset_index, _dataset in enumerate(selection.datasets):
+        allowed.update(
+            {
+                f"target_model_{dataset_index}",
+                f"mode_{dataset_index}",
+                f"on_existing_{dataset_index}",
+                f"source_identity_{dataset_index}",
+                f"business_key_{dataset_index}",
+            }
+        )
+        target_model = _text(form, f"target_model_{dataset_index}")
+        if target_model not in model_names:
+            continue
+        model = models[target_model]
+        for identity_index in range(len(model.fields)):
+            allowed.update(
+                {
+                    f"identity_source_{dataset_index}_{identity_index}",
+                    f"identity_resolver_key_{dataset_index}_{identity_index}",
+                }
+            )
+        scalar_fields = [
+            item
+            for item in model.fields
+            if item.type not in {"many2one", "many2many", "one2many"}
+        ]
+        for field_index, _field in enumerate(scalar_fields):
+            allowed.update(
+                {
+                    f"scalar_source_{dataset_index}_{field_index}",
+                    f"scalar_type_{dataset_index}_{field_index}",
+                    f"scalar_compare_{dataset_index}_{field_index}",
+                    f"scalar_validate_only_{dataset_index}_{field_index}",
+                    f"scalar_required_{dataset_index}_{field_index}",
+                    f"scalar_required_create_{dataset_index}_{field_index}",
+                    f"scalar_null_{dataset_index}_{field_index}",
+                }
+            )
+        relation_fields = [
+            item
+            for item in model.fields
+            if item.type in {"many2one", "many2many", "one2many"}
+        ]
+        for relation_index, _field in enumerate(relation_fields):
+            allowed.update(
+                {
+                    f"relation_source_{dataset_index}_{relation_index}",
+                    f"relation_origin_{dataset_index}_{relation_index}",
+                    f"relation_dataset_{dataset_index}_{relation_index}",
+                    f"relation_key_{dataset_index}_{relation_index}",
+                    f"relation_operation_{dataset_index}_{relation_index}",
+                    f"relation_compare_{dataset_index}_{relation_index}",
+                    f"relation_validate_only_{dataset_index}_{relation_index}",
+                    f"relation_required_{dataset_index}_{relation_index}",
+                    f"relation_required_create_{dataset_index}_{relation_index}",
+                    f"relation_missing_{dataset_index}_{relation_index}",
+                    f"relation_ambiguous_{dataset_index}_{relation_index}",
+                    f"relation_null_{dataset_index}_{relation_index}",
+                    f"relation_separator_{dataset_index}_{relation_index}",
+                }
+            )
+    return allowed
+
+
+def _mapping_datasets_from_form(
+    form,
+    selection,
+    schema,
+    governance,
+) -> tuple[DatasetMapping, ...]:
+    models = {item.name: item for item in schema.models}
+    keys = {
+        item.key_id: item
+        for item in (
+            governance.business_keys if governance is not None else ()
+        )
+        if item.status is BusinessKeyStatus.CONFIRMED
+    }
+    datasets: list[DatasetMapping] = []
+    for dataset_index, source_dataset in enumerate(selection.datasets):
+        target_model = _text(form, f"target_model_{dataset_index}")
+        model = models.get(target_model)
+        if model is None:
+            raise WorkspaceError("Choose a captured target model")
+        selected_key = keys.get(
+            _text(form, f"business_key_{dataset_index}")
+        )
+        if selected_key is not None and selected_key.model != target_model:
+            raise WorkspaceError("Target business key does not match its model")
+        field_by_name = {item.name: item for item in model.fields}
+        source_columns = {
+            item.stable_key for item in source_dataset.columns
+        }
+        identity_components: list[IdentityComponentMapping] = []
+        scope_components: list[IdentityComponentMapping] = []
+        identity_targets: set[str] = set()
+        key_fields = (
+            (*selected_key.key_fields, *selected_key.scope_fields)
+            if selected_key
+            else ()
+        )
+        for identity_index, target_field in enumerate(key_fields):
+            selected_sources = tuple(
+                item
+                for item in _texts(
+                    form,
+                    f"identity_source_{dataset_index}_{identity_index}",
+                )
+                if item in source_columns
+            )
+            metadata = field_by_name.get(target_field)
+            resolver = None
+            if metadata is not None and metadata.type == "many2one":
+                related_key = keys.get(
+                    _text(
+                        form,
+                        (
+                            f"identity_resolver_key_{dataset_index}_"
+                            f"{identity_index}"
+                        ),
+                    )
+                )
+                resolver = _target_catalog_resolver(
+                    metadata.relation,
+                    related_key,
+                    selected_sources,
+                )
+            component = IdentityComponentMapping(
+                source_column_keys=selected_sources,
+                target_fields=(target_field,),
+                value_type=(
+                    "string"
+                    if resolver is not None
+                    else _canonical_mapping_type(
+                        metadata.type if metadata else "char"
+                    )
+                ),
+                resolver=resolver,
+            )
+            target = (
+                scope_components
+                if selected_key
+                and target_field in selected_key.scope_fields
+                else identity_components
+            )
+            target.append(component)
+            identity_targets.add(target_field)
+
+        scalar_fields = [
+            item
+            for item in model.fields
+            if item.type not in {"many2one", "many2many", "one2many"}
+        ]
+        scalar_mappings: list[ScalarFieldMapping] = []
+        for field_index, metadata in enumerate(scalar_fields):
+            source_key = _text(
+                form, f"scalar_source_{dataset_index}_{field_index}"
+            )
+            if not source_key or metadata.name in identity_targets:
+                continue
+            scalar_mappings.append(
+                ScalarFieldMapping(
+                    target_field=metadata.name,
+                    source_column_key=source_key,
+                    value_type=(
+                        _text(
+                            form,
+                            f"scalar_type_{dataset_index}_{field_index}",
+                        )
+                        or _canonical_mapping_type(metadata.type)
+                    ),
+                    compare=_checked(
+                        form,
+                        f"scalar_compare_{dataset_index}_{field_index}",
+                    ),
+                    validate_only=_checked(
+                        form,
+                        f"scalar_validate_only_{dataset_index}_{field_index}",
+                    ),
+                    required=_checked(
+                        form,
+                        f"scalar_required_{dataset_index}_{field_index}",
+                    ),
+                    required_on_create=_checked(
+                        form,
+                        (
+                            f"scalar_required_create_{dataset_index}_"
+                            f"{field_index}"
+                        ),
+                    ),
+                    null_policy=(
+                        _text(
+                            form,
+                            f"scalar_null_{dataset_index}_{field_index}",
+                        )
+                        or "distinct"
+                    ),
+                )
+            )
+
+        relation_fields = [
+            item
+            for item in model.fields
+            if item.type in {"many2one", "many2many", "one2many"}
+        ]
+        relationships: list[RelationshipMapping] = []
+        for relation_index, metadata in enumerate(relation_fields):
+            if metadata.name in identity_targets:
+                continue
+            selected_sources = tuple(
+                item
+                for item in _texts(
+                    form,
+                    f"relation_source_{dataset_index}_{relation_index}",
+                )
+                if item in source_columns
+            )
+            if not selected_sources:
+                continue
+            origin = ResolverOrigin(
+                _text(
+                    form,
+                    f"relation_origin_{dataset_index}_{relation_index}",
+                )
+                or ResolverOrigin.TARGET_CATALOG.value
+            )
+            if origin is ResolverOrigin.DATASET:
+                resolver = RelationshipResolver(
+                    origin=origin,
+                    dataset_id=_text(
+                        form,
+                        f"relation_dataset_{dataset_index}_{relation_index}",
+                    )
+                    or None,
+                )
+            else:
+                resolver = _target_catalog_resolver(
+                    metadata.relation,
+                    keys.get(
+                        _text(
+                            form,
+                            f"relation_key_{dataset_index}_{relation_index}",
+                        )
+                    ),
+                    selected_sources,
+                )
+            relationships.append(
+                RelationshipMapping(
+                    target_field=metadata.name,
+                    kind=metadata.type,
+                    source_column_keys=selected_sources,
+                    resolver=resolver,
+                    compare=_checked(
+                        form,
+                        f"relation_compare_{dataset_index}_{relation_index}",
+                    ),
+                    validate_only=_checked(
+                        form,
+                        (
+                            f"relation_validate_only_{dataset_index}_"
+                            f"{relation_index}"
+                        ),
+                    ),
+                    required=_checked(
+                        form,
+                        f"relation_required_{dataset_index}_{relation_index}",
+                    ),
+                    required_on_create=_checked(
+                        form,
+                        (
+                            f"relation_required_create_{dataset_index}_"
+                            f"{relation_index}"
+                        ),
+                    ),
+                    on_missing=(
+                        _text(
+                            form,
+                            f"relation_missing_{dataset_index}_{relation_index}",
+                        )
+                        or "error"
+                    ),
+                    on_ambiguous=(
+                        _text(
+                            form,
+                            (
+                                f"relation_ambiguous_{dataset_index}_"
+                                f"{relation_index}"
+                            ),
+                        )
+                        or "error"
+                    ),
+                    operation=(
+                        _text(
+                            form,
+                            (
+                                f"relation_operation_{dataset_index}_"
+                                f"{relation_index}"
+                            ),
+                        )
+                        or "replace"
+                    ),
+                    separator=(
+                        _text(
+                            form,
+                            (
+                                f"relation_separator_{dataset_index}_"
+                                f"{relation_index}"
+                            ),
+                        )
+                        or ";"
+                    ),
+                    null_policy=(
+                        _text(
+                            form,
+                            f"relation_null_{dataset_index}_{relation_index}",
+                        )
+                        or "distinct"
+                    ),
+                )
+            )
+        mode = MappingTargetMode(
+            _text(form, f"mode_{dataset_index}") or "upsert"
+        )
+        datasets.append(
+            DatasetMapping(
+                dataset_id=source_dataset.dataset_id,
+                target_model=target_model,
+                mode=mode,
+                on_existing=(
+                    _text(form, f"on_existing_{dataset_index}") or "block"
+                    if mode is MappingTargetMode.CREATE
+                    else None
+                ),
+                source_identity_column_keys=tuple(
+                    item
+                    for item in _texts(
+                        form, f"source_identity_{dataset_index}"
+                    )
+                    if item in source_columns
+                ),
+                target_identity=tuple(identity_components),
+                target_scope=tuple(scope_components),
+                fields=tuple(
+                    sorted(
+                        scalar_mappings,
+                        key=lambda item: item.target_field,
+                    )
+                ),
+                relationships=tuple(
+                    sorted(
+                        relationships,
+                        key=lambda item: item.target_field,
+                    )
+                ),
+            )
+        )
+    return tuple(datasets)
+
+
+def _target_catalog_resolver(
+    related_model: str | None,
+    business_key,
+    selected_sources: tuple[str, ...],
+) -> RelationshipResolver:
+    key_count = len(business_key.key_fields) if business_key else 0
+    return RelationshipResolver(
+        origin=ResolverOrigin.TARGET_CATALOG,
+        model=related_model,
+        key_mappings=tuple(
+            ReferenceKeyMapping(source, target)
+            for source, target in zip(
+                selected_sources[:key_count],
+                business_key.key_fields if business_key else (),
+                strict=False,
+            )
+        ),
+        scope_mappings=tuple(
+            ReferenceKeyMapping(source, target)
+            for source, target in zip(
+                selected_sources[key_count:],
+                business_key.scope_fields if business_key else (),
+                strict=False,
+            )
+        ),
+    )
+
+
+def _resolver_business_key(resolver, candidates):
+    if resolver is None or resolver.origin is not ResolverOrigin.TARGET_CATALOG:
+        return candidates[0] if candidates else None
+    key_fields = tuple(item.target_field for item in resolver.key_mappings)
+    scope_fields = tuple(item.target_field for item in resolver.scope_mappings)
+    return next(
+        (
+            item
+            for item in candidates
+            if item.key_fields == key_fields
+            and item.scope_fields == scope_fields
+        ),
+        candidates[0] if candidates else None,
+    )
+
+
+def _canonical_mapping_type(odoo_type: str) -> str:
+    return {
+        "boolean": "boolean",
+        "integer": "integer",
+        "float": "decimal",
+        "monetary": "decimal",
+        "date": "date",
+        "datetime": "datetime",
+    }.get(odoo_type, "string")
+
+
+def _comma_values(value: str) -> tuple[str, ...]:
+    return tuple(
+        item.strip()
+        for item in value.split(",")
+        if item.strip()
+    )
+
+
+def _business_key_id(
+    model: str,
+    key_fields: tuple[str, ...],
+    scope_fields: tuple[str, ...],
+) -> str:
+    payload = "\0".join((model, *key_fields, "\0", *scope_fields))
+    return f"key:{model}:{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _texts(form: FormData, name: str) -> tuple[str, ...]:
+    return tuple(
+        value
+        for value in form.getlist(name)
+        if isinstance(value, str) and value
+    )
+
+
+def _checked(form: FormData, name: str) -> bool:
+    return _text(form, name) in {"1", "true", "on", "yes"}
+
+
+def _optional_int(value: str) -> int | None:
+    if not value:
+        return None
+    try:
+        return int(value)
+    except ValueError as error:
+        raise WorkspaceError("Invalid mapping parent version") from error
 
 
 def _draft_or_redirect(

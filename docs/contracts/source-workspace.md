@@ -1,4 +1,4 @@
-# Source workspace and mapping-draft contract
+# Source workspace and semantic-mapping contract
 
 ## Source confirmation
 
@@ -12,8 +12,9 @@ A confirmation records:
 - warning acknowledgement, actor, and timestamp.
 
 Blank or duplicate candidate headers block confirmation. Other warnings require
-explicit acknowledgement. Regenerating a catalog invalidates its confirmation
-and every downstream source selection and mapping draft.
+explicit acknowledgement. Regenerating a catalog invalidates its confirmation,
+the active downstream source selection, and the active mapping pointer.
+Immutable historical mapping revisions remain retained.
 
 ## Frozen dataset selection
 
@@ -28,7 +29,8 @@ lowercase snake-case dataset names. Freezing creates a versioned artifact with:
 - actor, timestamp, version, and canonical content hash.
 
 Changing or reconfirming any source invalidates the frozen selection. Freezing
-a new version invalidates the mapping draft.
+a new version invalidates the active mapping pointer without deleting its
+revision, validation, or submission history.
 
 ## Odoo schema catalog
 
@@ -37,20 +39,54 @@ permitted during project registration. It performs one batched `fields_get`
 request per model, preventing a field- or row-level N+1 pattern.
 
 The catalog contains field label, technical name, type, required/readonly
-flags, relation, and selection values. Capture fails closed when the model set,
-environment, database, or Odoo 19 version differs from the project boundary.
-Recapturing the schema invalidates the mapping draft.
+flags, relation, inverse `relation_field`, and selection values. Capture fails
+closed when the model set, environment, database, or Odoo 19 version differs
+from the project boundary. Recapturing the schema invalidates current schema
+governance and the active mapping pointer while retaining history.
 
-## Mapping draft
+## Schema governance
 
-The browser maps ordered source columns to writable fields in the captured
-schema. A saved mapping is versioned as `DRAFT` or `SUBMITTED` and is bound to
-both the frozen-source content hash and schema content hash.
+Before mapping, a user with `schema.govern` confirms one or more natural
+business-key definitions. Each definition records a target model, an ordered
+key, optional company/tenant scope, description, and `CONFIRMED` status.
+Definitions are never inferred from field names. Schema governance is
+versioned, actor-attributed, content-hashed, and bound to the exact captured
+catalog.
 
-Unknown source columns, unknown or readonly Odoo fields, repeated source
-mappings, and repeated target mappings are rejected. `SUBMITTED` currently
-means ready for the later semantic-review slice; it is not mapping approval
-and grants no Odoo write capability.
+## Dataset-centric mapping
 
-Identity, scope, relationship, constant, transformation, import/export, full
-semantic validation, and approval remain future Phase 2 slices.
+Each frozen dataset declares:
+
+- one permitted target model and `upsert`, `create`, or `reference` mode;
+- source trace identity;
+- target identity and scope matching one confirmed business key;
+- typed scalar mappings and comparison/null policies;
+- many2one and many2many mappings resolved through an incoming dataset or an
+  existing-target business key.
+
+One2many fields are not directly mapped. The browser identifies the captured
+inverse field and guides the user to map the child dataset's owning many2one.
+Target fields have one provider per dataset; one source column may feed several
+explicit mappings.
+
+## Semantic validation and submission
+
+`MappingCompiler` canonicalizes order-insensitive collections. The pure
+`MappingSemanticValidator` checks exact source/schema hashes, permitted models
+and fields, governed identity/scope, type compatibility, readonly and required
+fields, relation kind/model/key arity, safe policies, incoming dependencies,
+and cycles. It emits deterministic structured issues, coverage, deferred
+runtime checks, and a validation hash.
+
+Row uniqueness, row-level required values, and actual reference resolution are
+explicitly deferred to staging and preflight; the semantic validator does not
+claim they passed.
+
+DuckDB retains append-only mapping revisions, validation results, and
+submissions. `SUBMITTED` binds the exact mapping and validation hashes and
+requires no blocking issue plus acknowledgement of every current warning. It
+means ready for a later approval slice, is not approval itself, and grants no
+Odoo write capability.
+
+Constants, transformations, mapping import/export, and mapping approval remain
+the Phase 2C scope.

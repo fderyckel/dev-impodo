@@ -3,7 +3,7 @@
 | Item | Value |
 | --- | --- |
 | Document status | Draft for cybersecurity and infrastructure review |
-| Review scope | First-release local application architecture and current Phase A implementation |
+| Review scope | First-release local architecture through current Phase 2B implementation |
 | Target platform | Managed Windows workstation; Odoo 19.4 DEV/TEST |
 | Planned target change | Odoo 20.0 in September, subject to separate compatibility validation |
 | Product owner for migration approval | Data manager |
@@ -76,12 +76,15 @@ Implemented:
 - deterministic offline preflight and review artifacts.
 - hash-bound CSV/XLSX inventory, interactive parsing confirmation, separately
   selectable worksheets/named tables, and frozen dataset versions;
-- read-only, explicitly allowlisted Odoo 19 schema capture and versioned
-  source-to-target mapping drafts.
+- read-only, explicitly allowlisted Odoo 19 schema capture;
+- governed business keys and scope, dataset-centric scalar and relationship
+  mapping, deterministic semantic validation, immutable revisions, and
+  exact-hash submissions.
 
 Not yet implemented or approved:
 
-- advanced mapping semantics, validation, review, and approval;
+- browser constants and transformations, mapping import/export, review, and
+  approval;
 - signed installer and reproducible packaged release;
 - pinned disposable Odoo/PostgreSQL Compose laboratory;
 - production target selection;
@@ -214,9 +217,9 @@ overwriting.
 
 ## 8. Verification evidence
 
-The latest default local run on 29 July 2026 executed 84 automated tests:
+The latest default local run on 29 July 2026 executed 89 automated tests:
 
-- 83 passed;
+- 88 passed;
 - one optional generated-review-workbook integration test was skipped because
   its Node.js/artifact-tool runtime is not installed in this workspace;
 - no default-suite test failed.
@@ -226,8 +229,10 @@ security headers, local/remote URL separation, credential rebinding, DuckDB
 security settings and schema migration, isolated file validation, realistic
 browser CSV/XLSX named-table inspection, source confirmation, frozen selection,
 allowlisted schema capture, mapping invalidation/versioning, read-connector
-closure, API-key redaction, target pagination, portable-ID rejection,
-deterministic manifests, and fail-closed migration classifications.
+closure, governed business keys, relationship semantics, mapping compilation,
+exact-hash validation/submission, API-key redaction, target pagination,
+portable-ID rejection, deterministic manifests, and fail-closed migration
+classifications.
 
 The optional generated-review-workbook test was explicitly invoked and stopped
 at its declared prerequisite because Node.js is unavailable. This does not

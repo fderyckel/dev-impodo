@@ -7,9 +7,11 @@ acceptance remains pending on the larger sanitized slice, live DEV/TEST
 evidence, and Odoo-side access controls
 
 This verdict applies only to the read-only preflight component. It is not a
-verdict that the end-to-end migration product is complete. Excel discovery,
-interactive source-to-Odoo mapping, durable staging, approval, controlled
-execution, and reconciliation remain roadmap capabilities documented in
+verdict that the end-to-end migration product is complete. Since this review,
+Excel/CSV discovery and Phase 2B interactive relationship mapping plus
+semantic validation have been implemented and tested separately. Durable
+staging, mapping approval, controlled execution, and reconciliation remain
+roadmap capabilities documented in
 [End-to-end migration product vision](product-vision.md).
 
 ## Review scope

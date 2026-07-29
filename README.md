@@ -24,8 +24,11 @@ Implemented:
   preview, candidate types, and column statistics;
 - interactive source parsing overrides, warning acknowledgement, hash-bound
   confirmation, and versioned frozen dataset selection;
-- allowlisted Odoo 19 field-catalog capture plus versioned visual mapping
-  drafts;
+- allowlisted Odoo 19 field-catalog capture, explicitly governed business
+  keys/scope, and dataset-centric visual mapping;
+- browser-authored many2one/many2many relationships, one2many inverse
+  guidance, deterministic semantic validation, immutable revisions, and
+  exact-hash mapping submissions;
 - one strict current profile shape;
 - profile-declared CSV and XLSX worksheets with exact source hashes;
 - contained source paths, bounded Office containers, XML-bomb protection,
@@ -94,7 +97,9 @@ python3 -m venv .venv
 ```
 
 CSV ingestion uses Python's standard library. XLSX ingestion uses `openpyxl`
-in read-only mode with `defusedxml`; both are installed with the package.
+in read-only mode with `defusedxml`. Spawned source workers use OS limits plus
+`psutil` for the macOS resident-memory watchdog; all are installed with the
+package.
 
 The Excel report writer uses `@oai/artifact-tool` through Node.js. In the
 Codex desktop runtime, expose the bundled runtime:
@@ -112,8 +117,8 @@ No Odoo credentials are needed for tests or the offline example.
 ## Local project browser
 
 The local browser implements Stage A project registration, the complete
-current CSV/XLSX Phase 1 discovery flow, and the first Phase 2 schema/mapping
-draft slice without manual YAML editing:
+current CSV/XLSX Phase 1 discovery flow, and Phase 2B governed relationship
+mapping and semantic validation without manual YAML editing:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e .
@@ -126,10 +131,13 @@ literal-loopback local Odoo 19 instance or an HTTPS on-premises DEV/TEST
 target, and writes a local DuckDB project plus canonical registration evidence.
 After registration it verifies the stored source hashes, supports governed
 parsing overrides and table selection, freezes named datasets, captures fields
-for explicitly permitted Odoo 19 models, and creates a versioned visual mapping
-draft. It never writes to Odoo.
+for explicitly permitted Odoo 19 models, confirms target business keys and
+scope, authors scalar and relationship mappings, and stores deterministic
+validation plus exact-hash submissions. It never writes to Odoo.
 
-See [Local project browser](docs/operations/local-browser.md), the
+See the
+[local-browser user guide for data analysts and data managers](docs/operations/local-browser-user-guide.md),
+[Local project browser](docs/operations/local-browser.md), the
 [migration project contract](docs/contracts/migration-project.md), the
 [source catalog contract](docs/contracts/source-catalog.md), and the
 [source workspace contract](docs/contracts/source-workspace.md).

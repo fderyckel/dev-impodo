@@ -13,6 +13,14 @@ import duckdb
 
 from .access import Actor
 from .inspection import SourceFileCatalog, SourceInspectionError
+from .mapping_semantics import (
+    MappingRevision,
+    MappingSubmission,
+    MappingValidationResult,
+    MappingValidationStatus,
+    SchemaGovernance,
+    mapping_issue_fingerprint,
+)
 from .projects import (
     ApprovalStatus,
     DataClassification,
@@ -35,7 +43,7 @@ from .workspace import (
 )
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 class DuckDbProjectRepository:
@@ -189,6 +197,7 @@ class DuckDbProjectRepository:
                 connection.execute("DELETE FROM source_configuration")
                 connection.execute("DELETE FROM source_selection")
                 connection.execute("DELETE FROM mapping_draft")
+                connection.execute("DELETE FROM mapping_current")
                 for catalog in catalog_set:
                     connection.execute(
                         """
@@ -270,6 +279,7 @@ class DuckDbProjectRepository:
                 )
                 connection.execute("DELETE FROM source_selection")
                 connection.execute("DELETE FROM mapping_draft")
+                connection.execute("DELETE FROM mapping_current")
                 self._insert_workspace_audit(
                     connection,
                     revision=revision,
@@ -345,6 +355,7 @@ class DuckDbProjectRepository:
                 )
                 connection.execute("DELETE FROM source_selection")
                 connection.execute("DELETE FROM mapping_draft")
+                connection.execute("DELETE FROM mapping_current")
                 self._insert_workspace_audit(
                     connection,
                     revision=revision,
@@ -379,7 +390,7 @@ class DuckDbProjectRepository:
             event_type="SOURCE_SELECTION_FROZEN",
             detail=f"version {selection.version}: {len(selection.datasets)} dataset(s)",
             actor=actor,
-            invalidate=("mapping_draft",),
+            invalidate=("mapping_draft", "mapping_current"),
         )
 
     def get_odoo_schema_catalog(
@@ -411,8 +422,116 @@ class DuckDbProjectRepository:
             event_type="ODOO_SCHEMA_CAPTURED",
             detail=f"{len(catalog.models)} permitted model(s)",
             actor=actor,
-            invalidate=("mapping_draft",),
+            invalidate=(
+                "mapping_draft",
+                "mapping_current",
+                "schema_governance_current",
+            ),
         )
+
+    def get_schema_governance(
+        self,
+        project_id: str,
+    ) -> SchemaGovernance | None:
+        value = self._read_singleton_json(
+            project_id,
+            """
+            SELECT revision.governance_json
+              FROM schema_governance_current AS current
+              JOIN schema_governance_revision AS revision
+                ON revision.governance_id = current.governance_id
+               AND revision.version = current.version
+             WHERE current.singleton_id = 1
+            """,
+        )
+        return SchemaGovernance.from_json(value) if value else None
+
+    def save_schema_governance(
+        self,
+        project_id: str,
+        governance: SchemaGovernance,
+        *,
+        actor: Actor,
+    ) -> None:
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            schema_row = connection.execute(
+                """
+                SELECT catalog_json
+                  FROM odoo_schema_catalog
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()
+            if schema_row is None:
+                raise WorkspaceError("Capture the Odoo schema first")
+            schema = OdooSchemaCatalog.from_json(str(schema_row[0]))
+            if (
+                governance.project_id != project_id
+                or governance.catalog_hash != schema.content_hash
+                or tuple(sorted(governance.permitted_models))
+                != tuple(sorted(model.name for model in schema.models))
+            ):
+                raise WorkspaceError(
+                    "Schema governance does not match the captured schema"
+                )
+            current = connection.execute(
+                """
+                SELECT governance_id, version
+                  FROM schema_governance_current
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()
+            expected_version = int(current[1]) + 1 if current else 1
+            expected_id = str(current[0]) if current else governance.governance_id
+            if (
+                governance.version != expected_version
+                or governance.governance_id != expected_id
+            ):
+                raise WorkspaceError(
+                    "Schema governance was modified by another request"
+                )
+            revision = self._project_revision(connection)
+            connection.begin()
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO schema_governance_revision
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        governance.governance_id,
+                        governance.version,
+                        governance.catalog_hash,
+                        governance.content_hash,
+                        governance.to_json(),
+                    ],
+                )
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO schema_governance_current
+                    VALUES (1, ?, ?)
+                    """,
+                    [governance.governance_id, governance.version],
+                )
+                connection.execute("DELETE FROM mapping_current")
+                connection.execute("DELETE FROM mapping_draft")
+                self._insert_workspace_audit(
+                    connection,
+                    revision=revision,
+                    event_type="SCHEMA_GOVERNANCE_CONFIRMED",
+                    detail=(
+                        f"version {governance.version}: "
+                        f"{len(governance.business_keys)} business key(s)"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
     def get_mapping_draft(self, project_id: str) -> MappingDraft | None:
         value = self._read_singleton_json(
@@ -437,6 +556,322 @@ class DuckDbProjectRepository:
             detail=f"version {draft.version}: {len(draft.entries)} mapping(s)",
             actor=actor,
         )
+
+    def get_mapping_revision(
+        self,
+        project_id: str,
+        version: int | None = None,
+    ) -> MappingRevision | None:
+        if version is None:
+            query = """
+                SELECT revision.revision_json
+                  FROM mapping_current AS current
+                  JOIN mapping_revision AS revision
+                    ON revision.mapping_id = current.mapping_id
+                   AND revision.version = current.version
+                 WHERE current.singleton_id = 1
+            """
+            value = self._read_singleton_json(project_id, query)
+        else:
+            values = self._read_json_rows(
+                project_id,
+                """
+                SELECT revision_json
+                  FROM mapping_revision
+                 WHERE version = ?
+                 ORDER BY mapping_id
+                """,
+                [version],
+            )
+            value = values[0] if values else None
+        return MappingRevision.from_json(value) if value else None
+
+    def list_mapping_revisions(
+        self,
+        project_id: str,
+    ) -> tuple[MappingRevision, ...]:
+        return tuple(
+            MappingRevision.from_json(value)
+            for value in self._read_json_rows(
+                project_id,
+                """
+                SELECT revision_json
+                  FROM mapping_revision
+                 ORDER BY version, mapping_id
+                """,
+            )
+        )
+
+    def save_mapping_revision(
+        self,
+        project_id: str,
+        revision: MappingRevision,
+        *,
+        validation: MappingValidationResult,
+        expected_parent_version: int | None,
+        actor: Actor,
+    ) -> None:
+        if revision.definition.mapping_id != revision.mapping_id:
+            raise WorkspaceError(
+                "Mapping revision and definition IDs do not match"
+            )
+        if validation.mapping_content_hash != revision.definition.content_hash:
+            raise WorkspaceError(
+                "Mapping validation does not match its revision"
+            )
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            current = connection.execute(
+                """
+                SELECT mapping_id, version
+                  FROM mapping_current
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()
+            current_version = int(current[1]) if current else None
+            current_id = str(current[0]) if current else revision.mapping_id
+            maximum = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) FROM mapping_revision"
+            ).fetchone()
+            next_version = int(maximum[0]) + 1
+            if (
+                current_version != expected_parent_version
+                or revision.parent_version != expected_parent_version
+                or revision.mapping_id != current_id
+                or revision.version != next_version
+            ):
+                raise WorkspaceError(
+                    "The mapping was modified by another request"
+                )
+            revision_number = self._project_revision(connection)
+            connection.begin()
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO mapping_revision
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        revision.mapping_id,
+                        revision.version,
+                        revision.parent_version,
+                        revision.definition.content_hash,
+                        revision.definition.source_selection_hash,
+                        revision.definition.schema_hash,
+                        revision.created_at.isoformat(),
+                        revision.to_json(),
+                    ],
+                )
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO mapping_current
+                    VALUES (1, ?, ?)
+                    """,
+                    [revision.mapping_id, revision.version],
+                )
+                connection.execute(
+                    """
+                    INSERT INTO mapping_validation
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        revision.mapping_id,
+                        revision.version,
+                        validation.validator_version,
+                        validation.validation_hash,
+                        revision.created_at.isoformat(),
+                        validation.to_json(),
+                    ],
+                )
+                connection.execute("DELETE FROM mapping_draft")
+                self._insert_workspace_audit(
+                    connection,
+                    revision=revision_number,
+                    event_type="MAPPING_REVISION_SAVED",
+                    detail=(
+                        f"version {revision.version}: "
+                        f"{len(revision.definition.datasets)} dataset(s)"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def get_mapping_validation(
+        self,
+        project_id: str,
+        version: int,
+    ) -> MappingValidationResult | None:
+        values = self._read_json_rows(
+            project_id,
+            """
+            SELECT validation_json
+              FROM mapping_validation
+             WHERE version = ?
+             ORDER BY created_at DESC, validation_hash
+            """,
+            [version],
+        )
+        return (
+            MappingValidationResult.from_json(values[0]) if values else None
+        )
+
+    def save_mapping_validation(
+        self,
+        project_id: str,
+        version: int,
+        validation: MappingValidationResult,
+        *,
+        actor: Actor,
+    ) -> None:
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            row = connection.execute(
+                """
+                SELECT mapping_id, content_hash
+                  FROM mapping_revision
+                 WHERE version = ?
+                 ORDER BY mapping_id
+                 LIMIT 1
+                """,
+                [version],
+            ).fetchone()
+            if row is None or str(row[1]) != validation.mapping_content_hash:
+                raise WorkspaceError(
+                    "Mapping validation does not match its revision"
+                )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO mapping_validation
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    str(row[0]),
+                    version,
+                    validation.validator_version,
+                    validation.validation_hash,
+                    datetime.now(timezone.utc).isoformat(),
+                    validation.to_json(),
+                ],
+            )
+
+    def get_mapping_submission(
+        self,
+        project_id: str,
+        version: int | None = None,
+    ) -> MappingSubmission | None:
+        condition = "WHERE version = ?" if version is not None else ""
+        parameters: list[object] = [version] if version is not None else []
+        values = self._read_json_rows(
+            project_id,
+            f"""
+            SELECT submission_json
+              FROM mapping_submission
+              {condition}
+             ORDER BY submitted_at DESC, submission_id
+            """,
+            parameters,
+        )
+        return MappingSubmission.from_json(values[0]) if values else None
+
+    def save_mapping_submission(
+        self,
+        project_id: str,
+        submission: MappingSubmission,
+        *,
+        actor: Actor,
+    ) -> None:
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            row = connection.execute(
+                """
+                SELECT revision.content_hash, validation.validation_hash,
+                       validation.validation_json
+                  FROM mapping_revision AS revision
+                  JOIN mapping_validation AS validation
+                    ON validation.mapping_id = revision.mapping_id
+                   AND validation.version = revision.version
+                 WHERE revision.mapping_id = ?
+                   AND revision.version = ?
+                   AND validation.validation_hash = ?
+                """,
+                [
+                    submission.mapping_id,
+                    submission.version,
+                    submission.validation_hash,
+                ],
+            ).fetchone()
+            if (
+                row is None
+                or str(row[0]) != submission.mapping_content_hash
+                or str(row[1]) != submission.validation_hash
+            ):
+                raise WorkspaceError(
+                    "Mapping submission does not match validated evidence"
+                )
+            validation = MappingValidationResult.from_json(str(row[2]))
+            warning_fingerprints = tuple(
+                sorted(
+                    mapping_issue_fingerprint(item)
+                    for item in validation.issues
+                    if item.severity == "warning"
+                )
+            )
+            if (
+                validation.status is MappingValidationStatus.INVALID
+                or submission.warning_acknowledgements
+                != warning_fingerprints
+            ):
+                raise WorkspaceError(
+                    "Mapping submission has not passed its validation gate"
+                )
+            revision = self._project_revision(connection)
+            connection.begin()
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO mapping_submission
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        submission.submission_id,
+                        submission.mapping_id,
+                        submission.version,
+                        submission.mapping_content_hash,
+                        submission.validation_hash,
+                        submission.submitted_at.isoformat(),
+                        submission.to_json(),
+                    ],
+                )
+                connection.execute(
+                    "UPDATE project SET mapping_version = ?",
+                    [str(submission.version)],
+                )
+                self._insert_workspace_audit(
+                    connection,
+                    revision=revision,
+                    event_type="MAPPING_SUBMITTED",
+                    detail=(
+                        f"version {submission.version}: "
+                        f"{submission.mapping_content_hash}"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
     def save(
         self,
@@ -563,13 +998,14 @@ class DuckDbProjectRepository:
         self,
         project_id: str,
         query: str,
+        parameters: list[object] | None = None,
     ) -> tuple[str, ...]:
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
             self._migrate_project_database(connection)
-            rows = connection.execute(query).fetchall()
+            rows = connection.execute(query, parameters or []).fetchall()
         return tuple(str(row[0]) for row in rows)
 
     def _read_singleton_json(
@@ -615,7 +1051,11 @@ class DuckDbProjectRepository:
                     [value],
                 )
                 for target in invalidate:
-                    if target != "mapping_draft":
+                    if target not in {
+                        "mapping_draft",
+                        "mapping_current",
+                        "schema_governance_current",
+                    }:
                         raise ValueError("Unsupported invalidation table")
                     connection.execute(f"DELETE FROM {target}")
                 self._insert_workspace_audit(
@@ -759,6 +1199,59 @@ class DuckDbProjectRepository:
             CREATE TABLE mapping_draft (
                 singleton_id INTEGER PRIMARY KEY,
                 draft_json VARCHAR NOT NULL
+            );
+
+            CREATE TABLE schema_governance_revision (
+                governance_id VARCHAR NOT NULL,
+                version INTEGER NOT NULL,
+                catalog_hash VARCHAR NOT NULL,
+                content_hash VARCHAR NOT NULL,
+                governance_json VARCHAR NOT NULL,
+                PRIMARY KEY (governance_id, version)
+            );
+
+            CREATE TABLE schema_governance_current (
+                singleton_id INTEGER PRIMARY KEY,
+                governance_id VARCHAR NOT NULL,
+                version INTEGER NOT NULL
+            );
+
+            CREATE TABLE mapping_revision (
+                mapping_id VARCHAR NOT NULL,
+                version INTEGER NOT NULL,
+                parent_version INTEGER,
+                content_hash VARCHAR NOT NULL,
+                source_selection_hash VARCHAR NOT NULL,
+                schema_hash VARCHAR NOT NULL,
+                created_at VARCHAR NOT NULL,
+                revision_json VARCHAR NOT NULL,
+                PRIMARY KEY (mapping_id, version)
+            );
+
+            CREATE TABLE mapping_current (
+                singleton_id INTEGER PRIMARY KEY,
+                mapping_id VARCHAR NOT NULL,
+                version INTEGER NOT NULL
+            );
+
+            CREATE TABLE mapping_validation (
+                mapping_id VARCHAR NOT NULL,
+                version INTEGER NOT NULL,
+                validator_version VARCHAR NOT NULL,
+                validation_hash VARCHAR NOT NULL,
+                created_at VARCHAR NOT NULL,
+                validation_json VARCHAR NOT NULL,
+                PRIMARY KEY (mapping_id, version, validation_hash)
+            );
+
+            CREATE TABLE mapping_submission (
+                submission_id VARCHAR PRIMARY KEY,
+                mapping_id VARCHAR NOT NULL,
+                version INTEGER NOT NULL,
+                content_hash VARCHAR NOT NULL,
+                validation_hash VARCHAR NOT NULL,
+                submitted_at VARCHAR NOT NULL,
+                submission_json VARCHAR NOT NULL
             );
 
             CREATE TABLE audit_event (
@@ -919,6 +1412,79 @@ class DuckDbProjectRepository:
                         """
                     )
                     version = 5
+                if version == 5:
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS schema_governance_revision (
+                            governance_id VARCHAR NOT NULL,
+                            version INTEGER NOT NULL,
+                            catalog_hash VARCHAR NOT NULL,
+                            content_hash VARCHAR NOT NULL,
+                            governance_json VARCHAR NOT NULL,
+                            PRIMARY KEY (governance_id, version)
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS schema_governance_current (
+                            singleton_id INTEGER PRIMARY KEY,
+                            governance_id VARCHAR NOT NULL,
+                            version INTEGER NOT NULL
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS mapping_revision (
+                            mapping_id VARCHAR NOT NULL,
+                            version INTEGER NOT NULL,
+                            parent_version INTEGER,
+                            content_hash VARCHAR NOT NULL,
+                            source_selection_hash VARCHAR NOT NULL,
+                            schema_hash VARCHAR NOT NULL,
+                            created_at VARCHAR NOT NULL,
+                            revision_json VARCHAR NOT NULL,
+                            PRIMARY KEY (mapping_id, version)
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS mapping_current (
+                            singleton_id INTEGER PRIMARY KEY,
+                            mapping_id VARCHAR NOT NULL,
+                            version INTEGER NOT NULL
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS mapping_validation (
+                            mapping_id VARCHAR NOT NULL,
+                            version INTEGER NOT NULL,
+                            validator_version VARCHAR NOT NULL,
+                            validation_hash VARCHAR NOT NULL,
+                            created_at VARCHAR NOT NULL,
+                            validation_json VARCHAR NOT NULL,
+                            PRIMARY KEY (mapping_id, version, validation_hash)
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS mapping_submission (
+                            submission_id VARCHAR PRIMARY KEY,
+                            mapping_id VARCHAR NOT NULL,
+                            version INTEGER NOT NULL,
+                            content_hash VARCHAR NOT NULL,
+                            validation_hash VARCHAR NOT NULL,
+                            submitted_at VARCHAR NOT NULL,
+                            submission_json VARCHAR NOT NULL
+                        )
+                        """
+                    )
+                    version = 6
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

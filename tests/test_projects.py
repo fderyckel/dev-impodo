@@ -12,7 +12,10 @@ from uc_migration_profiler.access import (
 )
 from uc_migration_profiler.artifacts import LocalArtifactStore
 from uc_migration_profiler.intake import SourceIntakeError, SourceIntakeService
-from uc_migration_profiler.project_store import DuckDbProjectRepository
+from uc_migration_profiler.project_store import (
+    SCHEMA_VERSION,
+    DuckDbProjectRepository,
+)
 from uc_migration_profiler.projects import (
     OdooConnectionMode,
     ProjectConflictError,
@@ -214,8 +217,16 @@ class ProjectLifecycleTests(unittest.TestCase):
                  WHERE table_name = 'source_catalog'
                 """
             ).fetchone()
-        self.assertEqual(version, (5,))
+            mapping_table = connection.execute(
+                """
+                SELECT table_name
+                  FROM information_schema.tables
+                 WHERE table_name = 'mapping_revision'
+                """
+            ).fetchone()
+        self.assertEqual(version, (SCHEMA_VERSION,))
         self.assertEqual(catalog_table, ("source_catalog",))
+        self.assertEqual(mapping_table, ("mapping_revision",))
 
     def test_complete_project_can_be_registered(self) -> None:
         project = self.service.create_project(

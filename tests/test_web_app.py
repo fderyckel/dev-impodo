@@ -397,16 +397,62 @@ class PhaseAWizardTests(unittest.TestCase):
         )
         self.assertEqual(captured.status_code, 303)
         self.assertEqual(self.schema_calls, [(project_id, "super-secret-token")])
-        mapping_page = self.client.get(captured.headers["location"])
+        schema_page = self.client.get(captured.headers["location"])
+        self.assertIn("Confirm target business keys", schema_page.text)
+        governed = self.client.post(
+            f"/projects/{project_id}/schema/govern",
+            data={
+                "csrf_token": self.csrf,
+                "key_fields_0": "ref",
+                "scope_fields_0": "",
+                "key_description_0": "Unique contact reference",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(governed.status_code, 303)
+        mapping_page = self.client.get(governed.headers["location"])
         self.assertIn("Map source columns to Odoo", mapping_page.text)
         self.assertIn("res.partner::name", mapping_page.text)
+        self.assertIn("Existing Odoo catalog", mapping_page.text)
+        self.assertIn("inverse parent_id", mapping_page.text)
 
+        selection = (
+            self.app.state.context.repository.get_source_selection(project_id)
+        )
+        schema_governance = (
+            self.app.state.context.repository.get_schema_governance(project_id)
+        )
+        self.assertIsNotNone(selection)
+        self.assertIsNotNone(schema_governance)
+        customer, product = selection.datasets
+        customer_code, customer_name = customer.columns
+        product_code, product_name = product.columns
+        business_key_id = schema_governance.business_keys[0].key_id
         submitted = self.client.post(
             f"/projects/{project_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "submit",
-                "target_0": "res.partner::name",
+                "expected_parent_version": "",
+                "target_model_0": "res.partner",
+                "mode_0": "upsert",
+                "source_identity_0": customer_code.stable_key,
+                "business_key_0": business_key_id,
+                "identity_source_0_0": customer_code.stable_key,
+                "scalar_source_0_1": customer_name.stable_key,
+                "scalar_type_0_1": "string",
+                "scalar_compare_0_1": "1",
+                "scalar_null_0_1": "distinct",
+                "target_model_1": "res.partner",
+                "mode_1": "upsert",
+                "source_identity_1": product_code.stable_key,
+                "business_key_1": business_key_id,
+                "identity_source_1_0": product_code.stable_key,
+                "scalar_source_1_1": product_name.stable_key,
+                "scalar_type_1_1": "string",
+                "scalar_compare_1_1": "1",
+                "scalar_null_1_1": "distinct",
             },
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -415,6 +461,7 @@ class PhaseAWizardTests(unittest.TestCase):
         submitted_page = self.client.get(submitted.headers["location"])
         self.assertIn("Mapping submitted as version 1", submitted_page.text)
         self.assertIn("SUBMITTED", submitted_page.text)
+        self.assertIn("valid", submitted_page.text.casefold())
 
     def test_saved_key_is_not_reused_after_target_change(self) -> None:
         created = self._post(
@@ -512,6 +559,25 @@ def _browser_schema() -> MetadataSnapshot:
                         type="char",
                         label="Display Name",
                         readonly=True,
+                    ),
+                    "company_id": FieldMetadata(
+                        name="company_id",
+                        type="many2one",
+                        label="Company",
+                        relation="res.company",
+                    ),
+                    "category_ids": FieldMetadata(
+                        name="category_ids",
+                        type="many2many",
+                        label="Tags",
+                        relation="res.partner.category",
+                    ),
+                    "child_ids": FieldMetadata(
+                        name="child_ids",
+                        type="one2many",
+                        label="Contacts",
+                        relation="res.partner",
+                        relation_field="parent_id",
                     ),
                 },
             )

@@ -29,6 +29,9 @@ inspection, mapping, staging, approval, loading, and reconciliation.
   constrain implementation.
 - [Implementation plan](implementation-plan.md) — package layout, sequence,
   deliverables, and definition of done.
+- [Phase 2B relationship and semantic-validation proposal](phase-2-relationship-semantic-validation-proposal.md)
+  — dataset-centric mapping contracts, relationship authoring, semantic
+  validation, immutable revisions, delivery slices, and acceptance criteria.
 - [Data-quality rules implementation plan](data-quality-rules-implementation-plan.md)
   — governed source corrections, structured formats, rule evidence, package
   quality gates, manager authoring, rollout, and acceptance criteria.
@@ -39,9 +42,9 @@ inspection, mapping, staging, approval, loading, and reconciliation.
   fields, lifecycle, source evidence, persistence, and browser safety boundary.
 - [Source catalog contract](contracts/source-catalog.md) — Phase B file
   inventory, bounded preview, candidate types, statistics, and hash binding.
-- [Source workspace and mapping-draft contract](contracts/source-workspace.md)
+- [Source workspace and semantic-mapping contract](contracts/source-workspace.md)
   — source confirmation, frozen datasets, Odoo schema capture, invalidation,
-  and the first mapping lifecycle.
+  governed keys, relationships, semantic validation, and submissions.
 - [Profile contract](contracts/profile.md) — how a profile maps,
   types, identifies, resolves, and compares data.
 - [Prepared record contract](contracts/prepared-record.md) — the
@@ -56,6 +59,9 @@ inspection, mapping, staging, approval, loading, and reconciliation.
 
 ## Operations and quality
 
+- [Local-browser user guide for data analysts and data managers](operations/local-browser-user-guide.md)
+  — non-technical, screenshot-led walkthrough with a complete companies and
+  contacts relationship-mapping example.
 - [Local project browser](operations/local-browser.md) — installation,
   project registration, source inspection, storage, and shutdown runbook.
 - [DuckDB on a Windows laptop](operations/duckdb-windows.md) - approved

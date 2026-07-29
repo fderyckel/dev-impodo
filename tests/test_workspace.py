@@ -22,6 +22,16 @@ from uc_migration_profiler.models import (
     FieldMetadata,
     ModelMetadata,
 )
+from uc_migration_profiler.mapping_semantics import (
+    BusinessKeyDefinition,
+    BusinessKeyStatus,
+    DatasetMapping,
+    IdentityComponentMapping,
+    MappingSubmission,
+    MappingValidationStatus,
+    ScalarFieldMapping,
+    mapping_issue_fingerprint,
+)
 from uc_migration_profiler.project_store import DuckDbProjectRepository
 from uc_migration_profiler.projects import (
     MigrationProject,
@@ -218,6 +228,224 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             )
 
+    def test_governed_mapping_revisions_and_submission_are_exact(self) -> None:
+        self.sources.confirm_source(
+            self.project.project_id,
+            self.source.file_id,
+            selected_table_keys=("csv",),
+            warnings_acknowledged=False,
+            actor=LOCAL_ACTOR,
+        )
+        selection = self.sources.freeze_selection(
+            self.project.project_id,
+            dataset_names={(self.source.file_id, "csv"): "customers"},
+            actor=LOCAL_ACTOR,
+        )
+        schema = self.schemas.capture(
+            self.project.project_id,
+            _metadata_snapshot(),
+            actor=LOCAL_ACTOR,
+        )
+        governance = self.schemas.govern(
+            self.project.project_id,
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="partner-name",
+                    model="res.partner",
+                    key_fields=("name",),
+                    description="Unique test contact name",
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+            actor=LOCAL_ACTOR,
+        )
+        dataset = selection.datasets[0]
+        name_column = next(
+            item for item in dataset.columns if item.source_name == "name"
+        )
+        code_column = next(
+            item for item in dataset.columns if item.source_name == "code"
+        )
+        mapping = DatasetMapping(
+            dataset_id=dataset.dataset_id,
+            target_model="res.partner",
+            source_identity_column_keys=(code_column.stable_key,),
+            target_identity=(
+                IdentityComponentMapping(
+                    source_column_keys=(name_column.stable_key,),
+                    target_fields=("name",),
+                ),
+            ),
+        )
+
+        first, validation, submission = self.mappings.save_definition(
+            self.project.project_id,
+            datasets=(mapping,),
+            expected_parent_version=None,
+            submit=False,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(first.version, 1)
+        self.assertEqual(validation.status, MappingValidationStatus.VALID)
+        self.assertIsNone(submission)
+
+        second, validation, submission = self.mappings.save_definition(
+            self.project.project_id,
+            datasets=(mapping,),
+            expected_parent_version=1,
+            submit=True,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(second.parent_version, 1)
+        self.assertEqual(second.version, 2)
+        self.assertEqual(
+            submission.mapping_content_hash,
+            second.definition.content_hash,
+        )
+        self.assertEqual(submission.validation_hash, validation.validation_hash)
+        self.assertEqual(
+            self.repository.get(self.project.project_id).mapping_version,
+            "2",
+        )
+        self.assertEqual(
+            [item.version for item in self.repository.list_mapping_revisions(
+                self.project.project_id
+            )],
+            [1, 2],
+        )
+
+        with self.assertRaisesRegex(WorkspaceError, "modified"):
+            self.mappings.save_definition(
+                self.project.project_id,
+                datasets=(mapping,),
+                expected_parent_version=1,
+                submit=False,
+                actor=LOCAL_ACTOR,
+            )
+
+        recaptured = self.schemas.capture(
+            self.project.project_id,
+            _metadata_snapshot(),
+            actor=LOCAL_ACTOR,
+        )
+        self.assertNotEqual(recaptured.captured_at, schema.captured_at)
+        self.assertIsNone(
+            self.repository.get_mapping_revision(self.project.project_id)
+        )
+        next_governance = self.schemas.govern(
+            self.project.project_id,
+            business_keys=governance.business_keys,
+            actor=LOCAL_ACTOR,
+        )
+        third, _validation, _submission = self.mappings.save_definition(
+            self.project.project_id,
+            datasets=(mapping,),
+            expected_parent_version=None,
+            submit=False,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(next_governance.version, 1)
+        self.assertEqual(third.version, 3)
+        self.assertIsNone(third.parent_version)
+
+        warning_mapping = replace(
+            mapping,
+            fields=(
+                ScalarFieldMapping(
+                    target_field="active",
+                    source_column_key=code_column.stable_key,
+                    value_type="boolean",
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(WorkspaceError, "Acknowledge"):
+            self.mappings.save_definition(
+                self.project.project_id,
+                datasets=(warning_mapping,),
+                expected_parent_version=3,
+                submit=True,
+                actor=LOCAL_ACTOR,
+            )
+        warning_revision = self.repository.get_mapping_revision(
+            self.project.project_id
+        )
+        warning_validation = self.repository.get_mapping_validation(
+            self.project.project_id,
+            warning_revision.version,
+        )
+        self.assertEqual(
+            warning_validation.status,
+            MappingValidationStatus.VALID_WITH_WARNINGS,
+        )
+        warning_fingerprints = tuple(
+            mapping_issue_fingerprint(item)
+            for item in warning_validation.issues
+            if item.severity == "warning"
+        )
+        acknowledged, _validation, warning_submission = (
+            self.mappings.save_definition(
+                self.project.project_id,
+                datasets=(warning_mapping,),
+                expected_parent_version=warning_revision.version,
+                submit=True,
+                warning_acknowledgements=warning_fingerprints,
+                actor=LOCAL_ACTOR,
+            )
+        )
+        self.assertEqual(acknowledged.version, 5)
+        self.assertEqual(
+            warning_submission.warning_acknowledgements,
+            warning_fingerprints,
+        )
+
+        invalid = replace(mapping, target_identity=())
+        with self.assertRaisesRegex(WorkspaceError, "cannot be submitted"):
+            self.mappings.save_definition(
+                self.project.project_id,
+                datasets=(invalid,),
+                expected_parent_version=5,
+                submit=True,
+                actor=LOCAL_ACTOR,
+            )
+        failed_revision = self.repository.get_mapping_revision(
+            self.project.project_id
+        )
+        self.assertEqual(failed_revision.version, 6)
+        self.assertEqual(
+            self.repository.get_mapping_validation(
+                self.project.project_id,
+                failed_revision.version,
+            ).status,
+            MappingValidationStatus.INVALID,
+        )
+        self.assertIsNone(
+            self.repository.get_mapping_submission(
+                self.project.project_id,
+                failed_revision.version,
+            )
+        )
+        invalid_validation = self.repository.get_mapping_validation(
+            self.project.project_id,
+            failed_revision.version,
+        )
+        with self.assertRaisesRegex(WorkspaceError, "validation gate"):
+            self.repository.save_mapping_submission(
+                self.project.project_id,
+                MappingSubmission(
+                    submission_id=str(uuid4()),
+                    mapping_id=failed_revision.mapping_id,
+                    version=failed_revision.version,
+                    mapping_content_hash=(
+                        failed_revision.definition.content_hash
+                    ),
+                    validation_hash=invalid_validation.validation_hash,
+                    warning_acknowledgements=(),
+                    submitted_at=datetime.now(timezone.utc),
+                    submitted_by=LOCAL_ACTOR.identity.display_name,
+                ),
+                actor=LOCAL_ACTOR,
+            )
+
 
 def _catalog(
     source: SourceFile,
@@ -229,7 +457,7 @@ def _catalog(
         SourceColumnProfile(
             ordinal=1,
             name="code",
-            candidate_type="string",
+            candidate_type="date",
             null_count=0,
             non_null_count=1,
             distinct_count=1,
@@ -307,6 +535,11 @@ def _metadata_snapshot() -> MetadataSnapshot:
                         type="char",
                         label="Display Name",
                         readonly=True,
+                    ),
+                    "active": FieldMetadata(
+                        name="active",
+                        type="boolean",
+                        label="Active",
                     ),
                 },
             )

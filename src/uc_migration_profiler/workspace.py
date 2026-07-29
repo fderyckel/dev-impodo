@@ -14,6 +14,27 @@ from uuid import uuid4
 from .access import Actor, AuthorizationPolicy, Capability
 from .connectors import MetadataSnapshot
 from .inspection import SourceFileCatalog, SourceInspectionError
+from .mapping_semantics import (
+    BusinessKeyDefinition,
+    BusinessKeyStatus,
+    DatasetMapping,
+    IdentityComponentMapping,
+    MappingDefinition,
+    MappingCompiler,
+    MappingRevision,
+    MappingSemanticValidator,
+    MappingSubmission,
+    MappingTargetMode,
+    MappingValidationResult,
+    MappingValidationStatus,
+    ReferenceKeyMapping,
+    RelationshipMapping,
+    RelationshipResolver,
+    ResolverOrigin,
+    ScalarFieldMapping,
+    SchemaGovernance,
+    mapping_issue_fingerprint,
+)
 from .projects import MigrationProject, ProjectError, ProjectStatus
 
 
@@ -141,6 +162,7 @@ class SchemaField:
     required: bool
     readonly: bool
     relation: str | None
+    relation_field: str | None
     selection: tuple[tuple[str, str], ...]
 
 
@@ -191,6 +213,7 @@ class OdooSchemaCatalog:
                             required=bool(field["required"]),
                             readonly=bool(field["readonly"]),
                             relation=field.get("relation"),
+                            relation_field=field.get("relation_field"),
                             selection=tuple(
                                 tuple(item) for item in field.get("selection", ())
                             ),
@@ -283,11 +306,63 @@ class WorkspaceRepository(Protocol):
         *,
         actor: Actor,
     ) -> None: ...
+    def get_schema_governance(
+        self, project_id: str
+    ) -> SchemaGovernance | None: ...
+    def save_schema_governance(
+        self,
+        project_id: str,
+        governance: SchemaGovernance,
+        *,
+        actor: Actor,
+    ) -> None: ...
     def get_mapping_draft(self, project_id: str) -> MappingDraft | None: ...
     def save_mapping_draft(
         self,
         project_id: str,
         draft: MappingDraft,
+        *,
+        actor: Actor,
+    ) -> None: ...
+    def get_mapping_revision(
+        self,
+        project_id: str,
+        version: int | None = None,
+    ) -> MappingRevision | None: ...
+    def list_mapping_revisions(
+        self, project_id: str
+    ) -> tuple[MappingRevision, ...]: ...
+    def save_mapping_revision(
+        self,
+        project_id: str,
+        revision: MappingRevision,
+        *,
+        validation: MappingValidationResult,
+        expected_parent_version: int | None,
+        actor: Actor,
+    ) -> None: ...
+    def get_mapping_validation(
+        self,
+        project_id: str,
+        version: int,
+    ) -> MappingValidationResult | None: ...
+    def save_mapping_validation(
+        self,
+        project_id: str,
+        version: int,
+        validation: MappingValidationResult,
+        *,
+        actor: Actor,
+    ) -> None: ...
+    def get_mapping_submission(
+        self,
+        project_id: str,
+        version: int | None = None,
+    ) -> MappingSubmission | None: ...
+    def save_mapping_submission(
+        self,
+        project_id: str,
+        submission: MappingSubmission,
         *,
         actor: Actor,
     ) -> None: ...
@@ -483,6 +558,7 @@ class SchemaWorkspaceService:
                         required=field.required,
                         readonly=field.readonly,
                         relation=field.relation,
+                        relation_field=field.relation_field,
                         selection=field.selection,
                     )
                     for field_name, field in sorted(model.fields.items())
@@ -528,6 +604,83 @@ class SchemaWorkspaceService:
         self.repository.save_odoo_schema_catalog(project_id, catalog, actor=actor)
         return catalog
 
+    def govern(
+        self,
+        project_id: str,
+        *,
+        business_keys: Iterable[BusinessKeyDefinition],
+        actor: Actor,
+    ) -> SchemaGovernance:
+        """Confirm explicit natural keys for the current captured schema."""
+
+        self.authorization.require(
+            actor, Capability.SCHEMA_GOVERN, project_id=project_id
+        )
+        schema = self.repository.get_odoo_schema_catalog(project_id)
+        if schema is None:
+            raise WorkspaceError("Capture the Odoo schema before confirming keys")
+        models = {model.name: model for model in schema.models}
+        normalized = tuple(
+            sorted(
+                business_keys,
+                key=lambda item: (
+                    item.model,
+                    item.key_fields,
+                    item.scope_fields,
+                    item.key_id,
+                ),
+            )
+        )
+        if not normalized:
+            raise WorkspaceError("Confirm at least one governed business key")
+        seen_ids: set[str] = set()
+        seen_shapes: set[tuple[str, tuple[str, ...], tuple[str, ...]]] = set()
+        for definition in normalized:
+            if definition.key_id in seen_ids:
+                raise WorkspaceError("Business-key IDs must be unique")
+            seen_ids.add(definition.key_id)
+            shape = (
+                definition.model,
+                definition.key_fields,
+                definition.scope_fields,
+            )
+            if shape in seen_shapes:
+                raise WorkspaceError("Business-key definitions must be unique")
+            seen_shapes.add(shape)
+            model = models.get(definition.model)
+            if model is None:
+                raise WorkspaceError(
+                    f"Business-key model {definition.model} is not captured"
+                )
+            available = {field.name for field in model.fields}
+            missing = [
+                item
+                for item in (*definition.key_fields, *definition.scope_fields)
+                if item not in available
+            ]
+            if missing:
+                raise WorkspaceError(
+                    f"Business-key field {definition.model}.{missing[0]} "
+                    "is not captured"
+                )
+        previous = self.repository.get_schema_governance(project_id)
+        governance = SchemaGovernance(
+            governance_id=(
+                previous.governance_id if previous else str(uuid4())
+            ),
+            version=previous.version + 1 if previous else 1,
+            project_id=project_id,
+            catalog_hash=schema.content_hash,
+            permitted_models=tuple(sorted(models)),
+            business_keys=normalized,
+            recorded_at=datetime.now(timezone.utc),
+            recorded_by=actor.identity.display_name,
+        )
+        self.repository.save_schema_governance(
+            project_id, governance, actor=actor
+        )
+        return governance
+
 
 class MappingWorkspaceService:
     def __init__(
@@ -537,6 +690,149 @@ class MappingWorkspaceService:
     ) -> None:
         self.repository = repository
         self.authorization = authorization
+        self.compiler = MappingCompiler()
+        self.validator = MappingSemanticValidator()
+
+    def save_definition(
+        self,
+        project_id: str,
+        *,
+        datasets: Iterable[DatasetMapping],
+        expected_parent_version: int | None,
+        submit: bool,
+        warning_acknowledgements: Iterable[str] = (),
+        actor: Actor,
+    ) -> tuple[
+        MappingRevision,
+        MappingValidationResult,
+        MappingSubmission | None,
+    ]:
+        """Save and validate one immutable dataset-centric mapping revision."""
+
+        capability = (
+            Capability.MAPPING_SUBMIT if submit else Capability.MAPPING_EDIT
+        )
+        self.authorization.require(actor, capability, project_id=project_id)
+        selection = self.repository.get_source_selection(project_id)
+        schema = self.repository.get_odoo_schema_catalog(project_id)
+        governance = self.repository.get_schema_governance(project_id)
+        if selection is None or schema is None:
+            raise WorkspaceError("Freeze datasets and capture Odoo schema first")
+        current = self.repository.get_mapping_revision(project_id)
+        actual_parent = current.version if current else None
+        if expected_parent_version != actual_parent:
+            raise WorkspaceError(
+                "The mapping was modified by another request; reload it"
+            )
+        mapping_id = current.mapping_id if current else str(uuid4())
+        definition = self.compiler.compile(
+            MappingDefinition(
+                mapping_id=mapping_id,
+                source_selection_hash=selection.content_hash,
+                schema_hash=(
+                    governance.content_hash
+                    if governance is not None
+                    else schema.content_hash
+                ),
+                datasets=tuple(datasets),
+            )
+        ).definition
+        validation = self.validator.validate(
+            definition,
+            selection,
+            schema,
+            governance,
+        )
+        warning_fingerprints = {
+            mapping_issue_fingerprint(item)
+            for item in validation.issues
+            if item.severity == "warning"
+        }
+        acknowledgements = frozenset(warning_acknowledgements)
+        historical_versions = self.repository.list_mapping_revisions(project_id)
+        revision = MappingRevision(
+            mapping_id=mapping_id,
+            version=(
+                max((item.version for item in historical_versions), default=0)
+                + 1
+            ),
+            parent_version=actual_parent,
+            definition=definition,
+            created_at=datetime.now(timezone.utc),
+            created_by=actor.identity.display_name,
+        )
+        self.repository.save_mapping_revision(
+            project_id,
+            revision,
+            validation=validation,
+            expected_parent_version=expected_parent_version,
+            actor=actor,
+        )
+        if submit and validation.status is MappingValidationStatus.INVALID:
+            first = next(
+                item
+                for item in validation.issues
+                if item.severity == "error"
+            )
+            raise WorkspaceError(
+                f"Mapping cannot be submitted: {first.message}"
+            )
+        if submit:
+            missing = warning_fingerprints.difference(acknowledgements)
+            if missing:
+                raise WorkspaceError(
+                    "Acknowledge every current validation warning before "
+                    "submitting"
+                )
+        submission = None
+        if submit:
+            submission = MappingSubmission(
+                submission_id=str(uuid4()),
+                mapping_id=mapping_id,
+                version=revision.version,
+                mapping_content_hash=definition.content_hash,
+                validation_hash=validation.validation_hash,
+                warning_acknowledgements=tuple(
+                    sorted(warning_fingerprints)
+                ),
+                submitted_at=datetime.now(timezone.utc),
+                submitted_by=actor.identity.display_name,
+            )
+            self.repository.save_mapping_submission(
+                project_id, submission, actor=actor
+            )
+        return revision, validation, submission
+
+    def validate_current(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+    ) -> MappingValidationResult:
+        """Revalidate the current exact revision against current evidence."""
+
+        self.authorization.require(
+            actor, Capability.MAPPING_EDIT, project_id=project_id
+        )
+        revision = self.repository.get_mapping_revision(project_id)
+        selection = self.repository.get_source_selection(project_id)
+        schema = self.repository.get_odoo_schema_catalog(project_id)
+        governance = self.repository.get_schema_governance(project_id)
+        if revision is None or selection is None or schema is None:
+            raise WorkspaceError("Save a mapping revision before validating")
+        validation = self.validator.validate(
+            revision.definition,
+            selection,
+            schema,
+            governance,
+        )
+        self.repository.save_mapping_validation(
+            project_id,
+            revision.version,
+            validation,
+            actor=actor,
+        )
+        return validation
 
     def save(
         self,

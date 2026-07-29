@@ -19,10 +19,12 @@ source-validation worker, per-project DuckDB storage, Windows credential-store
 integration, registration evidence, and explicit local-versus-remote Odoo
 connection modes. Phase 1 also provides resource-bounded, hash-bound CSV/XLSX
 inventory, parsing overrides, warning acknowledgement, source confirmation,
-and frozen dataset versions. The first Phase 2 slice captures allowlisted Odoo
-19 fields and stores hash-bound, versioned mapping drafts. The CLI continues to
-implement strict CSV/XLSX preparation and read-only Odoo preflight. Advanced
-mapping semantics, signed packaging, and a packaged Odoo Compose laboratory
+and frozen dataset versions. Phase 2B captures allowlisted Odoo 19 fields,
+governs natural keys and scope, authors business-key relationships, and stores
+immutable mapping revisions with deterministic, exact-hash semantic validation
+and submission evidence. The CLI continues to implement strict CSV/XLSX
+preparation and read-only Odoo preflight. Browser constants/transforms,
+mapping approval, signed packaging, and a packaged Odoo Compose laboratory
 remain later delivery slices.
 
 ## 2. Proposed stack

@@ -26,31 +26,103 @@
   </section>
 
   {% if schema %}
-    {% for model in schema.models %}
-      <section class="form-card catalog-card">
-        <h2>{{ model.label }} <code>{{ model.name }}</code></h2>
-        <p>{{ model.fields|length }} fields · Odoo {{ schema.odoo_version }}</p>
-        <div class="table-scroll">
-          <table class="data-table">
-            <thead><tr><th>Field</th><th>Label</th><th>Type</th><th>Required</th><th>Readonly</th><th>Relation</th></tr></thead>
-            <tbody>
-              {% for field in model.fields %}
-                <tr>
-                  <th>{{ field.name }}</th>
-                  <td>{{ field.label }}</td>
-                  <td>{{ field.type }}</td>
-                  <td>{{ "Yes" if field.required else "No" }}</td>
-                  <td>{{ "Yes" if field.readonly else "No" }}</td>
-                  <td>{{ field.relation or "—" }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+    <form method="post" action="/projects/{{ project.project_id }}/schema/govern">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <section class="form-card" id="schema-governance">
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Schema governance</p>
+            <h2>Confirm target business keys</h2>
+            <p>
+              Define the natural identity used to find one existing Odoo record.
+              Put company or tenant fields in scope—not in the natural key.
+            </p>
+          </div>
+          {% if governance %}
+            <span class="status registered">VERSION {{ governance.version }}</span>
+          {% endif %}
+        </div>
+        {% if governance %}
+          <p>Governed schema: <code>{{ governance.content_hash }}</code></p>
+        {% endif %}
+        <div class="notice warning">
+          Confirm only keys that are unique in the intended Odoo environment.
+          Runtime uniqueness is checked later against staged source and target records.
         </div>
       </section>
-    {% endfor %}
-    <div class="actions">
-      <a class="button primary" href="/projects/{{ project.project_id }}/mapping">Open mapping draft</a>
-    </div>
+
+      {% for model in schema.models %}
+        {% set existing = governed_by_model.get(model.name) %}
+        <section class="form-card catalog-card">
+          <div class="page-heading compact">
+            <div>
+              <h2>{{ model.label }} <code>{{ model.name }}</code></h2>
+              <p>{{ model.fields|length }} fields · Odoo {{ schema.odoo_version }}</p>
+            </div>
+            {% if existing %}<span class="status registered">KEY CONFIRMED</span>{% endif %}
+          </div>
+
+          <div class="form-grid">
+            <label>
+              Natural key field(s)
+              <input
+                name="key_fields_{{ loop.index0 }}"
+                value="{{ existing.key_fields|join(', ') if existing else '' }}"
+                placeholder="ref, external_code"
+              >
+              <small>Technical Odoo field names, comma-separated and in key order.</small>
+            </label>
+            <label>
+              Scope field(s)
+              <input
+                name="scope_fields_{{ loop.index0 }}"
+                value="{{ existing.scope_fields|join(', ') if existing else '' }}"
+                placeholder="company_id"
+              >
+              <small>Optional company, tenant, or organizational scope.</small>
+            </label>
+            <label>
+              Meaning
+              <input
+                name="key_description_{{ loop.index0 }}"
+                value="{{ existing.description if existing else '' }}"
+                placeholder="Unique customer reference within company"
+              >
+            </label>
+          </div>
+
+          <details>
+            <summary>Review captured fields</summary>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead><tr><th>Field</th><th>Label</th><th>Type</th><th>Required</th><th>Readonly</th><th>Relation</th></tr></thead>
+                <tbody>
+                  {% for field in model.fields %}
+                    <tr>
+                      <th>{{ field.name }}</th>
+                      <td>{{ field.label }}</td>
+                      <td>{{ field.type }}</td>
+                      <td>{{ "Yes" if field.required else "No" }}</td>
+                      <td>{{ "Yes" if field.readonly else "No" }}</td>
+                      <td>
+                        {{ field.relation or "—" }}
+                        {% if field.relation_field %} via {{ field.relation_field }}{% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </section>
+      {% endfor %}
+
+      <div class="actions">
+        <button class="button primary" type="submit">Confirm keys and open mapping</button>
+        {% if governance %}
+          <a class="button secondary" href="/projects/{{ project.project_id }}/mapping">Open current mapping</a>
+        {% endif %}
+      </div>
+    </form>
   {% endif %}
 {% endblock %}

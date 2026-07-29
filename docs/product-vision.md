@@ -490,11 +490,13 @@ flowchart TB
 
 The current repository implements the Phase A local-browser project workflow,
 governed source intake and project metadata storage, the complete Phase 1
-CSV/XLSX source-discovery flow, the first Phase 2 schema-catalog and mapping
-draft flow, strict CSV and declared-sheet XLSX loading, mapping through the
-existing profile, normalization and validation, and the read-only preflight
-path. It does not yet implement the advanced mapping configuration, durable
-canonical staging, approval service, executor, or reconciliation service.
+CSV/XLSX source-discovery flow, Phase 2B governed identities, relationship
+mapping, deterministic semantic validation, and immutable exact-hash
+submissions. It also retains strict CSV and declared-sheet XLSX loading,
+mapping through the existing expert profile, normalization and validation, and
+the read-only preflight path. It does not yet implement constants and
+transformations in the browser, mapping import/export and approval, durable
+canonical staging, the executor, or reconciliation.
 
 ## 7. Delivery roadmap
 
@@ -523,16 +525,18 @@ acceptance covers a real CSV and a real XLSX named table.
 - mapping import and export;
 - mapping validation and approval.
 
-Current status: **started.** The local browser captures a read-only Odoo 19
-field catalog once per explicitly permitted model and binds it to the exact
-target. It provides visual source-column-to-Odoo-field selection and persists
-versioned `DRAFT`/`SUBMITTED` mapping artifacts bound to the frozen source and
-schema hashes. Readonly fields, unknown fields, repeated source mappings, and
-repeated target mappings fail closed.
+Current status: **Phase 2B implemented.** The local browser captures a
+read-only Odoo 19 field catalog once per explicitly permitted model, then
+requires explicit governed business keys and scope. Dataset-centric revisions
+support source and target identity, scalar policies, incoming-dataset and
+existing-target many2one/many2many resolution, and one2many inverse ownership
+guidance. A pure compiler/validator checks the complete mapping and persists
+deterministic validation evidence. Submission is permitted only for the exact
+validated mapping hash and acknowledged current warnings. Historical
+revisions, validations, submissions, and actors remain append-only.
 
-Still required to complete Phase 2: identity and scope design, relationship
-configuration, constants and transformations, mapping import/export, full
-semantic validation, review, and approval.
+Still required to complete Phase 2C: constants and transformations, mapping
+import/export, functional review, and approval.
 
 ### Phase 3 — Durable staging and data quality
 

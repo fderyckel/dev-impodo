@@ -73,6 +73,16 @@ a {
   margin-bottom: 2rem;
 }
 
+.page-heading.compact {
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.page-heading.compact h2,
+.page-heading.compact p {
+  margin-bottom: .35rem;
+}
+
 h1,
 h2,
 p {
@@ -106,6 +116,10 @@ h1 {
 .form-card,
 .empty-state {
   padding: clamp(1.4rem, 4vw, 2.5rem);
+}
+
+.form-card + .form-card {
+  margin-top: 1.25rem;
 }
 
 .form-card.narrow {
@@ -266,6 +280,58 @@ label.checkbox {
 label.checkbox input {
   width: auto;
   margin-top: .28rem;
+}
+
+.mapping-dataset h3 {
+  border-top: 1px solid var(--line);
+  margin-top: 2rem;
+  padding-top: 1.4rem;
+}
+
+.relationship-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin: 1rem 0;
+  padding: 1rem 1.2rem;
+}
+
+.relationship-card h4 {
+  margin: 0 0 .35rem;
+}
+
+.policy-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .65rem 1rem;
+  margin-top: .75rem;
+}
+
+.policy-row label,
+.policy-cell label,
+.acknowledgement {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-weight: 500;
+  margin: .5rem 0;
+}
+
+.policy-row input,
+.policy-cell input,
+.acknowledgement input {
+  width: auto;
+  margin: 0;
+}
+
+.policy-row select {
+  width: auto;
+  min-width: 12rem;
+  margin: 0;
+}
+
+.policy-cell {
+  min-width: 13rem;
 }
 
 .actions {
