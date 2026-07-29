@@ -1,4 +1,11 @@
-"""Environment-independent domain models."""
+"""Environment-independent domain values and deterministic serialization.
+
+These dataclasses form the boundaries between source preparation, reference
+resolution, comparison, and reporting. Portable source-side objects use
+business keys instead of numeric Odoo IDs. `TargetRecord` is the deliberate
+exception: it represents an environment-specific snapshot and must be
+converted before entering the portable manifest.
+"""
 
 from __future__ import annotations
 
@@ -15,6 +22,8 @@ ScalarValue = str | int | Decimal | bool | date | datetime | None
 
 
 class Classification(StrEnum):
+    """Possible read-only conclusions for one import candidate."""
+
     CREATE = "CREATE"
     UPDATE = "UPDATE"
     UNCHANGED = "UNCHANGED"
@@ -23,12 +32,20 @@ class Classification(StrEnum):
 
 
 class Severity(StrEnum):
+    """Whether an issue permits comparison to continue."""
+
     WARNING = "warning"
     ERROR = "error"
 
 
 @dataclass(frozen=True, slots=True)
 class Issue:
+    """Structured validation or resolution evidence.
+
+    `affected_count` permits repeated row-level causes to be grouped for the
+    report while preserving the business impact.
+    """
+
     code: str
     message: str
     severity: Severity = Severity.ERROR
@@ -39,6 +56,8 @@ class Issue:
 
     @property
     def blocking(self) -> bool:
+        """Return whether this issue prevents a safe candidate conclusion."""
+
         return self.severity == Severity.ERROR
 
 
@@ -65,6 +84,13 @@ class BusinessReference:
 
 @dataclass(frozen=True, slots=True)
 class PreparedRecord:
+    """Canonical source candidate before/after symbolic resolution.
+
+    `source.py` creates the record with `LogicalReference` values. `engine.py`
+    returns a replaced copy containing `BusinessReference` values wherever
+    resolution succeeded. Numeric target IDs never belong in this contract.
+    """
+
     dataset: str
     source_row: int
     target_model: str
@@ -83,11 +109,15 @@ class PreparedRecord:
 
     @property
     def blocked(self) -> bool:
+        """Return whether any attached issue has error severity."""
+
         return any(issue.blocking for issue in self.issues)
 
 
 @dataclass(frozen=True, slots=True)
 class TargetRecord:
+    """Environment-specific record captured from an Odoo snapshot."""
+
     model: str
     odoo_id: int
     values: Mapping[str, Any]
@@ -95,6 +125,8 @@ class TargetRecord:
 
 @dataclass(frozen=True, slots=True)
 class EnvironmentFingerprint:
+    """Evidence identifying the exact target environment capture."""
+
     environment: str
     database: str
     odoo_version: str
@@ -102,6 +134,8 @@ class EnvironmentFingerprint:
     module_versions: Mapping[str, str] = field(default_factory=dict)
 
     def portable_dict(self) -> dict[str, Any]:
+        """Return a deterministically ordered JSON-compatible representation."""
+
         return {
             "environment": self.environment,
             "database": self.database,
@@ -113,6 +147,8 @@ class EnvironmentFingerprint:
 
 @dataclass(frozen=True, slots=True)
 class FieldMetadata:
+    """Captured Odoo field shape needed to validate a mapping."""
+
     name: str
     type: str
     required: bool = False
@@ -124,6 +160,8 @@ class FieldMetadata:
 
 @dataclass(frozen=True, slots=True)
 class ModelMetadata:
+    """Captured metadata for one permitted Odoo model."""
+
     model: str
     description: str | None
     fields: Mapping[str, FieldMetadata]
@@ -131,6 +169,8 @@ class ModelMetadata:
 
 @dataclass(frozen=True, slots=True)
 class FieldDifference:
+    """One material existing-versus-proposed field comparison."""
+
     dataset: str
     business_identity: tuple[Any, ...]
     business_scope: tuple[Any, ...]
@@ -143,6 +183,8 @@ class FieldDifference:
 
 @dataclass(frozen=True, slots=True)
 class Decision:
+    """Final preflight conclusion and evidence for one prepared source row."""
+
     dataset: str
     source_row: int
     business_identity: tuple[Any, ...]
@@ -155,6 +197,8 @@ class Decision:
 
 @dataclass(frozen=True, slots=True)
 class ReferenceResolution:
+    """Grouped-ready evidence for one attempted symbolic relationship."""
+
     dataset: str
     field: str
     reference: LogicalReference
@@ -165,6 +209,8 @@ class ReferenceResolution:
 
 @dataclass(frozen=True, slots=True)
 class PreflightResult:
+    """Canonical result from which JSON and workbook reports are generated."""
+
     profile_id: str
     source_hashes: Mapping[str, str]
     fingerprint: EnvironmentFingerprint
@@ -177,6 +223,8 @@ class PreflightResult:
 
     @property
     def counts(self) -> dict[str, int]:
+        """Count decisions by every classification, including zero counts."""
+
         return {
             classification.value: sum(
                 1
@@ -188,10 +236,19 @@ class PreflightResult:
 
     @property
     def semantic_hash(self) -> str:
+        """Hash the complete portable result payload excluding the hash itself."""
+
         payload = self.to_portable_dict(include_hash=False)
         return "sha256:" + sha256(canonical_json_bytes(payload)).hexdigest()
 
     def to_portable_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
+        """Serialize the result deterministically for manifests and hashing.
+
+        Typed decimals/dates, business references, ordered evidence, and sorted
+        mappings are preserved. A final recursive guard rejects numeric Odoo
+        identifiers from the portable artifact.
+        """
+
         payload: dict[str, Any] = {
             "engine": {"name": "uc-profiler"},
             "profile": {"id": self.profile_id},
@@ -252,6 +309,8 @@ class PreflightResult:
 
 
 def portable_issue(issue: Issue) -> dict[str, Any]:
+    """Convert structured issue evidence to JSON-compatible primitives."""
+
     return {
         "code": issue.code,
         "message": issue.message,
@@ -264,6 +323,13 @@ def portable_issue(issue: Issue) -> dict[str, Any]:
 
 
 def portable_value(value: Any) -> Any:
+    """Recursively serialize typed and portable domain values.
+
+    Decimals never pass through binary floating point, datetimes become UTC,
+    sets receive canonical ordering, and business references retain keys and
+    scope instead of target IDs.
+    """
+
     if isinstance(value, Decimal):
         return {"type": "decimal", "value": format(value, "f")}
     if isinstance(value, datetime):
@@ -312,6 +378,8 @@ def portable_value(value: Any) -> Any:
 
 
 def canonical_json_text(value: Any) -> str:
+    """Return stable compact JSON text used for ordering and hashing."""
+
     return json.dumps(
         value,
         ensure_ascii=False,
@@ -321,6 +389,8 @@ def canonical_json_text(value: Any) -> str:
 
 
 def canonical_json_bytes(value: Any) -> bytes:
+    """Return UTF-8 bytes of `canonical_json_text`."""
+
     return canonical_json_text(value).encode("utf-8")
 
 

@@ -1,4 +1,10 @@
-"""Portable JSON and business-review workbook output."""
+"""Write deterministic preflight evidence and its Excel review projection.
+
+`models.PreflightResult` is the canonical decision source. This module writes
+that result as JSON first, then invokes the packaged JavaScript renderer to
+build a business-facing workbook from the JSON file. The workbook is a
+projection and never feeds conclusions back into the engine.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +25,7 @@ WORKBOOK_NAME = "uc_preflight_report.xlsx"
 
 
 class ReportGenerationError(RuntimeError):
-    pass
+    """Raised when canonical report artifacts cannot be generated safely."""
 
 
 def write_preflight_outputs(
@@ -28,6 +34,15 @@ def write_preflight_outputs(
     *,
     preview_directory: str | Path | None = None,
 ) -> tuple[Path, Path]:
+    """Write the canonical manifest and its Excel review workbook.
+
+    The manifest uses a `.partial` file followed by an atomic same-directory
+    replace. Workbook construction runs only after the manifest is complete.
+
+    Returns:
+        `(manifest_path, workbook_path)` for the two required artifacts.
+    """
+
     output = Path(output_directory)
     output.mkdir(parents=True, exist_ok=True)
     manifest_path = output / MANIFEST_NAME
@@ -51,6 +66,13 @@ def _build_workbook(
     *,
     preview_directory: str | Path | None,
 ) -> None:
+    """Run the vendored workbook renderer in an isolated temporary directory.
+
+    Node.js and the artifact-tool modules must be supplied explicitly through
+    the documented environment or local project installation. Output and
+    errors are captured; only a bounded error tail is included in failures.
+    """
+
     node_binary = os.environ.get("UC_NODE_BINARY") or shutil.which("node")
     if not node_binary:
         raise ReportGenerationError(
@@ -116,4 +138,6 @@ def _build_workbook(
 
 
 def read_manifest(path: str | Path) -> dict[str, Any]:
+    """Load a previously generated canonical JSON manifest."""
+
     return json.loads(Path(path).read_text(encoding="utf-8"))

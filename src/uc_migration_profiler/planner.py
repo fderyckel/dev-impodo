@@ -1,4 +1,15 @@
-"""Profile-derived minimal metadata and record request planning."""
+"""Build minimal, batched read requests from a validated profile.
+
+This module sits between source preparation and connector execution:
+
+* `profile.py` defines the permitted models, fields, identities, and relations.
+* `source.py` supplies prepared source identities and reference keys.
+* this module groups those requirements per Odoo model;
+* `connectors.py` executes one metadata request and paginated record request
+  per model, rather than one call per source row.
+
+The planner produces data-only request contracts and never contacts Odoo.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +22,12 @@ from .profile import DatasetSpec, ProfileDocument, ResolveSpec
 
 
 def plan_metadata_requests(profile: ProfileDocument) -> tuple[MetadataRequest, ...]:
+    """Return the smallest deterministic metadata field set per Odoo model.
+
+    Target models and target-only reference models are merged so each model
+    appears once. The connector later calls `fields_get` for these requests.
+    """
+
     fields: dict[str, set[str]] = defaultdict(set)
     for dataset in profile.datasets:
         fields[dataset.target.model].update(_dataset_target_fields(dataset))
@@ -28,6 +45,15 @@ def plan_record_requests(
     profile: ProfileDocument,
     records: Iterable[PreparedRecord],
 ) -> tuple[RecordRequest, ...]:
+    """Build batched target-record requests from prepared business keys.
+
+    Simple one-field identities and target-only reference keys become bounded
+    `in` domains. Composite or relational identities fall back to the
+    profile's declared domain because narrowing them incorrectly could hide a
+    legitimate match. Requested fields and models are sorted for deterministic
+    snapshots.
+    """
+
     records_by_dataset: dict[str, list[PreparedRecord]] = defaultdict(list)
     for record in records:
         records_by_dataset[record.dataset].append(record)
@@ -91,6 +117,8 @@ def plan_record_requests(
 
 
 def _dataset_target_fields(dataset: DatasetSpec) -> set[str]:
+    """Collect target scalar, relation, identity, and scope fields."""
+
     fields = set(dataset.fields)
     fields.update(dataset.relations)
     for component in (
@@ -102,6 +130,8 @@ def _dataset_target_fields(dataset: DatasetSpec) -> set[str]:
 
 
 def _resolvers(dataset: DatasetSpec) -> list[ResolveSpec]:
+    """Collect all identity and field resolvers declared by a dataset."""
+
     resolvers = [
         component.resolve
         for component in (
@@ -118,6 +148,8 @@ def _identity_domain(
     dataset: DatasetSpec,
     records: Iterable[PreparedRecord],
 ) -> list[Any]:
+    """Build a safe one-field target-identity domain when possible."""
+
     components = dataset.target_identity.components
     if len(components) != 1:
         return []
@@ -141,6 +173,8 @@ def _key_domain(
     fields: tuple[str, ...],
     keys: Iterable[tuple[Any, ...]],
 ) -> list[Any]:
+    """Build an `in` domain for unique one-field business-reference keys."""
+
     unique_keys = sorted(set(keys), key=str)
     if len(fields) != 1 or not unique_keys:
         return []
@@ -148,6 +182,8 @@ def _key_domain(
 
 
 def _combine_domains(left: list[Any], right: list[Any]) -> list[Any]:
+    """Combine two Odoo domain fragments using implicit logical AND."""
+
     if not left:
         return right
     if not right:
@@ -157,6 +193,8 @@ def _combine_domains(left: list[Any], right: list[Any]) -> list[Any]:
 
 
 def _or_domains(left: list[Any], right: list[Any]) -> list[Any]:
+    """Combine two Odoo domain fragments as explicit logical OR."""
+
     if not left:
         return right
     if not right:
@@ -165,6 +203,8 @@ def _or_domains(left: list[Any], right: list[Any]) -> list[Any]:
 
 
 def _as_expression(domain: list[Any]) -> list[Any]:
+    """Turn an implicit-AND domain into one explicit prefix expression."""
+
     if len(domain) <= 1:
         return domain
     if isinstance(domain[0], str) and domain[0] in {"&", "|", "!"}:
@@ -173,6 +213,8 @@ def _as_expression(domain: list[Any]) -> list[Any]:
 
 
 def _references_for_field(value: Any) -> tuple[LogicalReference, ...]:
+    """Return unresolved logical references from one prepared field value."""
+
     if isinstance(value, LogicalReference):
         return (value,)
     if isinstance(value, tuple):
@@ -184,6 +226,13 @@ def _identity_reference_groups(
     dataset: DatasetSpec,
     records: Iterable[PreparedRecord],
 ) -> list[tuple[Any, tuple[LogicalReference, ...]]]:
+    """Pair relational identity components with their prepared references.
+
+    Prepared identities are flattened tuples. `cursor` reconstructs which
+    flattened value belongs to each profile component so the planner can batch
+    the related-model lookup.
+    """
+
     result = []
     for components, attribute in (
         (dataset.target_identity.components, "target_identity"),

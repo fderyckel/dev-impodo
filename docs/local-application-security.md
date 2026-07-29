@@ -2,7 +2,7 @@
 
 ## 1. Decision
 
-**Recommended initial deployment:** a local-only browser application.
+**Accepted initial deployment:** a local-only browser application.
 
 Impodo runs as a Python process on the data manager's machine, listens only on
 the IPv4 loopback address, chooses an ephemeral port, and opens the user's
@@ -43,7 +43,8 @@ the client-side attack surface.
 
 A Tauri/native shell can be evaluated later if enterprise desktop packaging,
 managed updates, or stronger WebView isolation justify the additional Rust and
-code-signing lifecycle. Electron is not recommended for the first release.
+code-signing lifecycle. The native-wrapper option is deferred for the first
+release. Electron is not recommended for the first release.
 
 ## 3. Security goals
 
@@ -167,6 +168,36 @@ equivalent full-disk encryption is an environmental prerequisite for real
 customer data. Application-level project encryption can be added when the
 retention and key-management policy is known.
 
+### Proposed first-release data handling policy
+
+The data manager is the local custodian of a migration project. Until the
+customer agrees a different written policy, Impodo SHOULD apply the following
+default:
+
+- customer exports, DuckDB staging data, target snapshots, review packages,
+  and execution journals stay only in the encrypted local project directory;
+- the directory is accessible only to the data manager's operating-system
+  account (and a separately authorised support account where the customer
+  permits one); it MUST NOT be placed in a shared drive, consumer-sync folder,
+  email attachment, Git repository, or telemetry service;
+- source files remain immutable after intake. Corrections and derived staged
+  data are separate, versioned artifacts with before/after values, rule or
+  reason, operator, and timestamp;
+- credentials remain in the operating-system credential store and are deleted
+  when the project closes; they never enter the DuckDB database or report;
+- keep the complete project through reconciliation and acceptance, then retain
+  it for 90 days by default for audit and restart purposes. A longer period
+  requires the customer's documented retention decision;
+- at expiry, the data manager deletes the project directory, locally exported
+  copies, and related credential-store entries, and records the deletion in a
+  non-sensitive project register. On SSDs, rely on full-disk encryption and
+  access-key removal rather than claiming that file overwriting is reliable.
+
+The data manager must confirm the customer's classification, retention period,
+backup policy, and permitted support access before real customer data is
+accepted. This proposal intentionally does not authorize cloud backup or
+remote support access by default.
+
 For a later hosted, multi-user deployment, PostgreSQL should replace the local
 project store so users, roles, tenant isolation, concurrent runs, backups, and
 audit retention can be governed centrally.
@@ -227,7 +258,9 @@ connection from Odoo to the data manager's workstation is required.
 
 The on-premise deployment must provide:
 
-- confirmed Odoo major and minor version;
+- Odoo 19.4 for the initial delivery; the planned Odoo 20.0 move in September
+  requires a compatibility check and a new DEV/TEST rehearsal before it is
+  used for a migration;
 - DEV and TEST endpoints before production;
 - VPN or approved internal network path;
 - TLS using a certificate trusted by the workstation;
@@ -243,15 +276,27 @@ The on-premise deployment must provide:
 Impodo must not receive PostgreSQL credentials, SSH access, Odoo master
 passwords, administrator cookies, or a generic server-action capability.
 
-The current read-only connector is suitable only when the eventual target uses
-Odoo 19 JSON-2. If the target is an earlier version, a separately reviewed
-read adapter is required.
+The current read-only connector is suitable for the initial Odoo 19.4 target
+because it uses Odoo 19 JSON-2. Odoo 20.0 support is a planned compatibility
+milestone, not an assumption; its API contract, authentication, metadata, and
+write rehearsal must be verified against the deployed version. If a target is
+earlier than Odoo 19, a separately reviewed read adapter is required.
 
-## 10. Write-boundary isolation
+## 10. Controlled local changes and Odoo writes
 
-The local mapping and preflight application remains read-only.
+The mapping workspace may validate data and make governed changes to its local
+draft mapping, correction proposals, and derived staging records. It MUST NOT
+modify an accepted raw source file. Every accepted local correction MUST retain
+the raw value, canonical value, rule or reason, operator, timestamp, and
+mapping/rule version. A local change invalidates any affected validation or
+preflight result and requires it to be regenerated.
 
-The future executor should be a separate package and process with:
+The current `OdooReadConnector` and preflight engine remain read-only. This is
+not a restriction on the future product; it is the boundary that prevents a
+mapping screen or validation run from changing Odoo accidentally.
+
+The local browser application may later expose an approved import action, but
+it must delegate only to a separate executor package and process with:
 
 - a different connector interface;
 - a different credential;
@@ -264,9 +309,8 @@ The future executor should be a separate package and process with:
 - operator confirmation for sensitive actions;
 - a separate security review and release gate.
 
-Keeping writes out of the mapping process makes it possible to inspect files,
-build mappings, validate data, and produce preflight evidence without any
-Odoo mutation capability being present.
+This allows the data manager to correct and validate local staging data while
+keeping Odoo mutations explicit, approval-bound, and independently auditable.
 
 ## 11. Security verification
 

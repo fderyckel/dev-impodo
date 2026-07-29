@@ -1,4 +1,19 @@
-"""Reference resolution, target comparison, and preflight classification."""
+"""Resolve prepared data and classify its effect on the Odoo target.
+
+The engine is the orchestration layer for a preflight run.  It receives typed
+source records and read-only Odoo snapshots, then:
+
+1. validates the profile against live/snapshotted Odoo metadata;
+2. resolves symbolic references to stable business references;
+3. indexes existing targets by the profile's business identity;
+4. classifies each actionable source row as create, update, unchanged,
+   ambiguous, or blocked; and
+5. returns deterministic, grouped evidence for reporting.
+
+Numeric Odoo IDs remain internal to :class:`~uc_migration_profiler.catalog.TargetCatalog`.
+The decisions and field differences emitted by this module use portable
+business references instead.
+"""
 
 from __future__ import annotations
 
@@ -36,6 +51,8 @@ from .source import PreparedBundle
 
 
 class PreflightEngine:
+    """Coordinate metadata checks, resolution, comparison, and classification."""
+
     def run(
         self,
         profile: ProfileDocument,
@@ -43,6 +60,21 @@ class PreflightEngine:
         metadata_snapshot: MetadataSnapshot,
         record_snapshot: RecordSnapshot,
     ) -> PreflightResult:
+        """Execute one deterministic, read-only preflight.
+
+        ``prepared`` is produced by :func:`source.prepare_sources`; both
+        snapshots are produced by the same connector run.  Their fingerprints
+        must match so decisions cannot accidentally combine two Odoo states.
+
+        Returns:
+            A portable result containing row decisions, differences,
+            resolution evidence, issues, hashes, and metadata coverage.
+
+        Raises:
+            ValueError: If snapshot provenance differs or record coverage is
+                explicitly incomplete.
+        """
+
         if metadata_snapshot.fingerprint != record_snapshot.fingerprint:
             raise ValueError("metadata and record snapshots have different fingerprints")
         if not record_snapshot.complete:
@@ -120,6 +152,12 @@ def _apply_dataset_issues(
     records: Iterable[PreparedRecord],
     issues: Iterable[Issue],
 ) -> tuple[PreparedRecord, ...]:
+    """Attach global and dataset metadata issues to applicable source records.
+
+    Issues are indexed once by dataset, avoiding a full issue scan for every
+    row.
+    """
+
     by_dataset: dict[str | None, list[Issue]] = defaultdict(list)
     for issue in issues:
         by_dataset[issue.dataset].append(issue)
@@ -139,6 +177,14 @@ def _resolve_records(
     records: Iterable[PreparedRecord],
     catalog: TargetCatalog,
 ) -> tuple[tuple[PreparedRecord, ...], tuple[ReferenceResolution, ...]]:
+    """Resolve all logical references and collect auditable lookup evidence.
+
+    Incoming references use source identities from this same bundle; target
+    references use the catalog's prebuilt indexes.  Recursive incoming
+    dependencies are cached by dataset and source row, so a referenced row is
+    resolved only once.
+    """
+
     original = tuple(records)
     by_dataset_identity: dict[
         tuple[str, tuple[Any, ...]], list[PreparedRecord]
@@ -150,6 +196,8 @@ def _resolve_records(
     evidence: list[ReferenceResolution] = []
 
     def resolve_record(record: PreparedRecord) -> PreparedRecord:
+        """Resolve one row's identity, scope, and relation values recursively."""
+
         cache_key = (record.dataset, record.source_row)
         if cache_key in cache:
             return cache[cache_key]
@@ -240,6 +288,13 @@ def _resolve_records(
         *,
         ambiguous_severity: Severity = Severity.ERROR,
     ) -> Any:
+        """Resolve one logical reference or pass an already scalar value through.
+
+        A unique match becomes a ``BusinessReference``.  Missing, ambiguous,
+        or dependency-blocked matches keep the logical value, attach the
+        configured issue severity, and always add resolution evidence.
+        """
+
         if not isinstance(value, LogicalReference):
             return value
         matches: tuple[Any, ...]
@@ -335,6 +390,12 @@ def _resolve_records(
 def _expanded_component(
     components: tuple[IdentityComponent, ...], flat_index: int
 ) -> IdentityComponent:
+    """Map a flattened identity-value index back to its profile component.
+
+    Direct components occupy one position per target field; resolved
+    components occupy one position because they become one business reference.
+    """
+
     cursor = 0
     for component in components:
         width = 1 if component.resolve is not None else len(component.target_fields)
@@ -352,6 +413,13 @@ def _build_target_index(
     dict[tuple[tuple[Any, ...], tuple[Any, ...]], tuple[TargetRecord, ...]],
     tuple[Issue, ...],
 ]:
+    """Index one model's Odoo records by canonical identity and scope.
+
+    Each target row is canonicalized once.  Records with the same key remain
+    together so :func:`_classify_record` can distinguish a unique match from an
+    ambiguous target identity without additional Odoo reads.
+    """
+
     buckets: dict[
         tuple[tuple[Any, ...], tuple[Any, ...]], list[TargetRecord]
     ] = defaultdict(list)
@@ -386,6 +454,13 @@ def _target_identity(
     target: TargetRecord,
     catalog: TargetCatalog,
 ) -> tuple[Any, ...]:
+    """Canonicalize identity components from an existing Odoo target record.
+
+    Scalar components use the same parsing policy as source data.  Relational
+    components are converted from raw Odoo IDs to stable business references
+    through the catalog.
+    """
+
     result: list[Any] = []
     for component in components:
         if component.resolve is None:
@@ -420,6 +495,12 @@ def _resolve_target_shape(
     profile: ProfileDocument,
     resolve: ResolveSpec,
 ) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+    """Return the model, identity fields, and scope fields for a resolver.
+
+    Explicit target resolvers provide the shape directly.  Incoming-dataset
+    resolvers inherit it from the referenced dataset's target identity.
+    """
+
     if resolve.target_model is not None:
         return (
             resolve.target_model,
@@ -449,6 +530,15 @@ def _classify_record(
     ],
     catalog: TargetCatalog,
 ) -> Decision:
+    """Classify one prepared row against its canonical target matches.
+
+    Blocking source/reference issues take precedence.  A missing target becomes
+    ``CREATE`` only after create-required fields are checked; multiple targets
+    become ``AMBIGUOUS``; create-only datasets follow ``on_existing``; and a
+    unique upsert match is compared field by field for ``UPDATE`` versus
+    ``UNCHANGED``.
+    """
+
     business_identity = tuple(record.target_identity)
     business_scope = tuple(record.target_scope)
     matches = target_index.get(
@@ -551,6 +641,8 @@ def _classify_record(
 def _required_on_create_issues(
     dataset: DatasetSpec, record: PreparedRecord
 ) -> list[Issue]:
+    """Report mapped scalar/relation values required only for new records."""
+
     issues = []
     for field_name, spec in dataset.fields.items():
         if spec.required_on_create and record.scalar_values.get(field_name) is None:
@@ -584,6 +676,13 @@ def _compare_record(
     target: TargetRecord,
     catalog: TargetCatalog,
 ) -> tuple[list[FieldDifference], list[Issue]]:
+    """Compare one source row with its unique target using profile semantics.
+
+    Scalar target values are normalized with the same rules as their source
+    values.  Relational target IDs are first converted to business references.
+    Fields marked ``validate_only`` or with comparison disabled are excluded.
+    """
+
     differences: list[FieldDifference] = []
     issues: list[Issue] = []
     identity = tuple(source.target_identity)
@@ -673,6 +772,12 @@ def _existing_relation(
     raw_value: Any,
     catalog: TargetCatalog,
 ) -> Any:
+    """Convert an Odoo relation value into portable business references.
+
+    Many2many results are sorted canonically so their order in Odoo cannot
+    produce a false difference.
+    """
+
     model, identity_fields, scope_fields = _resolve_target_shape(
         profile, spec.resolve
     )
@@ -696,6 +801,13 @@ def _existing_relation(
 def _relation_difference(
     spec: RelationSpec, existing: Any, proposed: Any
 ) -> tuple[bool, Any]:
+    """Apply relation null/operation policy and return materiality plus result.
+
+    Many2one comparison honours source-null semantics.  Many2many comparison
+    computes the final set for ``replace``, ``add``, or ``remove`` before
+    deciding whether a change is material.
+    """
+
     if spec.kind == "many2one":
         if spec.null_policy == "ignore_source_null" and proposed is None:
             return False, existing
@@ -718,6 +830,8 @@ def _relation_difference(
 
 
 def _field_rule(spec: Any) -> str:
+    """Describe the scalar comparison policy stored beside a difference."""
+
     active = [
         name
         for name in ("trim", "collapse_whitespace", "casefold", "empty_as_null")
@@ -729,6 +843,13 @@ def _field_rule(spec: Any) -> str:
 
 
 def _group_issues(issues: Iterable[Issue]) -> list[Issue]:
+    """Deduplicate equivalent issues and aggregate their affected row counts.
+
+    Grouping removes repeated dataset-wide metadata/runtime issues that were
+    attached to individual records, while retaining a row number when exactly
+    one distinct row is affected.
+    """
+
     grouped: dict[tuple[Any, ...], list[Issue]] = defaultdict(list)
     for issue in issues:
         grouped[
@@ -772,6 +893,8 @@ def _group_issues(issues: Iterable[Issue]) -> list[Issue]:
 def _group_resolutions(
     evidence: Iterable[ReferenceResolution],
 ) -> list[ReferenceResolution]:
+    """Aggregate identical reference outcomes into deterministic evidence rows."""
+
     grouped: dict[tuple[Any, ...], list[ReferenceResolution]] = defaultdict(list)
     for item in evidence:
         grouped[

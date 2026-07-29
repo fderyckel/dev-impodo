@@ -1,4 +1,12 @@
-"""Profile validation against Odoo model metadata."""
+"""Validate a profile against captured Odoo model metadata.
+
+`planner.py` requests only the models and fields needed by the profile, and a
+connector returns a :class:`MetadataSnapshot`. This module checks that the
+snapshot can support the proposed mapping before target records are compared.
+Problems are returned as structured :class:`Issue` objects; they are not
+raised as control-flow exceptions because the review report must explain every
+missing or incompatible field.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +29,14 @@ def validate_profile_metadata(
     profile: ProfileDocument,
     snapshot: MetadataSnapshot,
 ) -> tuple[tuple[Issue, ...], tuple[dict[str, object], ...]]:
+    """Validate all dataset and reference requirements against a snapshot.
+
+    Returns:
+        A pair containing blocking issues and deterministic coverage rows.
+        Coverage rows drive the manifest/workbook explanation of which model
+        fields were requested and available.
+    """
+
     issues: list[Issue] = []
     coverage: list[dict[str, object]] = []
     if not snapshot.complete:
@@ -209,6 +225,8 @@ def validate_profile_metadata(
 
 
 def _requested_fields(dataset: DatasetSpec) -> set[str]:
+    """Return all target fields whose metadata the dataset depends upon."""
+
     result = set(dataset.fields)
     result.update(dataset.relations)
     for component in (
@@ -226,6 +244,8 @@ def _validate_scalar(
     target_type: str,
     readonly: bool,
 ) -> list[Issue]:
+    """Validate scalar type compatibility and future-write eligibility."""
+
     issues = []
     if target_type not in TYPE_COMPATIBILITY[spec.type]:
         issues.append(
@@ -258,6 +278,8 @@ def _validate_relation(
     readonly: bool,
     expected_model: str,
 ) -> list[Issue]:
+    """Validate relation kind, related model, ownership, and readonly state."""
+
     issues = []
     if target_type != spec.kind:
         issues.append(

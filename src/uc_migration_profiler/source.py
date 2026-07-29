@@ -1,4 +1,18 @@
-"""Tabular source loading and prepared-record construction."""
+"""Load governed source files and convert their rows into domain records.
+
+This module is the boundary between user-provided CSV/XLSX files and the
+profiler's typed model layer:
+
+1. :func:`load_source_tables` safely reads every file declared by the profile.
+2. :func:`prepare_sources` maps source columns to scalar values, identities,
+   and unresolved :class:`~uc_migration_profiler.models.LogicalReference`
+   objects.
+3. The engine later resolves those references against the incoming datasets
+   and the read-only Odoo snapshots.
+
+No Odoo lookup occurs here.  Keeping source parsing separate from resolution
+makes every conversion issue traceable to its original dataset and row.
+"""
 
 from __future__ import annotations
 
@@ -30,6 +44,13 @@ from .profile import (
 
 @dataclass(frozen=True, slots=True)
 class SourceTable:
+    """One validated input table before profile mappings are applied.
+
+    ``rows`` preserves physical row numbers for actionable error reporting,
+    while ``content_hash`` allows the final report to identify the exact input
+    bytes used for the run.
+    """
+
     dataset: str
     path: Path
     headers: tuple[str, ...]
@@ -39,17 +60,27 @@ class SourceTable:
 
 @dataclass(frozen=True, slots=True)
 class SourceRow:
+    """A source row paired with its one-based CSV or worksheet row number."""
+
     number: int
     values: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
 class PreparedBundle:
+    """All prepared records, global source issues, and source-file hashes."""
+
     records: tuple[PreparedRecord, ...]
     issues: tuple[Issue, ...]
     source_hashes: dict[str, str]
 
     def by_dataset(self) -> dict[str, tuple[PreparedRecord, ...]]:
+        """Group records by dataset while preserving profile/record order.
+
+        The engine consumes these groups when it resolves dependencies and
+        classifies each dataset independently.
+        """
+
         return {
             dataset: tuple(record for record in self.records if record.dataset == dataset)
             for dataset in dict.fromkeys(record.dataset for record in self.records)
@@ -75,6 +106,21 @@ def load_source_tables(
     profile: ProfileDocument,
     input_directory: str | Path,
 ) -> tuple[SourceTable, ...]:
+    """Load and validate every source file declared by ``profile``.
+
+    The resolved files must remain inside ``input_directory`` and satisfy the
+    size and format limits defined in this module.  CSV and XLSX parsing is
+    deliberately strict so malformed, active, encrypted, or suspicious
+    workbook content cannot silently enter the preflight pipeline.
+
+    Returns:
+        Tables in the same order as ``profile.datasets``.
+
+    Raises:
+        SourceLoadError: If the input directory, a file, or its content
+            violates the source contract.
+    """
+
     root = Path(input_directory).resolve()
     if not root.is_dir():
         raise SourceLoadError(f"source input directory does not exist: {root}")
@@ -122,6 +168,8 @@ def load_source_tables(
 
 
 def _contained_source_path(root: Path, relative_name: str) -> Path:
+    """Resolve one declared source path without permitting link/path escape."""
+
     candidate = root / relative_name
     if candidate.is_symlink():
         raise SourceLoadError(f"source file must not be a symlink: {relative_name}")
@@ -142,6 +190,8 @@ def _load_csv(
     encoding: str,
     delimiter: str,
 ) -> tuple[tuple[str, ...], tuple[SourceRow, ...]]:
+    """Read one CSV file and enforce row, column, and cell-size limits."""
+
     with path.open("r", encoding=encoding, newline="") as handle:
         reader = csv.reader(handle, delimiter=delimiter)
         try:
@@ -180,6 +230,12 @@ def _load_xlsx(
     sheet: str,
     header_row: int,
 ) -> tuple[tuple[str, ...], tuple[SourceRow, ...]]:
+    """Read one worksheet from a passive, bounded XLSX container.
+
+    Workbook loading is read-only and formulas are rejected instead of being
+    calculated or trusted.  The original worksheet row numbers are retained.
+    """
+
     _validate_xlsx_container(path)
 
     try:
@@ -268,6 +324,8 @@ def _load_xlsx(
 
 
 def _validate_headers(raw_headers: Iterable[Any], label: str) -> tuple[str, ...]:
+    """Return string headers after enforcing presence, uniqueness, and limits."""
+
     values = list(raw_headers)
     if not values:
         raise SourceLoadError(f"source has no columns: {label}")
@@ -292,6 +350,8 @@ def _validate_headers(raw_headers: Iterable[Any], label: str) -> tuple[str, ...]
 
 
 def _validate_cell_lengths(values: Iterable[Any], label: str, row_number: int) -> None:
+    """Reject string cells whose size exceeds the governed input limit."""
+
     for column_number, value in enumerate(values, start=1):
         if isinstance(value, str) and len(value) > MAX_CELL_STRING_LENGTH:
             raise SourceLoadError(
@@ -301,6 +361,8 @@ def _validate_cell_lengths(values: Iterable[Any], label: str, row_number: int) -
 
 
 def _reject_unsafe_cells(cells: Iterable[Any], label: str, row_number: int) -> None:
+    """Reject formula and Excel-error cells before extracting their values."""
+
     for column_number, cell in enumerate(cells, start=1):
         if cell.data_type == "f":
             raise SourceLoadError(
@@ -315,6 +377,13 @@ def _reject_unsafe_cells(cells: Iterable[Any], label: str, row_number: int) -> N
 
 
 def _validate_xlsx_container(path: Path) -> None:
+    """Inspect the XLSX ZIP container for unsafe or resource-heavy content.
+
+    This preflight rejects traversal entries, encryption, symlinks, zip-bomb
+    patterns, macros, embedded objects, connections, and external links before
+    ``openpyxl`` parses the workbook.
+    """
+
     try:
         with zipfile.ZipFile(path) as archive:
             members = archive.infolist()
@@ -402,6 +471,14 @@ def prepare_sources(
     profile: ProfileDocument,
     input_directory: str | Path,
 ) -> PreparedBundle:
+    """Convert validated source tables into engine-ready records.
+
+    Each row is parsed according to its :class:`DatasetSpec`.  Scalar fields
+    become canonical Python values, while target identities and relations that
+    require lookup remain symbolic ``LogicalReference`` objects.  Cross-row
+    duplicate source identities are marked after all rows have been prepared.
+    """
+
     tables = load_source_tables(profile, input_directory)
     records: list[PreparedRecord] = []
     issues: list[Issue] = []
@@ -444,6 +521,8 @@ def prepare_sources(
 
 
 def _required_headers(dataset: DatasetSpec) -> set[str]:
+    """Collect every source column used by a dataset's mapping contract."""
+
     headers = set(dataset.source_identity.fields)
     for component in (
         *dataset.target_identity.components,
@@ -462,6 +541,14 @@ def _prepare_row(
     row_index: int,
     missing_headers: Iterable[str],
 ) -> PreparedRecord:
+    """Map one raw row to a ``PreparedRecord`` and attach row-local issues.
+
+    This function coordinates scalar conversion, source/target identity
+    construction, and relation preparation.  It records validation failures
+    instead of aborting the complete dataset, allowing the final report to
+    describe every affected row in one run.
+    """
+
     row_issues: list[Issue] = []
     for header in missing_headers:
         row_issues.append(
@@ -558,6 +645,13 @@ def _prepare_identity_component(
     row_index: int,
     issues: list[Issue],
 ) -> tuple[Any, ...]:
+    """Prepare one target-identity component as values or a logical reference.
+
+    Direct components are parsed with their declared type and normalization.
+    Resolved components are left symbolic so the engine can use either another
+    incoming dataset or the Odoo target catalog.
+    """
+
     if component.resolve is not None:
         key = _parse_reference_key(
             component.source_fields,
@@ -610,6 +704,13 @@ def _prepare_relation(
     target_field: str,
     issues: list[Issue],
 ) -> Any:
+    """Build unresolved many2one or many2many references for one target field.
+
+    Required values, empty list items, and duplicate many2many business keys
+    become issues tied to the source row.  No numeric Odoo identifier crosses
+    this source-preparation boundary.
+    """
+
     if relation.kind == "many2one":
         key = _parse_reference_key(
             relation.source_fields,
@@ -687,6 +788,8 @@ def _parse_reference_key(
     *,
     required: bool,
 ) -> tuple[ScalarValue, ...]:
+    """Parse the source columns forming one symbolic reference key."""
+
     values: list[ScalarValue] = []
     policy = NormalizationSpec(trim=True, empty_as_null=True)
     for source_field in source_fields:
@@ -715,6 +818,12 @@ def _parse_reference_key(
 def _mark_duplicate_source_identities(
     records: list[PreparedRecord],
 ) -> list[PreparedRecord]:
+    """Attach an issue to every row sharing an identity within one dataset.
+
+    A single dictionary index performs the grouping in linear time, avoiding
+    pairwise row comparisons for large source files.
+    """
+
     indexes: dict[tuple[str, tuple[ScalarValue, ...]], list[int]] = {}
     for index, record in enumerate(records):
         indexes.setdefault((record.dataset, record.source_identity), []).append(index)

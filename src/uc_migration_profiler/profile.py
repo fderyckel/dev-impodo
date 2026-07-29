@@ -1,4 +1,14 @@
-"""Strict profile models and profile loading."""
+"""Strict, immutable mapping-profile contracts and YAML loading.
+
+Profiles are the declarative authority for source preparation, request
+planning, relationship resolution, and comparison. Pydantic validates the
+entire document before any source file or Odoo snapshot is read. Unknown keys,
+unsafe paths, contradictory policies, broken dataset references, and
+dependency cycles therefore fail at the boundary.
+
+The module contains no source-data or Odoo access. Its validated objects are
+consumed by `source.py`, `planner.py`, `metadata.py`, and `engine.py`.
+"""
 
 from __future__ import annotations
 
@@ -20,15 +30,21 @@ ScalarType = Literal[
 
 
 class StrictModel(BaseModel):
+    """Base for immutable contracts that reject every unknown property."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class ProfileIdentity(StrictModel):
+    """Human description and stable machine identifier of one profile."""
+
     id: str = Field(min_length=1, pattern=r"^[a-z][a-z0-9_-]*$")
     description: str | None = None
 
 
 class SourceSpec(StrictModel):
+    """Location and parsing parameters for one contained CSV/XLSX source."""
+
     file: str = Field(min_length=1)
     encoding: str = "utf-8-sig"
     delimiter: str = Field(default=",", min_length=1, max_length=1)
@@ -37,6 +53,8 @@ class SourceSpec(StrictModel):
 
     @model_validator(mode="after")
     def validate_source(self) -> "SourceSpec":
+        """Reject escaping paths and format-specific option contradictions."""
+
         posix_path = PurePosixPath(self.file)
         windows_path = PureWindowsPath(self.file)
         if (
@@ -66,12 +84,16 @@ class SourceSpec(StrictModel):
 
 
 class TargetSpec(StrictModel):
+    """Target Odoo model and create/upsert/reference behavior."""
+
     model: str = Field(min_length=3)
     mode: Literal["upsert", "create", "reference"] = "upsert"
     on_existing: Literal["block", "unchanged"] | None = None
 
     @model_validator(mode="after")
     def validate_create_policy(self) -> "TargetSpec":
+        """Require an explicit collision policy only for create-only data."""
+
         if self.mode == "create" and self.on_existing is None:
             raise ValueError("target.on_existing is required when target.mode is 'create'")
         if self.mode != "create" and self.on_existing is not None:
@@ -80,6 +102,13 @@ class TargetSpec(StrictModel):
 
 
 class NormalizationSpec(StrictModel):
+    """Deterministic type-parsing normalization used by the current POC.
+
+    These options describe technical canonicalization for comparison. The
+    separate normalization-governance work will add manager-approved source
+    correction rules rather than silently expanding this contract.
+    """
+
     trim: bool = False
     collapse_whitespace: bool = False
     casefold: bool = False
@@ -89,6 +118,8 @@ class NormalizationSpec(StrictModel):
 
 
 class FieldSpec(StrictModel):
+    """Map one source column to one scalar target field."""
+
     source: str = Field(min_length=1)
     type: ScalarType
     required: bool = False
@@ -100,6 +131,8 @@ class FieldSpec(StrictModel):
 
     @model_validator(mode="after")
     def validate_semantics(self) -> "FieldSpec":
+        """Reject comparison and decimal settings that cannot coexist."""
+
         if self.validate_only and self.compare:
             raise ValueError("validate_only fields cannot also set compare: true")
         if self.type != "decimal" and self.normalize.decimal_places is not None:
@@ -108,6 +141,12 @@ class FieldSpec(StrictModel):
 
 
 class ResolveSpec(StrictModel):
+    """Describe one symbolic relationship-resolution origin.
+
+    A relationship resolves either against another prepared dataset
+    (`dataset`) or against a captured Odoo model (`target_model`), never both.
+    """
+
     dataset: str | None = None
     target_source_fields: tuple[str, ...] = ()
     target_model: str | None = None
@@ -116,6 +155,8 @@ class ResolveSpec(StrictModel):
 
     @model_validator(mode="after")
     def validate_origin(self) -> "ResolveSpec":
+        """Require exactly one complete incoming or target resolution shape."""
+
         incoming = self.dataset is not None
         target = self.target_model is not None
         if incoming == target:
@@ -137,10 +178,14 @@ class ResolveSpec(StrictModel):
 
     @property
     def origin(self) -> Literal["incoming", "target"]:
+        """Return the portable origin label stored on `LogicalReference`."""
+
         return "incoming" if self.dataset is not None else "target"
 
 
 class RelationSpec(StrictModel):
+    """Map source business keys to a many2one or many2many target field."""
+
     kind: Literal["many2one", "many2many"]
     source_fields: tuple[str, ...] = Field(min_length=1)
     resolve: ResolveSpec
@@ -156,6 +201,8 @@ class RelationSpec(StrictModel):
 
     @model_validator(mode="after")
     def validate_semantics(self) -> "RelationSpec":
+        """Reject unsafe relation operations and non-blocking compare policies."""
+
         if self.validate_only and self.compare:
             raise ValueError("validate_only relations cannot also set compare: true")
         if self.kind == "many2one" and self.operation != "replace":
@@ -178,6 +225,8 @@ class RelationSpec(StrictModel):
 
 
 class IdentityComponent(StrictModel):
+    """One ordered scalar or relational component of identity/scope."""
+
     source_fields: tuple[str, ...] = Field(min_length=1)
     target_fields: tuple[str, ...] = Field(min_length=1)
     type: ScalarType = "string"
@@ -186,6 +235,8 @@ class IdentityComponent(StrictModel):
 
     @model_validator(mode="after")
     def validate_arity(self) -> "IdentityComponent":
+        """Keep flattened source and target identity shapes reconstructable."""
+
         if self.resolve is None and len(self.source_fields) != len(self.target_fields):
             raise ValueError(
                 "scalar identity source_fields and target_fields must have equal arity"
@@ -196,15 +247,21 @@ class IdentityComponent(StrictModel):
 
 
 class TargetIdentitySpec(StrictModel):
+    """Ordered target business identity plus optional uniqueness scope."""
+
     components: tuple[IdentityComponent, ...] = Field(min_length=1)
     scope: tuple[IdentityComponent, ...] = ()
 
 
 class SourceIdentitySpec(StrictModel):
+    """Ordered source trace key used for duplicate detection and relations."""
+
     fields: tuple[str, ...] = Field(min_length=1)
 
 
 class DatasetSpec(StrictModel):
+    """Complete mapping contract for one logical source dataset."""
+
     name: str = Field(min_length=1, pattern=r"^[a-z][a-z0-9_]*$")
     source: SourceSpec
     target: TargetSpec
@@ -216,6 +273,8 @@ class DatasetSpec(StrictModel):
 
     @model_validator(mode="after")
     def validate_target_fields(self) -> "DatasetSpec":
+        """Prevent one target field from having scalar and relation semantics."""
+
         overlap = set(self.fields).intersection(self.relations)
         if overlap:
             raise ValueError(
@@ -225,11 +284,15 @@ class DatasetSpec(StrictModel):
 
 
 class ProfileDocument(StrictModel):
+    """Validated root profile and its dependency-ordered dataset contracts."""
+
     profile: ProfileIdentity
     datasets: tuple[DatasetSpec, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_datasets(self) -> "ProfileDocument":
+        """Validate unique names, incoming references, identity keys, and cycles."""
+
         names = [dataset.name for dataset in self.datasets]
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
@@ -271,6 +334,8 @@ class ProfileDocument(StrictModel):
         return self
 
     def _validate_dependency_cycles(self) -> None:
+        """Reject cycles between datasets that require deferred resolution."""
+
         graph: dict[str, set[str]] = {dataset.name: set() for dataset in self.datasets}
         for dataset in self.datasets:
             specs = [
@@ -290,6 +355,8 @@ class ProfileDocument(StrictModel):
         visited: set[str] = set()
 
         def visit(name: str) -> None:
+            """Depth-first traversal with an active recursion-stack guard."""
+
             if name in visiting:
                 raise ValueError(f"deferred dataset reference cycle includes {name!r}")
             if name in visited:
@@ -304,6 +371,8 @@ class ProfileDocument(StrictModel):
             visit(dataset_name)
 
     def dataset(self, name: str) -> DatasetSpec:
+        """Return a dataset by stable name or raise `KeyError`."""
+
         for dataset in self.datasets:
             if dataset.name == name:
                 return dataset
@@ -315,6 +384,12 @@ class ProfileLoadError(ValueError):
 
 
 def load_profile(path: str | Path) -> ProfileDocument:
+    """Load YAML and return one fully validated immutable profile.
+
+    File, YAML, and Pydantic errors are normalized into `ProfileLoadError`
+    messages with actionable dotted field locations for CLI/browser display.
+    """
+
     profile_path = Path(path)
     try:
         loaded = yaml.safe_load(profile_path.read_text(encoding="utf-8"))

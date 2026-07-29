@@ -1,4 +1,16 @@
-"""Read-only Odoo connector port and implementations."""
+"""Define the profiler's read-only boundary to Odoo and snapshot files.
+
+The planner supplies batched :class:`MetadataRequest` and
+:class:`RecordRequest` objects.  A connector fulfils those requests either
+from Odoo 19's JSON-2 API or from deterministic JSON snapshots.  Both
+implementations return the same typed snapshot contracts, so the metadata
+validator, catalog, and engine do not depend on transport details.
+
+Only ``fields_get`` and ``search_read`` are available through the live
+connector.  This closed method surface is a deliberate safety control: the
+profiler can inspect DEV/TEST but cannot create, update, delete, or execute an
+arbitrary Odoo model method.
+"""
 
 from __future__ import annotations
 
@@ -26,12 +38,16 @@ from .models import (
 
 @dataclass(frozen=True, slots=True)
 class MetadataRequest:
+    """Fields whose Odoo metadata must be fetched for one model."""
+
     model: str
     fields: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class RecordRequest:
+    """One batched, domain-limited target-record query for an Odoo model."""
+
     model: str
     fields: tuple[str, ...]
     domain: tuple[Any, ...] = ()
@@ -39,6 +55,8 @@ class RecordRequest:
 
 @dataclass(frozen=True, slots=True)
 class MetadataSnapshot:
+    """Model metadata plus the environment identity from which it was read."""
+
     fingerprint: EnvironmentFingerprint
     models: Mapping[str, ModelMetadata]
     complete: bool = True
@@ -48,6 +66,8 @@ class MetadataSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class RecordSnapshot:
+    """Target records and exact fields returned for each requested model."""
+
     fingerprint: EnvironmentFingerprint
     records: Mapping[str, tuple[TargetRecord, ...]]
     requested_fields: Mapping[str, tuple[str, ...]]
@@ -56,33 +76,44 @@ class RecordSnapshot:
 
 
 class OdooReadConnector(Protocol):
-    def get_environment_fingerprint(self) -> EnvironmentFingerprint: ...
+    """Transport-independent contract consumed by the preflight workflow."""
+
+    def get_environment_fingerprint(self) -> EnvironmentFingerprint:
+        """Identify the Odoo environment used for subsequent reads."""
+
+        ...
 
     def get_model_metadata(
         self, requests: Sequence[MetadataRequest]
-    ) -> MetadataSnapshot: ...
+    ) -> MetadataSnapshot:
+        """Return metadata for the requested models and fields."""
 
-    def get_records(self, requests: Sequence[RecordRequest]) -> RecordSnapshot: ...
+        ...
+
+    def get_records(self, requests: Sequence[RecordRequest]) -> RecordSnapshot:
+        """Return all records matching each planned model request."""
+
+        ...
 
 
 class ConnectorError(RuntimeError):
-    pass
+    """Base class for failures at the read-only connector boundary."""
 
 
 class ConnectorConfigurationError(ConnectorError):
-    pass
+    """Raised when connector configuration or snapshot binding is invalid."""
 
 
 class ConnectorAuthenticationError(ConnectorError):
-    pass
+    """Raised when Odoo rejects the supplied read credentials."""
 
 
 class ConnectorTransportError(ConnectorError):
-    pass
+    """Raised when a remote read cannot complete safely or successfully."""
 
 
 class ConnectorIncompleteResultError(ConnectorError):
-    pass
+    """Raised when a response cannot prove that the requested read is complete."""
 
 
 class SnapshotConnector:
@@ -97,6 +128,13 @@ class SnapshotConnector:
         expected_profile_id: str | None = None,
         expected_source_hashes: Mapping[str, str] | None = None,
     ) -> None:
+        """Load separate or combined snapshots and validate their binding.
+
+        Metadata and record fingerprints must match.  When expected profile
+        and source hashes are supplied, the connector also prevents replaying
+        a snapshot against a different profile or source package.
+        """
+
         if combined_path is not None:
             combined = _load_json(combined_path)
             self._metadata_data = combined["metadata"]
@@ -142,11 +180,15 @@ class SnapshotConnector:
             )
 
     def get_environment_fingerprint(self) -> EnvironmentFingerprint:
+        """Return the common fingerprint validated during construction."""
+
         return self._fingerprint
 
     def get_model_metadata(
         self, requests: Sequence[MetadataRequest]
     ) -> MetadataSnapshot:
+        """Project stored metadata down to exactly the planned fields."""
+
         models: dict[str, ModelMetadata] = {}
         available = self._metadata_data.get("models", {})
         for request in requests:
@@ -174,6 +216,13 @@ class SnapshotConnector:
         )
 
     def get_records(self, requests: Sequence[RecordRequest]) -> RecordSnapshot:
+        """Project stored records down to the planned models and fields.
+
+        Snapshot creation has already applied the planned Odoo domains, so
+        replay reads the bound record set rather than re-evaluating domains
+        locally.
+        """
+
         if not self._records_data.get("complete", True):
             raise ConnectorIncompleteResultError("record snapshot is incomplete")
         available = self._records_data.get("models", {})
@@ -209,6 +258,12 @@ class SnapshotConnector:
 
 @dataclass(frozen=True, slots=True)
 class Json2Config:
+    """Connection and batching settings for the live Odoo JSON-2 adapter.
+
+    The API key is excluded from representations to reduce accidental secret
+    disclosure in logs and errors.
+    """
+
     base_url: str
     database: str
     api_key: str = field(repr=False)
@@ -220,6 +275,8 @@ class Json2Config:
     relevant_modules: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        """Enforce HTTPS, a non-production environment, and valid pagination."""
+
         if not self.base_url.startswith("https://"):
             raise ConnectorConfigurationError(
                 "UC_ODOO_BASE_URL must use HTTPS"
@@ -233,6 +290,13 @@ class Json2Config:
 
     @classmethod
     def from_environment(cls) -> "Json2Config":
+        """Build configuration from the governed ``UC_ODOO_*`` variables.
+
+        Required variables identify the base URL, database, API key, and
+        environment.  Timeout and page size are optional and receive safe
+        defaults.
+        """
+
         missing = [
             name
             for name in (
@@ -282,6 +346,12 @@ class Json2ReadConnector:
         transport: Transport | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
+        """Create an adapter with injectable HTTP and clock dependencies.
+
+        Dependency injection keeps unit tests deterministic while production
+        defaults use :func:`_urllib_transport` and the current UTC time.
+        """
+
         self._config = config
         self._transport = transport or _urllib_transport
         self._now = now or (lambda: datetime.now(timezone.utc))
@@ -289,6 +359,13 @@ class Json2ReadConnector:
         self._fingerprint_limitations: tuple[str, ...] = ()
 
     def get_environment_fingerprint(self) -> EnvironmentFingerprint:
+        """Read and cache the Odoo version, database, time, and module versions.
+
+        Version endpoints and module visibility can be restricted in Odoo.
+        Such gaps are captured as explicit limitations rather than silently
+        changing the environment identity.
+        """
+
         if self._fingerprint is not None:
             return self._fingerprint
         version = "unknown"
@@ -344,6 +421,12 @@ class Json2ReadConnector:
     def get_model_metadata(
         self, requests: Sequence[MetadataRequest]
     ) -> MetadataSnapshot:
+        """Fetch requested field definitions through batched ``fields_get`` calls.
+
+        There is one call per requested model, not one call per field.  This
+        prevents an N+1 pattern as profiles grow.
+        """
+
         fingerprint = self.get_environment_fingerprint()
         models: dict[str, ModelMetadata] = {}
         for request in sorted(requests, key=lambda item: item.model):
@@ -385,6 +468,13 @@ class Json2ReadConnector:
         )
 
     def get_records(self, requests: Sequence[RecordRequest]) -> RecordSnapshot:
+        """Fetch all matching records through deterministic, paginated reads.
+
+        Each model request is ordered by ``id`` and read in configured pages.
+        Repeated identifiers across pages are rejected because they make
+        completeness uncertain.
+        """
+
         fingerprint = self.get_environment_fingerprint()
         records: dict[str, tuple[TargetRecord, ...]] = {}
         fields_by_model: dict[str, tuple[str, ...]] = {}
@@ -448,6 +538,12 @@ class Json2ReadConnector:
     def _post_read_method(
         self, model: str, method: str, payload: Mapping[str, Any]
     ) -> Any:
+        """POST an allowlisted read method and translate safe status errors.
+
+        Error response bodies are never included in exceptions because Odoo
+        may return internal details or business data.
+        """
+
         if method not in self._READ_METHODS:
             raise ConnectorConfigurationError(
                 f"method {method!r} is not an approved read operation"
@@ -479,6 +575,13 @@ class Json2ReadConnector:
         method: str,
         body: bytes | None,
     ) -> tuple[int, Any]:
+        """Send one authenticated request with bounded transient retries.
+
+        Authentication/database headers are created only at this boundary.
+        Network failures and selected transient HTTP statuses use a short
+        exponential backoff; permanent responses return immediately.
+        """
+
         headers = {
             "Authorization": f"bearer {self._config.api_key}",
             "Content-Type": "application/json; charset=utf-8",
@@ -515,6 +618,12 @@ def write_metadata_snapshot(
     *,
     profile_id: str,
 ) -> None:
+    """Serialize a replayable metadata snapshot with stable ordering.
+
+    The profile identifier binds the file to the mapping contract that
+    requested it.  :func:`_write_json` performs the final atomic replacement.
+    """
+
     payload = {
         "kind": "metadata",
         "profile": {"id": profile_id},
@@ -549,6 +658,8 @@ def write_record_snapshot(
     profile_id: str,
     source_hashes: Mapping[str, str],
 ) -> None:
+    """Serialize target records bound to a profile and exact source hashes."""
+
     payload = {
         "kind": "records",
         "profile": {"id": profile_id},
@@ -573,6 +684,8 @@ def write_record_snapshot(
 
 
 def _parse_fingerprint(data: Mapping[str, Any]) -> EnvironmentFingerprint:
+    """Convert portable snapshot JSON into an environment fingerprint."""
+
     return EnvironmentFingerprint(
         environment=str(data["environment"]),
         database=str(data["database"]),
@@ -586,6 +699,8 @@ def _parse_fingerprint(data: Mapping[str, Any]) -> EnvironmentFingerprint:
 
 
 def _parse_field_metadata(name: str, data: Mapping[str, Any]) -> FieldMetadata:
+    """Convert one ``fields_get``/snapshot mapping to typed field metadata."""
+
     selection = data.get("selection") or ()
     return FieldMetadata(
         name=name,
@@ -599,6 +714,8 @@ def _parse_field_metadata(name: str, data: Mapping[str, Any]) -> FieldMetadata:
 
 
 def _load_json(path: str | Path) -> dict[str, Any]:
+    """Read a JSON snapshot and expose parse/filesystem failures uniformly."""
+
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -610,6 +727,13 @@ def _validate_snapshot_binding(
     expected_profile_id: str | None,
     expected_source_hashes: Mapping[str, str] | None,
 ) -> None:
+    """Verify that a snapshot belongs to the selected profile/source package.
+
+    Older snapshots without optional binding fields remain readable.  When a
+    binding is present and an expectation is supplied, however, any mismatch
+    is a configuration error.
+    """
+
     profile = data.get("profile")
     if expected_profile_id is not None and profile is not None:
         if profile.get("id") != expected_profile_id:
@@ -628,12 +752,16 @@ def _validate_snapshot_binding(
 
 
 def _sha256_bytes(value: bytes) -> str:
+    """Return the lowercase SHA-256 hex digest used by snapshot hashes."""
+
     from hashlib import sha256
 
     return sha256(value).hexdigest()
 
 
 def _write_json(path: str | Path, payload: Mapping[str, Any]) -> None:
+    """Write canonical JSON through a sibling partial file, then replace."""
+
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(destination.suffix + ".partial")
@@ -648,6 +776,13 @@ def _urllib_transport(
     timeout: float,
     method: str,
 ) -> tuple[int, Any]:
+    """Execute one JSON request while blocking redirects to another host.
+
+    HTTP error bodies are intentionally discarded.  Other network exceptions
+    propagate to :meth:`Json2ReadConnector._request_url`, which owns retry and
+    public error handling.
+    """
+
     request = Request(
         url=url,
         data=body,

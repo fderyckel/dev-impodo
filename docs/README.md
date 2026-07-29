@@ -45,6 +45,10 @@ inspection, mapping, staging, approval, loading, and reconciliation.
 
 ## Operations and quality
 
+- [DuckDB on a Windows laptop](operations/duckdb-windows.md) - approved
+  user-local DuckDB CLI installation, verification, troubleshooting, and the
+  boundary between the CLI and Impodo-managed data.
+
 - [CLI and operating model](operations/cli.md) — commands, artifact flow,
   exit behavior, secrets, and runbook.
 - [Examples and edge cases](examples-and-edge-cases.md) — copy-paste runs,
