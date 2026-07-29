@@ -51,8 +51,19 @@ Those transitions must be added before downstream phases depend on them.
 - project status;
 - mapping version;
 - current run;
-- approval status;
-- audit-event identifiers and timestamps.
+- derived approval-summary status;
+- audit-event identifiers, timestamps, and stable actor issuer/subject
+  identities.
+
+The human-entered data-manager and functional-owner names are governance
+metadata, not authorization claims. State-changing application commands
+receive a verified actor. The local deployment supplies one privileged local
+operator; the future hosted adapter will resolve corporate identity,
+capabilities, and project membership.
+
+Approval-summary status is never the authoritative approval. Normalization
+decisions and future export-plan approvals are immutable actor-bound records
+attached to exact evidence hashes.
 
 An Odoo API key is not a project field. It is held in memory for the current
 process or saved separately in the operating-system credential store. The
@@ -94,6 +105,11 @@ projects/
 The registry contains only project-list metadata. Each project database holds
 its own governed metadata and audit events. Registration evidence is written
 to `audit/project-registration-r<revision>.json`.
+
+Application services access source files through the `ArtifactStore` port.
+The local adapter materializes contained project files; a future hosted
+adapter may materialize a temporary worker-local copy from shared storage.
+Repository paths are not part of the application contract.
 
 ## Safety boundary
 

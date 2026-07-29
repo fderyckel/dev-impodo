@@ -6,6 +6,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from uc_migration_profiler.access import (
+    CapabilityAuthorizationPolicy,
+    LOCAL_ACTOR,
+)
+from uc_migration_profiler.artifacts import LocalArtifactStore
 from uc_migration_profiler.intake import SourceIntakeError, SourceIntakeService
 from uc_migration_profiler.project_store import DuckDbProjectRepository
 from uc_migration_profiler.projects import (
@@ -27,13 +32,17 @@ class ProjectLifecycleTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.repository = DuckDbProjectRepository(self.temporary.name)
-        self.service = ProjectService(self.repository)
+        self.service = ProjectService(
+            self.repository,
+            CapabilityAuthorizationPolicy(),
+        )
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
     def test_project_is_persisted_and_stale_updates_are_rejected(self) -> None:
         project = self.service.create_project(
+            actor=LOCAL_ACTOR,
             name="Products migration",
             source_system="Dynamics AX 2012",
         )
@@ -44,6 +53,7 @@ class ProjectLifecycleTests(unittest.TestCase):
 
         updated = self.service.update_governance(
             project.project_id,
+            actor=LOCAL_ACTOR,
             expected_revision=project.revision,
             data_manager="Data Manager",
             functional_owner="Product Owner",
@@ -53,9 +63,31 @@ class ProjectLifecycleTests(unittest.TestCase):
             support_access=False,
         )
         self.assertEqual(updated.revision, 2)
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            audit_actor = connection.execute(
+                """
+                SELECT actor_issuer, actor_subject, actor_display_name
+                  FROM audit_event
+                 ORDER BY event_id DESC
+                 LIMIT 1
+                """
+            ).fetchone()
+        self.assertEqual(
+            audit_actor,
+            (
+                LOCAL_ACTOR.identity.issuer,
+                LOCAL_ACTOR.identity.subject_id,
+                LOCAL_ACTOR.identity.display_name,
+            ),
+        )
         with self.assertRaises(ProjectConflictError):
             self.service.update_governance(
                 project.project_id,
+                actor=LOCAL_ACTOR,
                 expected_revision=project.revision,
                 data_manager="Stale",
                 functional_owner="Owner",
@@ -67,12 +99,14 @@ class ProjectLifecycleTests(unittest.TestCase):
 
     def test_registration_fails_closed_until_every_requirement_exists(self) -> None:
         project = self.service.create_project(
+            actor=LOCAL_ACTOR,
             name="Products migration",
             source_system="Dynamics AX 2012",
         )
         with self.assertRaises(ProjectRegistrationError) as caught:
             self.service.register(
                 project.project_id,
+                actor=LOCAL_ACTOR,
                 expected_revision=project.revision,
             )
         self.assertIn("At least one source file is required", caught.exception.problems)
@@ -94,11 +128,13 @@ class ProjectLifecycleTests(unittest.TestCase):
 
     def test_local_and_remote_target_urls_are_kept_separate(self) -> None:
         project = self.service.create_project(
+            actor=LOCAL_ACTOR,
             name="Connection modes",
             source_system="CSV",
         )
         local = self.service.update_target(
             project.project_id,
+            actor=LOCAL_ACTOR,
             expected_revision=project.revision,
             odoo_connection_mode="LOCAL",
             target_environment="DEV",
@@ -111,6 +147,7 @@ class ProjectLifecycleTests(unittest.TestCase):
 
         remote = self.service.update_target(
             local.project_id,
+            actor=LOCAL_ACTOR,
             expected_revision=local.revision,
             odoo_connection_mode="REMOTE",
             target_environment="TEST",
@@ -134,6 +171,7 @@ class ProjectLifecycleTests(unittest.TestCase):
             ):
                 self.service.update_target(
                     remote.project_id,
+                    actor=LOCAL_ACTOR,
                     expected_revision=remote.revision,
                     odoo_connection_mode=mode,
                     target_environment="TEST",
@@ -145,6 +183,7 @@ class ProjectLifecycleTests(unittest.TestCase):
 
     def test_version_one_project_database_is_migrated(self) -> None:
         project = self.service.create_project(
+            actor=LOCAL_ACTOR,
             name="Legacy project",
             source_system="CSV",
         )
@@ -175,16 +214,18 @@ class ProjectLifecycleTests(unittest.TestCase):
                  WHERE table_name = 'source_catalog'
                 """
             ).fetchone()
-        self.assertEqual(version, (3,))
+        self.assertEqual(version, (4,))
         self.assertEqual(catalog_table, ("source_catalog",))
 
     def test_complete_project_can_be_registered(self) -> None:
         project = self.service.create_project(
+            actor=LOCAL_ACTOR,
             name="Products migration",
             source_system="Dynamics AX 2012",
         )
         project = self.service.update_details(
             project.project_id,
+            actor=LOCAL_ACTOR,
             expected_revision=project.revision,
             name=project.name,
             source_system=project.source_system,
@@ -194,6 +235,7 @@ class ProjectLifecycleTests(unittest.TestCase):
         )
         project = self.service.update_governance(
             project.project_id,
+            actor=LOCAL_ACTOR,
             expected_revision=project.revision,
             data_manager="Data Manager",
             functional_owner="Product Owner",
@@ -204,6 +246,7 @@ class ProjectLifecycleTests(unittest.TestCase):
         )
         project = self.service.update_target(
             project.project_id,
+            actor=LOCAL_ACTOR,
             expected_revision=project.revision,
             odoo_connection_mode="REMOTE",
             target_environment="TEST",
@@ -214,6 +257,7 @@ class ProjectLifecycleTests(unittest.TestCase):
         )
         project = self.service.add_source_file(
             project.project_id,
+            actor=LOCAL_ACTOR,
             expected_revision=project.revision,
             source_file=SourceFile(
                 file_id="5df764bb-25df-4a64-95ec-50eafd9635bd",
@@ -226,10 +270,13 @@ class ProjectLifecycleTests(unittest.TestCase):
         )
         registered = self.service.register(
             project.project_id,
+            actor=LOCAL_ACTOR,
             expected_revision=project.revision,
         )
         self.assertEqual(registered.status, ProjectStatus.REGISTERED)
         self.assertIsNotNone(registered.registered_at)
+        persisted = self.repository.get(project.project_id)
+        self.assertEqual(persisted.source_files, registered.source_files)
         manifest = (
             self.repository.project_directory(project.project_id)
             / "audit"
@@ -246,9 +293,14 @@ class SourceIntakeTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.repository = DuckDbProjectRepository(self.temporary.name)
-        self.projects = ProjectService(self.repository)
-        self.intake = SourceIntakeService(self.repository, self.projects)
+        self.projects = ProjectService(
+            self.repository,
+            CapabilityAuthorizationPolicy(),
+        )
+        self.artifacts = LocalArtifactStore(self.temporary.name)
+        self.intake = SourceIntakeService(self.projects, self.artifacts)
         self.project = self.projects.create_project(
+            actor=LOCAL_ACTOR,
             name="Source intake",
             source_system="CSV",
         )
@@ -259,6 +311,7 @@ class SourceIntakeTests(unittest.TestCase):
     def test_csv_is_hashed_and_stored_under_generated_name(self) -> None:
         source = self.intake.accept(
             self.project.project_id,
+            actor=LOCAL_ACTOR,
             expected_revision=self.project.revision,
             display_name="customers.csv",
             stream=BytesIO(b"code,name\nC1,Example\n"),
@@ -279,6 +332,7 @@ class SourceIntakeTests(unittest.TestCase):
             ):
                 self.intake.accept(
                     self.project.project_id,
+                    actor=LOCAL_ACTOR,
                     expected_revision=self.project.revision,
                     display_name=filename,
                     stream=BytesIO(b"unsafe"),
@@ -288,6 +342,7 @@ class SourceIntakeTests(unittest.TestCase):
         with self.assertRaises(SourceIntakeError):
             self.intake.accept(
                 self.project.project_id,
+                actor=LOCAL_ACTOR,
                 expected_revision=self.project.revision,
                 display_name="not-a-workbook.xlsx",
                 stream=BytesIO(b"not a ZIP container"),

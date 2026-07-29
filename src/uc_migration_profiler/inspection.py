@@ -22,6 +22,8 @@ import zipfile
 
 from defusedxml import ElementTree as SafeElementTree
 
+from .access import Actor, AuthorizationPolicy, Capability
+from .artifacts import ArtifactStore, ArtifactStoreError
 from .projects import ProjectError, ProjectStatus, SourceFile
 from .source import (
     MAX_CELL_STRING_LENGTH,
@@ -170,8 +172,6 @@ class SourceCatalogRepository(Protocol):
 
     def get(self, project_id: str): ...
 
-    def project_directory(self, project_id: str) -> Path: ...
-
     def get_source_catalogs(
         self,
         project_id: str,
@@ -181,16 +181,35 @@ class SourceCatalogRepository(Protocol):
         self,
         project_id: str,
         catalogs: Iterable[SourceFileCatalog],
+        *,
+        actor: Actor,
     ) -> None: ...
 
 
 class SourceInspectionService:
     """Inspect registered project files and persist their hash-bound catalogs."""
 
-    def __init__(self, repository: SourceCatalogRepository) -> None:
+    def __init__(
+        self,
+        repository: SourceCatalogRepository,
+        artifacts: ArtifactStore,
+        authorization: AuthorizationPolicy,
+    ) -> None:
         self.repository = repository
+        self.artifacts = artifacts
+        self.authorization = authorization
 
-    def inspect_project(self, project_id: str) -> tuple[SourceFileCatalog, ...]:
+    def inspect_project(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+    ) -> tuple[SourceFileCatalog, ...]:
+        self.authorization.require(
+            actor,
+            Capability.SOURCE_INSPECT,
+            project_id=project_id,
+        )
         project = self.repository.get(project_id)
         if project.status is not ProjectStatus.REGISTERED:
             raise SourceInspectionError(
@@ -201,17 +220,26 @@ class SourceInspectionService:
         # domain module import path.
         from .source_worker import inspect_source_file_isolated
 
-        inbox = self.repository.project_directory(project_id) / "inbox"
         catalogs: list[SourceFileCatalog] = []
         for source_file in project.source_files:
-            path = _contained_inbox_path(inbox, source_file)
-            catalogs.append(
-                inspect_source_file_isolated(
-                    path,
-                    source_file=source_file,
-                )
-            )
-        self.repository.save_source_catalogs(project_id, catalogs)
+            try:
+                with self.artifacts.materialize_source(
+                    project_id,
+                    source_file.stored_name,
+                ) as path:
+                    catalogs.append(
+                        inspect_source_file_isolated(
+                            path,
+                            source_file=source_file,
+                        )
+                    )
+            except ArtifactStoreError as error:
+                raise SourceInspectionError(str(error)) from error
+        self.repository.save_source_catalogs(
+            project_id,
+            catalogs,
+            actor=actor,
+        )
         return tuple(catalogs)
 
 
@@ -1008,19 +1036,6 @@ def _hash_file(path: Path) -> tuple[int, str]:
             size += len(chunk)
             digest.update(chunk)
     return size, digest.hexdigest()
-
-
-def _contained_inbox_path(inbox: Path, source_file: SourceFile) -> Path:
-    candidate = inbox / source_file.stored_name
-    if candidate.is_symlink():
-        raise SourceInspectionError("Stored source files must not be symbolic links")
-    resolved_inbox = inbox.resolve()
-    resolved = candidate.resolve()
-    if resolved.parent != resolved_inbox or not resolved.is_file():
-        raise SourceInspectionError(
-            f"Registered source file is missing: {source_file.display_name}"
-        )
-    return resolved
 
 
 def _table_from_payload(payload: dict[str, Any]) -> SourceTableCatalog:

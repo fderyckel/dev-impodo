@@ -77,10 +77,10 @@ classDiagram
         ruleset_hash
         status
         summary
+        group_decisions
+        approval
         approved_groups
         rejected_groups
-        approved_by
-        approved_at
         canonical_dataset_hash
         complete()
         approve_group()
@@ -188,27 +188,30 @@ This is called after normalization and validation finish.
 There is no direct transition from `RUNNING` to `APPROVED`. The data manager
 must validate the dry run even when every correction was automatic.
 
-### `approve_group(key)`
+### `approve_group(key, actor, decided_at, reason)`
 
 This records approval of one `required` correction group. It cannot approve an
 automatic group, an unknown group, or a group from another run.
+The verified actor must have the `normalization.decide` capability. The
+immutable decision retains the stable actor identity, timezone-aware timestamp,
+and optional reason.
 
 Approving a group does not approve the complete dry run. It only removes one
 item from the set of pending decisions.
 
-### `reject_group(key)`
+### `reject_group(key, actor, decided_at, reason)`
 
 This records rejection and immediately moves the run to `BLOCKED`. The
 affected rows are not silently allowed to continue with invalid raw values.
 A new run is required after the source or rule is corrected.
 
-### `approve(approved_by, approved_at)`
+### `approve(actor, approved_at, reason)`
 
 This records whole-run approval. It succeeds only when:
 
 - the current state is `REVIEW_REQUIRED`;
 - every required correction group is approved;
-- the manager identity is non-blank;
+- the verified actor has the `normalization.approve` capability;
 - the approval timestamp contains a timezone.
 
 Automatic corrections do not need group approval, but they remain covered by
@@ -227,6 +230,7 @@ stable source-data artifact that future read-only target preflight may consume.
 ```python
 from datetime import datetime, timezone
 
+from uc_migration_profiler.access import LOCAL_ACTOR
 from uc_migration_profiler.governance import (
     ApprovalMode,
     CorrectionGroupKey,
@@ -269,9 +273,13 @@ running = DryRun(
 )
 
 review = running.complete(summary)
-group_approved = review.approve_group(remap_key)
+group_approved = review.approve_group(
+    remap_key,
+    actor=LOCAL_ACTOR,
+    decided_at=datetime.now(timezone.utc),
+)
 run_approved = group_approved.approve(
-    approved_by="data.manager",
+    actor=LOCAL_ACTOR,
     approved_at=datetime.now(timezone.utc),
 )
 frozen = run_approved.freeze(

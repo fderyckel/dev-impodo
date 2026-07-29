@@ -147,3 +147,47 @@ fixture and live execution ask the same questions.
 - single-field identities produce bounded `in` domains; composite identities
   can require a broader profile-domain read;
 - snapshots record exact projected fields, but not the requested domain.
+
+## ADR-008 — Local and hosted deployments use separate composition roots
+
+**Status:** Accepted
+**Decision:** Impodo keeps one portable domain and application-service layer
+with two explicit deployment profiles:
+
+- the local profile uses a loopback launch session, DuckDB, contained local
+  artifacts, Windows Credential Manager, and synchronous jobs;
+- the future hosted profile uses corporate identity, centrally governed
+  authorization, PostgreSQL, shared artifact storage, durable workers, and a
+  TLS reverse proxy.
+
+The local security middleware is not relaxed to create the hosted profile.
+Hosted HTTP, identity, persistence, secrets, and job adapters are composed
+separately.
+
+Application services receive verified actors and depend on ports for
+authorization, project persistence, artifacts, secrets, and jobs. Immutable
+approval evidence binds decisions to stable actor identities and exact input
+hashes. DuckDB may remain a worker-local analytical engine, but it is not the
+hosted multi-user system of record.
+
+**Why:** Containerizing the current local process would preserve its
+single-user launch token, filesystem, keyring, and single-process DuckDB
+assumptions. Explicit adapters let the MVP remain small while preventing the
+mapping, normalization, approval, and audit domains from depending on those
+assumptions.
+
+**Consequences:**
+
+- local behavior and its loopback protections remain the default;
+- every state-changing project command carries a verified actor and audit
+  identity;
+- source processing uses storage keys and materialization rather than
+  repository-owned paths;
+- long-running work has an idempotent job contract even when the local adapter
+  executes synchronously;
+- approval status is only a derived summary; immutable decision and approval
+  records are authoritative;
+- PostgreSQL, SSO, hosted Docker deployment, and the restricted Odoo executor
+  remain separate delivery and security milestones;
+- contract tests must run against each future repository, artifact, identity,
+  authorization, and job adapter.

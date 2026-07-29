@@ -17,6 +17,13 @@ from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData, UploadFile
 from starlette.middleware.sessions import SessionMiddleware
 
+from ..access import (
+    Actor,
+    AuthorizationPolicy,
+    CapabilityAuthorizationPolicy,
+    LOCAL_ACTOR,
+)
+from ..artifacts import ArtifactStore, LocalArtifactStore
 from ..connectors import (
     ConnectorError,
     Json2Config,
@@ -25,6 +32,7 @@ from ..connectors import (
 )
 from ..intake import SourceIntakeError, SourceIntakeService
 from ..inspection import SourceInspectionError, SourceInspectionService
+from ..jobs import InlineJobDispatcher, JobDispatcher
 from ..project_store import DuckDbProjectRepository
 from ..projects import (
     MigrationProject,
@@ -68,12 +76,16 @@ class WebContext:
     projects: ProjectService
     intake: SourceIntakeService
     inspections: SourceInspectionService
+    artifacts: ArtifactStore
+    actor: Actor
+    authorization: AuthorizationPolicy
+    jobs: JobDispatcher
     secret_store: SecretStore
     launch_token: str
     connection_tester: ConnectionTester
 
 
-def create_app(
+def create_local_app(
     project_root: str | Path,
     *,
     expected_host: str = "testserver",
@@ -81,16 +93,30 @@ def create_app(
     session_secret: str | None = None,
     secret_store: SecretStore | None = None,
     connection_tester: ConnectionTester | None = None,
+    actor: Actor = LOCAL_ACTOR,
+    authorization: AuthorizationPolicy | None = None,
+    artifact_store: ArtifactStore | None = None,
+    job_dispatcher: JobDispatcher | None = None,
 ) -> FastAPI:
     """Construct the local application with injectable security/test boundaries."""
 
     repository = DuckDbProjectRepository(project_root)
-    projects = ProjectService(repository)
+    resolved_authorization = authorization or CapabilityAuthorizationPolicy()
+    resolved_artifacts = artifact_store or LocalArtifactStore(project_root)
+    projects = ProjectService(repository, resolved_authorization)
     context = WebContext(
         repository=repository,
         projects=projects,
-        intake=SourceIntakeService(repository, projects),
-        inspections=SourceInspectionService(repository),
+        intake=SourceIntakeService(projects, resolved_artifacts),
+        inspections=SourceInspectionService(
+            repository,
+            resolved_artifacts,
+            resolved_authorization,
+        ),
+        artifacts=resolved_artifacts,
+        actor=actor,
+        authorization=resolved_authorization,
+        jobs=job_dispatcher or InlineJobDispatcher(),
         secret_store=secret_store or CredentialVault(),
         launch_token=launch_token or secrets.token_urlsafe(32),
         connection_tester=connection_tester or _test_connection,
@@ -170,6 +196,7 @@ def create_app(
         values = _form_values(form)
         try:
             project = context.projects.create_project(
+                actor=context.actor,
                 name=values.get("name", ""),
                 source_system=values.get("source_system", ""),
             )
@@ -231,6 +258,7 @@ def create_app(
         try:
             project = context.projects.update_details(
                 project_id,
+                actor=context.actor,
                 expected_revision=_revision(form),
                 name=_text(form, "name"),
                 source_system=_text(form, "source_system"),
@@ -280,6 +308,7 @@ def create_app(
         try:
             project = context.projects.update_governance(
                 project_id,
+                actor=context.actor,
                 expected_revision=_revision(form),
                 data_manager=_text(form, "data_manager"),
                 functional_owner=_text(form, "functional_owner"),
@@ -330,6 +359,7 @@ def create_app(
             await run_in_threadpool(
                 context.intake.accept,
                 project_id,
+                actor=context.actor,
                 expected_revision=_revision(form),
                 display_name=upload.filename,
                 stream=upload.file,
@@ -385,6 +415,7 @@ def create_app(
         try:
             project = context.projects.update_target(
                 project_id,
+                actor=context.actor,
                 expected_revision=_revision(form),
                 odoo_connection_mode=_text(form, "odoo_connection_mode"),
                 target_environment=_text(form, "target_environment"),
@@ -451,6 +482,7 @@ def create_app(
         try:
             project = context.projects.register(
                 project_id,
+                actor=context.actor,
                 expected_revision=_revision(form),
             )
         except ProjectRegistrationError as error:
@@ -510,6 +542,7 @@ def create_app(
             catalogs = await run_in_threadpool(
                 context.inspections.inspect_project,
                 project_id,
+                actor=context.actor,
             )
         except SourceInspectionError as error:
             return _render(
@@ -540,6 +573,10 @@ def create_app(
         return _render(request, "goodbye.html")
 
     return app
+
+
+# Backward-compatible public name for the accepted local-only deployment.
+create_app = create_local_app
 
 
 def _test_connection(project: MigrationProject, api_key: str) -> str:

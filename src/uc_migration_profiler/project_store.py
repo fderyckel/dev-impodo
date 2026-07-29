@@ -11,8 +11,10 @@ from uuid import UUID
 
 import duckdb
 
+from .access import Actor
 from .inspection import SourceFileCatalog, SourceInspectionError
 from .projects import (
+    ApprovalStatus,
     DataClassification,
     ExportStatus,
     MigrationProject,
@@ -26,7 +28,7 @@ from .projects import (
 )
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class DuckDbProjectRepository:
@@ -49,7 +51,7 @@ class DuckDbProjectRepository:
                 """
             )
 
-    def create(self, project: MigrationProject) -> None:
+    def create(self, project: MigrationProject, *, actor: Actor) -> None:
         project_dir = self.project_directory(project.project_id)
         project_dir.mkdir(parents=False, exist_ok=False)
         for child in ("inbox", "staging", "snapshots", "reports", "audit"):
@@ -63,6 +65,7 @@ class DuckDbProjectRepository:
                 project,
                 event_type="PROJECT_CREATED",
                 detail="",
+                actor=actor,
             )
         with self._connect(self.registry_path) as connection:
             connection.execute(
@@ -144,6 +147,8 @@ class DuckDbProjectRepository:
         self,
         project_id: str,
         catalogs: Iterable[SourceFileCatalog],
+        *,
+        actor: Actor,
     ) -> None:
         """Atomically replace the complete hash-bound catalog set."""
 
@@ -190,14 +195,20 @@ class DuckDbProjectRepository:
                     )
                 connection.execute(
                     """
-                    INSERT INTO audit_event
-                    VALUES (nextval('audit_event_sequence'), ?, ?, ?, ?)
+                    INSERT INTO audit_event (
+                        event_id, event_type, project_revision, occurred_at,
+                        detail, actor_issuer, actor_subject, actor_display_name
+                    )
+                    VALUES (nextval('audit_event_sequence'), ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         "SOURCE_FILES_INSPECTED",
                         int(revision_row[0]),
                         datetime.now(timezone.utc).isoformat(),
                         f"{len(catalog_set)} source file(s)",
+                        actor.identity.issuer,
+                        actor.identity.subject_id,
+                        actor.identity.display_name,
                     ],
                 )
                 connection.commit()
@@ -212,6 +223,7 @@ class DuckDbProjectRepository:
         expected_revision: int,
         event_type: str,
         event_detail: str,
+        actor: Actor,
     ) -> None:
         database_path = self.project_directory(project.project_id) / "project.duckdb"
         if not database_path.is_file():
@@ -230,31 +242,85 @@ class DuckDbProjectRepository:
                         "The project was modified by another request"
                     )
                 self._update_project(connection, project)
-                connection.execute("DELETE FROM source_file")
-                for source_file in project.source_files:
-                    connection.execute(
-                        """
-                        INSERT INTO source_file VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                        [
-                            source_file.file_id,
-                            source_file.display_name,
-                            source_file.stored_name,
-                            source_file.size_bytes,
-                            source_file.sha256,
-                            source_file.received_at.isoformat(),
-                        ],
-                    )
                 self._insert_audit(
                     connection,
                     project,
                     event_type=event_type,
                     detail=event_detail,
+                    actor=actor,
                 )
                 connection.commit()
             except Exception:
                 connection.rollback()
                 raise
+        self._update_registry(project)
+        if project.status is ProjectStatus.REGISTERED:
+            self._write_registration_manifest(project)
+
+    def add_source_file(
+        self,
+        project: MigrationProject,
+        source_file: SourceFile,
+        *,
+        expected_revision: int,
+        actor: Actor,
+    ) -> None:
+        """Insert one immutable source row without rewriting existing evidence."""
+
+        database_path = self.project_directory(project.project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            connection.begin()
+            try:
+                current = connection.execute(
+                    "SELECT revision FROM project"
+                ).fetchone()
+                if current is None:
+                    raise ProjectNotFoundError("Project not found")
+                if current[0] != expected_revision:
+                    raise ProjectConflictError(
+                        "The project was modified by another request"
+                    )
+                self._update_project(connection, project)
+                connection.execute(
+                    """
+                    INSERT INTO source_file VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        source_file.file_id,
+                        source_file.display_name,
+                        source_file.stored_name,
+                        source_file.size_bytes,
+                        source_file.sha256,
+                        source_file.received_at.isoformat(),
+                    ],
+                )
+                self._insert_audit(
+                    connection,
+                    project,
+                    event_type="SOURCE_FILE_ADDED",
+                    detail=source_file.display_name,
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        self._update_registry(project)
+
+    def project_directory(self, project_id: str) -> Path:
+        try:
+            canonical = str(UUID(project_id))
+        except (ValueError, AttributeError) as error:
+            raise ProjectNotFoundError("Invalid project identifier") from error
+        target = (self.root / canonical).resolve()
+        if target.parent != self.root:
+            raise ProjectNotFoundError("Invalid project identifier")
+        return target
+
+    def _update_registry(self, project: MigrationProject) -> None:
         with self._connect(self.registry_path) as connection:
             connection.execute(
                 """
@@ -270,18 +336,6 @@ class DuckDbProjectRepository:
                     project.project_id,
                 ],
             )
-        if project.status is ProjectStatus.REGISTERED:
-            self._write_registration_manifest(project)
-
-    def project_directory(self, project_id: str) -> Path:
-        try:
-            canonical = str(UUID(project_id))
-        except (ValueError, AttributeError) as error:
-            raise ProjectNotFoundError("Invalid project identifier") from error
-        target = (self.root / canonical).resolve()
-        if target.parent != self.root:
-            raise ProjectNotFoundError("Invalid project identifier")
-        return target
 
     @contextmanager
     def _connect(self, path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
@@ -362,7 +416,10 @@ class DuckDbProjectRepository:
                 event_type VARCHAR NOT NULL,
                 project_revision INTEGER NOT NULL,
                 occurred_at VARCHAR NOT NULL,
-                detail VARCHAR NOT NULL
+                detail VARCHAR NOT NULL,
+                actor_issuer VARCHAR NOT NULL,
+                actor_subject VARCHAR NOT NULL,
+                actor_display_name VARCHAR NOT NULL
             );
 
             CREATE SEQUENCE audit_event_sequence START 1;
@@ -453,6 +510,29 @@ class DuckDbProjectRepository:
                         """
                     )
                     version = 3
+                if version == 3:
+                    connection.execute(
+                        """
+                        ALTER TABLE audit_event
+                        ADD COLUMN IF NOT EXISTS actor_issuer
+                        VARCHAR DEFAULT 'urn:impodo:legacy'
+                        """
+                    )
+                    connection.execute(
+                        """
+                        ALTER TABLE audit_event
+                        ADD COLUMN IF NOT EXISTS actor_subject
+                        VARCHAR DEFAULT 'unknown'
+                        """
+                    )
+                    connection.execute(
+                        """
+                        ALTER TABLE audit_event
+                        ADD COLUMN IF NOT EXISTS actor_display_name
+                        VARCHAR DEFAULT 'Legacy operator'
+                        """
+                    )
+                    version = 4
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],
@@ -469,17 +549,24 @@ class DuckDbProjectRepository:
         *,
         event_type: str,
         detail: str,
+        actor: Actor,
     ) -> None:
         connection.execute(
             """
-            INSERT INTO audit_event
-            VALUES (nextval('audit_event_sequence'), ?, ?, ?, ?)
+            INSERT INTO audit_event (
+                event_id, event_type, project_revision, occurred_at, detail,
+                actor_issuer, actor_subject, actor_display_name
+            )
+            VALUES (nextval('audit_event_sequence'), ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 event_type,
                 project.revision,
                 project.updated_at.isoformat(),
                 detail,
+                actor.identity.issuer,
+                actor.identity.subject_id,
+                actor.identity.display_name,
             ],
         )
 
@@ -524,7 +611,7 @@ class DuckDbProjectRepository:
                 ),
                 "mapping_version": project.mapping_version,
                 "current_run_id": project.current_run_id,
-                "approval_status": project.approval_status,
+                "approval_status": project.approval_status.value,
             },
             "source_files": [
                 {
@@ -588,7 +675,7 @@ def _project_values(project: MigrationProject) -> list[object]:
         project.registered_at.isoformat() if project.registered_at else None,
         project.mapping_version,
         project.current_run_id,
-        project.approval_status,
+        project.approval_status.value,
     ]
 
 
@@ -655,5 +742,5 @@ def _project_from_rows(
         current_run_id=(
             str(data["current_run_id"]) if data["current_run_id"] else None
         ),
-        approval_status=str(data["approval_status"]),
+        approval_status=ApprovalStatus(str(data["approval_status"])),
     )

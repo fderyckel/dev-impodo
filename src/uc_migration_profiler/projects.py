@@ -13,6 +13,8 @@ from urllib.parse import urlsplit
 from typing import Protocol, Sequence
 from uuid import UUID, uuid4
 
+from .access import Actor, AuthorizationPolicy, Capability
+
 
 class ProjectError(ValueError):
     """Base error for invalid project operations."""
@@ -59,6 +61,15 @@ class TargetEnvironment(StrEnum):
 class OdooConnectionMode(StrEnum):
     LOCAL = "LOCAL"
     REMOTE = "REMOTE"
+
+
+class ApprovalStatus(StrEnum):
+    """Derived summary; immutable approval evidence remains authoritative."""
+
+    NOT_STARTED = "NOT_STARTED"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+    APPROVED = "APPROVED"
+    INVALIDATED = "INVALIDATED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,13 +123,20 @@ class MigrationProject:
     registered_at: datetime | None = None
     mapping_version: str | None = None
     current_run_id: str | None = None
-    approval_status: str = "NOT_STARTED"
+    approval_status: ApprovalStatus = ApprovalStatus.NOT_STARTED
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "approval_status",
+            ApprovalStatus(self.approval_status),
+        )
 
 
 class ProjectRepository(Protocol):
     """Persistence port used by the project application service."""
 
-    def create(self, project: MigrationProject) -> None: ...
+    def create(self, project: MigrationProject, *, actor: Actor) -> None: ...
 
     def get(self, project_id: str) -> MigrationProject: ...
 
@@ -131,16 +149,38 @@ class ProjectRepository(Protocol):
         expected_revision: int,
         event_type: str,
         event_detail: str,
+        actor: Actor,
+    ) -> None: ...
+
+    def add_source_file(
+        self,
+        project: MigrationProject,
+        source_file: SourceFile,
+        *,
+        expected_revision: int,
+        actor: Actor,
     ) -> None: ...
 
 
 class ProjectService:
     """Own project lifecycle operations independently of HTTP and DuckDB."""
 
-    def __init__(self, repository: ProjectRepository) -> None:
+    def __init__(
+        self,
+        repository: ProjectRepository,
+        authorization: AuthorizationPolicy,
+    ) -> None:
         self.repository = repository
+        self.authorization = authorization
 
-    def create_project(self, *, name: str, source_system: str) -> MigrationProject:
+    def create_project(
+        self,
+        *,
+        actor: Actor,
+        name: str,
+        source_system: str,
+    ) -> MigrationProject:
+        self.authorization.require(actor, Capability.PROJECT_CREATE)
         clean_name = _required_text(name, "Project name")
         clean_source = _required_text(source_system, "Source system")
         now = _now()
@@ -151,13 +191,14 @@ class ProjectService:
             created_at=now,
             updated_at=now,
         )
-        self.repository.create(project)
+        self.repository.create(project, actor=actor)
         return project
 
     def update_details(
         self,
         project_id: str,
         *,
+        actor: Actor,
         expected_revision: int,
         name: str,
         source_system: str,
@@ -165,7 +206,12 @@ class ProjectService:
         export_date: str,
         description: str,
     ) -> MigrationProject:
-        project = self._editable(project_id, expected_revision)
+        project = self._editable(
+            project_id,
+            expected_revision,
+            actor=actor,
+            capability=Capability.PROJECT_EDIT,
+        )
         try:
             parsed_status = ExportStatus(export_status)
         except ValueError as error:
@@ -186,12 +232,18 @@ class ProjectService:
             export_date=parsed_date,
             description=clean_description,
         )
-        return self._save(updated, project, "PROJECT_DETAILS_UPDATED")
+        return self._save(
+            updated,
+            project,
+            "PROJECT_DETAILS_UPDATED",
+            actor=actor,
+        )
 
     def update_governance(
         self,
         project_id: str,
         *,
+        actor: Actor,
         expected_revision: int,
         data_manager: str,
         functional_owner: str,
@@ -200,7 +252,12 @@ class ProjectService:
         retention_days: int,
         support_access: bool,
     ) -> MigrationProject:
-        project = self._editable(project_id, expected_revision)
+        project = self._editable(
+            project_id,
+            expected_revision,
+            actor=actor,
+            capability=Capability.PROJECT_EDIT,
+        )
         if retention_days < 1 or retention_days > 3650:
             raise ProjectError("Retention must be between 1 and 3650 days")
         try:
@@ -216,12 +273,18 @@ class ProjectService:
             retention_days=retention_days,
             support_access=support_access,
         )
-        return self._save(updated, project, "PROJECT_GOVERNANCE_UPDATED")
+        return self._save(
+            updated,
+            project,
+            "PROJECT_GOVERNANCE_UPDATED",
+            actor=actor,
+        )
 
     def update_target(
         self,
         project_id: str,
         *,
+        actor: Actor,
         expected_revision: int,
         odoo_connection_mode: str,
         target_environment: str,
@@ -230,7 +293,12 @@ class ProjectService:
         intended_applications: Sequence[str],
         intended_models: Sequence[str],
     ) -> MigrationProject:
-        project = self._editable(project_id, expected_revision)
+        project = self._editable(
+            project_id,
+            expected_revision,
+            actor=actor,
+            capability=Capability.PROJECT_EDIT,
+        )
         try:
             connection_mode = OdooConnectionMode(odoo_connection_mode)
         except ValueError as error:
@@ -250,33 +318,56 @@ class ProjectService:
             intended_applications=_clean_choices(intended_applications),
             intended_models=_clean_choices(intended_models),
         )
-        return self._save(updated, project, "PROJECT_TARGET_UPDATED")
+        return self._save(
+            updated,
+            project,
+            "PROJECT_TARGET_UPDATED",
+            actor=actor,
+        )
 
     def add_source_file(
         self,
         project_id: str,
         *,
+        actor: Actor,
         expected_revision: int,
         source_file: SourceFile,
     ) -> MigrationProject:
-        project = self._editable(project_id, expected_revision)
+        project = self._editable(
+            project_id,
+            expected_revision,
+            actor=actor,
+            capability=Capability.PROJECT_EDIT,
+        )
         if any(item.sha256 == source_file.sha256 for item in project.source_files):
             raise ProjectError("This exact source file is already registered")
         updated = replace(project, source_files=project.source_files + (source_file,))
-        return self._save(
+        saved = replace(
             updated,
-            project,
-            "SOURCE_FILE_ADDED",
-            detail=source_file.display_name,
+            revision=project.revision + 1,
+            updated_at=_now(),
         )
+        self.repository.add_source_file(
+            saved,
+            source_file,
+            expected_revision=project.revision,
+            actor=actor,
+        )
+        return saved
 
     def register(
         self,
         project_id: str,
         *,
+        actor: Actor,
         expected_revision: int,
     ) -> MigrationProject:
-        project = self._editable(project_id, expected_revision)
+        project = self._editable(
+            project_id,
+            expected_revision,
+            actor=actor,
+            capability=Capability.PROJECT_REGISTER,
+        )
         problems = registration_problems(project)
         if problems:
             raise ProjectRegistrationError(problems)
@@ -285,14 +376,27 @@ class ProjectService:
             status=ProjectStatus.REGISTERED,
             registered_at=_now(),
         )
-        return self._save(registered, project, "PROJECT_REGISTERED")
+        return self._save(
+            registered,
+            project,
+            "PROJECT_REGISTERED",
+            actor=actor,
+        )
 
     def _editable(
         self,
         project_id: str,
         expected_revision: int,
+        *,
+        actor: Actor,
+        capability: Capability,
     ) -> MigrationProject:
         _canonical_project_id(project_id)
+        self.authorization.require(
+            actor,
+            capability,
+            project_id=project_id,
+        )
         project = self.repository.get(project_id)
         if project.revision != expected_revision:
             raise ProjectConflictError(
@@ -308,6 +412,7 @@ class ProjectService:
         previous: MigrationProject,
         event_type: str,
         *,
+        actor: Actor,
         detail: str = "",
     ) -> MigrationProject:
         saved = replace(
@@ -320,6 +425,7 @@ class ProjectService:
             expected_revision=previous.revision,
             event_type=event_type,
             event_detail=detail,
+            actor=actor,
         )
         return saved
 

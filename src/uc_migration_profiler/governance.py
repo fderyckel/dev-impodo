@@ -19,11 +19,15 @@ available for an eventual append-only audit trail.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Mapping
+
+from .access import Actor, Capability
+from .approvals import ApprovalEvidence
 
 
 class ApprovalMode(StrEnum):
@@ -61,6 +65,11 @@ class DryRunStatus(StrEnum):
 
 class DryRunTransitionError(ValueError):
     """Raised when a dry-run lifecycle transition is not permitted."""
+
+
+class CorrectionDecisionKind(StrEnum):
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -127,6 +136,21 @@ class CorrectionImpact:
 
 
 @dataclass(frozen=True, slots=True)
+class CorrectionDecision:
+    """Auditable decision by one verified normalization reviewer."""
+
+    key: CorrectionGroupKey
+    decision: CorrectionDecisionKind
+    evidence: ApprovalEvidence
+
+    def __post_init__(self) -> None:
+        if self.evidence.capability is not Capability.NORMALIZATION_DECIDE:
+            raise ValueError(
+                "correction decisions require normalization.decide evidence"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class DryRunSummary:
     """Reconciled correction and blocking counts produced by a dry run.
 
@@ -149,7 +173,9 @@ class DryRunSummary:
         if self.blocking_issue_count < 0:
             raise ValueError("blocking_issue_count cannot be negative")
         keys = [correction.key for correction in self.corrections]
-        duplicates = sorted({key for key in keys if keys.count(key) > 1})
+        duplicates = sorted(
+            key for key, count in Counter(keys).items() if count > 1
+        )
         if duplicates:
             rendered = ", ".join(
                 f"{key.dataset}.{key.field}:{key.rule_id}" for key in duplicates
@@ -219,10 +245,8 @@ class DryRun:
         ruleset_hash: SHA-256 binding of the normalization rule contract.
         status: Current lifecycle state.
         summary: Grouped results after execution completes.
-        approved_groups: Required correction groups accepted by the manager.
-        rejected_groups: Required correction groups rejected by the manager.
-        approved_by: Data-manager identity for whole-run approval.
-        approved_at: Timezone-aware whole-run approval time.
+        group_decisions: Immutable actor-bound decisions for required groups.
+        approval: Actor-bound whole-run approval evidence.
         canonical_dataset_hash: Final canonical-data binding, present only
             after freezing.
     """
@@ -232,10 +256,8 @@ class DryRun:
     ruleset_hash: str
     status: DryRunStatus = DryRunStatus.RUNNING
     summary: DryRunSummary | None = None
-    approved_groups: frozenset[CorrectionGroupKey] = frozenset()
-    rejected_groups: frozenset[CorrectionGroupKey] = frozenset()
-    approved_by: str | None = None
-    approved_at: datetime | None = None
+    group_decisions: tuple[CorrectionDecision, ...] = ()
+    approval: ApprovalEvidence | None = None
     canonical_dataset_hash: str | None = None
 
     def __post_init__(self) -> None:
@@ -264,13 +286,15 @@ class DryRun:
         if self.canonical_dataset_hash is not None:
             _require_sha256(self.canonical_dataset_hash, "canonical_dataset_hash")
 
-        if self.approved_groups.intersection(self.rejected_groups):
-            raise ValueError("a correction group cannot be both approved and rejected")
         known_required = (
-            self.summary.required_group_keys if self.summary is not None else frozenset()
+            self.summary.required_group_keys
+            if self.summary is not None
+            else frozenset()
         )
-        decided = self.approved_groups.union(self.rejected_groups)
-        unknown = decided.difference(known_required)
+        decision_keys = tuple(item.key for item in self.group_decisions)
+        if len(set(decision_keys)) != len(decision_keys):
+            raise ValueError("a correction group can have only one decision")
+        unknown = set(decision_keys).difference(known_required)
         if unknown:
             raise ValueError("only approval-required correction groups may be decided")
 
@@ -279,15 +303,39 @@ class DryRun:
         if self.status != DryRunStatus.RUNNING and self.summary is None:
             raise ValueError("a completed dry run requires a summary")
         if self.status in {DryRunStatus.APPROVED, DryRunStatus.FROZEN}:
-            _require_text(self.approved_by, "approved_by")
-            if self.approved_at is None or self.approved_at.utcoffset() is None:
-                raise ValueError("approved_at must be timezone-aware")
+            if self.approval is None:
+                raise ValueError("an approved dry run requires approval evidence")
+            if self.approval.capability is not Capability.NORMALIZATION_APPROVE:
+                raise ValueError(
+                    "dry-run approval requires normalization.approve evidence"
+                )
+        elif self.approval is not None:
+            raise ValueError("approval evidence is retained only after approval")
         if self.status == DryRunStatus.FROZEN and self.canonical_dataset_hash is None:
             raise ValueError("a frozen dry run requires canonical_dataset_hash")
-        if self.status != DryRunStatus.FROZEN and self.canonical_dataset_hash is not None:
+        if (
+            self.status != DryRunStatus.FROZEN
+            and self.canonical_dataset_hash is not None
+        ):
             raise ValueError(
                 "canonical_dataset_hash is retained only after the dry run is frozen"
             )
+
+    @property
+    def approved_groups(self) -> frozenset[CorrectionGroupKey]:
+        return frozenset(
+            item.key
+            for item in self.group_decisions
+            if item.decision is CorrectionDecisionKind.APPROVED
+        )
+
+    @property
+    def rejected_groups(self) -> frozenset[CorrectionGroupKey]:
+        return frozenset(
+            item.key
+            for item in self.group_decisions
+            if item.decision is CorrectionDecisionKind.REJECTED
+        )
 
     def complete(self, summary: DryRunSummary) -> "DryRun":
         """Attach execution results and return the next review state.
@@ -304,10 +352,21 @@ class DryRun:
         """
 
         self._require_status(DryRunStatus.RUNNING)
-        status = DryRunStatus.BLOCKED if summary.blocked else DryRunStatus.REVIEW_REQUIRED
+        status = (
+            DryRunStatus.BLOCKED
+            if summary.blocked
+            else DryRunStatus.REVIEW_REQUIRED
+        )
         return replace(self, status=status, summary=summary)
 
-    def approve_group(self, key: CorrectionGroupKey) -> "DryRun":
+    def approve_group(
+        self,
+        key: CorrectionGroupKey,
+        *,
+        actor: Actor,
+        decided_at: datetime,
+        reason: str = "",
+    ) -> "DryRun":
         """Approve one correction group whose approval mode is ``required``.
 
         Automatic groups cannot receive group approval because their rule
@@ -324,13 +383,26 @@ class DryRun:
             raise DryRunTransitionError(
                 "only approval-required correction groups can be approved"
             )
-        return replace(
-            self,
-            approved_groups=self.approved_groups.union({key}),
-            rejected_groups=self.rejected_groups.difference({key}),
+        decision = CorrectionDecision(
+            key=key,
+            decision=CorrectionDecisionKind.APPROVED,
+            evidence=ApprovalEvidence.from_actor(
+                actor,
+                capability=Capability.NORMALIZATION_DECIDE,
+                approved_at=decided_at,
+                reason=reason,
+            ),
         )
+        return replace(self, group_decisions=self._append_decision(decision))
 
-    def reject_group(self, key: CorrectionGroupKey) -> "DryRun":
+    def reject_group(
+        self,
+        key: CorrectionGroupKey,
+        *,
+        actor: Actor,
+        decided_at: datetime,
+        reason: str = "",
+    ) -> "DryRun":
         """Reject one required correction group and block this dry run.
 
         Rejection is fail-closed. The same dry run cannot later be approved;
@@ -343,14 +415,29 @@ class DryRun:
             raise DryRunTransitionError(
                 "only approval-required correction groups can be rejected"
             )
+        decision = CorrectionDecision(
+            key=key,
+            decision=CorrectionDecisionKind.REJECTED,
+            evidence=ApprovalEvidence.from_actor(
+                actor,
+                capability=Capability.NORMALIZATION_DECIDE,
+                approved_at=decided_at,
+                reason=reason,
+            ),
+        )
         return replace(
             self,
             status=DryRunStatus.BLOCKED,
-            approved_groups=self.approved_groups.difference({key}),
-            rejected_groups=self.rejected_groups.union({key}),
+            group_decisions=self._append_decision(decision),
         )
 
-    def approve(self, *, approved_by: str, approved_at: datetime) -> "DryRun":
+    def approve(
+        self,
+        *,
+        actor: Actor,
+        approved_at: datetime,
+        reason: str = "",
+    ) -> "DryRun":
         """Approve the complete reviewed dry run.
 
         Whole-run approval is required even when every correction is
@@ -358,7 +445,7 @@ class DryRun:
         in :attr:`approved_groups`.
 
         Args:
-            approved_by: Non-blank identity of the data manager.
+            actor: Verified actor with normalization approval capability.
             approved_at: Timezone-aware approval timestamp.
 
         Returns:
@@ -375,8 +462,12 @@ class DryRun:
         return replace(
             self,
             status=DryRunStatus.APPROVED,
-            approved_by=_require_text(approved_by, "approved_by"),
-            approved_at=approved_at,
+            approval=ApprovalEvidence.from_actor(
+                actor,
+                capability=Capability.NORMALIZATION_APPROVE,
+                approved_at=approved_at,
+                reason=reason,
+            ),
         )
 
     def freeze(self, *, canonical_dataset_hash: str) -> "DryRun":
@@ -400,8 +491,19 @@ class DryRun:
 
         if self.status != expected:
             raise DryRunTransitionError(
-                f"dry run must be {expected.value}; current status is {self.status.value}"
+                f"dry run must be {expected.value}; "
+                f"current status is {self.status.value}"
             )
+
+    def _append_decision(
+        self,
+        decision: CorrectionDecision,
+    ) -> tuple[CorrectionDecision, ...]:
+        if any(item.key == decision.key for item in self.group_decisions):
+            raise DryRunTransitionError("correction group is already decided")
+        return tuple(
+            sorted(self.group_decisions + (decision,), key=lambda item: item.key)
+        )
 
 
 def _require_text(value: str | None, name: str) -> str:

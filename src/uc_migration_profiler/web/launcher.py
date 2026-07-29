@@ -12,7 +12,7 @@ import webbrowser
 
 import uvicorn
 
-from .app import create_app
+from .app import create_local_app
 
 
 def default_project_root() -> Path:
@@ -36,7 +36,7 @@ def main() -> int:
     port = listener.getsockname()[1]
     expected_host = f"127.0.0.1:{port}"
     launch_token = secrets.token_urlsafe(32)
-    app = create_app(
+    app = create_local_app(
         default_project_root(),
         expected_host=expected_host,
         launch_token=launch_token,

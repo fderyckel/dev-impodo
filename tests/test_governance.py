@@ -14,6 +14,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import unittest
 
+from uc_migration_profiler.access import (
+    Actor,
+    ActorIdentity,
+    Capability,
+    LOCAL_ACTOR,
+)
 from uc_migration_profiler.governance import (
     ApprovalMode,
     CorrectionGroupKey,
@@ -121,7 +127,7 @@ class DryRunLifecycleTests(unittest.TestCase):
 
         completed = make_run().complete(DryRunSummary(corrections=(correction,)))
         approved = completed.approve(
-            approved_by="data.manager",
+            actor=LOCAL_ACTOR,
             approved_at=APPROVED_AT,
         )
         frozen = approved.freeze(canonical_dataset_hash=CANONICAL_HASH)
@@ -146,13 +152,23 @@ class DryRunLifecycleTests(unittest.TestCase):
             "still require approval",
         ):
             completed.approve(
-                approved_by="data.manager",
+                actor=LOCAL_ACTOR,
                 approved_at=APPROVED_AT,
             )
 
-        approved_group = completed.approve_group(correction.key)
+        approved_group = completed.approve_group(
+            correction.key,
+            actor=LOCAL_ACTOR,
+            decided_at=APPROVED_AT,
+        )
+        with self.assertRaisesRegex(DryRunTransitionError, "already decided"):
+            approved_group.approve_group(
+                correction.key,
+                actor=LOCAL_ACTOR,
+                decided_at=APPROVED_AT,
+            )
         approved_run = approved_group.approve(
-            approved_by="data.manager",
+            actor=LOCAL_ACTOR,
             approved_at=APPROVED_AT,
         )
 
@@ -173,7 +189,11 @@ class DryRunLifecycleTests(unittest.TestCase):
             DryRunTransitionError,
             "only approval-required",
         ):
-            completed.approve_group(correction.key)
+            completed.approve_group(
+                correction.key,
+                actor=LOCAL_ACTOR,
+                decided_at=APPROVED_AT,
+            )
 
     def test_rejecting_required_correction_blocks_the_run(self) -> None:
         """Fail closed after rejection instead of silently retaining raw values."""
@@ -185,13 +205,17 @@ class DryRunLifecycleTests(unittest.TestCase):
         )
         completed = make_run().complete(DryRunSummary(corrections=(correction,)))
 
-        blocked = completed.reject_group(correction.key)
+        blocked = completed.reject_group(
+            correction.key,
+            actor=LOCAL_ACTOR,
+            decided_at=APPROVED_AT,
+        )
 
         self.assertEqual(blocked.status, DryRunStatus.BLOCKED)
         self.assertIn(correction.key, blocked.rejected_groups)
         with self.assertRaises(DryRunTransitionError):
             blocked.approve(
-                approved_by="data.manager",
+                actor=LOCAL_ACTOR,
                 approved_at=APPROVED_AT,
             )
 
@@ -224,7 +248,7 @@ class DryRunLifecycleTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "timezone-aware"):
             completed.approve(
-                approved_by="data.manager",
+                actor=LOCAL_ACTOR,
                 approved_at=datetime(2026, 7, 29, 10, 30),
             )
 
@@ -237,6 +261,49 @@ class DryRunLifecycleTests(unittest.TestCase):
                 source_hashes={"products.xlsx": SOURCE_HASH},
                 ruleset_hash="not-a-hash",
             )
+
+    def test_group_reviewer_and_run_approver_are_distinct_capabilities(self) -> None:
+        correction = CorrectionImpact(
+            CorrectionGroupKey("remap-product-code", "products", "default_code"),
+            ApprovalMode.REQUIRED,
+            18,
+        )
+        completed = make_run().complete(DryRunSummary(corrections=(correction,)))
+        reviewer = Actor(
+            identity=ActorIdentity("test", "reviewer", "Reviewer"),
+            capabilities=frozenset({Capability.NORMALIZATION_DECIDE}),
+        )
+        approver = Actor(
+            identity=ActorIdentity("test", "approver", "Approver"),
+            capabilities=frozenset({Capability.NORMALIZATION_APPROVE}),
+        )
+
+        with self.assertRaises(PermissionError):
+            completed.approve_group(
+                correction.key,
+                actor=approver,
+                decided_at=APPROVED_AT,
+            )
+        reviewed = completed.approve_group(
+            correction.key,
+            actor=reviewer,
+            decided_at=APPROVED_AT,
+        )
+        with self.assertRaises(PermissionError):
+            reviewed.approve(
+                actor=reviewer,
+                approved_at=APPROVED_AT,
+            )
+        approved = reviewed.approve(
+            actor=approver,
+            approved_at=APPROVED_AT,
+        )
+
+        self.assertEqual(
+            approved.group_decisions[0].evidence.approved_by,
+            reviewer.identity,
+        )
+        self.assertEqual(approved.approval.approved_by, approver.identity)
 
 
 if __name__ == "__main__":

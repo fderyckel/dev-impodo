@@ -59,6 +59,12 @@ flowchart LR
 | `models.py` | Environment-independent domain and portable result objects |
 | `reporting.py` | Canonical JSON and artifact-tool Excel orchestration |
 | `cli.py` | Explicit capture and offline-preflight commands |
+| `access.py` | Stable actor identities, capabilities, and authorization port |
+| `artifacts.py` | Storage-neutral artifact port and contained local adapter |
+| `jobs.py` | Idempotent durable-job contracts and synchronous local adapter |
+| `approvals.py` | Immutable frozen TEST-plan and key-user approval evidence |
+| `projects.py` | Multi-user-ready project commands and optimistic revisions |
+| `project_store.py` | Local DuckDB project adapter and actor-bound audit events |
 
 ## Boundaries
 
@@ -198,6 +204,28 @@ pages.
 Rows are currently held in memory. The source-reader and snapshot boundaries
 are the replacement points for a future DuckDB/Parquet store; no domain
 contract depends on Python list storage.
+
+## Deployment profiles
+
+The accepted local profile remains loopback-only and composes DuckDB, contained
+local artifacts, Windows Credential Manager, a privileged local actor, and
+synchronous jobs. Its middleware does not accept proxy forwarding.
+
+A future hosted profile will compose the same project, governance, preflight,
+and approval contracts with corporate identity, project-scoped authorization,
+PostgreSQL, shared artifact storage, durable workers, centrally managed
+secrets, and a trusted TLS reverse proxy. DuckDB may still be used as
+worker-local analytical scratch space, but it is not the hosted multi-user
+system of record.
+
+Every state-changing project command receives a verified actor. Audit events
+retain stable issuer and subject identifiers rather than treating the
+human-entered data-manager name as authorization. Normalization decisions,
+whole-run approval, and future TEST export approval are separate immutable
+records. An export approval binds one exact frozen-plan hash and grants no
+generic Odoo call capability.
+
+See ADR-008 in [Architecture decisions](docs/decisions/README.md).
 
 ## Further detail
 
