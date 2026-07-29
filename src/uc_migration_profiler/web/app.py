@@ -29,9 +29,14 @@ from ..connectors import (
     Json2Config,
     Json2ReadConnector,
     MetadataRequest,
+    MetadataSnapshot,
 )
 from ..intake import SourceIntakeError, SourceIntakeService
-from ..inspection import SourceInspectionError, SourceInspectionService
+from ..inspection import (
+    SourceInspectionError,
+    SourceInspectionOptions,
+    SourceInspectionService,
+)
 from ..jobs import InlineJobDispatcher, JobDispatcher
 from ..project_store import DuckDbProjectRepository
 from ..projects import (
@@ -45,6 +50,13 @@ from ..projects import (
     registration_problems,
 )
 from ..secrets import CredentialVault, SecretStore, SecretStoreError
+from ..workspace import (
+    FieldMapping,
+    MappingWorkspaceService,
+    SchemaWorkspaceService,
+    SourceWorkspaceService,
+    WorkspaceError,
+)
 from .security import LoopbackSecurityMiddleware, require_csrf, require_session
 
 
@@ -68,6 +80,7 @@ ODOO_APPLICATIONS = (
 
 
 ConnectionTester = Callable[[MigrationProject, str], str]
+SchemaReader = Callable[[MigrationProject, str], MetadataSnapshot]
 
 
 @dataclass(slots=True)
@@ -76,6 +89,9 @@ class WebContext:
     projects: ProjectService
     intake: SourceIntakeService
     inspections: SourceInspectionService
+    sources: SourceWorkspaceService
+    schema_workspace: SchemaWorkspaceService
+    mapping_workspace: MappingWorkspaceService
     artifacts: ArtifactStore
     actor: Actor
     authorization: AuthorizationPolicy
@@ -83,6 +99,7 @@ class WebContext:
     secret_store: SecretStore
     launch_token: str
     connection_tester: ConnectionTester
+    schema_reader: SchemaReader
 
 
 def create_local_app(
@@ -93,6 +110,7 @@ def create_local_app(
     session_secret: str | None = None,
     secret_store: SecretStore | None = None,
     connection_tester: ConnectionTester | None = None,
+    schema_reader: SchemaReader | None = None,
     actor: Actor = LOCAL_ACTOR,
     authorization: AuthorizationPolicy | None = None,
     artifact_store: ArtifactStore | None = None,
@@ -113,6 +131,15 @@ def create_local_app(
             resolved_artifacts,
             resolved_authorization,
         ),
+        sources=SourceWorkspaceService(repository, resolved_authorization),
+        schema_workspace=SchemaWorkspaceService(
+            repository,
+            resolved_authorization,
+        ),
+        mapping_workspace=MappingWorkspaceService(
+            repository,
+            resolved_authorization,
+        ),
         artifacts=resolved_artifacts,
         actor=actor,
         authorization=resolved_authorization,
@@ -120,6 +147,7 @@ def create_local_app(
         secret_store=secret_store or CredentialVault(),
         launch_token=launch_token or secrets.token_urlsafe(32),
         connection_tester=connection_tester or _test_connection,
+        schema_reader=schema_reader or _read_schema,
     )
 
     package_dir = Path(__file__).resolve().parent
@@ -531,6 +559,10 @@ def create_local_app(
             "project_sources.html",
             project=project,
             catalogs=context.repository.get_source_catalogs(project_id),
+            configurations={
+                item.file_id: item
+                for item in context.repository.get_source_configurations(project_id)
+            },
         )
 
     @app.post("/projects/{project_id}/sources/inspect")
@@ -550,6 +582,10 @@ def create_local_app(
                 "project_sources.html",
                 project=project,
                 catalogs=context.repository.get_source_catalogs(project_id),
+                configurations={
+                    item.file_id: item
+                    for item in context.repository.get_source_configurations(project_id)
+                },
                 error=str(error),
                 status_code=422,
             )
@@ -560,6 +596,255 @@ def create_local_app(
         )
         return RedirectResponse(
             f"/projects/{project_id}/sources",
+            status_code=303,
+        )
+
+    @app.post("/projects/{project_id}/sources/{file_id}/configure")
+    async def configure_project_source(
+        request: Request,
+        project_id: str,
+        file_id: str,
+    ):
+        form = await request.form()
+        catalogs = context.repository.get_source_catalogs(project_id)
+        catalog = next(
+            (item for item in catalogs if item.file_id == file_id),
+            None,
+        )
+        if catalog is None:
+            raise HTTPException(status_code=404, detail="Source catalog not found")
+        allowed = {
+            "csrf_token",
+            "action",
+            "encoding",
+            "delimiter",
+            "warnings_acknowledged",
+        }
+        for index, _table in enumerate(catalog.tables):
+            allowed.update({f"selected_{index}", f"header_row_{index}"})
+        _secure_form(request, form, allowed)
+        worksheet_rows: list[tuple[str, int]] = []
+        selected: list[str] = []
+        try:
+            for index, table in enumerate(catalog.tables):
+                header_text = _text(form, f"header_row_{index}").strip()
+                if table.kind == "WORKSHEET" and header_text:
+                    worksheet_rows.append((table.table_key, int(header_text)))
+                if _text(form, f"selected_{index}"):
+                    selected.append(table.table_key)
+            header_row = int(_text(form, "header_row_0") or "1")
+            options = SourceInspectionOptions(
+                encoding=_text(form, "encoding").strip() or None,
+                delimiter=_decode_delimiter(_text(form, "delimiter")),
+                csv_header_row=header_row,
+                worksheet_header_rows=tuple(worksheet_rows),
+            )
+            refreshed = await run_in_threadpool(
+                context.inspections.inspect_file,
+                project_id,
+                file_id,
+                options=options,
+                actor=context.actor,
+            )
+            if _text(form, "action") == "confirm":
+                refreshed_keys = {table.table_key for table in refreshed.tables}
+                selected = [key for key in selected if key in refreshed_keys]
+                context.sources.confirm_source(
+                    project_id,
+                    file_id,
+                    selected_table_keys=selected,
+                    warnings_acknowledged=bool(
+                        _text(form, "warnings_acknowledged")
+                    ),
+                    actor=context.actor,
+                )
+                _flash(request, f"Confirmed {refreshed.display_name}.")
+            else:
+                _flash(request, f"Updated preview for {refreshed.display_name}.")
+        except (SourceInspectionError, WorkspaceError, ValueError) as error:
+            return _render(
+                request,
+                "project_sources.html",
+                project=context.repository.get(project_id),
+                catalogs=context.repository.get_source_catalogs(project_id),
+                configurations={
+                    item.file_id: item
+                    for item in context.repository.get_source_configurations(project_id)
+                },
+                error=str(error),
+                status_code=422,
+            )
+        return RedirectResponse(
+            f"/projects/{project_id}/sources",
+            status_code=303,
+        )
+
+    @app.get("/projects/{project_id}/datasets", response_class=HTMLResponse)
+    async def project_datasets(request: Request, project_id: str):
+        require_session(request)
+        project = context.repository.get(project_id)
+        choices = _dataset_choices(context, project_id)
+        return _render(
+            request,
+            "project_datasets.html",
+            project=project,
+            choices=choices,
+            selection=context.repository.get_source_selection(project_id),
+        )
+
+    @app.post("/projects/{project_id}/datasets/freeze")
+    async def freeze_project_datasets(request: Request, project_id: str):
+        form = await request.form()
+        choices = _dataset_choices(context, project_id)
+        allowed = {"csrf_token"} | {
+            f"dataset_name_{index}" for index, _choice in enumerate(choices)
+        }
+        _secure_form(request, form, allowed)
+        names = {
+            (choice["file_id"], choice["table_key"]): _text(
+                form, f"dataset_name_{index}"
+            )
+            for index, choice in enumerate(choices)
+        }
+        try:
+            selection = context.sources.freeze_selection(
+                project_id,
+                dataset_names=names,
+                actor=context.actor,
+            )
+        except WorkspaceError as error:
+            return _render(
+                request,
+                "project_datasets.html",
+                project=context.repository.get(project_id),
+                choices=choices,
+                selection=context.repository.get_source_selection(project_id),
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            f"Frozen source selection version {selection.version}.",
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/schema",
+            status_code=303,
+        )
+
+    @app.get("/projects/{project_id}/schema", response_class=HTMLResponse)
+    async def project_schema(request: Request, project_id: str):
+        require_session(request)
+        return _render(
+            request,
+            "project_schema.html",
+            project=context.repository.get(project_id),
+            selection=context.repository.get_source_selection(project_id),
+            schema=context.repository.get_odoo_schema_catalog(project_id),
+        )
+
+    @app.post("/projects/{project_id}/schema/capture")
+    async def capture_project_schema(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        project = context.repository.get(project_id)
+        try:
+            api_key = context.secret_store.get(_target_credential_id(project))
+            if not api_key:
+                raise WorkspaceError(
+                    "No API key is stored for this exact Odoo target"
+                )
+            snapshot = await run_in_threadpool(
+                context.schema_reader,
+                project,
+                api_key,
+            )
+            schema = context.schema_workspace.capture(
+                project_id,
+                snapshot,
+                actor=context.actor,
+            )
+        except (
+            ConnectorError,
+            ProjectError,
+            SecretStoreError,
+            WorkspaceError,
+        ) as error:
+            return _render(
+                request,
+                "project_schema.html",
+                project=project,
+                selection=context.repository.get_source_selection(project_id),
+                schema=context.repository.get_odoo_schema_catalog(project_id),
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, f"Captured {len(schema.models)} permitted Odoo model(s).")
+        return RedirectResponse(
+            f"/projects/{project_id}/mapping",
+            status_code=303,
+        )
+
+    @app.get("/projects/{project_id}/mapping", response_class=HTMLResponse)
+    async def project_mapping(request: Request, project_id: str):
+        require_session(request)
+        return _render_mapping(request, context, project_id)
+
+    @app.post("/projects/{project_id}/mapping/save")
+    async def save_project_mapping(request: Request, project_id: str):
+        form = await request.form()
+        selection = context.repository.get_source_selection(project_id)
+        if selection is None:
+            raise HTTPException(status_code=422, detail="Source selection missing")
+        source_columns = [
+            (dataset.name, column.source_name)
+            for dataset in selection.datasets
+            for column in dataset.columns
+        ]
+        allowed = {"csrf_token", "action"} | {
+            f"target_{index}" for index, _item in enumerate(source_columns)
+        }
+        _secure_form(request, form, allowed)
+        proposals: list[FieldMapping] = []
+        for index, (dataset_name, source_column) in enumerate(source_columns):
+            target = _text(form, f"target_{index}")
+            if not target:
+                continue
+            try:
+                target_model, target_field = target.split("::", 1)
+            except ValueError as error:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Invalid target field",
+                ) from error
+            proposals.append(
+                FieldMapping(
+                    dataset_name=dataset_name,
+                    source_column=source_column,
+                    target_model=target_model,
+                    target_field=target_field,
+                )
+            )
+        try:
+            draft = context.mapping_workspace.save(
+                project_id,
+                proposals=proposals,
+                submit=_text(form, "action") == "submit",
+                actor=context.actor,
+            )
+        except WorkspaceError as error:
+            return _render_mapping(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            f"Mapping {draft.status.value.casefold()} as version {draft.version}.",
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/mapping",
             status_code=303,
         )
 
@@ -610,6 +895,32 @@ def _test_connection(project: MigrationProject, api_key: str) -> str:
         f"Read-only {project.odoo_connection_mode.value.casefold()} connection "
         f"succeeded: {fingerprint.environment} / "
         f"Odoo {fingerprint.odoo_version}"
+    )
+
+
+def _read_schema(project: MigrationProject, api_key: str) -> MetadataSnapshot:
+    """Read all fields once per explicitly permitted Odoo model."""
+
+    if project.odoo_connection_mode is None or project.target_environment is None:
+        raise ProjectError("Configure the Odoo target before schema capture")
+    if not project.intended_models:
+        raise ProjectError("Add at least one permitted technical Odoo model")
+    connector = Json2ReadConnector(
+        Json2Config(
+            base_url=project.odoo_base_url,
+            database=project.odoo_database,
+            api_key=api_key,
+            environment=project.target_environment.value,
+            allow_insecure_loopback=(
+                project.odoo_connection_mode is OdooConnectionMode.LOCAL
+            ),
+        )
+    )
+    return connector.get_model_metadata(
+        tuple(
+            MetadataRequest(model=model, fields=(), all_fields=True)
+            for model in project.intended_models
+        )
     )
 
 
@@ -689,6 +1000,102 @@ def _split_models(value: str) -> tuple[str, ...]:
         part.strip()
         for part in re.split(r"[,\r\n]+", value)
         if part.strip()
+    )
+
+
+def _decode_delimiter(value: str) -> str | None:
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if cleaned.casefold() == "tab":
+        return "\t"
+    return cleaned
+
+
+def _dataset_choices(
+    context: WebContext,
+    project_id: str,
+) -> tuple[dict[str, str], ...]:
+    catalogs = {
+        item.file_id: item
+        for item in context.repository.get_source_catalogs(project_id)
+    }
+    choices: list[dict[str, str]] = []
+    for configuration in context.repository.get_source_configurations(project_id):
+        catalog = catalogs.get(configuration.file_id)
+        if catalog is None or catalog.content_hash != configuration.catalog_hash:
+            continue
+        tables = {table.table_key: table for table in catalog.tables}
+        for table_key in configuration.selected_table_keys:
+            table = tables.get(table_key)
+            if table is None:
+                continue
+            default_name = re.sub(
+                r"[^a-z0-9]+",
+                "_",
+                f"{Path(catalog.display_name).stem}_{table.name}".casefold(),
+            ).strip("_")[:63]
+            if not default_name or not default_name[0].isalpha():
+                default_name = f"dataset_{len(choices) + 1}"
+            choices.append(
+                {
+                    "file_id": catalog.file_id,
+                    "file_name": catalog.display_name,
+                    "table_key": table.table_key,
+                    "table_name": table.name,
+                    "default_name": default_name,
+                    "row_count": str(table.row_count),
+                    "column_count": str(table.column_count),
+                }
+            )
+    return tuple(choices)
+
+
+def _render_mapping(
+    request: Request,
+    context: WebContext,
+    project_id: str,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+):
+    selection = context.repository.get_source_selection(project_id)
+    schema = context.repository.get_odoo_schema_catalog(project_id)
+    draft = context.repository.get_mapping_draft(project_id)
+    existing = (
+        {
+            (entry.dataset_name, entry.source_column): (
+                f"{entry.target_model}::{entry.target_field}"
+            )
+            for entry in draft.entries
+        }
+        if draft
+        else {}
+    )
+    source_columns = (
+        tuple(
+            {
+                "dataset": dataset.name,
+                "column": column.source_name,
+                "candidate_type": column.candidate_type,
+                "selected": existing.get((dataset.name, column.source_name), ""),
+            }
+            for dataset in selection.datasets
+            for column in dataset.columns
+        )
+        if selection
+        else ()
+    )
+    return _render(
+        request,
+        "project_mapping.html",
+        project=context.repository.get(project_id),
+        selection=selection,
+        schema=schema,
+        draft=draft,
+        source_columns=source_columns,
+        error=error,
+        status_code=status_code,
     )
 
 

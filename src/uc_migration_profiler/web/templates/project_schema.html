@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Odoo schema · {{ project.name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Phase 2 · Target schema</p>
+      <h1>Capture permitted Odoo fields</h1>
+      <p>Read field metadata once for each model explicitly permitted in the registered project.</p>
+    </div>
+    {% if schema %}<span class="status registered">Captured</span>{% endif %}
+  </div>
+
+  <section class="form-card">
+    <h2>Read boundary</h2>
+    <p>Target: {{ project.target_environment.value }} / {{ project.odoo_database }}</p>
+    <p>Permitted models: <code>{{ project.intended_models|join(", ") }}</code></p>
+    <form method="post" action="/projects/{{ project.project_id }}/schema/capture">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="actions">
+        <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to datasets</a>
+        <button class="button primary" type="submit" {% if not selection %}disabled{% endif %}>
+          {% if schema %}Capture again{% else %}Capture Odoo schema{% endif %}
+        </button>
+      </div>
+    </form>
+  </section>
+
+  {% if schema %}
+    {% for model in schema.models %}
+      <section class="form-card catalog-card">
+        <h2>{{ model.label }} <code>{{ model.name }}</code></h2>
+        <p>{{ model.fields|length }} fields · Odoo {{ schema.odoo_version }}</p>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Field</th><th>Label</th><th>Type</th><th>Required</th><th>Readonly</th><th>Relation</th></tr></thead>
+            <tbody>
+              {% for field in model.fields %}
+                <tr>
+                  <th>{{ field.name }}</th>
+                  <td>{{ field.label }}</td>
+                  <td>{{ field.type }}</td>
+                  <td>{{ "Yes" if field.required else "No" }}</td>
+                  <td>{{ "Yes" if field.readonly else "No" }}</td>
+                  <td>{{ field.relation or "—" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% endfor %}
+    <div class="actions">
+      <a class="button primary" href="/projects/{{ project.project_id }}/mapping">Open mapping draft</a>
+    </div>
+  {% endif %}
+{% endblock %}

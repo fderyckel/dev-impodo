@@ -151,6 +151,7 @@ class FieldMetadata:
 
     name: str
     type: str
+    label: str = ""
     required: bool = False
     readonly: bool = False
     relation: str | None = None

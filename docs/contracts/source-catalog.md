@@ -29,18 +29,19 @@ registered Phase A project.
 
 ## CSV catalog
 
-The first contract generation:
+The current contract generation:
 
 - detects UTF-8 with or without a byte-order mark, then Windows-1252;
 - detects comma, semicolon, tab, or pipe delimiters;
-- treats row 1 as the candidate header;
+- defaults to row 1 as the candidate header;
 - reports blank and duplicate candidate headers rather than silently
   disambiguating them;
 - counts all governed data rows;
 - reports rows shorter or longer than the candidate header.
 
-Detected encoding and delimiter are evidence, not an approved mapping choice.
-Interactive confirmation and overrides belong to a later Phase B slice.
+The browser can regenerate the catalog with an explicit supported encoding,
+delimiter, and header row. The override is applied in the same isolated,
+hash-verifying worker as automatic detection.
 
 ## XLSX catalog
 
@@ -53,10 +54,12 @@ The first contract generation inventories:
 - merged ranges;
 - formula and error cells.
 
-If a named table exists, its first row is preferred as the candidate header.
-Otherwise, the inspector scores the first 25 worksheet rows and selects the
-strongest header candidate. Formulas are never executed or trusted; the catalog
-only reports their presence and shows bounded formula text as source evidence.
+Each named table is cataloged as a separately selectable table using its exact
+cell range. If a named table exists, its first row is also preferred as the
+parent worksheet's candidate header. Otherwise, the inspector scores the first
+25 worksheet rows and selects the strongest header candidate. Formulas are
+never executed or trusted; the catalog only reports their presence and shows
+bounded formula text as source evidence.
 
 ## Preview and column profiles
 
@@ -83,15 +86,16 @@ unavailable. Values are represented by hashes in the distinct index. These
 limits prevent wide or high-cardinality inputs from creating an unbounded
 in-memory set.
 
-## Current boundary
+## Confirmation and invalidation
 
-This slice does not yet:
+The user confirms selected tables against the exact catalog content hash and
+acknowledges any warnings. Blank or duplicate candidate headers block
+confirmation rather than being silently renamed.
 
-- let a user confirm or override encoding, delimiter, sheet, or header row;
-- select source datasets for mapping;
-- join or transform source tables;
-- create mapping drafts;
-- write to Odoo.
+Applying new source settings regenerates that catalog and invalidates its prior
+confirmation. Any source reinspection invalidates the frozen selection and
+mapping draft, preventing stale downstream decisions.
 
-Those actions consume or refine this catalog in later Phase B and Phase 2
-slices.
+Confirmed tables are named and frozen through the
+[source workspace contract](source-workspace.md). This contract still does not
+join or transform source tables and never writes to Odoo.

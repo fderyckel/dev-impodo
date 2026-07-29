@@ -39,6 +39,9 @@ inspection, mapping, staging, approval, loading, and reconciliation.
   fields, lifecycle, source evidence, persistence, and browser safety boundary.
 - [Source catalog contract](contracts/source-catalog.md) — Phase B file
   inventory, bounded preview, candidate types, statistics, and hash binding.
+- [Source workspace and mapping-draft contract](contracts/source-workspace.md)
+  — source confirmation, frozen datasets, Odoo schema capture, invalidation,
+  and the first mapping lifecycle.
 - [Profile contract](contracts/profile.md) — how a profile maps,
   types, identifies, resolves, and compares data.
 - [Prepared record contract](contracts/prepared-record.md) — the

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Datasets · {{ project.name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Phase B · Dataset selection</p>
+      <h1>Freeze governed datasets</h1>
+      <p>Name the confirmed tables that will form the immutable mapping boundary.</p>
+    </div>
+    {% if selection %}
+      <span class="status registered">Version {{ selection.version }}</span>
+    {% endif %}
+  </div>
+
+  <section class="form-card">
+    {% if choices %}
+      <form method="post" action="/projects/{{ project.project_id }}/datasets/freeze">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="file-list">
+          {% for choice in choices %}
+            <div class="file-row dataset-row">
+              <div>
+                <strong>{{ choice.file_name }} · {{ choice.table_name }}</strong>
+                <span>{{ choice.row_count }} rows · {{ choice.column_count }} columns</span>
+              </div>
+              <label>
+                <span>Dataset name</span>
+                <input
+                  name="dataset_name_{{ loop.index0 }}"
+                  value="{{ selection.datasets[loop.index0].name if selection and selection.datasets|length > loop.index0 else choice.default_name }}"
+                  pattern="[a-z][a-z0-9_]{0,62}"
+                  required
+                >
+              </label>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="actions">
+          <a class="button secondary" href="/projects/{{ project.project_id }}/sources">Back to sources</a>
+          <button class="button primary" type="submit">
+            {% if selection %}Freeze new version{% else %}Freeze selection{% endif %}
+          </button>
+        </div>
+      </form>
+    {% else %}
+      <div class="empty-state">
+        <h2>No confirmed source tables</h2>
+        <p>Inspect and confirm every registered source before freezing datasets.</p>
+        <a class="button primary" href="/projects/{{ project.project_id }}/sources">Configure sources</a>
+      </div>
+    {% endif %}
+  </section>
+
+  {% if selection %}
+    <section class="form-card">
+      <h2>Current frozen selection</h2>
+      <p><code>{{ selection.content_hash }}</code></p>
+      <div class="actions">
+        <a class="button primary" href="/projects/{{ project.project_id }}/schema">Continue to Odoo schema</a>
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}

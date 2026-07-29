@@ -12,6 +12,7 @@ from typing import Any
 from .inspection import (
     SourceFileCatalog,
     SourceInspectionError,
+    SourceInspectionOptions,
     inspect_source_file,
 )
 from .projects import SourceFile
@@ -74,6 +75,7 @@ def inspect_source_file_isolated(
     path: str | Path,
     *,
     source_file: SourceFile,
+    options: SourceInspectionOptions | None,
 ) -> SourceFileCatalog:
     """Inspect an accepted file in a spawned, resource-bounded process."""
 
@@ -82,7 +84,7 @@ def inspect_source_file_isolated(
     start_event = context.Event()
     process = context.Process(
         target=_inspection_worker,
-        args=(str(Path(path)), source_file, sender, start_event),
+        args=(str(Path(path)), source_file, options, sender, start_event),
         name="impodo-source-inspector",
         daemon=True,
     )
@@ -139,6 +141,7 @@ def _worker(path: str, sender: Any, start_event: Any) -> None:
 def _inspection_worker(
     path: str,
     source_file: SourceFile,
+    options: SourceInspectionOptions | None,
     sender: Any,
     start_event: Any,
 ) -> None:
@@ -146,7 +149,11 @@ def _inspection_worker(
         if os.name != "nt":
             _limit_unix_memory()
         start_event.wait()
-        catalog = inspect_source_file(path, source_file=source_file)
+        catalog = inspect_source_file(
+            path,
+            source_file=source_file,
+            options=options,
+        )
     except Exception as error:
         sender.send(("error", str(error)))
     else:

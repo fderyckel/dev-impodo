@@ -10,8 +10,9 @@ and reconciliation is maintained in
 The proof of concept is implemented in `/Users/francois/dev-impodo`. The
 referenced scratch-workspace baseline was unavailable in this workspace, so
 the engine was implemented from the supplied milestone brief and contracts.
-The current suite has 46 tests when the real-workbook integration is enabled.
-The original BOM preparation command remains a regression check.
+The current default suite contains 84 tests: 83 pass and the optional
+Node.js/artifact-tool workbook integration is skipped when that runtime is not
+installed. The original BOM preparation command remains a regression check.
 
 This document separates completed local engineering from the evidence still
 required for UC acceptance.

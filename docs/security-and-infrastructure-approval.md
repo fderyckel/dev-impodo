@@ -74,10 +74,14 @@ Implemented:
 - narrow read connector exposing environment fingerprint, `fields_get`, and
   `search_read` only;
 - deterministic offline preflight and review artifacts.
+- hash-bound CSV/XLSX inventory, interactive parsing confirmation, separately
+  selectable worksheets/named tables, and frozen dataset versions;
+- read-only, explicitly allowlisted Odoo 19 schema capture and versioned
+  source-to-target mapping drafts.
 
 Not yet implemented or approved:
 
-- complete source inventory/preview and mapping UI;
+- advanced mapping semantics, validation, review, and approval;
 - signed installer and reproducible packaged release;
 - pinned disposable Odoo/PostgreSQL Compose laboratory;
 - production target selection;
@@ -210,19 +214,25 @@ overwriting.
 
 ## 8. Verification evidence
 
-The latest local run on 29 July 2026 executed 72 automated tests:
+The latest default local run on 29 July 2026 executed 84 automated tests:
 
-- 70 passed;
-- one workbook integration test was skipped because its optional integration
-  flag was not enabled;
-- one DuckDB version-1-to-version-2 migration test failed because migration
-  attempted to create an existing `source_catalog` table.
+- 83 passed;
+- one optional generated-review-workbook integration test was skipped because
+  its Node.js/artifact-tool runtime is not installed in this workspace;
+- no default-suite test failed.
 
 Passing tests cover the loopback session boundary, Host/origin/CSRF controls,
 security headers, local/remote URL separation, credential rebinding, DuckDB
-security settings, isolated file validation, read-connector closure, API-key
-redaction, target pagination, portable-ID rejection, deterministic manifests,
-and fail-closed migration classifications.
+security settings and schema migration, isolated file validation, realistic
+browser CSV/XLSX named-table inspection, source confirmation, frozen selection,
+allowlisted schema capture, mapping invalidation/versioning, read-connector
+closure, API-key redaction, target pagination, portable-ID rejection,
+deterministic manifests, and fail-closed migration classifications.
+
+The optional generated-review-workbook test was explicitly invoked and stopped
+at its declared prerequisite because Node.js is unavailable. This does not
+affect the Python/openpyxl browser XLSX acceptance evidence, but the report
+toolchain remains an environment gate.
 
 This is useful engineering evidence, not a penetration test or live
 infrastructure acceptance.
@@ -231,7 +241,7 @@ infrastructure acceptance.
 
 Required before a sanitized local pilot:
 
-1. Fix and rerun the DuckDB schema-migration regression.
+1. Provide and verify the pinned Node.js/artifact-tool report runtime.
 2. Produce a locked dependency set, SBOM, vulnerability scan, and secret scan.
 3. Confirm managed-workstation, BitLocker, EDR, browser, and Python baselines.
 4. Decide whether loopback HTTP without a `Secure` cookie meets corporate

@@ -55,7 +55,7 @@ Manager. It never enters the project database or registration manifest. A
 stored key is bound to the exact project, connection mode, URL, and database;
 changing the target requires the appropriate key for the new destination.
 
-## Inspect registered sources
+## Inspect and freeze registered sources
 
 After registration:
 
@@ -64,10 +64,31 @@ After registration:
 3. Review detected CSV encoding/delimiter or XLSX worksheets and named tables.
 4. Review the candidate header, bounded preview, column types, statistics, and
    file warnings.
+5. Adjust the supported encoding, delimiter, or header row when required and
+   select **Apply settings and preview**.
+6. Choose the worksheet or named table that should become a dataset,
+   acknowledge displayed warnings, and select **Confirm source**.
+7. After every file is confirmed, choose unique dataset names and select
+   **Freeze selection**.
 
 Inspection recalculates each stored file's size and SHA-256 hash before parsing
 it. Results are stored in the project DuckDB database and can be regenerated
 without modifying the source file or the registered project.
+
+## Capture the Odoo schema and start mapping
+
+After freezing datasets:
+
+1. Open **Odoo schema** and capture the field catalog.
+2. Confirm that the target identity and permitted model list are correct.
+3. Open **Mapping draft**.
+4. Select a writable Odoo field for each source column you want to map.
+5. Save a draft for continued work or submit it for the later review slice.
+
+Schema discovery issues one `fields_get` call per explicitly permitted model;
+it does not read target records or invoke an Odoo write method. Source
+reinspection, source reconfirmation, dataset refreezing, or schema recapture
+invalidates any mapping draft that could otherwise become stale.
 
 ### Local Odoo mode
 
@@ -110,10 +131,11 @@ stops it.
 
 ## Current boundary
 
-The browser implements Phase A project registration and the first Phase B
-source-inventory and preview slice. Interactive encoding, delimiter, worksheet,
-and header confirmation are not yet implemented; neither are mapping or
-staging. There is no Odoo write capability and no Production option.
+The browser implements Phase A, the complete current CSV/XLSX Phase 1 source
+discovery flow, and the first Phase 2 schema/mapping draft slice. Advanced
+mapping semantics, durable canonical staging, mapping approval, and execution
+are not yet implemented. There is no Odoo write capability and no Production
+option.
 
 ## Verify
 

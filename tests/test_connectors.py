@@ -100,6 +100,45 @@ class Json2ConnectorTests(unittest.TestCase):
         self.assertEqual(fields_call[1]["allfields"], ["name"])
         self.assertIn("attributes", fields_call[1])
 
+    def test_schema_discovery_requests_all_fields_once_per_model(self) -> None:
+        calls = []
+
+        def transport(url, headers, body, timeout, method):
+            del headers, timeout, method
+            payload = json.loads(body) if body else None
+            calls.append((url, payload))
+            if url.endswith("/web/version"):
+                return 200, {"version": "19.0"}
+            return 200, {
+                "name": {
+                    "string": "Name",
+                    "type": "char",
+                    "required": True,
+                    "readonly": False,
+                },
+                "display_name": {
+                    "string": "Display Name",
+                    "type": "char",
+                    "readonly": True,
+                },
+            }
+
+        connector = Json2ReadConnector(self.config(), transport=transport)
+        snapshot = connector.get_model_metadata(
+            [MetadataRequest("x.model", (), all_fields=True)]
+        )
+
+        fields_call = calls[-1]
+        self.assertEqual(fields_call[1]["allfields"], [])
+        self.assertEqual(
+            set(snapshot.models["x.model"].fields),
+            {"name", "display_name"},
+        )
+        self.assertEqual(
+            snapshot.models["x.model"].fields["name"].label,
+            "Name",
+        )
+
     def test_timeout_error_is_redacted(self) -> None:
         def transport(url, headers, body, timeout, method):
             raise TimeoutError("contains super-secret-token")

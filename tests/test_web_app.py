@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 from datetime import date
+from io import BytesIO
 from pathlib import Path
 import re
 import tempfile
 import unittest
 
 from fastapi.testclient import TestClient
+from openpyxl import Workbook
+from openpyxl.worksheet.table import Table
 
+from uc_migration_profiler.connectors import MetadataSnapshot
+from uc_migration_profiler.models import (
+    EnvironmentFingerprint,
+    FieldMetadata,
+    ModelMetadata,
+)
 from uc_migration_profiler.projects import OdooConnectionMode, ProjectStatus
 from uc_migration_profiler.secrets import MemorySecretStore
 from uc_migration_profiler.web import create_app
@@ -132,6 +141,7 @@ class PhaseAWizardTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         self.secrets = MemorySecretStore()
         self.connection_calls: list[tuple[str, str, OdooConnectionMode | None]] = []
+        self.schema_calls: list[tuple[str, str]] = []
 
         def connection_tester(project, api_key):
             self.connection_calls.append(
@@ -139,12 +149,17 @@ class PhaseAWizardTests(unittest.TestCase):
             )
             return "Read-only local connection succeeded: DEV / Odoo 19.4"
 
+        def schema_reader(project, api_key):
+            self.schema_calls.append((project.project_id, api_key))
+            return _browser_schema()
+
         self.app = create_app(
             self.temporary.name,
             launch_token="launch-secret",
             session_secret="session-secret",
             secret_store=self.secrets,
             connection_tester=connection_tester,
+            schema_reader=schema_reader,
         )
         self.client = TestClient(self.app)
         launched = self.client.get(
@@ -213,11 +228,27 @@ class PhaseAWizardTests(unittest.TestCase):
         )
         self.assertEqual(uploaded.status_code, 303)
 
+        workbook_uploaded = self.client.post(
+            f"/projects/{project_id}/files",
+            data={"csrf_token": self.csrf, "revision": "4"},
+            files={
+                "source_file": (
+                    "products.xlsx",
+                    _workbook_bytes(),
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet",
+                )
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(workbook_uploaded.status_code, 303)
+
         target = self.client.post(
             f"/projects/{project_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": "4",
+                "revision": "5",
                 "odoo_connection_mode": "LOCAL",
                 "target_environment": "DEV",
                 "odoo_base_url": "http://127.0.0.1:8069",
@@ -251,7 +282,7 @@ class PhaseAWizardTests(unittest.TestCase):
 
         registered = self._post(
             f"/projects/{project_id}/register",
-            {"csrf_token": self.csrf, "revision": "5"},
+            {"csrf_token": self.csrf, "revision": "6"},
         )
         self.assertEqual(registered.status_code, 303)
         summary = self.client.get(registered.headers["location"])
@@ -293,13 +324,97 @@ class PhaseAWizardTests(unittest.TestCase):
         )
         self.assertEqual(inspected.status_code, 303)
         inspection_page = self.client.get(inspected.headers["location"])
-        self.assertIn("Inspected 1 source file", inspection_page.text)
+        self.assertIn("Inspected 2 source file", inspection_page.text)
         self.assertIn("customers.csv", inspection_page.text)
         self.assertIn("C001", inspection_page.text)
+        self.assertIn("products.xlsx", inspection_page.text)
+        self.assertIn("ProductTable", inspection_page.text)
         self.assertIn("Candidate type", inspection_page.text)
         catalogs = self.app.state.context.repository.get_source_catalogs(project_id)
-        self.assertEqual(len(catalogs), 1)
+        self.assertEqual(len(catalogs), 2)
         self.assertEqual(catalogs[0].source_sha256, project.source_files[0].sha256)
+
+        configured = self.client.post(
+            f"/projects/{project_id}/sources/{catalogs[0].file_id}/configure",
+            data={
+                "csrf_token": self.csrf,
+                "action": "confirm",
+                "encoding": "utf-8",
+                "delimiter": ",",
+                "header_row_0": "1",
+                "selected_0": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(configured.status_code, 303)
+        configured_page = self.client.get(configured.headers["location"])
+        self.assertIn("Confirmed customers.csv", configured_page.text)
+
+        workbook_configured = self.client.post(
+            f"/projects/{project_id}/sources/{catalogs[1].file_id}/configure",
+            data={
+                "csrf_token": self.csrf,
+                "action": "confirm",
+                "encoding": "",
+                "delimiter": "",
+                "header_row_0": "1",
+                "header_row_1": "1",
+                "selected_1": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(workbook_configured.status_code, 303)
+        configured_page = self.client.get(workbook_configured.headers["location"])
+        self.assertIn("Confirmed products.xlsx", configured_page.text)
+        self.assertIn("Choose and freeze datasets", configured_page.text)
+
+        datasets = self.client.get(f"/projects/{project_id}/datasets")
+        self.assertEqual(datasets.status_code, 200)
+        self.assertIn("Freeze governed datasets", datasets.text)
+        frozen = self.client.post(
+            f"/projects/{project_id}/datasets/freeze",
+            data={
+                "csrf_token": self.csrf,
+                "dataset_name_0": "customers",
+                "dataset_name_1": "products",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(frozen.status_code, 303)
+        self.assertEqual(
+            frozen.headers["location"],
+            f"/projects/{project_id}/schema",
+        )
+
+        captured = self.client.post(
+            f"/projects/{project_id}/schema/capture",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(captured.status_code, 303)
+        self.assertEqual(self.schema_calls, [(project_id, "super-secret-token")])
+        mapping_page = self.client.get(captured.headers["location"])
+        self.assertIn("Map source columns to Odoo", mapping_page.text)
+        self.assertIn("res.partner::name", mapping_page.text)
+
+        submitted = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            data={
+                "csrf_token": self.csrf,
+                "action": "submit",
+                "target_0": "res.partner::name",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(submitted.status_code, 303)
+        submitted_page = self.client.get(submitted.headers["location"])
+        self.assertIn("Mapping submitted as version 1", submitted_page.text)
+        self.assertIn("SUBMITTED", submitted_page.text)
 
     def test_saved_key_is_not_reused_after_target_change(self) -> None:
         created = self._post(
@@ -365,3 +480,53 @@ def _csrf(html: str) -> str:
     if matched is None:
         raise AssertionError("CSRF token not found")
     return matched.group(1)
+
+
+def _browser_schema() -> MetadataSnapshot:
+    return MetadataSnapshot(
+        fingerprint=EnvironmentFingerprint(
+            environment="DEV",
+            database="odoo19_dev",
+            odoo_version="19.0",
+            snapshot_timestamp="2026-07-29T12:00:00Z",
+            module_versions={"base": "19.0.1.0"},
+        ),
+        models={
+            "res.partner": ModelMetadata(
+                model="res.partner",
+                description="Contact",
+                fields={
+                    "name": FieldMetadata(
+                        name="name",
+                        type="char",
+                        label="Name",
+                        required=True,
+                    ),
+                    "ref": FieldMetadata(
+                        name="ref",
+                        type="char",
+                        label="Reference",
+                    ),
+                    "display_name": FieldMetadata(
+                        name="display_name",
+                        type="char",
+                        label="Display Name",
+                        readonly=True,
+                    ),
+                },
+            )
+        },
+    )
+
+
+def _workbook_bytes() -> bytes:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Products"
+    worksheet.append(["Code", "Name"])
+    worksheet.append(["P001", "Example product"])
+    worksheet.add_table(Table(displayName="ProductTable", ref="A1:B2"))
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()

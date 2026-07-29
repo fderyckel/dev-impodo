@@ -22,6 +22,10 @@ Implemented:
 - local-browser project registration and governed source-file intake;
 - profile-free CSV detection, XLSX worksheet/named-table inventory, bounded
   preview, candidate types, and column statistics;
+- interactive source parsing overrides, warning acknowledgement, hash-bound
+  confirmation, and versioned frozen dataset selection;
+- allowlisted Odoo 19 field-catalog capture plus versioned visual mapping
+  drafts;
 - one strict current profile shape;
 - profile-declared CSV and XLSX worksheets with exact source hashes;
 - contained source paths, bounded Office containers, XML-bomb protection,
@@ -107,8 +111,9 @@ No Odoo credentials are needed for tests or the offline example.
 
 ## Local project browser
 
-The local browser implements Stage A project registration and the first Stage
-B source-inventory and preview slice without manual YAML editing:
+The local browser implements Stage A project registration, the complete
+current CSV/XLSX Phase 1 discovery flow, and the first Phase 2 schema/mapping
+draft slice without manual YAML editing:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e .
@@ -119,13 +124,15 @@ It opens on an ephemeral `127.0.0.1` port, accepts governed CSV/XLSX source
 files, records project ownership and retention, configures either a
 literal-loopback local Odoo 19 instance or an HTTPS on-premises DEV/TEST
 target, and writes a local DuckDB project plus canonical registration evidence.
-After registration it verifies the stored source hashes and presents detected
-CSV structure or XLSX worksheets, named tables, candidate headers, bounded
-samples, statistics, and warnings. It never writes to Odoo.
+After registration it verifies the stored source hashes, supports governed
+parsing overrides and table selection, freezes named datasets, captures fields
+for explicitly permitted Odoo 19 models, and creates a versioned visual mapping
+draft. It never writes to Odoo.
 
 See [Local project browser](docs/operations/local-browser.md), the
-[migration project contract](docs/contracts/migration-project.md), and the
-[source catalog contract](docs/contracts/source-catalog.md).
+[migration project contract](docs/contracts/migration-project.md), the
+[source catalog contract](docs/contracts/source-catalog.md), and the
+[source workspace contract](docs/contracts/source-workspace.md).
 
 ## Run the tests
 

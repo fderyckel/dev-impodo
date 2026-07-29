@@ -26,9 +26,16 @@ from .projects import (
     SourceFile,
     TargetEnvironment,
 )
+from .workspace import (
+    MappingDraft,
+    OdooSchemaCatalog,
+    SourceConfiguration,
+    SourceSelection,
+    WorkspaceError,
+)
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class DuckDbProjectRepository:
@@ -179,6 +186,9 @@ class DuckDbProjectRepository:
             connection.begin()
             try:
                 connection.execute("DELETE FROM source_catalog")
+                connection.execute("DELETE FROM source_configuration")
+                connection.execute("DELETE FROM source_selection")
+                connection.execute("DELETE FROM mapping_draft")
                 for catalog in catalog_set:
                     connection.execute(
                         """
@@ -215,6 +225,218 @@ class DuckDbProjectRepository:
             except Exception:
                 connection.rollback()
                 raise
+
+    def save_source_catalog(
+        self,
+        project_id: str,
+        catalog: SourceFileCatalog,
+        *,
+        actor: Actor,
+    ) -> None:
+        """Replace one catalog and invalidate every dependent source decision."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            source = connection.execute(
+                "SELECT sha256 FROM source_file WHERE file_id = ?",
+                [catalog.file_id],
+            ).fetchone()
+            if source is None or str(source[0]) != catalog.source_sha256:
+                raise SourceInspectionError(
+                    "Source catalog does not match the registered project file"
+                )
+            revision = self._project_revision(connection)
+            connection.begin()
+            try:
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO source_catalog
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        catalog.file_id,
+                        catalog.source_sha256,
+                        catalog.contract_version,
+                        catalog.inspected_at.isoformat(),
+                        catalog.to_json(),
+                    ],
+                )
+                connection.execute(
+                    "DELETE FROM source_configuration WHERE file_id = ?",
+                    [catalog.file_id],
+                )
+                connection.execute("DELETE FROM source_selection")
+                connection.execute("DELETE FROM mapping_draft")
+                self._insert_workspace_audit(
+                    connection,
+                    revision=revision,
+                    event_type="SOURCE_FILE_REINSPECTED",
+                    detail=catalog.display_name,
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def get_source_configurations(
+        self,
+        project_id: str,
+    ) -> tuple[SourceConfiguration, ...]:
+        return tuple(
+            SourceConfiguration.from_json(value)
+            for value in self._read_json_rows(
+                project_id,
+                """
+                SELECT configuration.configuration_json
+                  FROM source_file AS source
+                  JOIN source_configuration AS configuration
+                    ON configuration.file_id = source.file_id
+                 ORDER BY source.received_at, source.file_id
+                """,
+            )
+        )
+
+    def save_source_configuration(
+        self,
+        project_id: str,
+        configuration: SourceConfiguration,
+        *,
+        actor: Actor,
+    ) -> None:
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            row = connection.execute(
+                """
+                SELECT source_sha256, catalog_json
+                  FROM source_catalog
+                 WHERE file_id = ?
+                """,
+                [configuration.file_id],
+            ).fetchone()
+            if row is None:
+                raise WorkspaceError("Inspect the source file before confirming it")
+            catalog = SourceFileCatalog.from_json(str(row[1]))
+            if (
+                str(row[0]) != configuration.source_sha256
+                or catalog.content_hash != configuration.catalog_hash
+            ):
+                raise WorkspaceError("Source confirmation does not match its catalog")
+            revision = self._project_revision(connection)
+            connection.begin()
+            try:
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO source_configuration
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    [
+                        configuration.file_id,
+                        configuration.source_sha256,
+                        configuration.catalog_hash,
+                        configuration.to_json(),
+                    ],
+                )
+                connection.execute("DELETE FROM source_selection")
+                connection.execute("DELETE FROM mapping_draft")
+                self._insert_workspace_audit(
+                    connection,
+                    revision=revision,
+                    event_type="SOURCE_CONFIGURATION_CONFIRMED",
+                    detail=configuration.file_id,
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def get_source_selection(self, project_id: str) -> SourceSelection | None:
+        value = self._read_singleton_json(
+            project_id,
+            "SELECT selection_json FROM source_selection WHERE singleton_id = 1",
+        )
+        return SourceSelection.from_json(value) if value else None
+
+    def save_source_selection(
+        self,
+        project_id: str,
+        selection: SourceSelection,
+        *,
+        actor: Actor,
+    ) -> None:
+        self._save_singleton(
+            project_id,
+            table="source_selection",
+            value_column="selection_json",
+            value=selection.to_json(),
+            event_type="SOURCE_SELECTION_FROZEN",
+            detail=f"version {selection.version}: {len(selection.datasets)} dataset(s)",
+            actor=actor,
+            invalidate=("mapping_draft",),
+        )
+
+    def get_odoo_schema_catalog(
+        self,
+        project_id: str,
+    ) -> OdooSchemaCatalog | None:
+        value = self._read_singleton_json(
+            project_id,
+            """
+            SELECT catalog_json
+              FROM odoo_schema_catalog
+             WHERE singleton_id = 1
+            """,
+        )
+        return OdooSchemaCatalog.from_json(value) if value else None
+
+    def save_odoo_schema_catalog(
+        self,
+        project_id: str,
+        catalog: OdooSchemaCatalog,
+        *,
+        actor: Actor,
+    ) -> None:
+        self._save_singleton(
+            project_id,
+            table="odoo_schema_catalog",
+            value_column="catalog_json",
+            value=catalog.to_json(),
+            event_type="ODOO_SCHEMA_CAPTURED",
+            detail=f"{len(catalog.models)} permitted model(s)",
+            actor=actor,
+            invalidate=("mapping_draft",),
+        )
+
+    def get_mapping_draft(self, project_id: str) -> MappingDraft | None:
+        value = self._read_singleton_json(
+            project_id,
+            "SELECT draft_json FROM mapping_draft WHERE singleton_id = 1",
+        )
+        return MappingDraft.from_json(value) if value else None
+
+    def save_mapping_draft(
+        self,
+        project_id: str,
+        draft: MappingDraft,
+        *,
+        actor: Actor,
+    ) -> None:
+        self._save_singleton(
+            project_id,
+            table="mapping_draft",
+            value_column="draft_json",
+            value=draft.to_json(),
+            event_type=f"MAPPING_{draft.status.value}",
+            detail=f"version {draft.version}: {len(draft.entries)} mapping(s)",
+            actor=actor,
+        )
 
     def save(
         self,
@@ -337,6 +559,112 @@ class DuckDbProjectRepository:
                 ],
             )
 
+    def _read_json_rows(
+        self,
+        project_id: str,
+        query: str,
+    ) -> tuple[str, ...]:
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            rows = connection.execute(query).fetchall()
+        return tuple(str(row[0]) for row in rows)
+
+    def _read_singleton_json(
+        self,
+        project_id: str,
+        query: str,
+    ) -> str | None:
+        values = self._read_json_rows(project_id, query)
+        return values[0] if values else None
+
+    def _save_singleton(
+        self,
+        project_id: str,
+        *,
+        table: str,
+        value_column: str,
+        value: str,
+        event_type: str,
+        detail: str,
+        actor: Actor,
+        invalidate: tuple[str, ...] = (),
+    ) -> None:
+        permitted = {
+            ("source_selection", "selection_json"),
+            ("odoo_schema_catalog", "catalog_json"),
+            ("mapping_draft", "draft_json"),
+        }
+        if (table, value_column) not in permitted:
+            raise ValueError("Unsupported workspace table")
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            revision = self._project_revision(connection)
+            connection.begin()
+            try:
+                connection.execute(
+                    f"""
+                    INSERT OR REPLACE INTO {table} (singleton_id, {value_column})
+                    VALUES (1, ?)
+                    """,
+                    [value],
+                )
+                for target in invalidate:
+                    if target != "mapping_draft":
+                        raise ValueError("Unsupported invalidation table")
+                    connection.execute(f"DELETE FROM {target}")
+                self._insert_workspace_audit(
+                    connection,
+                    revision=revision,
+                    event_type=event_type,
+                    detail=detail,
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    @staticmethod
+    def _project_revision(connection: duckdb.DuckDBPyConnection) -> int:
+        row = connection.execute("SELECT revision FROM project").fetchone()
+        if row is None:
+            raise ProjectNotFoundError("Project not found")
+        return int(row[0])
+
+    @staticmethod
+    def _insert_workspace_audit(
+        connection: duckdb.DuckDBPyConnection,
+        *,
+        revision: int,
+        event_type: str,
+        detail: str,
+        actor: Actor,
+    ) -> None:
+        connection.execute(
+            """
+            INSERT INTO audit_event (
+                event_id, event_type, project_revision, occurred_at, detail,
+                actor_issuer, actor_subject, actor_display_name
+            )
+            VALUES (nextval('audit_event_sequence'), ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                event_type,
+                revision,
+                datetime.now(timezone.utc).isoformat(),
+                detail,
+                actor.identity.issuer,
+                actor.identity.subject_id,
+                actor.identity.display_name,
+            ],
+        )
+
     @contextmanager
     def _connect(self, path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
         connection = duckdb.connect(
@@ -409,6 +737,28 @@ class DuckDbProjectRepository:
                 contract_version INTEGER NOT NULL,
                 inspected_at VARCHAR NOT NULL,
                 catalog_json VARCHAR NOT NULL
+            );
+
+            CREATE TABLE source_configuration (
+                file_id VARCHAR PRIMARY KEY,
+                source_sha256 VARCHAR NOT NULL,
+                catalog_hash VARCHAR NOT NULL,
+                configuration_json VARCHAR NOT NULL
+            );
+
+            CREATE TABLE source_selection (
+                singleton_id INTEGER PRIMARY KEY,
+                selection_json VARCHAR NOT NULL
+            );
+
+            CREATE TABLE odoo_schema_catalog (
+                singleton_id INTEGER PRIMARY KEY,
+                catalog_json VARCHAR NOT NULL
+            );
+
+            CREATE TABLE mapping_draft (
+                singleton_id INTEGER PRIMARY KEY,
+                draft_json VARCHAR NOT NULL
             );
 
             CREATE TABLE audit_event (
@@ -533,6 +883,42 @@ class DuckDbProjectRepository:
                         """
                     )
                     version = 4
+                if version == 4:
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS source_configuration (
+                            file_id VARCHAR PRIMARY KEY,
+                            source_sha256 VARCHAR NOT NULL,
+                            catalog_hash VARCHAR NOT NULL,
+                            configuration_json VARCHAR NOT NULL
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS source_selection (
+                            singleton_id INTEGER PRIMARY KEY,
+                            selection_json VARCHAR NOT NULL
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS odoo_schema_catalog (
+                            singleton_id INTEGER PRIMARY KEY,
+                            catalog_json VARCHAR NOT NULL
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS mapping_draft (
+                            singleton_id INTEGER PRIMARY KEY,
+                            draft_json VARCHAR NOT NULL
+                        )
+                        """
+                    )
+                    version = 5
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

@@ -214,7 +214,7 @@ class ProjectLifecycleTests(unittest.TestCase):
                  WHERE table_name = 'source_catalog'
                 """
             ).fetchone()
-        self.assertEqual(version, (4,))
+        self.assertEqual(version, (5,))
         self.assertEqual(catalog_table, ("source_catalog",))
 
     def test_complete_project_can_be_registered(self) -> None:

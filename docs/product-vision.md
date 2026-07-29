@@ -489,13 +489,12 @@ flowchart TB
 ```
 
 The current repository implements the Phase A local-browser project workflow,
-governed source intake and project metadata storage, the first Stage B
-profile-free source catalog and browser preview, strict CSV and declared-sheet
-XLSX loading, mapping through the profile, normalization and validation, and
-the read-only preflight path. It does not yet implement interactive Stage B
-source-setting confirmation, the mapping workspace, full schema discovery,
-durable canonical staging, the approval service, executor, or reconciliation
-service.
+governed source intake and project metadata storage, the complete Phase 1
+CSV/XLSX source-discovery flow, the first Phase 2 schema-catalog and mapping
+draft flow, strict CSV and declared-sheet XLSX loading, mapping through the
+existing profile, normalization and validation, and the read-only preflight
+path. It does not yet implement the advanced mapping configuration, durable
+canonical staging, approval service, executor, or reconciliation service.
 
 ## 7. Delivery roadmap
 
@@ -507,10 +506,13 @@ service.
 - immutable source manifest and hashes;
 - file edge-case tests.
 
-Current status: the first browser slice implements hash-bound CSV detection,
-XLSX worksheet/named-table inventory, candidate headers, bounded previews,
-streaming column profiles, and warnings. Interactive confirmation/override and
-broader file-edge acceptance remain before Phase 1 is complete.
+Current status: **complete for the current CSV/XLSX scope.** The browser
+implements hash-bound CSV detection, explicit encoding/delimiter/header
+overrides, separately selectable XLSX worksheets and named tables, candidate
+headers, bounded previews, streaming column profiles, warning acknowledgement,
+source confirmation, and a versioned frozen dataset selection. Reinspection
+invalidates dependent confirmations, selections, and mapping drafts. Browser
+acceptance covers a real CSV and a real XLSX named table.
 
 ### Phase 2 — Mapping workspace and schema discovery
 
@@ -520,6 +522,17 @@ broader file-edge acceptance remain before Phase 1 is complete.
 - identity, scope, relation, constant, and transformation configuration;
 - mapping import and export;
 - mapping validation and approval.
+
+Current status: **started.** The local browser captures a read-only Odoo 19
+field catalog once per explicitly permitted model and binds it to the exact
+target. It provides visual source-column-to-Odoo-field selection and persists
+versioned `DRAFT`/`SUBMITTED` mapping artifacts bound to the frozen source and
+schema hashes. Readonly fields, unknown fields, repeated source mappings, and
+repeated target mappings fail closed.
+
+Still required to complete Phase 2: identity and scope design, relationship
+configuration, constants and transformations, mapping import/export, full
+semantic validation, review, and approval.
 
 ### Phase 3 — Durable staging and data quality
 

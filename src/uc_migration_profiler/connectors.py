@@ -42,6 +42,7 @@ class MetadataRequest:
 
     model: str
     fields: tuple[str, ...]
+    all_fields: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,9 +197,14 @@ class SnapshotConnector:
             if model_data is None:
                 continue
             all_fields = model_data.get("fields", {})
+            selected_names = (
+                tuple(sorted(all_fields))
+                if request.all_fields
+                else request.fields
+            )
             fields = {
                 name: _parse_field_metadata(name, all_fields[name])
-                for name in request.fields
+                for name in selected_names
                 if name in all_fields
             }
             models[request.model] = ModelMetadata(
@@ -465,7 +471,11 @@ class Json2ReadConnector:
                 request.model,
                 "fields_get",
                 {
-                    "allfields": list(request.fields),
+                    "allfields": (
+                        []
+                        if request.all_fields
+                        else list(request.fields)
+                    ),
                     "attributes": [
                         "string",
                         "type",
@@ -485,7 +495,7 @@ class Json2ReadConnector:
             fields = {
                 name: _parse_field_metadata(name, details)
                 for name, details in response.items()
-                if name in request.fields
+                if request.all_fields or name in request.fields
             }
             models[request.model] = ModelMetadata(
                 model=request.model,
@@ -667,6 +677,7 @@ def write_metadata_snapshot(
                 "fields": {
                     field_name: {
                         "type": field.type,
+                        "string": field.label,
                         "required": field.required,
                         "readonly": field.readonly,
                         "relation": field.relation,
@@ -735,6 +746,7 @@ def _parse_field_metadata(name: str, data: Mapping[str, Any]) -> FieldMetadata:
     selection = data.get("selection") or ()
     return FieldMetadata(
         name=name,
+        label=str(data.get("string") or name),
         type=str(data.get("type", "unknown")),
         required=bool(data.get("required", False)),
         readonly=bool(data.get("readonly", False)),

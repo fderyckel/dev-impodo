@@ -49,6 +49,7 @@
   {% endif %}
 
   {% for catalog in catalogs %}
+    {% set configuration = configurations.get(catalog.file_id) %}
     <section class="form-card catalog-card">
       <div class="catalog-heading">
         <div>
@@ -61,8 +62,36 @@
             {% if catalog.delimiter %}· delimiter <code>{{ catalog.delimiter|replace("\t", "TAB") }}</code>{% endif %}
           </p>
         </div>
-        <span class="status registered">Hash verified</span>
+        <span class="status registered">
+          {% if configuration %}Confirmed{% else %}Hash verified{% endif %}
+        </span>
       </div>
+
+      <form method="post" action="/projects/{{ project.project_id }}/sources/{{ catalog.file_id }}/configure">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        {% if catalog.format == "CSV" %}
+          <div class="form-grid compact-grid">
+            <label>
+              <span>Encoding</span>
+              <select name="encoding">
+                {% for value in ["utf-8-sig", "utf-8", "cp1252"] %}
+                  <option value="{{ value }}" {% if catalog.encoding == value %}selected{% endif %}>{{ value }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Delimiter</span>
+              <select name="delimiter">
+                {% for value, label in [(",", "Comma"), (";", "Semicolon"), ("TAB", "Tab"), ("|", "Pipe")] %}
+                  <option value="{{ value }}" {% if catalog.delimiter == value or (value == "TAB" and catalog.delimiter == "\t") %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+        {% else %}
+          <input type="hidden" name="encoding" value="">
+          <input type="hidden" name="delimiter" value="">
+        {% endif %}
 
       {% for warning in catalog.warnings %}
         <div class="notice warning">{{ warning }}</div>
@@ -79,6 +108,29 @@
                 {{ table.row_count }} data row(s) · {{ table.column_count }} column(s)
                 {% if table.hidden %}· hidden{% endif %}
               </p>
+              <label class="inline-choice">
+                <input
+                  type="checkbox"
+                  name="selected_{{ loop.index0 }}"
+                  value="1"
+                  {% if (configuration and table.table_key in configuration.selected_table_keys) or not configuration %}checked{% endif %}
+                >
+                Use this table as a governed dataset
+              </label>
+              {% if table.kind in ["CSV", "WORKSHEET"] %}
+                <label class="header-row-control">
+                  <span>Header row</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="25"
+                    name="header_row_{{ loop.index0 }}"
+                    value="{{ table.header_row or 1 }}"
+                  >
+                </label>
+              {% else %}
+                <input type="hidden" name="header_row_{{ loop.index0 }}" value="{{ table.header_row or 1 }}">
+              {% endif %}
             </div>
           </div>
 
@@ -160,6 +212,30 @@
           {% endif %}
         </article>
       {% endfor %}
+        <label class="inline-choice warning-ack">
+          <input
+            type="checkbox"
+            name="warnings_acknowledged"
+            value="1"
+            {% if configuration and configuration.warnings_acknowledged %}checked{% endif %}
+          >
+          I reviewed and acknowledge the warnings shown for the selected tables.
+        </label>
+        <div class="actions">
+          <button class="button secondary" type="submit" name="action" value="preview">Apply settings and preview</button>
+          <button class="button primary" type="submit" name="action" value="confirm">Confirm source</button>
+        </div>
+      </form>
     </section>
   {% endfor %}
+
+  {% if catalogs and configurations|length == project.source_files|length %}
+    <section class="form-card">
+      <h2>Source configuration complete</h2>
+      <p>Every registered source has a current, hash-bound confirmation.</p>
+      <div class="actions">
+        <a class="button primary" href="/projects/{{ project.project_id }}/datasets">Choose and freeze datasets</a>
+      </div>
+    </section>
+  {% endif %}
 {% endblock %}

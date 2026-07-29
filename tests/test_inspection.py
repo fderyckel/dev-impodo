@@ -12,6 +12,7 @@ from openpyxl.worksheet.table import Table
 from uc_migration_profiler.inspection import (
     SourceFileCatalog,
     SourceInspectionError,
+    SourceInspectionOptions,
     inspect_source_file,
 )
 from uc_migration_profiler.projects import SourceFile
@@ -85,7 +86,7 @@ class SourceInspectionTests(unittest.TestCase):
         self.assertEqual(catalog.format, "XLSX")
         self.assertEqual(
             [table.name for table in catalog.tables],
-            ["Products", "Reference"],
+            ["Products", "ProductTable", "Reference"],
         )
         products = catalog.tables[0]
         self.assertEqual(products.header_row, 3)
@@ -96,8 +97,22 @@ class SourceInspectionTests(unittest.TestCase):
         self.assertEqual(products.formula_cell_count, 2)
         self.assertTrue(any("merged range" in warning for warning in products.warnings))
         self.assertTrue(any("formula cell" in warning for warning in products.warnings))
-        self.assertTrue(catalog.tables[1].hidden)
+        named_table = catalog.tables[1]
+        self.assertEqual(named_table.kind, "NAMED_TABLE")
+        self.assertEqual(named_table.header_row, 3)
+        self.assertEqual(named_table.row_count, 2)
+        self.assertEqual(named_table.preview_rows[0][0], "001")
+        self.assertTrue(catalog.tables[2].hidden)
         self.assertTrue(any("is hidden" in warning for warning in catalog.warnings))
+
+        overridden = inspect_source_file(
+            path,
+            source_file=_source_evidence(path),
+            options=SourceInspectionOptions(
+                worksheet_header_rows=(("sheet:Products", 3),),
+            ),
+        )
+        self.assertEqual(overridden.tables[0].header_row, 3)
 
     def test_inspection_rejects_changed_registered_bytes(self) -> None:
         path = self.directory / "customers.csv"

@@ -60,6 +60,19 @@ class SourceInspectionError(ProjectError):
 
 
 @dataclass(frozen=True, slots=True)
+class SourceInspectionOptions:
+    """User-selected parsing settings used to regenerate a source catalog."""
+
+    encoding: str | None = None
+    delimiter: str | None = None
+    csv_header_row: int = 1
+    worksheet_header_rows: tuple[tuple[str, int], ...] = ()
+
+    def header_row_for(self, table_key: str) -> int | None:
+        return dict(self.worksheet_header_rows).get(table_key)
+
+
+@dataclass(frozen=True, slots=True)
 class NamedTableCatalog:
     """One named Excel table discovered in a worksheet."""
 
@@ -121,6 +134,12 @@ class SourceFileCatalog:
     delimiter: str | None
     tables: tuple[SourceTableCatalog, ...]
     warnings: tuple[str, ...] = ()
+
+    @property
+    def content_hash(self) -> str:
+        """Bind confirmations to the exact generated catalog."""
+
+        return "sha256:" + sha256(self.to_json().encode("utf-8")).hexdigest()
 
     def to_json(self) -> str:
         """Return deterministic JSON suitable for DuckDB and portable evidence."""
@@ -185,6 +204,14 @@ class SourceCatalogRepository(Protocol):
         actor: Actor,
     ) -> None: ...
 
+    def save_source_catalog(
+        self,
+        project_id: str,
+        catalog: SourceFileCatalog,
+        *,
+        actor: Actor,
+    ) -> None: ...
+
 
 class SourceInspectionService:
     """Inspect registered project files and persist their hash-bound catalogs."""
@@ -231,6 +258,7 @@ class SourceInspectionService:
                         inspect_source_file_isolated(
                             path,
                             source_file=source_file,
+                            options=None,
                         )
                     )
             except ArtifactStoreError as error:
@@ -242,11 +270,60 @@ class SourceInspectionService:
         )
         return tuple(catalogs)
 
+    def inspect_file(
+        self,
+        project_id: str,
+        file_id: str,
+        *,
+        options: SourceInspectionOptions,
+        actor: Actor,
+    ) -> SourceFileCatalog:
+        """Regenerate one catalog with governed user-selected settings."""
+
+        self.authorization.require(
+            actor,
+            Capability.SOURCE_INSPECT,
+            project_id=project_id,
+        )
+        project = self.repository.get(project_id)
+        if project.status is not ProjectStatus.REGISTERED:
+            raise SourceInspectionError(
+                "Register the migration project before configuring its sources"
+            )
+        try:
+            source_file = next(
+                item for item in project.source_files if item.file_id == file_id
+            )
+        except StopIteration as error:
+            raise SourceInspectionError("Registered source file was not found") from error
+
+        from .source_worker import inspect_source_file_isolated
+
+        try:
+            with self.artifacts.materialize_source(
+                project_id,
+                source_file.stored_name,
+            ) as path:
+                catalog = inspect_source_file_isolated(
+                    path,
+                    source_file=source_file,
+                    options=options,
+                )
+        except ArtifactStoreError as error:
+            raise SourceInspectionError(str(error)) from error
+        self.repository.save_source_catalog(
+            project_id,
+            catalog,
+            actor=actor,
+        )
+        return catalog
+
 
 def inspect_source_file(
     path: str | Path,
     *,
     source_file: SourceFile,
+    options: SourceInspectionOptions | None = None,
 ) -> SourceFileCatalog:
     """Inspect one immutable source file without a profile or Odoo access."""
 
@@ -259,11 +336,14 @@ def inspect_source_file(
             )
         validate_source_file(source_path)
         if source_path.suffix.casefold() == ".csv":
-            encoding, delimiter, table, warnings = _inspect_csv(source_path)
+            encoding, delimiter, table, warnings = _inspect_csv(
+                source_path,
+                options=options,
+            )
             format_name = "CSV"
             tables = (table,)
         elif source_path.suffix.casefold() == ".xlsx":
-            tables, warnings = _inspect_xlsx(source_path)
+            tables, warnings = _inspect_xlsx(source_path, options=options)
             encoding = None
             delimiter = None
             format_name = "XLSX"
@@ -297,11 +377,28 @@ def inspect_source_file(
 
 def _inspect_csv(
     path: Path,
+    *,
+    options: SourceInspectionOptions | None,
 ) -> tuple[str, str, SourceTableCatalog, tuple[str, ...]]:
     sample = path.read_bytes()[:CSV_SAMPLE_BYTES]
-    encoding, encoding_warning = _detect_csv_encoding(sample)
+    detected_encoding, encoding_warning = _detect_csv_encoding(sample)
+    encoding = options.encoding if options and options.encoding else detected_encoding
+    if encoding not in SUPPORTED_CSV_ENCODINGS:
+        raise SourceInspectionError("Choose UTF-8, UTF-8 with BOM, or Windows-1252")
     decoded = sample.decode(encoding)
-    delimiter, delimiter_warning = _detect_csv_delimiter(decoded)
+    detected_delimiter, delimiter_warning = _detect_csv_delimiter(decoded)
+    delimiter = (
+        options.delimiter
+        if options and options.delimiter is not None
+        else detected_delimiter
+    )
+    if delimiter not in SUPPORTED_CSV_DELIMITERS:
+        raise SourceInspectionError("Choose comma, semicolon, tab, or pipe delimiter")
+    header_row = options.csv_header_row if options else 1
+    if header_row < 1 or header_row > HEADER_SCAN_ROW_LIMIT:
+        raise SourceInspectionError(
+            f"CSV header row must be between 1 and {HEADER_SCAN_ROW_LIMIT}"
+        )
     warnings = [
         warning
         for warning in (encoding_warning, delimiter_warning)
@@ -311,9 +408,13 @@ def _inspect_csv(
     with path.open("r", encoding=encoding, newline="") as handle:
         reader = csv.reader(handle, delimiter=delimiter)
         try:
+            for _row_number in range(1, header_row):
+                next(reader)
             raw_headers = next(reader)
         except StopIteration as error:
-            raise SourceInspectionError("CSV source has no header row") from error
+            raise SourceInspectionError(
+                f"CSV source has no header row {header_row}"
+            ) from error
         if not raw_headers:
             raise SourceInspectionError("CSV source has no columns")
         if len(raw_headers) > MAX_SOURCE_COLUMNS:
@@ -374,7 +475,7 @@ def _inspect_csv(
             name=path.stem,
             kind="CSV",
             hidden=False,
-            header_row=1,
+            header_row=header_row,
             row_count=row_count,
             column_count=len(headers),
             columns=tuple(
@@ -393,6 +494,8 @@ def _inspect_csv(
 
 def _inspect_xlsx(
     path: Path,
+    *,
+    options: SourceInspectionOptions | None,
 ) -> tuple[tuple[SourceTableCatalog, ...], tuple[str, ...]]:
     try:
         from openpyxl import load_workbook
@@ -445,8 +548,21 @@ def _inspect_xlsx(
                 named_tables=sheet_metadata.named_tables,
                 merged_range_count=sheet_metadata.merged_range_count,
                 formula_cell_count=sheet_metadata.formula_cell_count,
+                header_row_override=(
+                    options.header_row_for(f"sheet:{worksheet.title}")
+                    if options
+                    else None
+                ),
             )
             tables.append(table)
+            for named_table in sheet_metadata.named_tables:
+                tables.append(
+                    _inspect_named_table(
+                        worksheet,
+                        named_table=named_table,
+                        hidden=sheet_metadata.hidden,
+                    )
+                )
             if table.hidden:
                 workbook_warnings.append(
                     f"Worksheet {worksheet.title!r} is hidden"
@@ -463,9 +579,17 @@ def _inspect_worksheet(
     named_tables: tuple[NamedTableCatalog, ...],
     merged_range_count: int,
     formula_cell_count: int,
+    header_row_override: int | None,
 ) -> SourceTableCatalog:
     first_rows = list(worksheet.iter_rows(max_row=HEADER_SCAN_ROW_LIMIT))
-    header_row = _candidate_header_row(first_rows, named_tables)
+    header_row = header_row_override or _candidate_header_row(first_rows, named_tables)
+    if header_row_override is not None and (
+        header_row_override < 1
+        or header_row_override > HEADER_SCAN_ROW_LIMIT
+    ):
+        raise SourceInspectionError(
+            f"Worksheet {worksheet.title!r} has an invalid header row"
+        )
     if header_row is None:
         warnings = ["No non-empty candidate header row was found"]
         if merged_range_count:
@@ -579,6 +703,100 @@ def _inspect_worksheet(
         formula_cell_count=formula_cell_count,
         error_cell_count=error_cell_count,
         merged_range_count=merged_range_count,
+        warnings=tuple(warnings),
+    )
+
+
+def _inspect_named_table(
+    worksheet: Any,
+    *,
+    named_table: NamedTableCatalog,
+    hidden: bool,
+) -> SourceTableCatalog:
+    """Profile an Excel named-table range as an independently selectable table."""
+
+    try:
+        from openpyxl.utils.cell import range_boundaries
+
+        minimum_column, header_row, maximum_column, maximum_row = range_boundaries(
+            named_table.cell_range
+        )
+    except (TypeError, ValueError) as error:
+        raise SourceInspectionError(
+            f"Named table {named_table.display_name!r} has an invalid range"
+        ) from error
+    if maximum_column - minimum_column + 1 > MAX_SOURCE_COLUMNS:
+        raise SourceInspectionError(
+            f"Named table {named_table.display_name!r} exceeds "
+            f"{MAX_SOURCE_COLUMNS} columns"
+        )
+    try:
+        header_cells = next(
+            worksheet.iter_rows(
+                min_row=header_row,
+                max_row=header_row,
+                min_col=minimum_column,
+                max_col=maximum_column,
+            )
+        )
+    except StopIteration as error:
+        raise SourceInspectionError(
+            f"Named table {named_table.display_name!r} has no header row"
+        ) from error
+    headers, header_warnings = _catalog_headers(
+        cell.value for cell in header_cells
+    )
+    distinct_budget = _DistinctBudget()
+    accumulators = [
+        _ColumnAccumulator(distinct_budget) for _header in headers
+    ]
+    preview_rows: list[tuple[str | None, ...]] = []
+    row_count = 0
+    formula_count = 0
+    error_count = 0
+    for cells in worksheet.iter_rows(
+        min_row=header_row + 1,
+        max_row=maximum_row,
+        min_col=minimum_column,
+        max_col=maximum_column,
+    ):
+        values = [cell.value for cell in cells]
+        if not any(value is not None and value != "" for value in values):
+            continue
+        row_count += 1
+        for cell in cells:
+            formula_count += int(cell.data_type == "f")
+            error_count += int(cell.data_type == "e")
+        for accumulator, value in zip(accumulators, values, strict=True):
+            accumulator.observe(value)
+        if len(preview_rows) < PREVIEW_ROW_LIMIT:
+            preview_rows.append(tuple(_display_value(value) for value in values))
+    warnings = list(header_warnings)
+    if formula_count:
+        warnings.append(f"{formula_count} formula cell(s) detected")
+    if error_count:
+        warnings.append(f"{error_count} Excel error cell(s) detected")
+    return SourceTableCatalog(
+        table_key=(
+            f"table:{worksheet.title}:{named_table.display_name}"
+        ),
+        name=named_table.display_name,
+        kind="NAMED_TABLE",
+        hidden=hidden,
+        header_row=header_row,
+        row_count=row_count,
+        column_count=len(headers),
+        columns=tuple(
+            accumulator.profile(index, header)
+            for index, (header, accumulator) in enumerate(
+                zip(headers, accumulators, strict=True),
+                start=1,
+            )
+        ),
+        preview_rows=tuple(preview_rows),
+        named_tables=(named_table,),
+        formula_cell_count=formula_count,
+        error_cell_count=error_count,
         warnings=tuple(warnings),
     )
 

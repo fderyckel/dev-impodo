@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Mapping · {{ project.name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Phase 2 · Mapping draft</p>
+      <h1>Map source columns to Odoo</h1>
+      <p>Create a versioned draft against the exact frozen source and captured schema hashes.</p>
+    </div>
+    {% if draft %}<span class="status registered">{{ draft.status.value }} · v{{ draft.version }}</span>{% endif %}
+  </div>
+
+  <section class="form-card">
+    {% if selection and schema %}
+      <form method="post" action="/projects/{{ project.project_id }}/mapping/save">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="table-scroll">
+          <table class="data-table mapping-table">
+            <thead><tr><th>Dataset</th><th>Source column</th><th>Candidate type</th><th>Odoo target</th></tr></thead>
+            <tbody>
+              {% for source in source_columns %}
+                <tr>
+                  <td>{{ source.dataset }}</td>
+                  <th>{{ source.column }}</th>
+                  <td>{{ source.candidate_type }}</td>
+                  <td>
+                    <select name="target_{{ loop.index0 }}">
+                      <option value="">Not mapped</option>
+                      {% for model in schema.models %}
+                        <optgroup label="{{ model.label }} ({{ model.name }})">
+                          {% for field in model.fields if not field.readonly %}
+                            {% set target_value = model.name ~ "::" ~ field.name %}
+                            <option value="{{ target_value }}" {% if source.selected == target_value %}selected{% endif %}>
+                              {{ field.label }} · {{ field.name }} ({{ field.type }})
+                            </option>
+                          {% endfor %}
+                        </optgroup>
+                      {% endfor %}
+                    </select>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="actions">
+          <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Back to schema</a>
+          <button class="button secondary" name="action" value="draft" type="submit">Save draft</button>
+          <button class="button primary" name="action" value="submit" type="submit">Submit mapping</button>
+        </div>
+      </form>
+    {% else %}
+      <div class="empty-state">
+        <h2>Mapping prerequisites are incomplete</h2>
+        <p>Freeze the source selection and capture the permitted Odoo schema first.</p>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

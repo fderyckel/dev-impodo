@@ -454,6 +454,42 @@ dd {
   text-overflow: ellipsis;
 }
 
+.compact-grid {
+  margin: 1rem 0;
+}
+
+.inline-choice {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  gap: .55rem;
+  margin-top: .7rem;
+}
+
+.inline-choice input {
+  width: auto;
+}
+
+.header-row-control {
+  display: inline-flex;
+  margin-top: .8rem;
+  max-width: 10rem;
+}
+
+.warning-ack {
+  border-top: 1px solid var(--line);
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+}
+
+.dataset-row label {
+  min-width: 18rem;
+}
+
+.mapping-table select {
+  min-width: 22rem;
+}
+
 @media (max-width: 720px) {
   .form-grid,
   .summary-grid,
