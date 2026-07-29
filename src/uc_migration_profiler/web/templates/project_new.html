@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}New project · Impodo{% endblock %}
+{% block content %}
+  <section class="form-card narrow">
+    <p class="eyebrow">Phase A · Start</p>
+    <h1>Create a migration project</h1>
+    <p>This creates a local draft. You can finish it over several sessions.</p>
+    <form method="post" action="/projects/new">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>
+        Project name
+        <input name="name" maxlength="200" required value="{{ values.get('name', '') }}">
+        <small>Use a business-friendly name that distinguishes this migration.</small>
+      </label>
+      <label>
+        Source system
+        <select name="source_system" required>
+          <option value="">Choose a source</option>
+          {% for source in source_systems %}
+            <option value="{{ source }}" {% if values.get('source_system') == source %}selected{% endif %}>{{ source }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="actions">
+        <a class="button secondary" href="/projects">Cancel</a>
+        <button class="button primary" type="submit">Create draft</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

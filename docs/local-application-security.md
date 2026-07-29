@@ -13,13 +13,13 @@ This gives the data manager a guided UI without introducing a hosted
 multi-user platform before identity, tenancy, infrastructure, and retention
 requirements are known.
 
-**Implementation status:** this is the approved-target architecture, not a
-claim that the browser application already exists. The current CLI now
-implements strict CSV/XLSX format selection, contained paths, exact hashes,
-Office-container limits, read-only XLSX parsing with XML protection, and
-formula/error-cell rejection. Loopback UI controls, the parser worker,
-DuckDB project storage, OS credential-store integration, packaging, and the
-local Odoo Compose laboratory remain to be implemented and verified.
+**Implementation status:** the Phase A browser now implements the secured
+loopback launch/session boundary, governed project forms, a resource-bounded
+source-validation worker, per-project DuckDB storage, Windows credential-store
+integration, and registration evidence. The CLI continues to implement strict
+CSV/XLSX preparation and read-only Odoo preflight. Source discovery and
+preview, mapping, signed packaging, and the local Odoo Compose laboratory
+remain later delivery slices.
 
 ## 2. Proposed stack
 

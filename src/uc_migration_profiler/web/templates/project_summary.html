@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Registered migration project</p>
+      <h1>{{ project.name }}</h1>
+      <p>Project revision {{ project.revision }} is registered and ready for Phase B.</p>
+    </div>
+    <span class="status registered">{{ project.status.value }}</span>
+  </div>
+
+  <section class="form-card">
+    <dl class="summary-grid">
+      <div><dt>Project ID</dt><dd><code>{{ project.project_id }}</code></dd></div>
+      <div><dt>Registered</dt><dd>{{ project.registered_at.strftime("%Y-%m-%d %H:%M") if project.registered_at else "—" }} UTC</dd></div>
+      <div><dt>Source system</dt><dd>{{ project.source_system }}</dd></div>
+      <div><dt>Export date</dt><dd>{{ project.export_date }}</dd></div>
+      <div><dt>Data manager</dt><dd>{{ project.data_manager }}</dd></div>
+      <div><dt>Functional owner</dt><dd>{{ project.functional_owner }}</dd></div>
+      <div><dt>Target</dt><dd>{{ project.target_environment.value }} / {{ project.odoo_database }}</dd></div>
+      <div><dt>Retention</dt><dd>{{ project.retention_days }} days</dd></div>
+      <div><dt>Mapping version</dt><dd>{{ project.mapping_version or "Not created" }}</dd></div>
+      <div><dt>Current run</dt><dd>{{ project.current_run_id or "None" }}</dd></div>
+      <div><dt>Approval</dt><dd>{{ project.approval_status }}</dd></div>
+      <div><dt>Files</dt><dd>{{ project.source_files|length }}</dd></div>
+    </dl>
+    <div class="actions">
+      <a class="button secondary" href="/projects">All projects</a>
+      <button class="button primary" disabled>Continue to Phase B</button>
+    </div>
+    <p class="muted">Phase B source inspection is the next delivery slice and is not enabled yet.</p>
+  </section>
+{% endblock %}

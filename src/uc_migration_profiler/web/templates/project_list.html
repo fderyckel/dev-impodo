@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Projects · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Migration workspace</p>
+      <h1>Projects</h1>
+      <p>Create and resume governed migration projects.</p>
+    </div>
+    <a class="button primary" href="/projects/new">New project</a>
+  </div>
+
+  {% if projects %}
+    <div class="card-list">
+      {% for project in projects %}
+        <a class="project-card" href="/projects/{{ project.project_id }}">
+          <div>
+            <strong>{{ project.name }}</strong>
+            <span>Updated {{ project.updated_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+          </div>
+          <div class="project-meta">
+            <span class="status {{ project.status.value|lower }}">{{ project.status.value }}</span>
+            <span>Revision {{ project.revision }}</span>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <section class="empty-state">
+      <h2>No projects yet</h2>
+      <p>Start Phase A by registering the migration context and source.</p>
+      <a class="button primary" href="/projects/new">Create the first project</a>
+    </section>
+  {% endif %}
+{% endblock %}

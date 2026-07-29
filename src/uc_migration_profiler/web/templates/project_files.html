@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Source files · Impodo{% endblock %}
+{% block content %}
+  {% set step = "files" %}
+  {% include "_steps.html" %}
+  <section class="form-card">
+    <p class="eyebrow">Phase A · Governed source intake</p>
+    <h1>Add source files</h1>
+    <p>CSV and XLSX only. Originals are copied, hashed, and kept immutable.</p>
+
+    {% if project.source_files %}
+      <div class="file-list">
+        {% for file in project.source_files %}
+          <div class="file-row">
+            <div>
+              <strong>{{ file.display_name }}</strong>
+              <span>{{ file.size_bytes }} bytes</span>
+            </div>
+            <code title="{{ file.sha256 }}">{{ file.sha256[:16] }}…</code>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" action="/projects/{{ project.project_id }}/files">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="revision" value="{{ project.revision }}">
+      <label>
+        Select a file
+        <input type="file" name="source_file" accept=".csv,.xlsx" required>
+        <small>Maximum accepted size: 100 MiB per file.</small>
+      </label>
+      <div class="actions">
+        <a class="button secondary" href="/projects/{{ project.project_id }}/governance">Back</a>
+        <button class="button secondary" type="submit">Add file</button>
+        <a class="button primary" href="/projects/{{ project.project_id }}/target">Continue</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

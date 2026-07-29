@@ -102,6 +102,24 @@ available, those environment variables are unnecessary.
 
 No Odoo credentials are needed for tests or the offline example.
 
+## Local Phase A browser
+
+The local browser now implements Stage A project registration without manual
+YAML editing:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\impodo.exe
+```
+
+It opens on an ephemeral `127.0.0.1` port, accepts governed CSV/XLSX source
+files, records project ownership and retention, configures an HTTPS Odoo DEV or
+TEST target, and writes a local DuckDB project plus canonical registration
+evidence. It never writes to Odoo.
+
+See [Local Phase A browser](docs/operations/local-browser.md) and the
+[migration project contract](docs/contracts/migration-project.md).
+
 ## Run the tests
 
 ```bash

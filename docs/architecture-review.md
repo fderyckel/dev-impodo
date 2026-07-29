@@ -140,7 +140,10 @@ end-to-end source/snapshot/workbook benchmark.
 
 ## Limitations and required partner confirmation
 
-1. Confirm the UC Odoo version is 19.x. JSON-2 is an Odoo 19 interface.
+1. The initial target version is confirmed as Odoo 19.4, which provides the
+   JSON-2 interface used by this component. The planned Odoo 20.0 move in
+   September remains subject to a compatibility check and new DEV/TEST
+   acceptance evidence.
 2. Confirm the real URL/database routing and whether `X-Odoo-Database` is
    required.
 3. Confirm the dedicated account can read `fields_get`, selected target
@@ -157,7 +160,10 @@ end-to-end source/snapshot/workbook benchmark.
    semantic fixture has 12 candidates.
 9. Decide whether strict snapshot JSON Schema validation plus persisted
    request/domain hashing is required before live acceptance.
-10. Confirm data-retention and access rules for snapshots and review packages.
+10. Confirm the customer's acceptance of the proposed retention and
+    access-control policy for snapshots and review packages. The documented
+    default is local encrypted, owner-only storage through acceptance plus 90
+    days; it is not a substitute for the customer's written policy.
 
 These do not block offline fixture correctness. They block claiming live UC
 DEV/TEST acceptance.

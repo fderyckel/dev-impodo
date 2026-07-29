@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Impodo{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/projects">Impodo</a>
+      <span class="boundary">Local · Odoo DEV/TEST · Read-only</span>
+    </header>
+    <main class="page-shell">
+      {% if flash %}
+        <div class="notice success" role="status">{{ flash }}</div>
+      {% endif %}
+      {% if error %}
+        <div class="notice error" role="alert">{{ error }}</div>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="site-footer">
+      <span>Customer data remains on this computer.</span>
+      <form method="post" action="/quit">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="link-button" type="submit">Quit Impodo</button>
+      </form>
+    </footer>
+  </body>
+</html>

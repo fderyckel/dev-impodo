@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Odoo target · Impodo{% endblock %}
+{% block content %}
+  {% set step = "target" %}
+  {% include "_steps.html" %}
+  <section class="form-card">
+    <p class="eyebrow">Phase A · Odoo target</p>
+    <h1>Choose the read-only target</h1>
+    <p>Only Odoo DEV and TEST environments are accepted.</p>
+    <form method="post" action="/projects/{{ project.project_id }}/target">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="revision" value="{{ project.revision }}">
+      <div class="form-grid">
+        <label>
+          Environment
+          <select name="target_environment" required>
+            <option value="">Choose an environment</option>
+            <option value="DEV" {% if project.target_environment and project.target_environment.value == "DEV" %}selected{% endif %}>DEV</option>
+            <option value="TEST" {% if project.target_environment and project.target_environment.value == "TEST" %}selected{% endif %}>TEST</option>
+          </select>
+        </label>
+        <label>
+          Odoo base URL
+          <input type="url" name="odoo_base_url" required placeholder="https://odoo-test.example.com" value="{{ project.odoo_base_url }}">
+        </label>
+        <label>
+          Database
+          <input name="odoo_database" maxlength="200" required value="{{ project.odoo_database }}">
+        </label>
+        <label>
+          Read-only API key
+          <input type="password" name="api_key" autocomplete="off">
+          <small>Never stored in the project database or returned to the browser.</small>
+        </label>
+      </div>
+      <label class="checkbox">
+        <input type="checkbox" name="remember_api_key">
+        Save the key in Windows Credential Manager.
+      </label>
+
+      <fieldset>
+        <legend>Intended Odoo applications</legend>
+        <div class="choice-grid">
+          {% for application in applications %}
+            <label class="checkbox">
+              <input type="checkbox" name="intended_applications" value="{{ application }}" {% if application in project.intended_applications %}checked{% endif %}>
+              {{ application }}
+            </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      <label>
+        Known technical models (optional)
+        <textarea name="intended_models" rows="3" placeholder="product.template, mrp.bom">{{ project.intended_models|join(', ') }}</textarea>
+        <small>Exact permitted models will be confirmed during Stage C schema discovery.</small>
+      </label>
+      <div class="actions">
+        <a class="button secondary" href="/projects/{{ project.project_id }}/files">Back</a>
+        <button class="button secondary" type="submit" name="action" value="test">Save and test connection</button>
+        <button class="button primary" type="submit" name="action" value="save">Save and continue</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

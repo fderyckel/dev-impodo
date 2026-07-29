@@ -31,6 +31,8 @@ inspection, mapping, staging, approval, loading, and reconciliation.
 
 ## Contracts
 
+- [Migration project contract](contracts/migration-project.md) — Phase A
+  fields, lifecycle, source evidence, persistence, and browser safety boundary.
 - [Profile contract](contracts/profile.md) — how a profile maps,
   types, identifies, resolves, and compares data.
 - [Prepared record contract](contracts/prepared-record.md) — the
@@ -45,6 +47,8 @@ inspection, mapping, staging, approval, loading, and reconciliation.
 
 ## Operations and quality
 
+- [Local Phase A browser](operations/local-browser.md) — installation,
+  project registration, storage, and shutdown runbook.
 - [DuckDB on a Windows laptop](operations/duckdb-windows.md) - approved
   user-local DuckDB CLI installation, verification, troubleshooting, and the
   boundary between the CLI and Impodo-managed data.

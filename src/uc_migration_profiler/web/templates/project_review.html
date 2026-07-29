@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Review project · Impodo{% endblock %}
+{% block content %}
+  {% set step = "review" %}
+  {% include "_steps.html" %}
+  <section class="form-card">
+    <p class="eyebrow">Phase A · Review</p>
+    <h1>Review before registration</h1>
+
+    {% if problems %}
+      <div class="notice warning">
+        <strong>Complete these items:</strong>
+        <ul>
+          {% for problem in problems %}<li>{{ problem }}</li>{% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <dl class="summary-grid">
+      <div><dt>Project</dt><dd>{{ project.name }}</dd></div>
+      <div><dt>Source</dt><dd>{{ project.source_system }}</dd></div>
+      <div><dt>Export date</dt><dd>{{ project.export_date or "Not set" }}</dd></div>
+      <div><dt>Data manager</dt><dd>{{ project.data_manager or "Not set" }}</dd></div>
+      <div><dt>Functional owner</dt><dd>{{ project.functional_owner or "Not set" }}</dd></div>
+      <div><dt>Classification</dt><dd>{{ project.data_classification.value }}</dd></div>
+      <div><dt>Retention</dt><dd>{{ project.retention_days }} days</dd></div>
+      <div><dt>Source files</dt><dd>{{ project.source_files|length }}</dd></div>
+      <div><dt>Target</dt><dd>{{ project.target_environment.value if project.target_environment else "Not set" }}</dd></div>
+      <div><dt>Database</dt><dd>{{ project.odoo_database or "Not set" }}</dd></div>
+      <div class="wide"><dt>Applications</dt><dd>{{ project.intended_applications|join(", ") or "Not set" }}</dd></div>
+    </dl>
+
+    <form method="post" action="/projects/{{ project.project_id }}/register">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="revision" value="{{ project.revision }}">
+      <div class="actions">
+        <a class="button secondary" href="/projects/{{ project.project_id }}/target">Back</a>
+        <button class="button primary" type="submit" {% if problems %}disabled{% endif %}>Register project</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

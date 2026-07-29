@@ -1,0 +1,397 @@
+"""Migration-project domain for the local Impodo application.
+
+This module has no web-framework or database dependency.  The browser, CLI,
+and persistence adapters all use the same lifecycle and validation rules.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime, timezone
+from enum import StrEnum
+from urllib.parse import urlsplit
+from typing import Protocol, Sequence
+from uuid import UUID, uuid4
+
+
+class ProjectError(ValueError):
+    """Base error for invalid project operations."""
+
+
+class ProjectNotFoundError(ProjectError):
+    """Raised when a project identifier does not exist."""
+
+
+class ProjectConflictError(ProjectError):
+    """Raised when a stale browser form attempts to overwrite newer data."""
+
+
+class ProjectRegistrationError(ProjectError):
+    """Raised when a draft is incomplete and cannot be registered."""
+
+    def __init__(self, problems: Sequence[str]) -> None:
+        self.problems = tuple(problems)
+        super().__init__("; ".join(self.problems))
+
+
+class ProjectStatus(StrEnum):
+    DRAFT = "DRAFT"
+    REGISTERED = "REGISTERED"
+    CLOSED = "CLOSED"
+
+
+class ExportStatus(StrEnum):
+    PLANNED = "PLANNED"
+    RECEIVED = "RECEIVED"
+
+
+class DataClassification(StrEnum):
+    INTERNAL = "INTERNAL"
+    CONFIDENTIAL = "CONFIDENTIAL"
+    RESTRICTED = "RESTRICTED"
+
+
+class TargetEnvironment(StrEnum):
+    DEV = "DEV"
+    TEST = "TEST"
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFile:
+    """Immutable evidence for one governed source file."""
+
+    file_id: str
+    display_name: str
+    stored_name: str
+    size_bytes: int
+    sha256: str
+    received_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectSummary:
+    project_id: str
+    name: str
+    status: ProjectStatus
+    revision: int
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MigrationProject:
+    """Phase A migration-project aggregate."""
+
+    project_id: str
+    name: str
+    source_system: str
+    export_status: ExportStatus = ExportStatus.PLANNED
+    export_date: date | None = None
+    description: str = ""
+    data_manager: str = ""
+    functional_owner: str = ""
+    business_unit: str = ""
+    data_classification: DataClassification = DataClassification.CONFIDENTIAL
+    retention_days: int = 90
+    support_access: bool = False
+    target_environment: TargetEnvironment | None = None
+    odoo_base_url: str = ""
+    odoo_database: str = ""
+    intended_applications: tuple[str, ...] = ()
+    intended_models: tuple[str, ...] = ()
+    source_files: tuple[SourceFile, ...] = ()
+    status: ProjectStatus = ProjectStatus.DRAFT
+    revision: int = 1
+    created_at: datetime = field(default_factory=lambda: _now())
+    updated_at: datetime = field(default_factory=lambda: _now())
+    registered_at: datetime | None = None
+    mapping_version: str | None = None
+    current_run_id: str | None = None
+    approval_status: str = "NOT_STARTED"
+
+
+class ProjectRepository(Protocol):
+    """Persistence port used by the project application service."""
+
+    def create(self, project: MigrationProject) -> None: ...
+
+    def get(self, project_id: str) -> MigrationProject: ...
+
+    def list(self) -> tuple[ProjectSummary, ...]: ...
+
+    def save(
+        self,
+        project: MigrationProject,
+        *,
+        expected_revision: int,
+        event_type: str,
+        event_detail: str,
+    ) -> None: ...
+
+
+class ProjectService:
+    """Own project lifecycle operations independently of HTTP and DuckDB."""
+
+    def __init__(self, repository: ProjectRepository) -> None:
+        self.repository = repository
+
+    def create_project(self, *, name: str, source_system: str) -> MigrationProject:
+        clean_name = _required_text(name, "Project name")
+        clean_source = _required_text(source_system, "Source system")
+        now = _now()
+        project = MigrationProject(
+            project_id=str(uuid4()),
+            name=clean_name,
+            source_system=clean_source,
+            created_at=now,
+            updated_at=now,
+        )
+        self.repository.create(project)
+        return project
+
+    def update_details(
+        self,
+        project_id: str,
+        *,
+        expected_revision: int,
+        name: str,
+        source_system: str,
+        export_status: str,
+        export_date: str,
+        description: str,
+    ) -> MigrationProject:
+        project = self._editable(project_id, expected_revision)
+        try:
+            parsed_status = ExportStatus(export_status)
+        except ValueError as error:
+            raise ProjectError("Choose a valid export status") from error
+        parsed_date = _optional_date(export_date)
+        if parsed_status is ExportStatus.RECEIVED and parsed_date is None:
+            raise ProjectError("Export date is required when files are received")
+        if parsed_date is not None and parsed_date > date.today():
+            raise ProjectError("Export date cannot be in the future")
+        clean_description = description.strip()
+        if len(clean_description) > 2000:
+            raise ProjectError("Description is too long")
+        updated = replace(
+            project,
+            name=_required_text(name, "Project name"),
+            source_system=_required_text(source_system, "Source system"),
+            export_status=parsed_status,
+            export_date=parsed_date,
+            description=clean_description,
+        )
+        return self._save(updated, project, "PROJECT_DETAILS_UPDATED")
+
+    def update_governance(
+        self,
+        project_id: str,
+        *,
+        expected_revision: int,
+        data_manager: str,
+        functional_owner: str,
+        business_unit: str,
+        data_classification: str,
+        retention_days: int,
+        support_access: bool,
+    ) -> MigrationProject:
+        project = self._editable(project_id, expected_revision)
+        if retention_days < 1 or retention_days > 3650:
+            raise ProjectError("Retention must be between 1 and 3650 days")
+        try:
+            classification = DataClassification(data_classification)
+        except ValueError as error:
+            raise ProjectError("Choose a valid data classification") from error
+        updated = replace(
+            project,
+            data_manager=_optional_text(data_manager, "Data manager"),
+            functional_owner=_optional_text(functional_owner, "Functional owner"),
+            business_unit=_optional_text(business_unit, "Business unit"),
+            data_classification=classification,
+            retention_days=retention_days,
+            support_access=support_access,
+        )
+        return self._save(updated, project, "PROJECT_GOVERNANCE_UPDATED")
+
+    def update_target(
+        self,
+        project_id: str,
+        *,
+        expected_revision: int,
+        target_environment: str,
+        odoo_base_url: str,
+        odoo_database: str,
+        intended_applications: Sequence[str],
+        intended_models: Sequence[str],
+    ) -> MigrationProject:
+        project = self._editable(project_id, expected_revision)
+        base_url = odoo_base_url.strip().rstrip("/")
+        if base_url:
+            parsed_url = urlsplit(base_url)
+            if (
+                parsed_url.scheme != "https"
+                or not parsed_url.hostname
+                or parsed_url.username
+                or parsed_url.password
+                or parsed_url.query
+                or parsed_url.fragment
+            ):
+                raise ProjectError(
+                    "The Odoo URL must be an HTTPS server URL without "
+                    "credentials, query parameters, or fragments"
+                )
+        try:
+            environment = TargetEnvironment(target_environment)
+        except ValueError as error:
+            raise ProjectError("Choose a DEV or TEST environment") from error
+        database = _optional_text(odoo_database, "Odoo database")
+        updated = replace(
+            project,
+            target_environment=environment,
+            odoo_base_url=base_url,
+            odoo_database=database,
+            intended_applications=_clean_choices(intended_applications),
+            intended_models=_clean_choices(intended_models),
+        )
+        return self._save(updated, project, "PROJECT_TARGET_UPDATED")
+
+    def add_source_file(
+        self,
+        project_id: str,
+        *,
+        expected_revision: int,
+        source_file: SourceFile,
+    ) -> MigrationProject:
+        project = self._editable(project_id, expected_revision)
+        if any(item.sha256 == source_file.sha256 for item in project.source_files):
+            raise ProjectError("This exact source file is already registered")
+        updated = replace(project, source_files=project.source_files + (source_file,))
+        return self._save(
+            updated,
+            project,
+            "SOURCE_FILE_ADDED",
+            detail=source_file.display_name,
+        )
+
+    def register(
+        self,
+        project_id: str,
+        *,
+        expected_revision: int,
+    ) -> MigrationProject:
+        project = self._editable(project_id, expected_revision)
+        problems = registration_problems(project)
+        if problems:
+            raise ProjectRegistrationError(problems)
+        registered = replace(
+            project,
+            status=ProjectStatus.REGISTERED,
+            registered_at=_now(),
+        )
+        return self._save(registered, project, "PROJECT_REGISTERED")
+
+    def _editable(
+        self,
+        project_id: str,
+        expected_revision: int,
+    ) -> MigrationProject:
+        _canonical_project_id(project_id)
+        project = self.repository.get(project_id)
+        if project.revision != expected_revision:
+            raise ProjectConflictError(
+                "The project changed in another request; reload before continuing"
+            )
+        if project.status is not ProjectStatus.DRAFT:
+            raise ProjectError("Registered or closed projects cannot be edited")
+        return project
+
+    def _save(
+        self,
+        updated: MigrationProject,
+        previous: MigrationProject,
+        event_type: str,
+        *,
+        detail: str = "",
+    ) -> MigrationProject:
+        saved = replace(
+            updated,
+            revision=previous.revision + 1,
+            updated_at=_now(),
+        )
+        self.repository.save(
+            saved,
+            expected_revision=previous.revision,
+            event_type=event_type,
+            event_detail=detail,
+        )
+        return saved
+
+
+def registration_problems(project: MigrationProject) -> tuple[str, ...]:
+    """Return every user-actionable reason a draft cannot be registered."""
+
+    problems: list[str] = []
+    if not project.name:
+        problems.append("Project name is required")
+    if not project.source_system:
+        problems.append("Source system is required")
+    if project.export_status is not ExportStatus.RECEIVED:
+        problems.append("Source export must be marked as received")
+    if project.export_date is None:
+        problems.append("Source export date is required")
+    if not project.source_files:
+        problems.append("At least one source file is required")
+    if not project.data_manager:
+        problems.append("Responsible data manager is required")
+    if not project.functional_owner:
+        problems.append("Functional owner is required")
+    if project.target_environment is None:
+        problems.append("A DEV or TEST target environment is required")
+    if not project.odoo_base_url:
+        problems.append("Odoo base URL is required")
+    if not project.odoo_database:
+        problems.append("Odoo database is required")
+    if not project.intended_applications:
+        problems.append("Select at least one intended Odoo application")
+    return tuple(problems)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _required_text(value: str, label: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        raise ProjectError(f"{label} is required")
+    if len(cleaned) > 200:
+        raise ProjectError(f"{label} is too long")
+    return cleaned
+
+
+def _optional_text(value: str, label: str) -> str:
+    cleaned = value.strip()
+    if len(cleaned) > 200:
+        raise ProjectError(f"{label} is too long")
+    return cleaned
+
+
+def _optional_date(value: str) -> date | None:
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    try:
+        return date.fromisoformat(cleaned)
+    except ValueError as error:
+        raise ProjectError("Export date must be a valid date") from error
+
+
+def _clean_choices(values: Sequence[str]) -> tuple[str, ...]:
+    cleaned = {value.strip() for value in values if value.strip()}
+    return tuple(sorted(cleaned, key=str.casefold))
+
+
+def _canonical_project_id(project_id: str) -> str:
+    try:
+        return str(UUID(project_id))
+    except (ValueError, AttributeError) as error:
+        raise ProjectNotFoundError("Invalid project identifier") from error

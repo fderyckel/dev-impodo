@@ -467,6 +467,32 @@ def _validate_xlsx_container(path: Path) -> None:
         ) from exc
 
 
+def validate_source_file(path: str | Path) -> None:
+    """Validate an intake file before it is accepted into a project.
+
+    Dataset-specific sheet, header, and type checks still happen during source
+    inspection.  This public boundary performs format and container checks
+    without requiring a mapping profile.
+    """
+
+    source_path = Path(path)
+    extension = source_path.suffix.casefold()
+    if extension == ".xlsx":
+        _validate_xlsx_container(source_path)
+        return
+    if extension == ".csv":
+        with source_path.open("rb") as stream:
+            sample = stream.read(64 * 1024)
+        if b"\x00" in sample:
+            raise SourceLoadError(
+                f"CSV contains binary null bytes: {source_path.name}"
+            )
+        return
+    raise SourceLoadError(
+        f"only .csv and .xlsx source files are accepted: {source_path.name}"
+    )
+
+
 def prepare_sources(
     profile: ProfileDocument,
     input_directory: str | Path,

@@ -179,11 +179,39 @@ Validation layers:
    compatibility.
 
 Normalization is never invisible. Reviewers see raw and canonical values plus
-the rule that changed them.
+the rule that changed them. The data manager may accept a governed correction
+to the local staging dataset; the raw source file remains unchanged, and the
+correction is versioned with its reason and operator evidence.
 
 Read-only validation cannot prove every Odoo ORM constraint, automation, or
 custom business rule. A controlled DEV/TEST rehearsal remains necessary
 before production.
+
+#### Initial first-migration rule proposal
+
+The first real migration SHOULD use a small, explicit allowlist rather than a
+general-purpose transformation language:
+
+- whitespace trim/collapse, Unicode normalization, controlled casing, and
+  explicit empty-to-null handling;
+- declared locale parsing and canonical formatting for decimals, dates,
+  datetimes, booleans, and selection values; the tool must never guess a
+  locale;
+- source-code preservation and normalization, including leading-zero rules;
+- explicit value lookups, constants, defaults, split/concatenate rules, and
+  approved reference-data translations;
+- scoped source-key uniqueness, mandatory-field completeness, and duplicate
+  handling;
+- parent/child and many2one/many2many reference integrity, dependency order,
+  and cycle detection;
+- source-to-staging row-count reconciliation and a declared exception list;
+- project-selected cross-row controls such as date-order checks, balance or
+  total reconciliation, and one-active-record-per-scoped-key rules.
+
+The data manager selects the applicable rules for a project and records their
+versions in the mapping. Rules that alter financial totals, legal status, or
+master-data semantics require documented functional input before approval;
+they are not safe generic defaults.
 
 ### Stage F — Store canonical staging data
 
@@ -277,6 +305,12 @@ table. Approval freezes:
 - approver, time, scope, and expiry or staleness policy.
 
 Any changed input invalidates approval and requires a new preflight.
+
+For the first release, the **data manager** approves mapping versions and
+import plans. The approval record identifies that person, the approved scope,
+the target environment, and the expiry. Functional stakeholders may review
+business rules, but their review does not replace the data manager's recorded
+approval.
 
 ### Stage J — Controlled Odoo execution
 
@@ -454,11 +488,13 @@ flowchart TB
     Reconcile --> Store
 ```
 
-The current repository implements strict CSV and declared-sheet XLSX loading,
-mapping through the profile, normalization and validation, and the read-only
-preflight path. It does not yet implement the UI, project API, workbook
-inventory and preview before mapping, full schema discovery, durable store,
-approval service, executor, or reconciliation service.
+The current repository implements the Phase A local-browser project workflow,
+governed source intake and project metadata storage, strict CSV and
+declared-sheet XLSX loading, mapping through the profile, normalization and
+validation, and the read-only preflight path. It does not yet implement Stage
+B workbook inventory and preview, the interactive mapping workspace, full
+schema discovery, durable canonical staging, the approval service, executor,
+or reconciliation service.
 
 ## 7. Delivery roadmap
 
@@ -512,7 +548,7 @@ approval service, executor, or reconciliation service.
 - release and rollback procedure;
 - business-owner acceptance.
 
-## 8. Decisions needed before implementation
+## 8. Confirmed implementation decisions
 
 Confirmed:
 
@@ -523,26 +559,20 @@ Confirmed:
 - Impodo must be testable entirely on one local machine before on-premise
   access is available.
 
-Recommended for approval:
+- the hardened local-only browser architecture is preferred to a native
+  wrapper for the first release;
+- the first release begins with exported `.xlsx`/`.csv` files, a local DuckDB
+  staging store, and a disposable local Odoo laboratory;
+- the initial on-premise target is Odoo 19.4. The planned Odoo 20.0 move in
+  September requires a separate compatibility check and DEV/TEST rehearsal;
+- the data manager approves mapping versions and frozen import plans;
+- the initial transformation and business-rule proposal is recorded in
+  [Stage E](#stage-e--normalize-and-validate);
+- the proposed default customer-data storage, retention, deletion, and access
+  controls are recorded in the [local security architecture](local-application-security.md#proposed-first-release-data-handling-policy).
 
-- use the hardened local-only browser architecture in
-  [Local application and security architecture](local-application-security.md);
-- begin with exported files, a local DuckDB staging store, and a disposable
-  local Odoo laboratory;
-- keep the current mapping/preflight process free of write capability.
-
-The architecture can proceed with the workflow above, but these product
-choices affect the implementation:
-
-1. Confirm that the hardened local browser architecture is preferred over a
-   native wrapper for the first release.
-2. Confirm the exact Odoo version; on-premise hosting alone does not establish
-   whether JSON-2 is available.
-3. Who approves mappings and import plans?
-4. Which transformations and cross-row business rules are essential for the
-   first real migration?
-5. Where may customer data and staged artifacts be stored, for how long, and
-   under which access controls?
-
-These questions do not change the end-to-end goal. They determine the UI,
-staging database, and deployment architecture.
+The mapping workspace may make governed local changes to drafts and derived
+staging records in order to validate and correct data. This does **not** give
+the current read-only preflight connector permission to change Odoo. Odoo
+writes remain a separate, approval-bound executor capability, as defined in
+Stage J.

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Project details · Impodo{% endblock %}
+{% block content %}
+  {% set step = "details" %}
+  {% include "_steps.html" %}
+  <section class="form-card">
+    <p class="eyebrow">Phase A · Project details</p>
+    <h1>{{ project.name }}</h1>
+    <form method="post" action="/projects/{{ project.project_id }}/details">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="revision" value="{{ project.revision }}">
+      <div class="form-grid">
+        <label>
+          Project name
+          <input name="name" maxlength="200" required value="{{ project.name }}">
+        </label>
+        <label>
+          Source system
+          <select name="source_system" required>
+            {% for source in source_systems %}
+              <option value="{{ source }}" {% if project.source_system == source %}selected{% endif %}>{{ source }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Export status
+          <select name="export_status" required>
+            <option value="PLANNED" {% if project.export_status.value == "PLANNED" %}selected{% endif %}>Export planned</option>
+            <option value="RECEIVED" {% if project.export_status.value == "RECEIVED" %}selected{% endif %}>Files received</option>
+          </select>
+        </label>
+        <label>
+          Actual export date
+          <input type="date" name="export_date" value="{{ project.export_date.isoformat() if project.export_date else '' }}">
+          <small>Required before registration.</small>
+        </label>
+      </div>
+      <label>
+        Description
+        <textarea name="description" rows="4" maxlength="2000">{{ project.description }}</textarea>
+      </label>
+      <div class="actions">
+        <a class="button secondary" href="/projects">Save and exit</a>
+        <button class="button primary" type="submit">Save and continue</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}
