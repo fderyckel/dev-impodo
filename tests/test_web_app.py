@@ -85,11 +85,16 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         projects = self.client.get("/projects")
         self.assertEqual(projects.status_code, 200)
         self.assertIn(
-            '<span class="brand-tagline">Import Anything into Odoo</span>',
+            '<span class="brand-tagline">Impodo - Import Anything into Odoo</span>',
             projects.text,
         )
+        self.assertIn('id="app-sidebar"', projects.text)
+        self.assertIn("data-sidebar-toggle", projects.text)
+        self.assertIn('aria-label="Impodo workflow"', projects.text)
+        self.assertIn("bootstrap-icons.svg#folder", projects.text)
         self.assertIn("Data remains on this computer.", projects.text)
         self.assertNotIn("Customer data remains on this computer.", projects.text)
+        self.assertNotIn("United Caps", projects.text)
         self.assertIn("Thoughtfully made with", projects.text)
         self.assertIn("by FdR", projects.text)
         self.assertEqual(projects.headers["x-frame-options"], "DENY")

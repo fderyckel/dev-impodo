@@ -1,5 +1,31 @@
 <!doctype html>
 <html lang="en">
+  {% macro app_icon(name, class_name="") -%}
+    <svg class="ui-icon {{ class_name }}" aria-hidden="true" focusable="false">
+      <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#{{ name }}"></use>
+    </svg>
+  {%- endmacro %}
+  {% set current_path = request.url.path %}
+  {% set has_project = project is defined %}
+  {% if has_project %}
+    {% set project_id = project.project_id %}
+    {% set workspace_ready = project.registered_at %}
+  {% else %}
+    {% set project_id = "" %}
+    {% set workspace_ready = false %}
+  {% endif %}
+  {% set nav_active = "projects" %}
+  {% if "/sources" in current_path %}
+    {% set nav_active = "source" %}
+  {% elif "/datasets" in current_path %}
+    {% set nav_active = "datasets" %}
+  {% elif "/schema" in current_path %}
+    {% set nav_active = "schema" %}
+  {% elif "/mapping" in current_path %}
+    {% set nav_active = "mapping" %}
+  {% elif "/summary" in current_path %}
+    {% set nav_active = "summary" %}
+  {% endif %}
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,29 +33,157 @@
     <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
   </head>
-  <body>
+  <body class="{% block body_class %}{% endblock %}">
     <header class="site-header">
-      <div class="brand-lockup">
-        <a class="brand" href="/projects">IMPODO</a>
-        <span class="brand-tagline">Import Anything into Odoo</span>
+      <div class="header-leading">
+        <button
+          class="mobile-nav-toggle"
+          type="button"
+          aria-controls="app-sidebar"
+          aria-expanded="false"
+          data-mobile-nav-toggle
+        >
+          {{ app_icon("list") }}
+          <span class="visually-hidden">Open navigation</span>
+        </button>
+        <div class="brand-lockup">
+          <a class="brand" href="/projects">IMPODO</a>
+          <span class="brand-tagline">Impodo - Import Anything into Odoo</span>
+        </div>
       </div>
-      <span class="boundary">Local · Odoo DEV/TEST · Read-only</span>
+      <span class="boundary">
+        Local · Odoo DEV/TEST · Read-only
+        {{ app_icon("shield-check") }}
+      </span>
     </header>
-    <main class="page-shell">
-      {% if flash %}
-        <div class="notice success" role="status">{{ flash }}</div>
-      {% endif %}
-      {% if error %}
-        <div class="notice error" role="alert">{{ error }}</div>
-      {% endif %}
-      {% block content %}{% endblock %}
-    </main>
+    <div class="app-shell">
+      <aside class="site-sidebar" id="app-sidebar" aria-label="Migration workspace">
+        <div class="sidebar-heading">
+          <span class="sidebar-heading-label">Workspace</span>
+          <button
+            class="sidebar-toggle"
+            type="button"
+            aria-controls="app-sidebar"
+            aria-expanded="true"
+            title="Collapse navigation"
+            data-sidebar-toggle
+          >
+            {{ app_icon("layout-sidebar-inset", "sidebar-icon-collapse") }}
+            {{ app_icon("layout-sidebar-inset-reverse", "sidebar-icon-expand") }}
+            <span class="visually-hidden" data-sidebar-toggle-label>Collapse navigation</span>
+          </button>
+        </div>
+        <nav class="sidebar-nav" aria-label="Impodo workflow">
+          <a
+            class="sidebar-link{% if nav_active == 'projects' %} active{% endif %}"
+            href="/projects"
+            title="Projects"
+            {% if nav_active == "projects" %}aria-current="page"{% endif %}
+          >
+            {{ app_icon("folder") }}
+            <span class="nav-label">Projects</span>
+          </a>
+
+          {% if workspace_ready %}
+            <a
+              class="sidebar-link{% if nav_active == 'source' %} active{% endif %}"
+              href="/projects/{{ project_id }}/sources"
+              title="Source"
+              {% if nav_active == "source" %}aria-current="page"{% endif %}
+            >
+              {{ app_icon("database") }}
+              <span class="nav-label">Source</span>
+            </a>
+            <a
+              class="sidebar-link{% if nav_active == 'datasets' %} active{% endif %}"
+              href="/projects/{{ project_id }}/datasets"
+              title="Datasets"
+              {% if nav_active == "datasets" %}aria-current="page"{% endif %}
+            >
+              {{ app_icon("grid-3x3-gap") }}
+              <span class="nav-label">Datasets</span>
+            </a>
+            <a
+              class="sidebar-link{% if nav_active == 'schema' %} active{% endif %}"
+              href="/projects/{{ project_id }}/schema"
+              title="Schema"
+              {% if nav_active == "schema" %}aria-current="page"{% endif %}
+            >
+              {{ app_icon("diagram-3") }}
+              <span class="nav-label">Schema</span>
+            </a>
+            <a
+              class="sidebar-link{% if nav_active == 'mapping' %} active{% endif %}"
+              href="/projects/{{ project_id }}/mapping"
+              title="Mapping"
+              {% if nav_active == "mapping" %}aria-current="page"{% endif %}
+            >
+              {{ app_icon("link-45deg") }}
+              <span class="nav-label">Mapping</span>
+            </a>
+            <a
+              class="sidebar-link{% if nav_active == 'summary' %} active{% endif %}"
+              href="/projects/{{ project_id }}/summary"
+              title="Summary"
+              {% if nav_active == "summary" %}aria-current="page"{% endif %}
+            >
+              {{ app_icon("clipboard-check") }}
+              <span class="nav-label">Summary</span>
+            </a>
+          {% else %}
+            {% for item in (
+              ("database", "Source"),
+              ("grid-3x3-gap", "Datasets"),
+              ("diagram-3", "Schema"),
+              ("link-45deg", "Mapping"),
+              ("clipboard-check", "Summary")
+            ) %}
+              <span
+                class="sidebar-link disabled"
+                aria-disabled="true"
+                title="Open a registered project to use {{ item[1] }}"
+              >
+                {{ app_icon(item[0]) }}
+                <span class="nav-label">{{ item[1] }}</span>
+              </span>
+            {% endfor %}
+          {% endif %}
+        </nav>
+      </aside>
+      <button
+        class="sidebar-scrim"
+        type="button"
+        aria-label="Close navigation"
+        tabindex="-1"
+        data-sidebar-scrim
+      ></button>
+      <main class="app-main">
+        <div class="page-shell">
+          {% if flash %}
+            <div class="notice success" role="status">{{ flash }}</div>
+          {% endif %}
+          {% if error %}
+            <div class="notice error" role="alert">{{ error }}</div>
+          {% endif %}
+          {% block content %}{% endblock %}
+        </div>
+      </main>
+    </div>
     <footer class="site-footer">
-      <span>Data remains on this computer.</span>
-      <span class="creator-credit">Thoughtfully made with <span role="img" aria-label="love">❤️</span> by FdR</span>
+      <span class="footer-note">
+        {{ app_icon("shield-check") }}
+        Data remains on this computer.
+      </span>
+      <span class="creator-credit">
+        {{ app_icon("heart") }}
+        Thoughtfully made with love by FdR
+      </span>
       <form method="post" action="/quit">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="link-button" type="submit">Quit Impodo</button>
+        <button class="link-button footer-quit" type="submit">
+          {{ app_icon("power") }}
+          Quit Impodo
+        </button>
       </form>
     </footer>
   </body>

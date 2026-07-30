@@ -1,30 +1,46 @@
 {% extends "base.html" %}
 {% block title %}Projects · Impodo{% endblock %}
+{% block body_class %}projects-home{% endblock %}
 {% block content %}
-  <div class="page-heading">
+  <section class="projects-hero">
     <div>
       <p class="eyebrow">Migration workspace</p>
       <h1>Projects</h1>
       <p>Create and resume governed migration projects.</p>
     </div>
-    <a class="button primary" href="/projects/new">New project</a>
-  </div>
+    <a class="button primary new-project-button" href="/projects/new">
+      <svg class="ui-icon" aria-hidden="true" focusable="false">
+        <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#plus-lg"></use>
+      </svg>
+      New project
+    </a>
+  </section>
 
   {% if projects %}
-    <div class="card-list">
+    <section class="project-list" aria-label="Migration projects">
+      <div class="project-list-heading" aria-hidden="true">
+        <span>Project name</span>
+        <span>Status</span>
+        <span>Last updated</span>
+        <span>Revision</span>
+      </div>
       {% for project in projects %}
-        <a class="project-card" href="/projects/{{ project.project_id }}">
-          <div>
-            <strong>{{ project.name }}</strong>
-            <span>Updated {{ project.updated_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+        <a class="project-row" href="/projects/{{ project.project_id }}">
+          <div class="project-name">
+            <svg class="ui-icon" aria-hidden="true" focusable="false">
+              <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#folder"></use>
+            </svg>
+            <div>
+              <strong>{{ project.name }}</strong>
+              <span>Governed migration project</span>
+            </div>
           </div>
-          <div class="project-meta">
-            <span class="status {{ project.status.value|lower }}">{{ project.status.value }}</span>
-            <span>Revision {{ project.revision }}</span>
-          </div>
+          <span class="status {{ project.status.value|lower }}">{{ project.status.value }}</span>
+          <span class="project-updated">{{ project.updated_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+          <span class="project-revision">v{{ project.revision }}</span>
         </a>
       {% endfor %}
-    </div>
+    </section>
   {% else %}
     <section class="empty-state">
       <h2>No projects yet</h2>

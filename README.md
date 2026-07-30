@@ -1,336 +1,73 @@
 # Impodo
 
-This proof of concept is a model-agnostic, read-only Odoo preflight engine. It
-prepares governed source records, captures narrowly scoped Odoo evidence,
-resolves business-key relationships, compares source and target values, and
-produces an Excel review workbook plus a portable JSON manifest.
+Impodo is a local browser platform for preparing CSV and XLSX data for an Odoo
+19 migration. It helps a data manager govern the source files, capture the
+target Odoo schema, and build a validated mapping before any migration work is
+considered.
 
-It never writes to Odoo.
+It connects to Odoo with read-only access only. Impodo does not create, update,
+delete, or import Odoo records.
 
-This proof of concept is the safety and comparison foundation of a larger
-end-to-end migration product for Excel and CSV exports from AX 2012, Dynamics
-365, Salesforce, and other systems. The complete goal includes source
-inspection, Odoo schema discovery, a guided mapping workspace, normalization
-and validation, durable staging, approval, controlled Odoo loading, and
-reconciliation. See
-[End-to-end migration product vision](docs/product-vision.md).
+## The platform
 
-## Milestone status
+Impodo runs on the user's Windows computer and opens in the default browser on
+a local-only `127.0.0.1` address. Each project has its own local DuckDB
+database, which stores project evidence, source inspection results, frozen
+datasets, Odoo schema captures, mapping revisions, and validation results.
 
-Implemented:
+The platform accepts `.csv` and `.xlsx` source files. It can connect to an
+Odoo 19 DEV or TEST environment with a dedicated read-only API key. A local
+Odoo instance is supported; a remote Odoo instance must use HTTPS. Production
+is not an available target.
 
-- local-browser project registration and governed source-file intake;
-- profile-free CSV detection, XLSX worksheet/named-table inventory, bounded
-  preview, candidate types, and column statistics;
-- interactive source parsing overrides, warning acknowledgement, hash-bound
-  confirmation, and versioned frozen dataset selection;
-- allowlisted Odoo 19 field-catalog capture, explicitly governed business
-  keys/scope, and dataset-centric visual mapping;
-- browser-authored many2one/many2many relationships, one2many inverse
-  guidance, deterministic semantic validation, immutable revisions, and
-  exact-hash mapping submissions;
-- one strict current profile shape;
-- profile-declared CSV and XLSX worksheets with exact source hashes;
-- contained source paths, bounded Office containers, XML-bomb protection,
-  duplicate-header checks, and formula/error-cell rejection;
-- typed prepared records for strings, integers, decimals, booleans, dates,
-  datetimes, and nulls;
-- composite and company/site/parent-scoped identities;
-- incoming-dataset and target-only relationship resolution;
-- many2one and many2many `replace`, `add`, and `remove` comparison;
-- profile-derived metadata and record request planning;
-- deterministic fixture snapshots;
-- Odoo 19 JSON-2 `fields_get` and paginated `search_read`;
-- `CREATE`, `UPDATE`, `UNCHANGED`, `AMBIGUOUS`, and `BLOCKED`;
-- grouped issue and reference-resolution evidence;
-- field-level differences expressed through business keys;
-- twelve-sheet business-review workbook;
-- deterministic JSON manifest with source and snapshot hashes;
-- a compact 12-candidate offline golden slice covering standard,
-  extended-standard, and custom models plus parent/child records.
+## What Impodo does today
 
-Explicitly excluded:
+### Phase A: Register a migration project
 
-- Odoo create, write, unlink, import, arbitrary RPC, or SQL;
-- production execution;
-- an approval or write manifest;
-- retry/reconciliation of writes;
-- SharePoint, SPFx, Power Apps, and Power Automate.
+- Records the migration context, responsible people, data classification, and
+  retention details.
+- Adds the governed CSV and XLSX source files and records their hashes.
+- Configures and optionally tests the read-only Odoo connection.
 
-## Safety boundaries
+### Phase 1: Inspect and freeze source data
 
-- The public connector has only three capabilities: environment fingerprint,
-  model metadata, and record reads.
-- The JSON-2 adapter allowlists only `fields_get` and `search_read`.
-- Live execution is rejected unless `IMPODO_ODOO_ENVIRONMENT` is `DEV` or `TEST`.
-- Live URLs must use HTTPS.
-- Credentials come from environment variables and are redacted from object
-  representations and errors.
-- Connector requests are planned per model and field set, never per row.
-- Numeric Odoo IDs exist only in target snapshots and in-memory catalogs.
-- The portable manifest recursively rejects Odoo-ID fields.
-- Missing evidence, duplicate identities, and unresolved required references
-  fail closed.
+- Inspects CSV encoding, delimiter, headers, column types, statistics, and
+  warnings.
+- Inventories XLSX worksheets and named tables, with bounded previews and
+  source-file safety checks.
+- Lets the user confirm the selected source content and freeze it as named
+  datasets. The frozen datasets remain bound to the confirmed source hashes.
 
-## Project layout
+### Phase 2B: Govern the Odoo schema and validate mappings
 
-```text
-src/impodo/   Domain engine, connectors, CLI, and reporting
-profiles/                    Profile template and examples
-examples/                    CSV/XLSX source-package examples and fixtures
-fixtures/                    Normalized offline Odoo snapshots
-tests/                       Unit, contract, integration, and golden tests
-docs/                        Detailed architecture and contracts
-outputs/                     Generated review packages, ignored by Git
-```
+- Captures the permitted Odoo models and their fields through read-only
+  metadata calls.
+- Records the target business keys and any company or tenant scope fields.
+- Maps each frozen dataset to an Odoo model and its writable scalar fields.
+- Configures many2one and many2many relationships using governed business
+  keys; one2many relationships are handled through the child inverse field.
+- Creates immutable mapping revisions, validates them, and allows submission
+  of the exact validated revision after blocking findings are resolved.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) and
-[PROFILE_AUTHORING.md](PROFILE_AUTHORING.md).
+Changing a confirmed source, frozen dataset, Odoo schema capture, or governed
+business key invalidates the active mapping so it must be validated again.
 
-## Setup
+## Install and start
 
-Python 3.11 or newer is required.
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e .
-```
-
-CSV ingestion uses Python's standard library. XLSX ingestion uses `openpyxl`
-in read-only mode with `defusedxml`. Spawned source workers use OS limits plus
-`psutil` for the macOS resident-memory watchdog; all are installed with the
-package.
-
-The Excel report writer uses `@oai/artifact-tool` through Node.js. In the
-Codex desktop runtime, expose the bundled runtime:
-
-```bash
-export IMPODO_NODE_BINARY=/path/to/bundled/node
-export IMPODO_ARTIFACT_TOOL_NODE_MODULES=/path/to/bundled/node_modules
-```
-
-If `node` and a project-level `node_modules/@oai/artifact-tool` are already
-available, those environment variables are unnecessary.
-
-No Odoo credentials are needed for tests or the offline example.
-
-## Local project browser
-
-The local browser implements Stage A project registration, the complete
-current CSV/XLSX Phase 1 discovery flow, and Phase 2B governed relationship
-mapping and semantic validation without manual YAML editing:
+Impodo requires Python 3.11 or newer. From PowerShell at the repository root:
 
 ```powershell
+py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e .
 .\.venv\Scripts\impodo.exe
 ```
 
-It opens on an ephemeral `127.0.0.1` port, accepts governed CSV/XLSX source
-files, records project ownership and retention, configures either a
-literal-loopback local Odoo 19 instance or an HTTPS on-premises DEV/TEST
-target, and writes a local DuckDB project plus canonical registration evidence.
-After registration it verifies the stored source hashes, supports governed
-parsing overrides and table selection, freezes named datasets, captures fields
-for explicitly permitted Odoo 19 models, confirms target business keys and
-scope, authors scalar and relationship mappings, and stores deterministic
-validation plus exact-hash submissions. It never writes to Odoo.
-
-See the
-[local-browser user guide for data analysts and data managers](docs/operations/local-browser-user-guide.md),
-[Local project browser](docs/operations/local-browser.md), the
-[migration project contract](docs/contracts/migration-project.md), the
-[source catalog contract](docs/contracts/source-catalog.md), and the
-[source workspace contract](docs/contracts/source-workspace.md).
-
-## Run the tests
-
-```bash
-PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
-```
-
-Include the real workbook integration test:
-
-```bash
-IMPODO_RUN_WORKBOOK_TESTS=1 \
-PYTHONPATH=src \
-.venv/bin/python -m unittest discover -s tests -v
-```
-
-## Existing source-profile command
-
-The original command remains available:
-
-```bash
-PYTHONPATH=src .venv/bin/python -m impodo profile \
-  --profile profiles/examples/bom.yaml \
-  --input examples/bom \
-  --output build/bom-profile/prepared-records.json
-```
-
-This prepares and validates sources without contacting Odoo.
-
-## Complete offline preflight
-
-Capture normalized fixture metadata:
-
-```bash
-PYTHONPATH=src .venv/bin/python -m impodo snapshot-metadata \
-  --profile profiles/examples/golden_slice.yaml \
-  --connector snapshot \
-  --snapshot fixtures/golden/target_snapshot.json \
-  --output build/golden/metadata.json
-```
-
-Capture only planned target records and fields:
-
-```bash
-PYTHONPATH=src .venv/bin/python -m impodo snapshot-records \
-  --profile profiles/examples/golden_slice.yaml \
-  --input examples/golden \
-  --connector snapshot \
-  --snapshot fixtures/golden/target_snapshot.json \
-  --output build/golden/records.json
-```
-
-Run comparison entirely offline:
-
-```bash
-PYTHONPATH=src .venv/bin/python -m impodo preflight \
-  --profile profiles/examples/golden_slice.yaml \
-  --input examples/golden \
-  --metadata build/golden/metadata.json \
-  --records build/golden/records.json \
-  --output outputs/golden-preflight
-```
-
-Outputs:
-
-```text
-outputs/golden-preflight/
-├── impodo_preflight_manifest.json
-└── impodo_preflight_report.xlsx
-```
-
-The golden slice currently produces:
-
-| Classification | Count |
-| --- | ---: |
-| `CREATE` | 5 |
-| `UPDATE` | 2 |
-| `UNCHANGED` | 2 |
-| `AMBIGUOUS` | 1 |
-| `BLOCKED` | 2 |
-
-See [Examples and edge cases](docs/examples-and-edge-cases.md) for the
-record-by-record explanation, profile patterns, expected JSON shapes, failure
-behavior, and known boundary cases.
-
-## Live Odoo 19 read-only workflow
-
-Odoo 19 introduced the external JSON-2 endpoint. Configure a dedicated
-least-privilege read account:
-
-```bash
-export IMPODO_ODOO_BASE_URL=https://odoo-dev.example.com
-export IMPODO_ODOO_DATABASE=odoo_dev
-export IMPODO_ODOO_API_KEY=secret-from-an-approved-secret-store
-export IMPODO_ODOO_ENVIRONMENT=DEV
-export IMPODO_ODOO_TIMEOUT_SECONDS=30
-export IMPODO_ODOO_PAGE_SIZE=500
-```
-
-Capture live metadata:
-
-```bash
-PYTHONPATH=src .venv/bin/python -m impodo snapshot-metadata \
-  --profile profiles/examples/golden_slice.yaml \
-  --connector json2 \
-  --output snapshots/dev-metadata.json
-```
-
-Capture live records:
-
-```bash
-PYTHONPATH=src .venv/bin/python -m impodo snapshot-records \
-  --profile profiles/examples/golden_slice.yaml \
-  --input examples/golden \
-  --connector json2 \
-  --output snapshots/dev-records.json
-```
-
-Then use the same offline `preflight` command. The implementation follows
-Odoo's official
-[External JSON-2 API](https://www.odoo.com/documentation/19.0/developer/reference/external_api.html):
-`POST /json/2/<model>/<method>`, bearer authorization, optional
-`X-Odoo-Database`, named JSON arguments, deterministic `id asc` ordering, and
-pagination.
-
-## Workbook contents
-
-- Dashboard
-- Target Environment
-- Dataset Summary
-- Proposed Creates
-- Proposed Updates
-- Field Differences
-- Unchanged
-- Ambiguous Matches
-- Blocked Records
-- Reference Resolution
-- Source Issues
-- Metadata Coverage
-
-Identifiers and relationships are rendered through business keys. Numeric
-Odoo IDs are hidden.
-
-## Performance
-
-Preparation, duplicate detection, target matching, and reference resolution use
-indexed dictionaries. Remote-call count scales with models, planned domains,
-and pages—not source rows.
-
-Run the non-gating synthetic benchmark:
-
-```bash
-PYTHONPATH=src .venv/bin/python -m impodo benchmark \
-  --rows 360000
-```
-
-The current implementation keeps prepared and target records in memory.
-DuckDB/Parquet is a documented future substitution point if measured memory
-use at larger scales requires it; it is not needed for this milestone.
-
-## Current limitations
-
-- Source adapters accept `.csv` and `.xlsx` only. XLSX input requires an
-  explicit worksheet and rejects formulas, error cells, macros, external
-  links/connections, embedded objects, encryption, and suspicious Office
-  containers. Legacy `.xls` and direct source-system connections are deferred.
-- The CLI preparation path reads a profile-declared XLSX sheet. The browser
-  now inventories and previews worksheets before a profile exists, but
-  interactive encoding, delimiter, worksheet, and header confirmation remain
-  a later Phase B slice.
-- The live connector targets Odoo 19 JSON-2. Earlier Odoo versions need a
-  separately reviewed read adapter.
-- Module version visibility is best-effort; access denial is recorded as a
-  limitation rather than invalidating otherwise complete metadata. The
-  programmatic connector accepts relevant module names, but the current CLI
-  environment loader does not yet expose that list.
-- Snapshot domains are optimized for single-field identities. Composite keys
-  remain grouped in one model request, but may retrieve a broad candidate set
-  and can become an unbounded model read when no `target_domain` is supplied.
-  Govern and volume-test those profiles before live use.
-- Snapshot files written by the CLI carry profile and source bindings, but
-  the proof of concept does not persist a requirements-plan hash or requested domain
-  and does not apply a full JSON Schema on load. Do not hand-edit live
-  evidence files.
-- The committed fixture has 12 candidates. The planned 100–300-record
-  sanitized acceptance slice, live DEV/TEST smoke runs, Odoo-side
-  read-only ACL evidence, and historical 360,000-row memory profiling remain
-  to be completed.
-- No result authorizes a write. A changed target requires a fresh snapshot and
-  preflight.
+The launcher opens a single-use authenticated URL in the default browser. To
+stop Impodo, use **Quit Impodo** in the browser or press `Ctrl+C` in the
+PowerShell window.
 
 ## Documentation
 
-The complete index is at [docs/README.md](docs/README.md).
+For the complete documentation, including the user guide, operating runbooks,
+contracts, architecture, and test guidance, start at
+[docs/README.md](docs/README.md).
