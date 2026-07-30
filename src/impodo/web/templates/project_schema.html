@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Odoo schema · {{ project.name }} · Impodo{% endblock %}
 {% block content %}
+  {% set local_mode = project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' %}
+  {% set local_reader_ready = not local_mode or local_stack.profile %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Target schema · Permitted Odoo fields</p>
@@ -26,11 +28,38 @@
       </div>
       <form method="post" action="/projects/{{ project.project_id }}/schema/models/refresh">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="button secondary" type="submit">
-          {% if model_catalog %}Refresh models from Odoo{% else %}Load models from Odoo{% endif %}
+        <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
+          {% if model_catalog %}
+            Refresh models from Odoo
+          {% elif local_mode %}
+            Load models from local Odoo
+          {% else %}
+            Load models from Odoo
+          {% endif %}
         </button>
       </form>
     </div>
+
+    {% if local_mode %}
+      {% if local_stack.profile %}
+        <div class="notice">
+          <strong>Keyless local metadata reader ready.</strong>
+          Impodo will use the selected <code>{{ local_stack.config_path }}</code>
+          in an isolated read-only Odoo process. No Odoo API key is required.
+        </div>
+      {% else %}
+        <div class="notice warning">
+          <strong>Choose the local Odoo configuration first.</strong>
+          Local mode does not use an Odoo API key. Selecting
+          <code>odoo.conf</code> tells Impodo which local Odoo installation,
+          URL, and database connection to use.
+          <form method="post" action="/projects/{{ project.project_id }}/schema/local-config">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button secondary" type="submit">Choose local odoo.conf</button>
+          </form>
+        </div>
+      {% endif %}
+    {% endif %}
 
     {% if project.intended_applications %}
       <p>
@@ -103,8 +132,9 @@
       </form>
     {% else %}
       <div class="notice">
-        Load the lightweight model catalogue from this connected Odoo first.
-        Impodo will not fetch field metadata until you explicitly select models.
+        First load the lightweight model catalogue from this connected Odoo.
+        The searchable model selector will then appear here. Impodo will not
+        fetch field metadata until you explicitly select and save models.
       </div>
       {% if project.intended_models %}
         <p>
@@ -116,11 +146,16 @@
     {% endif %}
 
     <p>Current permitted models: <code>{{ project.intended_models|join(", ") or "Not set" }}</code></p>
+    <p class="muted">
+      Field capture uses Odoo <code>fields_get</code>, so each selected model
+      includes its complete effective field set, including fields contributed
+      by inherited models and mixins.
+    </p>
     <form method="post" action="/projects/{{ project.project_id }}/schema/capture">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to datasets</a>
-        <button class="button primary" type="submit" {% if not selection or not project.intended_models %}disabled{% endif %}>
+        <button class="button primary" type="submit" {% if not selection or not project.intended_models or not local_reader_ready %}disabled{% endif %}>
           {% if schema %}Fetch fields again from Odoo{% else %}Fetch fields from Odoo{% endif %}
         </button>
       </div>

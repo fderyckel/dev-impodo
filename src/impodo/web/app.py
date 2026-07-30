@@ -44,7 +44,6 @@ from ..inspection import (
 from ..jobs import InlineJobDispatcher, JobDispatcher
 from ..local_odoo_reader import (
     LocalOdooMetadataReader,
-    LocalOdooReaderError,
 )
 from ..local_stack import (
     LocalStackError,
@@ -1336,6 +1335,37 @@ def _test_connection(project: MigrationProject, api_key: str) -> str:
     )
 
 
+def _selected_local_profile(
+    context: WebContext,
+    project: MigrationProject,
+) -> LocalStackProfile | None:
+    """Return the session-bound profile only when it matches this target."""
+
+    if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
+        return None
+    status = context.local_stack.get(project.project_id)
+    profile = status.profile
+    if profile is None:
+        return None
+    if profile.base_url.rstrip("/") != project.odoo_base_url.rstrip("/"):
+        raise WorkspaceError(
+            "The selected odoo.conf points to "
+            f"{profile.base_url}, but this project targets "
+            f"{project.odoo_base_url}. Choose the matching configuration or "
+            "correct the project target."
+        )
+    return profile
+
+
+def _missing_schema_reader_message(project: MigrationProject) -> str:
+    if project.odoo_connection_mode is OdooConnectionMode.LOCAL:
+        return (
+            "Local mode does not require an API key. Choose and validate "
+            "odoo.conf on this page before loading models or fields."
+        )
+    return "No API key is stored for this exact remote Odoo target."
+
+
 def _read_schema(project: MigrationProject, api_key: str) -> MetadataSnapshot:
     """Read all fields once per explicitly permitted Odoo model."""
 
@@ -1811,6 +1841,7 @@ def _render_schema(
         schema=schema,
         governance=governance,
         governed_by_model=governed_by_model,
+        local_stack=context.local_stack.get(project_id),
         manual_schema_by_model=(
             {model.name: model for model in schema.models}
             if schema and schema.origin is SchemaOrigin.LOCAL_MANUAL

@@ -187,15 +187,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const localStackDialog = document.querySelector("[data-local-stack-dialog]");
   const localStackEntry = document.querySelector("[data-local-stack-entry]");
+  const apiKeyEntries = Array.from(
+    document.querySelectorAll("[data-api-key-entry]")
+  );
   const connectionModes = Array.from(
     document.querySelectorAll('input[name="odoo_connection_mode"]')
   );
   const updateLocalStackVisibility = () => {
-    if (!localStackEntry) {
-      return;
-    }
     const selected = connectionModes.find((control) => control.checked);
-    localStackEntry.hidden = Boolean(selected && selected.value !== "LOCAL");
+    const localMode = !selected || selected.value === "LOCAL";
+    if (localStackEntry) {
+      localStackEntry.hidden = !localMode;
+    }
+    for (const entry of apiKeyEntries) {
+      entry.hidden = localMode;
+    }
   };
   for (const control of connectionModes) {
     control.addEventListener("change", updateLocalStackVisibility);

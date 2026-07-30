@@ -21,7 +21,8 @@
             <span>
               <strong>Local Odoo</strong>
               <small>For this computer. HTTP is allowed only on the literal
-                loopback addresses <code>127.0.0.1</code> and <code>::1</code>.</small>
+                loopback addresses <code>127.0.0.1</code> and <code>::1</code>.
+                Uses a selected <code>odoo.conf</code>; no Odoo API key is required.</small>
             </span>
           </label>
           <label class="mode-card">
@@ -64,14 +65,15 @@
             placeholder="For example: odoo19_dev"
             value="{{ project.odoo_database or local_stack.database_hint }}">
         </label>
-        <label>
-          Read-only API key
+        <label data-api-key-entry>
+          Remote Odoo API key
           <input type="password" name="api_key" autocomplete="off">
-          <small>Generate this for a least-privilege Odoo user. It is never
-            stored in the project database or returned to the browser.</small>
+          <small>Required only for Remote mode. Generate it for a
+            least-privilege Odoo user. It is never stored in the project
+            database or returned to the browser.</small>
         </label>
       </div>
-      <label class="checkbox">
+      <label class="checkbox" data-api-key-entry>
         <input type="checkbox" name="remember_api_key">
         Save the key in Windows Credential Manager.
       </label>

@@ -650,7 +650,8 @@ class SchemaWorkspaceService:
             )
         if not models:
             raise WorkspaceError(
-                "No persistent Odoo models are visible to this API key"
+                "No persistent Odoo models are visible through this connected "
+                "read-only metadata boundary"
             )
         ordered = tuple(
             sorted(models, key=lambda item: (item.label.casefold(), item.name))
