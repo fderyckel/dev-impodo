@@ -631,16 +631,39 @@ def create_local_app(
                     persistent="remember_api_key" in form,
                 )
             if _text(form, "action") == "test":
-                api_key = context.secret_store.get(credential_id)
-                if not api_key:
-                    raise SecretStoreError(
-                        "Enter an Odoo API key for this exact target to test"
+                local_profile = _selected_local_profile(context, project)
+                if local_profile is not None:
+                    fingerprint = await run_in_threadpool(
+                        context.local_odoo_reader.get_environment_fingerprint,
+                        project,
+                        local_profile,
                     )
-                result = await run_in_threadpool(
-                    context.connection_tester,
-                    project,
-                    api_key,
-                )
+                    result = (
+                        "Read-only local connection succeeded: "
+                        f"{fingerprint.environment} / "
+                        f"Odoo {fingerprint.odoo_version}"
+                    )
+                else:
+                    api_key = context.secret_store.get(credential_id)
+                    if not api_key:
+                        if (
+                            project.odoo_connection_mode
+                            is OdooConnectionMode.LOCAL
+                        ):
+                            raise SecretStoreError(
+                                "Local mode does not require an API key. "
+                                "Choose and validate odoo.conf with the local "
+                                "readiness assistant first."
+                            )
+                        raise SecretStoreError(
+                            "Enter an Odoo API key for this exact remote target "
+                            "to test"
+                        )
+                    result = await run_in_threadpool(
+                        context.connection_tester,
+                        project,
+                        api_key,
+                    )
                 _flash(request, result)
                 return RedirectResponse(
                     f"/projects/{project_id}/target",
@@ -905,22 +928,71 @@ def create_local_app(
         require_session(request)
         return _render_schema(request, context, project_id)
 
+    @app.post("/projects/{project_id}/schema/local-config")
+    async def select_schema_local_config(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        project = context.repository.get(project_id)
+        try:
+            _require_local_stack_access(context, project)
+            selected = await run_in_threadpool(context.local_stack.pick_config)
+            if selected is None:
+                _flash(request, "No Odoo configuration was selected.")
+            else:
+                await run_in_threadpool(
+                    context.local_stack.select_config,
+                    project_id,
+                    selected,
+                )
+                profile = _selected_local_profile(context, project)
+                if profile is None:
+                    raise LocalStackError(
+                        "The selected odoo.conf could not be validated."
+                    )
+                _flash(
+                    request,
+                    "Selected the local odoo.conf for keyless read-only "
+                    "model discovery.",
+                )
+        except (LocalStackError, WorkspaceError) as error:
+            return _render_schema(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        return RedirectResponse(
+            f"/projects/{project_id}/schema",
+            status_code=303,
+        )
+
     @app.post("/projects/{project_id}/schema/models/refresh")
     async def refresh_project_models(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         project = context.repository.get(project_id)
         try:
-            api_key = context.secret_store.get(_target_credential_id(project))
-            if not api_key:
-                raise WorkspaceError(
-                    "No API key is stored for this exact Odoo target"
+            local_profile = _selected_local_profile(context, project)
+            if local_profile is not None:
+                snapshot = await run_in_threadpool(
+                    context.local_odoo_reader.get_model_catalog,
+                    project,
+                    local_profile,
                 )
-            snapshot = await run_in_threadpool(
-                context.model_catalog_reader,
-                project,
-                api_key,
-            )
+            else:
+                api_key = context.secret_store.get(
+                    _target_credential_id(project)
+                )
+                if not api_key:
+                    raise WorkspaceError(
+                        _missing_schema_reader_message(project)
+                    )
+                snapshot = await run_in_threadpool(
+                    context.model_catalog_reader,
+                    project,
+                    api_key,
+                )
             catalog = context.schema_workspace.discover_models(
                 project_id,
                 snapshot,
@@ -993,16 +1065,27 @@ def create_local_app(
         _secure_form(request, form, {"csrf_token"})
         project = context.repository.get(project_id)
         try:
-            api_key = context.secret_store.get(_target_credential_id(project))
-            if not api_key:
-                raise WorkspaceError(
-                    "No API key is stored for this exact Odoo target"
+            local_profile = _selected_local_profile(context, project)
+            if local_profile is not None:
+                snapshot = await run_in_threadpool(
+                    context.local_odoo_reader.get_model_metadata,
+                    project,
+                    local_profile,
+                    project.intended_models,
                 )
-            snapshot = await run_in_threadpool(
-                context.schema_reader,
-                project,
-                api_key,
-            )
+            else:
+                api_key = context.secret_store.get(
+                    _target_credential_id(project)
+                )
+                if not api_key:
+                    raise WorkspaceError(
+                        _missing_schema_reader_message(project)
+                    )
+                snapshot = await run_in_threadpool(
+                    context.schema_reader,
+                    project,
+                    api_key,
+                )
             schema = context.schema_workspace.capture(
                 project_id,
                 snapshot,
