@@ -12,7 +12,7 @@ from typing import Iterable, Mapping, Protocol
 from uuid import uuid4
 
 from .access import Actor, AuthorizationPolicy, Capability
-from .connectors import MetadataSnapshot
+from .connectors import MetadataSnapshot, RecordSnapshot
 from .inspection import SourceFileCatalog, SourceInspectionError
 from .mapping_semantics import (
     BusinessKeyDefinition,
@@ -45,6 +45,7 @@ from .projects import (
 
 
 _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+_TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 
 
 class WorkspaceError(ProjectError):
@@ -179,6 +180,57 @@ class SchemaModel:
     fields: tuple[SchemaField, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class OdooModelSummary:
+    """One concrete, persistent model advertised by the connected Odoo."""
+
+    name: str
+    label: str
+    modules: tuple[str, ...]
+    state: str
+
+
+@dataclass(frozen=True, slots=True)
+class OdooModelCatalog:
+    """Lightweight model choices discovered from one exact Odoo target."""
+
+    project_id: str
+    target_hash: str
+    captured_at: datetime
+    captured_by: str
+    environment: str
+    database: str
+    odoo_version: str
+    models: tuple[OdooModelSummary, ...]
+    content_hash: str
+
+    def to_json(self) -> str:
+        return _canonical_json(asdict(self))
+
+    @classmethod
+    def from_json(cls, value: str) -> "OdooModelCatalog":
+        payload = json.loads(value)
+        return cls(
+            project_id=payload["project_id"],
+            target_hash=payload["target_hash"],
+            captured_at=datetime.fromisoformat(payload["captured_at"]),
+            captured_by=payload["captured_by"],
+            environment=payload["environment"],
+            database=payload["database"],
+            odoo_version=payload["odoo_version"],
+            models=tuple(
+                OdooModelSummary(
+                    name=model["name"],
+                    label=model["label"],
+                    modules=tuple(model.get("modules", ())),
+                    state=model.get("state", "base"),
+                )
+                for model in payload["models"]
+            ),
+            content_hash=payload["content_hash"],
+        )
+
+
 class SchemaOrigin(StrEnum):
     """How the current schema catalog was obtained."""
 
@@ -308,6 +360,16 @@ class WorkspaceRepository(Protocol):
         self,
         project_id: str,
         selection: SourceSelection,
+        *,
+        actor: Actor,
+    ) -> None: ...
+    def get_odoo_model_catalog(
+        self, project_id: str
+    ) -> OdooModelCatalog | None: ...
+    def save_odoo_model_catalog(
+        self,
+        project_id: str,
+        catalog: OdooModelCatalog,
         *,
         actor: Actor,
     ) -> None: ...
@@ -533,6 +595,90 @@ class SchemaWorkspaceService:
         self.repository = repository
         self.authorization = authorization
 
+    def discover_models(
+        self,
+        project_id: str,
+        snapshot: RecordSnapshot,
+        *,
+        actor: Actor,
+    ) -> OdooModelCatalog:
+        """Store concrete model choices returned by the connected Odoo."""
+
+        self.authorization.require(
+            actor, Capability.SCHEMA_DISCOVER, project_id=project_id
+        )
+        project = self.repository.get(project_id)
+        if project.status is not ProjectStatus.REGISTERED:
+            raise WorkspaceError(
+                "Register the project before discovering Odoo models"
+            )
+        if project.target_environment is None:
+            raise WorkspaceError("Configure the Odoo target before discovering models")
+        if not snapshot.complete:
+            raise WorkspaceError("Odoo model discovery response is incomplete")
+        if snapshot.fingerprint.environment != project.target_environment.value:
+            raise WorkspaceError("Odoo model environment does not match the project")
+        if snapshot.fingerprint.database != project.odoo_database:
+            raise WorkspaceError("Odoo model database does not match the project")
+        if not snapshot.fingerprint.odoo_version.startswith("19."):
+            raise WorkspaceError("Odoo model discovery requires Odoo 19")
+        if set(snapshot.records) != {"ir.model"}:
+            raise WorkspaceError("Odoo model discovery returned an unexpected model")
+
+        models: list[OdooModelSummary] = []
+        seen: set[str] = set()
+        for record in snapshot.records["ir.model"]:
+            values = record.values
+            if bool(values.get("abstract")) or bool(values.get("transient")):
+                continue
+            name = str(values.get("model") or "").strip()
+            label = str(values.get("name") or name).strip()
+            if not _TECHNICAL_MODEL.fullmatch(name):
+                raise WorkspaceError("Odoo model discovery returned an invalid name")
+            if not label:
+                raise WorkspaceError(f"Odoo model {name} has no label")
+            if name in seen:
+                raise WorkspaceError(f"Odoo model {name} was returned more than once")
+            seen.add(name)
+            models.append(
+                OdooModelSummary(
+                    name=name,
+                    label=label,
+                    modules=_split_module_names(values.get("modules")),
+                    state=str(values.get("state") or "base"),
+                )
+            )
+        if not models:
+            raise WorkspaceError(
+                "No persistent Odoo models are visible to this API key"
+            )
+        ordered = tuple(
+            sorted(models, key=lambda item: (item.label.casefold(), item.name))
+        )
+        target_hash = _target_identity_hash(project)
+        content = {
+            "target_hash": target_hash,
+            "fingerprint": snapshot.fingerprint.portable_dict(),
+            "models": [asdict(model) for model in ordered],
+        }
+        catalog = OdooModelCatalog(
+            project_id=project_id,
+            target_hash=target_hash,
+            captured_at=datetime.now(timezone.utc),
+            captured_by=actor.identity.display_name,
+            environment=snapshot.fingerprint.environment,
+            database=snapshot.fingerprint.database,
+            odoo_version=snapshot.fingerprint.odoo_version,
+            models=ordered,
+            content_hash=_content_hash(content),
+        )
+        self.repository.save_odoo_model_catalog(
+            project_id,
+            catalog,
+            actor=actor,
+        )
+        return catalog
+
     def capture(
         self,
         project_id: str,
@@ -553,10 +699,23 @@ class SchemaWorkspaceService:
             raise WorkspaceError("Odoo schema database does not match the project")
         if not snapshot.fingerprint.odoo_version.startswith("19."):
             raise WorkspaceError("Odoo schema capture requires Odoo 19")
+        discovered = self.repository.get_odoo_model_catalog(project_id)
+        discovered_labels = (
+            {model.name: model.label for model in discovered.models}
+            if discovered and discovered.target_hash == _target_identity_hash(project)
+            else {}
+        )
+        missing_discovered = permitted - set(discovered_labels)
+        if discovered and missing_discovered:
+            missing = sorted(missing_discovered)[0]
+            raise WorkspaceError(
+                f"{missing} is no longer in the refreshed Odoo model catalogue; "
+                "save the permitted model scope again"
+            )
         models = tuple(
             SchemaModel(
                 name=name,
-                label=model.description or name,
+                label=discovered_labels.get(name) or model.description or name,
                 fields=tuple(
                     SchemaField(
                         name=field_name,
@@ -1087,6 +1246,45 @@ def _dataset_key(file_id: str, table_key: str) -> str:
 
 def _content_hash(payload: object) -> str:
     return "sha256:" + sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _target_identity_hash(project: MigrationProject) -> str:
+    return _content_hash(
+        {
+            "mode": (
+                project.odoo_connection_mode.value
+                if project.odoo_connection_mode
+                else None
+            ),
+            "environment": (
+                project.target_environment.value
+                if project.target_environment
+                else None
+            ),
+            "url": project.odoo_base_url,
+            "database": project.odoo_database,
+        }
+    )
+
+
+def _split_module_names(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        candidates = re.split(r"[,;\s]+", value)
+    elif isinstance(value, (list, tuple, set)):
+        candidates = [str(item) for item in value]
+    else:
+        candidates = [str(value)]
+    return tuple(
+        sorted(
+            {
+                candidate.strip()
+                for candidate in candidates
+                if candidate.strip()
+            }
+        )
+    )
 
 
 def _canonical_json(payload: object) -> str:

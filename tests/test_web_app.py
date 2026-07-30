@@ -15,7 +15,7 @@ from openpyxl import Workbook
 from openpyxl.worksheet.table import Table
 
 from impodo.access import Actor, ActorIdentity, Capability
-from impodo.connectors import MetadataSnapshot
+from impodo.connectors import MetadataSnapshot, RecordSnapshot
 from impodo.local_stack import (
     LocalStackCheck,
     LocalStackService,
@@ -27,6 +27,7 @@ from impodo.models import (
     EnvironmentFingerprint,
     FieldMetadata,
     ModelMetadata,
+    TargetRecord,
 )
 from impodo.projects import OdooConnectionMode, ProjectStatus, TargetEnvironment
 from impodo.secrets import MemorySecretStore
@@ -599,6 +600,7 @@ class PhaseAWizardTests(unittest.TestCase):
         self.secrets = MemorySecretStore()
         self.connection_calls: list[tuple[str, str, OdooConnectionMode | None]] = []
         self.schema_calls: list[tuple[str, str]] = []
+        self.model_catalog_calls: list[tuple[str, str]] = []
 
         def connection_tester(project, api_key):
             self.connection_calls.append(
@@ -610,6 +612,10 @@ class PhaseAWizardTests(unittest.TestCase):
             self.schema_calls.append((project.project_id, api_key))
             return _browser_schema()
 
+        def model_catalog_reader(project, api_key):
+            self.model_catalog_calls.append((project.project_id, api_key))
+            return _browser_model_catalog()
+
         self.app = create_app(
             self.temporary.name,
             launch_token="launch-secret",
@@ -617,6 +623,7 @@ class PhaseAWizardTests(unittest.TestCase):
             secret_store=self.secrets,
             connection_tester=connection_tester,
             schema_reader=schema_reader,
+            model_catalog_reader=model_catalog_reader,
         )
         self.client = TestClient(self.app)
         launched = self.client.get(
@@ -772,6 +779,7 @@ class PhaseAWizardTests(unittest.TestCase):
                 "odoo_base_url": "http://127.0.0.1:8069",
                 "odoo_database": "odoo19_dev",
                 "api_key": "super-secret-token",
+                "intended_applications": "Contacts",
                 "action": "test",
             },
             headers=POST_HEADERS,
@@ -906,6 +914,37 @@ class PhaseAWizardTests(unittest.TestCase):
         )
 
         project = self.app.state.context.repository.get(project_id)
+        refreshed_models = self._post(
+            f"/projects/{project_id}/schema/models/refresh",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(refreshed_models.status_code, 303)
+        self.assertEqual(
+            self.model_catalog_calls,
+            [(project_id, "super-secret-token")],
+        )
+        model_page = self.client.get(refreshed_models.headers["location"])
+        self.assertIn("Choose target Odoo models", model_page.text)
+        self.assertIn("Phase A focus: <strong>Contacts</strong>", model_page.text)
+        self.assertIn("Contact", model_page.text)
+        self.assertIn("res.partner", model_page.text)
+        self.assertIn("Show models outside the Phase A focus", model_page.text)
+
+        rejected_scope = self.client.post(
+            f"/projects/{project_id}/schema/scope",
+            data={
+                "csrf_token": self.csrf,
+                "revision": str(project.revision),
+                "permitted_models": "x.not.available",
+            },
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(rejected_scope.status_code, 422)
+        self.assertIn(
+            "not in the refreshed Odoo model catalogue",
+            rejected_scope.text,
+        )
+
         scope = self.client.post(
             f"/projects/{project_id}/schema/scope",
             data={
@@ -930,6 +969,9 @@ class PhaseAWizardTests(unittest.TestCase):
         self.assertEqual(self.schema_calls, [(project_id, "super-secret-token")])
         schema_page = self.client.get(captured.headers["location"])
         self.assertIn("Confirm target business keys", schema_page.text)
+        self.assertIn("<h2>Contact <code>res.partner</code></h2>", schema_page.text)
+        self.assertIn("Search fields", schema_page.text)
+        self.assertIn("Show readonly and system fields", schema_page.text)
         governed = self.client.post(
             f"/projects/{project_id}/schema/govern",
             data={
@@ -1094,7 +1136,7 @@ def _browser_schema() -> MetadataSnapshot:
         models={
             "res.partner": ModelMetadata(
                 model="res.partner",
-                description="Contact",
+                description=None,
                 fields={
                     "name": FieldMetadata(
                         name="name",
@@ -1135,6 +1177,69 @@ def _browser_schema() -> MetadataSnapshot:
                 },
             )
         },
+    )
+
+
+def _browser_model_catalog() -> RecordSnapshot:
+    fingerprint = EnvironmentFingerprint(
+        environment="DEV",
+        database="odoo19_dev",
+        odoo_version="19.0",
+        snapshot_timestamp="2026-07-30T12:00:00Z",
+        module_versions={"base": "19.0.1.0"},
+    )
+    fields = (
+        "name",
+        "model",
+        "abstract",
+        "transient",
+        "modules",
+        "state",
+    )
+    return RecordSnapshot(
+        fingerprint=fingerprint,
+        records={
+            "ir.model": (
+                TargetRecord(
+                    model="ir.model",
+                    odoo_id=1,
+                    values={
+                        "name": "Contact",
+                        "model": "res.partner",
+                        "abstract": False,
+                        "transient": False,
+                        "modules": "base, contacts",
+                        "state": "base",
+                    },
+                ),
+                TargetRecord(
+                    model="ir.model",
+                    odoo_id=2,
+                    values={
+                        "name": "Product",
+                        "model": "product.template",
+                        "abstract": False,
+                        "transient": False,
+                        "modules": "product, stock",
+                        "state": "base",
+                    },
+                ),
+                TargetRecord(
+                    model="ir.model",
+                    odoo_id=3,
+                    values={
+                        "name": "Company",
+                        "model": "res.company",
+                        "abstract": False,
+                        "transient": False,
+                        "modules": "base",
+                        "state": "base",
+                    },
+                ),
+            )
+        },
+        requested_fields={"ir.model": fields},
+        complete=True,
     )
 
 

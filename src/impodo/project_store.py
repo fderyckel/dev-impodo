@@ -36,6 +36,7 @@ from .projects import (
 )
 from .workspace import (
     MappingDraft,
+    OdooModelCatalog,
     OdooSchemaCatalog,
     SourceConfiguration,
     SourceSelection,
@@ -43,7 +44,7 @@ from .workspace import (
 )
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 class DuckDbProjectRepository:
@@ -406,6 +407,37 @@ class DuckDbProjectRepository:
             """,
         )
         return OdooSchemaCatalog.from_json(value) if value else None
+
+    def get_odoo_model_catalog(
+        self,
+        project_id: str,
+    ) -> OdooModelCatalog | None:
+        value = self._read_singleton_json(
+            project_id,
+            """
+            SELECT catalog_json
+              FROM odoo_model_catalog
+             WHERE singleton_id = 1
+            """,
+        )
+        return OdooModelCatalog.from_json(value) if value else None
+
+    def save_odoo_model_catalog(
+        self,
+        project_id: str,
+        catalog: OdooModelCatalog,
+        *,
+        actor: Actor,
+    ) -> None:
+        self._save_singleton(
+            project_id,
+            table="odoo_model_catalog",
+            value_column="catalog_json",
+            value=catalog.to_json(),
+            event_type="ODOO_MODEL_CATALOG_REFRESHED",
+            detail=f"{len(catalog.models)} persistent model(s)",
+            actor=actor,
+        )
 
     def save_odoo_schema_catalog(
         self,
@@ -1087,6 +1119,7 @@ class DuckDbProjectRepository:
     ) -> None:
         permitted = {
             ("source_selection", "selection_json"),
+            ("odoo_model_catalog", "catalog_json"),
             ("odoo_schema_catalog", "catalog_json"),
             ("mapping_draft", "draft_json"),
         }
@@ -1249,6 +1282,11 @@ class DuckDbProjectRepository:
             );
 
             CREATE TABLE odoo_schema_catalog (
+                singleton_id INTEGER PRIMARY KEY,
+                catalog_json VARCHAR NOT NULL
+            );
+
+            CREATE TABLE odoo_model_catalog (
                 singleton_id INTEGER PRIMARY KEY,
                 catalog_json VARCHAR NOT NULL
             );
@@ -1542,6 +1580,16 @@ class DuckDbProjectRepository:
                         """
                     )
                     version = 6
+                if version == 6:
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS odoo_model_catalog (
+                            singleton_id INTEGER PRIMARY KEY,
+                            catalog_json VARCHAR NOT NULL
+                        )
+                        """
+                    )
+                    version = 7
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

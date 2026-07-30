@@ -79,8 +79,9 @@
       <fieldset>
         <legend>Migration application scope (optional)</legend>
         <p class="muted">
-          This gives reviewers business context. It does not grant Odoo access
-          or limit the models that Impodo can read and map.
+          This gives reviewers business context and filters the model catalogue
+          shown later. It does not grant Odoo access; the exact permitted
+          models are confirmed separately before schema capture.
         </p>
         <div class="choice-grid">
           {% for application in applications %}

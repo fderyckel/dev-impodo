@@ -17,44 +17,127 @@
   </div>
 
   <section class="form-card">
-    <h2>Read boundary</h2>
-    <p>Target: {{ project.target_environment.value }} / {{ project.odoo_database }}</p>
-    <form method="post" action="/projects/{{ project.project_id }}/schema/scope">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="revision" value="{{ project.revision }}">
-      <label>
-        Permitted target models for schema capture and mapping
-        <textarea name="permitted_models" rows="3" required placeholder="product.template, mrp.bom">{{ project.intended_models|join(', ') }}</textarea>
-        <small>
-          Comma-separated technical Odoo model names. This is the enforced
-          allowlist for schema reads and mapping choices. Changing it clears
-          the captured schema, governed business keys, and active mapping.
-        </small>
-      </label>
-      <div class="actions">
-        <button class="button secondary" type="submit">Save permitted model scope</button>
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Connected model discovery</p>
+        <h2>Choose target Odoo models</h2>
+        <p>
+          Target: {{ project.odoo_connection_mode.value|title }} {{ project.target_environment.value }}
+          / <code>{{ project.odoo_database }}</code>
+        </p>
       </div>
-    </form>
+      <form method="post" action="/projects/{{ project.project_id }}/schema/models/refresh">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="button secondary" type="submit">
+          {% if model_catalog %}Refresh models from Odoo{% else %}Load models from Odoo{% endif %}
+        </button>
+      </form>
+    </div>
+
+    {% if project.intended_applications %}
+      <p>
+        Phase A focus: <strong>{{ project.intended_applications|join(", ") }}</strong>.
+        Matching models are shown first; this filter does not add them to the read boundary.
+      </p>
+    {% else %}
+      <p>No Phase A application filter was selected, so all discovered persistent models are shown.</p>
+    {% endif %}
+
+    {% if model_catalog %}
+      <p class="muted">
+        {{ model_catalog.models|length }} persistent models loaded from
+        {{ model_catalog.database }} · Odoo {{ model_catalog.odoo_version }}.
+        Full field metadata is fetched only for the models selected below.
+      </p>
+      <form method="post" action="/projects/{{ project.project_id }}/schema/scope" data-model-picker>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" value="{{ project.revision }}">
+        <div class="model-picker-tools">
+          <label>
+            Search available models
+            <input
+              type="search"
+              data-model-search
+              placeholder="Search Product or product.template"
+              autocomplete="off"
+            >
+          </label>
+          {% if focus_model_count < model_choices|length %}
+            <label class="checkbox">
+              <input type="checkbox" data-show-all-models>
+              Show models outside the Phase A focus
+            </label>
+          {% endif %}
+          <p class="muted" data-model-count></p>
+        </div>
+        <fieldset class="model-picker-list">
+          <legend>Permitted target models for schema capture and mapping</legend>
+          {% for choice in model_choices %}
+            <label
+              class="model-choice"
+              data-model-choice
+              data-in-focus="{{ 'true' if choice.in_focus else 'false' }}"
+              data-model-search-text="{{ choice.label|lower }} {{ choice.name|lower }} {{ choice.modules|join(' ')|lower }}"
+            >
+              <input
+                type="checkbox"
+                name="permitted_models"
+                value="{{ choice.name }}"
+                {% if choice.selected %}checked{% endif %}
+              >
+              <span>
+                <strong>{{ choice.label }}</strong>
+                <code>{{ choice.name }}</code>
+                {% if choice.modules %}
+                  <small>{{ choice.modules|join(", ") }}</small>
+                {% endif %}
+              </span>
+            </label>
+          {% endfor %}
+        </fieldset>
+        <small>
+          This selection is the enforced allowlist. Changing it clears the
+          captured schema, governed business keys, and active mapping.
+        </small>
+        <div class="actions">
+          <button class="button secondary" type="submit">Save permitted model scope</button>
+        </div>
+      </form>
+    {% else %}
+      <div class="notice">
+        Load the lightweight model catalogue from this connected Odoo first.
+        Impodo will not fetch field metadata until you explicitly select models.
+      </div>
+      {% if project.intended_models %}
+        <p>
+          Existing technical scope:
+          <code>{{ project.intended_models|join(", ") }}</code>.
+          Refresh the catalogue to review or change it.
+        </p>
+      {% endif %}
+    {% endif %}
+
     <p>Current permitted models: <code>{{ project.intended_models|join(", ") or "Not set" }}</code></p>
     <form method="post" action="/projects/{{ project.project_id }}/schema/capture">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to datasets</a>
         <button class="button primary" type="submit" {% if not selection or not project.intended_models %}disabled{% endif %}>
-          {% if schema %}Capture again using API key{% else %}Capture Odoo schema using API key{% endif %}
+          {% if schema %}Fetch fields again from Odoo{% else %}Fetch fields from Odoo{% endif %}
         </button>
       </div>
     </form>
   </section>
 
   {% if project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' and project.target_environment and project.target_environment.value == 'DEV' %}
-    <section class="form-card">
-      <p class="eyebrow">Local DEV option</p>
-      <h2>Use an unverified local schema draft</h2>
+    <details class="form-card advanced-schema-draft">
+      <summary>Advanced: create an offline manual schema draft</summary>
+      <p class="eyebrow">Local DEV fallback</p>
+      <h2>Enter an unverified field contract manually</h2>
       <div class="notice warning">
-        This option does not contact Odoo and does not need an API key. Enter
-        the agreed field contract manually. The draft is suitable only for
-        mapping work; live capture must replace it before mapping submission.
+        This fallback does not contact Odoo and does not fetch any fields.
+        Use it only when the local DEV instance cannot be reached. A live
+        capture must replace it before mapping submission.
       </div>
       <form method="post" action="/projects/{{ project.project_id }}/schema/local-draft">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -63,11 +146,11 @@
           <fieldset>
             <legend><code>{{ model_name }}</code></legend>
             <label>
-              Model label
+              Manual human-readable model label
               <input name="manual_model_label_{{ loop.index0 }}" maxlength="200" value="{{ existing.label if existing else model_name }}">
             </label>
             <label>
-              Fields
+              Manual field contract
               <textarea name="manual_fields_{{ loop.index0 }}" rows="6" required placeholder="default_code | Internal Reference | char | no | no&#10;name | Name | char | yes | no&#10;company_id | Company | many2one | no | no | res.company">{% if existing %}{% for field in existing.fields %}{{ field.name }} | {{ field.label }} | {{ field.type }} | {{ 'yes' if field.required else 'no' }} | {{ 'yes' if field.readonly else 'no' }}{% if field.relation %} | {{ field.relation }}{% endif %}{% if field.relation_field %} | {{ field.relation_field }}{% endif %}
 {% endfor %}{% endif %}</textarea>
               <small>One field per line: <code>name | label | type | required | readonly | relation | inverse field</code>. Use <code>yes</code> or <code>no</code>; relation and inverse field are optional.</small>
@@ -82,7 +165,7 @@
           <button class="button secondary" type="submit" {% if not selection or not project.intended_models %}disabled{% endif %}>Create unverified local schema draft</button>
         </div>
       </form>
-    </section>
+    </details>
   {% endif %}
 
   {% if schema %}
@@ -156,19 +239,39 @@
             </label>
           </div>
 
-          <details>
-            <summary>Review captured fields</summary>
+          <details data-field-catalog>
+            <summary>Review {{ model.fields|length }} captured fields</summary>
+            <div class="field-catalog-tools">
+              <label>
+                Search fields
+                <input
+                  type="search"
+                  data-field-search
+                  placeholder="Search label, technical name, type, or relation"
+                  autocomplete="off"
+                >
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" data-show-readonly-fields>
+                Show readonly and system fields
+              </label>
+              <p class="muted" data-field-count></p>
+            </div>
             <div class="table-scroll">
               <table class="data-table">
-                <thead><tr><th>Field</th><th>Label</th><th>Type</th><th>Required</th><th>Readonly</th><th>Relation</th></tr></thead>
+                <thead><tr><th>Label</th><th>Technical field</th><th>Type</th><th>Required</th><th>Writable</th><th>Relation</th></tr></thead>
                 <tbody>
                   {% for field in model.fields %}
-                    <tr>
-                      <th>{{ field.name }}</th>
-                      <td>{{ field.label }}</td>
+                    <tr
+                      data-field-row
+                      data-readonly="{{ 'true' if field.readonly else 'false' }}"
+                      data-field-search-text="{{ field.label|lower }} {{ field.name|lower }} {{ field.type|lower }} {{ field.relation|default('', true)|lower }}"
+                    >
+                      <th>{{ field.label }}</th>
+                      <td><code>{{ field.name }}</code></td>
                       <td>{{ field.type }}</td>
                       <td>{{ "Yes" if field.required else "No" }}</td>
-                      <td>{{ "Yes" if field.readonly else "No" }}</td>
+                      <td>{{ "No" if field.readonly else "Yes" }}</td>
                       <td>
                         {{ field.relation or "—" }}
                         {% if field.relation_field %} via {{ field.relation_field }}{% endif %}

@@ -224,9 +224,17 @@ class ProjectLifecycleTests(unittest.TestCase):
                  WHERE table_name = 'mapping_revision'
                 """
             ).fetchone()
+            model_catalog_table = connection.execute(
+                """
+                SELECT table_name
+                  FROM information_schema.tables
+                 WHERE table_name = 'odoo_model_catalog'
+                """
+            ).fetchone()
         self.assertEqual(version, (SCHEMA_VERSION,))
         self.assertEqual(catalog_table, ("source_catalog",))
         self.assertEqual(mapping_table, ("mapping_revision",))
+        self.assertEqual(model_catalog_table, ("odoo_model_catalog",))
 
     def test_complete_project_can_be_registered(self) -> None:
         project = self.service.create_project(

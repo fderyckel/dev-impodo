@@ -11,7 +11,7 @@ from impodo.access import (
     CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
 )
-from impodo.connectors import MetadataSnapshot
+from impodo.connectors import MetadataSnapshot, RecordSnapshot
 from impodo.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
@@ -21,6 +21,7 @@ from impodo.models import (
     EnvironmentFingerprint,
     FieldMetadata,
     ModelMetadata,
+    TargetRecord,
 )
 from impodo.mapping_semantics import (
     BusinessKeyDefinition,
@@ -121,6 +122,26 @@ class WorkspaceLifecycleTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_model_discovery_filters_nonpersistent_models_and_is_persisted(
+        self,
+    ) -> None:
+        catalog = self.schemas.discover_models(
+            self.project.project_id,
+            _model_catalog_snapshot(),
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(
+            tuple(model.name for model in catalog.models),
+            ("res.partner",),
+        )
+        self.assertEqual(catalog.models[0].label, "Contact")
+        self.assertEqual(catalog.models[0].modules, ("base", "contacts"))
+        self.assertEqual(
+            self.repository.get_odoo_model_catalog(self.project.project_id),
+            catalog,
+        )
 
     def test_confirm_freeze_capture_and_mapping_are_versioned_and_persisted(
         self,
@@ -622,4 +643,56 @@ def _metadata_snapshot() -> MetadataSnapshot:
                 },
             )
         },
+    )
+
+
+def _model_catalog_snapshot() -> RecordSnapshot:
+    fingerprint = EnvironmentFingerprint(
+        environment="DEV",
+        database="odoo19_dev",
+        odoo_version="19.0",
+        snapshot_timestamp="2026-07-30T12:00:00Z",
+        module_versions={"base": "19.0.1.0"},
+    )
+    return RecordSnapshot(
+        fingerprint=fingerprint,
+        records={
+            "ir.model": (
+                TargetRecord(
+                    model="ir.model",
+                    odoo_id=1,
+                    values={
+                        "name": "Contact",
+                        "model": "res.partner",
+                        "abstract": False,
+                        "transient": False,
+                        "modules": "base, contacts",
+                        "state": "base",
+                    },
+                ),
+                TargetRecord(
+                    model="ir.model",
+                    odoo_id=2,
+                    values={
+                        "name": "Temporary import",
+                        "model": "x.import.wizard",
+                        "abstract": False,
+                        "transient": True,
+                        "modules": "x_import",
+                        "state": "base",
+                    },
+                ),
+            )
+        },
+        requested_fields={
+            "ir.model": (
+                "name",
+                "model",
+                "abstract",
+                "transient",
+                "modules",
+                "state",
+            )
+        },
+        complete=True,
     )

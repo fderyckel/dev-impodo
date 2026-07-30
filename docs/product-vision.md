@@ -109,10 +109,12 @@ later runs detect replacement or edits.
 The mapping workflow needs a read-only schema catalog before it can ask the
 data manager to choose target fields.
 
-Before capture, the data manager sets the exact permitted technical Odoo
-models for this project. This is the model-level allowlist for schema reads
-and mapping choices; it is not inferred from the optional Stage A application
-scope. Changing the model scope invalidates the captured schema and its
+Before capture, Impodo reads a lightweight catalog of concrete, persistent
+models from the exact connected Odoo database. The optional Stage A
+application scope filters and prioritizes the choices shown to the data
+manager; it never silently authorizes a model. The data manager then confirms
+the exact technical models allowed for schema reads and mapping choices.
+Changing that explicit model scope invalidates the captured schema and its
 dependent business-key and mapping decisions.
 
 The catalog exposes permitted:
@@ -531,9 +533,10 @@ acceptance covers a real CSV and a real XLSX named table.
 - mapping import and export;
 - mapping validation and approval.
 
-Current status: **Phase 2B implemented.** The local browser captures a
-read-only Odoo 19 field catalog once per explicitly permitted model, then
-requires explicit governed business keys and scope. Dataset-centric revisions
+Current status: **Phase 2B implemented.** The local browser discovers a
+lightweight, application-filtered Odoo 19 model catalog, captures the effective
+field catalog once per explicitly permitted model, then requires explicit
+governed business keys and scope. Dataset-centric revisions
 support source and target identity, scalar policies, incoming-dataset and
 existing-target many2one/many2many resolution, and one2many inverse ownership
 guidance. A pure compiler/validator checks the complete mapping and persists

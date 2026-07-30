@@ -83,23 +83,28 @@ without modifying the source file or the registered project.
 
 After freezing datasets:
 
-1. Open **Odoo schema** and capture the field catalog.
-2. For each model used by the migration, enter its natural business-key fields
+1. Open **Odoo schema** and load the lightweight model catalog from the
+   connected Odoo.
+2. Search the Phase A-focused choices, optionally show all persistent models,
+   and explicitly save the permitted model scope.
+3. Fetch the complete effective field catalog for the selected models.
+4. For each model used by the migration, enter its natural business-key fields
    and any company or tenant scope fields using Odoo technical field names.
-3. Confirm the governed keys. Do not use a guessed key: it must be unique in
+5. Confirm the governed keys. Do not use a guessed key: it must be unique in
    the intended Odoo environment.
-4. For every frozen dataset, choose a target model and map its source trace
+6. For every frozen dataset, choose a target model and map its source trace
    identity and confirmed target identity/scope.
-5. Map writable scalar fields.
-6. Configure many2one and many2many relationships using either an incoming
+7. Map writable scalar fields.
+8. Configure many2one and many2many relationships using either an incoming
    dataset or a confirmed existing-target business key. For one2many, map the
    child dataset's inverse many2one instead.
-7. Save and validate a draft. Resolve every blocking semantic finding.
-8. Submit the exact validated revision. Displayed warnings require explicit
+9. Save and validate a draft. Resolve every blocking semantic finding.
+10. Submit the exact validated revision. Displayed warnings require explicit
    acknowledgement.
 
-Schema discovery issues one `fields_get` call per explicitly permitted model;
-it does not read target records or invoke an Odoo write method. Source
+Model discovery reads only lightweight `ir.model` metadata. Field discovery
+issues one `fields_get` call per explicitly permitted model; neither path
+invokes an Odoo write method. Source
 reinspection, source reconfirmation, dataset refreezing, schema recapture, or
 business-key governance change invalidates the active mapping pointer. Its
 immutable revision, validation, and submission history remains available in

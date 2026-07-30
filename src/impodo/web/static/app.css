@@ -662,6 +662,76 @@ dd {
   margin-top: 1.25rem;
 }
 
+.model-picker-tools,
+.field-catalog-tools {
+  display: grid;
+  grid-template-columns: minmax(16rem, 2fr) minmax(14rem, 1fr);
+  align-items: end;
+  gap: .7rem 1.2rem;
+  margin-top: 1rem;
+}
+
+.model-picker-tools label,
+.field-catalog-tools label {
+  margin: 0;
+}
+
+.model-picker-tools .muted,
+.field-catalog-tools .muted {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.model-picker-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: .55rem;
+  max-height: 30rem;
+  overflow-y: auto;
+  padding: .85rem;
+}
+
+label.model-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: .65rem;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: white;
+  padding: .7rem;
+  font-weight: 500;
+}
+
+label.model-choice:hover {
+  border-color: var(--impodo-grey);
+  background: #fdf8f7;
+}
+
+label.model-choice input {
+  width: auto;
+  margin: .2rem 0 0;
+}
+
+.model-choice span,
+.model-choice code,
+.model-choice small {
+  display: block;
+}
+
+.model-choice code {
+  margin-top: .2rem;
+}
+
+.advanced-schema-draft > summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.advanced-schema-draft[open] > summary {
+  margin-bottom: 1.2rem;
+}
+
 .catalog-heading,
 .table-heading {
   display: flex;
@@ -1143,6 +1213,8 @@ dd {
   .summary-grid,
   .choice-grid,
   .mode-grid,
+  .model-picker-tools,
+  .field-catalog-tools,
   .definition-list {
     grid-template-columns: 1fr;
   }

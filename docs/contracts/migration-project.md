@@ -39,8 +39,8 @@ Those transitions must be added before downstream phases depend on them.
 | Target environment | Optional | `DEV` or `TEST` |
 | Odoo base URL | Optional | Literal loopback URL for `LOCAL`; HTTPS server URL for `REMOTE` |
 | Odoo database | Optional | Yes |
-| Intended applications | Optional | At least one |
-| Intended technical models | Optional | No; confirmed in Stage C |
+| Intended applications | Optional | Browser discovery filter and reviewer context |
+| Intended technical models | Optional during registration | Required and explicitly confirmed before Stage C field capture |
 
 ## System-controlled fields
 

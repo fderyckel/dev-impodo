@@ -32,11 +32,19 @@ Changing or reconfirming any source invalidates the frozen selection. Freezing
 a new version invalidates the active mapping pointer without deleting its
 revision, validation, or submission history.
 
-## Odoo schema catalog
+## Odoo model and schema catalogs
 
-Schema discovery is read-only and restricted to the technical models explicitly
-permitted during project registration. It performs one batched `fields_get`
-request per model, preventing a field- or row-level N+1 pattern.
+Model discovery uses paginated, read-only `search_read` calls against
+`ir.model` to capture labels, technical names, defining modules, and model
+state. Abstract and transient models are excluded. The Stage A application
+scope filters the browser choices, but the explicit Stage C model selection
+remains the enforced read boundary.
+
+Field discovery is read-only and restricted to those explicitly permitted
+technical models. It performs one batched `fields_get` request per selected
+model, preventing a field- or row-level N+1 pattern. Odoo's effective
+`fields_get` result includes fields exposed by installed model extensions and
+delegation; related models are never added to scope automatically.
 
 The catalog contains field label, technical name, type, required/readonly
 flags, relation, inverse `relation_field`, and selection values. Capture fails

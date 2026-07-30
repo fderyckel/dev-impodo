@@ -32,6 +32,8 @@ from ..connectors import (
     Json2ReadConnector,
     MetadataRequest,
     MetadataSnapshot,
+    RecordRequest,
+    RecordSnapshot,
 )
 from ..intake import SourceIntakeError, SourceIntakeService
 from ..inspection import (
@@ -68,6 +70,8 @@ from ..projects import (
 from ..secrets import CredentialVault, SecretStore, SecretStoreError
 from ..workspace import (
     MappingWorkspaceService,
+    OdooModelCatalog,
+    OdooModelSummary,
     SchemaField,
     SchemaModel,
     SchemaOrigin,
@@ -97,10 +101,19 @@ ODOO_APPLICATIONS = (
 )
 _MANUAL_FIELD_NAME = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
 _MANUAL_FIELD_TYPE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_APPLICATION_MODULE_PREFIXES = {
+    "Accounting": ("account", "analytic"),
+    "Contacts": ("contacts",),
+    "Inventory": ("stock", "product", "uom"),
+    "Manufacturing": ("mrp", "maintenance", "quality"),
+    "Purchase": ("purchase",),
+    "Sales": ("sale", "crm"),
+}
 
 
 ConnectionTester = Callable[[MigrationProject, str], str]
 SchemaReader = Callable[[MigrationProject, str], MetadataSnapshot]
+ModelCatalogReader = Callable[[MigrationProject, str], RecordSnapshot]
 
 
 @dataclass(slots=True)
@@ -120,6 +133,7 @@ class WebContext:
     launch_token: str
     connection_tester: ConnectionTester
     schema_reader: SchemaReader
+    model_catalog_reader: ModelCatalogReader
     local_stack: LocalStackService
 
 
@@ -132,6 +146,7 @@ def create_local_app(
     secret_store: SecretStore | None = None,
     connection_tester: ConnectionTester | None = None,
     schema_reader: SchemaReader | None = None,
+    model_catalog_reader: ModelCatalogReader | None = None,
     actor: Actor = LOCAL_ACTOR,
     authorization: AuthorizationPolicy | None = None,
     artifact_store: ArtifactStore | None = None,
@@ -170,6 +185,7 @@ def create_local_app(
         launch_token=launch_token or secrets.token_urlsafe(32),
         connection_tester=connection_tester or _test_connection,
         schema_reader=schema_reader or _read_schema,
+        model_catalog_reader=model_catalog_reader or _read_model_catalog,
         local_stack=local_stack_service or LocalStackService(),
     )
 
@@ -874,16 +890,70 @@ def create_local_app(
         require_session(request)
         return _render_schema(request, context, project_id)
 
+    @app.post("/projects/{project_id}/schema/models/refresh")
+    async def refresh_project_models(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        project = context.repository.get(project_id)
+        try:
+            api_key = context.secret_store.get(_target_credential_id(project))
+            if not api_key:
+                raise WorkspaceError(
+                    "No API key is stored for this exact Odoo target"
+                )
+            snapshot = await run_in_threadpool(
+                context.model_catalog_reader,
+                project,
+                api_key,
+            )
+            catalog = context.schema_workspace.discover_models(
+                project_id,
+                snapshot,
+                actor=context.actor,
+            )
+        except (
+            ConnectorError,
+            ProjectError,
+            SecretStoreError,
+            WorkspaceError,
+        ) as error:
+            return _render_schema(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            f"Loaded {len(catalog.models)} persistent models from Odoo.",
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/schema",
+            status_code=303,
+        )
+
     @app.post("/projects/{project_id}/schema/scope")
     async def update_project_schema_scope(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "permitted_models"})
         try:
+            permitted_models = _submitted_model_scope(form)
+            model_catalog = context.repository.get_odoo_model_catalog(project_id)
+            if model_catalog:
+                available = {model.name for model in model_catalog.models}
+                unknown = [
+                    model for model in permitted_models if model not in available
+                ]
+                if unknown:
+                    raise ProjectError(
+                        f"{unknown[0]} is not in the refreshed Odoo model catalogue"
+                    )
             context.projects.update_schema_scope(
                 project_id,
                 actor=context.actor,
                 expected_revision=_revision(form),
-                permitted_models=_split_models(_text(form, "permitted_models")),
+                permitted_models=permitted_models,
             )
         except ProjectError as error:
             return _render_schema(
@@ -1194,6 +1264,46 @@ def _read_schema(project: MigrationProject, api_key: str) -> MetadataSnapshot:
     )
 
 
+def _read_model_catalog(
+    project: MigrationProject,
+    api_key: str,
+) -> RecordSnapshot:
+    """Read lightweight persistent-model choices from the exact Odoo target."""
+
+    if project.odoo_connection_mode is None or project.target_environment is None:
+        raise ProjectError("Configure the Odoo target before model discovery")
+    connector = Json2ReadConnector(
+        Json2Config(
+            base_url=project.odoo_base_url,
+            database=project.odoo_database,
+            api_key=api_key,
+            environment=project.target_environment.value,
+            allow_insecure_loopback=(
+                project.odoo_connection_mode is OdooConnectionMode.LOCAL
+            ),
+        )
+    )
+    return connector.get_records(
+        (
+            RecordRequest(
+                model="ir.model",
+                fields=(
+                    "name",
+                    "model",
+                    "abstract",
+                    "transient",
+                    "modules",
+                    "state",
+                ),
+                domain=(
+                    ("abstract", "=", False),
+                    ("transient", "=", False),
+                ),
+            ),
+        )
+    )
+
+
 def _target_credential_id(project: MigrationProject) -> str:
     """Bind a stored API key to one project and exact Odoo destination."""
 
@@ -1354,6 +1464,16 @@ def _split_models(value: str) -> tuple[str, ...]:
     )
 
 
+def _submitted_model_scope(form: FormData) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            model
+            for value in form.getlist("permitted_models")
+            for model in _split_models(str(value))
+        )
+    )
+
+
 def _manual_schema_models(
     project: MigrationProject,
     form: FormData,
@@ -1498,6 +1618,70 @@ def _dataset_choices(
     return tuple(choices)
 
 
+def _schema_model_choices(
+    project: MigrationProject,
+    catalog: OdooModelCatalog | None,
+) -> tuple[dict[str, object], ...]:
+    selected = set(project.intended_models)
+    models = list(catalog.models) if catalog else []
+    known = {model.name for model in models}
+    models.extend(
+        OdooModelSummary(
+            name=name,
+            label=name,
+            modules=(),
+            state="unknown",
+        )
+        for name in sorted(selected - known)
+    )
+    choices = [
+        {
+            "name": model.name,
+            "label": model.label,
+            "modules": model.modules,
+            "state": model.state,
+            "selected": model.name in selected,
+            "in_focus": _model_matches_application_scope(
+                model,
+                project.intended_applications,
+            ),
+        }
+        for model in models
+    ]
+    return tuple(
+        sorted(
+            choices,
+            key=lambda item: (
+                not bool(item["selected"]),
+                not bool(item["in_focus"]),
+                str(item["label"]).casefold(),
+                str(item["name"]),
+            ),
+        )
+    )
+
+
+def _model_matches_application_scope(
+    model: OdooModelSummary,
+    applications: tuple[str, ...],
+) -> bool:
+    if not applications or "Custom applications" in applications:
+        return True
+    if "Contacts" in applications and (
+        model.name.startswith(("res.partner", "res.country", "res.lang"))
+        or "contacts" in model.modules
+    ):
+        return True
+    for application in applications:
+        for prefix in _APPLICATION_MODULE_PREFIXES.get(application, ()):
+            if any(
+                module == prefix or module.startswith(f"{prefix}_")
+                for module in model.modules
+            ):
+                return True
+    return False
+
+
 def _render_schema(
     request: Request,
     context: WebContext,
@@ -1506,6 +1690,9 @@ def _render_schema(
     error: str | None = None,
     status_code: int = 200,
 ):
+    project = context.repository.get(project_id)
+    model_catalog = context.repository.get_odoo_model_catalog(project_id)
+    model_choices = _schema_model_choices(project, model_catalog)
     schema = context.repository.get_odoo_schema_catalog(project_id)
     governance = context.repository.get_schema_governance(project_id)
     governed_by_model = (
@@ -1516,8 +1703,13 @@ def _render_schema(
     return _render(
         request,
         "project_schema.html",
-        project=context.repository.get(project_id),
+        project=project,
         selection=context.repository.get_source_selection(project_id),
+        model_catalog=model_catalog,
+        model_choices=model_choices,
+        focus_model_count=sum(
+            1 for choice in model_choices if choice["in_focus"]
+        ),
         schema=schema,
         governance=governance,
         governed_by_model=governed_by_model,
