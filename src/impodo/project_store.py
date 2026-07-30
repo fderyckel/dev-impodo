@@ -141,7 +141,7 @@ class DuckDbProjectRepository:
         self,
         project_id: str,
     ) -> tuple[SourceFileCatalog, ...]:
-        """Load Phase B catalogs in the same order as registered source files."""
+        """Load source catalogs in the same order as registered source files."""
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():

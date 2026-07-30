@@ -9,23 +9,39 @@ explicit deferred checks for staging and preflight.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
-from datetime import datetime
+from dataclasses import asdict, dataclass, field, replace
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
 import json
+import re
 from typing import Any, Iterable, Mapping
 
 from .metadata import TYPE_COMPATIBILITY
 
 
-MAPPING_CONTRACT_VERSION = 2
-MAPPING_VALIDATOR_VERSION = "2.0.0"
+MAPPING_CONTRACT_VERSION = 3
+MAPPING_VALIDATOR_VERSION = "3.0.0"
 _RELATION_TYPES = frozenset({"many2one", "many2many", "one2many"})
 _VALUE_TYPES = frozenset(TYPE_COMPATIBILITY)
 _NULL_POLICIES = frozenset(
     {"distinct", "equivalent", "ignore_source_null"}
 )
+_CASE_MODES = frozenset({"preserve", "uppercase", "lowercase"})
+_DECIMAL_LOCALES = frozenset({"invariant", "en_US", "de_DE", "fr_FR"})
+_DATE_FORMATS = {
+    "iso": "%Y-%m-%d",
+    "dmy_slash": "%d/%m/%Y",
+    "mdy_slash": "%m/%d/%Y",
+    "dmy_dot": "%d.%m.%Y",
+}
+_DATETIME_FORMATS = {
+    "iso": None,
+    "dmy_slash": "%d/%m/%Y %H:%M:%S",
+    "mdy_slash": "%m/%d/%Y %H:%M:%S",
+    "dmy_dot": "%d.%m.%Y %H:%M:%S",
+}
 
 
 class MappingTargetMode(StrEnum):
@@ -48,6 +64,28 @@ class MappingValidationStatus(StrEnum):
     VALID = "VALID"
     VALID_WITH_WARNINGS = "VALID_WITH_WARNINGS"
     INVALID = "INVALID"
+
+
+class ScalarValueSource(StrEnum):
+    """How one scalar target value is supplied."""
+
+    SOURCE = "source"
+    CONSTANT = "constant"
+    SOURCE_WITH_FALLBACK = "source_with_fallback"
+    ODOO_DEFAULT = "odoo_default"
+
+
+@dataclass(frozen=True, slots=True)
+class ScalarTransformPolicy:
+    """Small, deterministic allowlist for browser-authored scalar values."""
+
+    trim: bool = False
+    collapse_whitespace: bool = False
+    empty_as_null: bool = False
+    case_mode: str = "preserve"
+    decimal_locale: str = "invariant"
+    date_format: str = "iso"
+    timezone: str = "UTC"
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,13 +224,159 @@ class IdentityComponentMapping:
 @dataclass(frozen=True, slots=True)
 class ScalarFieldMapping:
     target_field: str
-    source_column_key: str
+    source_column_key: str | None = None
+    value_source: ScalarValueSource = ScalarValueSource.SOURCE
+    literal_value: str | None = None
+    transform: ScalarTransformPolicy = field(
+        default_factory=ScalarTransformPolicy
+    )
     value_type: str = "string"
     required: bool = False
     required_on_create: bool = False
     compare: bool = True
     validate_only: bool = False
     null_policy: str = "distinct"
+
+    def __post_init__(self) -> None:
+        if not self.target_field.strip() or len(self.target_field) > 200:
+            raise ValueError("Scalar target field is invalid")
+        if (
+            self.source_column_key is not None
+            and len(self.source_column_key) > 500
+        ):
+            raise ValueError("Scalar source-column key is too long")
+        if self.literal_value is not None and len(self.literal_value) > 10_000:
+            raise ValueError("Scalar literal value is too long")
+        object.__setattr__(
+            self,
+            "value_source",
+            ScalarValueSource(self.value_source),
+        )
+
+
+class ScalarValueError(ValueError):
+    """Raised when a governed scalar value cannot be canonicalized."""
+
+
+def canonicalize_scalar_value(
+    mapping: ScalarFieldMapping,
+    raw_source_value: Any,
+) -> str | int | Decimal | bool | date | datetime | None:
+    """Apply one browser-authored value provider and transformation policy."""
+
+    if mapping.value_source is ScalarValueSource.ODOO_DEFAULT:
+        raise ScalarValueError("Odoo-default fields have no local proposed value")
+    if mapping.value_source is ScalarValueSource.CONSTANT:
+        raw_value = mapping.literal_value
+    elif mapping.value_source is ScalarValueSource.SOURCE_WITH_FALLBACK:
+        prepared_source = _transform_scalar_text(
+            raw_source_value,
+            mapping.transform,
+        )
+        raw_value = (
+            mapping.literal_value
+            if prepared_source is None
+            else prepared_source
+        )
+    else:
+        raw_value = raw_source_value
+
+    prepared = _transform_scalar_text(raw_value, mapping.transform)
+    if prepared is None:
+        if mapping.required:
+            raise ScalarValueError("Required value is empty after transformation")
+        return None
+
+    try:
+        if mapping.value_type == "string":
+            return prepared
+        if mapping.value_type == "integer":
+            if not re.fullmatch(r"[+-]?\d+", prepared):
+                raise ValueError
+            return int(prepared, 10)
+        if mapping.value_type == "decimal":
+            return _parse_decimal(prepared, mapping.transform.decimal_locale)
+        if mapping.value_type == "boolean":
+            token = prepared.casefold()
+            if token in {"true", "1", "yes", "y"}:
+                return True
+            if token in {"false", "0", "no", "n"}:
+                return False
+            raise ValueError
+        if mapping.value_type == "date":
+            return datetime.strptime(
+                prepared,
+                _DATE_FORMATS[mapping.transform.date_format],
+            ).date()
+        if mapping.value_type == "datetime":
+            date_format = _DATETIME_FORMATS[mapping.transform.date_format]
+            parsed = (
+                datetime.fromisoformat(prepared.replace("Z", "+00:00"))
+                if date_format is None
+                else datetime.strptime(prepared, date_format)
+            )
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+    except (InvalidOperation, KeyError, TypeError, ValueError) as error:
+        raise ScalarValueError(
+            f"Cannot parse {prepared!r} as {mapping.value_type}."
+        ) from error
+    raise ScalarValueError(
+        f"Unsupported canonical value type {mapping.value_type!r}."
+    )
+
+
+def _transform_scalar_text(
+    raw_value: Any,
+    policy: ScalarTransformPolicy,
+) -> str | None:
+    if raw_value is None:
+        return None
+    value = str(raw_value)
+    if policy.trim:
+        value = value.strip()
+    if policy.collapse_whitespace:
+        value = re.sub(r"\s+", " ", value)
+    if policy.case_mode == "uppercase":
+        value = value.upper()
+    elif policy.case_mode == "lowercase":
+        value = value.lower()
+    if policy.empty_as_null and value == "":
+        return None
+    return value
+
+
+def _parse_decimal(value: str, locale: str) -> Decimal:
+    patterns = {
+        "invariant": (r"[+-]?\d+(?:\.\d+)?", "", "."),
+        "en_US": (
+            r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?",
+            ",",
+            ".",
+        ),
+        "de_DE": (
+            r"[+-]?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d+)?",
+            ".",
+            ",",
+        ),
+        "fr_FR": (
+            r"[+-]?(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:,\d+)?",
+            " ",
+            ",",
+        ),
+    }
+    pattern, grouping, decimal_separator = patterns[locale]
+    if re.fullmatch(pattern, value) is None:
+        raise ValueError
+    normalized = value
+    if locale == "fr_FR":
+        normalized = re.sub(r"[ \u00a0\u202f]", "", normalized)
+    elif grouping:
+        normalized = normalized.replace(grouping, "")
+    if decimal_separator != ".":
+        normalized = normalized.replace(decimal_separator, ".")
+    return Decimal(normalized)
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,7 +433,7 @@ class MappingDefinition:
             "source_selection_hash": self.source_selection_hash,
             "schema_hash": self.schema_hash,
             "datasets": [
-                _portable(asdict(item))
+                _dataset_mapping_to_dict(item, self.contract_version)
                 for item in sorted(
                     (
                         replace(
@@ -1034,13 +1218,71 @@ class MappingSemanticValidator:
         fields: Mapping[str, Any],
         issues: list[MappingValidationIssue],
     ) -> None:
-        _check_column(
-            dataset,
-            field_mapping.source_column_key,
-            path,
-            columns,
-            issues,
-        )
+        source_required = field_mapping.value_source in {
+            ScalarValueSource.SOURCE,
+            ScalarValueSource.SOURCE_WITH_FALLBACK,
+        }
+        literal_required = field_mapping.value_source in {
+            ScalarValueSource.CONSTANT,
+            ScalarValueSource.SOURCE_WITH_FALLBACK,
+        }
+        if source_required:
+            if field_mapping.source_column_key:
+                _check_column(
+                    dataset,
+                    field_mapping.source_column_key,
+                    path,
+                    columns,
+                    issues,
+                )
+            else:
+                issues.append(
+                    _issue(
+                        "MAPPING_VALUE_PROVIDER_INVALID",
+                        path,
+                        "The selected value provider requires a source column.",
+                        "Choose a frozen source column.",
+                        dataset=dataset,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+        elif field_mapping.source_column_key is not None:
+            issues.append(
+                _issue(
+                    "MAPPING_VALUE_PROVIDER_INVALID",
+                    path,
+                    "This value provider must not reference a source column.",
+                    "Clear the source column or choose a source-based provider.",
+                    dataset=dataset,
+                    source_column=field_mapping.source_column_key,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if literal_required and field_mapping.literal_value is None:
+            issues.append(
+                _issue(
+                    "MAPPING_VALUE_PROVIDER_INVALID",
+                    path,
+                    "The selected value provider requires a literal value.",
+                    "Enter a constant or fallback value.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        elif (
+            not literal_required
+            and field_mapping.literal_value is not None
+        ):
+            issues.append(
+                _issue(
+                    "MAPPING_VALUE_PROVIDER_INVALID",
+                    path,
+                    "This value provider must not contain a literal value.",
+                    "Clear the literal or choose constant/fallback.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
         metadata = fields.get(field_mapping.target_field)
         if metadata is None:
             issues.append(
@@ -1077,6 +1319,12 @@ class MappingSemanticValidator:
                     target_field=field_mapping.target_field,
                 )
             )
+        MappingSemanticValidator._validate_transform_policy(
+            dataset,
+            field_mapping,
+            path,
+            issues,
+        )
         if metadata.readonly and not field_mapping.validate_only:
             issues.append(
                 _issue(
@@ -1099,6 +1347,40 @@ class MappingSemanticValidator:
                     target_field=field_mapping.target_field,
                 )
             )
+        if (
+            field_mapping.value_source is ScalarValueSource.ODOO_DEFAULT
+            and (
+                field_mapping.compare
+                or field_mapping.validate_only
+                or field_mapping.required
+                or field_mapping.required_on_create
+            )
+        ):
+            issues.append(
+                _issue(
+                    "MAPPING_FIELD_POLICY_INVALID",
+                    path,
+                    "An Odoo-default field has no local value to compare or validate.",
+                    "Disable compare, validate-only, and required value checks.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if field_mapping.value_source is ScalarValueSource.ODOO_DEFAULT:
+            issues.append(
+                _issue(
+                    "MAPPING_ODOO_DEFAULT_UNVERIFIED",
+                    path,
+                    (
+                        f"{field_mapping.target_field} will be omitted so Odoo "
+                        "can apply its runtime default."
+                    ),
+                    "Acknowledge this warning and verify the default in DEV/TEST.",
+                    severity="warning",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
         if field_mapping.null_policy not in _NULL_POLICIES:
             issues.append(
                 _issue(
@@ -1110,6 +1392,59 @@ class MappingSemanticValidator:
                     target_field=field_mapping.target_field,
                 )
             )
+        if literal_required and field_mapping.literal_value is not None:
+            try:
+                proposed = canonicalize_scalar_value(
+                    field_mapping,
+                    None,
+                )
+            except ScalarValueError as error:
+                issues.append(
+                    _issue(
+                        "MAPPING_LITERAL_INVALID",
+                        path,
+                        str(error),
+                        "Correct the literal or its parsing policy.",
+                        dataset=dataset,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+            else:
+                selection_keys = {
+                    str(item[0]) for item in metadata.selection
+                }
+                if metadata.required and proposed in {None, ""}:
+                    issues.append(
+                        _issue(
+                            "MAPPING_LITERAL_INVALID",
+                            path,
+                            (
+                                f"{field_mapping.target_field} is required but "
+                                "the governed literal resolves to empty."
+                            ),
+                            "Enter a non-empty constant or fallback.",
+                            dataset=dataset,
+                            target_field=field_mapping.target_field,
+                        )
+                    )
+                if (
+                    selection_keys
+                    and proposed is not None
+                    and str(proposed) not in selection_keys
+                ):
+                    issues.append(
+                        _issue(
+                            "MAPPING_SELECTION_VALUE_INVALID",
+                            path,
+                            (
+                                f"{proposed!r} is not an allowed selection "
+                                f"value for {field_mapping.target_field}."
+                            ),
+                            "Choose one of the captured Odoo selection keys.",
+                            dataset=dataset,
+                            target_field=field_mapping.target_field,
+                        )
+                    )
         column = columns.get(field_mapping.source_column_key)
         expected_candidate = {
             "boolean": "boolean",
@@ -1136,6 +1471,73 @@ class MappingSemanticValidator:
                     severity="warning",
                     dataset=dataset,
                     source_column=field_mapping.source_column_key,
+                    target_field=field_mapping.target_field,
+                )
+            )
+
+    @staticmethod
+    def _validate_transform_policy(
+        dataset: DatasetMapping,
+        field_mapping: ScalarFieldMapping,
+        path: str,
+        issues: list[MappingValidationIssue],
+    ) -> None:
+        policy = field_mapping.transform
+        if policy.case_mode not in _CASE_MODES:
+            issues.append(
+                _issue(
+                    "MAPPING_TRANSFORM_INVALID",
+                    path,
+                    "The case transformation is unsupported.",
+                    "Choose preserve, uppercase, or lowercase.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        elif (
+            policy.case_mode != "preserve"
+            and field_mapping.value_type != "string"
+        ):
+            issues.append(
+                _issue(
+                    "MAPPING_TRANSFORM_INVALID",
+                    path,
+                    "Case transformations apply only to string values.",
+                    "Preserve case or choose the string canonical type.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.decimal_locale not in _DECIMAL_LOCALES:
+            issues.append(
+                _issue(
+                    "MAPPING_TRANSFORM_INVALID",
+                    path,
+                    "The decimal locale is unsupported.",
+                    "Choose invariant, en_US, de_DE, or fr_FR.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.date_format not in _DATE_FORMATS:
+            issues.append(
+                _issue(
+                    "MAPPING_TRANSFORM_INVALID",
+                    path,
+                    "The date format is unsupported.",
+                    "Choose one of the explicit date formats.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.timezone != "UTC":
+            issues.append(
+                _issue(
+                    "MAPPING_TRANSFORM_INVALID",
+                    path,
+                    "The current mapping rules support the explicit UTC timezone only.",
+                    "Choose UTC; broader IANA timezone support is deferred.",
+                    dataset=dataset,
                     target_field=field_mapping.target_field,
                 )
             )
@@ -1577,12 +1979,77 @@ def _dataset_mapping_from_dict(payload: Mapping[str, Any]) -> DatasetMapping:
             for item in payload.get("target_scope", ())
         ),
         fields=tuple(
-            ScalarFieldMapping(**item) for item in payload.get("fields", ())
+            _scalar_field_mapping_from_dict(item)
+            for item in payload.get("fields", ())
         ),
         relationships=tuple(
             _relationship_from_dict(item)
             for item in payload.get("relationships", ())
         ),
+    )
+
+
+def _dataset_mapping_to_dict(
+    mapping: DatasetMapping,
+    contract_version: int,
+) -> dict[str, Any]:
+    payload = _portable(asdict(mapping))
+    if contract_version < 3:
+        for item in payload.get("fields", ()):
+            item.pop("value_source", None)
+            item.pop("literal_value", None)
+            item.pop("transform", None)
+    return payload
+
+
+def _scalar_field_mapping_from_dict(
+    payload: Mapping[str, Any],
+) -> ScalarFieldMapping:
+    transform_payload = payload.get("transform", {})
+    if not isinstance(transform_payload, Mapping):
+        raise ValueError("Scalar transform policy must be an object")
+    return ScalarFieldMapping(
+        target_field=str(payload.get("target_field", "")),
+        source_column_key=(
+            str(payload["source_column_key"])
+            if payload.get("source_column_key") is not None
+            else None
+        ),
+        value_source=ScalarValueSource(
+            payload.get("value_source", ScalarValueSource.SOURCE.value)
+        ),
+        literal_value=(
+            str(payload["literal_value"])
+            if payload.get("literal_value") is not None
+            else None
+        ),
+        transform=ScalarTransformPolicy(
+            trim=bool(transform_payload.get("trim", False)),
+            collapse_whitespace=bool(
+                transform_payload.get("collapse_whitespace", False)
+            ),
+            empty_as_null=bool(
+                transform_payload.get("empty_as_null", False)
+            ),
+            case_mode=str(
+                transform_payload.get("case_mode", "preserve")
+            ),
+            decimal_locale=str(
+                transform_payload.get("decimal_locale", "invariant")
+            ),
+            date_format=str(
+                transform_payload.get("date_format", "iso")
+            ),
+            timezone=str(transform_payload.get("timezone", "UTC")),
+        ),
+        value_type=str(payload.get("value_type", "string")),
+        required=bool(payload.get("required", False)),
+        required_on_create=bool(
+            payload.get("required_on_create", False)
+        ),
+        compare=bool(payload.get("compare", True)),
+        validate_only=bool(payload.get("validate_only", False)),
+        null_policy=str(payload.get("null_policy", "distinct")),
     )
 
 

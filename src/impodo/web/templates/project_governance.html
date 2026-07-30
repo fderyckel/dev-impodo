@@ -4,7 +4,7 @@
   {% set step = "governance" %}
   {% include "_steps.html" %}
   <section class="form-card">
-    <p class="eyebrow">Phase A · People and governance</p>
+    <p class="eyebrow">Project setup · People and governance</p>
     <h1>Who owns this migration?</h1>
     <form method="post" action="/projects/{{ project.project_id }}/governance">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

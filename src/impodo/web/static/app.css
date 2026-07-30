@@ -308,7 +308,6 @@ body.sidebar-collapsed .sidebar-link {
 
 .app-main {
   min-width: 0;
-  overflow: hidden;
   background: var(--paper);
 }
 
@@ -1079,7 +1078,7 @@ label.model-choice input {
 }
 
 .mapping-table {
-  min-width: 1050px;
+  min-width: 1420px;
 }
 
 .mapping-table th[data-target] {
@@ -1092,6 +1091,75 @@ label.model-choice input {
 
 .mapping-table td:first-child select {
   min-width: 18rem;
+}
+
+.value-provider-cell,
+.transform-cell {
+  min-width: 19rem;
+  vertical-align: top;
+}
+
+.provider-control,
+.compact-control {
+  display: block;
+  margin-top: .7rem;
+  color: var(--muted);
+  font-size: .78rem;
+  font-weight: 700;
+}
+
+.provider-control[hidden],
+.compact-control[hidden] {
+  display: none;
+}
+
+.provider-control input,
+.provider-control select,
+.compact-control select {
+  width: 100%;
+  margin-top: .3rem;
+}
+
+.transform-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem .75rem;
+  margin-top: .65rem;
+}
+
+.transform-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  margin: 0;
+  font-size: .78rem;
+  font-weight: 500;
+}
+
+.transform-options input {
+  width: auto;
+  margin: 0;
+}
+
+.mapping-preview {
+  min-width: 13rem;
+  max-width: 20rem;
+  vertical-align: top;
+}
+
+.mapping-preview span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.mapping-preview span[aria-hidden="true"] {
+  margin: .25rem 0;
+  color: var(--muted);
+}
+
+.preview-error {
+  color: var(--danger);
+  font-weight: 700;
 }
 
 .compact-grid {

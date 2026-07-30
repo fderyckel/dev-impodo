@@ -1,4 +1,4 @@
-"""Profile-free source inspection for the local Phase B browser workflow.
+"""Profile-free source inspection for the local source-discovery workflow.
 
 The inspector reads an immutable project inbox file and produces a bounded,
 portable catalog.  It never changes the source file and never requires a
@@ -121,7 +121,7 @@ class SourceTableCatalog:
 
 @dataclass(frozen=True, slots=True)
 class SourceFileCatalog:
-    """Hash-bound Phase B catalog for one immutable project source file."""
+    """Hash-bound source catalog for one immutable project source file."""
 
     contract_version: int
     file_id: str

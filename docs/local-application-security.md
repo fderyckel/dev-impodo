@@ -17,15 +17,16 @@ requirements are known.
 loopback launch/session boundary, governed project forms, a resource-bounded
 source-validation worker, per-project DuckDB storage, Windows credential-store
 integration, registration evidence, and explicit local-versus-remote Odoo
-connection modes. Phase 1 also provides resource-bounded, hash-bound CSV/XLSX
-inventory, parsing overrides, warning acknowledgement, source confirmation,
-and frozen dataset versions. Phase 2B captures allowlisted Odoo 19 fields,
-governs natural keys and scope, authors business-key relationships, and stores
-immutable mapping revisions with deterministic, exact-hash semantic validation
-and submission evidence. The CLI continues to implement strict CSV/XLSX
-preparation and read-only Odoo preflight. Browser constants/transforms,
-mapping approval, signed packaging, and a packaged Odoo Compose laboratory
-remain later delivery slices.
+connection modes. Delivery Phase 1 provides resource-bounded, hash-bound
+CSV/XLSX inventory, parsing overrides, warning acknowledgement, source
+confirmation, and frozen dataset versions. Delivery Phase 2A captures
+allowlisted Odoo 19 fields and governs natural keys and scope. Delivery Phase
+2B authors business-key relationships and stores immutable mapping revisions
+with deterministic, exact-hash semantic validation and submission evidence.
+Delivery Phase 2C.1 adds browser scalar providers and transformations. The CLI
+continues to implement strict CSV/XLSX preparation and read-only Odoo
+preflight. Mapping approval, signed packaging, and a packaged Odoo Compose
+laboratory remain later delivery slices.
 
 ## 2. Proposed stack
 

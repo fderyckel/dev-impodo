@@ -8,6 +8,14 @@ The read-only milestone is one part of the larger Impodo migration product.
 See [End-to-end migration product vision](product-vision.md) for source
 inspection, mapping, staging, approval, loading, and reconciliation.
 
+## Terminology
+
+The browser uses named workflow steps: **Project setup**, **Source discovery**,
+**Target schema**, and **Governed mapping**. The product vision uses **Stages
+A–K** for the end-to-end business lifecycle. Numeric **Phases** describe
+delivery increments only: Phase 1, Phase 2A, Phase 2B, Phase 2C.1, and later
+roadmap phases. Do not use Phase A or Phase B.
+
 ## Architecture
 
 - [Security and infrastructure approval brief](security-and-infrastructure-approval.md)
@@ -29,22 +37,26 @@ inspection, mapping, staging, approval, loading, and reconciliation.
   constrain implementation.
 - [Implementation plan](implementation-plan.md) — package layout, sequence,
   deliverables, and definition of done.
-- [Phase 2B relationship and semantic-validation proposal](phase-2-relationship-semantic-validation-proposal.md)
-  — dataset-centric mapping contracts, relationship authoring, semantic
-  validation, immutable revisions, delivery slices, and acceptance criteria.
+- [Historical delivery Phase 2B relationship and semantic-validation proposal](phase-2-relationship-semantic-validation-proposal.md)
+  — the implemented relationship-mapping increment, its contracts, and its
+  acceptance criteria; current delivery status is in the product vision.
 - [Data-quality rules implementation plan](data-quality-rules-implementation-plan.md)
-  — governed source corrections, structured formats, rule evidence, package
-  quality gates, manager authoring, rollout, and acceptance criteria.
+  — phased delivery of governed corrections, structural transformations,
+  entity resolution, Odoo-aware validation, package quality gates, and
+  acceptance criteria.
 
 ## Contracts
 
-- [Migration project contract](contracts/migration-project.md) — Phase A
+- [Migration project contract](contracts/migration-project.md) — Stage A
   fields, lifecycle, source evidence, persistence, and browser safety boundary.
-- [Source catalog contract](contracts/source-catalog.md) — Phase B file
+- [Source catalog contract](contracts/source-catalog.md) — Stage B file
   inventory, bounded preview, candidate types, statistics, and hash binding.
 - [Source workspace and semantic-mapping contract](contracts/source-workspace.md)
   — source confirmation, frozen datasets, Odoo schema capture, invalidation,
   governed keys, relationships, semantic validation, and submissions.
+- [Data-transformation coverage contract](contracts/data-transformation-coverage.md)
+  — 24 transformation and cleaning case families, the measurable 95%
+  threshold, Odoo-specific semantics, and clean-package release gates.
 - [Profile contract](contracts/profile.md) — how a profile maps,
   types, identifies, resolves, and compares data.
 - [Prepared record contract](contracts/prepared-record.md) — the

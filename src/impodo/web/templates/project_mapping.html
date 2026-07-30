@@ -3,7 +3,7 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Phase 2B · Governed mapping</p>
+      <p class="eyebrow">Governed mapping · Map source columns to Odoo</p>
       <h1>Map source columns to Odoo</h1>
       <p>Define each dataset's identity, scope, scalar fields, and logical business-key relationships.</p>
     </div>
@@ -151,32 +151,117 @@
           {% endif %}
 
           <h3 id="scalar-fields-{{ dataset_index }}">Scalar target fields</h3>
-          <p class="muted">Each target field has one provider. A source column may be selected for several explicit target fields.</p>
-          <div class="table-scroll">
+          <p class="muted">Choose one governed value provider per target field. Constants, fallbacks, and transformations are stored in the exact mapping hash.</p>
+          <div data-scalar-field-catalog>
+            <div class="field-catalog-tools">
+              <label>
+                Search scalar fields
+                <input type="search" data-scalar-field-search placeholder="Search label, technical name, or type" autocomplete="off">
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" data-show-mapped-scalars>
+                Show mapped fields only
+              </label>
+              <p class="muted" data-scalar-field-count></p>
+            </div>
+            <div class="table-scroll">
             <table class="data-table mapping-table">
-              <thead><tr><th>Source</th><th>Canonical type</th><th>Odoo field</th><th>Metadata</th><th>Policies</th></tr></thead>
+              <thead><tr><th>Value provider</th><th>Canonical value</th><th>Odoo field</th><th>Metadata</th><th>Preview</th><th>Policies</th></tr></thead>
               <tbody>
                 {% for row in view.scalar_rows %}
                   {% set field_index = row.index %}
                   {% set mapping = row.mapping %}
-                  <tr>
-                    <td>
-                      <select name="scalar_source_{{ dataset_index }}_{{ field_index }}">
-                        <option value="">Not mapped</option>
-                        {% for column in view.source.columns %}
-                          <option value="{{ column.stable_key }}" {% if mapping and mapping.source_column_key == column.stable_key %}selected{% endif %}>
-                            {{ column.source_name }} ({{ column.candidate_type }})
-                          </option>
-                        {% endfor %}
+                  {% set value_source = mapping.value_source.value if mapping else '' %}
+                  <tr
+                    data-scalar-mapping-row
+                    data-scalar-field-row
+                    data-field-search-text="{{ row.metadata.label|lower }} {{ row.metadata.name|lower }} {{ row.metadata.type|lower }}"
+                    data-mapped="{{ 'true' if mapping else 'false' }}"
+                  >
+                    <td class="value-provider-cell">
+                      <select name="scalar_value_source_{{ dataset_index }}_{{ field_index }}" data-value-source>
+                        <option value="" {% if not mapping %}selected{% endif %}>Not mapped</option>
+                        <option value="source" {% if value_source == 'source' %}selected{% endif %}>Source column</option>
+                        <option value="constant" {% if value_source == 'constant' %}selected{% endif %}>Constant value</option>
+                        <option value="source_with_fallback" {% if value_source == 'source_with_fallback' %}selected{% endif %}>Source + fallback</option>
+                        <option value="odoo_default" {% if value_source == 'odoo_default' %}selected{% endif %}>Leave unset / Odoo default</option>
                       </select>
+                      <div class="provider-control" data-provider-source {% if value_source not in ('source', 'source_with_fallback') %}hidden{% endif %}>
+                        <label>Source column
+                          <select name="scalar_source_{{ dataset_index }}_{{ field_index }}" data-source-column>
+                            <option value="">Choose source column</option>
+                        {% for column in view.source.columns %}
+                            {% set sample_values = row.source_samples.get(column.stable_key, ()) %}
+                            <option value="{{ column.stable_key }}" data-sample="{{ sample_values[0] if sample_values else '' }}" data-sample-present="{{ 'true' if sample_values and sample_values[0] is not none else 'false' }}" {% if mapping and mapping.source_column_key == column.stable_key %}selected{% endif %}>
+                              {{ column.source_name }} ({{ column.candidate_type }})
+                            </option>
+                        {% endfor %}
+                          </select>
+                        </label>
+                      </div>
+                      <div class="provider-control" data-provider-literal {% if value_source not in ('constant', 'source_with_fallback') %}hidden{% endif %}>
+                        <label><span data-literal-label>{% if value_source == 'source_with_fallback' %}Fallback value{% else %}Constant value{% endif %}</span>
+                          <input
+                            name="scalar_literal_{{ dataset_index }}_{{ field_index }}"
+                            value="{{ mapping.literal_value if mapping and mapping.literal_value is not none else '' }}"
+                            {% if row.metadata.selection %}list="selection-values-{{ dataset_index }}-{{ field_index }}"{% endif %}
+                            data-literal-value
+                          >
+                        </label>
+                        {% if row.metadata.selection %}
+                          <datalist id="selection-values-{{ dataset_index }}-{{ field_index }}">
+                            {% for selection_key, selection_label in row.metadata.selection %}
+                              <option value="{{ selection_key }}">{{ selection_label }}</option>
+                            {% endfor %}
+                          </datalist>
+                        {% endif %}
+                      </div>
                     </td>
-                    <td>
-                      <select name="scalar_type_{{ dataset_index }}_{{ field_index }}">
+                    <td class="transform-cell">
+                      <select name="scalar_type_{{ dataset_index }}_{{ field_index }}" data-canonical-type>
                         {% set selected_type = mapping.value_type if mapping else row.canonical_type %}
                         {% for value_type in ('string', 'integer', 'decimal', 'boolean', 'date', 'datetime') %}
                           <option value="{{ value_type }}" {% if selected_type == value_type %}selected{% endif %}>{{ value_type }}</option>
                         {% endfor %}
                       </select>
+                      <div class="transform-options">
+                        <label><input type="checkbox" name="scalar_trim_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-trim {% if mapping and mapping.transform.trim %}checked{% endif %}> Trim</label>
+                        <label><input type="checkbox" name="scalar_collapse_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-collapse {% if mapping and mapping.transform.collapse_whitespace %}checked{% endif %}> Collapse spaces</label>
+                        <label><input type="checkbox" name="scalar_empty_null_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-empty-null {% if mapping and mapping.transform.empty_as_null %}checked{% endif %}> Empty → null</label>
+                      </div>
+                      <label class="compact-control">Case
+                        <select name="scalar_case_{{ dataset_index }}_{{ field_index }}" data-transform-case>
+                          {% set case_mode = mapping.transform.case_mode if mapping else 'preserve' %}
+                          {% for case_value in ('preserve', 'uppercase', 'lowercase') %}
+                            <option value="{{ case_value }}" {% if case_mode == case_value %}selected{% endif %}>{{ case_value }}</option>
+                          {% endfor %}
+                        </select>
+                      </label>
+                      <label class="compact-control" data-decimal-policy>
+                        Decimal locale
+                        <select name="scalar_decimal_locale_{{ dataset_index }}_{{ field_index }}">
+                          {% set decimal_locale = mapping.transform.decimal_locale if mapping else 'invariant' %}
+                          {% for locale in ('invariant', 'en_US', 'de_DE', 'fr_FR') %}
+                            <option value="{{ locale }}" {% if decimal_locale == locale %}selected{% endif %}>{{ locale }}</option>
+                          {% endfor %}
+                        </select>
+                      </label>
+                      <label class="compact-control" data-date-policy>
+                        Input format
+                        <select name="scalar_date_format_{{ dataset_index }}_{{ field_index }}">
+                          {% set date_format = mapping.transform.date_format if mapping else 'iso' %}
+                          <option value="iso" {% if date_format == 'iso' %}selected{% endif %}>YYYY-MM-DD / ISO</option>
+                          <option value="dmy_slash" {% if date_format == 'dmy_slash' %}selected{% endif %}>DD/MM/YYYY</option>
+                          <option value="mdy_slash" {% if date_format == 'mdy_slash' %}selected{% endif %}>MM/DD/YYYY</option>
+                          <option value="dmy_dot" {% if date_format == 'dmy_dot' %}selected{% endif %}>DD.MM.YYYY</option>
+                        </select>
+                      </label>
+                      <label class="compact-control" data-timezone-policy>
+                        Timezone
+                        <select name="scalar_timezone_{{ dataset_index }}_{{ field_index }}">
+                          <option value="UTC" selected>UTC</option>
+                        </select>
+                      </label>
                     </td>
                     <th data-target="{{ view.selected_model }}::{{ row.metadata.name }}">
                       {{ row.metadata.label }}<br><code>{{ row.metadata.name }}</code>
@@ -186,8 +271,18 @@
                       {% if row.metadata.required %} · required{% endif %}
                       {% if row.metadata.readonly %} · readonly{% endif %}
                     </td>
+                    <td class="mapping-preview" data-scalar-preview>
+                      {% if row.preview %}
+                        <span data-preview-raw>{{ row.preview.raw }}</span>
+                        <span aria-hidden="true">→</span>
+                        <span class="{% if row.preview.status == 'error' %}preview-error{% endif %}" data-preview-proposed>{{ row.preview.proposed }}</span>
+                      {% else %}
+                        <span class="muted" data-preview-raw>Choose a provider</span>
+                        <span data-preview-proposed></span>
+                      {% endif %}
+                    </td>
                     <td class="policy-cell">
-                      <label><input type="checkbox" name="scalar_compare_{{ dataset_index }}_{{ field_index }}" value="1" {% if not mapping or mapping.compare %}checked{% endif %}> Compare</label>
+                      <label><input type="checkbox" name="scalar_compare_{{ dataset_index }}_{{ field_index }}" value="1" data-scalar-compare {% if not mapping or mapping.compare %}checked{% endif %}> Compare</label>
                       <label><input type="checkbox" name="scalar_validate_only_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.validate_only %}checked{% endif %}> Validate only</label>
                       <label><input type="checkbox" name="scalar_required_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required %}checked{% endif %}> Required</label>
                       <label><input type="checkbox" name="scalar_required_create_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required_on_create %}checked{% endif %}> Required on create</label>
@@ -202,6 +297,7 @@
                 {% endfor %}
               </tbody>
             </table>
+            </div>
           </div>
 
           <h3 id="relationships-{{ dataset_index }}">Relationships</h3>

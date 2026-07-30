@@ -14,6 +14,13 @@ are defined there and are not silently included in this rules slice.
 
 **Status:** Proposed for implementation and architecture approval.
 
+The normative breadth and release criteria are defined by the
+[data transformation coverage contract](contracts/data-transformation-coverage.md).
+The early slices in this plan deliberately start with low-risk source-field
+rules. The later slices close the structural transformation, entity
+resolution, domain validation, Odoo semantic, and clean-package gaps identified
+by that catalogue.
+
 The feature remains inside the current safety boundary:
 
 - it reads source data and target evidence;
@@ -49,7 +56,11 @@ The implementation MUST provide:
 9. separation between source correction and target comparison;
 10. manifest, workbook, CLI, documentation, and test coverage;
 11. a governed path for a data manager to propose, test, approve, and publish
-    rules.
+    rules;
+12. traceable delivery against every applicable transformation case family;
+13. quarantine and reprocessing without modifying frozen source evidence;
+14. a clean-package gate that is distinct from mapping validity, rule-engine
+    success, and Odoo execution approval.
 
 The initial proof of concept MUST NOT provide:
 
@@ -57,8 +68,33 @@ The initial proof of concept MUST NOT provide:
 - unrestricted regular expressions;
 - silent correction of identifiers without an explicit approved rule;
 - automatic correction of legal names, brands, or human names by default;
+- automatic fuzzy matching, record merging, or survivor selection;
+- silent row dropping, join multiplication, truncation, lookup guessing, or
+  unmatched-record loss;
 - an approval signature or executable Odoo import plan;
 - an Odoo write capability.
+
+### 2.1 Coverage and delivery boundaries
+
+The coverage contract has 24 case families. A product-wide 95% claim requires
+at least 23 to be verified, with every mandatory high-risk family verified.
+`PARTIAL`, `DESIGNED`, and `GAP` do not count.
+
+This plan owns the rule compiler, evaluator, evidence, quality gates, and their
+integration with prepared records. Some catalogue families cross product
+boundaries:
+
+- table joins, unions, pivot/unpivot, grouping, aggregation, and expansion
+  integrate with the delivery Phase 3 staging/transformation compiler;
+- fuzzy entity resolution and survivorship integrate with data-manager review;
+- Odoo semantic certification integrates with captured schema, read-only
+  target preflight, and DEV/TEST rehearsal;
+- clean-package certification integrates with staging, approval, and
+  reconciliation.
+
+Those boundaries do not remove the cases from the coverage obligation. Each
+owning component must implement the shared contracts, evidence, and gates
+defined here and in the coverage catalogue.
 
 ## 3. Architectural decision
 
@@ -191,9 +227,26 @@ The initial implementation will support:
 | `format` | bounded template, letter case, character set | No |
 | `forbidden_characters` | built-in control/invisible-character classes | No |
 
-Rules such as length, numeric ranges, allowlists, conditional requirements,
-cross-field constraints, and checksums are follow-on candidates. The rule
-framework MUST allow new discriminated rule types without adding
+The first evaluator slice remains intentionally small. The following are
+required follow-on rule families rather than optional ideas:
+
+- length, numeric range, allowlist, denylist, checksum, and conditional
+  requiredness;
+- declared number, money, percentage, unit, date, datetime, boolean, and
+  sentinel parsing;
+- versioned dictionaries, exact lookups, selection translations, constants,
+  defaults, ordered coalesce, and bounded conditions;
+- split, extract, concatenate, date arithmetic, and safe calculated values;
+- email, phone, country/subdivision/postcode, address, VAT/tax, IBAN/BIC,
+  GTIN/EAN, and URL validation;
+- cross-field, cross-row, distribution, and reconciliation rules.
+
+Structural transforms, entity resolution, survivorship, and Odoo semantic
+certification use separate domain objects because they operate across rows,
+datasets, reviewer decisions, or target context. They still feed the same
+issue, evidence, quarantine, and clean-package gates.
+
+The rule framework MUST allow new discriminated rule types without adding
 dataset-specific branches to the engine.
 
 ### 4.4 Case definitions
@@ -724,6 +777,185 @@ Gate:
 - profiles without source rules retain their existing conclusions;
 - no write capability has been introduced.
 
+### Slice 8 — General validation and reference-value rules
+
+Primary modules:
+
+- `profile.py`;
+- rule compiler/evaluator;
+- mapping-to-staging compiler;
+- dictionary/reference-data adapter.
+
+Deliver:
+
+- length, range, allowlist, denylist, checksum, and conditional-required rules;
+- explicit sentinel/null and boolean token policies;
+- strict locale-aware number, money, percentage, unit, date, and datetime
+  parsing;
+- versioned exact dictionaries, lookup translations, and Odoo selection keys;
+- constants, source fallbacks, leave-unset/Odoo-default intent, ordered
+  coalesce, and bounded if/then/else;
+- one canonical implementation of the delivery Phase 2C.1 browser-authored scalar
+  providers and transformations, reused by preview and full-row execution.
+
+Tests:
+
+- invalid locale, grouping, sign, scientific notation, precision, and rounding;
+- ambiguous dates, Excel date systems, timezone offsets, and daylight-saving
+  boundaries;
+- null/empty/zero/false/sentinel distinctions;
+- unknown and duplicate lookup keys;
+- fallback only after the declared empty-to-null policy;
+- selection labels rejected unless explicitly translated to technical keys;
+- preview and runtime produce the same result for the same raw value.
+
+Gate:
+
+- every mapped scalar value is reproducibly constructed, typed, and validated
+  without guessing a locale, lookup, default, or Odoo selection value.
+
+### Slice 9 — Structural and derived transformations
+
+Primary modules:
+
+- new transformation-plan domain module;
+- staging compiler and store;
+- row-lineage and reconciliation contracts.
+
+Deliver:
+
+- select, rename, copy, drop, reorder, filter, and quarantine;
+- split, bounded extract, concatenate, date arithmetic, and safe calculations;
+- join, append/union, pivot, unpivot, group, aggregate, row expansion, and row
+  combination;
+- explicit join cardinality and unmatched-row policies;
+- stable trace identities for every constructed row;
+- row-count equations and control-total reconciliation for each transform.
+
+Tests:
+
+- one-to-one, one-to-many, and many-to-many join cardinalities;
+- unexpected join multiplication blocks;
+- unmatched rows are retained or quarantined according to policy;
+- quoting, escaping, empty tokens, ordering, and duplicates in split values;
+- aggregation null, precision, rounding, and conflict policies;
+- pivot/unpivot and expansion preserve lineage and reconcile counts.
+
+Gate:
+
+- no structural transform can silently drop, duplicate, combine, or invent a
+  row without deterministic lineage and reconciliation evidence.
+
+### Slice 10 — Domain-quality validators
+
+Primary modules:
+
+- new domain-validator registry;
+- optional versioned reference-data provider ports;
+- masking and evidence policy.
+
+Deliver:
+
+- email, phone, country/subdivision/postcode, VAT/tax, IBAN/BIC, GTIN/EAN, URL,
+  and organization-approved validators;
+- explicit region/context inputs where semantics depend on country;
+- optional postal-address verification behind an approved provider interface;
+- validator version and reference-data version in semantic hashes;
+- clear separation between syntax, checksum, reference match, and external
+  deliverability/verification.
+
+Tests:
+
+- valid, invalid, incomplete, and ambiguous examples from multiple countries;
+- leading zeros and punctuation preserved where meaningful;
+- provider unavailable, expired reference data, and unsupported country;
+- sensitive values masked in evidence and absent from logs;
+- no external verification result is guessed or silently downgraded to valid.
+
+Gate:
+
+- each enabled domain validator states exactly what it proves, what it does not
+  prove, and which versioned evidence produced the result.
+
+### Slice 11 — Entity resolution and survivorship
+
+Primary modules:
+
+- new entity-resolution domain module;
+- candidate-index adapter;
+- reviewer-decision and survivorship contracts;
+- staging integration.
+
+Deliver:
+
+- deterministic blocking keys and bounded candidate generation;
+- versioned exact, Levenshtein, Jaro-Winkler, token, or other approved match
+  methods;
+- per-field weights, thresholds, scores, alternatives, and language limits;
+- explicit `MATCH`, `NOT_A_MATCH`, and `DEFER` reviewer decisions;
+- field-level survivorship using approved source priority, recency,
+  completeness, deterministic rule, or explicit reviewer choice;
+- immutable cluster, decision, source-row, and golden-record lineage.
+
+Tests:
+
+- exact duplicates, likely duplicates, homonyms, false positives, false
+  negatives, transliteration, accents, and unsupported scripts;
+- threshold changes alter hashes and require new review;
+- all-to-all comparison is prevented at scale by governed blocking;
+- no cluster is merged and no survivor is selected without the required
+  decision;
+- conflicting field values remain visible.
+
+Gate:
+
+- zero unreviewed fuzzy candidates and zero unexplained survivor fields may
+  enter an import-candidate package.
+
+### Slice 12 — Odoo semantic and clean-package certification
+
+Primary modules:
+
+- Odoo semantic validator;
+- staging/preflight integration;
+- package certificate and quarantine workflow;
+- DEV/TEST rehearsal adapter.
+
+Deliver:
+
+- External ID strategy, uniqueness, stability, and relationship use;
+- selection technical-key validation;
+- company-dependent and multi-company relationship checks;
+- currency, rounding, unit-of-measure, translation, and archive-state context;
+- readonly, computed, related, inverse, Odoo-default, and custom-constraint
+  deferrals;
+- quarantine reason, owner, expiry, correction, and rerun lifecycle;
+- source/staged/candidate/quarantine counts and business control totals;
+- frozen source, mapping, ruleset, schema, canonical, target, and package
+  hashes;
+- a clean-package certificate that remains separate from mapping submission,
+  normalization approval, and execution approval;
+- controlled Odoo 19 DEV/TEST rehearsal evidence.
+
+Tests:
+
+- External ID collisions and instability;
+- selection label versus technical key;
+- cross-company relationship and company-dependent field context;
+- money without currency, quantity without unit, and translated value without
+  language;
+- Odoo-default warning remains until rehearsal;
+- quarantined/excluded counts reconcile to the source;
+- any changed input invalidates the certificate;
+- all source rows reach exactly one terminal accounting category.
+
+Gate:
+
+- every applicable release gate in the
+  [coverage contract](contracts/data-transformation-coverage.md#9-clean-package-release-gates)
+  passes for the exact package before the data manager can label it clean for
+  Odoo DEV/TEST rehearsal.
+
 ## 10. Acceptance matrix
 
 Minimum business acceptance cases:
@@ -744,6 +976,21 @@ Minimum business acceptance cases:
 | same source/profile/rules/snapshots | Byte-identical manifest |
 | one rule parameter changes | New ruleset and semantic hashes |
 | profile without source rules | Current results remain unchanged |
+| locale decimal without a declared locale | Rejected; locale is never guessed |
+| ambiguous source date such as `01/02/2026` | Rejected until a date convention is declared |
+| source label differs from Odoo selection key | Explicit lookup required; label is not imported silently |
+| join expected one-to-one produces two matches | Transform and package blocked |
+| filter excludes rows | Every excluded row is quarantined or explicitly reconciled |
+| lookup contains two matches for one source value | Ambiguous; no value selected |
+| fuzzy candidate exceeds a similarity threshold | Candidate retained for review; no automatic merge |
+| two records are approved as one entity | Every survivor field retains source/rule/reviewer lineage |
+| phone number lacks required country context | Warning or rejection according to the governed rule |
+| valid-looking IBAN fails checksum | Rejected |
+| monetary value has no currency context | Blocked before Odoo rehearsal |
+| relationship crosses an invalid company boundary | Blocked |
+| Odoo selection label supplied instead of technical key | Blocked unless an approved translation exists |
+| quarantined rows plus candidates do not equal source rows | Clean-package certification blocked |
+| exact package passes rules but not Odoo DEV/TEST constraints | Not clean for execution; package remains blocked |
 
 Minimum product-code corpus:
 
@@ -770,6 +1017,12 @@ The implementation MUST:
 - redact raw values from logs and exceptions;
 - apply field-level evidence masking;
 - avoid connector calls inside rule or row loops;
+- prohibit unbounded all-to-all fuzzy comparison;
+- bound join cardinality, expansion ratios, token counts, lookup sizes, and
+  candidate counts;
+- require batched or staged reference and relationship resolution;
+- version external reference data and fail closed when required evidence is
+  unavailable or stale;
 - aggregate passing outcomes to limit memory growth;
 - preserve deterministic ordering;
 - include rule configuration in canonical hashing;
@@ -791,7 +1044,14 @@ Recommended rollout:
 6. introduce low-risk `correct` rules for trim/collapse;
 7. pilot sentence/title behavior only on selected descriptive fields;
 8. expand to customer data with masking and stricter exception governance;
-9. require the package quality gate in future approval/import automation.
+9. add exact dictionaries, scalar construction, and general validation rules;
+10. add structural transforms with mandatory row-count reconciliation;
+11. pilot domain validators on sanitized country-specific corpora;
+12. introduce fuzzy entity candidates in suggestion-only mode;
+13. add reviewed survivorship after false-positive/false-negative analysis;
+14. require Odoo semantic and clean-package gates;
+15. make controlled DEV/TEST rehearsal evidence mandatory before execution
+    approval.
 
 No rule should move directly from draft to rejection enforcement on an
 unmeasured production-sized source package.
@@ -812,6 +1072,20 @@ The following business decisions must be recorded during Slice 0:
 8. What is the exception process and expiry policy?
 9. How long are raw/corrected rule artifacts retained?
 10. Which pipeline or future approval component enforces the package gate?
+11. Which structural transforms are required for the first migration, and what
+    cardinality and reconciliation policy applies to each?
+12. Which domain validators are required, for which countries, and what does
+    each validator claim to prove?
+13. Which fuzzy matching methods, blocking keys, thresholds, languages, and
+    review roles are permitted?
+14. Which field-level survivorship rules are functionally acceptable?
+15. What is the External ID strategy for create, update, and relationship
+    imports?
+16. Which Odoo fields require company, currency, unit, or language context?
+17. Which warnings may be accepted, and which findings always block a clean
+    package?
+18. Which low-risk case family, if any, may be excluded from the product-level
+    95% claim?
 
 ## 14. Definition of done
 
@@ -827,6 +1101,21 @@ The feature is complete only when:
 - the package quality gate cannot be confused with command success;
 - the data manager can preview rule impact before publication;
 - every reviewed rule change has a retained profile/ruleset hash;
+- at least 23 of the 24 applicable transformation case families are verified
+  and every mandatory family is verified;
+- structural transforms preserve row lineage and reconcile counts and control
+  totals;
+- fuzzy candidates cannot merge records without reviewer evidence;
+- every survivor field has explicit provenance;
+- domain validators state their proof boundary and reference-data version;
+- Odoo External ID, selection, company, currency, unit, language, default, and
+  custom-constraint risks are resolved or fail closed;
+- every source row is accounted for as a candidate, reference,
+  quarantine/exclusion, or other governed terminal category;
+- the exact clean-package candidate passes controlled Odoo 19 DEV/TEST
+  rehearsal;
+- mapping validity, rule-engine success, normalization approval,
+  clean-package certification, and execution approval remain separate states;
 - the golden and deployment acceptance slices pass;
 - performance and privacy gates pass;
 - no Odoo write surface exists.

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-A migration project is the Phase A governance boundary for every later source,
+A migration project is the Stage A governance boundary for every later source,
 mapping, snapshot, preflight, approval, and reconciliation artifact. The local
 browser is the normal authoring interface. The registered JSON manifest is the
 portable machine contract; users do not edit it by hand.
@@ -72,7 +72,7 @@ database so it cannot be silently reused after a target change.
 
 ## Source-file evidence
 
-Phase A accepts `.csv` and `.xlsx` only. The intake service:
+Stage A accepts `.csv` and `.xlsx` only. The intake service:
 
 1. rejects paths, control characters, unsupported extensions, empty files, and
    files above the configured bound;

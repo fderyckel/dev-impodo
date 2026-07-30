@@ -20,6 +20,14 @@ This guide covers the current workflow:
 Impodo is currently a planning and validation tool. It cannot create, change,
 or delete Odoo records, and it does not offer a Production target.
 
+The current browser can author constants, source fallbacks, explicit
+leave-unset/Odoo-default intent, and a small allowlist of scalar
+transformations. It previews one bounded inspected sample and validates the
+mapping definition. It does not yet execute those rules against every source
+row or produce a clean canonical package. See
+[Normalization, transformation, and cleaning](#normalization-transformation-and-cleaning)
+before submitting a mapping.
+
 ## The quickest safe route
 
 For a routine project, use this checklist:
@@ -36,6 +44,9 @@ For a routine project, use this checklist:
 - Capture only the Odoo models approved for this migration.
 - Confirm a real business key for every target model.
 - Map identity first, ordinary fields second, and relationships third.
+- Configure supported scalar providers and transformations in the mapping.
+  Record every unsupported lookup, structural transform, domain rule, or
+  correction in an approved transformation register.
 - Save and validate.
 - Resolve all blocking findings and review every warning.
 - Submit the exact validated revision.
@@ -48,12 +59,13 @@ operating model, not a software permission boundary.
 
 | Activity | Data analyst | Data manager |
 | --- | --- | --- |
-| Prepare source files | Checks structure, headers, and data quality | Confirms the files are complete and authorised |
+| Prepare source files | Identifies structural and data-quality issues without changing the registered evidence | Confirms the files are complete and authorised |
 | Register the project | Supplies source and export details | Owns purpose, classification, retention, and accountability |
 | Inspect source data | Leads previews, parsing choices, and table selection | Reviews material warnings and exclusions |
 | Name and freeze datasets | Proposes clear dataset names | Confirms the selected migration scope |
 | Confirm Odoo business keys | Tests whether source columns can supply them | Obtains functional/Odoo-owner approval |
 | Build mappings | Leads field and relationship mapping | Confirms business meaning and migration policy |
+| Specify cleaning and transformations | Configures supported mapping rules and records unsupported rules in the transformation register | Approves rule meaning, ownership, and exceptions |
 | Resolve validation findings | Corrects mappings and documents exceptions | Accepts warnings and confirms readiness |
 | Submit a mapping | Prepares the validated revision | Verifies the evidence and submits, or delegates explicitly |
 
@@ -363,6 +375,18 @@ Confirm the source only when the preview represents the intended table.
 Warnings must be understood and explicitly acknowledged; acknowledgement does
 not correct the underlying data.
 
+### Inspection is diagnosis, not cleaning
+
+Inspection may show surrounding spaces, inconsistent case, unexpected blanks,
+mixed candidate types, or duplicate-looking values. It does not trim, replace,
+deduplicate, recalculate, or rewrite those values.
+
+For example, confirming a preview containing `"  Acme Belgium  "` confirms
+that those exact spaces were observed in the registered source. It does not
+turn the value into `"Acme Belgium"`. Likewise, selecting `boolean` later in
+the mapping does not prove that every source token can be converted to
+`true` or `false`.
+
 ## 4. Name and freeze the datasets
 
 After all files are confirmed, select the exact worksheet, named table, or CSV
@@ -504,7 +528,15 @@ duplicate, or unconfirmed identity component is a blocking validation finding.
 
 ### Map ordinary fields
 
-Map the source values that should be compared with writable Odoo fields.
+Choose one value provider for each writable Odoo field:
+
+- **Source column** uses the selected frozen column;
+- **Constant value** supplies the same governed literal to every row;
+- **Source + fallback** uses the literal only when the source is missing or
+  becomes null under the selected empty-to-null policy;
+- **Leave unset / Odoo default** omits the field from the future create
+  payload. This requires warning acknowledgement because metadata capture
+  cannot prove the runtime default.
 
 Worked example:
 
@@ -513,7 +545,13 @@ Worked example:
 | companies | `company_name` | `name` | Required when a new company is prepared |
 | partners | `contact_name` | `name` | Required when a new contact is prepared |
 | partners | `email` | `email` | Optional; blank policy must be deliberate |
-| partners | `active_flag` | `active` | Source values must be convertible to true/false |
+| partners | `active_flag` | `active` | Values will need row-level boolean validation during a later staging/preflight phase |
+
+Use only the allowlisted transformations shown by the editor: trim, collapse
+whitespace, empty-to-null, uppercase/lowercase for strings, declared decimal
+locale, explicit date format, and UTC for datetimes. The preview shows one
+bounded inspected sample as `raw -> proposed`; save the draft to run
+mapping-level semantic validation.
 
 For each field, consider:
 
@@ -618,6 +656,11 @@ every source key is unique, that every related record exists in the live
 target, or that an eventual load will succeed. Those checks belong to staging
 and preflight.
 
+It also does not execute cleaning rules against every row. A semantically
+valid mapping can still contain values with invalid dates, ambiguous decimal
+formats, unwanted spaces, unknown lookup codes, or collisions that appear
+only after normalization.
+
 ### Save draft versus submit
 
 - **Save and validate draft** creates an immutable mapping revision and
@@ -630,6 +673,155 @@ revision remains in history but is no longer the active mapping for the new
 evidence. Revalidate and submit a new revision.
 
 Submission is not an Odoo import, an execution approval, or a write action.
+
+## Normalization, transformation, and cleaning
+
+### What is available now
+
+The local browser currently stores constants, source fallbacks, explicit
+leave-unset/Odoo-default intent, canonical types, comparison/null policies, and
+allowlisted trim, whitespace-collapse, empty-to-null, casing, declared-decimal,
+explicit-date, boolean, and UTC-datetime policies in the exact mapping hash.
+It previews one bounded inspected source sample as raw and proposed values.
+
+The browser does not currently provide:
+
+- authoritative execution of those rules against every source row;
+- governed value-replacement dictionaries or source-to-Odoo selection lookups;
+- Unicode-form, domain-specific, conditional, split, concatenate, join, pivot,
+  grouping, fuzzy-match, or survivorship operations;
+- row-level raw, governed, and canonical evidence;
+- post-correction duplicate and relationship checks over the full source;
+- quarantine/reprocessing or a clean-package release gate;
+- durable canonical staging.
+
+Technical teams may also use Impodo's expert-profile preflight path for fixed
+type parsing and comparison normalization. Neither a bounded browser preview
+nor that expert path is the complete governed cleaning workflow, and neither
+must be represented as data-manager approval of a clean source package.
+
+### Where this belongs in the future workflow
+
+In the product lifecycle, browser rule configuration belongs to **Stage D**;
+the implemented delivery increment is **Phase 2C.1**. Row-level normalization
+belongs to **Stage E**, and durable canonical staging begins in **Stage F** /
+delivery **Phase 3**. The planned workflow separates three responsibilities:
+
+1. **Stage D — Mapping and rule definition:** choose an allowlisted
+   transformation, record its business purpose, and preview its likely impact.
+2. **Stage E — Normalize and validate:** apply the approved rules to every
+   source row, retain the raw value, create the governed value, parse the
+   canonical type, and run post-correction identity, relationship, and
+   business checks.
+3. **Stage F — Canonical staging:** store the resulting rows, lineage, rule
+   versions, warnings, rejections, and correction evidence before target
+   preflight or approval.
+
+Rules will be declarative and allowlisted. They will not execute arbitrary
+Python, SQL, spreadsheet formulas, Odoo methods, or user-supplied regular
+expressions.
+
+### Worked examples and availability
+
+**Mapping preview** means the current browser can store the rule and preview a
+bounded sample. It does not mean every row has passed. **Future governed
+execution** means full-row staging and evidence are still required.
+
+| Raw source value | Governed rule | Canonical/proposed result | Availability | Required safeguard |
+| --- | --- | --- | --- | --- |
+| `"  Acme   Belgium  "` | Trim and collapse whitespace | `"Acme Belgium"` | Mapping preview | Do not apply automatically to legal names or brands without functional approval |
+| `prod-001` | Uppercase an approved product-code field | `PROD-001` | Mapping preview | Recheck duplicates after case conversion |
+| `00123` | Preserve identifier as text | `"00123"` | Mapping preview | Never infer that an identifier is an integer |
+| `1.234,56` | Parse using an explicitly selected decimal convention | `1234.56` | Mapping preview | Never guess from the computer's locale |
+| `31/12/2026` | Parse using an explicitly selected day-month-year convention | `2026-12-31` | Mapping preview | Reject ambiguous dates when no convention is approved |
+| `Yes` | Map through the supported boolean tokens | `true` | Mapping preview | Unknown tokens such as `Maybe` must warn or block during full-row execution |
+| blank cell | Apply empty-to-null, fallback, leave-unset, and null policies deliberately | null, fallback, unchanged, clear, or blocked | Mapping preview, depending on provider | Blank, zero, `false`, and the text `"NULL"` must remain distinct unless a rule says otherwise |
+| `BE;LU;BE;;` | Split a many-to-many list and apply its duplicate/empty-token policy | `BE`, `LU` | Future governed execution | Report duplicates and empty items; do not silently discard them |
+| `Belgium` | Use an approved country lookup | `BE` | Future governed execution | Unknown or multiply matched labels must not be guessed |
+| blank `country_code` | Supply approved fallback `BE` | `BE` | Mapping preview | A fallback fills only a governed null; it must not overwrite a meaningful value |
+| `first_name` + `last_name` | Concatenate with an approved separator and null policy | proposed display name | Future governed execution | Show the exact result when either input is blank |
+
+Constants and lookups must use business values, not internal numeric Odoo IDs.
+For example, a company default should use a governed company code resolved
+through a confirmed business key, never a remembered `company_id`.
+
+### Best way to use Impodo today
+
+Until full-row governed execution and canonical staging are implemented:
+
+1. Keep the original source-system export unchanged and register that evidence
+   in Impodo.
+2. Use inspection to distinguish parsing problems from actual data-quality
+   problems. A wrong delimiter or header row is a parsing problem; inconsistent
+   customer codes are a data-quality problem.
+3. Configure supported providers and scalar transformations in the mapping so
+   they are included in the immutable revision. Use the raw-to-proposed preview
+   as evidence of intent, not as proof that every source row is clean.
+4. Maintain an approved transformation register outside Impodo for unsupported
+   lookups, structural changes, domain validation, entity resolution,
+   exceptions, and derived values. Use a controlled spreadsheet, project
+   document, or ticketing record approved by the data manager, under the same
+   classification, access, and retention controls as the source. Include at
+   least the dataset, source field, target field, rule, before/after example,
+   rule owner, approval status, and exception policy.
+5. Prefer a corrected export produced by the source-system owner. When that is
+   impossible, create a separately governed derivative and retain both its
+   lineage and the unchanged original.
+6. Do not overwrite a registered project file. Register a corrected package as
+   a new project or rehearsal so its new hashes, inspection, frozen selection,
+   and mapping review remain explicit.
+7. Recheck business-key uniqueness and relationship keys after every proposed
+   correction. Trimming or changing case can turn two apparently different
+   keys into one collision.
+8. Treat **Valid** and **Submitted** as statements about the mapping revision,
+   not proof that the source rows are clean, target-ready, or approved for
+   import.
+
+For unsupported rules, or when policy requires an independent approval record,
+a practical transformation register can begin with:
+
+| Dataset | Source field(s) | Target | Proposed rule | Example | Owner | Decision |
+| --- | --- | --- | --- | --- | --- | --- |
+| products | `item_code` | `default_code` | Trim, uppercase, preserve leading zeros | `" 001a "` → `"001A"` | Product owner | Proposed |
+| partners | `country_name` | `country_id` | Approved name-to-ISO lookup | `Belgium` → `BE` | Data manager | Approved for rehearsal |
+| partners | `active_flag` | `active` | `Y/Yes/1` → true; `N/No/0` → false | `Y` → `true` | Functional owner | Proposed |
+
+### Coverage required before claiming a clean import package
+
+The normalization design covers the core ideas, but a data manager should not
+call a package clean until all applicable cases below have explicit rules,
+full-row results, resolved exceptions, and release evidence:
+
+| Area | Proposed required behavior |
+| --- | --- |
+| Unicode and invisible text | Distinguish ordinary spaces, non-breaking spaces, zero-width characters, control characters, and Unicode normalization forms; show what changed |
+| Multilingual case handling | Test accents, German `ß`, Turkish dotted/dotless `I`, apostrophes, and hyphenated words; never title-case names, brands, or legal entities by default |
+| Numbers and money | Require decimal and thousands conventions; define currency, percentage, scientific notation, accounting negatives, precision, and rounding behavior |
+| Dates and datetimes | Handle Excel's date system explicitly; require date order and timezone; detect invalid dates and ambiguous or nonexistent daylight-saving times |
+| Nulls and booleans | Keep null, empty text, whitespace-only text, zero, `false`, `"N/A"`, and `"NULL"` distinct unless an approved field rule maps them |
+| Identifiers | Preserve leading zeros and significant punctuation; prohibit silent numeric coercion, scientific notation, rounding, or case changes |
+| Length and truncation | Validate Odoo and business length limits; never truncate silently; report the original length and approved resolution |
+| Lookups and selections | Bind source values to Odoo technical selection values or business keys through an explicit versioned table; block unknown and ambiguous matches |
+| Constants and defaults | Distinguish “fill only when blank” from “always set”; show scope and prevent a default from overwriting meaningful source data silently |
+| Split and concatenate | Define separators, quoting, escaping, empty tokens, duplicate items, ordering, and null behavior before processing lists or combined fields |
+| Identity and relationships | Apply the same governed key representation on both sides, then detect post-correction duplicates, missing references, ambiguity, and cycles |
+| Odoo context | Treat monetary values with their currency, company-dependent fields with company scope, and translated fields with an explicit language context |
+| Cross-field and cross-row rules | Support conditional requirements, date order, totals, balances, checksums, and parent/child consistency as separately approved rules |
+| Evidence and privacy | Retain raw/governed/canonical lineage while masking sensitive before/after values in reports and keeping secrets out of logs |
+| Repeatability and scale | Require idempotent rules, deterministic results, bounded processing, and batched relationship checks instead of one live Odoo request per row |
+
+These proposals require engineering, data-management, functional, and security
+approval before implementation. Rules that can alter financial totals, legal
+status, company ownership, tax meaning, names, brands, or master-data semantics
+must never be enabled as generic automatic corrections.
+
+The product-stage definitions are maintained in the
+[end-to-end product vision](../product-vision.md). The detailed
+[data-quality rules implementation plan](../data-quality-rules-implementation-plan.md)
+and the normative
+[data-transformation coverage contract](../contracts/data-transformation-coverage.md)
+define the proposed delivery scope. They are not statements that every
+capability is already available in the browser.
 
 ## Final review checklist
 
@@ -649,6 +841,11 @@ all of these:
 - Are dependency cycles absent?
 - Are all blocking findings resolved?
 - Has every warning been understood and acknowledged?
+- Are supported providers and transformations stored in the exact mapping
+  revision, with every unsupported or externally governed rule recorded in the
+  transformation register?
+- Is everyone clear that current semantic validation has not executed those
+  rules against every source row?
 - Does the displayed evidence belong to the intended DEV or TEST project?
 - Is the exact validated revision the one being submitted?
 
@@ -666,6 +863,8 @@ all of these:
 | Relationship is unresolved | Resolver, key component, or source column is missing | Complete the relationship through a confirmed business key |
 | Relationship is ambiguous | The key can match more than one record | Strengthen the key/scope; do not ignore ambiguity |
 | Dependency cycle | Two or more incoming datasets require each other first | Redesign the ownership or split the migration sequence |
+| Preview still shows spaces, inconsistent case, or dirty values | Inspection displays registered evidence; it does not clean it | Configure a supported mapping rule, or record the unsupported rule and obtain an approved corrected export or governed derivative |
+| Mapping is valid but some row values look invalid | Current validation checks mapping semantics, not every row | Do not treat the mapping as load-ready; record the issue for later governed staging/preflight |
 | Connection test fails | Odoo is stopped, URL/database is wrong, or access is insufficient | Verify the approved target details with the Odoo administrator |
 | Stored API key no longer works | It expired or the target details changed | Supply a new key for the exact target |
 | Stop and Restart are not available | The services were already running or were started by an earlier Impodo session | Use the workspace's approved manual shutdown procedure; the current session will not claim those processes |
@@ -694,6 +893,10 @@ be retained.
 | Scalar field | An ordinary value such as name, date, amount, or active flag |
 | Relationship | A link to another business record |
 | Resolver | The rule used to find that related record |
+| Raw value | The exact value read from the unchanged registered source |
+| Governed value | A future value produced by an approved correction rule, with evidence |
+| Canonical value | A typed, consistently represented value used for validation and comparison |
+| Transformation register | The controlled external record for unsupported or externally governed corrections, lookups, structural rules, exceptions, and derived values |
 | Revision | An immutable saved version of the mapping |
 | Validation finding | A blocking error or warning produced by semantic rules |
 | Submission | A record that one exact validated mapping revision was handed forward |
@@ -705,6 +908,12 @@ discovery, source freezing, allowlisted Odoo schema capture, governed business
 keys, scalar mapping, relationship mapping, semantic validation, and exact
 mapping submission.
 
-It does not yet provide transformations and constants, mapping import/export,
+It can author and preview the supported providers and scalar transformations,
+but it does not yet execute them authoritatively against every source row. It
+also does not yet provide governed lookup dictionaries, structural and
+entity-resolution transformations, domain validation, mapping import/export,
 mapping approval, durable canonical staging, controlled Odoo loading, or
-post-load reconciliation. It has no Odoo write capability.
+post-load reconciliation. The proposed user workflow and coverage requirements
+are documented in
+[Normalization, transformation, and cleaning](#normalization-transformation-and-cleaning).
+It has no Odoo write capability.

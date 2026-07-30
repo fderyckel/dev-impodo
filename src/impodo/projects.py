@@ -95,7 +95,7 @@ class ProjectSummary:
 
 @dataclass(frozen=True, slots=True)
 class MigrationProject:
-    """Phase A migration-project aggregate."""
+    """Project-setup migration-project aggregate."""
 
     project_id: str
     name: str
@@ -347,7 +347,7 @@ class ProjectService:
     ) -> MigrationProject:
         """Set the exact Odoo models Stage C may read and map.
 
-        This deliberately remains available after Stage A registration.  It is
+        This deliberately remains available after project registration. It is
         a schema-discovery decision, rather than a change to the registered
         Odoo target or the project's business context.
         """

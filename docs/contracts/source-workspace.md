@@ -68,7 +68,11 @@ Each frozen dataset declares:
 - one permitted target model and `upsert`, `create`, or `reference` mode;
 - source trace identity;
 - target identity and scope matching one confirmed business key;
-- typed scalar mappings and comparison/null policies;
+- typed scalar mappings with one explicit source-column, constant,
+  source-with-fallback, or leave-unset/Odoo-default provider;
+- allowlisted trim, whitespace, empty-to-null, casing, decimal-locale,
+  date-format, and UTC datetime transformation policies;
+- comparison, required-value, validate-only, and null policies;
 - many2one and many2many mappings resolved through an incoming dataset or an
   existing-target business key.
 
@@ -76,6 +80,16 @@ One2many fields are not directly mapped. The browser identifies the captured
 inverse field and guides the user to map the child dataset's owning many2one.
 Target fields have one provider per dataset; one source column may feed several
 explicit mappings.
+
+Constants and fallbacks are stored as raw governed literals and validated
+against the captured Odoo field type and selection keys. `odoo_default` means
+the future create payload omits that field; it does not call `default_get`.
+Because schema metadata cannot prove the runtime default, this provider emits a
+warning that must be acknowledged and later verified in DEV/TEST.
+
+The browser preview uses only the bounded, hash-bound samples already captured
+during source inspection. It never performs a per-field Odoo query and is not a
+replacement for row-level staging validation.
 
 ## Semantic validation and submission
 
@@ -96,5 +110,5 @@ requires no blocking issue plus acknowledgement of every current warning. It
 means ready for a later approval slice, is not approval itself, and grants no
 Odoo write capability.
 
-Constants, transformations, mapping import/export, and mapping approval remain
-the Phase 2C scope.
+Governed lookup translations, mapping import/export, functional review, and
+mapping approval remain in the later delivery Phase 2C scope.

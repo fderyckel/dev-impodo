@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The source catalog is the first Phase B artifact. It describes an immutable
+The source catalog is the first Stage B artifact. It describes an immutable
 project source file before a mapping exists, allowing a data manager to inspect
 what was imported without writing YAML.
 
@@ -23,9 +23,9 @@ limit. The existing XLSX container checks still reject traversal, encryption,
 macros, external links and connections, embedded objects, suspicious
 compression, and unsafe archive structure before workbook parsing.
 
-Catalogs are stored in the project DuckDB database. They are separate Phase B
+Catalogs are stored in the project DuckDB database. They are separate Stage B
 artifacts: generating a catalog does not reopen, revise, or invalidate the
-registered Phase A project.
+registered Stage A project.
 
 ## CSV catalog
 

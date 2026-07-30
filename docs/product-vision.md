@@ -26,10 +26,10 @@ similar to [STML's Odoo migration tooling](https://www.stml.io/), but Impodo
 is an independent implementation with explicit governance and safety
 boundaries.
 
-The current proof of concept is the strict CSV and profile-declared XLSX
-worksheet preparation plus read-only preflight foundation. It does not yet
-provide pre-mapping workbook discovery, an interactive mapping workspace,
-durable staging, approval, or Odoo writes.
+The current product provides local-browser project setup, CSV/XLSX source
+discovery and frozen datasets, read-only target-schema capture, and governed
+mapping authoring. It does not yet provide durable canonical staging,
+functional approval, or Odoo writes.
 
 ## 2. User workflow
 
@@ -61,7 +61,23 @@ For a non-technical data manager, the final product cannot depend on editing
 YAML by hand. YAML remains the versioned machine contract and expert escape
 hatch, while a guided mapping workspace creates and maintains it.
 
-## 3. Product stages
+## 3. Terminology
+
+Use the following terms consistently:
+
+- **Workflow steps** are the browser-facing names: Project setup, Source
+  discovery, Target schema, and Governed mapping.
+- **Product stages** describe the end-to-end business lifecycle and are named
+  Stage A through Stage K below.
+- **Delivery phases** describe implementation increments. Phase 1 delivers
+  source discovery; Phase 2A delivers target-schema governance; Phase 2B
+  delivers identity, scope, and relationship mapping; Phase 2C.1 delivers
+  scalar providers and transformations. Later roadmap phases deliver staging,
+  preflight, approval, execution, and reconciliation.
+
+The legacy labels “Phase A” and “Phase B” are retired and must not be used.
+
+## 4. Product stages
 
 ### Stage A — Register a migration project
 
@@ -498,13 +514,14 @@ flowchart TB
 
 The current repository implements the Phase A local-browser project workflow,
 governed source intake and project metadata storage, the complete Phase 1
-CSV/XLSX source-discovery flow, Phase 2B governed identities, relationship
-mapping, deterministic semantic validation, and immutable exact-hash
-submissions. It also retains strict CSV and declared-sheet XLSX loading,
-mapping through the existing expert profile, normalization and validation, and
-the read-only preflight path. It does not yet implement constants and
-transformations in the browser, mapping import/export and approval, durable
-canonical staging, the executor, or reconciliation.
+CSV/XLSX source-discovery flow, Phase 2B governed identities and relationship
+mapping, plus Phase 2C.1 constants, fallbacks, explicit Odoo-default intent,
+allowlisted scalar transformations, bounded value previews, deterministic
+semantic validation, and immutable exact-hash submissions. It also retains
+strict CSV and declared-sheet XLSX loading, mapping through the existing expert
+profile, normalization and validation, and the read-only preflight path. It
+does not yet implement lookup translations, mapping import/export and
+approval, durable canonical staging, the executor, or reconciliation.
 
 ## 7. Delivery roadmap
 
@@ -533,18 +550,23 @@ acceptance covers a real CSV and a real XLSX named table.
 - mapping import and export;
 - mapping validation and approval.
 
-Current status: **Phase 2B implemented.** The local browser discovers a
+Current status: **Phase 2C.1 implemented.** The local browser discovers a
 lightweight, application-filtered Odoo 19 model catalog, captures the effective
 field catalog once per explicitly permitted model, then requires explicit
 governed business keys and scope. Dataset-centric revisions
 support source and target identity, scalar policies, incoming-dataset and
 existing-target many2one/many2many resolution, and one2many inverse ownership
-guidance. A pure compiler/validator checks the complete mapping and persists
-deterministic validation evidence. Submission is permitted only for the exact
-validated mapping hash and acknowledged current warnings. Historical
-revisions, validations, submissions, and actors remain append-only.
+guidance. Scalar providers support source columns, constants, source fallbacks,
+and explicit omission for an Odoo runtime default. An allowlisted policy
+supports trim/collapse, empty-to-null, casing, strict boolean/integer/decimal
+parsing with declared decimal locale, explicit date formats, and UTC datetime
+normalization. Bounded source samples preview raw and proposed values. A pure
+compiler/validator checks the complete mapping and persists deterministic
+validation evidence. Submission is permitted only for the exact validated
+mapping hash and acknowledged current warnings. Historical revisions,
+validations, submissions, and actors remain append-only.
 
-Still required to complete Phase 2C: constants and transformations, mapping
+Still required to complete Phase 2C: governed lookup translations, mapping
 import/export, functional review, and approval.
 
 ### Phase 3 — Durable staging and data quality

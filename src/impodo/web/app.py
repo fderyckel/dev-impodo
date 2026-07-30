@@ -54,6 +54,10 @@ from ..mapping_semantics import (
     RelationshipResolver,
     ResolverOrigin,
     ScalarFieldMapping,
+    ScalarTransformPolicy,
+    ScalarValueError,
+    ScalarValueSource,
+    canonicalize_scalar_value,
     mapping_issue_fingerprint,
 )
 from ..project_store import DuckDbProjectRepository
@@ -1750,12 +1754,18 @@ def _render_mapping(
         else None
     )
     legacy_draft = context.repository.get_mapping_draft(project_id)
+    source_catalogs = (
+        context.repository.get_source_catalogs(project_id)
+        if selection is not None
+        else ()
+    )
     dataset_views = (
         _mapping_dataset_views(
             selection,
             schema,
             governance,
             revision.definition.datasets if revision else (),
+            source_catalogs,
             {
                 index: request.query_params.get(f"target_model_{index}", "")
                 for index, _item in enumerate(selection.datasets)
@@ -1795,6 +1805,7 @@ def _mapping_dataset_views(
     schema,
     governance,
     existing_datasets,
+    source_catalogs=(),
     selected_models=None,
 ) -> tuple[dict[str, object], ...]:
     existing_by_id = {item.dataset_id: item for item in existing_datasets}
@@ -1807,6 +1818,10 @@ def _mapping_dataset_views(
     )
     result: list[dict[str, object]] = []
     for dataset_index, source_dataset in enumerate(selection.datasets):
+        source_samples = _mapping_source_samples(
+            source_dataset,
+            source_catalogs,
+        )
         existing = existing_by_id.get(source_dataset.dataset_id)
         selected_override = (
             selected_models.get(dataset_index, "")
@@ -1918,6 +1933,11 @@ def _mapping_dataset_views(
                 "metadata": field,
                 "mapping": scalar_by_target.get(field.name),
                 "canonical_type": _canonical_mapping_type(field.type),
+                "source_samples": source_samples,
+                "preview": _scalar_mapping_preview(
+                    scalar_by_target.get(field.name),
+                    source_samples,
+                ),
             }
             for field_index, field in enumerate(all_scalar_fields)
             if field.name not in identity_targets
@@ -1975,6 +1995,84 @@ def _mapping_dataset_views(
     return tuple(result)
 
 
+def _mapping_source_samples(
+    source_dataset,
+    source_catalogs,
+) -> dict[str, tuple[str | None, ...]]:
+    catalog = next(
+        (
+            item
+            for item in source_catalogs
+            if item.file_id == source_dataset.file_id
+            and item.source_sha256 == source_dataset.source_sha256
+            and item.content_hash == source_dataset.catalog_hash
+        ),
+        None,
+    )
+    table = next(
+        (
+            item
+            for item in (catalog.tables if catalog is not None else ())
+            if item.table_key == source_dataset.table_key
+        ),
+        None,
+    )
+    if table is None:
+        return {}
+    result: dict[str, tuple[str | None, ...]] = {}
+    for column in source_dataset.columns:
+        values = tuple(
+            row[column.ordinal - 1]
+            for row in table.preview_rows
+            if column.ordinal > 0 and column.ordinal <= len(row)
+        )
+        result[column.stable_key] = values[:3]
+    return result
+
+
+def _scalar_mapping_preview(
+    mapping: ScalarFieldMapping | None,
+    source_samples: dict[str, tuple[str | None, ...]],
+) -> dict[str, str] | None:
+    if mapping is None:
+        return None
+    if mapping.value_source is ScalarValueSource.ODOO_DEFAULT:
+        return {
+            "raw": "Not sent",
+            "proposed": "Odoo runtime default",
+            "status": "deferred",
+        }
+    raw: object = None
+    if mapping.value_source is ScalarValueSource.CONSTANT:
+        raw = mapping.literal_value
+    elif mapping.source_column_key:
+        samples = source_samples.get(mapping.source_column_key, ())
+        raw = samples[0] if samples else None
+    try:
+        proposed = canonicalize_scalar_value(mapping, raw)
+    except ScalarValueError as error:
+        return {
+            "raw": _display_mapping_value(raw),
+            "proposed": str(error),
+            "status": "error",
+        }
+    return {
+        "raw": _display_mapping_value(raw),
+        "proposed": _display_mapping_value(proposed),
+        "status": "ok",
+    }
+
+
+def _display_mapping_value(value: object) -> str:
+    if value is None:
+        return "∅"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if hasattr(value, "isoformat"):
+        return str(value.isoformat())
+    return str(value)
+
+
 def _mapping_allowed_fields(form, selection, schema) -> set[str]:
     allowed = {
         "csrf_token",
@@ -2013,8 +2111,17 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
         for field_index, _field in enumerate(scalar_fields):
             allowed.update(
                 {
+                    f"scalar_value_source_{dataset_index}_{field_index}",
                     f"scalar_source_{dataset_index}_{field_index}",
+                    f"scalar_literal_{dataset_index}_{field_index}",
                     f"scalar_type_{dataset_index}_{field_index}",
+                    f"scalar_trim_{dataset_index}_{field_index}",
+                    f"scalar_collapse_{dataset_index}_{field_index}",
+                    f"scalar_empty_null_{dataset_index}_{field_index}",
+                    f"scalar_case_{dataset_index}_{field_index}",
+                    f"scalar_decimal_locale_{dataset_index}_{field_index}",
+                    f"scalar_date_format_{dataset_index}_{field_index}",
+                    f"scalar_timezone_{dataset_index}_{field_index}",
                     f"scalar_compare_{dataset_index}_{field_index}",
                     f"scalar_validate_only_{dataset_index}_{field_index}",
                     f"scalar_required_{dataset_index}_{field_index}",
@@ -2139,15 +2246,86 @@ def _mapping_datasets_from_form(
         ]
         scalar_mappings: list[ScalarFieldMapping] = []
         for field_index, metadata in enumerate(scalar_fields):
+            value_source_text = _text(
+                form,
+                f"scalar_value_source_{dataset_index}_{field_index}",
+            )
+            if not value_source_text or metadata.name in identity_targets:
+                continue
+            value_source = ScalarValueSource(value_source_text)
             source_key = _text(
                 form, f"scalar_source_{dataset_index}_{field_index}"
             )
-            if not source_key or metadata.name in identity_targets:
-                continue
+            literal_value = _text(
+                form, f"scalar_literal_{dataset_index}_{field_index}"
+            )
             scalar_mappings.append(
                 ScalarFieldMapping(
                     target_field=metadata.name,
-                    source_column_key=source_key,
+                    source_column_key=(
+                        source_key
+                        if value_source
+                        in {
+                            ScalarValueSource.SOURCE,
+                            ScalarValueSource.SOURCE_WITH_FALLBACK,
+                        }
+                        else None
+                    ),
+                    value_source=value_source,
+                    literal_value=(
+                        literal_value
+                        if value_source
+                        in {
+                            ScalarValueSource.CONSTANT,
+                            ScalarValueSource.SOURCE_WITH_FALLBACK,
+                        }
+                        else None
+                    ),
+                    transform=ScalarTransformPolicy(
+                        trim=_checked(
+                            form,
+                            f"scalar_trim_{dataset_index}_{field_index}",
+                        ),
+                        collapse_whitespace=_checked(
+                            form,
+                            f"scalar_collapse_{dataset_index}_{field_index}",
+                        ),
+                        empty_as_null=_checked(
+                            form,
+                            f"scalar_empty_null_{dataset_index}_{field_index}",
+                        ),
+                        case_mode=(
+                            _text(
+                                form,
+                                f"scalar_case_{dataset_index}_{field_index}",
+                            )
+                            or "preserve"
+                        ),
+                        decimal_locale=(
+                            _text(
+                                form,
+                                (
+                                    f"scalar_decimal_locale_{dataset_index}_"
+                                    f"{field_index}"
+                                ),
+                            )
+                            or "invariant"
+                        ),
+                        date_format=(
+                            _text(
+                                form,
+                                f"scalar_date_format_{dataset_index}_{field_index}",
+                            )
+                            or "iso"
+                        ),
+                        timezone=(
+                            _text(
+                                form,
+                                f"scalar_timezone_{dataset_index}_{field_index}",
+                            )
+                            or "UTC"
+                        ),
+                    ),
                     value_type=(
                         _text(
                             form,

@@ -242,4 +242,294 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   }
+
+  const displayPreviewValue = (value) => {
+    if (value === null || value === undefined) {
+      return "(empty)";
+    }
+    if (value === "") {
+      return '""';
+    }
+    return String(value);
+  };
+
+  const transformPreviewValue = (row, raw, missing) => {
+    const trim = row.querySelector("[data-transform-trim]")?.checked;
+    const collapse = row.querySelector("[data-transform-collapse]")?.checked;
+    const emptyAsNull = row.querySelector(
+      "[data-transform-empty-null]"
+    )?.checked;
+    const caseMode =
+      row.querySelector("[data-transform-case]")?.value || "preserve";
+    let value = missing ? null : String(raw ?? "");
+    if (value !== null && trim) {
+      value = value.trim();
+    }
+    if (value !== null && collapse) {
+      value = value.replace(/\s+/g, " ");
+    }
+    if (value !== null && caseMode === "uppercase") {
+      value = value.toUpperCase();
+    }
+    if (value !== null && caseMode === "lowercase") {
+      value = value.toLowerCase();
+    }
+    if (value === "" && emptyAsNull) {
+      return null;
+    }
+    return value;
+  };
+
+  const canonicalPreviewValue = (row, value) => {
+    if (value === null) {
+      return null;
+    }
+    const valueType = row.querySelector("[data-canonical-type]")?.value;
+    if (valueType === "string") {
+      return value;
+    }
+    if (valueType === "integer") {
+      if (!/^[+-]?\d+$/.test(value)) {
+        throw new Error("Invalid integer");
+      }
+      return String(Number.parseInt(value, 10));
+    }
+    if (valueType === "decimal") {
+      const locale =
+        row.querySelector("[data-decimal-policy] select")?.value || "invariant";
+      const localePatterns = {
+        invariant: /^[+-]?\d+(?:\.\d+)?$/,
+        en_US: /^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$/,
+        de_DE: /^[+-]?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d+)?$/,
+        fr_FR: /^[+-]?(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:,\d+)?$/,
+      };
+      if (!localePatterns[locale]?.test(value)) {
+        throw new Error("Invalid decimal");
+      }
+      let normalized = value;
+      if (locale === "en_US") {
+        normalized = normalized.replaceAll(",", "");
+      } else if (locale === "de_DE") {
+        normalized = normalized.replaceAll(".", "").replace(",", ".");
+      } else if (locale === "fr_FR") {
+        normalized = normalized.replace(/[\s\u00a0\u202f]/g, "").replace(",", ".");
+      }
+      return normalized;
+    }
+    if (valueType === "boolean") {
+      const token = value.toLocaleLowerCase();
+      if (["true", "1", "yes", "y"].includes(token)) {
+        return "true";
+      }
+      if (["false", "0", "no", "n"].includes(token)) {
+        return "false";
+      }
+      throw new Error("Invalid boolean");
+    }
+    const dateFormat =
+      row.querySelector("[data-date-policy] select")?.value || "iso";
+    if (valueType === "date") {
+      const patterns = {
+        iso: /^(\d{4})-(\d{2})-(\d{2})$/,
+        dmy_slash: /^(\d{2})\/(\d{2})\/(\d{4})$/,
+        mdy_slash: /^(\d{2})\/(\d{2})\/(\d{4})$/,
+        dmy_dot: /^(\d{2})\.(\d{2})\.(\d{4})$/,
+      };
+      const match = value.match(patterns[dateFormat]);
+      if (!match) {
+        throw new Error("Invalid date");
+      }
+      if (dateFormat === "iso") {
+        const parsed = new Date(`${value}T00:00:00Z`);
+        if (
+          Number.isNaN(parsed.getTime()) ||
+          parsed.toISOString().slice(0, 10) !== value
+        ) {
+          throw new Error("Invalid date");
+        }
+        return value;
+      }
+      const year = match[3];
+      const month = dateFormat === "mdy_slash" ? match[1] : match[2];
+      const day = dateFormat === "mdy_slash" ? match[2] : match[1];
+      const normalized = `${year}-${month}-${day}`;
+      const parsed = new Date(`${normalized}T00:00:00Z`);
+      if (
+        Number.isNaN(parsed.getTime()) ||
+        parsed.toISOString().slice(0, 10) !== normalized
+      ) {
+        throw new Error("Invalid date");
+      }
+      return normalized;
+    }
+    if (valueType === "datetime") {
+      if (dateFormat !== "iso") {
+        const match = value.match(
+          dateFormat === "dmy_dot"
+            ? /^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2}):(\d{2})$/
+            : /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/
+        );
+        if (!match) {
+          throw new Error("Invalid datetime");
+        }
+        const year = match[3];
+        const month = dateFormat === "mdy_slash" ? match[1] : match[2];
+        const day = dateFormat === "mdy_slash" ? match[2] : match[1];
+        const normalized =
+          `${year}-${month}-${day}T${match[4]}:${match[5]}:${match[6]}`;
+        const parsed = new Date(`${normalized}Z`);
+        if (
+          Number.isNaN(parsed.getTime()) ||
+          parsed.toISOString().slice(0, 19) !== normalized
+        ) {
+          throw new Error("Invalid datetime");
+        }
+        return parsed.toISOString();
+      }
+      if (
+        !/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?$/.test(
+          value
+        )
+      ) {
+        throw new Error("Invalid datetime");
+      }
+      const parsed = new Date(
+        /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : `${value}Z`
+      );
+      if (Number.isNaN(parsed.getTime())) {
+        throw new Error("Invalid datetime");
+      }
+      return parsed.toISOString();
+    }
+    return value;
+  };
+
+  for (const row of document.querySelectorAll("[data-scalar-mapping-row]")) {
+    const provider = row.querySelector("[data-value-source]");
+    const sourceControl = row.querySelector("[data-provider-source]");
+    const literalControl = row.querySelector("[data-provider-literal]");
+    const literalLabel = row.querySelector("[data-literal-label]");
+    const source = row.querySelector("[data-source-column]");
+    const literal = row.querySelector("[data-literal-value]");
+    const canonicalType = row.querySelector("[data-canonical-type]");
+    const previewRaw = row.querySelector("[data-preview-raw]");
+    const previewProposed = row.querySelector("[data-preview-proposed]");
+    const updateScalarRow = () => {
+      const mode = provider?.value || "";
+      const usesSource = ["source", "source_with_fallback"].includes(mode);
+      const usesLiteral = ["constant", "source_with_fallback"].includes(mode);
+      if (sourceControl) {
+        sourceControl.hidden = !usesSource;
+      }
+      if (literalControl) {
+        literalControl.hidden = !usesLiteral;
+      }
+      if (literalLabel) {
+        literalLabel.textContent =
+          mode === "source_with_fallback" ? "Fallback value" : "Constant value";
+      }
+
+      const type = canonicalType?.value || "string";
+      const decimalPolicy = row.querySelector("[data-decimal-policy]");
+      const datePolicy = row.querySelector("[data-date-policy]");
+      const timezonePolicy = row.querySelector("[data-timezone-policy]");
+      if (decimalPolicy) {
+        decimalPolicy.hidden = type !== "decimal";
+      }
+      if (datePolicy) {
+        datePolicy.hidden = !["date", "datetime"].includes(type);
+      }
+      if (timezonePolicy) {
+        timezonePolicy.hidden = type !== "datetime";
+      }
+      const caseControl = row.querySelector("[data-transform-case]");
+      if (caseControl) {
+        caseControl.disabled = type !== "string";
+      }
+      for (const policy of row.querySelectorAll(
+        'input[name^="scalar_compare_"], input[name^="scalar_validate_only_"], input[name^="scalar_required_"]'
+      )) {
+        policy.disabled = mode === "odoo_default";
+      }
+
+      if (!previewRaw || !previewProposed) {
+        return;
+      }
+      previewProposed.classList.remove("preview-error");
+      if (!mode) {
+        previewRaw.textContent = "Choose a provider";
+        previewProposed.textContent = "";
+        return;
+      }
+      if (mode === "odoo_default") {
+        previewRaw.textContent = "Not sent";
+        previewProposed.textContent = "Odoo runtime default";
+        return;
+      }
+
+      const selectedOption = source?.selectedOptions[0];
+      let missing =
+        usesSource && selectedOption?.dataset.samplePresent !== "true";
+      let raw = mode === "constant" ? literal?.value ?? "" : selectedOption?.dataset.sample;
+      let transformed = transformPreviewValue(row, raw, missing);
+      if (mode === "source_with_fallback" && transformed === null) {
+        raw = literal?.value ?? "";
+        missing = false;
+        transformed = transformPreviewValue(row, raw, missing);
+      }
+      previewRaw.textContent = displayPreviewValue(
+        usesSource ? selectedOption?.dataset.sample : raw
+      );
+      try {
+        previewProposed.textContent = displayPreviewValue(
+          canonicalPreviewValue(row, transformed)
+        );
+      } catch {
+        previewProposed.textContent = "Invalid preview; save to validate";
+        previewProposed.classList.add("preview-error");
+      }
+    };
+    for (const control of row.querySelectorAll("select, input")) {
+      control.addEventListener("change", updateScalarRow);
+      control.addEventListener("input", updateScalarRow);
+    }
+    updateScalarRow();
+  }
+
+  for (const catalog of document.querySelectorAll(
+    "[data-scalar-field-catalog]"
+  )) {
+    const search = catalog.querySelector("[data-scalar-field-search]");
+    const mappedOnly = catalog.querySelector("[data-show-mapped-scalars]");
+    const count = catalog.querySelector("[data-scalar-field-count]");
+    const rows = Array.from(
+      catalog.querySelectorAll("[data-scalar-field-row]")
+    );
+    const updateScalarFieldRows = () => {
+      const query = search?.value.trim().toLowerCase() || "";
+      let visible = 0;
+      let mapped = 0;
+      for (const row of rows) {
+        const provider = row.querySelector("[data-value-source]");
+        const isMapped = Boolean(provider?.value);
+        const matches =
+          (row.dataset.fieldSearchText || "").includes(query) &&
+          (!mappedOnly?.checked || isMapped);
+        row.hidden = !matches;
+        row.dataset.mapped = String(isMapped);
+        visible += matches ? 1 : 0;
+        mapped += isMapped ? 1 : 0;
+      }
+      if (count) {
+        count.textContent =
+          `${visible} of ${rows.length} fields shown / ${mapped} mapped`;
+      }
+    };
+    search?.addEventListener("input", updateScalarFieldRows);
+    mappedOnly?.addEventListener("change", updateScalarFieldRows);
+    for (const provider of catalog.querySelectorAll("[data-value-source]")) {
+      provider.addEventListener("change", updateScalarFieldRows);
+    }
+    updateScalarFieldRows();
+  }
 });

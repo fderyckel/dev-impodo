@@ -3,11 +3,15 @@
 | Item | Value |
 | --- | --- |
 | Document status | Draft for cybersecurity and infrastructure review |
-| Review scope | First-release local architecture through current Phase 2B implementation |
+| Review scope | First-release local architecture through delivery Phase 2B implementation |
 | Target platform | Managed Windows workstation; Odoo 19.4 DEV/TEST |
 | Planned target change | Odoo 20.0 in September, subject to separate compatibility validation |
 | Product owner for migration approval | Data manager |
 | Document date | 29 July 2026 |
+
+Delivery Phase 2C.1 scalar providers and allowlisted transformations were implemented
+after this draft. They remain outside this document's reviewed approval scope
+until the brief is refreshed and re-reviewed.
 
 ## 1. Approval requested
 
@@ -63,7 +67,7 @@ execution.
 
 Implemented:
 
-- authenticated Phase A project-registration browser;
+- authenticated project-setup browser;
 - loopback-only launch and session boundary;
 - governed project metadata, source evidence, registration manifest, and audit
   event;
@@ -81,9 +85,14 @@ Implemented:
   mapping, deterministic semantic validation, immutable revisions, and
   exact-hash submissions.
 
+Implemented after this draft but not yet included in this approval:
+
+- browser constants, fallbacks, explicit Odoo-default intent, bounded previews,
+  and allowlisted scalar transformations.
+
 Not yet implemented or approved:
 
-- browser constants and transformations, mapping import/export, review, and
+- governed lookup translations, mapping import/export, functional review, and
   approval;
 - signed installer and reproducible packaged release;
 - pinned disposable Odoo/PostgreSQL Compose laboratory;

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from decimal import Decimal
 import unittest
 
 from impodo.mapping_semantics import (
@@ -19,7 +20,11 @@ from impodo.mapping_semantics import (
     RelationshipResolver,
     ResolverOrigin,
     ScalarFieldMapping,
+    ScalarTransformPolicy,
+    ScalarValueError,
+    ScalarValueSource,
     SchemaGovernance,
+    canonicalize_scalar_value,
 )
 from impodo.workspace import (
     OdooSchemaCatalog,
@@ -181,6 +186,145 @@ class MappingSemanticValidatorTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "content hash"):
             MappingDefinition.from_dict(payload)
+
+    def test_constant_fallback_and_allowlisted_transformations_are_portable(
+        self,
+    ) -> None:
+        constant = ScalarFieldMapping(
+            target_field="name",
+            value_source=ScalarValueSource.CONSTANT,
+            literal_value="  MAIN   COMPANY  ",
+            transform=ScalarTransformPolicy(
+                trim=True,
+                collapse_whitespace=True,
+                case_mode="lowercase",
+            ),
+        )
+        fallback = replace(
+            constant,
+            value_source=ScalarValueSource.SOURCE_WITH_FALLBACK,
+            source_column_key="company.name",
+            literal_value="Fallback",
+            transform=replace(constant.transform, empty_as_null=True),
+        )
+        decimal = replace(
+            constant,
+            target_field="amount",
+            literal_value="1.234,50",
+            value_type="decimal",
+            transform=ScalarTransformPolicy(decimal_locale="de_DE"),
+        )
+
+        self.assertEqual(
+            canonicalize_scalar_value(constant, None),
+            "main company",
+        )
+        self.assertEqual(
+            canonicalize_scalar_value(fallback, "   "),
+            "fallback",
+        )
+        self.assertEqual(
+            canonicalize_scalar_value(decimal, None),
+            Decimal("1234.50"),
+        )
+
+        definition = _valid_definition(self.selection, self.governance)
+        company, partner = definition.datasets
+        changed = replace(
+            definition,
+            datasets=(replace(company, fields=(constant,)), partner),
+        )
+        self.assertEqual(
+            MappingDefinition.from_json(changed.to_json()),
+            changed,
+        )
+        self.assertNotEqual(definition.content_hash, changed.content_hash)
+
+    def test_strict_date_boolean_and_datetime_parsing(self) -> None:
+        date_mapping = ScalarFieldMapping(
+            target_field="date",
+            value_source=ScalarValueSource.CONSTANT,
+            literal_value="30/07/2026",
+            value_type="date",
+            transform=ScalarTransformPolicy(date_format="dmy_slash"),
+        )
+        boolean_mapping = replace(
+            date_mapping,
+            target_field="active",
+            literal_value="yes",
+            value_type="boolean",
+        )
+        datetime_mapping = replace(
+            date_mapping,
+            target_field="started_at",
+            literal_value="2026-07-30T12:30:00+02:00",
+            value_type="datetime",
+            transform=ScalarTransformPolicy(),
+        )
+
+        self.assertEqual(
+            canonicalize_scalar_value(date_mapping, None).isoformat(),
+            "2026-07-30",
+        )
+        self.assertIs(
+            canonicalize_scalar_value(boolean_mapping, None),
+            True,
+        )
+        self.assertEqual(
+            canonicalize_scalar_value(datetime_mapping, None).isoformat(),
+            "2026-07-30T10:30:00+00:00",
+        )
+        with self.assertRaises(ScalarValueError):
+            canonicalize_scalar_value(
+                replace(boolean_mapping, literal_value="sometimes"),
+                None,
+            )
+
+    def test_odoo_default_is_explicit_and_requires_warning_acknowledgement(
+        self,
+    ) -> None:
+        definition = _valid_definition(self.selection, self.governance)
+        company, partner = definition.datasets
+        odoo_default = ScalarFieldMapping(
+            target_field="name",
+            value_source=ScalarValueSource.ODOO_DEFAULT,
+            compare=False,
+        )
+        definition = replace(
+            definition,
+            datasets=(replace(company, fields=(odoo_default,)), partner),
+        )
+
+        result = self.validator.validate(
+            definition,
+            self.selection,
+            self.schema,
+            self.governance,
+        )
+
+        self.assertEqual(
+            result.status,
+            MappingValidationStatus.VALID_WITH_WARNINGS,
+        )
+        self.assertEqual(
+            [item.code for item in result.issues],
+            ["MAPPING_ODOO_DEFAULT_UNVERIFIED"],
+        )
+
+    def test_version_two_mapping_hash_remains_readable(self) -> None:
+        current = _valid_definition(self.selection, self.governance)
+        version_two = replace(current, contract_version=2)
+
+        payload = version_two.to_dict()
+        serialized_field = payload["datasets"][0]["fields"][0]
+
+        self.assertNotIn("value_source", serialized_field)
+        self.assertNotIn("literal_value", serialized_field)
+        self.assertNotIn("transform", serialized_field)
+        self.assertEqual(
+            MappingDefinition.from_dict(payload),
+            version_two,
+        )
 
 
 def _valid_definition(

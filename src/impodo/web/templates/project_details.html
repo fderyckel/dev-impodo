@@ -4,7 +4,7 @@
   {% set step = "details" %}
   {% include "_steps.html" %}
   <section class="form-card">
-    <p class="eyebrow">Phase A · Project details</p>
+    <p class="eyebrow">Project setup · Project details</p>
     <h1>{{ project.name }}</h1>
     <form method="post" action="/projects/{{ project.project_id }}/details">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

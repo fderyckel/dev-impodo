@@ -63,7 +63,7 @@ changing the target requires the appropriate key for the new destination.
 
 After registration:
 
-1. Select **Continue to Phase B**.
+1. Select **Inspect source data**.
 2. Select **Inspect source files**.
 3. Review detected CSV encoding/delimiter or XLSX worksheets and named tables.
 4. Review the candidate header, bounded preview, column types, statistics, and
@@ -85,7 +85,7 @@ After freezing datasets:
 
 1. Open **Odoo schema** and load the lightweight model catalog from the
    connected Odoo.
-2. Search the Phase A-focused choices, optionally show all persistent models,
+2. Search the project application-focused choices, optionally show all persistent models,
    and explicitly save the permitted model scope.
 3. Fetch the complete effective field catalog for the selected models.
 4. For each model used by the migration, enter its natural business-key fields
@@ -182,11 +182,13 @@ stops it.
 
 ## Current boundary
 
-The browser implements Phase A, the complete current CSV/XLSX Phase 1 source
-discovery flow, and Phase 2B relationship authoring and semantic validation.
-Constants and transformations, mapping import/export and approval, durable
-canonical staging, and execution are not yet implemented. There is no Odoo
-write capability and no Production option.
+The browser implements Project setup (product Stage A), the complete current
+CSV/XLSX source-discovery flow (delivery Phase 1), target-schema governance
+(delivery Phase 2A), relationship authoring and semantic validation (delivery
+Phase 2B), and scalar providers and transformations (delivery Phase 2C.1).
+Governed lookup translations, mapping import/export, functional review,
+approval, durable canonical staging, and execution are not yet implemented.
+There is no Odoo write capability and no Production option.
 
 ## Verify
 

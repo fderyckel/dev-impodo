@@ -5,7 +5,7 @@
     <div>
       <p class="eyebrow">Registered migration project</p>
       <h1>{{ project.name }}</h1>
-      <p>Project revision {{ project.revision }} is registered and ready for Phase B.</p>
+      <p>Project revision {{ project.revision }} is registered and ready for source discovery.</p>
     </div>
     <span class="status registered">{{ project.status.value }}</span>
   </div>
@@ -29,8 +29,8 @@
     </dl>
     <div class="actions">
       <a class="button secondary" href="/projects">All projects</a>
-      <a class="button primary" href="/projects/{{ project.project_id }}/sources">Continue to Phase B</a>
+      <a class="button primary" href="/projects/{{ project.project_id }}/sources">Inspect source data</a>
     </div>
-    <p class="muted">Phase B inventories, configures, and freezes source datasets. Phase 2 then captures the permitted Odoo schema and starts a versioned mapping draft.</p>
+    <p class="muted">Source discovery inventories, configures, and freezes datasets. Target schema capture and governed mapping follow.</p>
   </section>
 {% endblock %}

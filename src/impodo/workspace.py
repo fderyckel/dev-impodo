@@ -49,7 +49,7 @@ _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 
 
 class WorkspaceError(ProjectError):
-    """Raised when a Phase B/Phase 2 workspace transition is invalid."""
+    """Raised when a source-discovery or mapping workspace transition is invalid."""
 
 
 @dataclass(frozen=True, slots=True)

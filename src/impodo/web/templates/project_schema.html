@@ -3,7 +3,7 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Phase 2 · Target schema</p>
+      <p class="eyebrow">Target schema · Permitted Odoo fields</p>
       <h1>Capture permitted Odoo fields</h1>
       <p>Set the exact technical model allowlist, then read field metadata once for each permitted model.</p>
     </div>
@@ -34,11 +34,11 @@
 
     {% if project.intended_applications %}
       <p>
-        Phase A focus: <strong>{{ project.intended_applications|join(", ") }}</strong>.
+        Project application focus: <strong>{{ project.intended_applications|join(", ") }}</strong>.
         Matching models are shown first; this filter does not add them to the read boundary.
       </p>
     {% else %}
-      <p>No Phase A application filter was selected, so all discovered persistent models are shown.</p>
+      <p>No project application filter was selected, so all discovered persistent models are shown.</p>
     {% endif %}
 
     {% if model_catalog %}
@@ -63,7 +63,7 @@
           {% if focus_model_count < model_choices|length %}
             <label class="checkbox">
               <input type="checkbox" data-show-all-models>
-              Show models outside the Phase A focus
+              Show models outside the project application focus
             </label>
           {% endif %}
           <p class="muted" data-model-count></p>

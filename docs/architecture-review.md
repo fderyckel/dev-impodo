@@ -8,10 +8,10 @@ evidence, and Odoo-side access controls
 
 This verdict applies only to the read-only preflight component. It is not a
 verdict that the end-to-end migration product is complete. Since this review,
-Excel/CSV discovery and Phase 2B interactive relationship mapping plus
-semantic validation have been implemented and tested separately. Durable
-staging, mapping approval, controlled execution, and reconciliation remain
-roadmap capabilities documented in
+Excel/CSV discovery, delivery Phase 2B interactive relationship mapping, and
+delivery Phase 2C.1 governed scalar providers and transformations have been
+implemented and tested separately. Durable staging, mapping approval,
+controlled execution, and reconciliation remain roadmap capabilities documented in
 [End-to-end migration product vision](product-vision.md).
 
 ## Review scope

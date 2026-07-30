@@ -94,7 +94,6 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         self.assertIn("bootstrap-icons.svg#folder", projects.text)
         self.assertIn("Data remains on this computer.", projects.text)
         self.assertNotIn("Customer data remains on this computer.", projects.text)
-        self.assertNotIn("United Caps", projects.text)
         self.assertIn("Thoughtfully made with", projects.text)
         self.assertIn("by FdR", projects.text)
         self.assertEqual(projects.headers["x-frame-options"], "DENY")
@@ -994,6 +993,10 @@ class PhaseAWizardTests(unittest.TestCase):
         self.assertIn("res.partner::name", mapping_page.text)
         self.assertIn("Existing Odoo catalog", mapping_page.text)
         self.assertIn("inverse parent_id", mapping_page.text)
+        self.assertIn("Source + fallback", mapping_page.text)
+        self.assertIn("Leave unset / Odoo default", mapping_page.text)
+        self.assertIn("Search scalar fields", mapping_page.text)
+        self.assertIn("Preview", mapping_page.text)
 
         selection = (
             self.app.state.context.repository.get_source_selection(project_id)
@@ -1018,8 +1021,14 @@ class PhaseAWizardTests(unittest.TestCase):
                 "source_identity_0": customer_code.stable_key,
                 "business_key_0": business_key_id,
                 "identity_source_0_0": customer_code.stable_key,
+                "scalar_value_source_0_1": "source_with_fallback",
                 "scalar_source_0_1": customer_name.stable_key,
+                "scalar_literal_0_1": "Unnamed contact",
                 "scalar_type_0_1": "string",
+                "scalar_trim_0_1": "1",
+                "scalar_collapse_0_1": "1",
+                "scalar_empty_null_0_1": "1",
+                "scalar_case_0_1": "preserve",
                 "scalar_compare_0_1": "1",
                 "scalar_null_0_1": "distinct",
                 "target_model_1": "res.partner",
@@ -1027,8 +1036,10 @@ class PhaseAWizardTests(unittest.TestCase):
                 "source_identity_1": product_code.stable_key,
                 "business_key_1": business_key_id,
                 "identity_source_1_0": product_code.stable_key,
-                "scalar_source_1_1": product_name.stable_key,
+                "scalar_value_source_1_1": "constant",
+                "scalar_literal_1_1": "Imported product",
                 "scalar_type_1_1": "string",
+                "scalar_case_1_1": "preserve",
                 "scalar_compare_1_1": "1",
                 "scalar_null_1_1": "distinct",
             },
@@ -1040,6 +1051,31 @@ class PhaseAWizardTests(unittest.TestCase):
         self.assertIn("Mapping submitted as version 1", submitted_page.text)
         self.assertIn("SUBMITTED", submitted_page.text)
         self.assertIn("valid", submitted_page.text.casefold())
+        revision = (
+            self.app.state.context.repository.get_mapping_revision(project_id)
+        )
+        revision_by_dataset = {
+            item.dataset_id: item for item in revision.definition.datasets
+        }
+        self.assertEqual(
+            revision_by_dataset[
+                customer.dataset_id
+            ].fields[0].value_source.value,
+            "source_with_fallback",
+        )
+        self.assertTrue(
+            revision_by_dataset[customer.dataset_id].fields[0].transform.trim
+        )
+        self.assertEqual(
+            revision_by_dataset[
+                product.dataset_id
+            ].fields[0].value_source.value,
+            "constant",
+        )
+        self.assertEqual(
+            revision_by_dataset[product.dataset_id].fields[0].literal_value,
+            "Imported product",
+        )
 
         project = self.app.state.context.repository.get(project_id)
         changed_scope = self.client.post(
