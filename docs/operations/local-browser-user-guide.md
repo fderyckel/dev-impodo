@@ -226,9 +226,16 @@ PostgreSQL or Odoo status is unclear. Then:
 2. In the Windows file chooser, select the configuration used by the local
    Odoo instance.
 3. Review each status result.
-4. Start or correct the local services outside Impodo when a result requires
-   action, then select **Check again**.
-5. When PostgreSQL and Odoo are ready, enter the API key and select **Save and
+4. Expand **Detected machine-local profile** and verify the detected
+   `pg_ctl.exe`, PostgreSQL data directory, Python, `odoo-bin`, and logs
+   directory.
+5. If PostgreSQL or Odoo needs to be started, select the confirmation checkbox
+   and then **Start PostgreSQL and Odoo**.
+6. If Impodo starts one or both services, the assistant lists exactly which
+   ones it manages and shows **Stop managed services** and **Restart managed
+   services**. If you correct the configuration or start a service another
+   way, select **Check again**.
+7. When PostgreSQL and Odoo are ready, enter the API key and select **Save and
    test connection**. This final check proves that Impodo can authenticate to
    the selected database with the supplied read-only Odoo user.
 
@@ -252,11 +259,52 @@ non-secret routing settings needed for these checks and does not retain
 paths live only in memory for the current Impodo session; they are not added
 to the migration project or its evidence.
 
-This first assistant release is deliberately **status-only**. It does not
-start, stop, or restart PostgreSQL or Odoo, and it does not run an arbitrary
-command. The detected `pg_ctl.exe`, PostgreSQL data directory, Python
-executable, and `odoo-bin` paths are shown only to help diagnose the local
-installation and to prepare a separately reviewed start feature.
+The assistant can start only detected paths under the selected Odoo workspace;
+users cannot enter a command or executable path. After explicit confirmation,
+Impodo:
+
+1. rereads the live `odoo.conf`;
+2. checks whether the selected PostgreSQL data directory already has a running
+   server;
+3. starts PostgreSQL only when needed and waits for `pg_isready`;
+4. does not start Odoo unless PostgreSQL is ready;
+5. launches Odoo in a separate Windows console and waits up to 30 seconds for
+   the Odoo 19 endpoint.
+
+If the newly launched Odoo process exits, reports another Odoo version, or
+does not become ready within 30 seconds, Impodo reports the failure and stops
+that newly launched Odoo process. If cleanup cannot complete, Impodo retains
+the process handle so that **Stop managed services** remains available.
+PostgreSQL may remain running so its logs and state can be inspected and,
+when Impodo started it, is listed as managed.
+
+**Stop managed services** and **Restart managed services** apply only to
+services started by the current Impodo process for this project:
+
+1. Impodo stops the exact Odoo child process that it launched.
+2. It waits until the configured Odoo port is closed. If another process is
+   still listening there, PostgreSQL is left running and the assistant reports
+   the problem.
+3. If Impodo also started PostgreSQL, it runs a bounded `pg_ctl stop` in
+   `fast` mode for the selected data directory, but only after the current
+   `postmaster.pid` still matches the PID recorded at startup. It then verifies
+   that the server stopped.
+4. **Restart** then rereads the live configuration and repeats the normal
+   PostgreSQL-first startup and readiness checks.
+
+An Odoo or PostgreSQL service that was already running before Impodo checked
+it remains status-only and cannot be stopped or restarted from the assistant.
+If PostgreSQL is listed as managed, stopping it may disconnect other local
+tools that started using that server after Impodo launched it. Finish or save
+their work first.
+
+Ownership is held only in memory. Use **Stop managed services** before
+**Quit Impodo**. If Impodo or the computer exits unexpectedly, reopen the
+workspace and use its established manual shutdown procedure because a new
+Impodo session will not claim ownership of the old processes.
+
+Starting, stopping, or restarting the local stack does not import data,
+authenticate with the API key, or write to Odoo.
 
 **Migration application scope** is optional reviewer context, such as
 Contacts or Inventory. It does not grant Odoo access and does not control
@@ -620,11 +668,15 @@ all of these:
 | Dependency cycle | Two or more incoming datasets require each other first | Redesign the ownership or split the migration sequence |
 | Connection test fails | Odoo is stopped, URL/database is wrong, or access is insufficient | Verify the approved target details with the Odoo administrator |
 | Stored API key no longer works | It expired or the target details changed | Supply a new key for the exact target |
+| Stop and Restart are not available | The services were already running or were started by an earlier Impodo session | Use the workspace's approved manual shutdown procedure; the current session will not claim those processes |
+| PostgreSQL remains after Stop | Another listener remained on the configured Odoo port, or PostgreSQL could not be verified as stopped | Read the assistant error, close the unrelated listener safely, and use the workspace procedure before retrying |
 
 ## End the session safely
 
-Use **Quit Impodo** in the footer. Closing only the browser tab does not stop
-the local Impodo process.
+If the local Odoo assistant lists managed services, finish other local work
+using the same PostgreSQL server and select **Stop managed services** first.
+Then use **Quit Impodo** in the footer. Closing only the browser tab does not
+stop the local Impodo process or any managed Odoo/PostgreSQL service.
 
 Keep project data only for the recorded retention period. Follow the
 organisation's approved disposal process when the project no longer needs to

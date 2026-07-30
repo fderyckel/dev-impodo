@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from datetime import date
+from dataclasses import replace
+from datetime import date, datetime, timezone
 from io import BytesIO
 from pathlib import Path
 import re
 import tempfile
 import unittest
+from unittest.mock import MagicMock
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
@@ -16,6 +19,7 @@ from impodo.connectors import MetadataSnapshot
 from impodo.local_stack import (
     LocalStackCheck,
     LocalStackService,
+    LocalStackStartResult,
     LocalStackStatus,
     ReadinessLevel,
 )
@@ -24,9 +28,10 @@ from impodo.models import (
     FieldMetadata,
     ModelMetadata,
 )
-from impodo.projects import OdooConnectionMode, ProjectStatus
+from impodo.projects import OdooConnectionMode, ProjectStatus, TargetEnvironment
 from impodo.secrets import MemorySecretStore
 from impodo.web import create_app
+from impodo.workspace import SchemaOrigin, SourceSelection
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,7 +83,14 @@ class LocalBrowserSecurityTests(unittest.TestCase):
 
         projects = self.client.get("/projects")
         self.assertEqual(projects.status_code, 200)
-        self.assertIn("Impodo - Import Anything into Odoo", projects.text)
+        self.assertIn(
+            '<span class="brand-tagline">Import Anything into Odoo</span>',
+            projects.text,
+        )
+        self.assertIn("Data remains on this computer.", projects.text)
+        self.assertNotIn("Customer data remains on this computer.", projects.text)
+        self.assertIn("Thoughtfully made with", projects.text)
+        self.assertIn("by FdR", projects.text)
         self.assertEqual(projects.headers["x-frame-options"], "DENY")
         self.assertIn("frame-ancestors 'none'", projects.headers["content-security-policy"])
 
@@ -147,7 +159,9 @@ class LocalStackBrowserTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.config = Path(self.temporary.name) / "local-odoo.conf"
+        self.workspace = Path(self.temporary.name) / "odoo_ve"
+        self.config = self.workspace / "config" / "odoo.conf"
+        self.config.parent.mkdir(parents=True)
         self.config.write_text(
             "\n".join(
                 (
@@ -164,7 +178,20 @@ class LocalStackBrowserTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        for relative_path in (
+            "tools/postgresql/pgsql/bin/pg_isready.exe",
+            "tools/postgresql/pgsql/bin/pg_ctl.exe",
+            "venv/Scripts/python.exe",
+            "odoo/odoo-bin",
+        ):
+            candidate = self.workspace / relative_path
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            candidate.touch()
+        (self.workspace / "pgdata").mkdir()
+        (self.workspace / "logs").mkdir()
         self.picker_calls = 0
+        self.start_calls = 0
+        self.started_processes = []
 
         def pick_config():
             self.picker_calls += 1
@@ -204,9 +231,52 @@ class LocalStackBrowserTests(unittest.TestCase):
                 profile=profile,
             )
 
+        def starter(profile):
+            self.start_calls += 1
+            process = MagicMock()
+            process.poll.return_value = None
+            self.started_processes.append(process)
+            return LocalStackStartResult(
+                status=LocalStackStatus(
+                    config_path=str(profile.config_path),
+                    base_url=profile.base_url,
+                    database_hint=profile.database_hint,
+                    checks=(
+                        LocalStackCheck(
+                            "configuration",
+                            "Configuration",
+                            ReadinessLevel.READY,
+                            "Valid loopback Odoo configuration.",
+                        ),
+                        LocalStackCheck(
+                            "postgresql",
+                            "PostgreSQL",
+                            ReadinessLevel.READY,
+                            "PostgreSQL is accepting connections.",
+                        ),
+                        LocalStackCheck(
+                            "odoo",
+                            "Odoo server",
+                            ReadinessLevel.READY,
+                            "Odoo 19.0 is responding.",
+                        ),
+                        LocalStackCheck(
+                            "api",
+                            "Impodo API",
+                            ReadinessLevel.UNKNOWN,
+                            "Use Save and test connection.",
+                        ),
+                    ),
+                    profile=profile,
+                ),
+                odoo_process=process,
+                postgresql_pid=None,
+            )
+
         local_stack = LocalStackService(
             config_picker=pick_config,
             probe=probe,
+            starter=starter,
         )
         self.app = create_app(
             self.temporary.name,
@@ -266,6 +336,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertIn('value="odoo19_dev"', refreshed.text)
         self.assertNotIn("postgres-secret", refreshed.text)
         self.assertNotIn("master-secret", refreshed.text)
+        self.assertIn("Start PostgreSQL and Odoo", refreshed.text)
 
         project = self.app.state.context.repository.get(self.project_id)
         self.assertEqual(project.odoo_base_url, "")
@@ -276,6 +347,145 @@ class LocalStackBrowserTests(unittest.TestCase):
         ).rglob("*"):
             if path.is_file():
                 self.assertNotIn(config_bytes, path.read_bytes())
+
+    def test_start_requires_confirmation_and_updates_readiness(self) -> None:
+        self.client.post(
+            f"/projects/{self.project_id}/local-stack/select-config",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+        )
+
+        unconfirmed = self.client.post(
+            f"/projects/{self.project_id}/local-stack/start",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(unconfirmed.status_code, 422)
+        self.assertIn("Confirm the detected paths", unconfirmed.text)
+        self.assertEqual(self.start_calls, 0)
+
+        started = self.client.post(
+            f"/projects/{self.project_id}/local-stack/start",
+            data={
+                "csrf_token": self.csrf,
+                "confirm_start": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(started.status_code, 303)
+        self.assertEqual(self.start_calls, 1)
+        page = self.client.get(started.headers["location"])
+        self.assertIn("Odoo 19.0 is responding", page.text)
+        self.assertIn("Control services started by Impodo", page.text)
+        self.assertIn("Stop managed services", page.text)
+
+    def test_stop_requires_confirmation_and_stops_only_managed_process(self) -> None:
+        self._select_and_start_stack()
+        process = self.started_processes[0]
+
+        unconfirmed = self.client.post(
+            f"/projects/{self.project_id}/local-stack/control",
+            data={
+                "csrf_token": self.csrf,
+                "action": "stop",
+            },
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(unconfirmed.status_code, 422)
+        self.assertIn("Confirm control", unconfirmed.text)
+        process.terminate.assert_not_called()
+
+        stopped = self.client.post(
+            f"/projects/{self.project_id}/local-stack/control",
+            data={
+                "csrf_token": self.csrf,
+                "confirm_control": "1",
+                "action": "stop",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(stopped.status_code, 303)
+        process.terminate.assert_called_once_with()
+        page = self.client.get(stopped.headers["location"])
+        self.assertIn("Start the missing local services", page.text)
+        self.assertNotIn("Control services started by Impodo", page.text)
+
+    def test_restart_stops_the_owned_process_then_starts_a_new_one(self) -> None:
+        self._select_and_start_stack()
+        first_process = self.started_processes[0]
+
+        restarted = self.client.post(
+            f"/projects/{self.project_id}/local-stack/control",
+            data={
+                "csrf_token": self.csrf,
+                "confirm_control": "1",
+                "action": "restart",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(restarted.status_code, 303)
+        first_process.terminate.assert_called_once_with()
+        self.assertEqual(self.start_calls, 2)
+        self.assertEqual(len(self.started_processes), 2)
+        page = self.client.get(restarted.headers["location"])
+        self.assertIn("Control services started by Impodo", page.text)
+
+    def test_stop_requires_its_explicit_capability(self) -> None:
+        self._select_and_start_stack()
+        process = self.started_processes[0]
+        self.app.state.context.actor = Actor(
+            identity=ActorIdentity(
+                issuer="https://identity.example.test",
+                subject_id="stack-starter",
+                display_name="Stack starter",
+            ),
+            capabilities=frozenset(
+                {
+                    Capability.PROJECT_VIEW,
+                    Capability.PROJECT_EDIT,
+                    Capability.LOCAL_STACK_INSPECT,
+                    Capability.LOCAL_STACK_START,
+                }
+            ),
+        )
+
+        blocked = self.client.post(
+            f"/projects/{self.project_id}/local-stack/control",
+            data={
+                "csrf_token": self.csrf,
+                "confirm_control": "1",
+                "action": "stop",
+            },
+            headers=POST_HEADERS,
+        )
+
+        self.assertEqual(blocked.status_code, 403)
+        process.terminate.assert_not_called()
+
+    def test_stop_never_controls_a_stack_started_outside_impodo(self) -> None:
+        self.client.post(
+            f"/projects/{self.project_id}/local-stack/select-config",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+        )
+
+        blocked = self.client.post(
+            f"/projects/{self.project_id}/local-stack/control",
+            data={
+                "csrf_token": self.csrf,
+                "confirm_control": "1",
+                "action": "stop",
+            },
+            headers=POST_HEADERS,
+        )
+
+        self.assertEqual(blocked.status_code, 422)
+        self.assertIn("does not own any running service", blocked.text)
+        self.assertEqual(self.start_calls, 0)
 
     def test_remote_project_cannot_open_local_assistant(self) -> None:
         saved = self.client.post(
@@ -330,6 +540,57 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(blocked.status_code, 403)
         self.assertEqual(self.picker_calls, 0)
 
+    def test_start_requires_its_explicit_capability(self) -> None:
+        self.client.post(
+            f"/projects/{self.project_id}/local-stack/select-config",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+        )
+        self.app.state.context.actor = Actor(
+            identity=ActorIdentity(
+                issuer="https://identity.example.test",
+                subject_id="stack-inspector",
+                display_name="Stack inspector",
+            ),
+            capabilities=frozenset(
+                {
+                    Capability.PROJECT_VIEW,
+                    Capability.PROJECT_EDIT,
+                    Capability.LOCAL_STACK_INSPECT,
+                }
+            ),
+        )
+
+        blocked = self.client.post(
+            f"/projects/{self.project_id}/local-stack/start",
+            data={
+                "csrf_token": self.csrf,
+                "confirm_start": "1",
+            },
+            headers=POST_HEADERS,
+        )
+
+        self.assertEqual(blocked.status_code, 403)
+        self.assertEqual(self.start_calls, 0)
+
+    def _select_and_start_stack(self) -> None:
+        selected = self.client.post(
+            f"/projects/{self.project_id}/local-stack/select-config",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(selected.status_code, 200)
+        started = self.client.post(
+            f"/projects/{self.project_id}/local-stack/start",
+            data={
+                "csrf_token": self.csrf,
+                "confirm_start": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(started.status_code, 303)
+
 
 class PhaseAWizardTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -368,6 +629,67 @@ class PhaseAWizardTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.client.close()
         self.temporary.cleanup()
+
+    def test_local_schema_draft_does_not_call_the_odoo_api(self) -> None:
+        context = self.app.state.context
+        created = context.projects.create_project(
+            actor=context.actor,
+            name="Local draft",
+            source_system="CSV",
+        )
+        now = datetime.now(timezone.utc)
+        registered = replace(
+            created,
+            odoo_connection_mode=OdooConnectionMode.LOCAL,
+            target_environment=TargetEnvironment.DEV,
+            odoo_base_url="http://127.0.0.1:8069",
+            odoo_database="odoo19_dev",
+            intended_models=("res.partner",),
+            status=ProjectStatus.REGISTERED,
+            revision=2,
+            updated_at=now,
+            registered_at=now,
+        )
+        context.repository.save(
+            registered,
+            expected_revision=created.revision,
+            event_type="TEST_PROJECT_REGISTERED",
+            event_detail="",
+            actor=context.actor,
+        )
+        context.repository.save_source_selection(
+            registered.project_id,
+            SourceSelection(
+                selection_id=str(uuid4()),
+                version=1,
+                project_id=registered.project_id,
+                created_at=now,
+                created_by=context.actor.identity.display_name,
+                datasets=(),
+                content_hash="sha256:" + "a" * 64,
+            ),
+            actor=context.actor,
+        )
+
+        drafted = self._post(
+            f"/projects/{registered.project_id}/schema/local-draft",
+            {
+                "csrf_token": self.csrf,
+                "acknowledge_local_draft": "1",
+                "manual_model_label_0": "Contact",
+                "manual_fields_0": "name | Name | char | yes | no",
+            },
+        )
+        self.assertEqual(drafted.status_code, 303)
+        self.assertEqual(self.schema_calls, [])
+        schema = context.repository.get_odoo_schema_catalog(
+            registered.project_id
+        )
+        self.assertIsNotNone(schema)
+        self.assertEqual(schema.origin, SchemaOrigin.LOCAL_MANUAL)
+        schema_page = self.client.get(drafted.headers["location"])
+        self.assertIn("Unverified local draft", schema_page.text)
+        self.assertIn("name | Name | char", schema_page.text)
 
     def test_complete_phase_a_registration_without_yaml(self) -> None:
         created = self._post(

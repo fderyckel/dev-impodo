@@ -18,6 +18,13 @@
     {% endif %}
   </div>
 
+  {% if schema and schema.origin.value == 'LOCAL_MANUAL' %}
+    <div class="notice warning">
+      This mapping uses an unverified local schema draft. You can save a draft,
+      but live Odoo schema capture is required before submission.
+    </div>
+  {% endif %}
+
   {% if selection and schema and governance %}
     <form method="post" action="/projects/{{ project.project_id }}/mapping/save">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -351,7 +358,9 @@
       <div class="actions mapping-actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Back to schema</a>
         <button class="button secondary" name="action" value="draft" type="submit">Save and validate draft</button>
-        <button class="button primary" name="action" value="submit" type="submit">Submit exact validated mapping</button>
+        {% if schema.origin.value != 'LOCAL_MANUAL' %}
+          <button class="button primary" name="action" value="submit" type="submit">Submit exact validated mapping</button>
+        {% endif %}
       </div>
     </form>
   {% else %}

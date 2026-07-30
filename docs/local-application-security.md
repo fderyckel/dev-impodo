@@ -242,13 +242,13 @@ to a literal loopback address. Local HTTP is allowed only in this explicit
 mode. PostgreSQL must not be exposed through Impodo, and the same API-key and
 read-only connector boundary applies.
 
-The local readiness assistant is a status-only diagnostic boundary. The user
-selects the live `odoo.conf` through the native Windows file chooser; the file
-is not uploaded or copied. Impodo extracts an allowlisted set of non-secret
-routing values, discards secret options such as `db_password` and
-`admin_passwd`, and retains the resulting machine profile only in process
-memory for the current session. It does not add the configuration path or
-detected executable paths to project evidence.
+The local readiness and controlled-start assistant is a machine-management
+boundary. The user selects the live `odoo.conf` through the native Windows
+file chooser; the file is not uploaded or copied. Impodo extracts an
+allowlisted set of non-secret routing values, discards secret options such as
+`db_password` and `admin_passwd`, and retains the resulting machine profile
+only in process memory for the current session. It does not add the
+configuration path or detected executable paths to project evidence.
 
 Readiness probes are fixed and bounded:
 
@@ -262,12 +262,64 @@ Readiness probes are fixed and bounded:
 - database selection and API-key authentication remain a separate read-only
   **Save and test connection** operation.
 
-This release exposes no start, stop, restart, arbitrary-command, PostgreSQL
-credential, or Odoo master-password capability. Detected local executable and
-data paths are diagnostic evidence only. A future launch feature must require
-explicit confirmation of those paths, use fixed argument vectors, preserve
-the PostgreSQL-before-Odoo startup order, and verify readiness after each
-step.
+Startup requires a separate `local_stack.start` capability plus explicit user
+confirmation of the detected paths. Executables and data directories must
+exist at the fixed, workspace-local locations derived from the selected
+configuration; a symlink that resolves outside that workspace is not accepted.
+The application never evaluates a shell command.
+
+The fixed startup sequence is:
+
+1. reread and revalidate the live loopback configuration;
+2. use `pg_ctl status` for the selected data directory;
+3. when its exit status confirms no server is running, invoke `pg_ctl start`
+   with the configured loopback host and port, bounded wait time, and the
+   workspace PostgreSQL log;
+4. require a green `pg_isready` result before launching Odoo;
+5. invoke only the detected Python executable, `odoo-bin`, and selected
+   configuration in a separate Windows console;
+6. poll the Odoo 19 version endpoint for at most 30 seconds.
+
+Potential inherited PostgreSQL credential environment variables are removed
+from the Odoo child process. If a newly launched Odoo process exits, identifies
+as another Odoo version, or times out, Impodo stops that child process. It does
+not stop PostgreSQL automatically during startup error handling because its
+diagnostic state should remain inspectable. When a cleanup attempt cannot
+complete, the retained process handle remains marked as owned so that the
+operator can retry **Stop managed services**. PostgreSQL remains marked as
+owned only when this Impodo process started it.
+
+Stop requires the separate `local_stack.stop` capability and explicit user
+confirmation. Restart requires both `local_stack.stop` and
+`local_stack.start`. Ownership is project-scoped and process-memory-only:
+
+1. Odoo ownership is the exact child-process handle returned by Impodo's own
+   launch operation.
+2. PostgreSQL ownership is recorded only after this process successfully runs
+   `pg_ctl start` for the selected data directory and reads its validated
+   `postmaster.pid`.
+3. Stop terminates the owned Odoo child first and waits for the configured
+   loopback HTTP port to close.
+4. If another listener remains on that port, PostgreSQL is not stopped.
+5. Before stopping PostgreSQL, the current `postmaster.pid` must match the PID
+   retained at startup. A changed identity fails closed and leaves the server
+   untouched.
+6. Owned PostgreSQL is stopped with the fixed, bounded
+   `pg_ctl stop -D <detected-data-directory> -m fast -w -t 15` argument list,
+   then `pg_ctl status` must report no running server.
+7. Restart completes that stop before rereading the live configuration and
+   executing the normal PostgreSQL-first startup sequence.
+
+The assistant does not discover a process and then infer ownership from its
+port, executable name, PID, or data directory. Existing external processes
+remain status-only and are never terminated. If Impodo exits, ownership is
+lost rather than persisted or reassigned by a later process. A PostgreSQL fast
+stop can disconnect other local clients that began using the same server after
+Impodo started it, so the UI names every managed service and requires
+confirmation.
+
+The lifecycle assistant exposes no arbitrary-command, PostgreSQL credential,
+or Odoo master-password capability. It never evaluates a shell command.
 
 For a future reproducible and disposable laboratory, use Docker Compose with:
 

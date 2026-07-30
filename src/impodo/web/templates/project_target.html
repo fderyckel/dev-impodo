@@ -110,14 +110,18 @@
           <h2 id="local-stack-title">Local Odoo readiness</h2>
           <p>
             Choose the exact configuration for this computer. Impodo reads only
-            non-secret routing settings and performs status checks; it does not
-            start or stop any process in this release slice.
+            non-secret routing settings, checks each service, and can start a
+            confirmed local stack in PostgreSQL-then-Odoo order.
           </p>
         </div>
         <form method="dialog">
           <button class="dialog-close" type="submit" aria-label="Close dialog">×</button>
         </form>
       </div>
+
+      {% if error %}
+        <div class="notice error dialog-error" role="alert">{{ error }}</div>
+      {% endif %}
 
       {% if local_stack.config_path %}
         <p class="selected-config">
@@ -163,12 +167,111 @@
               <dt><code>odoo-bin</code></dt>
               <dd>{{ local_stack.profile.odoo_bin_path or "Not found" }}</dd>
             </div>
+            <div>
+              <dt>Logs directory</dt>
+              <dd>{{ local_stack.profile.logs_path or "Not found" }}</dd>
+            </div>
           </dl>
           <p class="muted">
-            Missing paths do not affect status checks, but they must be confirmed
-            before a later release can safely start this stack.
+            Impodo can start only these detected, workspace-local paths. It
+            cannot accept a command or executable path typed into the browser.
           </p>
         </details>
+      {% endif %}
+
+      {% if local_stack.has_managed_services %}
+        <section class="stack-control-panel">
+          <h3>Control services started by Impodo</h3>
+          <p>
+            Managed during this Impodo session:
+            <strong>{{ local_stack.managed_services | join(", ") }}</strong>.
+            Existing external processes are never stopped.
+          </p>
+          {% if "PostgreSQL" in local_stack.managed_services %}
+            <div class="notice warning">
+              PostgreSQL is managed by Impodo. Stopping it may disconnect
+              other local tools that began using this same server after
+              Impodo started it.
+            </div>
+          {% endif %}
+          <form
+            method="post"
+            action="/projects/{{ project.project_id }}/local-stack/control"
+            data-control-stack-form
+          >
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="action" value="" data-control-stack-action>
+            <label class="checkbox stack-start-confirmation">
+              <input type="checkbox" name="confirm_control" value="1" required>
+              I confirm that Impodo may stop only the services listed above
+              and understand the local PostgreSQL impact, when it is listed.
+            </label>
+            <div class="stack-control-actions">
+              <button
+                class="button secondary"
+                type="submit"
+                data-control-stack-action-value="stop"
+                data-control-stack-button
+              >
+                Stop managed services
+              </button>
+              <button
+                class="button primary"
+                type="submit"
+                data-control-stack-action-value="restart"
+                data-control-stack-button
+              >
+                Restart managed services
+              </button>
+            </div>
+          </form>
+          <small>
+            Stop managed services before quitting Impodo. Ownership is kept
+            only in memory for this Impodo session.
+          </small>
+        </section>
+      {% elif local_stack.startup_needed %}
+        <section class="stack-start-panel">
+          <h3>Start the missing local services</h3>
+          <p>
+            Impodo will reread the configuration, check the selected
+            PostgreSQL data directory, start PostgreSQL only when needed,
+            require <code>pg_isready</code> success, and then open Odoo in a
+            separate console window.
+          </p>
+          {% if local_stack.missing_start_requirements %}
+            <div class="notice error">
+              Cannot start because these workspace paths were not found:
+              {{ local_stack.missing_start_requirements | join(", ") }}.
+            </div>
+          {% else %}
+            <form
+              method="post"
+              action="/projects/{{ project.project_id }}/local-stack/start"
+              data-start-stack-form
+            >
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <label class="checkbox stack-start-confirmation">
+                <input type="checkbox" name="confirm_start" value="1" required>
+                I confirm the detected paths above and want Impodo to start
+                the missing local PostgreSQL and Odoo processes.
+              </label>
+              <button class="button primary" type="submit" data-start-stack-button>
+                Start PostgreSQL and Odoo
+              </button>
+            </form>
+          {% endif %}
+          <small>
+            Leave the Odoo console window open. Stop and Restart become
+            available only for services successfully started by Impodo.
+          </small>
+        </section>
+      {% elif local_stack.profile %}
+        <div class="notice stack-ready">
+          Odoo is already responding, but it was not started by this Impodo
+          session. Status checks remain available; Stop and Restart are
+          intentionally disabled.
+        </div>
       {% endif %}
 
       <div class="dialog-actions">

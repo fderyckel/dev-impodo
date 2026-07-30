@@ -9,7 +9,10 @@
   </head>
   <body>
     <header class="site-header">
-      <a class="brand" href="/projects">IMPODO</a>
+      <div class="brand-lockup">
+        <a class="brand" href="/projects">IMPODO</a>
+        <span class="brand-tagline">Import Anything into Odoo</span>
+      </div>
       <span class="boundary">Local · Odoo DEV/TEST · Read-only</span>
     </header>
     <main class="page-shell">
@@ -22,7 +25,8 @@
       {% block content %}{% endblock %}
     </main>
     <footer class="site-footer">
-      <span>Customer data remains on this computer.</span>
+      <span>Data remains on this computer.</span>
+      <span class="creator-credit">Thoughtfully made with <span role="img" aria-label="love">❤️</span> by FdR</span>
       <form method="post" action="/quit">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="link-button" type="submit">Quit Impodo</button>

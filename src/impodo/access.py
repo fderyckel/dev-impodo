@@ -20,6 +20,8 @@ class Capability(StrEnum):
     PROJECT_REGISTER = "project.register"
     PROJECT_VIEW = "project.view"
     LOCAL_STACK_INSPECT = "local_stack.inspect"
+    LOCAL_STACK_START = "local_stack.start"
+    LOCAL_STACK_STOP = "local_stack.stop"
     SOURCE_INSPECT = "source.inspect"
     SOURCE_CONFIGURE = "source.configure"
     SOURCE_SELECT = "source.select"

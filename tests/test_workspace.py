@@ -44,6 +44,9 @@ from impodo.workspace import (
     FieldMapping,
     MappingStatus,
     MappingWorkspaceService,
+    SchemaField,
+    SchemaModel,
+    SchemaOrigin,
     SchemaWorkspaceService,
     SourceWorkspaceService,
     WorkspaceError,
@@ -225,6 +228,81 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                     ),
                 ),
                 submit=False,
+                actor=LOCAL_ACTOR,
+            )
+
+    def test_local_manual_schema_draft_needs_no_odoo_credential(self) -> None:
+        self.sources.confirm_source(
+            self.project.project_id,
+            self.source.file_id,
+            selected_table_keys=("csv",),
+            warnings_acknowledged=False,
+            actor=LOCAL_ACTOR,
+        )
+        self.sources.freeze_selection(
+            self.project.project_id,
+            dataset_names={(self.source.file_id, "csv"): "customers"},
+            actor=LOCAL_ACTOR,
+        )
+
+        schema = self.schemas.capture_local_manual(
+            self.project.project_id,
+            (
+                SchemaModel(
+                    name="res.partner",
+                    label="Contact",
+                    fields=(
+                        SchemaField(
+                            name="name",
+                            label="Name",
+                            type="char",
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                        ),
+                    ),
+                ),
+            ),
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(schema.origin, SchemaOrigin.LOCAL_MANUAL)
+        self.assertEqual(
+            schema.odoo_version,
+            "unverified local draft (expected Odoo 19)",
+        )
+        self.assertEqual(
+            self.repository.get_odoo_schema_catalog(self.project.project_id),
+            schema,
+        )
+
+        draft = self.mappings.save(
+            self.project.project_id,
+            proposals=(
+                FieldMapping(
+                    dataset_name="customers",
+                    source_column="name",
+                    target_model="res.partner",
+                    target_field="name",
+                ),
+            ),
+            submit=False,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(draft.status, MappingStatus.DRAFT)
+        with self.assertRaisesRegex(WorkspaceError, "live Odoo schema"):
+            self.mappings.save(
+                self.project.project_id,
+                proposals=(
+                    FieldMapping(
+                        dataset_name="customers",
+                        source_column="name",
+                        target_model="res.partner",
+                        target_field="name",
+                    ),
+                ),
+                submit=True,
                 actor=LOCAL_ACTOR,
             )
 

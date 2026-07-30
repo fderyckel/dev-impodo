@@ -42,4 +42,33 @@ document.addEventListener("DOMContentLoaded", () => {
       localStackDialog.showModal();
     }
   }
+
+  for (const form of document.querySelectorAll("[data-start-stack-form]")) {
+    form.addEventListener("submit", () => {
+      const button = form.querySelector("[data-start-stack-button]");
+      form.setAttribute("aria-busy", "true");
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Starting and checking…";
+      }
+    });
+  }
+
+  for (const form of document.querySelectorAll("[data-control-stack-form]")) {
+    form.addEventListener("submit", (event) => {
+      const action = event.submitter?.dataset.controlStackActionValue || "";
+      const actionInput = form.querySelector("[data-control-stack-action]");
+      if (actionInput) {
+        actionInput.value = action;
+      }
+      form.setAttribute("aria-busy", "true");
+      for (const button of form.querySelectorAll("[data-control-stack-button]")) {
+        button.disabled = true;
+      }
+      if (event.submitter) {
+        event.submitter.textContent =
+          action === "restart" ? "Restarting and checking…" : "Stopping and checking…";
+      }
+    });
+  }
 });

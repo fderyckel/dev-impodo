@@ -9,7 +9,11 @@
       <h1>Capture permitted Odoo fields</h1>
       <p>Set the exact technical model allowlist, then read field metadata once for each permitted model.</p>
     </div>
-    {% if schema %}<span class="status registered">Captured</span>{% endif %}
+    {% if schema %}
+      <span class="status {% if schema.origin.value == 'LOCAL_MANUAL' %}warning{% else %}registered{% endif %}">
+        {% if schema.origin.value == 'LOCAL_MANUAL' %}Unverified local draft{% else %}Captured{% endif %}
+      </span>
+    {% endif %}
   </div>
 
   <section class="form-card">
@@ -37,13 +41,56 @@
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to datasets</a>
         <button class="button primary" type="submit" {% if not selection or not project.intended_models %}disabled{% endif %}>
-          {% if schema %}Capture again{% else %}Capture Odoo schema{% endif %}
+          {% if schema %}Capture again using API key{% else %}Capture Odoo schema using API key{% endif %}
         </button>
       </div>
     </form>
   </section>
 
+  {% if project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' and project.target_environment and project.target_environment.value == 'DEV' %}
+    <section class="form-card">
+      <p class="eyebrow">Local DEV option</p>
+      <h2>Use an unverified local schema draft</h2>
+      <div class="notice warning">
+        This option does not contact Odoo and does not need an API key. Enter
+        the agreed field contract manually. The draft is suitable only for
+        mapping work; live capture must replace it before mapping submission.
+      </div>
+      <form method="post" action="/projects/{{ project.project_id }}/schema/local-draft">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        {% for model_name in project.intended_models %}
+          {% set existing = manual_schema_by_model.get(model_name) %}
+          <fieldset>
+            <legend><code>{{ model_name }}</code></legend>
+            <label>
+              Model label
+              <input name="manual_model_label_{{ loop.index0 }}" maxlength="200" value="{{ existing.label if existing else model_name }}">
+            </label>
+            <label>
+              Fields
+              <textarea name="manual_fields_{{ loop.index0 }}" rows="6" required placeholder="default_code | Internal Reference | char | no | no&#10;name | Name | char | yes | no&#10;company_id | Company | many2one | no | no | res.company">{% if existing %}{% for field in existing.fields %}{{ field.name }} | {{ field.label }} | {{ field.type }} | {{ 'yes' if field.required else 'no' }} | {{ 'yes' if field.readonly else 'no' }}{% if field.relation %} | {{ field.relation }}{% endif %}{% if field.relation_field %} | {{ field.relation_field }}{% endif %}
+{% endfor %}{% endif %}</textarea>
+              <small>One field per line: <code>name | label | type | required | readonly | relation | inverse field</code>. Use <code>yes</code> or <code>no</code>; relation and inverse field are optional.</small>
+            </label>
+          </fieldset>
+        {% endfor %}
+        <label class="acknowledgement">
+          <input type="checkbox" name="acknowledge_local_draft" value="1" required>
+          I understand this is an unverified local DEV draft and cannot be submitted until a live Odoo capture replaces it.
+        </label>
+        <div class="actions">
+          <button class="button secondary" type="submit" {% if not selection or not project.intended_models %}disabled{% endif %}>Create unverified local schema draft</button>
+        </div>
+      </form>
+    </section>
+  {% endif %}
+
   {% if schema %}
+    {% if schema.origin.value == 'LOCAL_MANUAL' %}
+      <div class="notice warning">
+        This field catalog was entered manually for local development. Validate it against Odoo with an authenticated live capture before submitting a mapping.
+      </div>
+    {% endif %}
     <form method="post" action="/projects/{{ project.project_id }}/schema/govern">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <section class="form-card" id="schema-governance">

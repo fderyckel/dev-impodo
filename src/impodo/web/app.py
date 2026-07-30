@@ -68,6 +68,9 @@ from ..projects import (
 from ..secrets import CredentialVault, SecretStore, SecretStoreError
 from ..workspace import (
     MappingWorkspaceService,
+    SchemaField,
+    SchemaModel,
+    SchemaOrigin,
     SchemaWorkspaceService,
     SourceWorkspaceService,
     WorkspaceError,
@@ -92,6 +95,8 @@ ODOO_APPLICATIONS = (
     "Sales",
     "Custom applications",
 )
+_MANUAL_FIELD_NAME = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
+_MANUAL_FIELD_TYPE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
 ConnectionTester = Callable[[MigrationProject, str], str]
@@ -484,6 +489,78 @@ def create_local_app(
             status_code=303,
         )
 
+    @app.post("/projects/{project_id}/local-stack/start")
+    async def start_local_stack(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "confirm_start"})
+        project = _draft_or_redirect(context, project_id)
+        if isinstance(project, RedirectResponse):
+            return project
+        try:
+            _require_local_stack_start(context, project)
+            if _text(form, "confirm_start") != "1":
+                raise LocalStackError(
+                    "Confirm the detected paths before starting the local stack."
+                )
+            await run_in_threadpool(context.local_stack.start, project_id)
+        except LocalStackError as error:
+            return _render_target(
+                request,
+                context,
+                project,
+                error=str(error),
+                status_code=422,
+                open_local_stack=True,
+            )
+        _flash(request, "Local stack startup check completed.")
+        return RedirectResponse(
+            f"/projects/{project_id}/target?local_stack=1",
+            status_code=303,
+        )
+
+    @app.post("/projects/{project_id}/local-stack/control")
+    async def control_local_stack(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "confirm_control", "action"},
+        )
+        project = _draft_or_redirect(context, project_id)
+        if isinstance(project, RedirectResponse):
+            return project
+        action = _text(form, "action")
+        try:
+            if _text(form, "confirm_control") != "1":
+                raise LocalStackError(
+                    "Confirm control of the Impodo-managed services first."
+                )
+            if action == "stop":
+                _require_local_stack_stop(context, project)
+                await run_in_threadpool(context.local_stack.stop, project_id)
+                message = "Impodo-managed local services stopped."
+            elif action == "restart":
+                _require_local_stack_stop(context, project)
+                _require_local_stack_start(context, project)
+                await run_in_threadpool(context.local_stack.restart, project_id)
+                message = "Impodo-managed local services restarted."
+            else:
+                raise LocalStackError("Choose Stop or Restart.")
+        except LocalStackError as error:
+            return _render_target(
+                request,
+                context,
+                project,
+                error=str(error),
+                status_code=422,
+                open_local_stack=True,
+            )
+        _flash(request, message)
+        return RedirectResponse(
+            f"/projects/{project_id}/target?local_stack=1",
+            status_code=303,
+        )
+
     @app.post("/projects/{project_id}/target")
     async def project_target(request: Request, project_id: str):
         form = await request.form()
@@ -865,6 +942,49 @@ def create_local_app(
             status_code=303,
         )
 
+    @app.post("/projects/{project_id}/schema/local-draft")
+    async def create_local_schema_draft(request: Request, project_id: str):
+        form = await request.form()
+        project = context.repository.get(project_id)
+        allowed = {"csrf_token", "acknowledge_local_draft"} | {
+            name
+            for index, _model in enumerate(project.intended_models)
+            for name in (
+                f"manual_model_label_{index}",
+                f"manual_fields_{index}",
+            )
+        }
+        _secure_form(request, form, allowed)
+        try:
+            if not _checked(form, "acknowledge_local_draft"):
+                raise WorkspaceError(
+                    "Acknowledge that this local schema is unverified"
+                )
+            schema = context.schema_workspace.capture_local_manual(
+                project_id,
+                _manual_schema_models(project, form),
+                actor=context.actor,
+            )
+        except (ProjectError, WorkspaceError) as error:
+            return _render_schema(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            (
+                f"Created an unverified local schema draft for "
+                f"{len(schema.models)} permitted Odoo model(s)."
+            ),
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/schema",
+            status_code=303,
+        )
+
     @app.post("/projects/{project_id}/schema/govern")
     async def govern_project_schema(request: Request, project_id: str):
         form = await request.form()
@@ -1159,6 +1279,42 @@ def _require_local_stack_access(
         )
 
 
+def _require_local_stack_start(
+    context: WebContext,
+    project: MigrationProject,
+) -> None:
+    _require_local_stack_access(context, project)
+    try:
+        context.authorization.require(
+            context.actor,
+            Capability.LOCAL_STACK_START,
+            project_id=project.project_id,
+        )
+    except AuthorizationError as error:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized to start the local Odoo stack",
+        ) from error
+
+
+def _require_local_stack_stop(
+    context: WebContext,
+    project: MigrationProject,
+) -> None:
+    _require_local_stack_access(context, project)
+    try:
+        context.authorization.require(
+            context.actor,
+            Capability.LOCAL_STACK_STOP,
+            project_id=project.project_id,
+        )
+    except AuthorizationError as error:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized to stop the local Odoo stack",
+        ) from error
+
+
 def _secure_form(
     request: Request,
     form: FormData,
@@ -1195,6 +1351,102 @@ def _split_models(value: str) -> tuple[str, ...]:
         part.strip()
         for part in re.split(r"[,\r\n]+", value)
         if part.strip()
+    )
+
+
+def _manual_schema_models(
+    project: MigrationProject,
+    form: FormData,
+) -> tuple[SchemaModel, ...]:
+    """Parse the explicitly entered local-development schema contract."""
+
+    return tuple(
+        SchemaModel(
+            name=model_name,
+            label=(
+                _text(form, f"manual_model_label_{index}").strip()
+                or model_name
+            ),
+            fields=_manual_schema_fields(
+                model_name,
+                _text(form, f"manual_fields_{index}"),
+            ),
+        )
+        for index, model_name in enumerate(project.intended_models)
+    )
+
+
+def _manual_schema_fields(
+    model_name: str,
+    value: str,
+) -> tuple[SchemaField, ...]:
+    """Parse ``name | label | type | required | readonly | relation | inverse``."""
+
+    fields: list[SchemaField] = []
+    for line_number, raw_line in enumerate(value.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [part.strip() for part in line.split("|")]
+        if not 3 <= len(parts) <= 7:
+            raise WorkspaceError(
+                f"{model_name} line {line_number} must contain name, label, "
+                "and type separated by |"
+            )
+        name, label, field_type, *optional = parts
+        if not _MANUAL_FIELD_NAME.fullmatch(name):
+            raise WorkspaceError(
+                f"{model_name} line {line_number} has an invalid field name"
+            )
+        if not label or len(label) > 200:
+            raise WorkspaceError(
+                f"{model_name} line {line_number} needs a field label"
+            )
+        if not _MANUAL_FIELD_TYPE.fullmatch(field_type):
+            raise WorkspaceError(
+                f"{model_name} line {line_number} has an invalid field type"
+            )
+        required, readonly, relation, relation_field = (
+            optional + ["", "", "", ""]
+        )[:4]
+        fields.append(
+            SchemaField(
+                name=name,
+                label=label,
+                type=field_type,
+                required=_manual_schema_boolean(
+                    required,
+                    model_name,
+                    line_number,
+                    "required",
+                ),
+                readonly=_manual_schema_boolean(
+                    readonly,
+                    model_name,
+                    line_number,
+                    "readonly",
+                ),
+                relation=relation or None,
+                relation_field=relation_field or None,
+                selection=(),
+            )
+        )
+    return tuple(fields)
+
+
+def _manual_schema_boolean(
+    value: str,
+    model_name: str,
+    line_number: int,
+    label: str,
+) -> bool:
+    normalized = value.casefold()
+    if normalized in {"", "0", "false", "no"}:
+        return False
+    if normalized in {"1", "true", "yes"}:
+        return True
+    raise WorkspaceError(
+        f"{model_name} line {line_number} has an invalid {label} value"
     )
 
 
@@ -1269,6 +1521,11 @@ def _render_schema(
         schema=schema,
         governance=governance,
         governed_by_model=governed_by_model,
+        manual_schema_by_model=(
+            {model.name: model for model in schema.models}
+            if schema and schema.origin is SchemaOrigin.LOCAL_MANUAL
+            else {}
+        ),
         error=error,
         status_code=status_code,
     )

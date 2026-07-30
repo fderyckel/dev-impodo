@@ -35,7 +35,13 @@ from .mapping_semantics import (
     SchemaGovernance,
     mapping_issue_fingerprint,
 )
-from .projects import MigrationProject, ProjectError, ProjectStatus
+from .projects import (
+    MigrationProject,
+    OdooConnectionMode,
+    ProjectError,
+    ProjectStatus,
+    TargetEnvironment,
+)
 
 
 _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
@@ -173,6 +179,13 @@ class SchemaModel:
     fields: tuple[SchemaField, ...]
 
 
+class SchemaOrigin(StrEnum):
+    """How the current schema catalog was obtained."""
+
+    LIVE_API = "LIVE_API"
+    LOCAL_MANUAL = "LOCAL_MANUAL"
+
+
 @dataclass(frozen=True, slots=True)
 class OdooSchemaCatalog:
     """Read-only, permitted-model Odoo schema captured for mapping."""
@@ -186,6 +199,7 @@ class OdooSchemaCatalog:
     odoo_version: str
     models: tuple[SchemaModel, ...]
     content_hash: str
+    origin: SchemaOrigin = SchemaOrigin.LIVE_API
 
     def to_json(self) -> str:
         return _canonical_json(asdict(self))
@@ -224,6 +238,7 @@ class OdooSchemaCatalog:
                 for model in payload["models"]
             ),
             content_hash=payload["content_hash"],
+            origin=SchemaOrigin(payload.get("origin", SchemaOrigin.LIVE_API)),
         )
 
 
@@ -525,19 +540,11 @@ class SchemaWorkspaceService:
         *,
         actor: Actor,
     ) -> OdooSchemaCatalog:
-        self.authorization.require(
-            actor, Capability.SCHEMA_DISCOVER, project_id=project_id
-        )
-        project = self.repository.get(project_id)
-        if self.repository.get_source_selection(project_id) is None:
-            raise WorkspaceError("Freeze source datasets before capturing Odoo schema")
+        """Capture a verified catalog through Odoo's authenticated API."""
+
+        project, permitted = self._capture_context(project_id, actor=actor)
         if not snapshot.complete:
             raise WorkspaceError("Odoo schema response is incomplete")
-        permitted = set(project.intended_models)
-        if not permitted:
-            raise WorkspaceError(
-                "Add at least one permitted technical Odoo model to the project"
-            )
         if set(snapshot.models) != permitted:
             raise WorkspaceError("Odoo schema response does not match permitted models")
         if snapshot.fingerprint.environment != project.target_environment.value:
@@ -566,8 +573,118 @@ class SchemaWorkspaceService:
             )
             for name, model in sorted(snapshot.models.items())
         )
-        if any(not model.fields for model in models):
-            raise WorkspaceError("Odoo returned an empty permitted-model schema")
+        self._validate_schema_models(models, permitted)
+        return self._store_catalog(
+            project,
+            models=models,
+            environment=snapshot.fingerprint.environment,
+            database=snapshot.fingerprint.database,
+            odoo_version=snapshot.fingerprint.odoo_version,
+            fingerprint=snapshot.fingerprint.portable_dict(),
+            origin=SchemaOrigin.LIVE_API,
+            actor=actor,
+        )
+
+    def capture_local_manual(
+        self,
+        project_id: str,
+        models: Iterable[SchemaModel],
+        *,
+        actor: Actor,
+    ) -> OdooSchemaCatalog:
+        """Store an explicitly unverified schema draft for local DEV work.
+
+        This deliberately does not contact Odoo or accept any alternate
+        credential. A later authenticated capture replaces the draft and
+        invalidates its dependent governance and mapping evidence.
+        """
+
+        project, permitted = self._capture_context(project_id, actor=actor)
+        if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
+            raise WorkspaceError(
+                "A manual schema draft is available only for Local Odoo"
+            )
+        if project.target_environment is not TargetEnvironment.DEV:
+            raise WorkspaceError(
+                "A manual schema draft is available only for a local DEV target"
+            )
+        declared_models = tuple(sorted(models, key=lambda item: item.name))
+        self._validate_schema_models(declared_models, permitted)
+        return self._store_catalog(
+            project,
+            models=declared_models,
+            environment=project.target_environment.value,
+            database=project.odoo_database,
+            odoo_version="unverified local draft (expected Odoo 19)",
+            fingerprint={
+                "environment": project.target_environment.value,
+                "database": project.odoo_database,
+                "odoo_version": "unverified local draft (expected Odoo 19)",
+                "snapshot_timestamp": "not captured",
+                "module_versions": {},
+            },
+            origin=SchemaOrigin.LOCAL_MANUAL,
+            actor=actor,
+        )
+
+    def _capture_context(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+    ) -> tuple[MigrationProject, set[str]]:
+        self.authorization.require(
+            actor, Capability.SCHEMA_DISCOVER, project_id=project_id
+        )
+        project = self.repository.get(project_id)
+        if self.repository.get_source_selection(project_id) is None:
+            raise WorkspaceError("Freeze source datasets before capturing Odoo schema")
+        permitted = set(project.intended_models)
+        if not permitted:
+            raise WorkspaceError(
+                "Add at least one permitted technical Odoo model to the project"
+            )
+        if project.target_environment is None:
+            raise WorkspaceError("Configure the Odoo target before capturing schema")
+        return project, permitted
+
+    @staticmethod
+    def _validate_schema_models(
+        models: tuple[SchemaModel, ...],
+        permitted: set[str],
+    ) -> None:
+        if {model.name for model in models} != permitted:
+            raise WorkspaceError("Schema models do not match the permitted scope")
+        if len(models) != len(permitted):
+            raise WorkspaceError("Schema models must be unique")
+        if any(not model.label or not model.fields for model in models):
+            raise WorkspaceError("Each permitted model must have a label and field")
+        for model in models:
+            names = [field.name for field in model.fields]
+            if len(names) != len(set(names)):
+                raise WorkspaceError(
+                    f"Schema fields for {model.name} must be unique"
+                )
+            if any(
+                not field.name or not field.label or not field.type
+                for field in model.fields
+            ):
+                raise WorkspaceError(
+                    f"Schema fields for {model.name} need a name, label, and type"
+                )
+
+    def _store_catalog(
+        self,
+        project: MigrationProject,
+        *,
+        models: tuple[SchemaModel, ...],
+        environment: str,
+        database: str,
+        odoo_version: str,
+        fingerprint: Mapping[str, object],
+        origin: SchemaOrigin,
+        actor: Actor,
+    ) -> OdooSchemaCatalog:
         target_hash = _content_hash(
             {
                 "mode": (
@@ -582,26 +699,32 @@ class SchemaWorkspaceService:
                 ),
                 "url": project.odoo_base_url,
                 "database": project.odoo_database,
-                "models": sorted(permitted),
+                "models": sorted(model.name for model in models),
             }
         )
         content = {
             "target_hash": target_hash,
-            "fingerprint": snapshot.fingerprint.portable_dict(),
+            "fingerprint": fingerprint,
+            "origin": origin.value,
             "models": [asdict(model) for model in models],
         }
         catalog = OdooSchemaCatalog(
-            project_id=project_id,
+            project_id=project.project_id,
             target_hash=target_hash,
             captured_at=datetime.now(timezone.utc),
             captured_by=actor.identity.display_name,
-            environment=snapshot.fingerprint.environment,
-            database=snapshot.fingerprint.database,
-            odoo_version=snapshot.fingerprint.odoo_version,
+            environment=environment,
+            database=database,
+            odoo_version=odoo_version,
             models=models,
             content_hash=_content_hash(content),
+            origin=origin,
         )
-        self.repository.save_odoo_schema_catalog(project_id, catalog, actor=actor)
+        self.repository.save_odoo_schema_catalog(
+            project.project_id,
+            catalog,
+            actor=actor,
+        )
         return catalog
 
     def govern(
@@ -718,6 +841,11 @@ class MappingWorkspaceService:
         governance = self.repository.get_schema_governance(project_id)
         if selection is None or schema is None:
             raise WorkspaceError("Freeze datasets and capture Odoo schema first")
+        if submit and schema.origin is SchemaOrigin.LOCAL_MANUAL:
+            raise WorkspaceError(
+                "Capture the live Odoo schema before submitting a mapping; "
+                "the current local schema is unverified"
+            )
         current = self.repository.get_mapping_revision(project_id)
         actual_parent = current.version if current else None
         if expected_parent_version != actual_parent:
@@ -850,6 +978,11 @@ class MappingWorkspaceService:
         schema = self.repository.get_odoo_schema_catalog(project_id)
         if selection is None or schema is None:
             raise WorkspaceError("Freeze datasets and capture Odoo schema first")
+        if submit and schema.origin is SchemaOrigin.LOCAL_MANUAL:
+            raise WorkspaceError(
+                "Capture the live Odoo schema before submitting a mapping; "
+                "the current local schema is unverified"
+            )
         source_columns = {
             (dataset.name, column.source_name)
             for dataset in selection.datasets

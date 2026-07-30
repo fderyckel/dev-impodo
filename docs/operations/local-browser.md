@@ -124,11 +124,29 @@ native Windows file chooser and inspect the current readiness sequence:
 configuration, PostgreSQL, Odoo 19 HTTP, then the authenticated Impodo API
 connection. The assistant retains only non-secret routing settings in memory
 for the current session. It does not upload the file, persist the selected
-path, start or stop a process, or accept an arbitrary command.
+path, or accept an arbitrary command.
 
-Start PostgreSQL and then Odoo outside Impodo when either service is not ready.
-Select **Check again**, and only then use **Save and test connection** with the
-read-only API key.
+After reviewing the detected workspace-local paths, explicitly confirm
+**Start PostgreSQL and Odoo**. Impodo checks `pg_ctl status`, starts PostgreSQL
+only when needed, requires `pg_isready` success, and then launches Odoo in a
+separate Windows console. It uses fixed argument lists and rereads the live
+configuration immediately before startup.
+
+When Impodo starts a service, it retains that exact ownership in memory and
+shows **Stop managed services** and **Restart managed services**. These
+controls never claim or terminate a PostgreSQL or Odoo process that was
+already running. Stop closes the Impodo-launched Odoo child first, confirms
+that its configured port has closed, then uses a bounded `pg_ctl stop -m fast`
+only when Impodo also started the selected PostgreSQL data directory and its
+current `postmaster.pid` still matches the PID recorded at startup. Restart
+performs that safe stop and then repeats the live configuration and
+PostgreSQL-first startup checks.
+
+If managed PostgreSQL is listed, stopping it may disconnect another local tool
+that began using the same server after Impodo started it. Save that work first.
+Use **Stop managed services** before **Quit Impodo** because process ownership
+is not persisted across Impodo sessions. Use **Check again** after any manual
+correction, then **Save and test connection** with the read-only API key.
 
 To create the credential in Odoo 19, sign in as the dedicated internal user,
 open that user's preferences, find **API Keys**, and select **Add API Key**.
@@ -149,6 +167,9 @@ Plain HTTP and loopback destinations are rejected in this mode. Production is
 not an available environment.
 
 ## Stop
+
+If the local readiness assistant lists services managed by Impodo, use
+**Stop managed services** there first.
 
 Use **Quit Impodo** in the browser footer. Closing the tab alone does not stop
 the local Python process. `Ctrl+C` in the launching PowerShell window also

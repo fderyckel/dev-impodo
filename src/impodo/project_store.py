@@ -414,13 +414,23 @@ class DuckDbProjectRepository:
         *,
         actor: Actor,
     ) -> None:
+        event_type = (
+            "LOCAL_SCHEMA_DRAFT_CREATED"
+            if catalog.origin.value == "LOCAL_MANUAL"
+            else "ODOO_SCHEMA_CAPTURED"
+        )
+        source = (
+            "unverified local draft"
+            if catalog.origin.value == "LOCAL_MANUAL"
+            else "authenticated Odoo capture"
+        )
         self._save_singleton(
             project_id,
             table="odoo_schema_catalog",
             value_column="catalog_json",
             value=catalog.to_json(),
-            event_type="ODOO_SCHEMA_CAPTURED",
-            detail=f"{len(catalog.models)} permitted model(s)",
+            event_type=event_type,
+            detail=f"{len(catalog.models)} permitted model(s); {source}",
             actor=actor,
             invalidate=(
                 "mapping_draft",
