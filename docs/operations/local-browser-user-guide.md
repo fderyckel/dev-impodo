@@ -185,6 +185,10 @@ Enter the exact URL and database supplied by the Odoo administrator. A
 connection test is read-only. Saving an API key stores it in the operating
 system's credential manager, not in the project database.
 
+**Migration application scope** is optional reviewer context, such as
+Contacts or Inventory. It does not grant Odoo access and does not control
+which technical models Impodo can read or map.
+
 Before selecting **Register project**, use the completeness list to confirm
 that every required section is finished.
 
@@ -269,15 +273,19 @@ history but requires the active mapping to be reviewed against the new source.
 
 ## 5. Capture the Odoo schema
 
-Open **Odoo schema** and enter only the technical model names approved for the
-project. For the worked example:
+Open **Odoo schema** and set only the technical model names approved for the
+project. This is the enforced allowlist for schema capture and mapping. For
+the worked example:
 
 - `res.company`
 - `res.partner`
 - `res.partner.category`
 
-Impodo reads field definitions for those models. It does not read every Odoo
-model, and schema capture does not change Odoo.
+Save the permitted model scope before capture. Changing it later clears the
+captured schema, confirmed business keys, and active mapping, so the new scope
+must be captured and reviewed again. Impodo reads field definitions only for
+those models. It does not read every Odoo model, and schema capture does not
+change Odoo.
 
 Review each field's label, type, required status, read-only status, and
 relationship target. If a needed field is missing, ask the Odoo administrator

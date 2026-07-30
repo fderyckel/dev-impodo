@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Mapping · {{ project.name }} · Impodo{% endblock %}
 {% block content %}
+  {% set workspace_step = "mapping" %}
+  {% include "_workspace_steps.html" %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Phase 2B · Governed mapping</p>
@@ -21,7 +23,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="expected_parent_version" value="{{ revision.version if revision else '' }}">
 
-      <section class="form-card">
+      <section class="form-card evidence-card">
         <h2>Evidence binding</h2>
         <div class="definition-list">
           <div><dt>Frozen source</dt><dd><code>{{ selection.content_hash }}</code></dd></div>
@@ -147,20 +149,12 @@
           <p class="muted">Each target field has one provider. A source column may be selected for several explicit target fields.</p>
           <div class="table-scroll">
             <table class="data-table mapping-table">
-              <thead><tr><th>Odoo field</th><th>Metadata</th><th>Source</th><th>Canonical type</th><th>Policies</th></tr></thead>
+              <thead><tr><th>Source</th><th>Canonical type</th><th>Odoo field</th><th>Metadata</th><th>Policies</th></tr></thead>
               <tbody>
                 {% for row in view.scalar_rows %}
                   {% set field_index = row.index %}
                   {% set mapping = row.mapping %}
                   <tr>
-                    <th data-target="{{ view.selected_model }}::{{ row.metadata.name }}">
-                      {{ row.metadata.label }}<br><code>{{ row.metadata.name }}</code>
-                    </th>
-                    <td>
-                      {{ row.metadata.type }}
-                      {% if row.metadata.required %} · required{% endif %}
-                      {% if row.metadata.readonly %} · readonly{% endif %}
-                    </td>
                     <td>
                       <select name="scalar_source_{{ dataset_index }}_{{ field_index }}">
                         <option value="">Not mapped</option>
@@ -178,6 +172,14 @@
                           <option value="{{ value_type }}" {% if selected_type == value_type %}selected{% endif %}>{{ value_type }}</option>
                         {% endfor %}
                       </select>
+                    </td>
+                    <th data-target="{{ view.selected_model }}::{{ row.metadata.name }}">
+                      {{ row.metadata.label }}<br><code>{{ row.metadata.name }}</code>
+                    </th>
+                    <td>
+                      {{ row.metadata.type }}
+                      {% if row.metadata.required %} · required{% endif %}
+                      {% if row.metadata.readonly %} · readonly{% endif %}
                     </td>
                     <td class="policy-cell">
                       <label><input type="checkbox" name="scalar_compare_{{ dataset_index }}_{{ field_index }}" value="1" {% if not mapping or mapping.compare %}checked{% endif %}> Compare</label>
@@ -346,7 +348,7 @@
         </section>
       {% endif %}
 
-      <div class="actions">
+      <div class="actions mapping-actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Back to schema</a>
         <button class="button secondary" name="action" value="draft" type="submit">Save and validate draft</button>
         <button class="button primary" name="action" value="submit" type="submit">Submit exact validated mapping</button>

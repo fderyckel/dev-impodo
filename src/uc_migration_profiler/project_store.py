@@ -967,6 +967,53 @@ class DuckDbProjectRepository:
                 raise
         self._update_registry(project)
 
+    def update_schema_scope(
+        self,
+        project: MigrationProject,
+        *,
+        expected_revision: int,
+        actor: Actor,
+    ) -> None:
+        """Replace Stage C's model allowlist and invalidate its dependents."""
+
+        database_path = self.project_directory(project.project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            connection.begin()
+            try:
+                current = connection.execute(
+                    "SELECT revision FROM project"
+                ).fetchone()
+                if current is None:
+                    raise ProjectNotFoundError("Project not found")
+                if current[0] != expected_revision:
+                    raise ProjectConflictError(
+                        "The project was modified by another request"
+                    )
+                self._update_project(connection, project)
+                connection.execute("DELETE FROM odoo_schema_catalog")
+                connection.execute("DELETE FROM schema_governance_current")
+                connection.execute("DELETE FROM mapping_draft")
+                connection.execute("DELETE FROM mapping_current")
+                self._insert_audit(
+                    connection,
+                    project,
+                    event_type="SCHEMA_SCOPE_UPDATED",
+                    detail=(
+                        f"{len(project.intended_models)} permitted model(s); "
+                        "captured schema and active mapping invalidated"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        self._update_registry(project)
+        self._write_registration_manifest(project)
+
     def project_directory(self, project_id: str) -> Path:
         try:
             canonical = str(UUID(project_id))

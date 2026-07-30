@@ -71,7 +71,7 @@ A migration project identifies:
 - target Odoo environment;
 - responsible data manager and functional owner;
 - source files;
-- intended target applications and models;
+- optional migration application scope for reviewer context;
 - data-retention classification;
 - current mapping version;
 - current run and approval status.
@@ -108,6 +108,12 @@ later runs detect replacement or edits.
 
 The mapping workflow needs a read-only schema catalog before it can ask the
 data manager to choose target fields.
+
+Before capture, the data manager sets the exact permitted technical Odoo
+models for this project. This is the model-level allowlist for schema reads
+and mapping choices; it is not inferred from the optional Stage A application
+scope. Changing the model scope invalidates the captured schema and its
+dependent business-key and mapping decisions.
 
 The catalog exposes permitted:
 

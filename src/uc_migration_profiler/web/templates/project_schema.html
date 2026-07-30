@@ -1,11 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Odoo schema · {{ project.name }} · Impodo{% endblock %}
 {% block content %}
+  {% set workspace_step = "odoo" %}
+  {% include "_workspace_steps.html" %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Phase 2 · Target schema</p>
       <h1>Capture permitted Odoo fields</h1>
-      <p>Read field metadata once for each model explicitly permitted in the registered project.</p>
+      <p>Set the exact technical model allowlist, then read field metadata once for each permitted model.</p>
     </div>
     {% if schema %}<span class="status registered">Captured</span>{% endif %}
   </div>
@@ -13,12 +15,28 @@
   <section class="form-card">
     <h2>Read boundary</h2>
     <p>Target: {{ project.target_environment.value }} / {{ project.odoo_database }}</p>
-    <p>Permitted models: <code>{{ project.intended_models|join(", ") }}</code></p>
+    <form method="post" action="/projects/{{ project.project_id }}/schema/scope">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="revision" value="{{ project.revision }}">
+      <label>
+        Permitted target models for schema capture and mapping
+        <textarea name="permitted_models" rows="3" required placeholder="product.template, mrp.bom">{{ project.intended_models|join(', ') }}</textarea>
+        <small>
+          Comma-separated technical Odoo model names. This is the enforced
+          allowlist for schema reads and mapping choices. Changing it clears
+          the captured schema, governed business keys, and active mapping.
+        </small>
+      </label>
+      <div class="actions">
+        <button class="button secondary" type="submit">Save permitted model scope</button>
+      </div>
+    </form>
+    <p>Current permitted models: <code>{{ project.intended_models|join(", ") or "Not set" }}</code></p>
     <form method="post" action="/projects/{{ project.project_id }}/schema/capture">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to datasets</a>
-        <button class="button primary" type="submit" {% if not selection %}disabled{% endif %}>
+        <button class="button primary" type="submit" {% if not selection or not project.intended_models %}disabled{% endif %}>
           {% if schema %}Capture again{% else %}Capture Odoo schema{% endif %}
         </button>
       </div>

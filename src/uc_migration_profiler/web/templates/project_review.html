@@ -29,7 +29,7 @@
       <div><dt>Target</dt><dd>{{ project.target_environment.value if project.target_environment else "Not set" }}</dd></div>
       <div class="wide"><dt>Odoo URL</dt><dd>{{ project.odoo_base_url or "Not set" }}</dd></div>
       <div><dt>Database</dt><dd>{{ project.odoo_database or "Not set" }}</dd></div>
-      <div class="wide"><dt>Applications</dt><dd>{{ project.intended_applications|join(", ") or "Not set" }}</dd></div>
+      <div class="wide"><dt>Migration application scope</dt><dd>{{ project.intended_applications|join(", ") or "Not set" }}</dd></div>
     </dl>
 
     <form method="post" action="/projects/{{ project.project_id }}/register">

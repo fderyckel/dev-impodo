@@ -263,7 +263,7 @@ class ProjectLifecycleTests(unittest.TestCase):
             target_environment="TEST",
             odoo_base_url="https://odoo.example.test",
             odoo_database="uc_test",
-            intended_applications=["Inventory"],
+            intended_applications=[],
             intended_models=[],
         )
         project = self.service.add_source_file(

@@ -253,8 +253,6 @@ class PhaseAWizardTests(unittest.TestCase):
                 "target_environment": "DEV",
                 "odoo_base_url": "http://127.0.0.1:8069",
                 "odoo_database": "odoo19_dev",
-                "intended_applications": ["Contacts"],
-                "intended_models": "res.partner",
                 "api_key": "super-secret-token",
                 "action": "test",
             },
@@ -389,6 +387,21 @@ class PhaseAWizardTests(unittest.TestCase):
             f"/projects/{project_id}/schema",
         )
 
+        project = self.app.state.context.repository.get(project_id)
+        scope = self.client.post(
+            f"/projects/{project_id}/schema/scope",
+            data={
+                "csrf_token": self.csrf,
+                "revision": str(project.revision),
+                "permitted_models": "res.partner",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(scope.status_code, 303)
+        project = self.app.state.context.repository.get(project_id)
+        self.assertEqual(project.intended_models, ("res.partner",))
+
         captured = self.client.post(
             f"/projects/{project_id}/schema/capture",
             data={"csrf_token": self.csrf},
@@ -463,6 +476,32 @@ class PhaseAWizardTests(unittest.TestCase):
         self.assertIn("SUBMITTED", submitted_page.text)
         self.assertIn("valid", submitted_page.text.casefold())
 
+        project = self.app.state.context.repository.get(project_id)
+        changed_scope = self.client.post(
+            f"/projects/{project_id}/schema/scope",
+            data={
+                "csrf_token": self.csrf,
+                "revision": str(project.revision),
+                "permitted_models": "res.company",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(changed_scope.status_code, 303)
+        project = self.app.state.context.repository.get(project_id)
+        self.assertEqual(project.intended_models, ("res.company",))
+        self.assertIsNone(project.mapping_version)
+        self.assertEqual(project.approval_status.value, "INVALIDATED")
+        self.assertIsNone(
+            self.app.state.context.repository.get_odoo_schema_catalog(project_id)
+        )
+        self.assertIsNone(
+            self.app.state.context.repository.get_schema_governance(project_id)
+        )
+        self.assertIsNone(
+            self.app.state.context.repository.get_mapping_revision(project_id)
+        )
+
     def test_saved_key_is_not_reused_after_target_change(self) -> None:
         created = self._post(
             "/projects/new",
@@ -482,8 +521,6 @@ class PhaseAWizardTests(unittest.TestCase):
                 "target_environment": "DEV",
                 "odoo_base_url": "http://127.0.0.1:8069",
                 "odoo_database": "odoo19_dev",
-                "intended_applications": ["Contacts"],
-                "intended_models": "res.partner",
                 "api_key": "local-only-key",
                 "action": "test",
             },
@@ -499,8 +536,6 @@ class PhaseAWizardTests(unittest.TestCase):
                 "target_environment": "TEST",
                 "odoo_base_url": "https://odoo-test.example.com",
                 "odoo_database": "uc_test",
-                "intended_applications": ["Contacts"],
-                "intended_models": "res.partner",
                 "action": "test",
             },
             headers=POST_HEADERS,

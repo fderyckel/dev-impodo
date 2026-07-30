@@ -161,6 +161,14 @@ class ProjectRepository(Protocol):
         actor: Actor,
     ) -> None: ...
 
+    def update_schema_scope(
+        self,
+        project: MigrationProject,
+        *,
+        expected_revision: int,
+        actor: Actor,
+    ) -> None: ...
+
 
 class ProjectService:
     """Own project lifecycle operations independently of HTTP and DuckDB."""
@@ -291,7 +299,7 @@ class ProjectService:
         odoo_base_url: str,
         odoo_database: str,
         intended_applications: Sequence[str],
-        intended_models: Sequence[str],
+        intended_models: Sequence[str] | None = None,
     ) -> MigrationProject:
         project = self._editable(
             project_id,
@@ -316,7 +324,11 @@ class ProjectService:
             odoo_base_url=base_url,
             odoo_database=database,
             intended_applications=_clean_choices(intended_applications),
-            intended_models=_clean_choices(intended_models),
+            intended_models=(
+                _clean_choices(intended_models)
+                if intended_models is not None
+                else project.intended_models
+            ),
         )
         return self._save(
             updated,
@@ -324,6 +336,63 @@ class ProjectService:
             "PROJECT_TARGET_UPDATED",
             actor=actor,
         )
+
+    def update_schema_scope(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+        permitted_models: Sequence[str],
+    ) -> MigrationProject:
+        """Set the exact Odoo models Stage C may read and map.
+
+        This deliberately remains available after Stage A registration.  It is
+        a schema-discovery decision, rather than a change to the registered
+        Odoo target or the project's business context.
+        """
+
+        _canonical_project_id(project_id)
+        self.authorization.require(
+            actor,
+            Capability.SCHEMA_DISCOVER,
+            project_id=project_id,
+        )
+        project = self.repository.get(project_id)
+        if project.revision != expected_revision:
+            raise ProjectConflictError(
+                "The project changed in another request; reload before continuing"
+            )
+        if project.status is not ProjectStatus.REGISTERED:
+            raise ProjectError(
+                "Register the project before setting its permitted model scope"
+            )
+        models = _clean_choices(permitted_models)
+        if not models:
+            raise ProjectError("Add at least one permitted technical Odoo model")
+        if models == project.intended_models:
+            return project
+        updated = replace(
+            project,
+            intended_models=models,
+            mapping_version=None,
+            approval_status=(
+                ApprovalStatus.INVALIDATED
+                if project.mapping_version
+                else project.approval_status
+            ),
+        )
+        saved = replace(
+            updated,
+            revision=project.revision + 1,
+            updated_at=_now(),
+        )
+        self.repository.update_schema_scope(
+            saved,
+            expected_revision=project.revision,
+            actor=actor,
+        )
+        return saved
 
     def add_source_file(
         self,
@@ -456,8 +525,6 @@ def registration_problems(project: MigrationProject) -> tuple[str, ...]:
         problems.append("Odoo base URL is required")
     if not project.odoo_database:
         problems.append("Odoo database is required")
-    if not project.intended_applications:
-        problems.append("Select at least one intended Odoo application")
     return tuple(problems)
 
 

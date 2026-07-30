@@ -1,0 +1,7 @@
+<nav class="workspace-steps" aria-label="Migration workspace">
+  <a class="{% if workspace_step == 'project' %}current{% endif %}" href="/projects/{{ project.project_id }}/summary">Project</a>
+  <a class="{% if workspace_step == 'source' %}current{% endif %}" href="/projects/{{ project.project_id }}/sources">Source</a>
+  <a class="{% if workspace_step == 'datasets' %}current{% endif %}" href="/projects/{{ project.project_id }}/datasets">Datasets</a>
+  <a class="{% if workspace_step == 'odoo' %}current{% endif %}" href="/projects/{{ project.project_id }}/schema">Odoo</a>
+  <a class="{% if workspace_step == 'mapping' %}current{% endif %}" href="/projects/{{ project.project_id }}/mapping">Mapping</a>
+</nav>

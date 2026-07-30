@@ -69,7 +69,11 @@
       </label>
 
       <fieldset>
-        <legend>Intended Odoo applications</legend>
+        <legend>Migration application scope (optional)</legend>
+        <p class="muted">
+          This gives reviewers business context. It does not grant Odoo access
+          or limit the models that Impodo can read and map.
+        </p>
         <div class="choice-grid">
           {% for application in applications %}
             <label class="checkbox">
@@ -79,11 +83,6 @@
           {% endfor %}
         </div>
       </fieldset>
-      <label>
-        Known technical models (optional)
-        <textarea name="intended_models" rows="3" placeholder="product.template, mrp.bom">{{ project.intended_models|join(', ') }}</textarea>
-        <small>Exact permitted models will be confirmed during Stage C schema discovery.</small>
-      </label>
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/files">Back</a>
         <button class="button secondary" type="submit" name="action" value="test">Save and test connection</button>

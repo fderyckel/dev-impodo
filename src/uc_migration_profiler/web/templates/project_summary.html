@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ project.name }} · Impodo{% endblock %}
 {% block content %}
+  {% set workspace_step = "project" %}
+  {% include "_workspace_steps.html" %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Registered migration project</p>

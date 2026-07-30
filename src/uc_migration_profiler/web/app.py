@@ -446,7 +446,6 @@ def create_local_app(
                 "odoo_base_url",
                 "odoo_database",
                 "intended_applications",
-                "intended_models",
                 "api_key",
                 "remember_api_key",
                 "action",
@@ -462,7 +461,6 @@ def create_local_app(
                 odoo_base_url=_text(form, "odoo_base_url"),
                 odoo_database=_text(form, "odoo_database"),
                 intended_applications=form.getlist("intended_applications"),
-                intended_models=_split_models(_text(form, "intended_models")),
             )
             submitted_key = _text(form, "api_key")
             credential_id = _target_credential_id(project)
@@ -747,6 +745,34 @@ def create_local_app(
     async def project_schema(request: Request, project_id: str):
         require_session(request)
         return _render_schema(request, context, project_id)
+
+    @app.post("/projects/{project_id}/schema/scope")
+    async def update_project_schema_scope(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "revision", "permitted_models"})
+        try:
+            context.projects.update_schema_scope(
+                project_id,
+                actor=context.actor,
+                expected_revision=_revision(form),
+                permitted_models=_split_models(_text(form, "permitted_models")),
+            )
+        except ProjectError as error:
+            return _render_schema(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            "Saved the permitted model scope. Capture the schema again before mapping.",
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/schema",
+            status_code=303,
+        )
 
     @app.post("/projects/{project_id}/schema/capture")
     async def capture_project_schema(request: Request, project_id: str):
