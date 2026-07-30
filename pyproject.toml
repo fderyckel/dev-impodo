@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "uc-migration-profiler"
+name = "impodo"
 version = "0.0.0"
 description = "Model-agnostic, read-only Odoo migration preflight engine"
 readme = "README.md"
@@ -24,8 +24,8 @@ dependencies = [
 ]
 
 [project.scripts]
-impodo = "uc_migration_profiler.web.launcher:main"
-uc-profiler = "uc_migration_profiler.cli:main"
+impodo = "impodo.web.launcher:main"
+impodo-cli = "impodo.cli:main"
 
 [project.optional-dependencies]
 test = [
@@ -40,7 +40,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-uc_migration_profiler = [
+impodo = [
   "resources/*.mjs",
   "web/static/*",
   "web/templates/*.html",

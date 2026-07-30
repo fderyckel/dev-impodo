@@ -67,7 +67,7 @@ hatch, while a guided mapping workspace creates and maintains it.
 
 A migration project identifies:
 
-- source system and export date;
+- source system and source export date;
 - target Odoo environment;
 - responsible data manager and functional owner;
 - source files;
@@ -557,7 +557,7 @@ import/export, functional review, and approval.
 - consume staged datasets;
 - preserve the current business-key matcher and comparator;
 - strengthen snapshot request and domain binding;
-- add a reviewed 100–300-record UC slice;
+- add a reviewed 100–300-record organization-specific slice;
 - complete live DEV and TEST read-only validation.
 
 ### Phase 5 — Approval and restricted executor

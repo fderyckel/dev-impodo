@@ -6,17 +6,17 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from uc_migration_profiler.access import (
+from impodo.access import (
     CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
 )
-from uc_migration_profiler.artifacts import LocalArtifactStore
-from uc_migration_profiler.intake import SourceIntakeError, SourceIntakeService
-from uc_migration_profiler.project_store import (
+from impodo.artifacts import LocalArtifactStore
+from impodo.intake import SourceIntakeError, SourceIntakeService
+from impodo.project_store import (
     SCHEMA_VERSION,
     DuckDbProjectRepository,
 )
-from uc_migration_profiler.projects import (
+from impodo.projects import (
     OdooConnectionMode,
     ProjectConflictError,
     ProjectError,
@@ -60,7 +60,7 @@ class ProjectLifecycleTests(unittest.TestCase):
             expected_revision=project.revision,
             data_manager="Data Manager",
             functional_owner="Product Owner",
-            business_unit="UC",
+            business_unit="Example Business Unit",
             data_classification="CONFIDENTIAL",
             retention_days=90,
             support_access=False,
@@ -94,7 +94,7 @@ class ProjectLifecycleTests(unittest.TestCase):
                 expected_revision=project.revision,
                 data_manager="Stale",
                 functional_owner="Owner",
-                business_unit="UC",
+                business_unit="Example Business Unit",
                 data_classification="CONFIDENTIAL",
                 retention_days=90,
                 support_access=False,
@@ -155,7 +155,7 @@ class ProjectLifecycleTests(unittest.TestCase):
             odoo_connection_mode="REMOTE",
             target_environment="TEST",
             odoo_base_url="https://odoo-test.example.com",
-            odoo_database="uc_test",
+            odoo_database="odoo_test",
             intended_applications=["Contacts"],
             intended_models=["res.partner"],
         )
@@ -179,7 +179,7 @@ class ProjectLifecycleTests(unittest.TestCase):
                     odoo_connection_mode=mode,
                     target_environment="TEST",
                     odoo_base_url=base_url,
-                    odoo_database="uc_test",
+                    odoo_database="odoo_test",
                     intended_applications=["Contacts"],
                     intended_models=[],
                 )
@@ -250,7 +250,7 @@ class ProjectLifecycleTests(unittest.TestCase):
             expected_revision=project.revision,
             data_manager="Data Manager",
             functional_owner="Product Owner",
-            business_unit="UC",
+            business_unit="Example Business Unit",
             data_classification="CONFIDENTIAL",
             retention_days=90,
             support_access=False,
@@ -262,7 +262,7 @@ class ProjectLifecycleTests(unittest.TestCase):
             odoo_connection_mode="REMOTE",
             target_environment="TEST",
             odoo_base_url="https://odoo.example.test",
-            odoo_database="uc_test",
+            odoo_database="odoo_test",
             intended_applications=[],
             intended_models=[],
         )

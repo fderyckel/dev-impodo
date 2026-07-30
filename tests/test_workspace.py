@@ -7,22 +7,22 @@ import tempfile
 import unittest
 from uuid import uuid4
 
-from uc_migration_profiler.access import (
+from impodo.access import (
     CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
 )
-from uc_migration_profiler.connectors import MetadataSnapshot
-from uc_migration_profiler.inspection import (
+from impodo.connectors import MetadataSnapshot
+from impodo.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
     SourceTableCatalog,
 )
-from uc_migration_profiler.models import (
+from impodo.models import (
     EnvironmentFingerprint,
     FieldMetadata,
     ModelMetadata,
 )
-from uc_migration_profiler.mapping_semantics import (
+from impodo.mapping_semantics import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
     DatasetMapping,
@@ -32,15 +32,15 @@ from uc_migration_profiler.mapping_semantics import (
     ScalarFieldMapping,
     mapping_issue_fingerprint,
 )
-from uc_migration_profiler.project_store import DuckDbProjectRepository
-from uc_migration_profiler.projects import (
+from impodo.project_store import DuckDbProjectRepository
+from impodo.projects import (
     MigrationProject,
     OdooConnectionMode,
     ProjectStatus,
     SourceFile,
     TargetEnvironment,
 )
-from uc_migration_profiler.workspace import (
+from impodo.workspace import (
     FieldMapping,
     MappingStatus,
     MappingWorkspaceService,
@@ -73,7 +73,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             source_system="CSV",
             data_manager="Data Manager",
             functional_owner="Functional Owner",
-            business_unit="UC",
+            business_unit="Example Business Unit",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             target_environment=TargetEnvironment.DEV,
             odoo_base_url="http://127.0.0.1:8069",

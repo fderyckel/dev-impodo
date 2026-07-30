@@ -323,7 +323,7 @@ styleDataSheet(
 const dashboard = sheets["Dashboard"];
 titleBand(
   dashboard,
-  "UC Odoo Read-only Preflight",
+  "Impodo Odoo Read-only Preflight",
   "Review evidence only — this workbook cannot write to Odoo",
   8,
 );

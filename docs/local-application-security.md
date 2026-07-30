@@ -242,6 +242,33 @@ to a literal loopback address. Local HTTP is allowed only in this explicit
 mode. PostgreSQL must not be exposed through Impodo, and the same API-key and
 read-only connector boundary applies.
 
+The local readiness assistant is a status-only diagnostic boundary. The user
+selects the live `odoo.conf` through the native Windows file chooser; the file
+is not uploaded or copied. Impodo extracts an allowlisted set of non-secret
+routing values, discards secret options such as `db_password` and
+`admin_passwd`, and retains the resulting machine profile only in process
+memory for the current session. It does not add the configuration path or
+detected executable paths to project evidence.
+
+Readiness probes are fixed and bounded:
+
+- `pg_isready.exe` is invoked directly, without a shell, against only the
+  loopback host and configured PostgreSQL port;
+- when that utility is unavailable, a loopback TCP check may report only an
+  incomplete orange result and cannot claim PostgreSQL readiness;
+- Odoo is checked only through the derived loopback
+  `/web/webclient/version_info` JSON-RPC endpoint with a response-size limit
+  and timeout, and must report Odoo 19;
+- database selection and API-key authentication remain a separate read-only
+  **Save and test connection** operation.
+
+This release exposes no start, stop, restart, arbitrary-command, PostgreSQL
+credential, or Odoo master-password capability. Detected local executable and
+data paths are diagnostic evidence only. A future launch feature must require
+explicit confirmation of those paths, use fixed argument vectors, preserve
+the PostgreSQL-before-Odoo startup order, and verify readiness after each
+step.
+
 For a future reproducible and disposable laboratory, use Docker Compose with:
 
 - an official Odoo 19 image pinned to an immutable digest;

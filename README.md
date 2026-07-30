@@ -1,4 +1,4 @@
-# UC Migration Profiler
+# Impodo
 
 This proof of concept is a model-agnostic, read-only Odoo preflight engine. It
 prepares governed source records, captures narrowly scoped Odoo evidence,
@@ -62,7 +62,7 @@ Explicitly excluded:
 - The public connector has only three capabilities: environment fingerprint,
   model metadata, and record reads.
 - The JSON-2 adapter allowlists only `fields_get` and `search_read`.
-- Live execution is rejected unless `UC_ODOO_ENVIRONMENT` is `DEV` or `TEST`.
+- Live execution is rejected unless `IMPODO_ODOO_ENVIRONMENT` is `DEV` or `TEST`.
 - Live URLs must use HTTPS.
 - Credentials come from environment variables and are redacted from object
   representations and errors.
@@ -75,7 +75,7 @@ Explicitly excluded:
 ## Project layout
 
 ```text
-src/uc_migration_profiler/   Domain engine, connectors, CLI, and reporting
+src/impodo/   Domain engine, connectors, CLI, and reporting
 profiles/                    Profile template and examples
 examples/                    CSV/XLSX source-package examples and fixtures
 fixtures/                    Normalized offline Odoo snapshots
@@ -105,8 +105,8 @@ The Excel report writer uses `@oai/artifact-tool` through Node.js. In the
 Codex desktop runtime, expose the bundled runtime:
 
 ```bash
-export UC_NODE_BINARY=/path/to/bundled/node
-export UC_ARTIFACT_TOOL_NODE_MODULES=/path/to/bundled/node_modules
+export IMPODO_NODE_BINARY=/path/to/bundled/node
+export IMPODO_ARTIFACT_TOOL_NODE_MODULES=/path/to/bundled/node_modules
 ```
 
 If `node` and a project-level `node_modules/@oai/artifact-tool` are already
@@ -151,7 +151,7 @@ PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 Include the real workbook integration test:
 
 ```bash
-UC_RUN_WORKBOOK_TESTS=1 \
+IMPODO_RUN_WORKBOOK_TESTS=1 \
 PYTHONPATH=src \
 .venv/bin/python -m unittest discover -s tests -v
 ```
@@ -161,7 +161,7 @@ PYTHONPATH=src \
 The original command remains available:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m uc_migration_profiler profile \
+PYTHONPATH=src .venv/bin/python -m impodo profile \
   --profile profiles/examples/bom.yaml \
   --input examples/bom \
   --output build/bom-profile/prepared-records.json
@@ -174,7 +174,7 @@ This prepares and validates sources without contacting Odoo.
 Capture normalized fixture metadata:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-metadata \
+PYTHONPATH=src .venv/bin/python -m impodo snapshot-metadata \
   --profile profiles/examples/golden_slice.yaml \
   --connector snapshot \
   --snapshot fixtures/golden/target_snapshot.json \
@@ -184,7 +184,7 @@ PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-metadata \
 Capture only planned target records and fields:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-records \
+PYTHONPATH=src .venv/bin/python -m impodo snapshot-records \
   --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --connector snapshot \
@@ -195,7 +195,7 @@ PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-records \
 Run comparison entirely offline:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m uc_migration_profiler preflight \
+PYTHONPATH=src .venv/bin/python -m impodo preflight \
   --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --metadata build/golden/metadata.json \
@@ -207,8 +207,8 @@ Outputs:
 
 ```text
 outputs/golden-preflight/
-├── uc_preflight_manifest.json
-└── uc_preflight_report.xlsx
+├── impodo_preflight_manifest.json
+└── impodo_preflight_report.xlsx
 ```
 
 The golden slice currently produces:
@@ -231,18 +231,18 @@ Odoo 19 introduced the external JSON-2 endpoint. Configure a dedicated
 least-privilege read account:
 
 ```bash
-export UC_ODOO_BASE_URL=https://odoo-dev.example.com
-export UC_ODOO_DATABASE=uc_dev
-export UC_ODOO_API_KEY=secret-from-an-approved-secret-store
-export UC_ODOO_ENVIRONMENT=DEV
-export UC_ODOO_TIMEOUT_SECONDS=30
-export UC_ODOO_PAGE_SIZE=500
+export IMPODO_ODOO_BASE_URL=https://odoo-dev.example.com
+export IMPODO_ODOO_DATABASE=odoo_dev
+export IMPODO_ODOO_API_KEY=secret-from-an-approved-secret-store
+export IMPODO_ODOO_ENVIRONMENT=DEV
+export IMPODO_ODOO_TIMEOUT_SECONDS=30
+export IMPODO_ODOO_PAGE_SIZE=500
 ```
 
 Capture live metadata:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-metadata \
+PYTHONPATH=src .venv/bin/python -m impodo snapshot-metadata \
   --profile profiles/examples/golden_slice.yaml \
   --connector json2 \
   --output snapshots/dev-metadata.json
@@ -251,7 +251,7 @@ PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-metadata \
 Capture live records:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-records \
+PYTHONPATH=src .venv/bin/python -m impodo snapshot-records \
   --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --connector json2 \
@@ -292,7 +292,7 @@ and pages—not source rows.
 Run the non-gating synthetic benchmark:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m uc_migration_profiler benchmark \
+PYTHONPATH=src .venv/bin/python -m impodo benchmark \
   --rows 360000
 ```
 
@@ -325,7 +325,7 @@ use at larger scales requires it; it is not needed for this milestone.
   and does not apply a full JSON Schema on load. Do not hand-edit live
   evidence files.
 - The committed fixture has 12 candidates. The planned 100–300-record
-  sanitized UC acceptance slice, live DEV/TEST smoke runs, Odoo-side
+  sanitized acceptance slice, live DEV/TEST smoke runs, Odoo-side
   read-only ACL evidence, and historical 360,000-row memory profiling remain
   to be completed.
 - No result authorizes a write. A changed target requires a fresh snapshot and

@@ -14,13 +14,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import unittest
 
-from uc_migration_profiler.access import (
+from impodo.access import (
     Actor,
     ActorIdentity,
     Capability,
     LOCAL_ACTOR,
 )
-from uc_migration_profiler.governance import (
+from impodo.governance import (
     ApprovalMode,
     CorrectionGroupKey,
     CorrectionImpact,

@@ -1,4 +1,4 @@
-"""UC Migration Profiler public package."""
+"""Impodo public package."""
 
 from .governance import (
     ApprovalMode,

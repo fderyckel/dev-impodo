@@ -5,7 +5,7 @@ profiler's typed model layer:
 
 1. :func:`load_source_tables` safely reads every file declared by the profile.
 2. :func:`prepare_sources` maps source columns to scalar values, identities,
-   and unresolved :class:`~uc_migration_profiler.models.LogicalReference`
+   and unresolved :class:`~impodo.models.LogicalReference`
    objects.
 3. The engine later resolves those references against the incoming datasets
    and the read-only Odoo snapshots.

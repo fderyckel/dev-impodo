@@ -7,8 +7,8 @@ import tempfile
 import unittest
 import zipfile
 
-from uc_migration_profiler.cli import build_parser, main
-from uc_migration_profiler.reporting import (
+from impodo.cli import build_parser, main
+from impodo.reporting import (
     MANIFEST_NAME,
     WORKBOOK_NAME,
     write_preflight_outputs,
@@ -47,8 +47,8 @@ class CliTests(unittest.TestCase):
 
 
 @unittest.skipUnless(
-    os.environ.get("UC_RUN_WORKBOOK_TESTS") == "1",
-    "set UC_RUN_WORKBOOK_TESTS=1 for artifact-tool workbook integration",
+    os.environ.get("IMPODO_RUN_WORKBOOK_TESTS") == "1",
+    "set IMPODO_RUN_WORKBOOK_TESTS=1 for artifact-tool workbook integration",
 )
 class WorkbookIntegrationTests(unittest.TestCase):
     def test_review_workbook_and_manifest_are_generated(self) -> None:

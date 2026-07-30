@@ -14,7 +14,7 @@ This proof of concept answers one question without changing Odoo:
 > cannot be decided safely?
 
 The implementation produces review evidence only. It has a complete
-fixture-backed path and an Odoo 19 JSON-2 read adapter. Live UC DEV/TEST
+fixture-backed path and an Odoo 19 JSON-2 read adapter. Live target DEV/TEST
 validation, Odoo-side ACL evidence, and the larger sanitized acceptance slice
 remain external acceptance gates.
 
@@ -528,7 +528,7 @@ manifest + workbook
 ```
 
 The committed 12-candidate fixture proves the local semantic path. Before
-claiming UC acceptance, complete:
+claiming deployment acceptance, complete:
 
 - a reviewed 100–300-record sanitized slice;
 - live DEV and TEST smoke runs;

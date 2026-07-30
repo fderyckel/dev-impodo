@@ -30,7 +30,7 @@ from .source import prepare_sources
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="uc-profiler",
+        prog="impodo",
         description=(
             "Model-agnostic, read-only Odoo migration profiling and preflight"
         ),

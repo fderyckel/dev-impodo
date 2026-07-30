@@ -1,6 +1,6 @@
 # Preflight result contract
 
-The canonical output is `uc_preflight_manifest.json`. It is portable: it
+The canonical output is `impodo_preflight_manifest.json`. It is portable: it
 contains business keys, typed values, and a separated environment fingerprint,
 but no numeric Odoo IDs.
 
@@ -8,7 +8,7 @@ but no numeric Odoo IDs.
 
 ```json
 {
-  "engine": {"name": "uc-profiler"},
+  "engine": {"name": "impodo"},
   "profile": {"id": "golden_slice"},
   "source_hashes": {"products.csv": "sha256:…"},
   "snapshot_hashes": {
@@ -118,7 +118,7 @@ text.
 
 ## Workbook projection
 
-`uc_preflight_report.xlsx` is derived from this manifest:
+`impodo_preflight_report.xlsx` is derived from this manifest:
 
 - Dashboard
 - Target Environment

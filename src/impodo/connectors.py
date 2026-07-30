@@ -327,7 +327,7 @@ class Json2Config:
 
     @classmethod
     def from_environment(cls) -> "Json2Config":
-        """Build configuration from the governed ``UC_ODOO_*`` variables.
+        """Build configuration from the governed ``IMPODO_ODOO_*`` variables.
 
         Required variables identify the base URL, database, API key, and
         environment.  Timeout and page size are optional and receive safe
@@ -337,10 +337,10 @@ class Json2Config:
         missing = [
             name
             for name in (
-                "UC_ODOO_BASE_URL",
-                "UC_ODOO_DATABASE",
-                "UC_ODOO_API_KEY",
-                "UC_ODOO_ENVIRONMENT",
+                "IMPODO_ODOO_BASE_URL",
+                "IMPODO_ODOO_DATABASE",
+                "IMPODO_ODOO_API_KEY",
+                "IMPODO_ODOO_ENVIRONMENT",
             )
             if not os.environ.get(name)
         ]
@@ -348,20 +348,20 @@ class Json2Config:
             raise ConnectorConfigurationError(
                 "missing environment variables: " + ", ".join(missing)
             )
-        environment = os.environ["UC_ODOO_ENVIRONMENT"].upper()
+        environment = os.environ["IMPODO_ODOO_ENVIRONMENT"].upper()
         if environment not in {"DEV", "TEST"}:
             raise ConnectorConfigurationError(
                 "read-only milestone permits only DEV or TEST"
             )
         return cls(
-            base_url=os.environ["UC_ODOO_BASE_URL"].rstrip("/"),
-            database=os.environ["UC_ODOO_DATABASE"],
-            api_key=os.environ["UC_ODOO_API_KEY"],
+            base_url=os.environ["IMPODO_ODOO_BASE_URL"].rstrip("/"),
+            database=os.environ["IMPODO_ODOO_DATABASE"],
+            api_key=os.environ["IMPODO_ODOO_API_KEY"],
             environment=environment,
             timeout_seconds=float(
-                os.environ.get("UC_ODOO_TIMEOUT_SECONDS", "30")
+                os.environ.get("IMPODO_ODOO_TIMEOUT_SECONDS", "30")
             ),
-            page_size=int(os.environ.get("UC_ODOO_PAGE_SIZE", "500")),
+            page_size=int(os.environ.get("IMPODO_ODOO_PAGE_SIZE", "500")),
         )
 
 
@@ -627,7 +627,7 @@ class Json2ReadConnector:
             "Authorization": f"bearer {self._config.api_key}",
             "Content-Type": "application/json; charset=utf-8",
             "X-Odoo-Database": self._config.database,
-            "User-Agent": "uc-migration-profiler-poc",
+            "User-Agent": "impodo",
         }
         transient_statuses = {429, 502, 503, 504}
         for attempt in range(self._config.retries + 1):

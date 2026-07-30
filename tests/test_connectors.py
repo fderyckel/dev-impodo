@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import unittest
 
-from uc_migration_profiler.connectors import (
+from impodo.connectors import (
     ConnectorConfigurationError,
     ConnectorTransportError,
     Json2Config,
@@ -20,7 +20,7 @@ class Json2ConnectorTests(unittest.TestCase):
     def config(self, **overrides):
         values = {
             "base_url": "https://odoo.example.test",
-            "database": "uc_test",
+            "database": "odoo_test",
             "api_key": "super-secret-token",
             "environment": "TEST",
             "timeout_seconds": 0.1,
@@ -70,7 +70,7 @@ class Json2ConnectorTests(unittest.TestCase):
             )
         )
         self.assertTrue(
-            all(call[1]["X-Odoo-Database"] == "uc_test" for call in post_calls)
+            all(call[1]["X-Odoo-Database"] == "odoo_test" for call in post_calls)
         )
         self.assertTrue(all(call[2]["order"] == "id asc" for call in post_calls))
 

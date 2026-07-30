@@ -6,19 +6,19 @@ The CLI separates target capture from offline preflight. This makes the live
 boundary visible to operators and allows exactly the same saved evidence to be
 reviewed or rerun without reconnecting to Odoo.
 
-The installed executable is `uc-profiler`. The equivalent development form is
-`PYTHONPATH=src .venv/bin/python -m uc_migration_profiler`.
+The installed executable is `impodo-cli`. The equivalent development form is
+`PYTHONPATH=src .venv/bin/python -m impodo`.
 
 ## Configuration
 
 The CLI reads:
 
-- `UC_ODOO_BASE_URL`;
-- `UC_ODOO_DATABASE`;
-- `UC_ODOO_API_KEY`;
-- `UC_ODOO_ENVIRONMENT`;
-- optional `UC_ODOO_TIMEOUT_SECONDS`;
-- optional `UC_ODOO_PAGE_SIZE`.
+- `IMPODO_ODOO_BASE_URL`;
+- `IMPODO_ODOO_DATABASE`;
+- `IMPODO_ODOO_API_KEY`;
+- `IMPODO_ODOO_ENVIRONMENT`;
+- optional `IMPODO_ODOO_TIMEOUT_SECONDS`;
+- optional `IMPODO_ODOO_PAGE_SIZE`.
 
 The API key is loaded from an environment variable. It is never a command-line
 flag because process listings and shell histories can expose arguments. A
@@ -26,7 +26,7 @@ separate secret-provider integration is not implemented.
 
 Production aliases must be rejected in this milestone.
 
-`UC_ODOO_ENVIRONMENT` is restricted to `DEV` or `TEST`, and the base URL must
+`IMPODO_ODOO_ENVIRONMENT` is restricted to `DEV` or `TEST`, and the base URL must
 use HTTPS. `Json2Config` also supports a context and relevant-module list when
 constructed in Python, but the CLI environment loader does not expose those
 two settings.
@@ -36,7 +36,7 @@ two settings.
 ### Prepare and validate sources
 
 ```bash
-uc-profiler profile \
+impodo-cli profile \
   --profile profiles/examples/bom.yaml \
   --input examples/bom \
   --output build/bom-profile/prepared-records.json
@@ -50,7 +50,7 @@ contact Odoo. The input directory may contain profile-declared `.csv` and
 ### Capture target metadata
 
 ```bash
-uc-profiler snapshot-metadata \
+impodo-cli snapshot-metadata \
   --profile profiles/examples/golden_slice.yaml \
   --connector json2 \
   --output snapshots/run-20260728/dev-metadata.json
@@ -70,7 +70,7 @@ metadata snapshot is evaluated together with the prepared records.
 ### Capture target records
 
 ```bash
-uc-profiler snapshot-records \
+impodo-cli snapshot-records \
   --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --connector json2 \
@@ -86,7 +86,7 @@ fingerprints are compared later by `preflight`.
 ### Run offline preflight
 
 ```bash
-uc-profiler preflight \
+impodo-cli preflight \
   --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --metadata snapshots/run-20260728/dev-metadata.json \
@@ -98,8 +98,8 @@ Outputs:
 
 ```text
 runs/run-20260728/
-├── uc_preflight_manifest.json
-└── uc_preflight_report.xlsx
+├── impodo_preflight_manifest.json
+└── impodo_preflight_report.xlsx
 ```
 
 The command verifies matching metadata/record fingerprints, profile bindings
@@ -120,7 +120,7 @@ intentional.
 ### Synthetic benchmark
 
 ```bash
-uc-profiler benchmark --rows 360000
+impodo-cli benchmark --rows 360000
 ```
 
 This measures an in-memory identity dictionary only. It is not an end-to-end
@@ -132,8 +132,8 @@ Successful preflight prints a bounded summary:
 
 ```text
 CREATE 42 | UPDATE 18 | UNCHANGED 51 | AMBIGUOUS 2 | BLOCKED 7
-Manifest: runs/run-20260728/uc_preflight_manifest.json
-Review workbook: runs/run-20260728/uc_preflight_report.xlsx
+Manifest: runs/run-20260728/impodo_preflight_manifest.json
+Review workbook: runs/run-20260728/impodo_preflight_report.xlsx
 Semantic hash: sha256:…
 ```
 
@@ -201,9 +201,9 @@ invent a universal maximum age; that is an operational policy decision.
 
 ## Credentials and logs
 
-The connector reads `UC_ODOO_BASE_URL`, `UC_ODOO_DATABASE`,
-`UC_ODOO_API_KEY`, `UC_ODOO_ENVIRONMENT`, `UC_ODOO_TIMEOUT_SECONDS`, and
-`UC_ODOO_PAGE_SIZE`. Regardless of names:
+The connector reads `IMPODO_ODOO_BASE_URL`, `IMPODO_ODOO_DATABASE`,
+`IMPODO_ODOO_API_KEY`, `IMPODO_ODOO_ENVIRONMENT`, `IMPODO_ODOO_TIMEOUT_SECONDS`, and
+`IMPODO_ODOO_PAGE_SIZE`. Regardless of names:
 
 - the API key is excluded from configuration representations and errors;
 - HTTP response bodies are not included in errors;

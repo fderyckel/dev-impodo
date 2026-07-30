@@ -9,13 +9,13 @@ import unittest
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table
 
-from uc_migration_profiler.inspection import (
+from impodo.inspection import (
     SourceFileCatalog,
     SourceInspectionError,
     SourceInspectionOptions,
     inspect_source_file,
 )
-from uc_migration_profiler.projects import SourceFile
+from impodo.projects import SourceFile
 
 
 ROOT = Path(__file__).resolve().parents[1]

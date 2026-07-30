@@ -1,7 +1,7 @@
 # Profile contract
 
 The executable profile contract is defined by strict Pydantic models in
-`src/uc_migration_profiler/profile.py`. The authoring reference is
+`src/impodo/profile.py`. The authoring reference is
 [PROFILE_AUTHORING.md](../../PROFILE_AUTHORING.md), and the canonical starter
 is [profiles/template.yaml](../../profiles/template.yaml).
 

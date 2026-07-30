@@ -111,7 +111,7 @@ for their intended domain and does not re-evaluate Odoo domains locally.
 Responsibilities:
 
 - load base URL/database configuration from environment variables;
-- obtain the API key from `UC_ODOO_API_KEY`;
+- obtain the API key from `IMPODO_ODOO_API_KEY`;
 - translate requirements into narrowly projected, paginated reads;
 - capture required model metadata;
 - enforce HTTPS except for explicitly enabled literal-loopback local mode,
@@ -150,6 +150,6 @@ headers, pagination, timeout redaction, credential-safe representation, and
 the absence of public write/generic-call methods. Fixture-backed integration
 tests cover field projection and the complete classification path.
 
-No live Odoo call is part of the local suite. Before UC acceptance, run in an
+No live Odoo call is part of the local suite. Before deployment acceptance, run in an
 isolated DEV and TEST environment with a dedicated read-only account and
 compare a sentinel record's write timestamp before and after the suite.

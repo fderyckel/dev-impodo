@@ -8,15 +8,15 @@
       "odoo_version": "19.0",
       "snapshot_timestamp": "2026-07-28T12:00:00Z",
       "module_versions": {
-        "uc_core": "2.0.0",
-        "uc_assets": "2.0.0"
+        "example_core": "2.0.0",
+        "example_assets": "2.0.0"
       }
     },
     "models": {
       "res.company": {
         "description": "Companies",
         "fields": {
-          "x_uc_code": {
+          "x_external_code": {
             "type": "char",
             "required": true,
             "readonly": false,
@@ -47,7 +47,7 @@
       "uom.uom": {
         "description": "Units of Measure",
         "fields": {
-          "x_uc_code": {
+          "x_external_code": {
             "type": "char",
             "required": true,
             "readonly": false,
@@ -59,7 +59,7 @@
       "product.tag": {
         "description": "Product Tags",
         "fields": {
-          "x_uc_code": {
+          "x_external_code": {
             "type": "char",
             "required": true,
             "readonly": false,
@@ -116,7 +116,7 @@
         }
       },
       "x_uc.asset": {
-        "description": "UC Assets",
+        "description": "Example Assets",
         "fields": {
           "code": {
             "type": "char",
@@ -135,7 +135,7 @@
         }
       },
       "x_uc.asset.line": {
-        "description": "UC Asset Lines",
+        "description": "Example Asset Lines",
         "fields": {
           "asset_id": {
             "type": "many2one",
@@ -192,15 +192,15 @@
       "odoo_version": "19.0",
       "snapshot_timestamp": "2026-07-28T12:00:00Z",
       "module_versions": {
-        "uc_core": "2.0.0",
-        "uc_assets": "2.0.0"
+        "example_core": "2.0.0",
+        "example_assets": "2.0.0"
       }
     },
     "models": {
       "res.company": {
         "records": [
-          {"id": 1, "values": {"x_uc_code": "BE"}},
-          {"id": 2, "values": {"x_uc_code": "FR"}}
+          {"id": 1, "values": {"x_external_code": "BE"}},
+          {"id": 2, "values": {"x_external_code": "FR"}}
         ]
       },
       "res.partner": {
@@ -208,14 +208,14 @@
       },
       "uom.uom": {
         "records": [
-          {"id": 10, "values": {"x_uc_code": "UNIT"}},
-          {"id": 11, "values": {"x_uc_code": "KG"}}
+          {"id": 10, "values": {"x_external_code": "UNIT"}},
+          {"id": 11, "values": {"x_external_code": "KG"}}
         ]
       },
       "product.tag": {
         "records": [
-          {"id": 20, "values": {"x_uc_code": "BLUE"}},
-          {"id": 21, "values": {"x_uc_code": "FOOD"}}
+          {"id": 20, "values": {"x_external_code": "BLUE"}},
+          {"id": 21, "values": {"x_external_code": "FOOD"}}
         ]
       },
       "product.template": {

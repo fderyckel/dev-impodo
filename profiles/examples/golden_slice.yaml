@@ -46,7 +46,7 @@ datasets:
           target_fields: [company_id]
           resolve:
             target_model: res.company
-            target_fields: [x_uc_code]
+            target_fields: [x_external_code]
     fields:
       name:
         source: description
@@ -66,7 +66,7 @@ datasets:
         source_fields: [uom_code]
         resolve:
           target_model: uom.uom
-          target_fields: [x_uc_code]
+          target_fields: [x_external_code]
         required: true
         required_on_create: true
         compare: true
@@ -78,7 +78,7 @@ datasets:
         separator: ";"
         resolve:
           target_model: product.tag
-          target_fields: [x_uc_code]
+          target_fields: [x_external_code]
         required: false
         compare: true
         operation: replace

@@ -6,10 +6,10 @@ snapshots share the same fingerprint:
 ```json
 {
   "environment": "DEV",
-  "database": "uc_dev",
+  "database": "odoo_dev",
   "odoo_version": "19.0",
   "snapshot_timestamp": "2026-07-28T12:00:00Z",
-  "module_versions": {"uc_core": "2.0.0"}
+  "module_versions": {"example_core": "2.0.0"}
 }
 ```
 

@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 import unittest
 
-from uc_migration_profiler.mapping_semantics import (
+from impodo.mapping_semantics import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
     DatasetMapping,
@@ -21,7 +21,7 @@ from uc_migration_profiler.mapping_semantics import (
     ScalarFieldMapping,
     SchemaGovernance,
 )
-from uc_migration_profiler.workspace import (
+from impodo.workspace import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,

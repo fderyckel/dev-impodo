@@ -2,7 +2,7 @@
 
 **Review date:** 2026-07-28
 **Reviewed artifact:** current proof of concept
-**Verdict:** the local fixture path is implemented and validated; UC
+**Verdict:** the local fixture path is implemented and validated; deployment
 acceptance remains pending on the larger sanitized slice, live DEV/TEST
 evidence, and Odoo-side access controls
 
@@ -158,7 +158,7 @@ end-to-end source/snapshot/workbook benchmark.
    adapters are implemented. Legacy XLS and direct connections are deferred.
 7. Confirm required Odoo company/context values; the CLI currently supplies an
    empty context.
-8. Build and review the planned 100–300-record sanitized UC slice; the current
+8. Build and review the planned 100–300-record sanitized acceptance slice; the current
    semantic fixture has 12 candidates.
 9. Decide whether strict snapshot JSON Schema validation plus persisted
    request/domain hashing is required before live acceptance.
@@ -167,7 +167,7 @@ end-to-end source/snapshot/workbook benchmark.
     default is local encrypted, owner-only storage through acceptance plus 90
     days; it is not a substitute for the customer's written policy.
 
-These do not block offline fixture correctness. They block claiming live UC
+These do not block offline fixture correctness. They block claiming live target
 DEV/TEST acceptance.
 
 ## Phase gate
@@ -176,7 +176,7 @@ The read-only engine is ready for:
 
 - code review;
 - local fixture review;
-- configuration with sanitized UC DEV/TEST data;
+- configuration with sanitized target DEV/TEST data;
 - Odoo-side read-only access verification.
 
 It is not approval to build or run a write executor. That later milestone must

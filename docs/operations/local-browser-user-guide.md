@@ -27,7 +27,7 @@ For a routine project, use this checklist:
 - Start Impodo and keep its launcher window open.
 - Open an existing project or select **New project**.
 - Record the project owner, functional owner, data classification, retention,
-  source system, and export date.
+  source system, and source export date.
 - Add the final CSV or Excel source files.
 - Configure only an approved Odoo DEV or TEST target.
 - Inspect every file and resolve or acknowledge its warnings.
@@ -155,6 +155,20 @@ Good examples:
 
 Avoid names such as `test`, `new migration`, or `final v2`.
 
+### Source export readiness
+
+Use **Export planned** while the export is expected but the final source
+extract has not yet been received and accepted. Use **Files received** only
+when the agreed extract has arrived; then record its source export date: the
+date the source system produced the files, not a date of import into Odoo.
+
+This is a data-manager governance declaration, not a result Impodo infers from
+uploading a file. It records whether the source evidence is ready to progress.
+It does not change file parsing, schema capture, mapping, or Odoo access.
+
+Impodo cannot register the project until **Files received** is selected, a
+source export date is recorded, and at least one source file has been added.
+
 ### Governance
 
 Record:
@@ -162,11 +176,29 @@ Record:
 - **Data manager**: the person accountable for handling the data;
 - **Functional owner**: the person who approves its business meaning;
 - **Classification**: the sensitivity of the source;
-- **Retention**: how long the local project may be kept;
+- **Retention after acceptance**: the maximum number of calendar days Impodo
+  may retain the local project after the functional owner formally accepts the
+  migration outcome;
 - **Purpose**: why the data is being processed.
 
 If any of these are unknown, pause registration and obtain the answer. These
 fields are part of the evidence, not optional notes.
+
+### Choosing the retention period
+
+Count the retention period from formal functional acceptance, not from the
+source export date, project registration, mapping submission, or any later
+Odoo import date. Mapping submission is not acceptance.
+
+The period covers the local Impodo project data, including the protected source
+file copies and derived project artifacts. Use the organisation's approved
+retention policy; the default is 90 days, and the field accepts 1 to 3,650
+days. Choose the shortest period that still permits the required review,
+support, audit, and reconciliation work.
+
+The recorded period does not make Impodo delete the project automatically.
+When it ends, the data manager must follow the organisation's approved
+disposal process.
 
 ### Source files
 
@@ -184,6 +216,47 @@ Choose one:
 Enter the exact URL and database supplied by the Odoo administrator. A
 connection test is read-only. Saving an API key stores it in the operating
 system's credential manager, not in the project database.
+
+#### Local Odoo readiness assistant
+
+In **Local Odoo** mode, select **Help me connect to local Odoo** when the
+PostgreSQL or Odoo status is unclear. Then:
+
+1. Select **Choose odoo.conf**.
+2. In the Windows file chooser, select the configuration used by the local
+   Odoo instance.
+3. Review each status result.
+4. Start or correct the local services outside Impodo when a result requires
+   action, then select **Check again**.
+5. When PostgreSQL and Odoo are ready, enter the API key and select **Save and
+   test connection**. This final check proves that Impodo can authenticate to
+   the selected database with the supplied read-only Odoo user.
+
+The assistant shows four separate results:
+
+| Result | What it proves |
+| --- | --- |
+| **Configuration** | The selected file contains a valid, explicit loopback PostgreSQL and Odoo HTTP configuration. |
+| **PostgreSQL** | Green means `pg_isready.exe` confirmed that PostgreSQL is accepting connections on the configured host and port. Orange means action is required or only an open port could be detected. |
+| **Odoo server** | Green means the loopback HTTP endpoint answered `/web/webclient/version_info` and identified itself as Odoo 19. |
+| **Impodo API** | This remains grey until **Save and test connection** tests the database and read-only API key. |
+
+Green means ready, orange means action is needed or the result is incomplete,
+red means the check failed or the configuration is unsafe, and grey means the
+check has not run yet. The text beside every colour is authoritative; colour
+is not the only status indicator.
+
+Selecting `odoo.conf` does not upload or copy it. Impodo extracts only the
+non-secret routing settings needed for these checks and does not retain
+`db_password` or `admin_passwd`. The selected path and detected executable
+paths live only in memory for the current Impodo session; they are not added
+to the migration project or its evidence.
+
+This first assistant release is deliberately **status-only**. It does not
+start, stop, or restart PostgreSQL or Odoo, and it does not run an arbitrary
+command. The detected `pg_ctl.exe`, PostgreSQL data directory, Python
+executable, and `odoo-bin` paths are shown only to help diagnose the local
+installation and to prepare a separately reviewed start feature.
 
 **Migration application scope** is optional reviewer context, such as
 Contacts or Inventory. It does not grant Odoo access and does not control

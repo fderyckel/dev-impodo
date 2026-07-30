@@ -11,26 +11,26 @@ from threading import Event, Thread
 import unittest
 from uuid import uuid4
 
-from uc_migration_profiler.access import (
+from impodo.access import (
     Actor,
     ActorIdentity,
     AuthorizationError,
     Capability,
     CapabilityAuthorizationPolicy,
 )
-from uc_migration_profiler.approvals import ExportPlanApproval, FrozenExportPlan
-from uc_migration_profiler.artifacts import (
+from impodo.approvals import ExportPlanApproval, FrozenExportPlan
+from impodo.artifacts import (
     ArtifactStoreError,
     LocalArtifactStore,
 )
-from uc_migration_profiler.jobs import (
+from impodo.jobs import (
     InlineJobDispatcher,
     JobKind,
     JobRequest,
     JobStatus,
 )
-from uc_migration_profiler.project_store import DuckDbProjectRepository
-from uc_migration_profiler.projects import ProjectService
+from impodo.project_store import DuckDbProjectRepository
+from impodo.projects import ProjectService
 
 
 ROOT = Path(__file__).resolve().parents[1]

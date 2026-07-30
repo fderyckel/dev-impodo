@@ -4,12 +4,12 @@ from dataclasses import replace
 from pathlib import Path
 import unittest
 
-from uc_migration_profiler.catalog import TargetCatalog
-from uc_migration_profiler.connectors import SnapshotConnector
-from uc_migration_profiler.metadata import validate_profile_metadata
-from uc_migration_profiler.models import FieldMetadata, ModelMetadata, TargetRecord
-from uc_migration_profiler.planner import plan_metadata_requests
-from uc_migration_profiler.profile import load_profile
+from impodo.catalog import TargetCatalog
+from impodo.connectors import SnapshotConnector
+from impodo.metadata import validate_profile_metadata
+from impodo.models import FieldMetadata, ModelMetadata, TargetRecord
+from impodo.planner import plan_metadata_requests
+from impodo.profile import load_profile
 
 
 ROOT = Path(__file__).resolve().parents[1]

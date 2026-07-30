@@ -11,15 +11,22 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table
 
-from uc_migration_profiler.connectors import MetadataSnapshot
-from uc_migration_profiler.models import (
+from impodo.access import Actor, ActorIdentity, Capability
+from impodo.connectors import MetadataSnapshot
+from impodo.local_stack import (
+    LocalStackCheck,
+    LocalStackService,
+    LocalStackStatus,
+    ReadinessLevel,
+)
+from impodo.models import (
     EnvironmentFingerprint,
     FieldMetadata,
     ModelMetadata,
 )
-from uc_migration_profiler.projects import OdooConnectionMode, ProjectStatus
-from uc_migration_profiler.secrets import MemorySecretStore
-from uc_migration_profiler.web import create_app
+from impodo.projects import OdooConnectionMode, ProjectStatus
+from impodo.secrets import MemorySecretStore
+from impodo.web import create_app
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,6 +78,7 @@ class LocalBrowserSecurityTests(unittest.TestCase):
 
         projects = self.client.get("/projects")
         self.assertEqual(projects.status_code, 200)
+        self.assertIn("Impodo - Import Anything into Odoo", projects.text)
         self.assertEqual(projects.headers["x-frame-options"], "DENY")
         self.assertIn("frame-ancestors 'none'", projects.headers["content-security-policy"])
 
@@ -133,6 +141,194 @@ class LocalBrowserSecurityTests(unittest.TestCase):
             headers={"Referer": "http://testserver.attacker.example/projects/new"},
         )
         self.assertEqual(hostile_referer.status_code, 403)
+
+
+class LocalStackBrowserTests(unittest.TestCase):
+    def setUp(self) -> None:
+        (ROOT / ".tmp").mkdir(exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.config = Path(self.temporary.name) / "local-odoo.conf"
+        self.config.write_text(
+            "\n".join(
+                (
+                    "[options]",
+                    "http_interface = 127.0.0.1",
+                    "http_port = 18069",
+                    "db_host = 127.0.0.1",
+                    "db_port = 5544",
+                    "db_user = odoo",
+                    "db_name = odoo19_dev",
+                    "db_password = postgres-secret",
+                    "admin_passwd = master-secret",
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.picker_calls = 0
+
+        def pick_config():
+            self.picker_calls += 1
+            return self.config
+
+        def probe(profile):
+            return LocalStackStatus(
+                config_path=str(profile.config_path),
+                base_url=profile.base_url,
+                database_hint=profile.database_hint,
+                checks=(
+                    LocalStackCheck(
+                        "configuration",
+                        "Configuration",
+                        ReadinessLevel.READY,
+                        "Valid loopback Odoo configuration.",
+                    ),
+                    LocalStackCheck(
+                        "postgresql",
+                        "PostgreSQL",
+                        ReadinessLevel.READY,
+                        "PostgreSQL is accepting connections.",
+                    ),
+                    LocalStackCheck(
+                        "odoo",
+                        "Odoo server",
+                        ReadinessLevel.ACTION,
+                        "Odoo is not responding yet.",
+                    ),
+                    LocalStackCheck(
+                        "api",
+                        "Impodo API",
+                        ReadinessLevel.UNKNOWN,
+                        "Use Save and test connection.",
+                    ),
+                ),
+                profile=profile,
+            )
+
+        local_stack = LocalStackService(
+            config_picker=pick_config,
+            probe=probe,
+        )
+        self.app = create_app(
+            self.temporary.name,
+            launch_token="launch-secret",
+            session_secret="session-secret",
+            secret_store=MemorySecretStore(),
+            local_stack_service=local_stack,
+        )
+        self.client = TestClient(self.app)
+        launched = self.client.get(
+            "/launch?token=launch-secret",
+            follow_redirects=False,
+        )
+        self.assertEqual(launched.status_code, 303)
+        projects = self.client.get("/projects")
+        self.csrf = _csrf(projects.text)
+        created = self.client.post(
+            "/projects/new",
+            data={
+                "csrf_token": self.csrf,
+                "name": "Local readiness",
+                "source_system": "Other",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.project_id = created.headers["location"].split("/")[2]
+
+    def tearDown(self) -> None:
+        self.client.close()
+        self.temporary.cleanup()
+
+    def test_selects_config_checks_status_and_keeps_profile_session_only(self) -> None:
+        target = self.client.get(f"/projects/{self.project_id}/target")
+        self.assertIn("Help me connect to local Odoo", target.text)
+        self.assertIn("Choose a local odoo.conf file", target.text)
+
+        selected = self.client.post(
+            f"/projects/{self.project_id}/local-stack/select-config",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(selected.status_code, 303)
+        self.assertEqual(
+            selected.headers["location"],
+            f"/projects/{self.project_id}/target?local_stack=1",
+        )
+        self.assertEqual(self.picker_calls, 1)
+
+        refreshed = self.client.get(selected.headers["location"])
+        self.assertIn("PostgreSQL is accepting connections", refreshed.text)
+        self.assertIn("Odoo is not responding yet", refreshed.text)
+        self.assertIn("status-ready", refreshed.text)
+        self.assertIn("status-action", refreshed.text)
+        self.assertIn('value="http://127.0.0.1:18069"', refreshed.text)
+        self.assertIn('value="odoo19_dev"', refreshed.text)
+        self.assertNotIn("postgres-secret", refreshed.text)
+        self.assertNotIn("master-secret", refreshed.text)
+
+        project = self.app.state.context.repository.get(self.project_id)
+        self.assertEqual(project.odoo_base_url, "")
+        self.assertEqual(project.odoo_database, "")
+        config_bytes = str(self.config).encode()
+        for path in self.app.state.context.repository.project_directory(
+            self.project_id
+        ).rglob("*"):
+            if path.is_file():
+                self.assertNotIn(config_bytes, path.read_bytes())
+
+    def test_remote_project_cannot_open_local_assistant(self) -> None:
+        saved = self.client.post(
+            f"/projects/{self.project_id}/target",
+            data={
+                "csrf_token": self.csrf,
+                "revision": "1",
+                "odoo_connection_mode": "REMOTE",
+                "target_environment": "TEST",
+                "odoo_base_url": "https://odoo-test.example.com",
+                "odoo_database": "odoo_test",
+                "action": "save",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(saved.status_code, 303)
+
+        blocked = self.client.post(
+            f"/projects/{self.project_id}/local-stack/select-config",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(blocked.status_code, 422)
+        self.assertIn(
+            "available only in Local Odoo mode",
+            blocked.text,
+        )
+        self.assertEqual(self.picker_calls, 0)
+
+    def test_local_assistant_requires_its_explicit_capability(self) -> None:
+        self.app.state.context.actor = Actor(
+            identity=ActorIdentity(
+                issuer="https://identity.example.test",
+                subject_id="target-editor",
+                display_name="Target editor",
+            ),
+            capabilities=frozenset(
+                {
+                    Capability.PROJECT_VIEW,
+                    Capability.PROJECT_EDIT,
+                }
+            ),
+        )
+
+        blocked = self.client.post(
+            f"/projects/{self.project_id}/local-stack/select-config",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+        )
+
+        self.assertEqual(blocked.status_code, 403)
+        self.assertEqual(self.picker_calls, 0)
 
 
 class PhaseAWizardTests(unittest.TestCase):
@@ -206,7 +402,7 @@ class PhaseAWizardTests(unittest.TestCase):
                 "revision": "2",
                 "data_manager": "Data Manager",
                 "functional_owner": "Functional Owner",
-                "business_unit": "UC",
+                "business_unit": "Example Business Unit",
                 "data_classification": "CONFIDENTIAL",
                 "retention_days": "90",
             },
@@ -535,7 +731,7 @@ class PhaseAWizardTests(unittest.TestCase):
                 "odoo_connection_mode": "REMOTE",
                 "target_environment": "TEST",
                 "odoo_base_url": "https://odoo-test.example.com",
-                "odoo_database": "uc_test",
+                "odoo_database": "odoo_test",
                 "action": "test",
             },
             headers=POST_HEADERS,

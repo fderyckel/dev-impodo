@@ -23,16 +23,16 @@
           </select>
         </label>
         <label>
-          Export status
+          Source export status
           <select name="export_status" required>
-            <option value="PLANNED" {% if project.export_status.value == "PLANNED" %}selected{% endif %}>Export planned</option>
-            <option value="RECEIVED" {% if project.export_status.value == "RECEIVED" %}selected{% endif %}>Files received</option>
+            <option value="PLANNED" {% if project.export_status.value == "PLANNED" %}selected{% endif %}>Source export planned</option>
+            <option value="RECEIVED" {% if project.export_status.value == "RECEIVED" %}selected{% endif %}>Source files received</option>
           </select>
         </label>
         <label>
-          Actual export date
+          Source export date
           <input type="date" name="export_date" value="{{ project.export_date.isoformat() if project.export_date else '' }}">
-          <small>Required before registration.</small>
+          <small>Date the source system produced the files—not an Odoo import date. Required before registration.</small>
         </label>
       </div>
       <label>

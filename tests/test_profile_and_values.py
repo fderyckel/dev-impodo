@@ -8,12 +8,12 @@ import unittest
 
 import yaml
 
-from uc_migration_profiler.canonical import (
+from impodo.canonical import (
     ValueParseError,
     parse_value,
     values_equal,
 )
-from uc_migration_profiler.profile import (
+from impodo.profile import (
     NormalizationSpec,
     ProfileLoadError,
     load_profile,

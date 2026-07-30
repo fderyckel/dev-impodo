@@ -33,7 +33,12 @@
         <label>
           Retention after acceptance (days)
           <input type="number" name="retention_days" min="1" max="3650" required value="{{ project.retention_days }}">
-          <small>The documented default is 90 days.</small>
+          <small>
+            Maximum time Impodo may retain this local project after the functional
+            owner formally accepts the migration outcome. Count from acceptance,
+            not the source export date. This does not delete data automatically;
+            follow the approved disposal process. Default: 90 days.
+          </small>
         </label>
       </div>
       <label class="checkbox">

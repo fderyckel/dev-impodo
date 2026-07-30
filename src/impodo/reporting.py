@@ -20,8 +20,8 @@ from typing import Any
 from .models import PreflightResult, canonical_json_bytes
 
 
-MANIFEST_NAME = "uc_preflight_manifest.json"
-WORKBOOK_NAME = "uc_preflight_report.xlsx"
+MANIFEST_NAME = "impodo_preflight_manifest.json"
+WORKBOOK_NAME = "impodo_preflight_report.xlsx"
 
 
 class ReportGenerationError(RuntimeError):
@@ -73,13 +73,13 @@ def _build_workbook(
     errors are captured; only a bounded error tail is included in failures.
     """
 
-    node_binary = os.environ.get("UC_NODE_BINARY") or shutil.which("node")
+    node_binary = os.environ.get("IMPODO_NODE_BINARY") or shutil.which("node")
     if not node_binary:
         raise ReportGenerationError(
             "Node.js is required to create the Excel review workbook; "
-            "set UC_NODE_BINARY"
+            "set IMPODO_NODE_BINARY"
         )
-    supplied_modules = os.environ.get("UC_ARTIFACT_TOOL_NODE_MODULES")
+    supplied_modules = os.environ.get("IMPODO_ARTIFACT_TOOL_NODE_MODULES")
     project_modules = Path.cwd() / "node_modules"
     if supplied_modules:
         node_modules = Path(supplied_modules)
@@ -88,7 +88,7 @@ def _build_workbook(
     else:
         raise ReportGenerationError(
             "@oai/artifact-tool runtime is unavailable; set "
-            "UC_ARTIFACT_TOOL_NODE_MODULES"
+            "IMPODO_ARTIFACT_TOOL_NODE_MODULES"
         )
     if not node_modules.exists():
         raise ReportGenerationError(
@@ -101,11 +101,11 @@ def _build_workbook(
     if preview:
         preview.mkdir(parents=True, exist_ok=True)
 
-    resource = importlib.resources.files("uc_migration_profiler").joinpath(
+    resource = importlib.resources.files("impodo").joinpath(
         "resources/build_review_workbook.mjs"
     )
     with tempfile.TemporaryDirectory(
-        prefix=".uc-report-",
+        prefix=".impodo-report-",
         dir=workbook_path.parent,
     ) as temporary_directory:
         temporary = Path(temporary_directory)

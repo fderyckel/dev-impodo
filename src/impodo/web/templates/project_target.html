@@ -48,13 +48,21 @@
           Odoo base URL
           <input type="url" name="odoo_base_url" required
             placeholder="Local: http://127.0.0.1:8069 · Remote: https://odoo-test.example.com"
-            value="{{ project.odoo_base_url }}">
+            value="{{ project.odoo_base_url or local_stack.base_url }}">
           <small>Local mode cannot contact another machine. Remote mode cannot use HTTP.</small>
         </label>
+        <div class="local-stack-entry" data-local-stack-entry>
+          <strong>Need help with a local instance?</strong>
+          <span>Inspect an <code>odoo.conf</code> file and check PostgreSQL and Odoo readiness.</span>
+          <button class="link-button" type="button" data-open-local-stack>
+            Help me connect to local Odoo
+          </button>
+        </div>
         <label>
           Database
           <input name="odoo_database" maxlength="200" required
-            placeholder="For example: odoo19_dev" value="{{ project.odoo_database }}">
+            placeholder="For example: odoo19_dev"
+            value="{{ project.odoo_database or local_stack.database_hint }}">
         </label>
         <label>
           Read-only API key
@@ -89,5 +97,97 @@
         <button class="button primary" type="submit" name="action" value="save">Save and continue</button>
       </div>
     </form>
+
+    <dialog
+      class="local-stack-dialog"
+      data-local-stack-dialog
+      data-auto-open="{{ 'true' if open_local_stack else 'false' }}"
+      aria-labelledby="local-stack-title"
+    >
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Local-only assistant</p>
+          <h2 id="local-stack-title">Local Odoo readiness</h2>
+          <p>
+            Choose the exact configuration for this computer. Impodo reads only
+            non-secret routing settings and performs status checks; it does not
+            start or stop any process in this release slice.
+          </p>
+        </div>
+        <form method="dialog">
+          <button class="dialog-close" type="submit" aria-label="Close dialog">×</button>
+        </form>
+      </div>
+
+      {% if local_stack.config_path %}
+        <p class="selected-config">
+          Selected configuration:
+          <code>{{ local_stack.config_path }}</code>
+        </p>
+      {% endif %}
+
+      <ol class="readiness-list" aria-live="polite">
+        {% for check in local_stack.checks %}
+          <li class="readiness-item status-{{ check.level.value }}">
+            <span class="status-dot" aria-hidden="true"></span>
+            <div>
+              <strong>{{ check.label }}</strong>
+              <span>{{ check.message }}</span>
+              {% if check.detail %}<small>{{ check.detail }}</small>{% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+
+      {% if local_stack.profile %}
+        <details class="detected-profile">
+          <summary>Detected machine-local profile</summary>
+          <dl>
+            <div>
+              <dt><code>pg_isready.exe</code></dt>
+              <dd>{{ local_stack.profile.pg_isready_path or "Not found" }}</dd>
+            </div>
+            <div>
+              <dt><code>pg_ctl.exe</code></dt>
+              <dd>{{ local_stack.profile.pg_ctl_path or "Not found" }}</dd>
+            </div>
+            <div>
+              <dt>PostgreSQL data</dt>
+              <dd>{{ local_stack.profile.pg_data_path or "Not found" }}</dd>
+            </div>
+            <div>
+              <dt>Python</dt>
+              <dd>{{ local_stack.profile.python_path or "Not found" }}</dd>
+            </div>
+            <div>
+              <dt><code>odoo-bin</code></dt>
+              <dd>{{ local_stack.profile.odoo_bin_path or "Not found" }}</dd>
+            </div>
+          </dl>
+          <p class="muted">
+            Missing paths do not affect status checks, but they must be confirmed
+            before a later release can safely start this stack.
+          </p>
+        </details>
+      {% endif %}
+
+      <div class="dialog-actions">
+        <form method="post" action="/projects/{{ project.project_id }}/local-stack/select-config">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button secondary" type="submit">
+            {% if local_stack.config_path %}Choose another odoo.conf{% else %}Choose odoo.conf{% endif %}
+          </button>
+        </form>
+        <form method="post" action="/projects/{{ project.project_id }}/local-stack/refresh">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button primary" type="submit" {% if not local_stack.profile %}disabled{% endif %}>
+            Check again
+          </button>
+        </form>
+        <form method="dialog">
+          <button class="button secondary" type="submit">Close</button>
+        </form>
+      </div>
+    </dialog>
   </section>
 {% endblock %}

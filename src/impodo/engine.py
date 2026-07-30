@@ -10,7 +10,7 @@ source records and read-only Odoo snapshots, then:
    ambiguous, or blocked; and
 5. returns deterministic, grouped evidence for reporting.
 
-Numeric Odoo IDs remain internal to :class:`~uc_migration_profiler.catalog.TargetCatalog`.
+Numeric Odoo IDs remain internal to :class:`~impodo.catalog.TargetCatalog`.
 The decisions and field differences emitted by this module use portable
 business references instead.
 """

@@ -19,7 +19,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from ..access import (
     Actor,
+    AuthorizationError,
     AuthorizationPolicy,
+    Capability,
     CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
 )
@@ -38,6 +40,7 @@ from ..inspection import (
     SourceInspectionService,
 )
 from ..jobs import InlineJobDispatcher, JobDispatcher
+from ..local_stack import LocalStackError, LocalStackService
 from ..mapping_semantics import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
@@ -87,7 +90,7 @@ ODOO_APPLICATIONS = (
     "Manufacturing",
     "Purchase",
     "Sales",
-    "Custom UC applications",
+    "Custom applications",
 )
 
 
@@ -112,6 +115,7 @@ class WebContext:
     launch_token: str
     connection_tester: ConnectionTester
     schema_reader: SchemaReader
+    local_stack: LocalStackService
 
 
 def create_local_app(
@@ -127,6 +131,7 @@ def create_local_app(
     authorization: AuthorizationPolicy | None = None,
     artifact_store: ArtifactStore | None = None,
     job_dispatcher: JobDispatcher | None = None,
+    local_stack_service: LocalStackService | None = None,
 ) -> FastAPI:
     """Construct the local application with injectable security/test boundaries."""
 
@@ -160,6 +165,7 @@ def create_local_app(
         launch_token=launch_token or secrets.token_urlsafe(32),
         connection_tester=connection_tester or _test_connection,
         schema_reader=schema_reader or _read_schema,
+        local_stack=local_stack_service or LocalStackService(),
     )
 
     package_dir = Path(__file__).resolve().parent
@@ -425,11 +431,57 @@ def create_local_app(
         project = _draft_or_redirect(context, project_id)
         if isinstance(project, RedirectResponse):
             return project
-        return _render(
+        return _render_target(
             request,
-            "project_target.html",
-            project=project,
-            applications=ODOO_APPLICATIONS,
+            context,
+            project,
+            open_local_stack=request.query_params.get("local_stack") == "1",
+        )
+
+    @app.post("/projects/{project_id}/local-stack/select-config")
+    async def select_local_stack_config(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        project = _draft_or_redirect(context, project_id)
+        if isinstance(project, RedirectResponse):
+            return project
+        try:
+            _require_local_stack_access(context, project)
+            selected = context.local_stack.pick_config()
+            if selected is None:
+                _flash(request, "No Odoo configuration was selected.")
+            else:
+                await run_in_threadpool(
+                    context.local_stack.select_config,
+                    project_id,
+                    selected,
+                )
+        except LocalStackError as error:
+            return _render_target(
+                request,
+                context,
+                project,
+                error=str(error),
+                status_code=422,
+                open_local_stack=True,
+            )
+        return RedirectResponse(
+            f"/projects/{project_id}/target?local_stack=1",
+            status_code=303,
+        )
+
+    @app.post("/projects/{project_id}/local-stack/refresh")
+    async def refresh_local_stack(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        project = _draft_or_redirect(context, project_id)
+        if isinstance(project, RedirectResponse):
+            return project
+        _require_local_stack_access(context, project)
+        await run_in_threadpool(context.local_stack.refresh, project_id)
+        return RedirectResponse(
+            f"/projects/{project_id}/target?local_stack=1",
+            status_code=303,
         )
 
     @app.post("/projects/{project_id}/target")
@@ -487,13 +539,12 @@ def create_local_app(
                     status_code=303,
                 )
         except (ProjectError, SecretStoreError, ConnectorError) as error:
-            return _project_error(
+            return _render_target(
                 request,
                 context,
-                project_id,
-                "project_target.html",
-                error,
-                applications=ODOO_APPLICATIONS,
+                context.repository.get(project_id),
+                error=str(error),
+                status_code=422,
             )
         return RedirectResponse(
             f"/projects/{project.project_id}/review",
@@ -1061,6 +1112,51 @@ def _render(
         context=values,
         status_code=status_code,
     )
+
+
+def _render_target(
+    request: Request,
+    context: WebContext,
+    project: MigrationProject,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+    open_local_stack: bool = False,
+):
+    return _render(
+        request,
+        "project_target.html",
+        project=project,
+        applications=ODOO_APPLICATIONS,
+        local_stack=context.local_stack.get(project.project_id),
+        open_local_stack=open_local_stack,
+        error=error,
+        status_code=status_code,
+    )
+
+
+def _require_local_stack_access(
+    context: WebContext,
+    project: MigrationProject,
+) -> None:
+    try:
+        context.authorization.require(
+            context.actor,
+            Capability.LOCAL_STACK_INSPECT,
+            project_id=project.project_id,
+        )
+    except AuthorizationError as error:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized to inspect the local Odoo stack",
+        ) from error
+    if (
+        project.odoo_connection_mode is not None
+        and project.odoo_connection_mode is not OdooConnectionMode.LOCAL
+    ):
+        raise LocalStackError(
+            "The local readiness assistant is available only in Local Odoo mode."
+        )
 
 
 def _secure_form(

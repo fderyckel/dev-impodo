@@ -10,7 +10,7 @@ The local proof of concept is green:
 - the manifest is deterministic for unchanged saved inputs;
 - the live connector is exercised with mocked transport only.
 
-This is not yet UC DEV/TEST acceptance. The required 100–300-record sanitized
+This is not yet target DEV/TEST acceptance. The required 100–300-record sanitized
 slice, live environment runs, Odoo-side ACL evidence, and expected-scale memory
 evidence remain pending.
 
@@ -19,12 +19,12 @@ evidence remain pending.
 From `/Users/francois/dev-impodo`:
 
 ```bash
-UC_RUN_WORKBOOK_TESTS=1 \
+IMPODO_RUN_WORKBOOK_TESTS=1 \
 PYTHONPATH=src \
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Without `UC_RUN_WORKBOOK_TESTS=1`, the workbook integration test is skipped.
+Without `IMPODO_RUN_WORKBOOK_TESTS=1`, the workbook integration test is skipped.
 
 ## Automated test inventory
 
@@ -197,11 +197,11 @@ Expected totals:
 The detailed row list is in
 [Examples and edge cases](../examples-and-edge-cases.md).
 
-### Required UC slice
+### Required organization-specific slice
 
 Build approximately 100–300 sanitized records covering:
 
-- real standard, extended-standard, and custom UC models;
+- real standard, extended-standard, and custom organization models;
 - real governed business keys and scopes;
 - parent/child relationships;
 - target-only many2one and many2many;
@@ -265,7 +265,7 @@ Further hardening:
 The benchmark command measures dictionary index construction/lookups:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m uc_migration_profiler benchmark \
+PYTHONPATH=src .venv/bin/python -m impodo benchmark \
   --rows 360000
 ```
 
@@ -295,14 +295,14 @@ Structural requirements already apply:
 | --- | --- | --- |
 | Same profile path for fixture, DEV, TEST | architecture supports it | live DEV/TEST runs |
 | No connector write operation | verified in code/tests | Odoo ACL proof |
-| Every import candidate gets one outcome | verified for compact fixture | larger UC slice |
-| Exact before/after updates | verified | UC reviewer confirmation |
+| Every import candidate gets one outcome | verified for compact fixture | larger acceptance slice |
+| Exact before/after updates | verified | reviewer confirmation |
 | Relations resolved in batches | verified structurally | live call/page evidence |
 | Duplicate targets are ambiguous | verified | real-key confirmation |
 | No numeric IDs in portable manifest | verified | release artifact scan |
 | Unchanged saved inputs are identical | verified | retained acceptance artifacts |
-| Composite/scoped identities | verified locally | real UC scopes |
-| Relational comparison | verified locally | real UC relationships |
+| Composite/scoped identities | verified locally | real target scopes |
+| Relational comparison | verified locally | real target relationships |
 | 100–300 sanitized records | not complete | build and review |
 | Live DEV and TEST | not complete | execute smoke tests |
 | Historical-scale memory | not complete | profile and document |
@@ -312,7 +312,7 @@ Structural requirements already apply:
 Local proof-of-concept validation is complete when all 46 tests pass and the
 offline commands reproduce the documented result.
 
-UC milestone acceptance additionally requires:
+deployment milestone acceptance additionally requires:
 
 - the reviewed 100–300-record slice;
 - live DEV and TEST smoke runs;

@@ -116,7 +116,7 @@ target_identity:
       target_fields: [company_id]
       resolve:
         target_model: res.company
-        target_fields: [x_uc_code]
+        target_fields: [x_external_code]
 ```
 
 Scope values are part of uniqueness and comparison. They are resolved by
@@ -203,7 +203,7 @@ relations:
     source_fields: [uom_code]
     resolve:
       target_model: uom.uom
-      target_fields: [x_uc_code]
+      target_fields: [x_external_code]
     required: true
     required_on_create: true
     compare: true
@@ -212,7 +212,7 @@ relations:
     operation: replace
 ```
 
-The planner retrieves `uom.uom.x_uc_code` once in a batch. Required or
+The planner retrieves `uom.uom.x_external_code` once in a batch. Required or
 compared references must use error policies; an unresolved proposed relation
 cannot safely continue as a warning.
 
@@ -257,7 +257,7 @@ tag_ids:
   separator: ";"
   resolve:
     target_model: product.tag
-    target_fields: [x_uc_code]
+    target_fields: [x_external_code]
   compare: true
   operation: replace
 ```
@@ -325,7 +325,7 @@ usernames, passwords, API keys, or tokens.
 ## Validate and inspect prepared records
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m uc_migration_profiler profile \
+PYTHONPATH=src .venv/bin/python -m impodo profile \
   --profile profiles/examples/products.yaml \
   --input examples/golden \
   --output build/products/prepared-records.json

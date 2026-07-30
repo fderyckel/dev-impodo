@@ -17,7 +17,7 @@ It does not define DuckDB tables, execute normalization rules, provide the
 local browser, connect to Odoo, or import data into Odoo.
 
 The implementation is in
-[`governance.py`](../../src/uc_migration_profiler/governance.py). Its focused
+[`governance.py`](../../src/impodo/governance.py). Its focused
 tests are in
 [`test_governance.py`](../../tests/test_governance.py).
 
@@ -230,8 +230,8 @@ stable source-data artifact that future read-only target preflight may consume.
 ```python
 from datetime import datetime, timezone
 
-from uc_migration_profiler.access import LOCAL_ACTOR
-from uc_migration_profiler.governance import (
+from impodo.access import LOCAL_ACTOR
+from impodo.governance import (
     ApprovalMode,
     CorrectionGroupKey,
     CorrectionImpact,

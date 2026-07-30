@@ -10,20 +10,20 @@ explicitly.
 Run these commands from `/Users/francois/dev-impodo`.
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-metadata \
+PYTHONPATH=src .venv/bin/python -m impodo snapshot-metadata \
   --profile profiles/examples/golden_slice.yaml \
   --connector snapshot \
   --snapshot fixtures/golden/target_snapshot.json \
   --output build/golden/metadata.json
 
-PYTHONPATH=src .venv/bin/python -m uc_migration_profiler snapshot-records \
+PYTHONPATH=src .venv/bin/python -m impodo snapshot-records \
   --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --connector snapshot \
   --snapshot fixtures/golden/target_snapshot.json \
   --output build/golden/records.json
 
-PYTHONPATH=src .venv/bin/python -m uc_migration_profiler preflight \
+PYTHONPATH=src .venv/bin/python -m impodo preflight \
   --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --metadata build/golden/metadata.json \
@@ -41,8 +41,8 @@ Expected files:
 
 ```text
 outputs/golden-preflight/
-├── uc_preflight_manifest.json
-└── uc_preflight_report.xlsx
+├── impodo_preflight_manifest.json
+└── impodo_preflight_report.xlsx
 ```
 
 The compact fixture has 12 import candidates:
@@ -63,7 +63,7 @@ The compact fixture has 12 import candidates:
 | `asset_lines / ASSET-MISSING + 1` | `BLOCKED` | Incoming parent cannot be resolved |
 
 This fixture covers the required semantic shapes, but it is not the planned
-100–300-record UC acceptance slice. That larger sanitized slice and live
+100–300-record deployment acceptance slice. That larger sanitized slice and live
 DEV/TEST runs remain acceptance work.
 
 ## 2. Prepared-record example
@@ -71,7 +71,7 @@ DEV/TEST runs remain acceptance work.
 Prepare the BOM sources without contacting Odoo:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m uc_migration_profiler profile \
+PYTHONPATH=src .venv/bin/python -m impodo profile \
   --profile profiles/examples/bom.yaml \
   --input examples/bom \
   --output build/bom-profile/prepared-records.json
@@ -214,7 +214,7 @@ target_identity:
       target_fields: [company_id]
       resolve:
         target_model: res.company
-        target_fields: [x_uc_code]
+        target_fields: [x_external_code]
 ```
 
 `P-100 / BE` and `P-100 / FR` are distinct. Scope is shown in decisions and
@@ -229,7 +229,7 @@ relations:
     source_fields: [uom_code]
     resolve:
       target_model: uom.uom
-      target_fields: [x_uc_code]
+      target_fields: [x_external_code]
     required: true
     required_on_create: true
     compare: true
@@ -237,7 +237,7 @@ relations:
     on_ambiguous: error
 ```
 
-The planner requests `uom.uom.x_uc_code` once for the dataset batch. A unique
+The planner requests `uom.uom.x_external_code` once for the dataset batch. A unique
 `KG` match becomes:
 
 ```json
@@ -272,7 +272,7 @@ relations:
     separator: ";"
     resolve:
       target_model: product.tag
-      target_fields: [x_uc_code]
+      target_fields: [x_external_code]
     compare: true
     operation: replace
 ```
@@ -481,7 +481,7 @@ evidence.
 constructed in Python. The CLI environment loader does not expose
 either setting, so CLI-created live fingerprints currently have an empty
 module-version map and use an empty context. Company-specific context must be
-added and reviewed before a UC deployment that depends on it.
+added and reviewed before a organization deployment that depends on it.
 
 ### Scoped target-only references
 
@@ -585,11 +585,11 @@ evidence.
 Run all 46 tests, including the workbook integration:
 
 ```bash
-UC_RUN_WORKBOOK_TESTS=1 \
+IMPODO_RUN_WORKBOOK_TESTS=1 \
 PYTHONPATH=src \
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Live DEV/TEST smoke tests, a 100–300-record sanitized UC slice, memory
+Live DEV/TEST smoke tests, a 100–300-record sanitized acceptance slice, memory
 profiling of the historical 360,000-row package, and Odoo-side ACL evidence
 are not part of the local automated suite.

@@ -15,7 +15,7 @@ Node.js/artifact-tool workbook integration is skipped when that runtime is not
 installed. The original BOM preparation command remains a regression check.
 
 This document separates completed local engineering from the evidence still
-required for UC acceptance.
+required for deployment acceptance.
 
 The proposed governed source-rules extension is planned separately in
 [Data-quality rules implementation plan](data-quality-rules-implementation-plan.md).
@@ -25,7 +25,7 @@ correction, structured-format validation, and a package-level quality gate.
 ## Actual package shape
 
 ```text
-src/uc_migration_profiler/
+src/impodo/
 ├── __init__.py
 ├── __main__.py
 ├── canonical.py
@@ -216,11 +216,11 @@ Completed and locally mocked:
 
 Pending live evidence:
 
-- real UC DEV and TEST connectivity;
+- real target DEV and TEST connectivity;
 - service-account ACL and record-rule confirmation;
 - sentinel write-timestamp comparison;
 - database routing and company context;
-- relevant UC module list exposed through governed CLI configuration;
+- relevant organization module list exposed through governed CLI configuration;
 - fixture-equivalent live decisions.
 
 ### Slice 7 — Acceptance hardening
@@ -234,7 +234,7 @@ Partially completed:
 
 Still required:
 
-- sanitized 100–300-record UC golden slice;
+- sanitized 100–300-record organization-specific golden slice;
 - live DEV and TEST runs;
 - end-to-end scale, memory, snapshot-size, and workbook timing evidence;
 - retention and access policy;
@@ -269,9 +269,9 @@ The local proof of concept is complete when:
 - repeated fixed-input output is byte-identical;
 - generated workbook and manifest reconcile by construction.
 
-## UC acceptance definition
+## deployment acceptance definition
 
-Do not claim UC environment acceptance until:
+Do not claim target environment acceptance until:
 
 - the same governed profile path succeeds with fixture, DEV, and TEST
   snapshots;

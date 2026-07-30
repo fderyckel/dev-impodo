@@ -75,7 +75,7 @@ Target-only:
 {
   "origin": "target",
   "model": "uom.uom",
-  "target_fields": ["x_uc_code"],
+  "target_fields": ["x_external_code"],
   "key": ["KG"],
   "scope": []
 }

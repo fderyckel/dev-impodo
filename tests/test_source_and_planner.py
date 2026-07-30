@@ -10,13 +10,13 @@ import zipfile
 from openpyxl import Workbook
 from pydantic import ValidationError
 
-from uc_migration_profiler.models import LogicalReference
-from uc_migration_profiler.planner import (
+from impodo.models import LogicalReference
+from impodo.planner import (
     plan_metadata_requests,
     plan_record_requests,
 )
-from uc_migration_profiler.profile import SourceSpec, load_profile
-from uc_migration_profiler.source import SourceLoadError, prepare_sources
+from impodo.profile import SourceSpec, load_profile
+from impodo.source import SourceLoadError, prepare_sources
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -200,7 +200,7 @@ class PlannerTests(unittest.TestCase):
         self.assertIn("product.template", by_model)
         self.assertEqual(
             by_model["uom.uom"],
-            {"x_uc_code"},
+            {"x_external_code"},
         )
         self.assertNotIn("message_ids", by_model["product.template"])
 

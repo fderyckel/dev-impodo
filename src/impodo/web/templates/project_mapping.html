@@ -26,10 +26,10 @@
       <section class="form-card evidence-card">
         <h2>Evidence binding</h2>
         <div class="definition-list">
-          <div><dt>Frozen source</dt><dd><code>{{ selection.content_hash }}</code></dd></div>
-          <div><dt>Governed schema</dt><dd><code>{{ governance.content_hash }}</code></dd></div>
-          {% if revision %}<div><dt>Mapping</dt><dd><code>{{ revision.definition.content_hash }}</code></dd></div>{% endif %}
-          {% if validation %}<div><dt>Validation</dt><dd><code>{{ validation.validation_hash }}</code></dd></div>{% endif %}
+          <div><dt>Frozen source</dt><dd><code title="{{ selection.content_hash }}">{{ selection.content_hash }}</code></dd></div>
+          <div><dt>Governed schema</dt><dd><code title="{{ governance.content_hash }}">{{ governance.content_hash }}</code></dd></div>
+          {% if revision %}<div><dt>Mapping</dt><dd><code title="{{ revision.definition.content_hash }}">{{ revision.definition.content_hash }}</code></dd></div>{% endif %}
+          {% if validation %}<div><dt>Validation</dt><dd><code title="{{ validation.validation_hash }}">{{ validation.validation_hash }}</code></dd></div>{% endif %}
         </div>
       </section>
 

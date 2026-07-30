@@ -251,7 +251,7 @@ class PreflightResult:
         """
 
         payload: dict[str, Any] = {
-            "engine": {"name": "uc-profiler"},
+            "engine": {"name": "impodo"},
             "profile": {"id": self.profile_id},
             "source_hashes": dict(sorted(self.source_hashes.items())),
             "snapshot_hashes": {

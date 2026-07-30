@@ -4,19 +4,19 @@ import json
 from pathlib import Path
 import unittest
 
-from uc_migration_profiler.connectors import SnapshotConnector
-from uc_migration_profiler.engine import PreflightEngine, _relation_difference
-from uc_migration_profiler.models import (
+from impodo.connectors import SnapshotConnector
+from impodo.engine import PreflightEngine, _relation_difference
+from impodo.models import (
     BusinessReference,
     Classification,
     canonical_json_bytes,
 )
-from uc_migration_profiler.planner import (
+from impodo.planner import (
     plan_metadata_requests,
     plan_record_requests,
 )
-from uc_migration_profiler.profile import RelationSpec, ResolveSpec, load_profile
-from uc_migration_profiler.source import prepare_sources
+from impodo.profile import RelationSpec, ResolveSpec, load_profile
+from impodo.source import prepare_sources
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -163,7 +163,7 @@ class PreflightClassificationTests(unittest.TestCase):
     def test_manifest_has_no_numeric_odoo_identifiers(self) -> None:
         manifest = self.result.to_portable_dict()
         text = canonical_json_bytes(manifest).decode()
-        self.assertEqual(manifest["engine"], {"name": "uc-profiler"})
+        self.assertEqual(manifest["engine"], {"name": "impodo"})
         self.assertEqual(manifest["profile"], {"id": "golden_slice"})
         self.assertNotIn("odoo_id", text)
         self.assertNotIn('"id":100', text)

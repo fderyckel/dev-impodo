@@ -19,6 +19,7 @@ class Capability(StrEnum):
     PROJECT_EDIT = "project.edit"
     PROJECT_REGISTER = "project.register"
     PROJECT_VIEW = "project.view"
+    LOCAL_STACK_INSPECT = "local_stack.inspect"
     SOURCE_INSPECT = "source.inspect"
     SOURCE_CONFIGURE = "source.configure"
     SOURCE_SELECT = "source.select"

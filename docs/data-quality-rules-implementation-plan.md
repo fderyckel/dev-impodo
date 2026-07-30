@@ -709,7 +709,7 @@ Gate:
 Deliver:
 
 - expanded golden slice with rule pass/correct/warn/reject cases;
-- 100–300-row sanitized UC acceptance package;
+- 100–300-row sanitized deployment acceptance package;
 - historical-scale performance and memory results;
 - Unicode and multilingual test corpus;
 - privacy review of evidence;
@@ -827,6 +827,6 @@ The feature is complete only when:
 - the package quality gate cannot be confused with command success;
 - the data manager can preview rule impact before publication;
 - every reviewed rule change has a retained profile/ruleset hash;
-- the golden and UC acceptance slices pass;
+- the golden and deployment acceptance slices pass;
 - performance and privacy gates pass;
 - no Odoo write surface exists.

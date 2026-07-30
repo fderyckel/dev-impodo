@@ -117,8 +117,18 @@ Use this for an Odoo 19 instance running on the same computer:
 
 HTTP is accepted only for literal IPv4 or IPv6 loopback addresses. `localhost`,
 LAN addresses, credentials in the URL, URL fragments, and extra paths are
-rejected. Start PostgreSQL and Odoo before selecting **Save and test
-connection**.
+rejected.
+
+Use **Help me connect to local Odoo** to select the live `odoo.conf` through a
+native Windows file chooser and inspect the current readiness sequence:
+configuration, PostgreSQL, Odoo 19 HTTP, then the authenticated Impodo API
+connection. The assistant retains only non-secret routing settings in memory
+for the current session. It does not upload the file, persist the selected
+path, start or stop a process, or accept an arbitrary command.
+
+Start PostgreSQL and then Odoo outside Impodo when either service is not ready.
+Select **Check again**, and only then use **Save and test connection** with the
+read-only API key.
 
 To create the credential in Odoo 19, sign in as the dedicated internal user,
 open that user's preferences, find **API Keys**, and select **Add API Key**.
