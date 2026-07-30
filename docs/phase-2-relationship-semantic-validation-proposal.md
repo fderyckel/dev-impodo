@@ -1,20 +1,21 @@
-# Phase 2B proposal: relationship mapping and semantic validation
+# Historical delivery Phase 2B proposal: relationship mapping and semantic validation
 
-**Status:** Accepted and implemented on 29 July 2026
+**Status:** Historical delivery proposal; accepted and implemented on 29 July 2026
 
 **Prepared:** 29 July 2026
 
-**Scope:** Local-browser mapping workspace, relationship authoring, and
-mapping-level semantic validation
+**Scope:** Delivery Phase 2B local-browser mapping workspace, relationship
+authoring, and mapping-level semantic validation
 
 Implementation note: the delivered Phase 2B uses the contracts, validation
 rules, persistence model, submission gate, and UI sequence in this proposal.
-Constants/transforms, mapping import/export, and approval remain Phase 2C as
-recommended below.
+Delivery Phase 2C.1 subsequently added scalar providers and transformations.
+Governed lookup translations, mapping import/export, functional review, and
+approval remain in the later delivery Phase 2C scope.
 
 ## 1. Recommendation
 
-Implement the requested remainder as a **Phase 2B** slice built around a new,
+Implement the requested remainder as a **delivery Phase 2B** slice built around a new,
 dataset-centric mapping contract:
 
 ```text
@@ -51,8 +52,8 @@ This approach preserves the product's established rules:
 
 ## 2. Current-state findings
 
-The current Phase 2 slice provides a sound source/schema binding, but its
-mapping contract is intentionally minimal.
+At the time of this proposal, the delivery Phase 2 slice provided a sound source/schema
+binding, but its mapping contract was intentionally minimal.
 
 | Area | Current implementation | Gap to close |
 | --- | --- | --- |
@@ -69,7 +70,7 @@ The existing preflight profile and engine already implement most of the
 required relationship semantics: composite and scoped identities, incoming
 dataset and target-catalog resolution, many2one, many2many
 `replace`/`add`/`remove`, dependency-cycle rejection, metadata compatibility,
-and fail-closed comparison. Phase 2B should reuse those rules through a shared
+and fail-closed comparison. Delivery Phase 2B reuses those rules through a shared
 semantic layer rather than reimplementing them in web routes.
 
 ## 3. Scope boundary
@@ -107,12 +108,12 @@ been defined.
 - frozen import plans;
 - Odoo create, update, unlink, import, arbitrary RPC, or SQL.
 
-The current product roadmap also lists constants/transformations,
-mapping import/export, and mapping approval as unfinished Phase 2 work. This
-proposal therefore uses the name **Phase 2B** and completes the two requested
-capabilities without claiming that every item in the existing roadmap is
-finished. Either retain those remaining items as Phase 2C or explicitly revise
-the roadmap before marking Phase 2 complete.
+At the time of this proposal, the product roadmap also listed
+constants/transformations, mapping import/export, and mapping approval as
+unfinished delivery Phase 2 work. This proposal therefore used the name **delivery
+Phase 2B** and completed the two requested capabilities without claiming that
+every item in the existing roadmap was finished. The current roadmap records
+the delivered Phase 2C.1 scope separately.
 
 ## 4. Proposed contracts
 
@@ -270,7 +271,7 @@ The compiler enforces the existing fail-closed rules:
 - many2one supports only `replace`;
 - many2many uses exactly one list-valued source column;
 - duplicate or empty list items remain row-level validation concerns for
-  Phase 3;
+  delivery Phase 3;
 - dependency cycles block mapping submission.
 
 ### 4.4 Shared compiled semantics
@@ -297,7 +298,7 @@ This is preferable to generating YAML inside a web route:
   keys;
 - current profiles remain a supported expert/preflight input;
 - semantic parity can be contract-tested;
-- Phase 4 can add a deliberate adapter from durable staged datasets to the
+- Delivery Phase 4 can add a deliberate adapter from durable staged datasets to the
   preflight engine without rewriting the mapping UI.
 
 ## 5. Schema discovery changes
@@ -387,7 +388,7 @@ This validation proves that the **mapping meaning** is coherent. It cannot
 prove facts that require reading every source or target record: actual source
 key uniqueness, post-normalization collisions, non-null row values, target
 key uniqueness, or successful reference resolution. Those checks are listed
-explicitly in `deferred_runtime_checks` and become Phase 3/4 gates. A static
+explicitly in `deferred_runtime_checks` and become delivery Phase 3/4 gates. A static
 mapping result must never describe them as passed.
 
 ### 6.2 Validation layers
@@ -701,7 +702,7 @@ submitted revision remains review evidence only.
 
 ## 11. Definition of done
 
-Phase 2B is complete when:
+Delivery Phase 2B is complete when:
 
 - a data manager can configure dataset targets, identities, scopes,
   many2one, parent/child, and many2many mappings without YAML;
@@ -729,8 +730,8 @@ Phase 2B is complete when:
 
 Recommended defaults are shown first.
 
-1. **Roadmap label:** call this Phase 2B and retain constants,
-   transformations, import/export, and approval as Phase 2C.
+1. **Roadmap label at the time:** call this delivery Phase 2B and retain
+   constants, transformations, import/export, and approval as delivery Phase 2C.
 2. **Required fields:** block an unprovided writable required field; do not
    assume an unproven Odoo default.
 3. **Warnings:** require acknowledgement of exact warning fingerprints before

@@ -18,7 +18,7 @@ the optimistic revision, freezes the current source-file evidence, writes a
 canonical manifest, and records an audit event.
 
 The implemented browser does not yet revise or close a registered project.
-Those transitions must be added before downstream phases depend on them.
+Those transitions must be added before downstream workflow stages depend on them.
 
 ## User-entered fields
 

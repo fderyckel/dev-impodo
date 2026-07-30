@@ -316,7 +316,7 @@ prepared source bundle.
 
 ### Stage I — Freeze an approved import plan
 
-The write phase never executes directly from a mutable mapping or staging
+The write stage never executes directly from a mutable mapping or staging
 table. Approval freezes:
 
 - source hashes;
@@ -377,7 +377,7 @@ The reconciliation package includes:
 - business and technical reports;
 - restart and resume evidence.
 
-## 4. Mapping contract
+## 5. Mapping contract
 
 The current profile is a preflight mapping contract for declared CSV files
 and XLSX worksheets. The end-to-end product needs a new mapping contract rather than
@@ -457,7 +457,7 @@ This is a design example, not the current profile schema. It demonstrates that
 the mapping preserves source provenance, target identity, scope,
 transformations, relationship semantics, and load policy.
 
-## 5. Mapping edge cases
+## 6. Mapping edge cases
 
 | Edge case | Required behavior |
 | --- | --- |
@@ -483,7 +483,7 @@ transformations, relationship semantics, and load policy.
 | Mapping changes after validation | Invalidate staged results, preflight, and approval |
 | Target changes after approval | Fail the staleness check and recapture |
 
-## 6. Product components
+## 7. Product components
 
 ```mermaid
 flowchart TB
@@ -512,18 +512,20 @@ flowchart TB
     Reconcile --> Store
 ```
 
-The current repository implements the Phase A local-browser project workflow,
-governed source intake and project metadata storage, the complete Phase 1
-CSV/XLSX source-discovery flow, Phase 2B governed identities and relationship
-mapping, plus Phase 2C.1 constants, fallbacks, explicit Odoo-default intent,
-allowlisted scalar transformations, bounded value previews, deterministic
-semantic validation, and immutable exact-hash submissions. It also retains
-strict CSV and declared-sheet XLSX loading, mapping through the existing expert
-profile, normalization and validation, and the read-only preflight path. It
-does not yet implement lookup translations, mapping import/export and
-approval, durable canonical staging, the executor, or reconciliation.
+The current repository implements the Project setup workflow (product Stage
+A), governed source intake and project metadata storage, the complete delivery
+Phase 1 CSV/XLSX source-discovery flow (Stage B), delivery Phase 2A
+target-schema governance (Stage C), delivery Phase 2B identities and
+relationship mapping, and delivery Phase 2C.1 constants, fallbacks, explicit
+Odoo-default intent, allowlisted scalar transformations, bounded value
+previews, deterministic semantic validation, and immutable exact-hash
+submissions. It also retains strict CSV and declared-sheet XLSX loading,
+mapping through the existing expert profile, normalization and validation, and
+the read-only preflight path. It does not yet implement lookup translations,
+mapping import/export and approval, durable canonical staging, the executor,
+or reconciliation.
 
-## 7. Delivery roadmap
+## 8. Delivery roadmap
 
 ### Phase 1 — Source discovery
 
@@ -541,7 +543,19 @@ source confirmation, and a versioned frozen dataset selection. Reinspection
 invalidates dependent confirmations, selections, and mapping drafts. Browser
 acceptance covers a real CSV and a real XLSX named table.
 
-### Phase 2 — Mapping workspace and schema discovery
+### Phase 2 — Target schema and governed mapping
+
+Delivery increments:
+
+- **Phase 2A — Target-schema governance:** permitted Odoo model and field
+  catalog, captured schema, governed target business keys, and scope.
+- **Phase 2B — Governed mapping:** mapping drafts, visual source-to-target
+  selection, source and target identities, scope, and relationships.
+- **Phase 2C.1 — Scalar providers and transformations:** constants, source
+  fallbacks, explicit Odoo-default intent, allowlisted scalar transformations,
+  bounded previews, and exact-hash mapping submission.
+- **Remaining Phase 2C scope:** governed lookup translations, mapping
+  import/export, functional review, and approval.
 
 - permitted Odoo model and field catalog;
 - mapping draft and version lifecycle;
@@ -550,7 +564,7 @@ acceptance covers a real CSV and a real XLSX named table.
 - mapping import and export;
 - mapping validation and approval.
 
-Current status: **Phase 2C.1 implemented.** The local browser discovers a
+Current status: **Phases 2A, 2B, and 2C.1 are implemented.** The local browser discovers a
 lightweight, application-filtered Odoo 19 model catalog, captures the effective
 field catalog once per explicitly permitted model, then requires explicit
 governed business keys and scope. Dataset-centric revisions
@@ -566,7 +580,7 @@ validation evidence. Submission is permitted only for the exact validated
 mapping hash and acknowledged current warnings. Historical revisions,
 validations, submissions, and actors remain append-only.
 
-Still required to complete Phase 2C: governed lookup translations, mapping
+Still required to complete delivery Phase 2C: governed lookup translations, mapping
 import/export, functional review, and approval.
 
 ### Phase 3 — Durable staging and data quality
@@ -602,7 +616,7 @@ import/export, functional review, and approval.
 - release and rollback procedure;
 - business-owner acceptance.
 
-## 8. Confirmed implementation decisions
+## 9. Confirmed implementation decisions
 
 Confirmed:
 

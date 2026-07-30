@@ -42,7 +42,15 @@ from ..inspection import (
     SourceInspectionService,
 )
 from ..jobs import InlineJobDispatcher, JobDispatcher
-from ..local_stack import LocalStackError, LocalStackService
+from ..local_odoo_reader import (
+    LocalOdooMetadataReader,
+    LocalOdooReaderError,
+)
+from ..local_stack import (
+    LocalStackError,
+    LocalStackProfile,
+    LocalStackService,
+)
 from ..mapping_semantics import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
@@ -139,6 +147,7 @@ class WebContext:
     schema_reader: SchemaReader
     model_catalog_reader: ModelCatalogReader
     local_stack: LocalStackService
+    local_odoo_reader: LocalOdooMetadataReader
 
 
 def create_local_app(
@@ -156,6 +165,7 @@ def create_local_app(
     artifact_store: ArtifactStore | None = None,
     job_dispatcher: JobDispatcher | None = None,
     local_stack_service: LocalStackService | None = None,
+    local_odoo_reader: LocalOdooMetadataReader | None = None,
 ) -> FastAPI:
     """Construct the local application with injectable security/test boundaries."""
 
@@ -191,6 +201,7 @@ def create_local_app(
         schema_reader=schema_reader or _read_schema,
         model_catalog_reader=model_catalog_reader or _read_model_catalog,
         local_stack=local_stack_service or LocalStackService(),
+        local_odoo_reader=local_odoo_reader or LocalOdooMetadataReader(),
     )
 
     package_dir = Path(__file__).resolve().parent

@@ -175,8 +175,13 @@
         Data remains on this computer.
       </span>
       <span class="creator-credit">
-        {{ app_icon("heart") }}
-        Thoughtfully made with love by FdR
+        Made in Luxembourg
+        <img
+          class="luxembourg-flag"
+          src="{{ url_for('static', path='/flag-luxembourg.svg') }}"
+          alt="Luxembourg flag"
+        >
+        by FdR
       </span>
       <form method="post" action="/quit">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

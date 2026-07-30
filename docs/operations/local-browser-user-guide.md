@@ -473,7 +473,7 @@ Poor choices include:
 
 Business-key confirmation states the intended rule. Actual duplicate and
 missing-reference checks against staged source and target records happen in a
-later runtime phase.
+later runtime stage.
 
 ## 7. Build the dataset mapping
 
@@ -545,7 +545,7 @@ Worked example:
 | companies | `company_name` | `name` | Required when a new company is prepared |
 | partners | `contact_name` | `name` | Required when a new contact is prepared |
 | partners | `email` | `email` | Optional; blank policy must be deliberate |
-| partners | `active_flag` | `active` | Values will need row-level boolean validation during a later staging/preflight phase |
+| partners | `active_flag` | `active` | Values will need row-level boolean validation during a later staging/preflight stage |
 
 Use only the allowlisted transformations shown by the editor: trim, collapse
 whitespace, empty-to-null, uppercase/lowercase for strings, declared decimal

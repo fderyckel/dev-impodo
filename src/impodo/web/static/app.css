@@ -321,7 +321,7 @@ body.sidebar-collapsed .sidebar-link {
 .projects-home .app-main {
   background-image: url("/static/impodo-orbit.png");
   background-repeat: no-repeat;
-  background-position: top right;
+  background-position: calc(100% + 260px) -90px;
   background-size: min(620px, 48vw) auto;
 }
 
@@ -916,7 +916,7 @@ dd {
   overflow-wrap: anywhere;
 }
 
-.phase-empty,
+.workflow-empty,
 .catalog-card {
   margin-top: 1.25rem;
 }
@@ -1228,8 +1228,12 @@ label.model-choice input {
   text-align: center;
 }
 
-.creator-credit .ui-icon {
-  color: var(--impodo-red);
+.luxembourg-flag {
+  width: 1.25rem;
+  height: .94rem;
+  border: 1px solid rgba(73, 77, 70, .18);
+  border-radius: 2px;
+  object-fit: cover;
 }
 
 .link-button {
@@ -1640,6 +1644,7 @@ label.model-choice input {
   }
 
   .projects-home .app-main {
+    background-position: calc(100% + 160px) -50px;
     background-size: 390px auto;
   }
 

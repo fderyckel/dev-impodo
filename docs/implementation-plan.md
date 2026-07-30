@@ -282,4 +282,4 @@ Do not claim target environment acceptance until:
 - expected-scale memory and runtime are measured;
 - retention/access rules are approved.
 
-Starting an approval or write phase is outside both definitions.
+Starting an approval or write stage is outside both definitions.

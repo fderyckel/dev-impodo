@@ -94,7 +94,8 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         self.assertIn("bootstrap-icons.svg#folder", projects.text)
         self.assertIn("Data remains on this computer.", projects.text)
         self.assertNotIn("Customer data remains on this computer.", projects.text)
-        self.assertIn("Thoughtfully made with", projects.text)
+        self.assertIn("Made in Luxembourg", projects.text)
+        self.assertIn("flag-luxembourg.svg", projects.text)
         self.assertIn("by FdR", projects.text)
         self.assertEqual(projects.headers["x-frame-options"], "DENY")
         self.assertIn("frame-ancestors 'none'", projects.headers["content-security-policy"])
@@ -597,7 +598,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(started.status_code, 303)
 
 
-class PhaseAWizardTests(unittest.TestCase):
+class ProjectSetupWizardTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
@@ -702,7 +703,7 @@ class PhaseAWizardTests(unittest.TestCase):
         self.assertIn("Unverified local draft", schema_page.text)
         self.assertIn("name | Name | char", schema_page.text)
 
-    def test_complete_phase_a_registration_without_yaml(self) -> None:
+    def test_complete_project_setup_registration_without_yaml(self) -> None:
         created = self._post(
             "/projects/new",
             {
@@ -723,7 +724,7 @@ class PhaseAWizardTests(unittest.TestCase):
                 "source_system": "Dynamics AX 2012",
                 "export_status": "RECEIVED",
                 "export_date": date.today().isoformat(),
-                "description": "Phase A browser acceptance",
+                "description": "Project setup browser acceptance",
             },
         )
         self.assertEqual(details.headers["location"], f"/projects/{project_id}/governance")
@@ -815,6 +816,7 @@ class PhaseAWizardTests(unittest.TestCase):
         self.assertEqual(registered.status_code, 303)
         summary = self.client.get(registered.headers["location"])
         self.assertIn("Registered migration project", summary.text)
+        self.assertIn("Inspect source data", summary.text)
         self.assertIn(
             f'href="/projects/{project_id}/sources"',
             summary.text,
@@ -841,9 +843,10 @@ class PhaseAWizardTests(unittest.TestCase):
         self.assertTrue(manifest.is_file())
         self.assertNotIn("super-secret-token", manifest.read_text())
 
-        phase_b = self.client.get(f"/projects/{project_id}/sources")
-        self.assertEqual(phase_b.status_code, 200)
-        self.assertIn("No source catalog yet", phase_b.text)
+        source_discovery = self.client.get(f"/projects/{project_id}/sources")
+        self.assertEqual(source_discovery.status_code, 200)
+        self.assertIn("Source discovery · Source inspection", source_discovery.text)
+        self.assertIn("No source catalog yet", source_discovery.text)
         inspected = self.client.post(
             f"/projects/{project_id}/sources/inspect",
             data={"csrf_token": self.csrf},
@@ -900,6 +903,7 @@ class PhaseAWizardTests(unittest.TestCase):
 
         datasets = self.client.get(f"/projects/{project_id}/datasets")
         self.assertEqual(datasets.status_code, 200)
+        self.assertIn("Source discovery · Dataset selection", datasets.text)
         self.assertIn("Freeze governed datasets", datasets.text)
         frozen = self.client.post(
             f"/projects/{project_id}/datasets/freeze",
@@ -928,11 +932,18 @@ class PhaseAWizardTests(unittest.TestCase):
             [(project_id, "super-secret-token")],
         )
         model_page = self.client.get(refreshed_models.headers["location"])
+        self.assertIn("Target schema · Permitted Odoo fields", model_page.text)
         self.assertIn("Choose target Odoo models", model_page.text)
-        self.assertIn("Phase A focus: <strong>Contacts</strong>", model_page.text)
+        self.assertIn(
+            "Project application focus: <strong>Contacts</strong>",
+            model_page.text,
+        )
         self.assertIn("Contact", model_page.text)
         self.assertIn("res.partner", model_page.text)
-        self.assertIn("Show models outside the Phase A focus", model_page.text)
+        self.assertIn(
+            "Show models outside the project application focus",
+            model_page.text,
+        )
 
         rejected_scope = self.client.post(
             f"/projects/{project_id}/schema/scope",
@@ -989,6 +1000,10 @@ class PhaseAWizardTests(unittest.TestCase):
         )
         self.assertEqual(governed.status_code, 303)
         mapping_page = self.client.get(governed.headers["location"])
+        self.assertIn(
+            "Governed mapping · Map source columns to Odoo",
+            mapping_page.text,
+        )
         self.assertIn("Map source columns to Odoo", mapping_page.text)
         self.assertIn("res.partner::name", mapping_page.text)
         self.assertIn("Existing Odoo catalog", mapping_page.text)

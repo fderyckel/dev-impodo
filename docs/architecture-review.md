@@ -170,7 +170,7 @@ end-to-end source/snapshot/workbook benchmark.
 These do not block offline fixture correctness. They block claiming live target
 DEV/TEST acceptance.
 
-## Phase gate
+## Readiness gate
 
 The read-only engine is ready for:
 

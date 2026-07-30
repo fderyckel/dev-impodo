@@ -328,7 +328,7 @@ protections have been designed and tested.
 ### 5.1 Fixed processing order
 
 Within a source field, the declared rule order is meaningful. The compiler
-MUST additionally enforce these phases:
+MUST additionally enforce these processing steps:
 
 1. forbidden/control/invisible character validation;
 2. surrounding-whitespace handling;
@@ -586,7 +586,7 @@ Tests:
 - unknown rule/type/parameter rejection;
 - duplicate rule IDs;
 - `correct` rejected for non-correctable rules;
-- invalid phase order and contradictory case rules;
+- invalid processing-step order and contradictory case rules;
 - bounded-template limits;
 - profiles without source rules retain their existing conclusions;
 - profile/ruleset hash determinism.
