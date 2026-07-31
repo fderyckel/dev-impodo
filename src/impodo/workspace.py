@@ -687,7 +687,7 @@ class SchemaWorkspaceService:
         *,
         actor: Actor,
     ) -> OdooSchemaCatalog:
-        """Capture a verified catalog through Odoo's authenticated API."""
+        """Capture a verified catalog through the connected read-only reader."""
 
         project, permitted = self._capture_context(project_id, actor=actor)
         if not snapshot.complete:

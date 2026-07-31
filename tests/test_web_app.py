@@ -16,6 +16,7 @@ from openpyxl.worksheet.table import Table
 
 from impodo.access import Actor, ActorIdentity, Capability
 from impodo.connectors import MetadataSnapshot, RecordSnapshot
+from impodo.local_odoo_reader import LocalOdooMetadataReader
 from impodo.local_stack import (
     LocalStackCheck,
     LocalStackService,
@@ -606,6 +607,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.connection_calls: list[tuple[str, str, OdooConnectionMode | None]] = []
         self.schema_calls: list[tuple[str, str]] = []
         self.model_catalog_calls: list[tuple[str, str]] = []
+        self.local_odoo_reader = MagicMock(spec=LocalOdooMetadataReader)
 
         def connection_tester(project, api_key):
             self.connection_calls.append(
@@ -629,6 +631,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             connection_tester=connection_tester,
             schema_reader=schema_reader,
             model_catalog_reader=model_catalog_reader,
+            local_odoo_reader=self.local_odoo_reader,
         )
         self.client = TestClient(self.app)
         launched = self.client.get(
@@ -702,6 +705,171 @@ class ProjectSetupWizardTests(unittest.TestCase):
         schema_page = self.client.get(drafted.headers["location"])
         self.assertIn("Unverified local draft", schema_page.text)
         self.assertIn("name | Name | char", schema_page.text)
+
+    def test_registered_local_schema_uses_selected_config_without_api_key(
+        self,
+    ) -> None:
+        context = self.app.state.context
+        created = context.projects.create_project(
+            actor=context.actor,
+            name="Keyless local schema",
+            source_system="CSV",
+        )
+        now = datetime.now(timezone.utc)
+        registered = replace(
+            created,
+            odoo_connection_mode=OdooConnectionMode.LOCAL,
+            target_environment=TargetEnvironment.DEV,
+            odoo_base_url="http://127.0.0.1:18069",
+            odoo_database="odoo19_dev",
+            intended_applications=("Contacts",),
+            status=ProjectStatus.REGISTERED,
+            revision=2,
+            updated_at=now,
+            registered_at=now,
+        )
+        context.repository.save(
+            registered,
+            expected_revision=created.revision,
+            event_type="TEST_PROJECT_REGISTERED",
+            event_detail="",
+            actor=context.actor,
+        )
+        context.repository.save_source_selection(
+            registered.project_id,
+            SourceSelection(
+                selection_id=str(uuid4()),
+                version=1,
+                project_id=registered.project_id,
+                created_at=now,
+                created_by=context.actor.identity.display_name,
+                datasets=(),
+                content_hash="sha256:" + "b" * 64,
+            ),
+            actor=context.actor,
+        )
+        unconfigured_page = self.client.get(
+            f"/projects/{registered.project_id}/schema"
+        )
+        self.assertIn(
+            "Choose the local Odoo configuration first",
+            unconfigured_page.text,
+        )
+        self.assertIn(
+            f'action="/projects/{registered.project_id}/schema/local-config"',
+            unconfigured_page.text,
+        )
+        blocked = self.client.post(
+            f"/projects/{registered.project_id}/schema/models/refresh",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(blocked.status_code, 422)
+        self.assertIn("Local mode does not require an API key", blocked.text)
+
+        workspace = Path(self.temporary.name) / "local-odoo"
+        config = workspace / "config" / "odoo.conf"
+        config.parent.mkdir(parents=True)
+        config.write_text(
+            "\n".join(
+                (
+                    "[options]",
+                    "http_interface = 127.0.0.1",
+                    "http_port = 18069",
+                    "db_host = 127.0.0.1",
+                    "db_port = 5544",
+                    "db_user = odoo",
+                    "db_name = odoo19_dev",
+                )
+            ),
+            encoding="utf-8",
+        )
+        for relative_path in (
+            "venv/Scripts/python.exe",
+            "odoo/odoo-bin",
+        ):
+            executable = workspace / relative_path
+            executable.parent.mkdir(parents=True, exist_ok=True)
+            executable.touch()
+        status = context.local_stack.select_config(
+            registered.project_id,
+            config,
+        )
+        self.assertIsNotNone(status.profile)
+        configured_local_stack = context.local_stack
+
+        self.local_odoo_reader.get_model_catalog.return_value = (
+            _browser_model_catalog()
+        )
+        self.local_odoo_reader.get_model_metadata.return_value = (
+            _browser_schema()
+        )
+
+        page = self.client.get(f"/projects/{registered.project_id}/schema")
+        self.assertIn("Local route configured", page.text)
+        self.assertIn("No Odoo API key is required", page.text)
+        refreshed = self._post(
+            f"/projects/{registered.project_id}/schema/models/refresh",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(refreshed.status_code, 303)
+        self.local_odoo_reader.get_model_catalog.assert_called_once()
+        self.assertEqual(self.model_catalog_calls, [])
+        verified_page = self.client.get(refreshed.headers["location"])
+        self.assertIn("Verified model snapshot stored", verified_page.text)
+        self.assertIn(
+            "Live local metadata access was also verified",
+            verified_page.text,
+        )
+        context.local_stack = LocalStackService()
+        cached_page = self.client.get(
+            f"/projects/{registered.project_id}/schema"
+        )
+        self.assertIn("Verified model snapshot stored", cached_page.text)
+        self.assertIn(
+            "This page loaded the snapshot without contacting Odoo",
+            cached_page.text,
+        )
+        self.assertIn("Live connection not checked this session", cached_page.text)
+        self.assertIn("res.partner", cached_page.text)
+        self.local_odoo_reader.get_model_catalog.assert_called_once()
+
+        project = context.repository.get(registered.project_id)
+        scoped = self._post(
+            f"/projects/{registered.project_id}/schema/scope",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(project.revision),
+                "permitted_models": "res.partner",
+            },
+        )
+        self.assertEqual(scoped.status_code, 303)
+        self.local_odoo_reader.get_model_catalog.assert_called_once()
+        context.local_stack = configured_local_stack
+        captured = self._post(
+            f"/projects/{registered.project_id}/schema/capture",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(captured.status_code, 303)
+        self.local_odoo_reader.get_model_metadata.assert_called_once()
+        metadata_call = (
+            self.local_odoo_reader.get_model_metadata.call_args.args
+        )
+        self.assertEqual(metadata_call[2], ("res.partner",))
+        self.assertEqual(self.schema_calls, [])
+        context.local_stack = LocalStackService()
+        cached_schema_page = self.client.get(
+            f"/projects/{registered.project_id}/schema"
+        )
+        self.assertIn(
+            "Verified effective-field snapshot stored",
+            cached_schema_page.text,
+        )
+        self.assertIn(
+            "Mapping uses this hash-bound snapshot without contacting Odoo",
+            cached_schema_page.text,
+        )
+        self.local_odoo_reader.get_model_metadata.assert_called_once()
 
     def test_complete_project_setup_registration_without_yaml(self) -> None:
         created = self._post(
@@ -1158,7 +1326,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(remote.status_code, 422)
         self.assertIn(
-            "Enter an Odoo API key for this exact target",
+            "Enter an Odoo API key for this exact remote target",
             remote.text,
         )
         self.assertEqual(len(self.connection_calls), 1)

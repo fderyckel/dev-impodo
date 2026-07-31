@@ -51,13 +51,16 @@ email-synchronised, or Git-tracked directory for customer data.
 4. Add one or more `.csv` or `.xlsx` source files.
 5. Choose **Local Odoo** or **Remote / on-premises Odoo**, then configure a
    DEV or TEST target.
-6. Optionally test the connection with a dedicated read-only API key.
+6. In Local mode, select the exact `odoo.conf`; in Remote mode, optionally
+   test with a dedicated read-only API key.
 7. Review the completeness list and select **Register project**.
 
-The API key can stay in process memory or be saved in Windows Credential
+A remote API key can stay in process memory or be saved in Windows Credential
 Manager. It never enters the project database or registration manifest. A
 stored key is bound to the exact project, connection mode, URL, and database;
 changing the target requires the appropriate key for the new destination.
+Local Windows metadata discovery instead uses the session-only selected
+`odoo.conf` and requires no Odoo API key.
 
 ## Inspect and freeze registered sources
 
@@ -104,7 +107,10 @@ After freezing datasets:
 
 Model discovery reads only lightweight `ir.model` metadata. Field discovery
 issues one `fields_get` call per explicitly permitted model; neither path
-invokes an Odoo write method. Source
+invokes an Odoo write method. Impodo stores both verified snapshots in the
+project DuckDB database. Reopening the project loads them locally and does not
+automatically contact Odoo. Use refresh only after module, custom-field, or
+intended-scope changes. Source
 reinspection, source reconfirmation, dataset refreezing, schema recapture, or
 business-key governance change invalidates the active mapping pointer. Its
 immutable revision, validation, and submission history remains available in
@@ -118,7 +124,8 @@ Use this for an Odoo 19 instance running on the same computer:
 - environment: `DEV`;
 - base URL: `http://127.0.0.1:8069` for the standard local port;
 - database: the exact local database name, for example `odoo19_dev`;
-- credential: an API key for a dedicated least-privilege internal Odoo user.
+- local reader: the exact `odoo.conf` for this Odoo installation; no Odoo API
+  key is required.
 
 HTTP is accepted only for literal IPv4 or IPv6 loopback addresses. `localhost`,
 LAN addresses, credentials in the URL, URL fragments, and extra paths are
@@ -126,10 +133,10 @@ rejected.
 
 Use **Help me connect to local Odoo** to select the live `odoo.conf` through a
 native Windows file chooser and inspect the current readiness sequence:
-configuration, PostgreSQL, Odoo 19 HTTP, then the authenticated Impodo API
-connection. The assistant retains only non-secret routing settings in memory
-for the current session. It does not upload the file, persist the selected
-path, or accept an arbitrary command.
+configuration, PostgreSQL, Odoo 19 HTTP, then the Impodo metadata reader.
+The assistant retains only non-secret routing settings in memory for the
+current session. It does not upload the file, persist the selected path, or
+accept an arbitrary command.
 
 After reviewing the detected workspace-local paths, explicitly confirm
 **Start PostgreSQL and Odoo**. Impodo checks `pg_ctl status`, starts PostgreSQL
@@ -151,12 +158,12 @@ If managed PostgreSQL is listed, stopping it may disconnect another local tool
 that began using the same server after Impodo started it. Save that work first.
 Use **Stop managed services** before **Quit Impodo** because process ownership
 is not persisted across Impodo sessions. Use **Check again** after any manual
-correction, then **Save and test connection** with the read-only API key.
-
-To create the credential in Odoo 19, sign in as the dedicated internal user,
-open that user's preferences, find **API Keys**, and select **Add API Key**.
-Copy the displayed key when it is generated. Do not use the Odoo master
-password, PostgreSQL password, or the user's interactive password.
+correction, then **Save and test connection**. On the schema page,
+**Verify access and load models** is required only for the first catalogue
+capture. Impodo then shows **Verified model snapshot stored** and reuses that
+DuckDB snapshot in later sessions. **Live connection not checked this
+session** is informational and does not block stored models or fields. Choose
+`odoo.conf` again only for an explicit refresh or field fetch.
 
 ### Remote / on-premises mode
 

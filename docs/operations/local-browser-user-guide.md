@@ -214,9 +214,34 @@ disposal process.
 
 ### Source files
 
-Add one or more CSV or Excel files. Impodo stores a protected project copy and
-records its size and digital fingerprint. The original source file is not
-modified.
+Add every CSV or Excel file that belongs to this migration project before
+selecting **Register project**. One project can contain related files for many
+Odoo models. For example, one product migration project may contain
+`products.csv`, `product_categories.csv`, and `units_of_measure.xlsx`.
+
+The file chooser accepts one file at a time. Select a file and choose
+**Add file**; when its name and fingerprint appear in the registered-file list,
+select the next file and choose **Add file** again. Repeat until every required
+file is listed.
+
+**Continue** only moves the draft to the Odoo-target step. It does not register
+the project. While the project is still a draft, use **3. Files** in the setup
+steps to return and add another file.
+
+### Important: source-file boundary
+
+Selecting **Register project** records the source-file list as immutable
+evidence. After registration, the source-inspection page can inspect and
+confirm the registered files, but it cannot add, replace, or remove a file.
+This prevents a later mapping from silently using a different migration scope.
+
+Before registering, confirm that the registered-file list contains every
+related source file. If a file was omitted and the project is already
+registered, create a new project or rehearsal with the complete source set.
+Do not alter the registered project files or project database directly.
+
+For each registered file, Impodo stores a protected project copy and records
+its size and digital fingerprint. The original source file is not modified.
 
 ### Target
 
@@ -226,8 +251,10 @@ Choose one:
 - **Remote / on-premises Odoo** for an approved HTTPS DEV or TEST server.
 
 Enter the exact URL and database supplied by the Odoo administrator. A
-connection test is read-only. Saving an API key stores it in the operating
-system's credential manager, not in the project database.
+connection test is read-only. Local Windows mode uses the selected
+`odoo.conf` and does not require an Odoo API key. A Remote-mode API key can be
+stored in the operating system's credential manager, never in the project
+database.
 
 #### Local Odoo readiness assistant
 
@@ -247,9 +274,15 @@ PostgreSQL or Odoo status is unclear. Then:
    ones it manages and shows **Stop managed services** and **Restart managed
    services**. If you correct the configuration or start a service another
    way, select **Check again**.
-7. When PostgreSQL and Odoo are ready, enter the API key and select **Save and
-   test connection**. This final check proves that Impodo can authenticate to
-   the selected database with the supplied read-only Odoo user.
+7. When PostgreSQL and Odoo are ready, select **Save and test connection**.
+   No Odoo API key is required in Local mode.
+8. The first time only, select **Verify access and load models**. Move on
+   after **Verified model snapshot stored** identifies the database, Odoo
+   version, capture time, and number of persistent models.
+9. In later Impodo sessions, use that DuckDB snapshot directly. A grey
+   **Live connection not checked this session** message is not a blocker.
+   Select `odoo.conf` again only to refresh models or fetch fields after the
+   selected scope changes.
 
 The assistant shows four separate results:
 
@@ -258,7 +291,7 @@ The assistant shows four separate results:
 | **Configuration** | The selected file contains a valid, explicit loopback PostgreSQL and Odoo HTTP configuration. |
 | **PostgreSQL** | Green means `pg_isready.exe` confirmed that PostgreSQL is accepting connections on the configured host and port. Orange means action is required or only an open port could be detected. |
 | **Odoo server** | Green means the loopback HTTP endpoint answered `/web/webclient/version_info` and identified itself as Odoo 19. |
-| **Impodo API** | This remains grey until **Save and test connection** tests the database and read-only API key. |
+| **Impodo metadata reader** | This remains grey until **Save and test connection** proves that the selected local Odoo installation can open the configured database. |
 
 Green means ready, orange means action is needed or the result is incomplete,
 red means the check failed or the configuration is unsafe, and grey means the
@@ -270,6 +303,12 @@ non-secret routing settings needed for these checks and does not retain
 `db_password` or `admin_passwd`. The selected path and detected executable
 paths live only in memory for the current Impodo session; they are not added
 to the migration project or its evidence.
+
+The model catalogue and effective fields are different: they are safe,
+hash-bound project evidence stored in DuckDB. Page navigation, schema review,
+and mapping use those stored snapshots without an Odoo request. Refresh after
+an Odoo module upgrade, custom-field change, or before a future approved
+import freshness check.
 
 The assistant can start only detected paths under the selected Odoo workspace;
 users cannot enter a command or executable path. After explicit confirmation,
@@ -315,15 +354,17 @@ Ownership is held only in memory. Use **Stop managed services** before
 workspace and use its established manual shutdown procedure because a new
 Impodo session will not claim ownership of the old processes.
 
-Starting, stopping, or restarting the local stack does not import data,
-authenticate with the API key, or write to Odoo.
+Starting, stopping, or restarting the local stack does not import data or
+write to Odoo.
 
 **Migration application scope** is optional reviewer context, such as
 Contacts or Inventory. It does not grant Odoo access and does not control
 which technical models Impodo can read or map.
 
 Before selecting **Register project**, use the completeness list to confirm
-that every required section is finished.
+that every required section is finished, including the complete source-file
+list. Registration locks that list; it is not possible to append another file
+from source inspection later.
 
 ## 3. Inspect every source file
 
@@ -343,6 +384,10 @@ For every file, review:
 - candidate column types;
 - null, distinct, minimum, and maximum statistics;
 - duplicate headers, formula cells, and other warnings.
+
+This page is for the files already registered to the project. It has no
+**Add file** action: source-file additions are allowed only while the project
+is a draft, before registration.
 
 ![A selected CSV table showing its proposed header, bounded data preview, and
 column statistics.](../images/impodo-local-browser-guide/03-source-preview.jpg)
@@ -855,6 +900,7 @@ all of these:
 | --- | --- | --- |
 | The browser says the session is unavailable | The one-time local session ended | Restart Impodo from its launcher |
 | A source file is no longer confirmed | Its content or parsing choice changed | Inspect and confirm it again |
+| I need to add another source file | The project was already registered and its source list is immutable | Create a new project or rehearsal with the complete file set; do not modify the registered evidence directly |
 | Mapping is no longer active | Frozen source, schema, or business keys changed | Review, save, and validate a new revision |
 | No source column is available | The intended table was not frozen | Return to source selection and freeze the correct dataset |
 | No target field is available | Model was not captured or field is not permitted | Ask the Odoo administrator to review the model and access |

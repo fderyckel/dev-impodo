@@ -112,6 +112,10 @@ class LocalStackStatus:
         return self.profile is not None and not self.odoo_ready
 
     @property
+    def metadata_ready(self) -> bool:
+        return self._level("api") is ReadinessLevel.READY
+
+    @property
     def missing_start_requirements(self) -> tuple[str, ...]:
         profile = self.profile
         if profile is None or not self.startup_needed:
@@ -416,6 +420,40 @@ class LocalStackService:
     def get(self, project_id: str) -> LocalStackStatus:
         status = self._statuses.get(project_id, LocalStackStatus.unconfigured())
         return self._decorate_status(project_id, status)
+
+    def mark_metadata_ready(
+        self,
+        project_id: str,
+        *,
+        database: str,
+        odoo_version: str,
+        model_count: int,
+    ) -> LocalStackStatus:
+        """Record successful Odoo metadata access for this local session."""
+
+        current = self.get(project_id)
+        if current.profile is None:
+            raise LocalStackError(
+                "Choose and validate odoo.conf before verifying metadata access."
+            )
+        verified = LocalStackCheck(
+            key="api",
+            label="Impodo metadata reader",
+            level=ReadinessLevel.READY,
+            message="Odoo metadata read succeeded.",
+            detail=(
+                f"{database}; Odoo {odoo_version}; "
+                f"{model_count} persistent model(s)"
+            ),
+        )
+        updated = replace(
+            current,
+            checks=tuple(
+                verified if check.key == "api" else check
+                for check in current.checks
+            ),
+        )
+        return self._store_status(project_id, updated)
 
     def _managed_services(self, project_id: str) -> tuple[str, ...]:
         ownership = self._ownership.get(project_id)
@@ -1220,7 +1258,10 @@ def _waiting_check(key: str, label: str, message: str) -> LocalStackCheck:
 def _api_check() -> LocalStackCheck:
     return LocalStackCheck(
         key="api",
-        label="Impodo API",
+        label="Impodo metadata reader",
         level=ReadinessLevel.UNKNOWN,
-        message="Use “Save and test connection” after entering the database and API key.",
+        message=(
+            "Select the target database, then use Save and test connection. "
+            "Local mode does not require an Odoo API key."
+        ),
     )

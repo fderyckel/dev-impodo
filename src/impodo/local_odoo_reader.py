@@ -441,7 +441,7 @@ try:
 {_indent(body.strip(), 4)}
     print(
         {_OUTPUT_MARKER!r}
-        + json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        + json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
     )
 finally:
     env.cr.rollback()

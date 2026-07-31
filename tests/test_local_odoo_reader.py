@@ -177,6 +177,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         self.assertEqual(script.count(".fields_get("), 1)
         self.assertIn("for model_name in requested_models:", script)
         self.assertIn("allfields=[]", script)
+        self.assertIn("ensure_ascii=True", script)
         self.assertIn("env.cr.rollback()", script)
 
     def test_profile_must_match_the_exact_local_target(self) -> None:

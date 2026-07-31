@@ -17,9 +17,10 @@ which stores project evidence, source inspection results, frozen datasets,
 Odoo schema captures, mapping revisions, and validation results.
 
 The platform accepts `.csv` and `.xlsx` source files. It can connect to an
-Odoo 19 DEV or TEST environment with a dedicated read-only API key. A local
-Odoo instance is supported; a remote Odoo instance must use HTTPS. Production
-is not an available target.
+Odoo 19 DEV or TEST environment. A local Windows instance uses an explicitly
+selected `odoo.conf` and fixed read-only metadata operations without an Odoo
+API key. A remote instance requires HTTPS and a dedicated read-only API key.
+Production is not an available target.
 
 The browser, source inspection, and read-only Odoo connection work on both
 operating systems. The in-browser assistant that discovers and starts a local
@@ -48,6 +49,8 @@ start a local Odoo stack separately before connecting to it in Impodo.
 
 - Captures the permitted Odoo models and their fields through read-only
   metadata calls.
+- Stores verified model and effective-field snapshots in the project DuckDB
+  database, so reopening and mapping do not automatically contact Odoo.
 - Records the target business keys and any company or tenant scope fields.
 - Maps each frozen dataset to an Odoo model and its writable scalar fields.
 - Lets each scalar field use a source column, constant, source fallback, or an

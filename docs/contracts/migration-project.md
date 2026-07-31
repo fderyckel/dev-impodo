@@ -65,10 +65,20 @@ Approval-summary status is never the authoritative approval. Normalization
 decisions and future export-plan approvals are immutable actor-bound records
 attached to exact evidence hashes.
 
-An Odoo API key is not a project field. It is held in memory for the current
-process or saved separately in the operating-system credential store. The
-credential identifier binds it to the project, connection mode, exact URL, and
-database so it cannot be silently reused after a target change.
+An Odoo API key is not a project field. Remote mode holds it in memory for the
+current process or saves it separately in the operating-system credential
+store. The credential identifier binds it to the project, connection mode,
+exact URL, and database so it cannot be silently reused after a target change.
+Local Windows mode does not require an Odoo API key: its selected `odoo.conf`
+and detected executable paths remain session-only machine state and are not
+stored in this contract.
+
+The lightweight model catalogue, selected technical-model allowlist, and
+effective-field catalogue are project evidence stored in DuckDB with target
+identity, database, Odoo version, capture time, and content hashes. Opening a
+project reuses these snapshots without contacting Odoo. Refreshing is
+explicit; changing the model scope invalidates dependent field, governance,
+and active mapping state.
 
 ## Source-file evidence
 

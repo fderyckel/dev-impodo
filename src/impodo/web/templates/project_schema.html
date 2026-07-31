@@ -3,6 +3,7 @@
 {% block content %}
   {% set local_mode = project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' %}
   {% set local_reader_ready = not local_mode or local_stack.profile %}
+  {% set local_access_verified = not local_mode or local_stack.metadata_ready %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Target schema · Permitted Odoo fields</p>
@@ -32,7 +33,7 @@
           {% if model_catalog %}
             Refresh models from Odoo
           {% elif local_mode %}
-            Load models from local Odoo
+            Verify access and load models
           {% else %}
             Load models from Odoo
           {% endif %}
@@ -40,13 +41,17 @@
       </form>
     </div>
 
-    {% if local_mode %}
+    {% if local_mode and not model_catalog %}
       {% if local_stack.profile %}
-        <div class="notice">
-          <strong>Keyless local metadata reader ready.</strong>
-          Impodo will use the selected <code>{{ local_stack.config_path }}</code>
-          in an isolated read-only Odoo process. No Odoo API key is required.
-        </div>
+        {% if not local_access_verified %}
+          <div class="notice warning">
+            <strong>Local route configured; Odoo read access is not yet verified.</strong>
+            Impodo will use the selected <code>{{ local_stack.config_path }}</code>
+            in an isolated read-only Odoo process. No Odoo API key is required.
+            Select <strong>Verify access and load models</strong> to prove
+            that Impodo can read this database.
+          </div>
+        {% endif %}
       {% else %}
         <div class="notice warning">
           <strong>Choose the local Odoo configuration first.</strong>
@@ -71,11 +76,39 @@
     {% endif %}
 
     {% if model_catalog %}
-      <p class="muted">
-        {{ model_catalog.models|length }} persistent models loaded from
-        {{ model_catalog.database }} · Odoo {{ model_catalog.odoo_version }}.
-        Full field metadata is fetched only for the models selected below.
-      </p>
+      <div class="notice stack-ready" role="status">
+        <strong>Verified model snapshot stored.</strong>
+        DuckDB contains {{ model_catalog.models|length }} persistent models
+        captured from <code>{{ model_catalog.database }}</code> on Odoo
+        {{ model_catalog.odoo_version }} at
+        {{ model_catalog.captured_at.strftime("%Y-%m-%d %H:%M UTC") }}.
+        This page loaded the snapshot without contacting Odoo. You can choose
+        from these models without refreshing the catalogue.
+      </div>
+      {% if local_mode %}
+        {% if local_access_verified %}
+          <p class="muted">
+            Live local metadata access was also verified during this Impodo session.
+          </p>
+        {% elif local_stack.profile %}
+          <div class="notice">
+            <strong>Live connection not checked this session.</strong>
+            The stored snapshot remains usable. Odoo is contacted only if you
+            explicitly refresh models or fetch the selected models' fields.
+          </div>
+        {% else %}
+          <div class="notice">
+            <strong>Live connection not checked this session.</strong>
+            This is not a blocker for the stored model or field snapshots.
+            Choose <code>odoo.conf</code> only when you want to refresh from
+            Odoo or fetch fields for a changed model scope.
+            <form method="post" action="/projects/{{ project.project_id }}/schema/local-config">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="button secondary" type="submit">Choose local odoo.conf for a live read</button>
+            </form>
+          </div>
+        {% endif %}
+      {% endif %}
       <form method="post" action="/projects/{{ project.project_id }}/schema/scope" data-model-picker>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="revision" value="{{ project.revision }}">
@@ -146,6 +179,16 @@
     {% endif %}
 
     <p>Current permitted models: <code>{{ project.intended_models|join(", ") or "Not set" }}</code></p>
+    {% if schema and schema.origin.value != 'LOCAL_MANUAL' %}
+      <div class="notice stack-ready" role="status">
+        <strong>Verified effective-field snapshot stored.</strong>
+        DuckDB contains {{ schema_field_count }} fields across
+        {{ schema.models|length }} selected model(s), captured from
+        <code>{{ schema.database }}</code> at
+        {{ schema.captured_at.strftime("%Y-%m-%d %H:%M UTC") }}.
+        Mapping uses this hash-bound snapshot without contacting Odoo.
+      </div>
+    {% endif %}
     <p class="muted">
       Field capture uses Odoo <code>fields_get</code>, so each selected model
       includes its complete effective field set, including fields contributed
@@ -156,9 +199,15 @@
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to datasets</a>
         <button class="button primary" type="submit" {% if not selection or not project.intended_models or not local_reader_ready %}disabled{% endif %}>
-          {% if schema %}Fetch fields again from Odoo{% else %}Fetch fields from Odoo{% endif %}
+          {% if schema %}Refresh selected-model fields from Odoo{% else %}Fetch fields for selected models{% endif %}
         </button>
       </div>
+      {% if local_mode and project.intended_models and not local_stack.profile %}
+        <small>
+          The stored snapshot remains available. Select <code>odoo.conf</code>
+          only if you explicitly want to fetch or refresh fields.
+        </small>
+      {% endif %}
     </form>
   </section>
 

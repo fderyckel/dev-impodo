@@ -997,6 +997,13 @@ def create_local_app(
                 snapshot,
                 actor=context.actor,
             )
+            if local_profile is not None:
+                context.local_stack.mark_metadata_ready(
+                    project_id,
+                    database=catalog.database,
+                    odoo_version=catalog.odoo_version,
+                    model_count=len(catalog.models),
+                )
         except (
             ConnectorError,
             ProjectError,
@@ -1090,6 +1097,18 @@ def create_local_app(
                 snapshot,
                 actor=context.actor,
             )
+            if local_profile is not None:
+                catalog = context.repository.get_odoo_model_catalog(project_id)
+                context.local_stack.mark_metadata_ready(
+                    project_id,
+                    database=schema.database,
+                    odoo_version=schema.odoo_version,
+                    model_count=(
+                        len(catalog.models)
+                        if catalog is not None
+                        else len(schema.models)
+                    ),
+                )
         except (
             ConnectorError,
             ProjectError,
@@ -1839,6 +1858,11 @@ def _render_schema(
             1 for choice in model_choices if choice["in_focus"]
         ),
         schema=schema,
+        schema_field_count=(
+            sum(len(model.fields) for model in schema.models)
+            if schema is not None
+            else 0
+        ),
         governance=governance,
         governed_by_model=governed_by_model,
         local_stack=context.local_stack.get(project_id),

@@ -224,9 +224,10 @@ Odoo credentials must not be stored in:
 - browser storage;
 - Git or `.env` files.
 
-The local UI obtains an API key from the operating-system credential store or
-asks for it for the current session. The key is held in memory only while
-needed and is redacted from exceptions.
+For Remote mode, the local UI obtains an API key from the operating-system
+credential store or asks for it for the current session. The key is held in
+memory only while needed and is redacted from exceptions. Local Windows mode
+does not require an Odoo API key.
 
 Use separate credentials for:
 
@@ -240,8 +241,24 @@ A read credential must never be silently upgraded to write capability.
 
 The browser can use an existing Odoo 19 development checkout when it is bound
 to a literal loopback address. Local HTTP is allowed only in this explicit
-mode. PostgreSQL must not be exposed through Impodo, and the same API-key and
-read-only connector boundary applies.
+mode. PostgreSQL must not be exposed through Impodo.
+
+Local metadata reads use the explicitly selected `odoo.conf`, its detected
+workspace-local Python executable, and `odoo-bin`. Impodo starts `odoo-bin
+shell` without an operating-system shell and supplies only fixed model
+catalogue or effective-field operations. The reader has no generic command,
+RPC, or write surface, bounds its output and execution time, and rolls back
+the transaction on exit. It reads `ir.model` once for discovery and invokes
+`fields_get` once per explicitly selected model; inherited and mixin fields
+are therefore included without a per-field query pattern. Remote mode keeps
+the HTTPS, least-privilege API-key, JSON-2 boundary.
+
+Successful model and effective-field results are normalized into hash-bound
+DuckDB snapshots. Subsequent page loads and mapping work read those snapshots,
+not Odoo. The `odoo.conf` and executable paths remain session-only. Refresh
+is an explicit read; module upgrades, custom-field changes, and any future
+import boundary require a deliberate freshness check rather than silent
+background access.
 
 The local readiness and controlled-start assistant is a machine-management
 boundary. The user selects the live `odoo.conf` through the native Windows
