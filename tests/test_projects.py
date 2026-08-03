@@ -140,9 +140,8 @@ class ProjectLifecycleTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
             expected_revision=project.revision,
             odoo_connection_mode="LOCAL",
-            target_environment="DEV",
             odoo_base_url="http://127.0.0.1:8069",
-            odoo_database="odoo19_dev",
+            odoo_database="odoo19_local",
             intended_applications=["Contacts"],
             intended_models=["res.partner"],
         )
@@ -153,9 +152,8 @@ class ProjectLifecycleTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
             expected_revision=local.revision,
             odoo_connection_mode="REMOTE",
-            target_environment="TEST",
-            odoo_base_url="https://odoo-test.example.com",
-            odoo_database="odoo_test",
+            odoo_base_url="https://odoo.example.com",
+            odoo_database="odoo_review",
             intended_applications=["Contacts"],
             intended_models=["res.partner"],
         )
@@ -165,7 +163,7 @@ class ProjectLifecycleTests(unittest.TestCase):
             ("LOCAL", "http://localhost:8069"),
             ("LOCAL", "http://192.168.1.20:8069"),
             ("LOCAL", "http://127.0.0.1:8069/odoo"),
-            ("REMOTE", "http://odoo-test.example.com"),
+            ("REMOTE", "http://odoo.example.com"),
             ("REMOTE", "https://127.0.0.1:8069"),
         )
         for mode, base_url in invalid_targets:
@@ -177,9 +175,8 @@ class ProjectLifecycleTests(unittest.TestCase):
                     actor=LOCAL_ACTOR,
                     expected_revision=remote.revision,
                     odoo_connection_mode=mode,
-                    target_environment="TEST",
                     odoo_base_url=base_url,
-                    odoo_database="odoo_test",
+                    odoo_database="odoo_review",
                     intended_applications=["Contacts"],
                     intended_models=[],
                 )
@@ -268,9 +265,8 @@ class ProjectLifecycleTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
             expected_revision=project.revision,
             odoo_connection_mode="REMOTE",
-            target_environment="TEST",
             odoo_base_url="https://odoo.example.test",
-            odoo_database="odoo_test",
+            odoo_database="odoo_review",
             intended_applications=[],
             intended_models=[],
         )
