@@ -1,9 +1,9 @@
-"""Environment-independent domain values and deterministic serialization.
+"""Target-independent domain values and deterministic serialization.
 
 These dataclasses form the boundaries between source preparation, reference
 resolution, comparison, and reporting. Portable source-side objects use
 business keys instead of numeric Odoo IDs. `TargetRecord` is the deliberate
-exception: it represents an environment-specific snapshot and must be
+exception: it represents a target-database-specific snapshot and must be
 converted before entering the portable manifest.
 """
 
@@ -124,10 +124,11 @@ class TargetRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class EnvironmentFingerprint:
-    """Evidence identifying the exact target environment capture."""
+class TargetFingerprint:
+    """Non-secret evidence identifying one exact Odoo target capture."""
 
-    environment: str
+    target_hash: str
+    connection_mode: str
     database: str
     odoo_version: str
     snapshot_timestamp: str
@@ -137,7 +138,8 @@ class EnvironmentFingerprint:
         """Return a deterministically ordered JSON-compatible representation."""
 
         return {
-            "environment": self.environment,
+            "target_hash": self.target_hash,
+            "connection_mode": self.connection_mode,
             "database": self.database,
             "odoo_version": self.odoo_version,
             "snapshot_timestamp": self.snapshot_timestamp,
@@ -214,7 +216,7 @@ class PreflightResult:
 
     profile_id: str
     source_hashes: Mapping[str, str]
-    fingerprint: EnvironmentFingerprint
+    fingerprint: TargetFingerprint
     metadata_snapshot_hash: str | None
     record_snapshot_hash: str | None
     decisions: tuple[Decision, ...]
@@ -258,7 +260,7 @@ class PreflightResult:
                 "metadata": self.metadata_snapshot_hash,
                 "records": self.record_snapshot_hash,
             },
-            "target_environment": self.fingerprint.portable_dict(),
+            "target": self.fingerprint.portable_dict(),
             "summary": self.counts,
             "decisions": [
                 {
@@ -395,8 +397,24 @@ def canonical_json_bytes(value: Any) -> bytes:
     return canonical_json_text(value).encode("utf-8")
 
 
+def target_identity_hash(
+    *,
+    connection_mode: str,
+    base_url: str,
+    database: str,
+) -> str:
+    """Bind evidence to one connection mode, endpoint, and database."""
+
+    payload = {
+        "connection_mode": connection_mode.strip().upper(),
+        "base_url": base_url.strip().rstrip("/"),
+        "database": database.strip(),
+    }
+    return "sha256:" + sha256(canonical_json_bytes(payload)).hexdigest()
+
+
 def assert_no_numeric_odoo_ids(value: Any, path: str = "$") -> None:
-    """Reject environment-specific identifiers from portable artifacts."""
+    """Reject target-database-specific identifiers from portable artifacts."""
 
     forbidden = {"odoo_id", "odoo_ids", "record_id", "record_ids"}
     if isinstance(value, Mapping):

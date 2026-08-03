@@ -18,16 +18,13 @@ roadmap phases. Do not use Phase A or Phase B.
 
 ## Architecture
 
-- [Security and infrastructure approval brief](security-and-infrastructure-approval.md)
-  — concise architecture, implemented controls, infrastructure requirements,
-  verification evidence, open gates, and reviewer decision.
+- [Security and infrastructure](security-and-infrastructure.md) — factual
+  overview of the local architecture, implemented controls, infrastructure
+  requirements, data handling, verification evidence, and current limitations.
 
 - [End-to-end migration product vision](product-vision.md) — complete product
   workflow, mapping architecture, staging, relation handling, executor
   boundary, edge cases, and roadmap.
-- [Local application and security architecture](local-application-security.md)
-  — recommended local browser stack, file/staging hardening, local Odoo
-  laboratory, secrets, and eventual on-premise access.
 - [Architecture review](architecture-review.md) — current-state evidence,
   fitness assessment, risks, and readiness gates.
 - [Read-only preflight architecture](architecture/read-only-preflight.md) —
@@ -74,8 +71,12 @@ roadmap phases. Do not use Phase A or Phase B.
 - [Local-browser user guide for data analysts and data managers](operations/local-browser-user-guide.md)
   — non-technical, screenshot-led walkthrough with a complete companies and
   contacts relationship-mapping example.
-- [Local project browser](operations/local-browser.md) — installation,
-  project registration, source inspection, storage, and shutdown runbook.
+- [Windows workstation requirements for Impodo](operations/windows-workstation-readiness.md) —
+  IT provisioning requirements, required software, workstation permissions,
+  network access, installation boundaries, and verification checks.
+- [Internal development and release runbook](operations/internal-release.md) —
+  Python 3.12 development mode, dependency locking, evidence-producing
+  promotion, and versioned installation of an accepted internal bundle.
 - [DuckDB on a Windows laptop](operations/duckdb-windows.md) - approved
   user-local DuckDB CLI installation, verification, troubleshooting, and the
   boundary between the CLI and Impodo-managed data.

@@ -1,4 +1,4 @@
-"""Immutable approval evidence for normalization and future TEST exports."""
+"""Immutable approval evidence for normalization and future target exports."""
 
 from __future__ import annotations
 
@@ -59,7 +59,6 @@ class FrozenExportPlan:
     plan_id: str
     project_id: str
     run_id: str
-    target_environment: str
     source_hashes: Mapping[str, str]
     mapping_hash: str
     ruleset_hash: str
@@ -67,7 +66,7 @@ class FrozenExportPlan:
     target_snapshot_hash: str
     actions_hash: str
     frozen_at: datetime
-    contract_version: int = 1
+    contract_version: int = 2
 
     def __post_init__(self) -> None:
         for name in ("plan_id", "project_id", "run_id"):
@@ -76,9 +75,7 @@ class FrozenExportPlan:
                 name,
                 _required_text(getattr(self, name), name),
             )
-        if self.target_environment not in {"DEV", "TEST"}:
-            raise ValueError("target_environment must be DEV or TEST")
-        if self.contract_version != 1:
+        if self.contract_version != 2:
             raise ValueError("unsupported export-plan contract version")
         if self.frozen_at.utcoffset() is None:
             raise ValueError("frozen_at must be timezone-aware")
@@ -120,7 +117,6 @@ class FrozenExportPlan:
             "ruleset_hash": self.ruleset_hash,
             "run_id": self.run_id,
             "source_hashes": dict(self.source_hashes),
-            "target_environment": self.target_environment,
             "target_snapshot_hash": self.target_snapshot_hash,
         }
         encoded = json.dumps(
@@ -138,7 +134,6 @@ class ExportPlanApproval:
 
     approval_id: str
     plan_hash: str
-    target_environment: str
     evidence: ApprovalEvidence
     policy_version: str
     expires_at: datetime | None = None
@@ -155,8 +150,6 @@ class ExportPlanApproval:
             "policy_version",
             _required_text(self.policy_version, "policy_version"),
         )
-        if self.target_environment not in {"DEV", "TEST"}:
-            raise ValueError("target_environment must be DEV or TEST")
         if self.evidence.capability is not Capability.EXPORT_PLAN_APPROVE:
             raise ValueError("export approval requires export_plan.approve evidence")
         if self.expires_at is not None:
@@ -182,7 +175,6 @@ class ExportPlanApproval:
         return cls(
             approval_id=approval_id,
             plan_hash=plan.semantic_hash,
-            target_environment=plan.target_environment,
             evidence=ApprovalEvidence.from_actor(
                 actor,
                 capability=Capability.EXPORT_PLAN_APPROVE,
@@ -200,7 +192,6 @@ class ExportPlanApproval:
             raise ValueError("authorization time must be timezone-aware")
         return (
             self.plan_hash == plan.semantic_hash
-            and self.target_environment == plan.target_environment
             and (self.expires_at is None or at < self.expires_at)
         )
 

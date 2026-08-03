@@ -23,8 +23,8 @@
         <p class="eyebrow">Connected model discovery</p>
         <h2>Choose target Odoo models</h2>
         <p>
-          Target: {{ project.odoo_connection_mode.value|title }} {{ project.target_environment.value }}
-          / <code>{{ project.odoo_database }}</code>
+          Target: {{ project.odoo_connection_mode.value|title }} /
+          <code>{{ project.odoo_database }}</code>
         </p>
       </div>
       <form method="post" action="/projects/{{ project.project_id }}/schema/models/refresh">
@@ -211,14 +211,14 @@
     </form>
   </section>
 
-  {% if project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' and project.target_environment and project.target_environment.value == 'DEV' %}
+  {% if project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' %}
     <details class="form-card advanced-schema-draft">
       <summary>Advanced: create an offline manual schema draft</summary>
-      <p class="eyebrow">Local DEV fallback</p>
+      <p class="eyebrow">Local fallback</p>
       <h2>Enter an unverified field contract manually</h2>
       <div class="notice warning">
         This fallback does not contact Odoo and does not fetch any fields.
-        Use it only when the local DEV instance cannot be reached. A live
+        Use it only when the local target cannot be reached. A live
         capture must replace it before mapping submission.
       </div>
       <form method="post" action="/projects/{{ project.project_id }}/schema/local-draft">
@@ -241,7 +241,7 @@
         {% endfor %}
         <label class="acknowledgement">
           <input type="checkbox" name="acknowledge_local_draft" value="1" required>
-          I understand this is an unverified local DEV draft and cannot be submitted until a live Odoo capture replaces it.
+          I understand this is an unverified local draft and cannot be submitted until a live Odoo capture replaces it.
         </label>
         <div class="actions">
           <button class="button secondary" type="submit" {% if not selection or not project.intended_models %}disabled{% endif %}>Create unverified local schema draft</button>

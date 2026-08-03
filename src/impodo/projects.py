@@ -53,11 +53,6 @@ class DataClassification(StrEnum):
     RESTRICTED = "RESTRICTED"
 
 
-class TargetEnvironment(StrEnum):
-    DEV = "DEV"
-    TEST = "TEST"
-
-
 class OdooConnectionMode(StrEnum):
     LOCAL = "LOCAL"
     REMOTE = "REMOTE"
@@ -110,7 +105,6 @@ class MigrationProject:
     retention_days: int = 90
     support_access: bool = False
     odoo_connection_mode: OdooConnectionMode | None = None
-    target_environment: TargetEnvironment | None = None
     odoo_base_url: str = ""
     odoo_database: str = ""
     intended_applications: tuple[str, ...] = ()
@@ -295,7 +289,6 @@ class ProjectService:
         actor: Actor,
         expected_revision: int,
         odoo_connection_mode: str,
-        target_environment: str,
         odoo_base_url: str,
         odoo_database: str,
         intended_applications: Sequence[str],
@@ -312,15 +305,10 @@ class ProjectService:
         except ValueError as error:
             raise ProjectError("Choose Local Odoo or Remote Odoo") from error
         base_url = _validated_odoo_base_url(odoo_base_url, connection_mode)
-        try:
-            environment = TargetEnvironment(target_environment)
-        except ValueError as error:
-            raise ProjectError("Choose a DEV or TEST environment") from error
         database = _optional_text(odoo_database, "Odoo database")
         updated = replace(
             project,
             odoo_connection_mode=connection_mode,
-            target_environment=environment,
             odoo_base_url=base_url,
             odoo_database=database,
             intended_applications=_clean_choices(intended_applications),
@@ -519,8 +507,6 @@ def registration_problems(project: MigrationProject) -> tuple[str, ...]:
         problems.append("Functional owner is required")
     if project.odoo_connection_mode is None:
         problems.append("Choose a Local Odoo or Remote Odoo connection")
-    if project.target_environment is None:
-        problems.append("A DEV or TEST target environment is required")
     if not project.odoo_base_url:
         problems.append("Odoo base URL is required")
     if not project.odoo_database:

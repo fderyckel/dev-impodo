@@ -180,8 +180,8 @@ If `py` is not recognized, also run:
 python --version
 ```
 
-If either command displays Python 3.11 or later, Python is already available.
-The current Impodo source project requires Python 3.11 or later.
+If either command displays Python 3.12 or later, Python is already available.
+The current Impodo source project requires Python 3.12 or later.
 
 ### Step B2: Obtain the approved installer
 

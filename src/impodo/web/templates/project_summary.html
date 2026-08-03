@@ -19,7 +19,7 @@
       <div><dt>Data manager</dt><dd>{{ project.data_manager }}</dd></div>
       <div><dt>Functional owner</dt><dd>{{ project.functional_owner }}</dd></div>
       <div><dt>Connection</dt><dd>{{ project.odoo_connection_mode.value|title }}</dd></div>
-      <div><dt>Target</dt><dd>{{ project.target_environment.value }} / {{ project.odoo_database }}</dd></div>
+      <div><dt>Target database</dt><dd>{{ project.odoo_database }}</dd></div>
       <div class="wide"><dt>Odoo URL</dt><dd>{{ project.odoo_base_url }}</dd></div>
       <div><dt>Retention</dt><dd>{{ project.retention_days }} days</dd></div>
       <div><dt>Mapping version</dt><dd>{{ project.mapping_version or "Not created" }}</dd></div>

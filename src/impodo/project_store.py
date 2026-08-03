@@ -32,7 +32,6 @@ from .projects import (
     ProjectStatus,
     ProjectSummary,
     SourceFile,
-    TargetEnvironment,
 )
 from .workspace import (
     MappingDraft,
@@ -44,7 +43,7 @@ from .workspace import (
 )
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 class DuckDbProjectRepository:
@@ -1237,7 +1236,6 @@ class DuckDbProjectRepository:
                 retention_days INTEGER NOT NULL,
                 support_access BOOLEAN NOT NULL,
                 odoo_connection_mode VARCHAR,
-                target_environment VARCHAR,
                 odoo_base_url VARCHAR NOT NULL,
                 odoo_database VARCHAR NOT NULL,
                 intended_applications VARCHAR NOT NULL,
@@ -1370,7 +1368,7 @@ class DuckDbProjectRepository:
         project: MigrationProject,
     ) -> None:
         connection.execute(
-            f"INSERT INTO project VALUES ({', '.join('?' for _ in range(26))})",
+            f"INSERT INTO project VALUES ({', '.join('?' for _ in range(25))})",
             _project_values(project),
         )
 
@@ -1394,7 +1392,6 @@ class DuckDbProjectRepository:
                 retention_days = ?,
                 support_access = ?,
                 odoo_connection_mode = ?,
-                target_environment = ?,
                 odoo_base_url = ?,
                 odoo_database = ?,
                 intended_applications = ?,
@@ -1590,6 +1587,46 @@ class DuckDbProjectRepository:
                         """
                     )
                     version = 7
+                if version == 7:
+                    connection.execute(
+                        "ALTER TABLE project DROP COLUMN IF EXISTS target_environment"
+                    )
+                    for table in (
+                        "odoo_model_catalog",
+                        "odoo_schema_catalog",
+                        "schema_governance_current",
+                        "schema_governance_revision",
+                        "mapping_draft",
+                        "mapping_current",
+                        "mapping_revision",
+                        "mapping_validation",
+                        "mapping_submission",
+                    ):
+                        connection.execute(f"DELETE FROM {table}")
+                    connection.execute(
+                        """
+                        UPDATE project
+                           SET mapping_version = NULL,
+                               current_run_id = NULL,
+                               approval_status = 'INVALIDATED'
+                        """
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO audit_event (
+                            event_id, event_type, project_revision, occurred_at,
+                            detail, actor_issuer, actor_subject,
+                            actor_display_name
+                        )
+                        SELECT nextval('audit_event_sequence'),
+                               'TARGET_CONTRACT_MIGRATED', revision, updated_at,
+                               'Target-derived evidence invalidated after the target contract changed',
+                               'urn:impodo:migration', 'schema-v8',
+                               'Impodo schema migration'
+                          FROM project
+                        """
+                    )
+                    version = 8
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],
@@ -1629,7 +1666,7 @@ class DuckDbProjectRepository:
 
     def _write_registration_manifest(self, project: MigrationProject) -> Path:
         payload = {
-            "contract_version": 2,
+            "contract_version": 3,
             "project": {
                 "project_id": project.project_id,
                 "name": project.name,
@@ -1647,11 +1684,6 @@ class DuckDbProjectRepository:
                 "odoo_connection_mode": (
                     project.odoo_connection_mode.value
                     if project.odoo_connection_mode
-                    else None
-                ),
-                "target_environment": (
-                    project.target_environment.value
-                    if project.target_environment
                     else None
                 ),
                 "odoo_base_url": project.odoo_base_url,
@@ -1720,7 +1752,6 @@ def _project_values(project: MigrationProject) -> list[object]:
             if project.odoo_connection_mode
             else None
         ),
-        project.target_environment.value if project.target_environment else None,
         project.odoo_base_url,
         project.odoo_database,
         json.dumps(project.intended_applications),
@@ -1744,11 +1775,6 @@ def _project_from_rows(
     registered_at = (
         str(data["registered_at"]) if data["registered_at"] else None
     )
-    target_environment = (
-        TargetEnvironment(str(data["target_environment"]))
-        if data["target_environment"]
-        else None
-    )
     connection_mode = (
         OdooConnectionMode(str(data["odoo_connection_mode"]))
         if data.get("odoo_connection_mode")
@@ -1770,7 +1796,6 @@ def _project_from_rows(
         retention_days=int(data["retention_days"]),
         support_access=bool(data["support_access"]),
         odoo_connection_mode=connection_mode,
-        target_environment=target_environment,
         odoo_base_url=str(data["odoo_base_url"]),
         odoo_database=str(data["odoo_database"]),
         intended_applications=tuple(json.loads(str(data["intended_applications"]))),

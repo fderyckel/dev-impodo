@@ -110,6 +110,10 @@ Impodo** in the browser when finished. To keep the chosen project-data
 location for future Terminal sessions, add the `export IMPODO_PROJECT_ROOT=...`
 line to your shell profile.
 
+Editable installation is the development lane. For use with approved internal
+data, promote and install a clean, evidence-producing bundle by following the
+[internal development and release runbook](docs/operations/internal-release.md).
+
 ## Documentation
 
 For the complete documentation, including the user guide, operating runbooks,

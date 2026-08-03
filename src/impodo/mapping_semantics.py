@@ -1375,7 +1375,7 @@ class MappingSemanticValidator:
                         f"{field_mapping.target_field} will be omitted so Odoo "
                         "can apply its runtime default."
                     ),
-                    "Acknowledge this warning and verify the default in DEV/TEST.",
+                    "Acknowledge this warning and verify the default on the target.",
                     severity="warning",
                     dataset=dataset,
                     target_field=field_mapping.target_field,

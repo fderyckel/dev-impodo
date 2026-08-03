@@ -35,12 +35,12 @@ from .mapping_semantics import (
     SchemaGovernance,
     mapping_issue_fingerprint,
 )
+from .models import target_identity_hash
 from .projects import (
     MigrationProject,
     OdooConnectionMode,
     ProjectError,
     ProjectStatus,
-    TargetEnvironment,
 )
 
 
@@ -198,7 +198,7 @@ class OdooModelCatalog:
     target_hash: str
     captured_at: datetime
     captured_by: str
-    environment: str
+    connection_mode: str
     database: str
     odoo_version: str
     models: tuple[OdooModelSummary, ...]
@@ -215,7 +215,7 @@ class OdooModelCatalog:
             target_hash=payload["target_hash"],
             captured_at=datetime.fromisoformat(payload["captured_at"]),
             captured_by=payload["captured_by"],
-            environment=payload["environment"],
+            connection_mode=payload["connection_mode"],
             database=payload["database"],
             odoo_version=payload["odoo_version"],
             models=tuple(
@@ -246,7 +246,7 @@ class OdooSchemaCatalog:
     target_hash: str
     captured_at: datetime
     captured_by: str
-    environment: str
+    connection_mode: str
     database: str
     odoo_version: str
     models: tuple[SchemaModel, ...]
@@ -264,7 +264,7 @@ class OdooSchemaCatalog:
             target_hash=payload["target_hash"],
             captured_at=datetime.fromisoformat(payload["captured_at"]),
             captured_by=payload["captured_by"],
-            environment=payload["environment"],
+            connection_mode=payload["connection_mode"],
             database=payload["database"],
             odoo_version=payload["odoo_version"],
             models=tuple(
@@ -612,12 +612,14 @@ class SchemaWorkspaceService:
             raise WorkspaceError(
                 "Register the project before discovering Odoo models"
             )
-        if project.target_environment is None:
+        if project.odoo_connection_mode is None:
             raise WorkspaceError("Configure the Odoo target before discovering models")
         if not snapshot.complete:
             raise WorkspaceError("Odoo model discovery response is incomplete")
-        if snapshot.fingerprint.environment != project.target_environment.value:
-            raise WorkspaceError("Odoo model environment does not match the project")
+        if snapshot.fingerprint.target_hash != _target_identity_hash(project):
+            raise WorkspaceError("Odoo model target does not match the project")
+        if snapshot.fingerprint.connection_mode != project.odoo_connection_mode.value:
+            raise WorkspaceError("Odoo model connection mode does not match the project")
         if snapshot.fingerprint.database != project.odoo_database:
             raise WorkspaceError("Odoo model database does not match the project")
         if not snapshot.fingerprint.odoo_version.startswith("19."):
@@ -667,7 +669,7 @@ class SchemaWorkspaceService:
             target_hash=target_hash,
             captured_at=datetime.now(timezone.utc),
             captured_by=actor.identity.display_name,
-            environment=snapshot.fingerprint.environment,
+            connection_mode=snapshot.fingerprint.connection_mode,
             database=snapshot.fingerprint.database,
             odoo_version=snapshot.fingerprint.odoo_version,
             models=ordered,
@@ -694,8 +696,10 @@ class SchemaWorkspaceService:
             raise WorkspaceError("Odoo schema response is incomplete")
         if set(snapshot.models) != permitted:
             raise WorkspaceError("Odoo schema response does not match permitted models")
-        if snapshot.fingerprint.environment != project.target_environment.value:
-            raise WorkspaceError("Odoo schema environment does not match the project")
+        if snapshot.fingerprint.target_hash != _target_identity_hash(project):
+            raise WorkspaceError("Odoo schema target does not match the project")
+        if snapshot.fingerprint.connection_mode != project.odoo_connection_mode.value:
+            raise WorkspaceError("Odoo schema connection mode does not match the project")
         if snapshot.fingerprint.database != project.odoo_database:
             raise WorkspaceError("Odoo schema database does not match the project")
         if not snapshot.fingerprint.odoo_version.startswith("19."):
@@ -737,7 +741,7 @@ class SchemaWorkspaceService:
         return self._store_catalog(
             project,
             models=models,
-            environment=snapshot.fingerprint.environment,
+            connection_mode=snapshot.fingerprint.connection_mode,
             database=snapshot.fingerprint.database,
             odoo_version=snapshot.fingerprint.odoo_version,
             fingerprint=snapshot.fingerprint.portable_dict(),
@@ -752,7 +756,7 @@ class SchemaWorkspaceService:
         *,
         actor: Actor,
     ) -> OdooSchemaCatalog:
-        """Store an explicitly unverified schema draft for local DEV work.
+        """Store an explicitly unverified schema draft for local work.
 
         This deliberately does not contact Odoo or accept any alternate
         credential. A later authenticated capture replaces the draft and
@@ -764,20 +768,17 @@ class SchemaWorkspaceService:
             raise WorkspaceError(
                 "A manual schema draft is available only for Local Odoo"
             )
-        if project.target_environment is not TargetEnvironment.DEV:
-            raise WorkspaceError(
-                "A manual schema draft is available only for a local DEV target"
-            )
         declared_models = tuple(sorted(models, key=lambda item: item.name))
         self._validate_schema_models(declared_models, permitted)
         return self._store_catalog(
             project,
             models=declared_models,
-            environment=project.target_environment.value,
+            connection_mode=project.odoo_connection_mode.value,
             database=project.odoo_database,
             odoo_version="unverified local draft (expected Odoo 19)",
             fingerprint={
-                "environment": project.target_environment.value,
+                "target_hash": _target_identity_hash(project),
+                "connection_mode": project.odoo_connection_mode.value,
                 "database": project.odoo_database,
                 "odoo_version": "unverified local draft (expected Odoo 19)",
                 "snapshot_timestamp": "not captured",
@@ -804,7 +805,7 @@ class SchemaWorkspaceService:
             raise WorkspaceError(
                 "Add at least one permitted technical Odoo model to the project"
             )
-        if project.target_environment is None:
+        if project.odoo_connection_mode is None:
             raise WorkspaceError("Configure the Odoo target before capturing schema")
         return project, permitted
 
@@ -838,7 +839,7 @@ class SchemaWorkspaceService:
         project: MigrationProject,
         *,
         models: tuple[SchemaModel, ...],
-        environment: str,
+        connection_mode: str,
         database: str,
         odoo_version: str,
         fingerprint: Mapping[str, object],
@@ -850,11 +851,6 @@ class SchemaWorkspaceService:
                 "mode": (
                     project.odoo_connection_mode.value
                     if project.odoo_connection_mode
-                    else None
-                ),
-                "environment": (
-                    project.target_environment.value
-                    if project.target_environment
                     else None
                 ),
                 "url": project.odoo_base_url,
@@ -873,7 +869,7 @@ class SchemaWorkspaceService:
             target_hash=target_hash,
             captured_at=datetime.now(timezone.utc),
             captured_by=actor.identity.display_name,
-            environment=environment,
+            connection_mode=connection_mode,
             database=database,
             odoo_version=odoo_version,
             models=models,
@@ -1250,21 +1246,14 @@ def _content_hash(payload: object) -> str:
 
 
 def _target_identity_hash(project: MigrationProject) -> str:
-    return _content_hash(
-        {
-            "mode": (
-                project.odoo_connection_mode.value
-                if project.odoo_connection_mode
-                else None
-            ),
-            "environment": (
-                project.target_environment.value
-                if project.target_environment
-                else None
-            ),
-            "url": project.odoo_base_url,
-            "database": project.odoo_database,
-        }
+    return target_identity_hash(
+        connection_mode=(
+            project.odoo_connection_mode.value
+            if project.odoo_connection_mode
+            else ""
+        ),
+        base_url=project.odoo_base_url,
+        database=project.odoo_database,
     )
 
 

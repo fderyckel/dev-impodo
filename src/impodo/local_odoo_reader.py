@@ -25,10 +25,11 @@ from typing import Any, Callable, Mapping, Sequence
 from .connectors import ConnectorError, MetadataSnapshot, RecordSnapshot
 from .local_stack import LocalStackProfile
 from .models import (
-    EnvironmentFingerprint,
     FieldMetadata,
     ModelMetadata,
+    TargetFingerprint,
     TargetRecord,
+    target_identity_hash,
 )
 from .projects import MigrationProject, OdooConnectionMode
 
@@ -85,11 +86,11 @@ class LocalOdooMetadataReader:
         self._runner = runner or _run_local_shell
         self._timeout_seconds = timeout_seconds
 
-    def get_environment_fingerprint(
+    def get_target_fingerprint(
         self,
         project: MigrationProject,
         profile: LocalStackProfile,
-    ) -> EnvironmentFingerprint:
+    ) -> TargetFingerprint:
         payload = self._invoke(project, profile, _fingerprint_script())
         return self._fingerprint(project, payload)
 
@@ -267,7 +268,7 @@ class LocalOdooMetadataReader:
     def _fingerprint(
         project: MigrationProject,
         payload: Mapping[str, Any],
-    ) -> EnvironmentFingerprint:
+    ) -> TargetFingerprint:
         database = str(payload.get("database") or "")
         version = str(payload.get("version") or "")
         if database != project.odoo_database:
@@ -278,9 +279,14 @@ class LocalOdooMetadataReader:
             raise LocalOdooReaderError(
                 f"Local schema capture requires Odoo 19; received {version or 'unknown'}."
             )
-        assert project.target_environment is not None
-        return EnvironmentFingerprint(
-            environment=project.target_environment.value,
+        assert project.odoo_connection_mode is not None
+        return TargetFingerprint(
+            target_hash=target_identity_hash(
+                connection_mode=project.odoo_connection_mode.value,
+                base_url=project.odoo_base_url,
+                database=project.odoo_database,
+            ),
+            connection_mode=project.odoo_connection_mode.value,
             database=database,
             odoo_version=version,
             snapshot_timestamp=datetime.now(timezone.utc)
@@ -298,8 +304,6 @@ def _validate_local_binding(
         raise LocalOdooReaderError(
             "The local Odoo reader is available only in Local mode."
         )
-    if project.target_environment is None:
-        raise LocalOdooReaderError("Choose a DEV or TEST target environment.")
     if project.odoo_base_url.rstrip("/") != profile.base_url.rstrip("/"):
         raise LocalOdooReaderError(
             "The selected odoo.conf does not match this project's local URL."

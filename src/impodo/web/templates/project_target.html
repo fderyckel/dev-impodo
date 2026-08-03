@@ -6,8 +6,8 @@
   <section class="form-card">
     <p class="eyebrow">Project setup · Odoo target</p>
     <h1>Choose the read-only target</h1>
-    <p>Use a local Odoo 19 instance for development, or an HTTPS
-      on-premises server for realistic DEV and TEST validation.</p>
+    <p>Connect to an authorised Odoo 19 target on this computer or through
+      HTTPS. Impodo keeps the connection read-only.</p>
     <form method="post" action="/projects/{{ project.project_id }}/target">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ project.revision }}">
@@ -30,7 +30,7 @@
               {% if project.odoo_connection_mode and project.odoo_connection_mode.value == "REMOTE" %}checked{% endif %}>
             <span>
               <strong>Remote / on-premises Odoo</strong>
-              <small>For a server-hosted DEV or TEST instance. HTTPS is mandatory.</small>
+              <small>For an authorised server-hosted instance. HTTPS is mandatory.</small>
             </span>
           </label>
         </div>
@@ -38,17 +38,9 @@
 
       <div class="form-grid">
         <label>
-          Environment
-          <select name="target_environment" required>
-            <option value="">Choose an environment</option>
-            <option value="DEV" {% if not project.target_environment or project.target_environment.value == "DEV" %}selected{% endif %}>DEV</option>
-            <option value="TEST" {% if project.target_environment and project.target_environment.value == "TEST" %}selected{% endif %}>TEST</option>
-          </select>
-        </label>
-        <label>
           Odoo base URL
           <input type="url" name="odoo_base_url" required
-            placeholder="Local: http://127.0.0.1:8069 · Remote: https://odoo-test.example.com"
+            placeholder="Local: http://127.0.0.1:8069 · Remote: https://odoo.example.com"
             value="{{ project.odoo_base_url or local_stack.base_url }}">
           <small>Local mode cannot contact another machine. Remote mode cannot use HTTP.</small>
         </label>
@@ -62,7 +54,7 @@
         <label>
           Database
           <input name="odoo_database" maxlength="200" required
-            placeholder="For example: odoo19_dev"
+            placeholder="For example: odoo19_migration"
             value="{{ project.odoo_database or local_stack.database_hint }}">
         </label>
         <label data-api-key-entry>

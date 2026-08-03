@@ -300,23 +300,23 @@ styleDataSheet(
   "MetadataCoverageTable",
 );
 
-const environment = manifest.target_environment || {};
-const environmentRows = [
-  ["Environment", environment.environment],
-  ["Database", environment.database],
-  ["Odoo Version", environment.odoo_version],
-  ["Snapshot Timestamp", environment.snapshot_timestamp],
+const target = manifest.target || {};
+const targetRows = [
+  ["Connection mode", target.connection_mode],
+  ["Database", target.database],
+  ["Odoo Version", target.odoo_version],
+  ["Snapshot Timestamp", target.snapshot_timestamp],
   ["Profile ID", manifest.profile?.id],
   ["Semantic Hash", manifest.semantic_hash],
   ["Metadata Snapshot Hash", manifest.snapshot_hashes?.metadata],
   ["Record Snapshot Hash", manifest.snapshot_hashes?.records],
-  ["Module Versions", environment.module_versions],
+  ["Module Versions", target.module_versions],
   ["Source Hashes", manifest.source_hashes],
 ];
 styleDataSheet(
   sheets["Target Environment"],
   ["Attribute", "Value"],
-  environmentRows,
+  targetRows,
   "EnvironmentTable",
 );
 
@@ -356,7 +356,7 @@ dashboard.getRange("D4:H9").values = [
   ["Connector capability", "Read only", "", "", ""],
   ["Portable IDs", "Numeric Odoo IDs excluded", "", "", ""],
   ["Profile", manifest.profile?.id, "", "", ""],
-  ["Target", `${environment.environment} / ${environment.database}`, "", "", ""],
+  ["Target", `${target.connection_mode} / ${target.database}`, "", "", ""],
   ["Semantic hash", manifest.semantic_hash, "", "", ""],
 ];
 dashboard.mergeCells("D4:H4");

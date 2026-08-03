@@ -12,12 +12,30 @@ import webbrowser
 
 import uvicorn
 
+from ..project_security import (
+    DEVELOPMENT_MODE_ENV,
+    PROJECT_ROOT_ENV,
+    ProjectRootSecurityError,
+    development_mode_enabled,
+    prepare_project_root,
+)
 from .app import create_local_app
 
 
-def default_project_root() -> Path:
-    configured = os.environ.get("IMPODO_PROJECT_ROOT")
+def default_project_root(*, development_mode: bool | None = None) -> Path:
+    active_development_mode = (
+        development_mode_enabled()
+        if development_mode is None
+        else development_mode
+    )
+    configured = os.environ.get(PROJECT_ROOT_ENV)
     if configured:
+        if os.name == "nt" and not active_development_mode:
+            raise ProjectRootSecurityError(
+                f"{PROJECT_ROOT_ENV} is available only when "
+                f"{DEVELOPMENT_MODE_ENV}=1. Normal internal use keeps data in "
+                "%LOCALAPPDATA%\\Impodo\\projects."
+            )
         return Path(configured).expanduser().resolve()
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
@@ -28,6 +46,24 @@ def default_project_root() -> Path:
 def main() -> int:
     """Bind loopback first, open the authenticated URL, and serve until quit."""
 
+    development_mode = development_mode_enabled()
+    try:
+        project_root = default_project_root(development_mode=development_mode)
+        root_security = prepare_project_root(
+            project_root,
+            development_mode=development_mode,
+        )
+    except ProjectRootSecurityError as error:
+        print(f"Impodo refused the project-data root: {error}", file=sys.stderr)
+        return 2
+
+    if root_security.development_mode:
+        print(
+            "WARNING: Impodo development mode does not enforce the internal-data "
+            "storage policy. Use only synthetic or disposable data.",
+            file=sys.stderr,
+        )
+
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
@@ -37,7 +73,7 @@ def main() -> int:
     expected_host = f"127.0.0.1:{port}"
     launch_token = secrets.token_urlsafe(32)
     app = create_local_app(
-        default_project_root(),
+        root_security.root,
         expected_host=expected_host,
         launch_token=launch_token,
     )

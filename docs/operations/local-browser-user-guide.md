@@ -20,6 +20,10 @@ This guide covers the current workflow:
 Impodo is currently a planning and validation tool. It cannot create, change,
 or delete Odoo records, and it does not offer a Production target.
 
+The screenshots in this guide show the current local-browser interface at a
+1440 × 1024 desktop viewport. All names, files, people, hashes, and target
+details shown in them belong to an isolated fictional training project.
+
 The current browser can author constants, source fallbacks, explicit
 leave-unset/Odoo-default intent, and a small allowlist of scalar
 transformations. It previews one bounded inspected sample and validates the
@@ -121,8 +125,8 @@ start Impodo again.
 
 The first page lists the projects stored on this computer.
 
-![Impodo project list showing an existing registered migration and the New
-project button.](../images/impodo-local-browser-guide/01-project-list.jpg)
+![Impodo project list showing the workflow sidebar, an existing registered
+migration, and the New project button.](../images/impodo-local-browser-guide/01-project-list.png)
 
 - Select a project card to resume it.
 - Select **New project** to begin a separate migration.
@@ -153,7 +157,7 @@ project details, governance, source files, target configuration, and a final
 review.
 
 ![The first New project page, where the user names the migration and chooses
-the source system.](../images/impodo-local-browser-guide/02-create-project.jpg)
+the source system.](../images/impodo-local-browser-guide/02-create-project.png)
 
 ### Project details
 
@@ -373,7 +377,7 @@ stored file still matches the copy registered earlier before it reads the
 contents.
 
 ![Source inspection showing two registered files and their inspected
-status.](../images/impodo-local-browser-guide/03-source-inspection.jpg)
+status.](../images/impodo-local-browser-guide/03-source-inspection.png)
 
 For every file, review:
 
@@ -390,7 +394,7 @@ This page is for the files already registered to the project. It has no
 is a draft, before registration.
 
 ![A selected CSV table showing its proposed header, bounded data preview, and
-column statistics.](../images/impodo-local-browser-guide/03-source-preview.jpg)
+column statistics.](../images/impodo-local-browser-guide/03-source-preview.png)
 
 ### Example: interpreting a preview
 
@@ -437,8 +441,8 @@ the mapping does not prove that every source token can be converted to
 After all files are confirmed, select the exact worksheet, named table, or CSV
 table that participates in the migration. Give each one a stable dataset name.
 
-![The frozen-dataset selection page with companies and partners selected and
-named.](../images/impodo-local-browser-guide/04-freeze-datasets.jpg)
+![The frozen-dataset selection page with companies and contacts selected and
+named.](../images/impodo-local-browser-guide/04-freeze-datasets.png)
 
 Good dataset names:
 
@@ -487,8 +491,8 @@ field without functional confirmation.
 A business key is the stable business value used to find exactly one Odoo
 record. It is not the internal numeric Odoo ID.
 
-![Business-key governance showing a confirmed company key and its scope
-field.](../images/impodo-local-browser-guide/05-business-keys.jpg)
+![Business-key governance showing the confirmed contact reference key and the
+separate optional scope field.](../images/impodo-local-browser-guide/05-business-keys.png)
 
 For each target model, enter:
 
@@ -526,7 +530,7 @@ Open **Mapping**. Impodo binds the mapping to the exact frozen source and
 governed Odoo schema shown in the evidence panel.
 
 ![The mapping workspace with evidence binding and the first dataset
-section.](../images/impodo-local-browser-guide/06-mapping-overview.jpg)
+section.](../images/impodo-local-browser-guide/06-mapping-overview.png)
 
 Work through one dataset at a time.
 
@@ -614,8 +618,9 @@ dataset.
 
 Relationships must be expressed through business keys, never numeric Odoo IDs.
 
-![Relationship mapping for a many-to-one contact category resolved through
-an existing Odoo catalog.](../images/impodo-local-browser-guide/07-relationship-mapping.jpg)
+![Relationship mapping for contact tags resolved through the existing Odoo
+catalog and a related company resolved from the incoming companies
+dataset.](../images/impodo-local-browser-guide/07-relationship-mapping.png)
 
 ### Many-to-one: one related record
 
@@ -686,7 +691,7 @@ Validation is deterministic: the same frozen evidence and mapping produce the
 same result.
 
 ![Semantic validation showing a valid mapping, zero findings, and the submit
-action.](../images/impodo-local-browser-guide/08-validation-and-submit.jpg)
+action.](../images/impodo-local-browser-guide/08-validation-and-submit.png)
 
 ### Understand the result
 

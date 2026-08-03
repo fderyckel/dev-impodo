@@ -601,7 +601,6 @@ def create_local_app(
                 "csrf_token",
                 "revision",
                 "odoo_connection_mode",
-                "target_environment",
                 "odoo_base_url",
                 "odoo_database",
                 "intended_applications",
@@ -616,7 +615,6 @@ def create_local_app(
                 actor=context.actor,
                 expected_revision=_revision(form),
                 odoo_connection_mode=_text(form, "odoo_connection_mode"),
-                target_environment=_text(form, "target_environment"),
                 odoo_base_url=_text(form, "odoo_base_url"),
                 odoo_database=_text(form, "odoo_database"),
                 intended_applications=form.getlist("intended_applications"),
@@ -633,14 +631,13 @@ def create_local_app(
                 local_profile = _selected_local_profile(context, project)
                 if local_profile is not None:
                     fingerprint = await run_in_threadpool(
-                        context.local_odoo_reader.get_environment_fingerprint,
+                        context.local_odoo_reader.get_target_fingerprint,
                         project,
                         local_profile,
                     )
                     result = (
                         "Read-only local connection succeeded: "
-                        f"{fingerprint.environment} / "
-                        f"Odoo {fingerprint.odoo_version}"
+                        f"{fingerprint.database} / Odoo {fingerprint.odoo_version}"
                     )
                 else:
                     api_key = context.secret_store.get(credential_id)
@@ -1323,17 +1320,12 @@ create_app = create_local_app
 def _test_connection(project: MigrationProject, api_key: str) -> str:
     if project.odoo_connection_mode is None:
         raise ProjectError("Choose Local Odoo or Remote Odoo")
-    if project.target_environment is None:
-        raise ProjectError("Choose a DEV or TEST environment")
     connector = Json2ReadConnector(
         Json2Config(
             base_url=project.odoo_base_url,
             database=project.odoo_database,
             api_key=api_key,
-            environment=project.target_environment.value,
-            allow_insecure_loopback=(
-                project.odoo_connection_mode is OdooConnectionMode.LOCAL
-            ),
+            connection_mode=project.odoo_connection_mode.value,
         )
     )
     metadata = connector.get_model_metadata(
@@ -1349,8 +1341,7 @@ def _test_connection(project: MigrationProject, api_key: str) -> str:
         )
     return (
         f"Read-only {project.odoo_connection_mode.value.casefold()} connection "
-        f"succeeded: {fingerprint.environment} / "
-        f"Odoo {fingerprint.odoo_version}"
+        f"succeeded: {fingerprint.database} / Odoo {fingerprint.odoo_version}"
     )
 
 
@@ -1388,7 +1379,7 @@ def _missing_schema_reader_message(project: MigrationProject) -> str:
 def _read_schema(project: MigrationProject, api_key: str) -> MetadataSnapshot:
     """Read all fields once per explicitly permitted Odoo model."""
 
-    if project.odoo_connection_mode is None or project.target_environment is None:
+    if project.odoo_connection_mode is None:
         raise ProjectError("Configure the Odoo target before schema capture")
     if not project.intended_models:
         raise ProjectError("Add at least one permitted technical Odoo model")
@@ -1397,10 +1388,7 @@ def _read_schema(project: MigrationProject, api_key: str) -> MetadataSnapshot:
             base_url=project.odoo_base_url,
             database=project.odoo_database,
             api_key=api_key,
-            environment=project.target_environment.value,
-            allow_insecure_loopback=(
-                project.odoo_connection_mode is OdooConnectionMode.LOCAL
-            ),
+            connection_mode=project.odoo_connection_mode.value,
         )
     )
     return connector.get_model_metadata(
@@ -1417,17 +1405,14 @@ def _read_model_catalog(
 ) -> RecordSnapshot:
     """Read lightweight persistent-model choices from the exact Odoo target."""
 
-    if project.odoo_connection_mode is None or project.target_environment is None:
+    if project.odoo_connection_mode is None:
         raise ProjectError("Configure the Odoo target before model discovery")
     connector = Json2ReadConnector(
         Json2Config(
             base_url=project.odoo_base_url,
             database=project.odoo_database,
             api_key=api_key,
-            environment=project.target_environment.value,
-            allow_insecure_loopback=(
-                project.odoo_connection_mode is OdooConnectionMode.LOCAL
-            ),
+            connection_mode=project.odoo_connection_mode.value,
         )
     )
     return connector.get_records(

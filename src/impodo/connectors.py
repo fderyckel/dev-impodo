@@ -8,8 +8,8 @@ validator, catalog, and engine do not depend on transport details.
 
 Only ``fields_get`` and ``search_read`` are available through the live
 connector.  This closed method surface is a deliberate safety control: the
-profiler can inspect DEV/TEST but cannot create, update, delete, or execute an
-arbitrary Odoo model method.
+profiler can inspect an authorised target but cannot create, update, delete,
+or execute an arbitrary Odoo model method.
 """
 
 from __future__ import annotations
@@ -28,11 +28,12 @@ from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .models import (
-    EnvironmentFingerprint,
     FieldMetadata,
     ModelMetadata,
+    TargetFingerprint,
     TargetRecord,
     canonical_json_bytes,
+    target_identity_hash,
 )
 
 
@@ -56,9 +57,9 @@ class RecordRequest:
 
 @dataclass(frozen=True, slots=True)
 class MetadataSnapshot:
-    """Model metadata plus the environment identity from which it was read."""
+    """Model metadata plus the exact target identity from which it was read."""
 
-    fingerprint: EnvironmentFingerprint
+    fingerprint: TargetFingerprint
     models: Mapping[str, ModelMetadata]
     complete: bool = True
     limitations: tuple[str, ...] = ()
@@ -69,7 +70,7 @@ class MetadataSnapshot:
 class RecordSnapshot:
     """Target records and exact fields returned for each requested model."""
 
-    fingerprint: EnvironmentFingerprint
+    fingerprint: TargetFingerprint
     records: Mapping[str, tuple[TargetRecord, ...]]
     requested_fields: Mapping[str, tuple[str, ...]]
     complete: bool = True
@@ -79,8 +80,8 @@ class RecordSnapshot:
 class OdooReadConnector(Protocol):
     """Transport-independent contract consumed by the preflight workflow."""
 
-    def get_environment_fingerprint(self) -> EnvironmentFingerprint:
-        """Identify the Odoo environment used for subsequent reads."""
+    def get_target_fingerprint(self) -> TargetFingerprint:
+        """Identify the exact Odoo target used for subsequent reads."""
 
         ...
 
@@ -180,7 +181,7 @@ class SnapshotConnector:
                 "metadata and record snapshots have different fingerprints"
             )
 
-    def get_environment_fingerprint(self) -> EnvironmentFingerprint:
+    def get_target_fingerprint(self) -> TargetFingerprint:
         """Return the common fingerprint validated during construction."""
 
         return self._fingerprint
@@ -273,8 +274,7 @@ class Json2Config:
     base_url: str
     database: str
     api_key: str = field(repr=False)
-    environment: str
-    allow_insecure_loopback: bool = False
+    connection_mode: str = "REMOTE"
     timeout_seconds: float = 30.0
     page_size: int = 500
     retries: int = 2
@@ -282,7 +282,7 @@ class Json2Config:
     relevant_modules: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        """Enforce a safe target URL, non-production use, and valid pagination."""
+        """Enforce connection-mode URL rules and valid pagination."""
 
         try:
             parsed_url = urlparse(self.base_url)
@@ -304,7 +304,13 @@ class Json2Config:
             )
         hostname = parsed_url.hostname.casefold()
         is_literal_loopback = hostname in {"127.0.0.1", "::1"}
-        if self.allow_insecure_loopback:
+        connection_mode = self.connection_mode.strip().upper()
+        if connection_mode not in {"LOCAL", "REMOTE"}:
+            raise ConnectorConfigurationError(
+                "connection mode must be LOCAL or REMOTE"
+            )
+        object.__setattr__(self, "connection_mode", connection_mode)
+        if connection_mode == "LOCAL":
             if (
                 parsed_url.scheme not in {"http", "https"}
                 or not is_literal_loopback
@@ -314,13 +320,13 @@ class Json2Config:
                     "insecure local mode permits only a literal loopback "
                     "Odoo URL"
                 )
-        elif parsed_url.scheme != "https":
+        elif (
+            parsed_url.scheme != "https"
+            or is_literal_loopback
+            or hostname == "localhost"
+        ):
             raise ConnectorConfigurationError(
-                "Odoo base URL must use HTTPS"
-            )
-        if self.environment.upper() not in {"DEV", "TEST"}:
-            raise ConnectorConfigurationError(
-                "read-only milestone permits only DEV or TEST"
+                "remote Odoo must use a non-loopback HTTPS URL"
             )
         if self.page_size < 1:
             raise ConnectorConfigurationError("page_size must be positive")
@@ -329,8 +335,9 @@ class Json2Config:
     def from_environment(cls) -> "Json2Config":
         """Build configuration from the governed ``IMPODO_ODOO_*`` variables.
 
-        Required variables identify the base URL, database, API key, and
-        environment.  Timeout and page size are optional and receive safe
+        Required variables identify the base URL, database, and API key.
+        Connection mode is derived from whether the URL uses a literal
+        loopback host. Timeout and page size are optional and receive safe
         defaults.
         """
 
@@ -340,7 +347,6 @@ class Json2Config:
                 "IMPODO_ODOO_BASE_URL",
                 "IMPODO_ODOO_DATABASE",
                 "IMPODO_ODOO_API_KEY",
-                "IMPODO_ODOO_ENVIRONMENT",
             )
             if not os.environ.get(name)
         ]
@@ -348,16 +354,16 @@ class Json2Config:
             raise ConnectorConfigurationError(
                 "missing environment variables: " + ", ".join(missing)
             )
-        environment = os.environ["IMPODO_ODOO_ENVIRONMENT"].upper()
-        if environment not in {"DEV", "TEST"}:
-            raise ConnectorConfigurationError(
-                "read-only milestone permits only DEV or TEST"
-            )
+        base_url = os.environ["IMPODO_ODOO_BASE_URL"].rstrip("/")
+        hostname = (urlparse(base_url).hostname or "").casefold()
+        connection_mode = (
+            "LOCAL" if hostname in {"127.0.0.1", "::1"} else "REMOTE"
+        )
         return cls(
-            base_url=os.environ["IMPODO_ODOO_BASE_URL"].rstrip("/"),
+            base_url=base_url,
             database=os.environ["IMPODO_ODOO_DATABASE"],
             api_key=os.environ["IMPODO_ODOO_API_KEY"],
-            environment=environment,
+            connection_mode=connection_mode,
             timeout_seconds=float(
                 os.environ.get("IMPODO_ODOO_TIMEOUT_SECONDS", "30")
             ),
@@ -392,15 +398,15 @@ class Json2ReadConnector:
         self._config = config
         self._transport = transport or _urllib_transport
         self._now = now or (lambda: datetime.now(timezone.utc))
-        self._fingerprint: EnvironmentFingerprint | None = None
+        self._fingerprint: TargetFingerprint | None = None
         self._fingerprint_limitations: tuple[str, ...] = ()
 
-    def get_environment_fingerprint(self) -> EnvironmentFingerprint:
+    def get_target_fingerprint(self) -> TargetFingerprint:
         """Read and cache the Odoo version, database, time, and module versions.
 
         Version endpoints and module visibility can be restricted in Odoo.
         Such gaps are captured as explicit limitations rather than silently
-        changing the environment identity.
+            changing the target identity.
         """
 
         if self._fingerprint is not None:
@@ -442,8 +448,13 @@ class Json2ReadConnector:
                 # Module visibility is explicitly non-blocking.
                 limitations.append("module version access unavailable")
 
-        self._fingerprint = EnvironmentFingerprint(
-            environment=self._config.environment,
+        self._fingerprint = TargetFingerprint(
+            target_hash=target_identity_hash(
+                connection_mode=self._config.connection_mode,
+                base_url=self._config.base_url,
+                database=self._config.database,
+            ),
+            connection_mode=self._config.connection_mode,
             database=self._config.database,
             odoo_version=version,
             snapshot_timestamp=self._now()
@@ -464,7 +475,7 @@ class Json2ReadConnector:
         prevents an N+1 pattern as profiles grow.
         """
 
-        fingerprint = self.get_environment_fingerprint()
+        fingerprint = self.get_target_fingerprint()
         models: dict[str, ModelMetadata] = {}
         for request in sorted(requests, key=lambda item: item.model):
             response = self._post_read_method(
@@ -516,7 +527,7 @@ class Json2ReadConnector:
         completeness uncertain.
         """
 
-        fingerprint = self.get_environment_fingerprint()
+        fingerprint = self.get_target_fingerprint()
         records: dict[str, tuple[TargetRecord, ...]] = {}
         fields_by_model: dict[str, tuple[str, ...]] = {}
         for request in sorted(requests, key=lambda item: item.model):
@@ -725,11 +736,12 @@ def write_record_snapshot(
     _write_json(output_path, payload)
 
 
-def _parse_fingerprint(data: Mapping[str, Any]) -> EnvironmentFingerprint:
-    """Convert portable snapshot JSON into an environment fingerprint."""
+def _parse_fingerprint(data: Mapping[str, Any]) -> TargetFingerprint:
+    """Convert portable snapshot JSON into an exact target fingerprint."""
 
-    return EnvironmentFingerprint(
-        environment=str(data["environment"]),
+    return TargetFingerprint(
+        target_hash=str(data["target_hash"]),
+        connection_mode=str(data["connection_mode"]),
         database=str(data["database"]),
         odoo_version=str(data.get("odoo_version", "unknown")),
         snapshot_timestamp=str(data["snapshot_timestamp"]),
