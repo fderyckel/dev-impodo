@@ -74,24 +74,17 @@ From the extracted release-bundle directory, IT installs it with:
 The script verifies the bundle manifest, creates a versioned installation
 under `%LOCALAPPDATA%\Impodo\app`, installs the locked dependencies, runs
 `pip check`, and prints the full path of the installed `impodo.exe` launcher.
-IT should create a Start menu or desktop shortcut to that exact launcher so
-the data manager does not need to use PowerShell for normal operation.
+
 
 The current installer retrieves third-party Python wheels while it runs.
 Therefore, the installation account must be able to reach an approved Python
 package source through the corporate network and proxy, with its TLS
-certificate trusted by Python. If public package access is prohibited, the
-release team must first provide an internally hosted package source or a new
-release bundle containing the required wheels; the current bundle is not a
+certificate trusted by Python. The current bundle is not a
 complete offline installer.
-
-Package-source access is an installation requirement only. During normal use,
-Impodo does not need general internet access; it needs only the connectivity
-required for the selected Odoo DEV/TEST environment.
 
 ### 3. Python dependencies installed by the Impodo installer
 
-IT does not install these components individually. The release installer
+Do not install these components individually. The release installer
 installs the exact locked versions, including:
 
 - DuckDB's embedded Python library;
@@ -99,9 +92,6 @@ installs the exact locked versions, including:
 - OpenPyXL for Excel workbooks;
 - the Windows keyring integration used with Credential Manager; and
 - the remaining packages declared by the Impodo release.
-
-The complete package and version list is recorded in the
-[Windows Python 3.12 dependency lock](../../requirements.windows-py312.lock).
 
 Do not replace the locked dependency installation with individually selected
 package versions.

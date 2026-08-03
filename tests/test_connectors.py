@@ -22,7 +22,7 @@ class Json2ConnectorTests(unittest.TestCase):
             "base_url": "https://odoo.example.test",
             "database": "odoo_test",
             "api_key": "super-secret-token",
-            "environment": "TEST",
+            "connection_mode": "REMOTE",
             "timeout_seconds": 0.1,
             "page_size": 2,
             "retries": 1,
@@ -169,7 +169,7 @@ class Json2ConnectorTests(unittest.TestCase):
         self.assertEqual(
             public,
             {
-                "get_environment_fingerprint",
+                "get_target_fingerprint",
                 "get_model_metadata",
                 "get_records",
             },
@@ -181,27 +181,26 @@ class Json2ConnectorTests(unittest.TestCase):
     def test_http_is_allowed_only_for_explicit_literal_loopback_mode(self) -> None:
         local = self.config(
             base_url="http://127.0.0.1:8069",
-            environment="DEV",
-            allow_insecure_loopback=True,
+            connection_mode="LOCAL",
         )
-        self.assertTrue(local.allow_insecure_loopback)
+        self.assertEqual(local.connection_mode, "LOCAL")
 
         rejected = (
             {
                 "base_url": "http://127.0.0.1:8069",
-                "allow_insecure_loopback": False,
+                "connection_mode": "REMOTE",
             },
             {
                 "base_url": "http://localhost:8069",
-                "allow_insecure_loopback": True,
+                "connection_mode": "LOCAL",
             },
             {
                 "base_url": "http://192.168.1.20:8069",
-                "allow_insecure_loopback": True,
+                "connection_mode": "LOCAL",
             },
             {
                 "base_url": "https://odoo.example.test",
-                "allow_insecure_loopback": True,
+                "connection_mode": "LOCAL",
             },
         )
         for values in rejected:
