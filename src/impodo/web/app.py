@@ -34,6 +34,11 @@ from ..access import (
     LOCAL_ACTOR,
 )
 from ..artifacts import ArtifactStore, LocalArtifactStore
+from ..business_keys import (
+    describe_business_key,
+    recommend_business_key,
+    selectable_business_key_fields,
+)
 from ..connectors import (
     ConnectorError,
     Json2Config,
@@ -1642,18 +1647,26 @@ def create_local_app(
                 f"key_fields_{index}",
                 f"scope_fields_{index}",
                 f"key_description_{index}",
+                f"primary_key_field_{index}",
+                f"primary_scope_field_{index}",
             )
         }
         _secure_form(request, form, allowed)
         definitions: list[BusinessKeyDefinition] = []
         for index, model in enumerate(schema.models):
-            key_fields = _comma_values(
-                _text(form, f"key_fields_{index}")
+            primary_key = _text(form, f"primary_key_field_{index}")
+            key_fields = (
+                (primary_key,)
+                if primary_key
+                else _comma_values(_text(form, f"key_fields_{index}"))
             )
             if not key_fields:
                 continue
-            scope_fields = _comma_values(
-                _text(form, f"scope_fields_{index}")
+            primary_scope = _text(form, f"primary_scope_field_{index}")
+            scope_fields = (
+                (primary_scope,)
+                if primary_scope
+                else _comma_values(_text(form, f"scope_fields_{index}"))
             )
             definitions.append(
                 BusinessKeyDefinition(
@@ -1942,7 +1955,12 @@ def _read_schema(project: MigrationProject, api_key: str) -> MetadataSnapshot:
     )
     return connector.get_model_metadata(
         tuple(
-            MetadataRequest(model=model, fields=(), all_fields=True)
+            MetadataRequest(
+                model=model,
+                fields=(),
+                all_fields=True,
+                include_unique_constraints=True,
+            )
             for model in project.intended_models
         )
     )
@@ -2781,6 +2799,7 @@ def _render_schema(
         if governance
         else {}
     )
+    key_views = _schema_key_views(schema, governed_by_model)
     return _render(
         request,
         "project_schema.html",
@@ -2799,6 +2818,7 @@ def _render_schema(
         ),
         governance=governance,
         governed_by_model=governed_by_model,
+        key_views=key_views,
         local_stack=context.local_stack.get(project_id),
         manual_schema_by_model=(
             {model.name: model for model in schema.models}
@@ -2808,6 +2828,36 @@ def _render_schema(
         error=error,
         status_code=status_code,
     )
+
+
+def _schema_key_views(schema, governed_by_model):
+    if schema is None:
+        return ()
+    views = []
+    for model in schema.models:
+        existing = governed_by_model.get(model.name)
+        recommendation = recommend_business_key(model)
+        views.append(
+            {
+                "model": model,
+                "existing": existing,
+                "existing_summary": (
+                    describe_business_key(
+                        model,
+                        existing.key_fields,
+                        existing.scope_fields,
+                    )
+                    if existing
+                    else ""
+                ),
+                "recommendation": recommendation,
+                "field_choices": selectable_business_key_fields(model),
+                "field_labels": {
+                    field.name: field.label for field in model.fields
+                },
+            }
+        )
+    return tuple(views)
 
 
 def _render_mapping(

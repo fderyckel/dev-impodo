@@ -32,6 +32,7 @@ from .models import (
     ModelMetadata,
     TargetFingerprint,
     TargetRecord,
+    UniqueConstraintMetadata,
     canonical_json_bytes,
     target_identity_hash,
 )
@@ -44,6 +45,7 @@ class MetadataRequest:
     model: str
     fields: tuple[str, ...]
     all_fields: bool = False
+    include_unique_constraints: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +214,17 @@ class SnapshotConnector:
                 model=request.model,
                 description=model_data.get("description"),
                 fields=fields,
+                unique_constraints=(
+                    tuple(
+                        UniqueConstraintMetadata(
+                            name=str(item["name"]),
+                            definition=str(item["definition"]),
+                        )
+                        for item in model_data.get("unique_constraints", ())
+                    )
+                    if request.include_unique_constraints
+                    else ()
+                ),
             )
         complete = bool(self._metadata_data.get("complete", True))
         return MetadataSnapshot(
@@ -476,8 +489,22 @@ class Json2ReadConnector:
         """
 
         fingerprint = self.get_target_fingerprint()
+        ordered_requests = tuple(sorted(requests, key=lambda item: item.model))
+        constraints: dict[str, tuple[UniqueConstraintMetadata, ...]] = {}
+        limitations = list(self._fingerprint_limitations)
+        if any(item.include_unique_constraints for item in ordered_requests):
+            constraint_models = tuple(
+                item.model
+                for item in ordered_requests
+                if item.include_unique_constraints
+            )
+            try:
+                constraints = self._get_unique_constraints(constraint_models)
+            except ConnectorError:
+                limitations.append("Odoo unique-constraint access unavailable")
+
         models: dict[str, ModelMetadata] = {}
-        for request in sorted(requests, key=lambda item: item.model):
+        for request in ordered_requests:
             response = self._post_read_method(
                 request.model,
                 "fields_get",
@@ -512,12 +539,106 @@ class Json2ReadConnector:
                 model=request.model,
                 description=None,
                 fields=fields,
+                unique_constraints=constraints.get(request.model, ()),
             )
         return MetadataSnapshot(
             fingerprint=fingerprint,
             models=models,
-            limitations=self._fingerprint_limitations,
+            limitations=tuple(limitations),
         )
+
+    def _get_unique_constraints(
+        self,
+        models: tuple[str, ...],
+    ) -> dict[str, tuple[UniqueConstraintMetadata, ...]]:
+        """Read constraint evidence in two batched queries, never per model."""
+
+        if not models:
+            return {}
+        model_rows = self._post_read_method(
+            "ir.model",
+            "search_read",
+            {
+                "domain": [["model", "in", list(models)]],
+                "fields": ["id", "model"],
+                "limit": len(models),
+                "order": "id asc",
+                "context": dict(self._config.context),
+            },
+        )
+        if not isinstance(model_rows, list):
+            raise ConnectorIncompleteResultError(
+                "search_read returned invalid data for ir.model"
+            )
+        model_by_id = {
+            int(item["id"]): str(item["model"])
+            for item in model_rows
+            if "id" in item and str(item.get("model") or "") in models
+        }
+        if set(model_by_id.values()) != set(models):
+            raise ConnectorIncompleteResultError(
+                "Odoo constraint metadata omitted a permitted model"
+            )
+
+        collected: list[Mapping[str, Any]] = []
+        offset = 0
+        while True:
+            page = self._post_read_method(
+                "ir.model.constraint",
+                "search_read",
+                {
+                    "domain": [
+                        ["model", "in", sorted(model_by_id)],
+                        ["type", "=", "u"],
+                    ],
+                    "fields": ["id", "name", "definition", "model"],
+                    "offset": offset,
+                    "limit": self._config.page_size,
+                    "order": "id asc",
+                    "context": dict(self._config.context),
+                },
+            )
+            if not isinstance(page, list):
+                raise ConnectorIncompleteResultError(
+                    "search_read returned invalid data for ir.model.constraint"
+                )
+            collected.extend(page)
+            if len(page) < self._config.page_size:
+                break
+            offset += len(page)
+
+        by_model: dict[str, list[UniqueConstraintMetadata]] = {
+            model: [] for model in models
+        }
+        seen_ids: set[int] = set()
+        for item in collected:
+            try:
+                constraint_id = int(item["id"])
+                raw_model = item["model"]
+                model_id = int(
+                    raw_model[0]
+                    if isinstance(raw_model, (list, tuple))
+                    else raw_model
+                )
+                name = str(item["name"])
+                definition = str(item["definition"])
+            except (KeyError, TypeError, ValueError, IndexError) as error:
+                raise ConnectorIncompleteResultError(
+                    "Odoo returned invalid unique-constraint metadata"
+                ) from error
+            model = model_by_id.get(model_id)
+            if model is None or constraint_id in seen_ids:
+                raise ConnectorIncompleteResultError(
+                    "Odoo returned inconsistent unique-constraint metadata"
+                )
+            seen_ids.add(constraint_id)
+            by_model[model].append(
+                UniqueConstraintMetadata(name=name, definition=definition)
+            )
+        return {
+            model: tuple(sorted(items, key=lambda item: item.name))
+            for model, items in by_model.items()
+        }
 
     def get_records(self, requests: Sequence[RecordRequest]) -> RecordSnapshot:
         """Fetch all matching records through deterministic, paginated reads.
@@ -697,6 +818,13 @@ def write_metadata_snapshot(
                     }
                     for field_name, field in sorted(model.fields.items())
                 },
+                "unique_constraints": [
+                    {
+                        "name": item.name,
+                        "definition": item.definition,
+                    }
+                    for item in model.unique_constraints
+                ],
             }
             for name, model in sorted(snapshot.models.items())
         },

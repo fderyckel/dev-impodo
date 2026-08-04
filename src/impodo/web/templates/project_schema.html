@@ -284,14 +284,20 @@
           <p>Governed schema: <code>{{ governance.content_hash }}</code></p>
         {% endif %}
         <div class="notice warning">
-          Confirm only keys that are unique in the intended Odoo target.
-          Runtime uniqueness is checked later against staged source and target records.
+          Suggestions are starting points. You confirm the matching rule;
+          Impodo checks the actual source and target data later.
         </div>
       </section>
 
-      {% for model in schema.models %}
-        {% set existing = governed_by_model.get(model.name) %}
-        <section class="form-card catalog-card">
+      {% for view in key_views %}
+        {% set model = view.model %}
+        {% set existing = view.existing %}
+        {% set recommendation = view.recommendation %}
+        <section
+          class="form-card catalog-card"
+          data-key-decision
+          data-field-labels='{{ view.field_labels|tojson }}'
+        >
           <div class="page-heading compact">
             <div>
               <h2>{{ model.label }} <code>{{ model.name }}</code></h2>
@@ -300,34 +306,114 @@
             {% if existing %}<span class="status registered">KEY CONFIRMED</span>{% endif %}
           </div>
 
-          <div class="form-grid">
-            <label>
-              Natural key field(s)
-              <input
-                name="key_fields_{{ loop.index0 }}"
-                value="{{ existing.key_fields|join(', ') if existing else '' }}"
-                placeholder="ref, external_code"
-              >
-              <small>Technical Odoo field names, comma-separated and in key order.</small>
-            </label>
-            <label>
-              Scope field(s)
-              <input
-                name="scope_fields_{{ loop.index0 }}"
-                value="{{ existing.scope_fields|join(', ') if existing else '' }}"
-                placeholder="company_id"
-              >
-              <small>Optional company, tenant, or organizational scope.</small>
-            </label>
-            <label>
-              Meaning
-              <input
-                name="key_description_{{ loop.index0 }}"
-                value="{{ existing.description if existing else '' }}"
-                placeholder="Unique customer reference within company"
-              >
-            </label>
+          <div class="key-decision-summary">
+            {% if existing %}
+              <p class="eyebrow">Confirmed matching rule</p>
+              <p class="key-rule-title">{{ view.existing_summary }}</p>
+              {% if existing.description %}<p>{{ existing.description }}</p>{% endif %}
+            {% elif recommendation %}
+              <p class="eyebrow">Suggested matching rule</p>
+              <p class="key-rule-title">{{ recommendation.technical_summary }}</p>
+              <p>{{ recommendation.reason }}</p>
+              <p class="key-evidence">{{ recommendation.evidence }}</p>
+              {% if recommendation.warning %}
+                <p class="key-warning">{{ recommendation.warning }}</p>
+              {% endif %}
+              <button
+                class="button secondary"
+                type="button"
+                data-use-key-suggestion
+                data-key-fields="{{ recommendation.key_fields|join(', ') }}"
+                data-scope-fields="{{ recommendation.scope_fields|join(', ') }}"
+                data-description="{{ recommendation.description }}"
+              >Use suggestion</button>
+            {% else %}
+              <p class="eyebrow">Matching rule</p>
+              <p class="key-rule-title">Choose the field that identifies one {{ model.label|lower }}</p>
+              <p>Impodo found no single safe recommendation for this model.</p>
+            {% endif %}
+
+            <div
+              class="key-draft-selection"
+              data-key-draft-selection
+              hidden
+            >
+              <strong>Ready to confirm:</strong>
+              <span data-key-selection-summary>{{ view.existing_summary }}</span>
+            </div>
           </div>
+
+          <details
+            class="key-editor"
+            data-key-editor
+            {% if not existing and not recommendation %}open{% endif %}
+          >
+            <summary>
+              {% if existing %}Change matching rule{% elif recommendation %}Choose another field{% else %}Choose matching field{% endif %}
+            </summary>
+            <div class="form-grid key-simple-fields">
+              <label>
+                Matching field
+                <select name="primary_key_field_{{ loop.index0 }}" data-primary-key-field>
+                  <option value="">Choose a field</option>
+                  {% for field in view.field_choices %}
+                    <option
+                      value="{{ field.name }}"
+                      {% if existing and existing.key_fields|length == 1 and existing.key_fields[0] == field.name %}selected{% endif %}
+                    >{{ field.label }} ({{ field.name }})</option>
+                  {% endfor %}
+                </select>
+                <small>The stable value used to find one Odoo record.</small>
+              </label>
+              <label>
+                Within (optional)
+                <select name="primary_scope_field_{{ loop.index0 }}" data-primary-scope-field>
+                  <option value="">No additional scope</option>
+                  {% for field in view.field_choices %}
+                    <option
+                      value="{{ field.name }}"
+                      {% if existing and existing.scope_fields|length == 1 and existing.scope_fields[0] == field.name %}selected{% endif %}
+                    >{{ field.label }} ({{ field.name }})</option>
+                  {% endfor %}
+                </select>
+                <small>Use when the same value may exist in different companies or organizations.</small>
+              </label>
+            </div>
+
+            <details class="key-technical-fields">
+              <summary>Combined key or technical entry</summary>
+              <div class="form-grid">
+                <label>
+                  Matching field(s)
+                  <input
+                    name="key_fields_{{ loop.index0 }}"
+                    data-combined-key-fields
+                    value="{{ existing.key_fields|join(', ') if existing else '' }}"
+                    placeholder="external_code, revision"
+                  >
+                  <small>Comma-separated technical names, in matching order.</small>
+                </label>
+                <label>
+                  Scope field(s)
+                  <input
+                    name="scope_fields_{{ loop.index0 }}"
+                    data-combined-scope-fields
+                    value="{{ existing.scope_fields|join(', ') if existing else '' }}"
+                    placeholder="company_id"
+                  >
+                </label>
+                <label>
+                  Meaning (optional)
+                  <input
+                    name="key_description_{{ loop.index0 }}"
+                    data-key-description
+                    value="{{ existing.description if existing else '' }}"
+                    placeholder="Unique reference within company"
+                  >
+                </label>
+              </div>
+            </details>
+          </details>
 
           <details data-field-catalog>
             <summary>Review {{ model.fields|length }} captured fields</summary>

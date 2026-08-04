@@ -1752,6 +1752,50 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(len(self.connection_calls), 1)
         self.assertEqual(self.connection_calls[0][1], "local-only-key")
 
+    def test_first_identity_mapping_save_persists_without_validation(self) -> None:
+        project_id, dataset, business_key = self._mapping_ready_project(
+            scalar_field_count=30
+        )
+        source_identity = dataset.columns[0]
+        context = self.app.state.context
+
+        saved = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            json={
+                "entries": [
+                    ["csrf_token", self.csrf],
+                    ["action", "save_progress"],
+                    ["expected_parent_version", ""],
+                    ["expected_working_draft_version", ""],
+                    ["editable_dataset_id", dataset.dataset_id],
+                    ["target_model_0", "res.partner"],
+                    ["mode_0", "upsert"],
+                    ["on_existing_0", "block"],
+                    ["source_identity_0", source_identity.stable_key],
+                    ["business_key_0", business_key.key_id],
+                    [
+                        "identity_source_0_0",
+                        source_identity.stable_key,
+                    ],
+                ]
+            },
+            headers={
+                **POST_HEADERS,
+                "X-CSRF-Token": self.csrf,
+            },
+        )
+
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()["message"], "Saved working draft version 1.")
+        working = context.repository.get_mapping_working_draft(project_id)
+        self.assertIsNotNone(working)
+        self.assertEqual(working.version, 1)
+        self.assertEqual(
+            working.definition.datasets[0].target_identity[0].source_column_keys,
+            (source_identity.stable_key,),
+        )
+        self.assertIsNone(context.repository.get_mapping_revision(project_id))
+
     def test_large_mapping_catalog_is_paged_and_saved_sparsely(self) -> None:
         project_id, dataset, business_key = self._mapping_ready_project(
             scalar_field_count=1500
@@ -1803,6 +1847,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(last_page.text.count("data-scalar-mapping-row"), 25)
         self.assertIn("field_1499", last_page.text)
         self.assertIn("scalar_page=60", last_page.text)
+
+        searched = self.client.get(
+            f"/projects/{project_id}/mapping?field_query=field_1499"
+        )
+        self.assertEqual(searched.status_code, 200)
+        self.assertEqual(searched.text.count("data-scalar-mapping-row"), 1)
+        self.assertIn("field_1499", searched.text)
+        self.assertNotIn("field_0000</code>", searched.text)
 
         entries = [
             ["csrf_token", self.csrf],

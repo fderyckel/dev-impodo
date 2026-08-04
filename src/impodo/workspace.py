@@ -35,7 +35,7 @@ from .mapping_semantics import (
     SchemaGovernance,
     mapping_issue_fingerprint,
 )
-from .models import target_identity_hash
+from .models import UniqueConstraintMetadata, target_identity_hash
 from .projects import (
     MigrationProject,
     OdooConnectionMode,
@@ -178,6 +178,7 @@ class SchemaModel:
     name: str
     label: str
     fields: tuple[SchemaField, ...]
+    unique_constraints: tuple[UniqueConstraintMetadata, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,6 +286,13 @@ class OdooSchemaCatalog:
                             ),
                         )
                         for field in model["fields"]
+                    ),
+                    unique_constraints=tuple(
+                        UniqueConstraintMetadata(
+                            name=str(item["name"]),
+                            definition=str(item["definition"]),
+                        )
+                        for item in model.get("unique_constraints", ())
                     ),
                 )
                 for model in payload["models"]
@@ -805,6 +813,7 @@ class SchemaWorkspaceService:
                     )
                     for field_name, field in sorted(model.fields.items())
                 ),
+                unique_constraints=model.unique_constraints,
             )
             for name, model in sorted(snapshot.models.items())
         )

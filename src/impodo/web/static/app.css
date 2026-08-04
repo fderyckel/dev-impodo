@@ -933,6 +933,57 @@ dd {
   margin-top: 1.25rem;
 }
 
+.key-decision-summary {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--impodo-red);
+  background: var(--impodo-soft);
+  padding: 1rem 1.1rem;
+}
+
+.key-decision-summary p {
+  margin: .35rem 0;
+}
+
+.key-rule-title {
+  color: var(--impodo-charcoal);
+  font-size: 1.08rem;
+  font-weight: 750;
+}
+
+.key-evidence {
+  color: var(--impodo-red-dark);
+  font-size: .82rem;
+  font-weight: 750;
+}
+
+.key-warning {
+  color: var(--muted);
+  font-size: .88rem;
+}
+
+.key-decision-summary .button {
+  margin-top: .65rem;
+}
+
+.key-draft-selection {
+  margin-top: .8rem;
+  border-top: 1px solid var(--line);
+  padding-top: .8rem;
+}
+
+.key-editor {
+  margin-top: .85rem;
+}
+
+.key-simple-fields,
+.key-technical-fields .form-grid {
+  margin-top: .85rem;
+}
+
+.key-technical-fields {
+  margin-top: .8rem;
+}
+
 .model-picker-tools,
 .field-catalog-tools {
   display: grid;

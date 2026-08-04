@@ -178,6 +178,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const saveError = mappingForm.querySelector("[data-mapping-save-error]");
     let dirty = false;
     let submitting = false;
+    mappingForm.dataset.mappingDirty = "false";
 
     const savedAt = saveStatus?.dataset.savedAt;
     if (saveStatus && savedAt) {
@@ -208,6 +209,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       dirty = true;
+      mappingForm.dataset.mappingDirty = "true";
       if (saveStatus) {
         saveStatus.textContent = "Unsaved changes.";
         saveStatus.classList.add("unsaved");
@@ -267,6 +269,7 @@ document.addEventListener("DOMContentLoaded", () => {
               : "Saving and validating...";
         saveStatus.classList.remove("unsaved");
       }
+      let responseReceived = false;
       try {
         const csrfToken = mappingForm.querySelector(
           'input[name="csrf_token"]'
@@ -282,6 +285,7 @@ document.addEventListener("DOMContentLoaded", () => {
             entries: sparseMappingEntries(event.submitter),
           }),
         });
+        responseReceived = true;
         let payload = {};
         try {
           payload = await response.json();
@@ -308,19 +312,31 @@ document.addEventListener("DOMContentLoaded", () => {
           ) {
             parentVersion.value = payload.expected_parent_version ?? "";
           }
-          throw new Error(payload.detail || "The mapping could not be saved.");
+          throw new Error(
+            payload.detail ||
+              `The mapping could not be saved (HTTP ${response.status}).`
+          );
         }
         dirty = false;
+        mappingForm.dataset.mappingDirty = "false";
         if (saveStatus) {
           saveStatus.textContent = payload.message || "Mapping saved.";
         }
-        window.location.assign(payload.redirect_url || window.location.pathname);
+        const pendingRedirect = mappingForm.dataset.pendingRedirect;
+        delete mappingForm.dataset.pendingRedirect;
+        window.location.assign(
+          pendingRedirect || payload.redirect_url || window.location.pathname
+        );
       } catch (error) {
         submitting = false;
         dirty = true;
+        mappingForm.dataset.mappingDirty = "true";
+        delete mappingForm.dataset.pendingRedirect;
         mappingForm.removeAttribute("aria-busy");
         const message =
-          error instanceof Error
+          !responseReceived && error instanceof TypeError
+            ? "This browser tab can no longer reach its Impodo session. Reopen Impodo in the newly opened tab; keep this tab open while copying any unsaved choices."
+            : error instanceof Error
             ? error.message
             : "The mapping could not be saved.";
         if (saveError) {
@@ -394,6 +410,101 @@ document.addEventListener("DOMContentLoaded", () => {
       choice.checkbox?.addEventListener("change", updateModelChoices);
     }
     updateModelChoices();
+  }
+
+  for (const decision of document.querySelectorAll("[data-key-decision]")) {
+    const primaryKey = decision.querySelector("[data-primary-key-field]");
+    const primaryScope = decision.querySelector("[data-primary-scope-field]");
+    const combinedKey = decision.querySelector("[data-combined-key-fields]");
+    const combinedScope = decision.querySelector("[data-combined-scope-fields]");
+    const description = decision.querySelector("[data-key-description]");
+    const draft = decision.querySelector("[data-key-draft-selection]");
+    const draftSummary = draft?.querySelector("[data-key-selection-summary]");
+    const suggestion = decision.querySelector("[data-use-key-suggestion]");
+    const editor = decision.querySelector("[data-key-editor]");
+    let labels = {};
+    try {
+      labels = JSON.parse(decision.dataset.fieldLabels || "{}");
+    } catch (_error) {
+      labels = {};
+    }
+
+    const values = (rawValue) =>
+      (rawValue || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+    const displayField = (name) =>
+      labels[name] ? `${labels[name]} (${name})` : name;
+    const showDraft = () => {
+      const keyFields = values(combinedKey?.value);
+      const scopeFields = values(combinedScope?.value);
+      if (!draft || !draftSummary || !keyFields.length) {
+        if (draft) {
+          draft.hidden = true;
+        }
+        return;
+      }
+      let summary = keyFields.map(displayField).join(" + ");
+      if (scopeFields.length) {
+        summary += `, within ${scopeFields.map(displayField).join(" + ")}`;
+      }
+      draftSummary.textContent = summary;
+      draft.hidden = false;
+    };
+    const syncSimpleChoice = (select, input) => {
+      if (!select || !input) {
+        return;
+      }
+      input.value = select.value;
+      showDraft();
+    };
+
+    primaryKey?.addEventListener("change", () => {
+      syncSimpleChoice(primaryKey, combinedKey);
+    });
+    primaryScope?.addEventListener("change", () => {
+      syncSimpleChoice(primaryScope, combinedScope);
+    });
+    combinedKey?.addEventListener("input", () => {
+      const keyFields = values(combinedKey.value);
+      if (primaryKey) {
+        primaryKey.value = keyFields.length === 1 ? keyFields[0] : "";
+      }
+      showDraft();
+    });
+    combinedScope?.addEventListener("input", () => {
+      const scopeFields = values(combinedScope.value);
+      if (primaryScope) {
+        primaryScope.value = scopeFields.length === 1 ? scopeFields[0] : "";
+      }
+      showDraft();
+    });
+    suggestion?.addEventListener("click", () => {
+      const keyFields = values(suggestion.dataset.keyFields);
+      const scopeFields = values(suggestion.dataset.scopeFields);
+      if (combinedKey) {
+        combinedKey.value = keyFields.join(", ");
+      }
+      if (combinedScope) {
+        combinedScope.value = scopeFields.join(", ");
+      }
+      if (primaryKey) {
+        primaryKey.value = keyFields.length === 1 ? keyFields[0] : "";
+      }
+      if (primaryScope) {
+        primaryScope.value = scopeFields.length === 1 ? scopeFields[0] : "";
+      }
+      if (description) {
+        description.value = suggestion.dataset.description || "";
+      }
+      suggestion.textContent = "Suggestion selected";
+      suggestion.setAttribute("aria-pressed", "true");
+      if (editor) {
+        editor.open = false;
+      }
+      showDraft();
+    });
   }
 
   for (const catalog of document.querySelectorAll("[data-field-catalog]")) {
@@ -886,12 +997,37 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       query.set("scalar_page", "1");
       query.set("relation_page", "1");
-      window.location.assign(`${window.location.pathname}?${query.toString()}`);
+      const destination = `${window.location.pathname}?${query.toString()}`;
+      const activeMappingForm = document.querySelector("[data-mapping-form]");
+      const saveProgressButton = activeMappingForm?.querySelector(
+        "[data-save-mapping-progress]"
+      );
+      if (
+        activeMappingForm?.dataset.mappingDirty === "true" &&
+        saveProgressButton
+      ) {
+        activeMappingForm.dataset.pendingRedirect = destination;
+        activeMappingForm.requestSubmit(saveProgressButton);
+        return;
+      }
+      window.location.assign(destination);
     };
-    searchSubmit?.addEventListener("click", navigateFieldCatalog);
+    let fieldSearchTimer;
+    const scheduleFieldCatalogSearch = () => {
+      window.clearTimeout(fieldSearchTimer);
+      if (count) {
+        count.textContent = "Searching all captured scalar fields\u2026";
+      }
+      fieldSearchTimer = window.setTimeout(navigateFieldCatalog, 500);
+    };
+    searchSubmit?.addEventListener("click", () => {
+      window.clearTimeout(fieldSearchTimer);
+      navigateFieldCatalog();
+    });
     search?.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
+        window.clearTimeout(fieldSearchTimer);
         navigateFieldCatalog();
       }
     });
@@ -947,7 +1083,10 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       window.requestAnimationFrame(updateScalarTableScroll);
     };
-    search?.addEventListener("input", updateScalarFieldRows);
+    search?.addEventListener("input", () => {
+      updateScalarFieldRows();
+      scheduleFieldCatalogSearch();
+    });
     mappedOnly?.addEventListener("change", navigateFieldCatalog);
     for (const provider of catalog.querySelectorAll("[data-value-source]")) {
       provider.addEventListener("change", updateScalarFieldRows);

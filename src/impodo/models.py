@@ -170,12 +170,21 @@ class FieldMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class UniqueConstraintMetadata:
+    """One Odoo-declared database uniqueness rule for a model."""
+
+    name: str
+    definition: str
+
+
+@dataclass(frozen=True, slots=True)
 class ModelMetadata:
     """Captured metadata for one permitted Odoo model."""
 
     model: str
     description: str | None
     fields: Mapping[str, FieldMetadata]
+    unique_constraints: tuple[UniqueConstraintMetadata, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

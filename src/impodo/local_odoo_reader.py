@@ -36,6 +36,7 @@ from .models import (
     ModelMetadata,
     TargetFingerprint,
     TargetRecord,
+    UniqueConstraintMetadata,
     target_identity_hash,
 )
 from .projects import MigrationProject, OdooConnectionMode
@@ -195,10 +196,28 @@ class LocalOdooMetadataReader:
                 str(field_name): _field_metadata(str(field_name), details)
                 for field_name, details in raw_fields.items()
             }
+            raw_constraints = raw_model.get("unique_constraints", ())
+            if not isinstance(raw_constraints, (list, tuple)):
+                raise LocalOdooReaderError(
+                    "The local Odoo constraint response is invalid."
+                )
+            constraints: list[UniqueConstraintMetadata] = []
+            for item in raw_constraints:
+                if not isinstance(item, Mapping):
+                    raise LocalOdooReaderError(
+                        "The local Odoo constraint response is invalid."
+                    )
+                constraints.append(
+                    UniqueConstraintMetadata(
+                        name=str(item.get("name") or ""),
+                        definition=str(item.get("definition") or ""),
+                    )
+                )
             parsed[model_name] = ModelMetadata(
                 model=model_name,
                 description=str(raw_model.get("description") or model_name),
                 fields=fields,
+                unique_constraints=tuple(constraints),
             )
         return MetadataSnapshot(
             fingerprint=fingerprint,
@@ -562,6 +581,16 @@ def _model_metadata_script(models: tuple[str, ...]) -> str:
         f"""
 requested_models = {models!r}
 captured_models = {{}}
+constraints_by_model = {{model_name: [] for model_name in requested_models}}
+constraints = env["ir.model.constraint"].sudo().search(
+    [("model.model", "in", requested_models), ("type", "=", "u")],
+    order="id asc",
+)
+for constraint in constraints:
+    constraints_by_model[constraint.model.model].append({{
+        "name": constraint.name,
+        "definition": constraint.definition or "",
+    }})
 for model_name in requested_models:
     model = env[model_name].sudo()
     captured_models[model_name] = {{
@@ -570,6 +599,7 @@ for model_name in requested_models:
             allfields=[],
             attributes={list(_FIELD_ATTRIBUTES)!r},
         ),
+        "unique_constraints": constraints_by_model[model_name],
     }}
 payload = {{
     "database": env.cr.dbname,
