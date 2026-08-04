@@ -27,6 +27,7 @@ import zipfile
 
 from .canonical import ValueParseError, parse_field, parse_value
 from .models import (
+    InvalidPreparedValue,
     Issue,
     LogicalReference,
     PreparedRecord,
@@ -723,8 +724,21 @@ def _prepare_row(
 
     scalar_values: dict[str, ScalarValue] = {}
     for target_field, spec in dataset.fields.items():
+        raw_value = row.get(spec.source)
+        if isinstance(raw_value, InvalidPreparedValue):
+            scalar_values[target_field] = None
+            row_issues.append(
+                Issue(
+                    code=raw_value.code,
+                    message=raw_value.message,
+                    dataset=dataset.name,
+                    row=row_index,
+                    field=spec.source,
+                )
+            )
+            continue
         try:
-            scalar_values[target_field] = parse_field(row.get(spec.source), spec)
+            scalar_values[target_field] = parse_field(raw_value, spec)
         except ValueParseError as exc:
             scalar_values[target_field] = None
             row_issues.append(

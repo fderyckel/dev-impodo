@@ -19,16 +19,31 @@ import re
 from typing import Any, Iterable, Mapping
 
 from .metadata import TYPE_COMPATIBILITY
+from .value_rules import (
+    CASE_MODES,
+    CHARACTER_CLASSES,
+    MAX_RULE_SIZE,
+    ROUNDING_MODES,
+    SEARCH_MODES,
+    SEGMENT_LOCATIONS,
+    ScalarRuleError,
+    ScalarTransformPolicy,
+    ScalarValidationPolicy,
+    prepare_rule_text,
+    round_decimal_value,
+    validate_formula,
+    validate_pattern,
+    validate_scalar_value,
+)
 
 
-MAPPING_CONTRACT_VERSION = 3
-MAPPING_VALIDATOR_VERSION = "3.0.0"
+MAPPING_CONTRACT_VERSION = 4
+MAPPING_VALIDATOR_VERSION = "4.0.0"
 _RELATION_TYPES = frozenset({"many2one", "many2many", "one2many"})
 _VALUE_TYPES = frozenset(TYPE_COMPATIBILITY)
 _NULL_POLICIES = frozenset(
     {"distinct", "equivalent", "ignore_source_null"}
 )
-_CASE_MODES = frozenset({"preserve", "uppercase", "lowercase"})
 _DECIMAL_LOCALES = frozenset({"invariant", "en_US", "de_DE", "fr_FR"})
 _DATE_FORMATS = {
     "iso": "%Y-%m-%d",
@@ -73,19 +88,6 @@ class ScalarValueSource(StrEnum):
     CONSTANT = "constant"
     SOURCE_WITH_FALLBACK = "source_with_fallback"
     ODOO_DEFAULT = "odoo_default"
-
-
-@dataclass(frozen=True, slots=True)
-class ScalarTransformPolicy:
-    """Small, deterministic allowlist for browser-authored scalar values."""
-
-    trim: bool = False
-    collapse_whitespace: bool = False
-    empty_as_null: bool = False
-    case_mode: str = "preserve"
-    decimal_locale: str = "invariant"
-    date_format: str = "iso"
-    timezone: str = "UTC"
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,6 +232,9 @@ class ScalarFieldMapping:
     transform: ScalarTransformPolicy = field(
         default_factory=ScalarTransformPolicy
     )
+    validation: ScalarValidationPolicy = field(
+        default_factory=ScalarValidationPolicy
+    )
     value_type: str = "string"
     required: bool = False
     required_on_create: bool = False
@@ -258,9 +263,19 @@ class ScalarValueError(ValueError):
     """Raised when a governed scalar value cannot be canonicalized."""
 
 
+class ScalarValueRuleError(ScalarValueError):
+    """Raised when a row fails one configured transformation or check."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def canonicalize_scalar_value(
     mapping: ScalarFieldMapping,
     raw_source_value: Any,
+    *,
+    formula_context: Mapping[str, Any] | None = None,
 ) -> str | int | Decimal | bool | date | datetime | None:
     """Apply one browser-authored value provider and transformation policy."""
 
@@ -281,7 +296,16 @@ def canonicalize_scalar_value(
     else:
         raw_value = raw_source_value
 
-    prepared = _transform_scalar_text(raw_value, mapping.transform)
+    try:
+        rule_context = dict(formula_context or {})
+        rule_context["value"] = raw_value
+        prepared = prepare_rule_text(
+            raw_value,
+            mapping.transform,
+            formula_context=rule_context,
+        )
+    except ScalarRuleError as error:
+        raise ScalarValueRuleError(error.code, str(error)) from error
     if prepared is None:
         if mapping.required:
             raise ScalarValueError("Required value is empty after transformation")
@@ -289,26 +313,27 @@ def canonicalize_scalar_value(
 
     try:
         if mapping.value_type == "string":
-            return prepared
-        if mapping.value_type == "integer":
+            result: Any = prepared
+        elif mapping.value_type == "integer":
             if not re.fullmatch(r"[+-]?\d+", prepared):
                 raise ValueError
-            return int(prepared, 10)
-        if mapping.value_type == "decimal":
-            return _parse_decimal(prepared, mapping.transform.decimal_locale)
-        if mapping.value_type == "boolean":
+            result = int(prepared, 10)
+        elif mapping.value_type == "decimal":
+            result = _parse_decimal(prepared, mapping.transform.decimal_locale)
+        elif mapping.value_type == "boolean":
             token = prepared.casefold()
             if token in {"true", "1", "yes", "y"}:
-                return True
-            if token in {"false", "0", "no", "n"}:
-                return False
-            raise ValueError
-        if mapping.value_type == "date":
-            return datetime.strptime(
+                result = True
+            elif token in {"false", "0", "no", "n"}:
+                result = False
+            else:
+                raise ValueError
+        elif mapping.value_type == "date":
+            result = datetime.strptime(
                 prepared,
                 _DATE_FORMATS[mapping.transform.date_format],
             ).date()
-        if mapping.value_type == "datetime":
+        elif mapping.value_type == "datetime":
             date_format = _DATETIME_FORMATS[mapping.transform.date_format]
             parsed = (
                 datetime.fromisoformat(prepared.replace("Z", "+00:00"))
@@ -317,14 +342,22 @@ def canonicalize_scalar_value(
             )
             if parsed.tzinfo is None:
                 parsed = parsed.replace(tzinfo=timezone.utc)
-            return parsed.astimezone(timezone.utc)
+            result = parsed.astimezone(timezone.utc)
+        else:
+            raise ScalarValueError(
+                f"Unsupported canonical value type {mapping.value_type!r}."
+            )
     except (InvalidOperation, KeyError, TypeError, ValueError) as error:
         raise ScalarValueError(
             f"Cannot parse {prepared!r} as {mapping.value_type}."
         ) from error
-    raise ScalarValueError(
-        f"Unsupported canonical value type {mapping.value_type!r}."
-    )
+    try:
+        if isinstance(result, Decimal):
+            result = round_decimal_value(result, mapping.transform)
+        validate_scalar_value(result, mapping.validation)
+    except ScalarRuleError as error:
+        raise ScalarValueRuleError(error.code, str(error)) from error
+    return result
 
 
 def _transform_scalar_text(
@@ -342,6 +375,17 @@ def _transform_scalar_text(
         value = value.upper()
     elif policy.case_mode == "lowercase":
         value = value.lower()
+    elif policy.case_mode == "sentence":
+        value = next(
+            (
+                f"{value[:index]}{character.upper()}{value[index + 1:]}"
+                for index, character in enumerate(value)
+                if character.isalpha()
+            ),
+            value,
+        )
+    elif policy.case_mode == "title":
+        value = value.title()
     if policy.empty_as_null and value == "":
         return None
     return value
@@ -1323,6 +1367,7 @@ class MappingSemanticValidator:
             dataset,
             field_mapping,
             path,
+            columns,
             issues,
         )
         if metadata.readonly and not field_mapping.validate_only:
@@ -1354,6 +1399,11 @@ class MappingSemanticValidator:
                 or field_mapping.validate_only
                 or field_mapping.required
                 or field_mapping.required_on_create
+                or field_mapping.transform.search_value
+                or field_mapping.transform.formula
+                or field_mapping.transform.case_mode != "preserve"
+                or field_mapping.transform.decimal_places is not None
+                or field_mapping.validation.configured
             )
         ):
             issues.append(
@@ -1480,16 +1530,20 @@ class MappingSemanticValidator:
         dataset: DatasetMapping,
         field_mapping: ScalarFieldMapping,
         path: str,
+        columns: Mapping[str, Any],
         issues: list[MappingValidationIssue],
     ) -> None:
         policy = field_mapping.transform
-        if policy.case_mode not in _CASE_MODES:
+        if policy.case_mode not in CASE_MODES:
             issues.append(
                 _issue(
                     "MAPPING_TRANSFORM_INVALID",
                     path,
                     "The case transformation is unsupported.",
-                    "Choose preserve, uppercase, or lowercase.",
+                    (
+                        "Choose keep as-is, uppercase, lowercase, sentence "
+                        "case, or title case."
+                    ),
                     dataset=dataset,
                     target_field=field_mapping.target_field,
                 )
@@ -1504,6 +1558,97 @@ class MappingSemanticValidator:
                     path,
                     "Case transformations apply only to string values.",
                     "Preserve case or choose the string canonical type.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.search_mode not in SEARCH_MODES:
+            issues.append(
+                _issue(
+                    "MAPPING_TRANSFORM_INVALID",
+                    path,
+                    "The find-and-replace mode is unsupported.",
+                    "Choose plain text or advanced custom pattern.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        elif policy.search_mode == "pattern" and policy.search_value:
+            try:
+                validate_pattern(policy.search_value)
+            except ValueError as error:
+                issues.append(
+                    _issue(
+                        "MAPPING_TRANSFORM_INVALID",
+                        path,
+                        str(error),
+                        "Correct the advanced find pattern or use plain text.",
+                        dataset=dataset,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+        if policy.replacement_value and not policy.search_value:
+            issues.append(
+                _issue(
+                    "MAPPING_TRANSFORM_INVALID",
+                    path,
+                    "Replacement text was entered without text to find.",
+                    "Enter the text to find or clear the replacement.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.search_value and field_mapping.value_type != "string":
+            issues.append(
+                _issue(
+                    "MAPPING_TRANSFORM_INVALID",
+                    path,
+                    "Find and replace applies only to text values.",
+                    "Choose the string value type or clear find and replace.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.formula:
+            aliases = {
+                f"column_{getattr(column, 'ordinal', index + 1)}"
+                for index, column in enumerate(columns.values())
+            }
+            try:
+                validate_formula(policy.formula, allowed_names=aliases)
+            except ValueError as error:
+                issues.append(
+                    _issue(
+                        "MAPPING_FORMULA_INVALID",
+                        path,
+                        str(error),
+                        "Correct the formula using the available column names.",
+                        dataset=dataset,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+        if policy.rounding_mode not in ROUNDING_MODES:
+            issues.append(
+                _issue(
+                    "MAPPING_TRANSFORM_INVALID",
+                    path,
+                    "The rounding method is unsupported.",
+                    "Choose one of the listed rounding methods.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.decimal_places is not None and (
+            policy.decimal_places < 0
+            or policy.decimal_places > 18
+            or field_mapping.value_type != "decimal"
+        ):
+            issues.append(
+                _issue(
+                    "MAPPING_TRANSFORM_INVALID",
+                    path,
+                    "Decimal rounding needs a decimal value and 0 to 18 places.",
+                    "Choose decimal as the value type and a valid number of places.",
                     dataset=dataset,
                     target_field=field_mapping.target_field,
                 )
@@ -1541,6 +1686,145 @@ class MappingSemanticValidator:
                     target_field=field_mapping.target_field,
                 )
             )
+        MappingSemanticValidator._validate_scalar_rules(
+            dataset,
+            field_mapping,
+            path,
+            issues,
+        )
+
+    @staticmethod
+    def _validate_scalar_rules(
+        dataset: DatasetMapping,
+        field_mapping: ScalarFieldMapping,
+        path: str,
+        issues: list[MappingValidationIssue],
+    ) -> None:
+        policy = field_mapping.validation
+        if policy.configured and field_mapping.value_type != "string":
+            issues.append(
+                _issue(
+                    "MAPPING_VALUE_RULE_INVALID",
+                    path,
+                    "Length and character checks apply only to text values.",
+                    "Choose the string value type or clear the text checks.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.exact_length is not None and not (
+            1 <= policy.exact_length <= MAX_RULE_SIZE
+        ):
+            issues.append(
+                _issue(
+                    "MAPPING_VALUE_RULE_INVALID",
+                    path,
+                    f"Exact length must be between 1 and {MAX_RULE_SIZE}.",
+                    "Enter a valid exact length.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.segment_location not in SEGMENT_LOCATIONS:
+            issues.append(
+                _issue(
+                    "MAPPING_VALUE_RULE_INVALID",
+                    path,
+                    "The part of the value to check is unsupported.",
+                    "Choose whole value, first characters, or last characters.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.character_class not in CHARACTER_CLASSES:
+            issues.append(
+                _issue(
+                    "MAPPING_VALUE_RULE_INVALID",
+                    path,
+                    "The required character type is unsupported.",
+                    "Choose digits, capital letters, or lowercase letters.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.character_class != "none" and policy.segment_location == "none":
+            issues.append(
+                _issue(
+                    "MAPPING_VALUE_RULE_INVALID",
+                    path,
+                    "Choose which part of the value should be checked.",
+                    "Choose whole value, first characters, or last characters.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.segment_location != "none" and policy.character_class == "none":
+            issues.append(
+                _issue(
+                    "MAPPING_VALUE_RULE_INVALID",
+                    path,
+                    "Choose what kind of characters are allowed.",
+                    "Choose digits, capital letters, or lowercase letters.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.segment_location in {"first", "last"} and (
+            policy.segment_length is None
+            or not 1 <= policy.segment_length <= MAX_RULE_SIZE
+        ):
+            issues.append(
+                _issue(
+                    "MAPPING_VALUE_RULE_INVALID",
+                    path,
+                    f"First/last character count must be between 1 and {MAX_RULE_SIZE}.",
+                    "Enter how many characters should be checked.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.segment_location in {"none", "entire"} and (
+            policy.segment_length is not None
+        ):
+            issues.append(
+                _issue(
+                    "MAPPING_VALUE_RULE_INVALID",
+                    path,
+                    "A character count is used only for first or last characters.",
+                    "Clear the count or choose first/last characters.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if (
+            policy.exact_length is not None
+            and policy.segment_length is not None
+            and policy.segment_length > policy.exact_length
+        ):
+            issues.append(
+                _issue(
+                    "MAPPING_VALUE_RULE_INVALID",
+                    path,
+                    "The character check is longer than the exact field length.",
+                    "Reduce the checked character count or increase exact length.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+        if policy.pattern:
+            try:
+                validate_pattern(policy.pattern)
+            except ValueError as error:
+                issues.append(
+                    _issue(
+                        "MAPPING_VALUE_RULE_INVALID",
+                        path,
+                        str(error),
+                        "Correct the advanced custom pattern.",
+                        dataset=dataset,
+                        target_field=field_mapping.target_field,
+                    )
+                )
 
     def _validate_relationship(
         self,
@@ -1999,6 +2283,20 @@ def _dataset_mapping_to_dict(
             item.pop("value_source", None)
             item.pop("literal_value", None)
             item.pop("transform", None)
+    if contract_version < 4:
+        for item in payload.get("fields", ()):
+            item.pop("validation", None)
+            transform = item.get("transform", {})
+            for name in (
+                "search_value",
+                "replacement_value",
+                "search_mode",
+                "replace_all",
+                "decimal_places",
+                "rounding_mode",
+                "formula",
+            ):
+                transform.pop(name, None)
     return payload
 
 
@@ -2008,6 +2306,9 @@ def _scalar_field_mapping_from_dict(
     transform_payload = payload.get("transform", {})
     if not isinstance(transform_payload, Mapping):
         raise ValueError("Scalar transform policy must be an object")
+    validation_payload = payload.get("validation", {})
+    if not isinstance(validation_payload, Mapping):
+        raise ValueError("Scalar validation policy must be an object")
     return ScalarFieldMapping(
         target_field=str(payload.get("target_field", "")),
         source_column_key=(
@@ -2041,6 +2342,40 @@ def _scalar_field_mapping_from_dict(
                 transform_payload.get("date_format", "iso")
             ),
             timezone=str(transform_payload.get("timezone", "UTC")),
+            search_value=str(transform_payload.get("search_value", "")),
+            replacement_value=str(
+                transform_payload.get("replacement_value", "")
+            ),
+            search_mode=str(transform_payload.get("search_mode", "literal")),
+            replace_all=bool(transform_payload.get("replace_all", True)),
+            decimal_places=(
+                int(transform_payload["decimal_places"])
+                if transform_payload.get("decimal_places") is not None
+                else None
+            ),
+            rounding_mode=str(
+                transform_payload.get("rounding_mode", "half_up")
+            ),
+            formula=str(transform_payload.get("formula", "")),
+        ),
+        validation=ScalarValidationPolicy(
+            exact_length=(
+                int(validation_payload["exact_length"])
+                if validation_payload.get("exact_length") is not None
+                else None
+            ),
+            segment_location=str(
+                validation_payload.get("segment_location", "none")
+            ),
+            segment_length=(
+                int(validation_payload["segment_length"])
+                if validation_payload.get("segment_length") is not None
+                else None
+            ),
+            character_class=str(
+                validation_payload.get("character_class", "none")
+            ),
+            pattern=str(validation_payload.get("pattern", "")),
         ),
         value_type=str(payload.get("value_type", "string")),
         required=bool(payload.get("required", False)),

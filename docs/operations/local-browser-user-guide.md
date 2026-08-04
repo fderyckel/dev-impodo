@@ -10,9 +10,10 @@ Project setup -> Source discovery -> Target schema -> Governed mapping
 ```
 
 Impodo registers and inspects CSV/XLSX evidence, freezes selected datasets,
-captures an Odoo 19 schema, and creates validated mapping revisions. It is
-read-only toward Odoo. It does not yet execute full-row cleaning, create a
-clean import package, write to Odoo, or reconcile a completed load.
+captures an Odoo 19 schema, and creates validated mapping revisions. After
+submission, it can check every frozen source row against the mapping and the
+read-only Odoo evidence. It does not write to Odoo or reconcile a completed
+load.
 
 The [migration project contract](../contracts/migration-project.md) and
 [browser workspace contract](../contracts/workspace.md) define the exact
@@ -30,9 +31,12 @@ The screenshots use fictional training data at a desktop viewport.
 6. Capture the permitted Odoo models and fields.
 7. Confirm natural business keys and scope.
 8. Map identity, ordinary fields, and relationships.
-9. Save and validate a mapping revision.
+9. Save progress regularly, then validate a coherent mapping revision.
 10. Resolve blocking findings, review warnings, and submit the exact revision.
-11. Use **Quit Impodo** when finished.
+11. Open **Summary**, select **Check data readiness**, and review every blocked
+    or decision-required row.
+12. Generate the review package when every row is ready.
+13. Use **Quit Impodo** when finished.
 
 ## Before starting
 
@@ -183,12 +187,10 @@ the internal numeric `id`.
 | Country | `code` | none |
 
 Avoid mutable names, guessed fields, sample-only uniqueness, or numeric IDs.
-Confirmation records the intended rule; full source/target duplicate checks
-remain deferred to staging and preflight.
+Confirmation records the intended rule; **Check data readiness** later applies
+it across the frozen rows and the captured target evidence.
 
 ### Map each dataset
-
-![Mapping overview.](../images/impodo-local-browser-guide/06-mapping-overview.png)
 
 Choose:
 
@@ -203,14 +205,227 @@ Map in this order:
 3. Writable scalar fields.
 4. Relationships.
 
-Scalar providers are source column, constant, source-with-fallback, or
-leave-unset/Odoo-default. The mapping can author allowlisted trim, whitespace,
-empty-to-null, casing, decimal-locale, date-format, boolean, and UTC-datetime
-policies. Odoo-default intent remains a warning because schema metadata cannot
-prove runtime defaults.
+### Scalar fields: choose what Impodo should do
 
-The raw-to-proposed display is a bounded sample. It does not prove every row
-can be transformed safely.
+A scalar field is an ordinary Odoo value such as a name, code, date, amount,
+checkbox, note, or selection. Each row in **Scalar target fields** answers four
+questions:
+
+1. Where should the value come from?
+2. What consistent value type should Impodo produce?
+3. Which transformations should be applied?
+4. How should the value be checked and compared?
+
+Start with the Odoo field you want to populate, then work from left to right.
+Use **Show mapped fields only** after the first save to focus on the choices
+you have made.
+
+#### Choose where the value comes from
+
+![Value-provider and canonical-value controls in the scalar mapping table.](../images/impodo-local-browser-guide/06-scalar-value-providers.png)
+
+Each row represents one Odoo field:
+
+| Column | What it tells you |
+| --- | --- |
+| **Value provider** | Where the proposed value comes from |
+| **Canonical value** | How Impodo normalizes and interprets that value |
+| **Odoo field** | The business label and technical field name |
+| **Metadata** | The captured Odoo type and whether the field is required or read-only |
+| **Preview** | One source example before and after the current rules |
+| **Policies** | Whether and when the field is compared or required |
+
+A read-only Odoo field may appear as useful target context, but it cannot be
+proposed for writing. **Not mapped** excludes the field even when default
+policy controls remain visible.
+
+| Value provider | What Impodo does | Good use |
+| --- | --- | --- |
+| **Not mapped** | Provides no value for this Odoo field | The field is outside this migration scope |
+| **Source column** | Reads the value from the selected CSV/XLSX column | Names, codes, dates, amounts, and other supplied data |
+| **Constant value** | Uses the same declared value for every row | A controlled value such as one company, country, language, or status |
+| **Source + fallback** | Uses the source value when present; otherwise uses the declared fallback | A governed replacement such as `Unnamed contact` when the source is empty |
+| **Leave unset / Odoo default** | Sends no proposed value and leaves the runtime choice to Odoo | A field with an intentionally accepted Odoo default |
+
+With **Source + fallback**, a blank text cell uses the fallback when **Empty →
+null** is selected. A genuinely missing/null source value also uses the
+fallback. The fallback passes through the same transformations and type check
+as a source value.
+
+**Leave unset / Odoo default** cannot also be compared, validated, or marked
+required. Impodo keeps a visible warning because captured field metadata does
+not prove which value Odoo will choose at runtime.
+
+#### Choose the canonical value
+
+The canonical value is Impodo's consistent representation of the proposed
+value. It makes validation and later comparison predictable even when the
+source file uses a different display format.
+
+| Type | What Impodo accepts | Example result |
+| --- | --- | --- |
+| `string` | Text after the selected transformations | `"  Acme  SA "` can become `"Acme SA"` |
+| `integer` | Whole digits with an optional leading `+` or `-` | `"0012"` becomes `12` |
+| `decimal` | A strict number using the selected decimal locale | `"1.234,50"` with `de_DE` becomes `1234.50` |
+| `boolean` | `true`, `1`, `yes`, `y` or `false`, `0`, `no`, `n`, ignoring letter case | `"No"` becomes false |
+| `date` | The selected ISO, slash, or dot date format | `"31/08/2026"` becomes 31 August 2026 |
+| `datetime` | ISO or the selected date format with a time; stored in UTC | An ISO value with an offset is converted to the same UTC instant |
+
+Impodo proposes the type suggested by the captured Odoo field. Change it only
+when the business meaning and Odoo compatibility are clear.
+
+For decimals, choose the source convention deliberately:
+
+| Decimal locale | Example |
+| --- | --- |
+| `invariant` | `1234.50` |
+| `en_US` | `1,234.50` |
+| `de_DE` | `1.234,50` |
+| `fr_FR` | `1 234,50` |
+
+For dates, select the exact source format: `YYYY-MM-DD`, `DD/MM/YYYY`,
+`MM/DD/YYYY`, or `DD.MM.YYYY`. Datetimes use the same selected date order and
+include a time. The browser's governed timezone is currently UTC.
+
+When Odoo exposes a selection list, use its technical value—the stored key—not
+only its translated display label. The field control offers the captured
+technical choices for constants and fallbacks.
+
+#### Apply transformations
+
+Impodo applies the chosen value in a fixed order. For **Source + fallback**, it
+first uses the selected basic text cleanup to decide whether the source is
+empty and the fallback is needed.
+
+```text
+selected source, constant, or governed fallback
+-> optional safe formula
+-> trim
+-> collapse spaces
+-> find and replace
+-> casing
+-> empty to null
+-> canonical type parsing
+-> decimal rounding
+-> final value checks
+-> preview
+```
+
+| Control | What it changes | Example |
+| --- | --- | --- |
+| **Trim** | Removes whitespace before and after the value | `"  ACME "` → `"ACME"` |
+| **Collapse spaces** | Replaces each internal run of whitespace with one space | `"Acme   Europe"` → `"Acme Europe"` |
+| **Case: preserve** | Keeps the source letter case | `"eBay"` remains `"eBay"` |
+| **Case: uppercase** | Converts letters to uppercase | `"be-001"` → `"BE-001"` |
+| **Case: lowercase** | Converts letters to lowercase | `"USER@EXAMPLE.COM"` → `"user@example.com"` |
+| **Empty → null** | Treats an empty transformed value as no value | A cell containing only spaces becomes null when Trim is also selected |
+| **Sentence case** | Capitalizes the first letter and preserves the remaining text | `"customer note"` becomes `"Customer note"` |
+| **Title Case** | Capitalizes each word | `"acme europe"` becomes `"Acme Europe"` |
+
+Use transformations to express an agreed business rule, especially for keys.
+For names and free text, preserve case unless the data owner has approved a
+different convention.
+
+#### Add value rules
+
+Open **Value rules** only for a field that needs an additional business rule.
+The everyday controls use plain language:
+
+| Business requirement | What to select |
+| --- | --- |
+| Exactly three digits | **Must be exactly:** `3`; **Characters to check:** The whole value; **They must be:** Digits 0-9 |
+| Seven characters of any kind | **Must be exactly:** `7`; leave the character check off |
+| First three characters are capital letters | **Characters to check:** The first characters; **How many:** `3`; **They must be:** Capital letters A-Z |
+| Last four characters are digits | **Characters to check:** The last characters; **How many:** `4`; **They must be:** Digits 0-9 |
+| Remove an old prefix or separator | Enter ordinary text under **Find**, enter the new text under **Replace with**, and keep **Plain text (recommended)** |
+| Round an amount | Choose the decimal type, enter the number of decimal places, and choose the explicit rounding method |
+
+Impodo checks the final proposed value, after the selected transformations.
+Empty/null values are still governed by **Required**; a format check does not
+silently make a field required. Character rules use the explicit ASCII ranges
+`A-Z`, `a-z`, and `0-9`, which keeps identifiers and leading-zero codes
+predictable.
+
+Use **Advanced: custom pattern** when an approved format cannot be expressed
+with the guided length and character controls. Impodo validates and bounds the
+pattern before checking any row.
+
+Use **Advanced: formula or custom calculation** for a reviewed calculation.
+The panel lists row aliases such as `column_2` beside their source column
+names. Safe formulas support arithmetic, comparisons, conditions, and the
+listed helper functions. They cannot import or execute arbitrary Python, open
+files, access the network, contact Odoo, or run loops.
+
+Title and sentence casing can damage acronyms, product names, or personal
+names. Review the preview and obtain data-owner agreement before using them.
+For monetary rounding, confirm the currency precision and later reconcile the
+rounded totals.
+
+#### Decide how the field participates
+
+![A configured scalar field with transformations, preview, and policies.](../images/impodo-local-browser-guide/06-scalar-mapping-example.png)
+
+| Policy | Meaning in Impodo | When to select it |
+| --- | --- | --- |
+| **Compare** | Include the proposed value when Impodo compares a source row with its matching Odoo record | The migration should identify whether this field is unchanged or needs an update |
+| **Validate only** | Check the governed value without proposing that the field be changed | The value is useful for control or review but is not part of the proposed update |
+| **Required** | Every row must provide a value after provider and transformation rules | The business process does not permit an empty value |
+| **Required on create** | Require the value only when no target match exists and a new record would be created | Odoo needs the field for new records, while existing records may already carry it |
+
+**Compare** and **Validate only** are mutually exclusive. A validate-only field
+can still be required, but it never produces a proposed field difference.
+
+**Required** is checked for every staged row. **Required on create** is checked
+after target matching, because Impodo must first know whether the row represents
+a create or an existing record.
+
+#### Choose how null values compare
+
+The null policy matters when the governed source value is null:
+
+| Null policy | Meaning | Typical choice |
+| --- | --- | --- |
+| **distinct** | Null and an empty target value are different | Use when absence and an explicitly empty value have different business meaning |
+| **equivalent** | Null and an empty target value may be treated as equal | Use when the source and Odoo represent the same absence differently |
+| **ignore_source_null** | A null source value leaves the existing target value unchanged | Use for partial updates where a blank source cell means “no instruction” |
+
+`ignore_source_null` is not a fallback and does not invent a value. It tells
+comparison to preserve an existing target value when the source provides none.
+
+#### Read the preview and validate the complete mapping
+
+The preview shows one bounded source example as **raw value → proposed value**.
+It helps you catch an incorrect provider, locale, date format, or transformation
+while editing. A red proposed value explains why the displayed sample cannot be
+converted.
+
+The preview is a working aid, not the complete dataset result. Select **Save
+progress** to keep unfinished work without validation. Select **Validate draft**
+to check the complete mapping definition. After submitting the exact validated
+revision, open **Summary** and select **Check data readiness**; that step reloads
+every frozen row, applies these controls, checks relationships and target
+matches, and reports **Ready**, **Needs review**, or **Blocked** without changing
+Odoo.
+
+#### Worked example
+
+For the Odoo field **Name**:
+
+```text
+Provider: Source + fallback
+Source column: company_name
+Fallback: Unnamed company
+Canonical value: string
+Transformations: Trim + Collapse spaces + Empty → null
+Case: preserve
+Policies: Compare + Required on create
+Null policy: distinct
+```
+
+The source value `"  Acme   Europe  "` previews as `"Acme Europe"`. A blank
+cell becomes null after trimming, so Impodo uses `"Unnamed company"`. During
+the row-level readiness check, an existing contact can be compared normally;
+a new contact must have the resulting name before it can be marked ready.
 
 ### Map relationships
 
@@ -226,9 +441,19 @@ Do not map a parent's one2many list directly; map the inverse many2one on each
 child row. Required missing/ambiguous references and dependency cycles must
 block validation.
 
-## 5. Validate and submit
+## 5. Save, validate, and submit
 
-Select **Save and validate draft** after a coherent group of changes.
+Select **Save progress** regularly while mapping. This stores the complete
+working page without semantic validation, including incomplete scalar-field
+choices. The saved working draft is restored after Impodo or the computer is
+restarted. `Ctrl+S` performs the same action, and the page warns before leaving
+with unsaved changes.
+
+Working drafts are bound to the exact frozen source and governed schema. If
+either changes, Impodo retains the earlier draft as recovery evidence but does
+not silently apply it to the new fields.
+
+Select **Validate draft** after a coherent group of changes.
 
 ![Validation and submission.](../images/impodo-local-browser-guide/08-validation-and-submit.png)
 
@@ -238,27 +463,48 @@ Select **Save and validate draft** after a coherent group of changes.
 | Valid with warnings | Structurally valid but requires conscious review | Read and acknowledge each warning |
 | Valid | No semantic finding for the current evidence | Perform final review and submit |
 
-Validation checks mapping structure and meaning. It does not prove full-row
-uniqueness, required values, relationship resolution, or successful Odoo
-execution.
+Validation checks the mapping structure and meaning. Row-level values,
+uniqueness, relationship resolution, and target matches are checked after
+submission through **Check data readiness**.
 
 **Submit exact validated mapping** binds the exact mapping, validation, source,
 schema, and business-key evidence. Submission is not functional approval,
 clean-package certification, an Odoo import, or a write action.
 
+## 6. Check data readiness
+
+Open **Summary** and select **Check data readiness**. Impodo reloads every
+frozen row, applies the submitted providers, transformations, types, and
+policies, resolves relationships, and compares candidates with the captured
+read-only Odoo target evidence.
+
+| Result | Meaning | Next action |
+| --- | --- | --- |
+| **Ready** | The row is classified as create, update, or unchanged without a blocking issue | Review the proposed result |
+| **Needs review** | Impodo needs a governed decision | Review the displayed reason and complete the decision |
+| **Blocked** | A key, value, relationship, or target condition prevents the row from continuing | Correct the governing source or mapping evidence, then recheck |
+
+Use the status cards and dataset totals to filter the row list. Impodo shows a
+plain-language reason and recommended action first; expand **Technical
+details** only when you need the classification or issue code.
+
+After every relevant source, mapping, schema, or target-evidence change, run
+the check again. When every row is ready, generate the review package. The
+readiness check and review package remain read-only and do not authorize an
+Odoo import.
+
 ## Use Impodo safely today
 
 - Preserve the registered source and prefer a new source-owner export for
   corrections.
-- Configure supported mapping rules so their intent is hash-bound.
-- Treat previews as examples, not full-row proof.
-- Record unsupported lookup, structural, domain, entity-resolution, and
-  exception rules in an approved transformation register.
-- Recheck business-key and relationship collisions after any correction.
-- Treat **Valid** and **Submitted** as mapping states only.
-
-The proposed full-row coverage and clean-package gates are in the
-[data-quality coverage ledger](../plans/data-quality-coverage.md).
+- Configure each visible provider, transformation, type, and policy so its
+  intent is retained with the mapping hash.
+- Use the preview while authoring, then use **Check data readiness** for the
+  complete frozen row set.
+- Recheck business keys, transformations, and relationships after any source
+  or mapping revision.
+- Treat **Valid**, **Submitted**, and **Ready** as review states, never as Odoo
+  write authorization.
 
 ## Final review
 
@@ -273,7 +519,8 @@ Before submission confirm:
 - dependency cycles and blocking findings are absent;
 - every warning is understood and acknowledged;
 - the exact displayed evidence belongs to the intended project and target;
-- everyone understands that the revision is not load-ready or write-approved.
+- everyone understands that submission is followed by a row-level readiness
+  check and does not authorize an Odoo write.
 
 ## Common problems
 
@@ -287,8 +534,8 @@ Before submission confirm:
 | Missing target field | Review the permitted model scope and Odoo access |
 | Business key not confirmed | Obtain functional approval and confirm key plus scope |
 | Relationship unresolved or ambiguous | Correct the resolver/key/scope; do not ignore ambiguity |
-| Preview still looks dirty | Configure a supported rule or govern the correction outside Impodo |
-| Mapping valid but rows look invalid | Do not treat it as load-ready; full-row checks are still required |
+| Preview result is unexpected | Recheck provider, type, transformation order, locale, and date format |
+| Mapping is valid but rows are blocked | Open Summary, filter **Blocked**, and follow the reason and recommended action |
 
 ## End the session
 

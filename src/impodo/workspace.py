@@ -340,6 +340,63 @@ class MappingDraft:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class MappingWorkingDraft:
+    """Recoverable, potentially incomplete browser mapping state."""
+
+    mapping_id: str
+    version: int
+    project_id: str
+    base_mapping_version: int | None
+    definition: MappingDefinition
+    updated_at: datetime
+    updated_by: str
+
+    def __post_init__(self) -> None:
+        if self.version < 1:
+            raise ValueError("Working-draft version must be positive")
+        if self.definition.mapping_id != self.mapping_id:
+            raise ValueError("Working draft and definition IDs do not match")
+
+    @property
+    def content_hash(self) -> str:
+        return self.definition.content_hash
+
+    def to_json(self) -> str:
+        return _canonical_json(
+            {
+                "mapping_id": self.mapping_id,
+                "version": self.version,
+                "project_id": self.project_id,
+                "base_mapping_version": self.base_mapping_version,
+                "definition": self.definition.to_dict(),
+                "content_hash": self.content_hash,
+                "updated_at": self.updated_at.isoformat(),
+                "updated_by": self.updated_by,
+            }
+        )
+
+    @classmethod
+    def from_json(cls, value: str) -> "MappingWorkingDraft":
+        payload = json.loads(value)
+        definition = MappingDefinition.from_dict(payload["definition"])
+        if payload.get("content_hash") != definition.content_hash:
+            raise ValueError("Working-draft content hash is invalid")
+        return cls(
+            mapping_id=str(payload["mapping_id"]),
+            version=int(payload["version"]),
+            project_id=str(payload["project_id"]),
+            base_mapping_version=(
+                int(payload["base_mapping_version"])
+                if payload.get("base_mapping_version") is not None
+                else None
+            ),
+            definition=definition,
+            updated_at=datetime.fromisoformat(payload["updated_at"]),
+            updated_by=str(payload["updated_by"]),
+        )
+
+
 class WorkspaceRepository(Protocol):
     def get(self, project_id: str) -> MigrationProject: ...
     def get_source_catalogs(
@@ -402,6 +459,17 @@ class WorkspaceRepository(Protocol):
         project_id: str,
         draft: MappingDraft,
         *,
+        actor: Actor,
+    ) -> None: ...
+    def get_mapping_working_draft(
+        self, project_id: str
+    ) -> MappingWorkingDraft | None: ...
+    def save_mapping_working_draft(
+        self,
+        project_id: str,
+        draft: MappingWorkingDraft,
+        *,
+        expected_version: int | None,
         actor: Actor,
     ) -> None: ...
     def get_mapping_revision(
@@ -975,6 +1043,64 @@ class MappingWorkspaceService:
         self.compiler = MappingCompiler()
         self.validator = MappingSemanticValidator()
 
+    def save_working_draft(
+        self,
+        project_id: str,
+        *,
+        datasets: Iterable[DatasetMapping],
+        expected_version: int | None,
+        actor: Actor,
+    ) -> MappingWorkingDraft:
+        """Persist incomplete browser work without semantic validation."""
+
+        self.authorization.require(
+            actor, Capability.MAPPING_EDIT, project_id=project_id
+        )
+        selection = self.repository.get_mapping_source_selection(project_id)
+        schema = self.repository.get_odoo_schema_catalog(project_id)
+        governance = self.repository.get_schema_governance(project_id)
+        if selection is None or schema is None:
+            raise WorkspaceError("Freeze datasets and capture Odoo schema first")
+        current = self.repository.get_mapping_revision(project_id)
+        existing = self.repository.get_mapping_working_draft(project_id)
+        actual_version = existing.version if existing else None
+        if expected_version != actual_version:
+            raise WorkspaceError(
+                "The working draft was modified by another request; reload it"
+            )
+        if existing is not None:
+            mapping_id = existing.mapping_id
+        elif current is not None:
+            mapping_id = current.mapping_id
+        else:
+            mapping_id = str(uuid4())
+        definition = MappingDefinition(
+            mapping_id=mapping_id,
+            source_selection_hash=selection.content_hash,
+            schema_hash=(
+                governance.content_hash
+                if governance is not None
+                else schema.content_hash
+            ),
+            datasets=tuple(datasets),
+        )
+        draft = MappingWorkingDraft(
+            mapping_id=mapping_id,
+            version=(actual_version or 0) + 1,
+            project_id=project_id,
+            base_mapping_version=current.version if current else None,
+            definition=definition,
+            updated_at=datetime.now(timezone.utc),
+            updated_by=actor.identity.display_name,
+        )
+        self.repository.save_mapping_working_draft(
+            project_id,
+            draft,
+            expected_version=expected_version,
+            actor=actor,
+        )
+        return draft
+
     def save_definition(
         self,
         project_id: str,
@@ -1011,7 +1137,29 @@ class MappingWorkspaceService:
             raise WorkspaceError(
                 "The mapping was modified by another request; reload it"
             )
-        mapping_id = current.mapping_id if current else str(uuid4())
+        working_draft = self.repository.get_mapping_working_draft(project_id)
+        expected_schema_hash = (
+            governance.content_hash
+            if governance is not None
+            else schema.content_hash
+        )
+        compatible_working_draft = (
+            working_draft
+            if working_draft is not None
+            and working_draft.definition.source_selection_hash
+            == selection.content_hash
+            and working_draft.definition.schema_hash == expected_schema_hash
+            else None
+        )
+        mapping_id = (
+            current.mapping_id
+            if current is not None
+            else (
+                compatible_working_draft.mapping_id
+                if compatible_working_draft is not None
+                else str(uuid4())
+            )
+        )
         definition = self.compiler.compile(
             MappingDefinition(
                 mapping_id=mapping_id,

@@ -121,6 +121,89 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const mappingForm = document.querySelector("[data-mapping-form]");
+  if (mappingForm) {
+    const saveStatus = mappingForm.querySelector(
+      "[data-mapping-save-status]"
+    );
+    const saveProgress = mappingForm.querySelector(
+      "[data-save-mapping-progress]"
+    );
+    let dirty = false;
+    let submitting = false;
+
+    const savedAt = saveStatus?.dataset.savedAt;
+    if (saveStatus && savedAt) {
+      const savedDate = new Date(savedAt);
+      if (!Number.isNaN(savedDate.getTime())) {
+        saveStatus.textContent = `Saved ${savedDate.toLocaleString()}.`;
+      }
+    }
+
+    const marksMappingDirty = (control) => {
+      if (
+        !(control instanceof HTMLInputElement) &&
+        !(control instanceof HTMLSelectElement) &&
+        !(control instanceof HTMLTextAreaElement)
+      ) {
+        return false;
+      }
+      return Boolean(control.name) && ![
+        "csrf_token",
+        "expected_parent_version",
+        "expected_working_draft_version",
+        "warning_acknowledgement",
+      ].includes(control.name);
+    };
+
+    const markMappingDirty = (event) => {
+      if (!marksMappingDirty(event.target)) {
+        return;
+      }
+      dirty = true;
+      if (saveStatus) {
+        saveStatus.textContent = "Unsaved changes.";
+        saveStatus.classList.add("unsaved");
+      }
+    };
+    mappingForm.addEventListener("input", markMappingDirty);
+    mappingForm.addEventListener("change", markMappingDirty);
+
+    mappingForm.addEventListener("submit", (event) => {
+      submitting = true;
+      mappingForm.setAttribute("aria-busy", "true");
+      if (saveStatus) {
+        const action = event.submitter?.value || "";
+        saveStatus.textContent =
+          action === "save_progress"
+            ? "Saving progress..."
+            : action === "submit"
+              ? "Saving, validating, and submitting..."
+              : "Saving and validating...";
+        saveStatus.classList.remove("unsaved");
+      }
+    });
+
+    window.addEventListener("beforeunload", (event) => {
+      if (!dirty || submitting) {
+        return;
+      }
+      event.preventDefault();
+      event.returnValue = "";
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLocaleLowerCase() === "s" &&
+        saveProgress
+      ) {
+        event.preventDefault();
+        mappingForm.requestSubmit(saveProgress);
+      }
+    });
+  }
+
   const modelPicker = document.querySelector("[data-model-picker]");
   if (modelPicker) {
     const search = modelPicker.querySelector("[data-model-search]");
@@ -294,11 +377,34 @@ document.addEventListener("DOMContentLoaded", () => {
     if (value !== null && collapse) {
       value = value.replace(/\s+/g, " ");
     }
+    const searchValue = row.querySelector("[data-rule-search]")?.value || "";
+    const replacementValue =
+      row.querySelector("[data-rule-replacement]")?.value || "";
+    const searchMode =
+      row.querySelector("[data-rule-search-mode]")?.value || "literal";
+    const replaceAll = row.querySelector("[data-rule-replace-all]")?.checked;
+    if (value !== null && searchValue) {
+      if (searchMode === "pattern") {
+        throw new Error("Save to validate the advanced find pattern");
+      }
+      value = replaceAll
+        ? value.split(searchValue).join(replacementValue)
+        : value.replace(searchValue, replacementValue);
+    }
     if (value !== null && caseMode === "uppercase") {
       value = value.toUpperCase();
     }
     if (value !== null && caseMode === "lowercase") {
       value = value.toLowerCase();
+    }
+    if (value !== null && caseMode === "sentence") {
+      value = value.replace(/[A-Za-z]/, (character) => character.toUpperCase());
+    }
+    if (value !== null && caseMode === "title") {
+      value = value.replace(
+        /\b\p{L}+/gu,
+        (word) => word.charAt(0).toLocaleUpperCase() + word.slice(1).toLocaleLowerCase()
+      );
     }
     if (value === "" && emptyAsNull) {
       return null;
@@ -339,6 +445,10 @@ document.addEventListener("DOMContentLoaded", () => {
         normalized = normalized.replaceAll(".", "").replace(",", ".");
       } else if (locale === "fr_FR") {
         normalized = normalized.replace(/[\s\u00a0\u202f]/g, "").replace(",", ".");
+      }
+      const places = row.querySelector("[data-round-places]")?.value;
+      if (places !== undefined && places !== "") {
+        throw new Error("Save to validate exact decimal rounding");
       }
       return normalized;
     }
@@ -430,6 +540,47 @@ document.addEventListener("DOMContentLoaded", () => {
     return value;
   };
 
+  const validateRulePreview = (row, value) => {
+    if (value === null || row.querySelector("[data-canonical-type]")?.value !== "string") {
+      return;
+    }
+    const exactLength = row.querySelector("[data-rule-exact-length]")?.value;
+    if (exactLength && value.length !== Number.parseInt(exactLength, 10)) {
+      throw new Error(`Expected exactly ${exactLength} characters`);
+    }
+    const location =
+      row.querySelector("[data-rule-segment-location]")?.value || "none";
+    const characterClass =
+      row.querySelector("[data-rule-character-class]")?.value || "none";
+    if (location !== "none" && characterClass !== "none") {
+      const countValue = row.querySelector("[data-rule-segment-length]")?.value;
+      const count = Number.parseInt(countValue || "0", 10);
+      if (["first", "last"].includes(location) && !count) {
+        throw new Error("Enter how many first or last characters to check");
+      }
+      if (["first", "last"].includes(location) && value.length < count) {
+        throw new Error(`Expected at least ${count} characters`);
+      }
+      const segment =
+        location === "first"
+          ? value.slice(0, count)
+          : location === "last"
+            ? value.slice(-count)
+            : value;
+      const patterns = {
+        digits: /^[0-9]+$/,
+        uppercase: /^[A-Z]+$/,
+        lowercase: /^[a-z]+$/,
+      };
+      if (!patterns[characterClass]?.test(segment)) {
+        throw new Error("The character check does not pass");
+      }
+    }
+    if (row.querySelector("[data-rule-pattern]")?.value) {
+      throw new Error("Save to validate the advanced custom pattern");
+    }
+  };
+
   for (const row of document.querySelectorAll("[data-scalar-mapping-row]")) {
     const provider = row.querySelector("[data-value-source]");
     const sourceControl = row.querySelector("[data-provider-source]");
@@ -457,10 +608,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const type = canonicalType?.value || "string";
       const decimalPolicy = row.querySelector("[data-decimal-policy]");
+      const roundingPolicy = row.querySelector("[data-rounding-policy]");
       const datePolicy = row.querySelector("[data-date-policy]");
       const timezonePolicy = row.querySelector("[data-timezone-policy]");
       if (decimalPolicy) {
         decimalPolicy.hidden = type !== "decimal";
+      }
+      if (roundingPolicy) {
+        roundingPolicy.hidden = type !== "decimal";
       }
       if (datePolicy) {
         datePolicy.hidden = !["date", "datetime"].includes(type);
@@ -471,6 +626,25 @@ document.addEventListener("DOMContentLoaded", () => {
       const caseControl = row.querySelector("[data-transform-case]");
       if (caseControl) {
         caseControl.disabled = type !== "string";
+      }
+      const textRules = row.querySelector("[data-text-rules]");
+      if (textRules) {
+        textRules.hidden = false;
+      }
+      const textRuleTypeWarning = row.querySelector(
+        "[data-text-rule-type-warning]"
+      );
+      if (textRuleTypeWarning) {
+        textRuleTypeWarning.hidden = type === "string";
+      }
+      const segmentLocation = row.querySelector(
+        "[data-rule-segment-location]"
+      )?.value;
+      const segmentLength = row.querySelector(
+        "[data-segment-length-control]"
+      );
+      if (segmentLength) {
+        segmentLength.hidden = !["first", "last"].includes(segmentLocation);
       }
       for (const policy of row.querySelectorAll(
         'input[name^="scalar_compare_"], input[name^="scalar_validate_only_"], input[name^="scalar_required_"]'
@@ -497,25 +671,32 @@ document.addEventListener("DOMContentLoaded", () => {
       let missing =
         usesSource && selectedOption?.dataset.samplePresent !== "true";
       let raw = mode === "constant" ? literal?.value ?? "" : selectedOption?.dataset.sample;
-      let transformed = transformPreviewValue(row, raw, missing);
-      if (mode === "source_with_fallback" && transformed === null) {
-        raw = literal?.value ?? "";
-        missing = false;
-        transformed = transformPreviewValue(row, raw, missing);
-      }
       previewRaw.textContent = displayPreviewValue(
         usesSource ? selectedOption?.dataset.sample : raw
       );
       try {
-        previewProposed.textContent = displayPreviewValue(
-          canonicalPreviewValue(row, transformed)
-        );
-      } catch {
-        previewProposed.textContent = "Invalid preview; save to validate";
+        let transformed = transformPreviewValue(row, raw, missing);
+        if (mode === "source_with_fallback" && transformed === null) {
+          raw = literal?.value ?? "";
+          missing = false;
+          transformed = transformPreviewValue(row, raw, missing);
+        }
+        const formula = row.querySelector("[data-rule-formula]")?.value.trim();
+        if (formula) {
+          throw new Error("Save to validate the formula");
+        }
+        const proposed = canonicalPreviewValue(row, transformed);
+        validateRulePreview(row, proposed);
+        previewProposed.textContent = displayPreviewValue(proposed);
+      } catch (error) {
+        previewProposed.textContent =
+          error instanceof Error
+            ? error.message
+            : "Invalid preview; save to validate";
         previewProposed.classList.add("preview-error");
       }
     };
-    for (const control of row.querySelectorAll("select, input")) {
+    for (const control of row.querySelectorAll("select, input, textarea")) {
       control.addEventListener("change", updateScalarRow);
       control.addEventListener("input", updateScalarRow);
     }

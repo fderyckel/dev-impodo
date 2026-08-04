@@ -7,7 +7,9 @@
       <h1>Map source columns to Odoo</h1>
       <p>Define each dataset's identity, scope, scalar fields, and logical business-key relationships.</p>
     </div>
-    {% if submission %}
+    {% if has_unvalidated_changes %}
+      <span class="status">WORKING DRAFT · v{{ working_draft.version }}</span>
+    {% elif submission %}
       <span class="status registered">SUBMITTED · v{{ submission.version }}</span>
     {% elif revision %}
       <span class="status registered">DRAFT · v{{ revision.version }}</span>
@@ -23,16 +25,30 @@
     </div>
   {% endif %}
 
+  {% if working_draft_is_stale %}
+    <div class="notice warning">
+      Saved mapping progress belongs to earlier source or schema evidence and
+      was not restored. Review the current evidence before replacing it.
+    </div>
+  {% elif has_unvalidated_changes %}
+    <div class="notice success">
+      Your saved working draft is loaded. You can continue editing or validate
+      it when ready.
+    </div>
+  {% endif %}
+
   {% if selection and schema and governance %}
-    <form method="post" action="/projects/{{ project.project_id }}/mapping/save">
+    <form method="post" action="/projects/{{ project.project_id }}/mapping/save" data-mapping-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="expected_parent_version" value="{{ revision.version if revision else '' }}">
+      <input type="hidden" name="expected_working_draft_version" value="{{ working_draft.version if working_draft else '' }}">
 
       <section class="form-card evidence-card">
         <h2>Evidence binding</h2>
         <div class="definition-list">
           <div><dt>Frozen source</dt><dd><code title="{{ selection.content_hash }}">{{ selection.content_hash }}</code></dd></div>
           <div><dt>Governed schema</dt><dd><code title="{{ governance.content_hash }}">{{ governance.content_hash }}</code></dd></div>
+          {% if working_draft_is_current %}<div><dt>Working draft</dt><dd><code title="{{ working_draft.content_hash }}">{{ working_draft.content_hash }}</code></dd></div>{% endif %}
           {% if revision %}<div><dt>Mapping</dt><dd><code title="{{ revision.definition.content_hash }}">{{ revision.definition.content_hash }}</code></dd></div>{% endif %}
           {% if validation %}<div><dt>Validation</dt><dd><code title="{{ validation.validation_hash }}">{{ validation.validation_hash }}</code></dd></div>{% endif %}
         </div>
@@ -235,6 +251,8 @@
                       </div>
                     </td>
                     <td class="transform-cell">
+                      {% set transform = mapping.transform if mapping else none %}
+                      {% set validation_rule = mapping.validation if mapping else none %}
                       <select name="scalar_type_{{ dataset_index }}_{{ field_index }}" data-canonical-type>
                         {% set selected_type = mapping.value_type if mapping else row.canonical_type %}
                         {% for value_type in ('string', 'integer', 'decimal', 'boolean', 'date', 'datetime') %}
@@ -249,9 +267,11 @@
                       <label class="compact-control">Case
                         <select name="scalar_case_{{ dataset_index }}_{{ field_index }}" data-transform-case>
                           {% set case_mode = mapping.transform.case_mode if mapping else 'preserve' %}
-                          {% for case_value in ('preserve', 'uppercase', 'lowercase') %}
-                            <option value="{{ case_value }}" {% if case_mode == case_value %}selected{% endif %}>{{ case_value }}</option>
-                          {% endfor %}
+                          <option value="preserve" {% if case_mode == 'preserve' %}selected{% endif %}>Keep as-is</option>
+                          <option value="uppercase" {% if case_mode == 'uppercase' %}selected{% endif %}>ALL CAPITALS</option>
+                          <option value="lowercase" {% if case_mode == 'lowercase' %}selected{% endif %}>all lowercase</option>
+                          <option value="sentence" {% if case_mode == 'sentence' %}selected{% endif %}>Sentence case</option>
+                          <option value="title" {% if case_mode == 'title' %}selected{% endif %}>Title Case</option>
                         </select>
                       </label>
                       <label class="compact-control" data-decimal-policy>
@@ -279,6 +299,192 @@
                           <option value="UTC" selected>UTC</option>
                         </select>
                       </label>
+                      <div class="compact-control" data-rounding-policy>
+                        <span>Decimal rounding</span>
+                        <div class="rule-inline-fields">
+                          <label>
+                            Places
+                            <input
+                              type="number"
+                              name="scalar_round_places_{{ dataset_index }}_{{ field_index }}"
+                              min="0"
+                              max="18"
+                              value="{{ transform.decimal_places if transform and transform.decimal_places is not none else '' }}"
+                              placeholder="No rounding"
+                              data-round-places
+                            >
+                          </label>
+                          <label>
+                            Method
+                            {% set rounding_mode = transform.rounding_mode if transform else 'half_up' %}
+                            <select name="scalar_round_mode_{{ dataset_index }}_{{ field_index }}" data-round-mode>
+                              <option value="half_up" {% if rounding_mode == 'half_up' %}selected{% endif %}>Nearest; 5 rounds up</option>
+                              <option value="half_even" {% if rounding_mode == 'half_even' %}selected{% endif %}>Nearest even</option>
+                              <option value="up" {% if rounding_mode == 'up' %}selected{% endif %}>Away from zero</option>
+                              <option value="down" {% if rounding_mode == 'down' %}selected{% endif %}>Toward zero</option>
+                              <option value="ceiling" {% if rounding_mode == 'ceiling' %}selected{% endif %}>Toward positive</option>
+                              <option value="floor" {% if rounding_mode == 'floor' %}selected{% endif %}>Toward negative</option>
+                            </select>
+                          </label>
+                        </div>
+                        <small>For money, confirm the currency precision before rounding.</small>
+                      </div>
+
+                      {% set value_rules_configured = mapping and (
+                        transform.search_value
+                        or transform.formula
+                        or transform.decimal_places is not none
+                        or validation_rule.configured
+                      ) %}
+                      <details class="value-rule-builder" {% if value_rules_configured %}open{% endif %} data-value-rule-builder>
+                        <summary>
+                          <span>Value rules</span>
+                          <small>{{ "Configured" if value_rules_configured else "Optional" }}</small>
+                        </summary>
+                        <div class="value-rule-content">
+                          <p class="muted rule-type-warning" data-text-rule-type-warning hidden>
+                            Text changes and checks require the string type. Clear them here or change the canonical type back to string.
+                          </p>
+                          <div data-text-rules>
+                            <h4>Make the text consistent</h4>
+                            <p class="muted">Impodo applies these changes to the proposed value. Your registered source stays unchanged.</p>
+                            <div class="rule-inline-fields">
+                              <label>
+                                Find
+                                <input
+                                  name="scalar_search_{{ dataset_index }}_{{ field_index }}"
+                                  value="{{ transform.search_value if transform else '' }}"
+                                  maxlength="500"
+                                  placeholder="Text to find"
+                                  data-rule-search
+                                >
+                              </label>
+                              <label>
+                                Replace with
+                                <input
+                                  name="scalar_replacement_{{ dataset_index }}_{{ field_index }}"
+                                  value="{{ transform.replacement_value if transform else '' }}"
+                                  maxlength="1000"
+                                  placeholder="Leave empty to remove"
+                                  data-rule-replacement
+                                >
+                              </label>
+                            </div>
+                            <div class="rule-inline-fields compact">
+                              <label>
+                                How to find it
+                                {% set search_mode = transform.search_mode if transform else 'literal' %}
+                                <select name="scalar_search_mode_{{ dataset_index }}_{{ field_index }}" data-rule-search-mode>
+                                  <option value="literal" {% if search_mode == 'literal' %}selected{% endif %}>Plain text (recommended)</option>
+                                  <option value="pattern" {% if search_mode == 'pattern' %}selected{% endif %}>Advanced pattern</option>
+                                </select>
+                              </label>
+                              <label class="checkbox rule-checkbox">
+                                <input
+                                  type="checkbox"
+                                  name="scalar_replace_all_{{ dataset_index }}_{{ field_index }}"
+                                  value="1"
+                                  {% if not transform or transform.replace_all %}checked{% endif %}
+                                  data-rule-replace-all
+                                >
+                                Replace every match
+                              </label>
+                            </div>
+
+                            <h4>Check the final text</h4>
+                            <div class="rule-inline-fields">
+                              <label>
+                                Must be exactly
+                                <span class="input-with-suffix">
+                                  <input
+                                    type="number"
+                                    name="scalar_exact_length_{{ dataset_index }}_{{ field_index }}"
+                                    min="1"
+                                    max="10000"
+                                    value="{{ validation_rule.exact_length if validation_rule and validation_rule.exact_length is not none else '' }}"
+                                    placeholder="Any"
+                                    data-rule-exact-length
+                                  >
+                                  <span>characters</span>
+                                </span>
+                              </label>
+                              <label>
+                                Characters to check
+                                {% set segment_location = validation_rule.segment_location if validation_rule else 'none' %}
+                                <select name="scalar_segment_location_{{ dataset_index }}_{{ field_index }}" data-rule-segment-location>
+                                  <option value="none" {% if segment_location == 'none' %}selected{% endif %}>No character check</option>
+                                  <option value="entire" {% if segment_location == 'entire' %}selected{% endif %}>The whole value</option>
+                                  <option value="first" {% if segment_location == 'first' %}selected{% endif %}>The first characters</option>
+                                  <option value="last" {% if segment_location == 'last' %}selected{% endif %}>The last characters</option>
+                                </select>
+                              </label>
+                            </div>
+                            <div class="rule-inline-fields" data-segment-options>
+                              <label data-segment-length-control>
+                                How many characters?
+                                <input
+                                  type="number"
+                                  name="scalar_segment_length_{{ dataset_index }}_{{ field_index }}"
+                                  min="1"
+                                  max="10000"
+                                  value="{{ validation_rule.segment_length if validation_rule and validation_rule.segment_length is not none else '' }}"
+                                  placeholder="For first or last"
+                                  data-rule-segment-length
+                                >
+                              </label>
+                              <label>
+                                They must be
+                                {% set character_class = validation_rule.character_class if validation_rule else 'none' %}
+                                <select name="scalar_character_class_{{ dataset_index }}_{{ field_index }}" data-rule-character-class>
+                                  <option value="none" {% if character_class == 'none' %}selected{% endif %}>Choose a character type</option>
+                                  <option value="digits" {% if character_class == 'digits' %}selected{% endif %}>Digits 0–9</option>
+                                  <option value="uppercase" {% if character_class == 'uppercase' %}selected{% endif %}>Capital letters A–Z</option>
+                                  <option value="lowercase" {% if character_class == 'lowercase' %}selected{% endif %}>Lowercase letters a–z</option>
+                                </select>
+                              </label>
+                            </div>
+
+                            <details class="advanced-rule">
+                              <summary>Advanced: custom pattern</summary>
+                              <label>
+                                The whole value must match
+                                <input
+                                  name="scalar_pattern_{{ dataset_index }}_{{ field_index }}"
+                                  value="{{ validation_rule.pattern if validation_rule else '' }}"
+                                  maxlength="500"
+                                  placeholder="Example: [A-Z]{3}[0-9]{4}"
+                                  spellcheck="false"
+                                  data-rule-pattern
+                                >
+                              </label>
+                              <small>Most users should use the guided checks above. Impodo validates advanced patterns before any row is checked.</small>
+                            </details>
+                          </div>
+
+                          <details class="advanced-rule">
+                            <summary>Advanced: formula or custom calculation</summary>
+                            <label>
+                              Formula
+                              <textarea
+                                name="scalar_formula_{{ dataset_index }}_{{ field_index }}"
+                                maxlength="1000"
+                                rows="2"
+                                placeholder="Example: column_2 * column_3"
+                                spellcheck="false"
+                                data-rule-formula
+                              >{{ transform.formula if transform else '' }}</textarea>
+                            </label>
+                            <small>
+                              Safe formulas only—no files, network, Odoo access, loops, or imported code.
+                              Available values:
+                              <code>value</code> (this field)
+                              {% for column in view.source.columns %}
+                                · <code>column_{{ column.ordinal }}</code> ({{ column.source_name }})
+                              {% endfor %}
+                            </small>
+                          </details>
+                        </div>
+                      </details>
                     </td>
                     <th data-target="{{ view.selected_model }}::{{ row.metadata.name }}">
                       {{ row.metadata.label }}<br><code>{{ row.metadata.name }}</code>
@@ -473,8 +679,24 @@
       {% endif %}
 
       <div class="actions mapping-actions">
+        <p
+          class="mapping-save-state"
+          data-mapping-save-status
+          data-saved-at="{{ working_draft.updated_at.isoformat() if working_draft_is_current else '' }}"
+          role="status"
+          aria-live="polite"
+        >
+          {% if working_draft_is_current %}
+            Saved progress is loaded.
+          {% elif revision %}
+            Validated mapping version {{ revision.version }} is loaded.
+          {% else %}
+            Changes are not saved yet.
+          {% endif %}
+        </p>
         <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Back to schema</a>
-        <button class="button secondary" name="action" value="draft" type="submit">Save and validate draft</button>
+        <button class="button secondary" name="action" value="save_progress" type="submit" data-save-mapping-progress>Save progress</button>
+        <button class="button secondary" name="action" value="draft" type="submit">Validate draft</button>
         {% if submission %}
           <a class="button primary" href="/projects/{{ project.project_id }}/summary">Check data readiness</a>
         {% elif schema.origin.value != 'LOCAL_MANUAL' %}

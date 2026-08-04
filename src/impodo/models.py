@@ -62,6 +62,14 @@ class Issue:
 
 
 @dataclass(frozen=True, slots=True)
+class InvalidPreparedValue:
+    """Internal row-local rule failure passed into source preparation."""
+
+    code: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
 class LogicalReference:
     """A portable reference intent awaiting resolution."""
 

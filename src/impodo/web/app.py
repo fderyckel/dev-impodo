@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
+import json
 from pathlib import Path
 import re
 import secrets
 from typing import Callable
+from urllib.parse import parse_qsl, urlencode
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
@@ -70,6 +77,7 @@ from ..mapping_semantics import (
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarTransformPolicy,
+    ScalarValidationPolicy,
     ScalarValueError,
     ScalarValueSource,
     canonicalize_scalar_value,
@@ -130,6 +138,12 @@ ODOO_APPLICATIONS = (
 )
 _MANUAL_FIELD_NAME = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
 _MANUAL_FIELD_TYPE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+MAPPING_MAX_REQUEST_BYTES = 5 * 1024 * 1024
+MAPPING_MAX_FORM_FIELDS = 25_000
+MAPPING_MAX_JSON_ENTRIES = 10_000
+MAPPING_MAX_FORM_NAME_LENGTH = 256
+MAPPING_MAX_FORM_VALUE_LENGTH = 64 * 1024
+MAPPING_FIELDS_PER_PAGE = 25
 _APPLICATION_MODULE_PREFIXES = {
     "Accounting": ("account", "analytic"),
     "Contacts": ("contacts",),
@@ -1698,10 +1712,15 @@ def create_local_app(
         _secure_form(request, form, allowed)
         try:
             action = _text(form, "action")
-            if action not in {"draft", "submit"}:
-                raise WorkspaceError("Choose save draft or submit")
+            if action not in {"save_progress", "draft", "submit"}:
+                raise WorkspaceError(
+                    "Choose save progress, validate draft, or submit"
+                )
             expected_parent = _optional_int(
                 _text(form, "expected_parent_version")
+            )
+            expected_working_version = _optional_int(
+                _text(form, "expected_working_draft_version")
             )
             datasets = _mapping_datasets_from_form(
                 form,
@@ -1709,6 +1728,24 @@ def create_local_app(
                 schema,
                 governance,
             )
+            working_draft = context.mapping_workspace.save_working_draft(
+                project_id,
+                datasets=datasets,
+                expected_version=expected_working_version,
+                actor=context.actor,
+            )
+            if action == "save_progress":
+                _flash(
+                    request,
+                    (
+                        f"Saved working draft version {working_draft.version}. "
+                        "No semantic validation was run."
+                    ),
+                )
+                return RedirectResponse(
+                    f"/projects/{project_id}/mapping",
+                    status_code=303,
+                )
             revision, validation, submission = (
                 context.mapping_workspace.save_definition(
                     project_id,
@@ -2559,20 +2596,49 @@ def _render_mapping(
     schema = context.repository.get_odoo_schema_catalog(project_id)
     governance = context.repository.get_schema_governance(project_id)
     revision = context.repository.get_mapping_revision(project_id)
-    validation = (
+    stored_validation = (
         context.repository.get_mapping_validation(
             project_id, revision.version
         )
         if revision
         else None
     )
-    submission = (
+    stored_submission = (
         context.repository.get_mapping_submission(
             project_id, revision.version
         )
         if revision
         else None
     )
+    working_draft = context.repository.get_mapping_working_draft(project_id)
+    expected_schema_hash = None
+    if governance is not None:
+        expected_schema_hash = governance.content_hash
+    elif schema is not None:
+        expected_schema_hash = schema.content_hash
+    working_draft_is_current = bool(
+        working_draft is not None
+        and selection is not None
+        and expected_schema_hash is not None
+        and working_draft.definition.source_selection_hash
+        == selection.content_hash
+        and working_draft.definition.schema_hash == expected_schema_hash
+    )
+    active_definition = None
+    if working_draft_is_current and working_draft is not None:
+        active_definition = working_draft.definition
+    elif revision is not None:
+        active_definition = revision.definition
+    has_unvalidated_changes = bool(
+        working_draft_is_current
+        and working_draft is not None
+        and (
+            revision is None
+            or working_draft.content_hash != revision.definition.content_hash
+        )
+    )
+    validation = None if has_unvalidated_changes else stored_validation
+    submission = None if has_unvalidated_changes else stored_submission
     legacy_draft = context.repository.get_mapping_draft(project_id)
     source_catalogs = (
         context.repository.get_source_catalogs(project_id)
@@ -2584,7 +2650,7 @@ def _render_mapping(
             selection,
             schema,
             governance,
-            revision.definition.datasets if revision else (),
+            active_definition.datasets if active_definition else (),
             source_catalogs,
             {
                 index: request.query_params.get(f"target_model_{index}", "")
@@ -2613,6 +2679,12 @@ def _render_mapping(
         revision=revision,
         validation=validation,
         submission=submission,
+        working_draft=working_draft,
+        working_draft_is_current=working_draft_is_current,
+        working_draft_is_stale=(
+            working_draft is not None and not working_draft_is_current
+        ),
+        has_unvalidated_changes=has_unvalidated_changes,
         legacy_draft=legacy_draft,
         dataset_views=dataset_views,
         warning_issues=warning_issues,
@@ -2762,6 +2834,7 @@ def _mapping_dataset_views(
                 "preview": _scalar_mapping_preview(
                     scalar_by_target.get(field.name),
                     source_samples,
+                    source_dataset.columns,
                 ),
             }
             for field_index, field in enumerate(all_scalar_fields)
@@ -2896,6 +2969,7 @@ def _mapping_source_samples(
 def _scalar_mapping_preview(
     mapping: ScalarFieldMapping | None,
     source_samples: dict[str, tuple[str | None, ...]],
+    source_columns=(),
 ) -> dict[str, str] | None:
     if mapping is None:
         return None
@@ -2912,7 +2986,21 @@ def _scalar_mapping_preview(
         samples = source_samples.get(mapping.source_column_key, ())
         raw = samples[0] if samples else None
     try:
-        proposed = canonicalize_scalar_value(mapping, raw)
+        proposed = canonicalize_scalar_value(
+            mapping,
+            raw,
+            formula_context={
+                "value": raw,
+                **{
+                    f"column_{column.ordinal}": (
+                        source_samples.get(column.stable_key, (None,))[0]
+                        if source_samples.get(column.stable_key)
+                        else None
+                    )
+                    for column in source_columns
+                },
+            },
+        )
     except ScalarValueError as error:
         return {
             "raw": _display_mapping_value(raw),
@@ -2941,6 +3029,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
         "csrf_token",
         "action",
         "expected_parent_version",
+        "expected_working_draft_version",
         "warning_acknowledgement",
     }
     model_names = {item.name for item in schema.models}
@@ -2985,6 +3074,18 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"scalar_decimal_locale_{dataset_index}_{field_index}",
                     f"scalar_date_format_{dataset_index}_{field_index}",
                     f"scalar_timezone_{dataset_index}_{field_index}",
+                    f"scalar_search_{dataset_index}_{field_index}",
+                    f"scalar_replacement_{dataset_index}_{field_index}",
+                    f"scalar_search_mode_{dataset_index}_{field_index}",
+                    f"scalar_replace_all_{dataset_index}_{field_index}",
+                    f"scalar_round_places_{dataset_index}_{field_index}",
+                    f"scalar_round_mode_{dataset_index}_{field_index}",
+                    f"scalar_formula_{dataset_index}_{field_index}",
+                    f"scalar_exact_length_{dataset_index}_{field_index}",
+                    f"scalar_segment_location_{dataset_index}_{field_index}",
+                    f"scalar_segment_length_{dataset_index}_{field_index}",
+                    f"scalar_character_class_{dataset_index}_{field_index}",
+                    f"scalar_pattern_{dataset_index}_{field_index}",
                     f"scalar_compare_{dataset_index}_{field_index}",
                     f"scalar_validate_only_{dataset_index}_{field_index}",
                     f"scalar_required_{dataset_index}_{field_index}",
@@ -3187,6 +3288,74 @@ def _mapping_datasets_from_form(
                                 f"scalar_timezone_{dataset_index}_{field_index}",
                             )
                             or "UTC"
+                        ),
+                        search_value=_text(
+                            form,
+                            f"scalar_search_{dataset_index}_{field_index}",
+                        ),
+                        replacement_value=_text(
+                            form,
+                            f"scalar_replacement_{dataset_index}_{field_index}",
+                        ),
+                        search_mode=(
+                            _text(
+                                form,
+                                f"scalar_search_mode_{dataset_index}_{field_index}",
+                            )
+                            or "literal"
+                        ),
+                        replace_all=_checked(
+                            form,
+                            f"scalar_replace_all_{dataset_index}_{field_index}",
+                        ),
+                        decimal_places=_optional_int(
+                            _text(
+                                form,
+                                f"scalar_round_places_{dataset_index}_{field_index}",
+                            )
+                        ),
+                        rounding_mode=(
+                            _text(
+                                form,
+                                f"scalar_round_mode_{dataset_index}_{field_index}",
+                            )
+                            or "half_up"
+                        ),
+                        formula=_text(
+                            form,
+                            f"scalar_formula_{dataset_index}_{field_index}",
+                        ),
+                    ),
+                    validation=ScalarValidationPolicy(
+                        exact_length=_optional_int(
+                            _text(
+                                form,
+                                f"scalar_exact_length_{dataset_index}_{field_index}",
+                            )
+                        ),
+                        segment_location=(
+                            _text(
+                                form,
+                                f"scalar_segment_location_{dataset_index}_{field_index}",
+                            )
+                            or "none"
+                        ),
+                        segment_length=_optional_int(
+                            _text(
+                                form,
+                                f"scalar_segment_length_{dataset_index}_{field_index}",
+                            )
+                        ),
+                        character_class=(
+                            _text(
+                                form,
+                                f"scalar_character_class_{dataset_index}_{field_index}",
+                            )
+                            or "none"
+                        ),
+                        pattern=_text(
+                            form,
+                            f"scalar_pattern_{dataset_index}_{field_index}",
                         ),
                     ),
                     value_type=(

@@ -198,8 +198,8 @@ Detailed acceptance cases and commands belong in
 ## Out of scope
 
 - modifying registered source files;
-- arbitrary Python, formulas, server actions, or unrestricted regular
-  expressions supplied by users;
+- arbitrary in-process Python, server actions, unbounded regular expressions,
+  or formulas with file, network, environment, import, loop, or Odoo access;
 - automatic fuzzy merges or unreviewed survivorship;
 - generic Odoo RPC, SQL, or production write capability;
 - treating a successful command, mapping submission, or approval as an

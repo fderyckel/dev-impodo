@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import tempfile
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -1425,6 +1425,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn("data-scalar-table-scroll", mapping_page.text)
         self.assertIn("Preview", mapping_page.text)
+        self.assertIn("Value rules", mapping_page.text)
+        self.assertIn("Must be exactly", mapping_page.text)
+        self.assertIn("The first characters", mapping_page.text)
+        self.assertIn("Plain text (recommended)", mapping_page.text)
+        self.assertIn("Advanced: custom pattern", mapping_page.text)
+        self.assertIn("Advanced: formula or custom calculation", mapping_page.text)
+        self.assertIn("Safe formulas only", mapping_page.text)
 
         mapping_script = self.client.get("/static/app.js")
         self.assertIn("updateScalarTableScroll", mapping_script.text)
@@ -1432,9 +1439,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "new ResizeObserver(updateScalarTableScroll)",
             mapping_script.text,
         )
+        self.assertIn('window.addEventListener("beforeunload"', mapping_script.text)
+        self.assertIn("mappingForm.requestSubmit(saveProgress)", mapping_script.text)
         mapping_styles = self.client.get("/static/app.css")
         self.assertIn(".scalar-table-scroll-top", mapping_styles.text)
         self.assertIn("overflow-x: scroll", mapping_styles.text)
+        self.assertIn(".mapping-save-state.unsaved", mapping_styles.text)
 
         selection = (
             self.app.state.context.repository.get_source_selection(project_id)
@@ -1448,12 +1458,59 @@ class ProjectSetupWizardTests(unittest.TestCase):
         customer_code, customer_name = customer.columns
         product_code, product_name = product.columns
         business_key_id = schema_governance.business_keys[0].key_id
+        saved_progress = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            data={
+                "csrf_token": self.csrf,
+                "action": "save_progress",
+                "expected_parent_version": "",
+                "expected_working_draft_version": "",
+                "target_model_0": "res.partner",
+                "mode_0": "upsert",
+                "scalar_value_source_0_1": "source",
+                "scalar_type_0_1": "string",
+                "scalar_case_0_1": "preserve",
+                "scalar_formula_0_1": 'coalesce(value, "Unnamed contact")',
+                "scalar_compare_0_1": "1",
+                "scalar_null_0_1": "distinct",
+                "target_model_1": "res.partner",
+                "mode_1": "upsert",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(saved_progress.status_code, 303)
+        saved_progress_page = self.client.get(
+            saved_progress.headers["location"]
+        )
+        self.assertIn("Saved working draft version 1", saved_progress_page.text)
+        self.assertIn("No semantic validation was run", saved_progress_page.text)
+        self.assertIn("WORKING DRAFT", saved_progress_page.text)
+        self.assertIn("Your saved working draft is loaded", saved_progress_page.text)
+        working_draft = (
+            self.app.state.context.repository.get_mapping_working_draft(
+                project_id
+            )
+        )
+        self.assertEqual(working_draft.version, 1)
+        working_by_dataset = {
+            item.dataset_id: item
+            for item in working_draft.definition.datasets
+        }
+        self.assertEqual(
+            working_by_dataset[customer.dataset_id].fields[0].source_column_key,
+            "",
+        )
+        self.assertIsNone(
+            self.app.state.context.repository.get_mapping_revision(project_id)
+        )
         submitted = self.client.post(
             f"/projects/{project_id}/mapping/save",
             data={
                 "csrf_token": self.csrf,
                 "action": "submit",
                 "expected_parent_version": "",
+                "expected_working_draft_version": "1",
                 "target_model_0": "res.partner",
                 "mode_0": "upsert",
                 "source_identity_0": customer_code.stable_key,
@@ -1467,6 +1524,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "scalar_collapse_0_1": "1",
                 "scalar_empty_null_0_1": "1",
                 "scalar_case_0_1": "preserve",
+                "scalar_formula_0_1": 'coalesce(value, "Unnamed contact")',
                 "scalar_compare_0_1": "1",
                 "scalar_null_0_1": "distinct",
                 "target_model_1": "res.partner",
@@ -1477,7 +1535,16 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "scalar_value_source_1_1": "constant",
                 "scalar_literal_1_1": "Imported product",
                 "scalar_type_1_1": "string",
-                "scalar_case_1_1": "preserve",
+                "scalar_case_1_1": "sentence",
+                "scalar_search_1_1": "product",
+                "scalar_replacement_1_1": "product",
+                "scalar_search_mode_1_1": "literal",
+                "scalar_replace_all_1_1": "1",
+                "scalar_exact_length_1_1": "16",
+                "scalar_segment_location_1_1": "first",
+                "scalar_segment_length_1_1": "1",
+                "scalar_character_class_1_1": "uppercase",
+                "scalar_pattern_1_1": "[A-Z][a-z ]{15}",
                 "scalar_compare_1_1": "1",
                 "scalar_null_1_1": "distinct",
             },
@@ -1505,6 +1572,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             revision_by_dataset[customer.dataset_id].fields[0].transform.trim
         )
         self.assertEqual(
+            revision_by_dataset[customer.dataset_id].fields[0].transform.formula,
+            'coalesce(value, "Unnamed contact")',
+        )
+        self.assertEqual(
             revision_by_dataset[
                 product.dataset_id
             ].fields[0].value_source.value,
@@ -1514,6 +1585,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
             revision_by_dataset[product.dataset_id].fields[0].literal_value,
             "Imported product",
         )
+        product_field = revision_by_dataset[product.dataset_id].fields[0]
+        self.assertEqual(product_field.transform.case_mode, "sentence")
+        self.assertEqual(product_field.transform.search_value, "product")
+        self.assertEqual(product_field.validation.exact_length, 16)
+        self.assertEqual(product_field.validation.segment_location, "first")
+        self.assertEqual(product_field.validation.character_class, "uppercase")
 
         summary = self.client.get(f"/projects/{project_id}/summary")
         self.assertIn("Check data readiness", summary.text)
@@ -1547,6 +1624,27 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "application/json",
             evidence.headers["content-type"],
         )
+        with patch("impodo.web.app.write_review_workbook") as builder:
+            builder.side_effect = lambda _manifest, workbook: Path(
+                workbook
+            ).write_bytes(b"review package")
+            packaged = self.client.post(
+                f"/projects/{project_id}/summary/package",
+                data={"csrf_token": self.csrf},
+                headers=POST_HEADERS,
+                follow_redirects=False,
+            )
+        self.assertEqual(packaged.status_code, 303)
+        packaged_page = self.client.get(packaged.headers["location"])
+        self.assertIn("Download review package", packaged_page.text)
+        workbook = self.client.get(
+            f"/projects/{project_id}/summary/workbook"
+        )
+        self.assertEqual(workbook.status_code, 200)
+        self.assertIn(
+            "spreadsheetml.sheet",
+            workbook.headers["content-type"],
+        )
 
         project = self.app.state.context.repository.get(project_id)
         changed_scope = self.client.post(
@@ -1572,6 +1670,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIsNone(
             self.app.state.context.repository.get_mapping_revision(project_id)
+        )
+        self.assertIsNotNone(
+            self.app.state.context.repository.get_mapping_working_draft(
+                project_id
+            )
+        )
+        stale_mapping = self.client.get(
+            f"/projects/{project_id}/mapping"
+        )
+        self.assertIn(
+            "Saved mapping progress belongs to earlier source or schema evidence",
+            stale_mapping.text,
         )
 
     def test_saved_key_is_not_reused_after_target_change(self) -> None:

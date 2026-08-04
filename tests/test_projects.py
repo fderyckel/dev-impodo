@@ -221,6 +221,13 @@ class ProjectLifecycleTests(unittest.TestCase):
                  WHERE table_name = 'mapping_revision'
                 """
             ).fetchone()
+            working_draft_table = connection.execute(
+                """
+                SELECT table_name
+                  FROM information_schema.tables
+                 WHERE table_name = 'mapping_working_draft'
+                """
+            ).fetchone()
             model_catalog_table = connection.execute(
                 """
                 SELECT table_name
@@ -231,6 +238,10 @@ class ProjectLifecycleTests(unittest.TestCase):
         self.assertEqual(version, (SCHEMA_VERSION,))
         self.assertEqual(catalog_table, ("source_catalog",))
         self.assertEqual(mapping_table, ("mapping_revision",))
+        self.assertEqual(
+            working_draft_table,
+            ("mapping_working_draft",),
+        )
         self.assertEqual(model_catalog_table, ("odoo_model_catalog",))
 
     def test_version_seven_target_label_is_removed_fail_closed(self) -> None:
@@ -281,6 +292,39 @@ class ProjectLifecycleTests(unittest.TestCase):
             ).fetchone()
         self.assertIsNone(legacy_column_row)
         self.assertEqual(migration_event, ("TARGET_CONTRACT_MIGRATED",))
+
+    def test_version_ten_database_adds_working_mapping_draft(self) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Version ten project",
+            source_system="CSV",
+        )
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            connection.execute("DROP TABLE mapping_working_draft")
+            connection.execute("UPDATE schema_version SET version = 10")
+
+        self.repository.get(project.project_id)
+
+        with self.repository._connect(database_path) as connection:
+            version = connection.execute(
+                "SELECT version FROM schema_version"
+            ).fetchone()
+            working_draft_table = connection.execute(
+                """
+                SELECT table_name
+                  FROM information_schema.tables
+                 WHERE table_name = 'mapping_working_draft'
+                """
+            ).fetchone()
+        self.assertEqual(version, (SCHEMA_VERSION,))
+        self.assertEqual(
+            working_draft_table,
+            ("mapping_working_draft",),
+        )
 
     def test_complete_project_can_be_registered(self) -> None:
         project = self.service.create_project(

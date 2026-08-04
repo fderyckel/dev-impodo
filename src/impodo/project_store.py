@@ -37,6 +37,7 @@ from .projects import (
 from .readiness import ReadinessReport
 from .workspace import (
     MappingDraft,
+    MappingWorkingDraft,
     OdooModelCatalog,
     OdooSchemaCatalog,
     SourceConfiguration,
@@ -45,7 +46,7 @@ from .workspace import (
 )
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 class DuckDbProjectRepository:
@@ -720,6 +721,150 @@ class DuckDbProjectRepository:
             detail=f"version {draft.version}: {len(draft.entries)} mapping(s)",
             actor=actor,
         )
+
+    def get_mapping_working_draft(
+        self,
+        project_id: str,
+    ) -> MappingWorkingDraft | None:
+        value = self._read_singleton_json(
+            project_id,
+            """
+            SELECT draft_json
+              FROM mapping_working_draft
+             WHERE singleton_id = 1
+            """,
+        )
+        return MappingWorkingDraft.from_json(value) if value else None
+
+    def save_mapping_working_draft(
+        self,
+        project_id: str,
+        draft: MappingWorkingDraft,
+        *,
+        expected_version: int | None,
+        actor: Actor,
+    ) -> None:
+        if draft.project_id != project_id:
+            raise WorkspaceError("Working draft belongs to another project")
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            selection_row = connection.execute(
+                """
+                SELECT selection_json
+                  FROM source_selection
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()
+            schema_row = connection.execute(
+                """
+                SELECT catalog_json
+                  FROM odoo_schema_catalog
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()
+            if selection_row is None or schema_row is None:
+                raise WorkspaceError(
+                    "Freeze datasets and capture Odoo schema first"
+                )
+            selection = SourceSelection.from_json(str(selection_row[0]))
+            schema = OdooSchemaCatalog.from_json(str(schema_row[0]))
+            governance_row = connection.execute(
+                """
+                SELECT revision.governance_json
+                  FROM schema_governance_current AS current
+                  JOIN schema_governance_revision AS revision
+                    ON revision.governance_id = current.governance_id
+                   AND revision.version = current.version
+                 WHERE current.singleton_id = 1
+                """
+            ).fetchone()
+            governance = (
+                SchemaGovernance.from_json(str(governance_row[0]))
+                if governance_row is not None
+                else None
+            )
+            expected_schema_hash = (
+                governance.content_hash
+                if governance is not None
+                else schema.content_hash
+            )
+            if (
+                draft.definition.source_selection_hash
+                != selection.content_hash
+                or draft.definition.schema_hash != expected_schema_hash
+            ):
+                raise WorkspaceError(
+                    "Working draft does not match the current mapping evidence"
+                )
+            existing = connection.execute(
+                """
+                SELECT mapping_id, version
+                  FROM mapping_working_draft
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()
+            actual_version = int(existing[1]) if existing else None
+            expected_mapping_id = (
+                str(existing[0]) if existing else draft.mapping_id
+            )
+            current_mapping = connection.execute(
+                """
+                SELECT mapping_id, version
+                  FROM mapping_current
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()
+            actual_base_version = (
+                int(current_mapping[1]) if current_mapping else None
+            )
+            if current_mapping is not None:
+                expected_mapping_id = str(current_mapping[0])
+            if (
+                actual_version != expected_version
+                or draft.version != (actual_version or 0) + 1
+                or draft.mapping_id != expected_mapping_id
+                or draft.base_mapping_version != actual_base_version
+            ):
+                raise WorkspaceError(
+                    "The working draft was modified by another request"
+                )
+            revision = self._project_revision(connection)
+            connection.begin()
+            try:
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO mapping_working_draft
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        1,
+                        draft.mapping_id,
+                        draft.version,
+                        draft.definition.source_selection_hash,
+                        draft.definition.schema_hash,
+                        draft.content_hash,
+                        draft.updated_at.isoformat(),
+                        draft.to_json(),
+                    ],
+                )
+                self._insert_workspace_audit(
+                    connection,
+                    revision=revision,
+                    event_type="MAPPING_WORKING_DRAFT_SAVED",
+                    detail=(
+                        f"version {draft.version}: "
+                        f"{len(draft.definition.datasets)} dataset(s); "
+                        "semantic validation not run"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
     def get_mapping_revision(
         self,
@@ -1537,6 +1682,17 @@ class DuckDbProjectRepository:
                 draft_json VARCHAR NOT NULL
             );
 
+            CREATE TABLE mapping_working_draft (
+                singleton_id INTEGER PRIMARY KEY,
+                mapping_id VARCHAR NOT NULL,
+                version INTEGER NOT NULL,
+                source_selection_hash VARCHAR NOT NULL,
+                schema_hash VARCHAR NOT NULL,
+                content_hash VARCHAR NOT NULL,
+                updated_at VARCHAR NOT NULL,
+                draft_json VARCHAR NOT NULL
+            );
+
             CREATE TABLE schema_governance_revision (
                 governance_id VARCHAR NOT NULL,
                 version INTEGER NOT NULL,
@@ -1926,6 +2082,22 @@ class DuckDbProjectRepository:
                         """
                     )
                     version = 10
+                if version == 10:
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS mapping_working_draft (
+                            singleton_id INTEGER PRIMARY KEY,
+                            mapping_id VARCHAR NOT NULL,
+                            version INTEGER NOT NULL,
+                            source_selection_hash VARCHAR NOT NULL,
+                            schema_hash VARCHAR NOT NULL,
+                            content_hash VARCHAR NOT NULL,
+                            updated_at VARCHAR NOT NULL,
+                            draft_json VARCHAR NOT NULL
+                        )
+                        """
+                    )
+                    version = 11
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

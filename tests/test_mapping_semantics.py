@@ -21,7 +21,9 @@ from impodo.mapping_semantics import (
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarTransformPolicy,
+    ScalarValidationPolicy,
     ScalarValueError,
+    ScalarValueRuleError,
     ScalarValueSource,
     SchemaGovernance,
     canonicalize_scalar_value,
@@ -279,6 +281,88 @@ class MappingSemanticValidatorTests(unittest.TestCase):
                 replace(boolean_mapping, literal_value="sometimes"),
                 None,
             )
+
+    def test_guided_text_rules_transform_and_validate_the_proposed_value(
+        self,
+    ) -> None:
+        mapping = ScalarFieldMapping(
+            target_field="x_code",
+            value_source=ScalarValueSource.CONSTANT,
+            literal_value="  abc-007  ",
+            transform=ScalarTransformPolicy(
+                trim=True,
+                search_value="-",
+                replacement_value="",
+                case_mode="uppercase",
+            ),
+            validation=ScalarValidationPolicy(
+                exact_length=6,
+                segment_location="last",
+                segment_length=3,
+                character_class="digits",
+                pattern=r"[A-Z]{3}[0-9]{3}",
+            ),
+        )
+
+        self.assertEqual(canonicalize_scalar_value(mapping, None), "ABC007")
+        with self.assertRaises(ScalarValueRuleError) as raised:
+            canonicalize_scalar_value(
+                replace(
+                    mapping,
+                    validation=replace(mapping.validation, exact_length=7),
+                ),
+                None,
+            )
+        self.assertEqual(raised.exception.code, "SOURCE_TEXT_LENGTH_INVALID")
+
+    def test_decimal_rounding_and_safe_formula_are_deterministic(self) -> None:
+        mapping = ScalarFieldMapping(
+            target_field="amount_total",
+            source_column_key="line.quantity",
+            value_type="decimal",
+            transform=ScalarTransformPolicy(
+                formula="column_1 * column_2",
+                decimal_places=2,
+                rounding_mode="half_up",
+            ),
+        )
+
+        self.assertEqual(
+            canonicalize_scalar_value(
+                mapping,
+                "2",
+                formula_context={"column_1": "2", "column_2": "1.235"},
+            ),
+            Decimal("2.47"),
+        )
+
+    def test_unsafe_custom_pattern_and_formula_block_mapping_validation(
+        self,
+    ) -> None:
+        definition = _valid_definition(self.selection, self.governance)
+        company, partner = definition.datasets
+        unsafe = replace(
+            company.fields[0],
+            transform=ScalarTransformPolicy(formula="__import__('os')"),
+            validation=ScalarValidationPolicy(pattern=r"(a+)+$"),
+        )
+        definition = replace(
+            definition,
+            datasets=(replace(company, fields=(unsafe,)), partner),
+        )
+
+        result = self.validator.validate(
+            definition,
+            self.selection,
+            self.schema,
+            self.governance,
+        )
+
+        self.assertEqual(result.status, MappingValidationStatus.INVALID)
+        self.assertTrue(
+            {"MAPPING_FORMULA_INVALID", "MAPPING_VALUE_RULE_INVALID"}
+            <= {item.code for item in result.issues}
+        )
 
     def test_odoo_default_is_explicit_and_requires_warning_acknowledgement(
         self,

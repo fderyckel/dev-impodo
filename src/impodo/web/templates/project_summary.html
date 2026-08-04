@@ -99,6 +99,7 @@
                   <td>
                     {{ row.reason }}
                     {% if row.field %}<small class="row-field">Field: {{ row.field }}</small>{% endif %}
+                    {% if row.issue_count > 1 %}<small class="row-field">{{ row.issue_count - 1 }} more issue{{ "s" if row.issue_count > 2 else "" }} in the technical evidence</small>{% endif %}
                   </td>
                   <td>
                     {{ row.recommended_action }}

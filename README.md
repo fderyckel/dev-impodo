@@ -55,9 +55,13 @@ start a local Odoo stack separately before connecting to it in Impodo.
 - Maps each frozen dataset to an Odoo model and its writable scalar fields.
 - Lets each scalar field use a source column, constant, source fallback, or an
   explicit leave-unset/Odoo-default policy.
-- Applies allowlisted trim, whitespace, empty-to-null, casing, locale-aware
-  decimal, explicit date-format, boolean, and UTC datetime transformations,
-  with bounded raw-to-proposed previews.
+- Applies allowlisted trim, whitespace, empty-to-null, find/replace, casing,
+  locale-aware decimal and explicit rounding, date-format, boolean, UTC
+  datetime, and safe formula transformations, with bounded raw-to-proposed
+  previews.
+- Authors plain-language exact-length and first/last/whole-value character
+  checks, while keeping bounded custom patterns behind an optional advanced
+  control.
 - Configures many2one and many2many relationships using governed business
   keys; one2many relationships are handled through the child inverse field.
 - Authors hash-bound derived-entity rules that assign deterministic,
@@ -73,8 +77,8 @@ Changing a confirmed source, frozen dataset, Odoo schema capture, or governed
 business key invalidates the active mapping so it must be validated again.
 
 **Delivery status:** Phase 1 (source discovery), Phase 2A (target schema),
-Phase 2B (identities, scope, and relationships), Phase 2C.1 (scalar providers
-and transformations), lookup-derived authoring, and mapping-ready parent/child
+Phase 2B (identities, scope, and relationships), Phase 2C.1 (scalar providers,
+transformations, and guided value rules), lookup-derived authoring, and mapping-ready parent/child
 dataset preparation are implemented. Full-row structural staging, governed lookup
 translations, mapping import/export, functional review, and approval remain in
 later delivery scope.

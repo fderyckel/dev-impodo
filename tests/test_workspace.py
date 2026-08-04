@@ -544,6 +544,102 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             )
 
+    def test_working_mapping_draft_is_recoverable_without_validation(
+        self,
+    ) -> None:
+        self.sources.confirm_source(
+            self.project.project_id,
+            self.source.file_id,
+            selected_table_keys=("csv",),
+            warnings_acknowledged=False,
+            actor=LOCAL_ACTOR,
+        )
+        selection = self.sources.freeze_selection(
+            self.project.project_id,
+            dataset_names={(self.source.file_id, "csv"): "customers"},
+            actor=LOCAL_ACTOR,
+        )
+        self.schemas.capture(
+            self.project.project_id,
+            _metadata_snapshot(),
+            actor=LOCAL_ACTOR,
+        )
+        governance = self.schemas.govern(
+            self.project.project_id,
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="partner-name",
+                    model="res.partner",
+                    key_fields=("name",),
+                    description="Unique test contact name",
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+            actor=LOCAL_ACTOR,
+        )
+        dataset = selection.datasets[0]
+        incomplete = DatasetMapping(
+            dataset_id=dataset.dataset_id,
+            target_model="res.partner",
+            fields=(
+                ScalarFieldMapping(
+                    target_field="active",
+                    source_column_key="",
+                    value_type="boolean",
+                ),
+            ),
+        )
+
+        first = self.mappings.save_working_draft(
+            self.project.project_id,
+            datasets=(incomplete,),
+            expected_version=None,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(first.version, 1)
+        self.assertEqual(first.definition.schema_hash, governance.content_hash)
+        self.assertEqual(
+            first.definition.datasets[0].fields[0].source_column_key,
+            "",
+        )
+        self.assertIsNone(
+            self.repository.get_mapping_revision(self.project.project_id)
+        )
+        self.assertEqual(
+            self.repository.get_mapping_working_draft(
+                self.project.project_id
+            ),
+            first,
+        )
+
+        with self.assertRaisesRegex(WorkspaceError, "modified"):
+            self.mappings.save_working_draft(
+                self.project.project_id,
+                datasets=(incomplete,),
+                expected_version=None,
+                actor=LOCAL_ACTOR,
+            )
+
+        second = self.mappings.save_working_draft(
+            self.project.project_id,
+            datasets=(incomplete,),
+            expected_version=1,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(second.version, 2)
+        self.schemas.capture(
+            self.project.project_id,
+            _metadata_snapshot(),
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(
+            self.repository.get_mapping_working_draft(
+                self.project.project_id
+            ),
+            second,
+        )
+
 
 def _catalog(
     source: SourceFile,

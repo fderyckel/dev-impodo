@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -28,6 +29,7 @@ from impodo.mapping_semantics import (
     RelationshipResolver,
     ResolverOrigin,
     ScalarFieldMapping,
+    ScalarValidationPolicy,
 )
 from impodo.models import (
     Classification,
@@ -129,6 +131,46 @@ class BrowserReadinessStagingTests(unittest.TestCase):
                 in {issue.code for issue in item.issues}
                 for item in child_decisions
             )
+        )
+
+    def test_guided_value_rule_failure_blocks_only_the_affected_row(self) -> None:
+        evidence = self._evidence(
+            (
+                ("BOM-A", "1", "COMP-1"),
+                ("BOM-A", "2", "BAD"),
+            )
+        )
+        definition = evidence[1]
+        parent, child = definition.datasets
+        component = replace(
+            child.fields[0],
+            validation=ScalarValidationPolicy(exact_length=6),
+        )
+        definition = replace(
+            definition,
+            datasets=(parent, replace(child, fields=(component,))),
+        )
+        evidence = (evidence[0], definition, *evidence[2:])
+
+        staged = stage_browser_mapping(*evidence)
+        metadata, records = self._snapshots(evidence[0])
+        result = PreflightEngine().run(
+            staged.profile,
+            staged.prepared,
+            metadata,
+            records,
+        )
+
+        child_decisions = [
+            item for item in result.decisions if item.dataset == "bom_components"
+        ]
+        self.assertEqual(
+            [item.classification for item in child_decisions],
+            [Classification.CREATE, Classification.BLOCKED],
+        )
+        self.assertEqual(
+            {issue.code for issue in child_decisions[1].issues},
+            {"SOURCE_TEXT_LENGTH_INVALID"},
         )
 
     def _evidence(self, rows):

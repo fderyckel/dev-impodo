@@ -812,6 +812,18 @@ label.checkbox input {
   padding: 1rem;
 }
 
+.mapping-save-state {
+  align-self: center;
+  margin: 0 auto 0 0;
+  color: var(--muted);
+  font-size: .88rem;
+  font-weight: 650;
+}
+
+.mapping-save-state.unsaved {
+  color: var(--impodo-red-dark);
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -1185,6 +1197,100 @@ label.model-choice input {
 .transform-options input {
   width: auto;
   margin: 0;
+}
+
+.value-rule-builder {
+  margin-top: .85rem;
+  border: 1px solid var(--border);
+  border-radius: .7rem;
+  background: var(--surface-soft);
+}
+
+.value-rule-builder > summary,
+.advanced-rule > summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.value-rule-builder > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .75rem .85rem;
+}
+
+.value-rule-builder > summary small {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.value-rule-content {
+  padding: 0 .85rem .85rem;
+}
+
+.value-rule-content h4 {
+  margin: .85rem 0 .2rem;
+  font-size: .9rem;
+}
+
+.value-rule-content input,
+.value-rule-content select,
+.value-rule-content textarea,
+.compact-control input {
+  width: 100%;
+  margin-top: .3rem;
+}
+
+.rule-inline-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .65rem;
+  margin-top: .65rem;
+}
+
+.rule-inline-fields.compact {
+  align-items: end;
+}
+
+.rule-checkbox {
+  align-self: center;
+  min-height: 2.7rem;
+  margin: 0;
+}
+
+.rule-checkbox input {
+  width: auto;
+  margin: 0;
+}
+
+.input-with-suffix {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+}
+
+.input-with-suffix input {
+  min-width: 5.5rem;
+}
+
+.input-with-suffix span {
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.advanced-rule {
+  margin-top: .75rem;
+  padding-top: .65rem;
+  border-top: 1px solid var(--border);
+}
+
+.advanced-rule > label {
+  display: block;
+  margin-top: .65rem;
+}
+
+.value-rule-content [hidden] {
+  display: none;
 }
 
 .mapping-preview {
@@ -1926,6 +2032,10 @@ label.model-choice input {
     grid-template-columns: 1fr;
   }
 
+  .rule-inline-fields {
+    grid-template-columns: 1fr;
+  }
+
   .page-heading,
   .catalog-heading,
   .table-heading,
@@ -2040,6 +2150,10 @@ label.model-choice input {
     position: static;
     margin: 1.5rem 0 0;
     padding: 1rem 0 0;
+  }
+
+  .mapping-save-state {
+    width: 100%;
   }
 
   .actions .button {

@@ -36,12 +36,14 @@ from .mapping_semantics import (
     RelationshipResolver,
     ResolverOrigin,
     ScalarValueError,
+    ScalarValueRuleError,
     ScalarValueSource,
     canonicalize_scalar_value,
 )
 from .models import (
     Classification,
     Decision,
+    InvalidPreparedValue,
     PreflightResult,
     canonical_json_bytes,
     portable_value,
@@ -93,6 +95,7 @@ class ReadinessRow:
     field: str
     recommended_action: str
     technical_code: str
+    issue_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -643,6 +646,20 @@ def _stage_table(
                 values[_synthetic_field(index)] = canonicalize_scalar_value(
                     field,
                     raw,
+                    formula_context={
+                        "value": raw,
+                        **{
+                            f"column_{column.ordinal}": values.get(
+                                column.stable_key
+                            )
+                            for column in effective.columns
+                        },
+                    },
+                )
+            except ScalarValueRuleError as error:
+                values[_synthetic_field(index)] = InvalidPreparedValue(
+                    code=error.code,
+                    message=str(error),
                 )
             except ScalarValueError as error:
                 values[_synthetic_field(index)] = (
@@ -774,6 +791,7 @@ def _readiness_row(
         field=field,
         recommended_action=action,
         technical_code=code,
+        issue_count=len(decision.issues),
     )
 
 
@@ -782,6 +800,10 @@ def _plain_guidance(
     classification: Classification,
 ) -> tuple[str, str]:
     guidance = {
+        "SOURCE_FIELD_MISSING": (
+            "A mapped source column is unavailable.",
+            "Return to mapping and choose an available column.",
+        ),
         "SOURCE_IDENTITY_INVALID": (
             "A required key is empty or invalid.",
             "Complete the key in the source data.",
@@ -798,6 +820,34 @@ def _plain_guidance(
             "A value has the wrong format.",
             "Correct the value format and check again.",
         ),
+        "SOURCE_TEXT_LENGTH_INVALID": (
+            "A value has the wrong number of characters.",
+            "Correct the value or review its exact-length rule.",
+        ),
+        "SOURCE_TEXT_SEGMENT_INVALID": (
+            "Part of a value contains unexpected characters.",
+            "Correct the value or review its character rule.",
+        ),
+        "SOURCE_PATTERN_MISMATCH": (
+            "A value does not follow its custom format.",
+            "Correct the value or review the advanced custom pattern.",
+        ),
+        "SOURCE_FORMULA_INVALID": (
+            "A formula could not calculate this value.",
+            "Review the row inputs and the field formula.",
+        ),
+        "SOURCE_REPLACEMENT_INVALID": (
+            "Find and replace could not process this value safely.",
+            "Review the find-and-replace rule.",
+        ),
+        "SOURCE_DECIMAL_ROUNDING_INVALID": (
+            "A decimal value could not be rounded safely.",
+            "Review the decimal value and rounding rule.",
+        ),
+        "SOURCE_REFERENCE_DUPLICATE": (
+            "This row repeats the same related key.",
+            "Remove the duplicate related value.",
+        ),
         "REFERENCE_NOT_FOUND": (
             "A related record cannot be found.",
             "Add or correct the related key.",
@@ -810,6 +860,10 @@ def _plain_guidance(
             "A related parent row is blocked.",
             "Resolve the parent row first.",
         ),
+        "TARGET_REFERENCE_UNRESOLVED": (
+            "An Odoo relationship has no usable business key.",
+            "Check the related Odoo record and its business key.",
+        ),
         "TARGET_IDENTITY_AMBIGUOUS": (
             "More than one Odoo record matches this key.",
             "Review the matching Odoo records.",
@@ -821,6 +875,10 @@ def _plain_guidance(
         "CREATE_IDENTITY_EXISTS": (
             "This create-only key already exists in Odoo.",
             "Review the create-only policy.",
+        ),
+        "COMPARISON_UNSUPPORTED": (
+            "This value cannot be compared safely.",
+            "Review the mapped field type and comparison rule.",
         ),
     }
     if code in guidance:

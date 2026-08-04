@@ -58,6 +58,10 @@ Invalidation is fail-closed:
 | Change target identity or governed keys | Target-derived mapping and submission evidence |
 
 Historical immutable revisions remain available for audit but are not current.
+A recoverable working mapping draft is retained across evidence changes, but
+it is restored only when its frozen-source and governed-schema hashes still
+match. Stale working state is disclosed rather than applied to a different
+field catalogue.
 
 ## Target schema
 
@@ -98,8 +102,11 @@ Each frozen dataset declares:
 - source trace identity and governed target identity/scope;
 - one explicit provider per target scalar field: source, constant,
   source-with-fallback, or leave-unset/Odoo-default;
-- allowlisted trim, whitespace, empty-to-null, casing, decimal-locale,
-  date-format, boolean, and UTC-datetime transformations;
+- allowlisted trim, whitespace, empty-to-null, literal/bounded-pattern
+  replacement, casing, decimal-locale and rounding, date-format, boolean,
+  UTC-datetime, and bounded formula transformations;
+- guided exact-length and first/last/whole-value character checks, with an
+  optional bounded expert custom pattern;
 - required, comparison, validate-only, and null policies;
 - many2one/many2many relationships resolved through another dataset or an
   existing-target business key.
@@ -108,15 +115,26 @@ One2many is represented through the child dataset's owning many2one. One
 source column may feed several explicitly governed target mappings.
 Odoo-default intent stays visibly unverified until controlled target rehearsal.
 
+End-user explanations of every scalar provider, type, transformation, policy,
+and preview belong in the
+[local-browser scalar mapping reference](../operations/local-browser-user-guide.md#scalar-fields-choose-what-impodo-should-do).
+
 Derived-entity rules may create deterministic related-dataset plans from
 denormalized source columns. Their bounded previews do not execute full-row
 staging; see [derived-entity authoring](../derived-entity-authoring.md).
+
+The browser may persist one recoverable working draft before validation. It
+uses stable dataset IDs and Odoo technical field names, accepts incomplete
+mapping choices, records actor/time/content hash, and uses optimistic
+concurrency. Saving it performs no semantic validation and creates no mapping
+revision, validation result, submission, or Odoo request.
 
 ## Validation and submission
 
 The pure semantic validator checks hashes, permitted models/fields, governed
 identity and scope, type compatibility, readonly/required fields, relation
-shape and key arity, provider/transform policies, dependencies, and cycles.
+shape and key arity, provider/transform/value-rule policies, formula and custom
+pattern bounds, dependencies, and cycles.
 It emits deterministic issues, coverage, deferred checks, and a validation
 hash.
 
