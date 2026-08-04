@@ -1,210 +1,133 @@
-# CLI and operating model
+# Preflight CLI runbook
 
-## Operating principle
+## Scope
 
-The CLI separates target capture from offline preflight. This makes the live
-boundary visible to operators and allows exactly the same saved evidence to be
-reviewed or rerun without reconnecting to Odoo.
+The CLI is the expert, profile-driven route for producing read-only migration
+preflight evidence. It is separate from the browser workflow: browser mapping
+revisions are not compiled into CLI profiles.
 
-The installed executable is `impodo-cli`. The equivalent development form is
-`PYTHONPATH=src .venv/bin/python -m impodo`.
+The CLI can read selected Odoo metadata and records, but it cannot create,
+write, unlink, import, or run arbitrary model methods.
 
-## Configuration
+Use the installed command:
 
-The CLI reads:
-
-- `IMPODO_ODOO_BASE_URL`;
-- `IMPODO_ODOO_DATABASE`;
-- `IMPODO_ODOO_API_KEY`;
-- optional `IMPODO_ODOO_TIMEOUT_SECONDS`;
-- optional `IMPODO_ODOO_PAGE_SIZE`.
-
-The API key is loaded from an environment variable. It is never a command-line
-flag because process listings and shell histories can expose arguments. A
-separate secret-provider integration is not implemented.
-
-The connector derives `LOCAL` from a literal `127.0.0.1` or `::1` URL. Every
-other target is `REMOTE` and must use HTTPS. `Json2Config` also supports a
-context and relevant-module list when constructed in Python, but the CLI
-environment loader does not expose those two settings.
-
-## Commands
-
-### Prepare and validate sources
-
-```bash
-impodo-cli profile \
-  --profile profiles/examples/bom.yaml \
-  --input examples/bom \
-  --output build/bom-profile/prepared-records.json
+```powershell
+impodo-cli --help
 ```
 
-Performs strict profile validation and typed source preparation. It does not
-contact Odoo. The input directory may contain profile-declared `.csv` and
-`.xlsx` files. XLSX profiles must select a worksheet explicitly; see
-[Profile authoring](profile-authoring.md).
+From a development checkout, use:
 
-### Capture target metadata
-
-```bash
-impodo-cli snapshot-metadata \
-  --profile profiles/examples/golden_slice.yaml \
-  --connector json2 \
-  --output snapshots/run-20260728/target-metadata.json
+```powershell
+.\.venv\Scripts\impodo-cli.exe --help
 ```
 
-Behavior:
+## Connection settings
 
-- loads the exact target configuration;
-- fingerprints the target;
-- requests only profile-required model metadata;
-- writes canonical JSON atomically;
-- prints the output path.
+The live JSON-2 connector reads these environment variables:
 
-Full model/field compatibility validation occurs in `preflight`, when the
-metadata snapshot is evaluated together with the prepared records.
-
-### Capture target records
-
-```bash
-impodo-cli snapshot-records \
-  --profile profiles/examples/golden_slice.yaml \
-  --input examples/golden \
-  --connector json2 \
-  --output snapshots/run-20260728/dev-records.json
+```powershell
+$env:IMPODO_ODOO_BASE_URL = "https://odoo.example.com"
+$env:IMPODO_ODOO_DATABASE = "production"
+$env:IMPODO_ODOO_API_KEY = "<secret>"
 ```
 
-The source is needed to derive bounded identity domains. The command prepares
-natural keys but does not classify records. It compiles the record requests,
-retrieves only required models and fields, verifies live pagination
-completeness, and writes the snapshot atomically. Metadata and record
-fingerprints are compared later by `preflight`.
+Optional settings are `IMPODO_ODOO_TIMEOUT_SECONDS` and
+`IMPODO_ODOO_PAGE_SIZE`.
 
-### Run offline preflight
+Keep the API key in the process environment or an approved secret store. Do
+not put credentials in profiles, command arguments, source files, snapshots,
+or committed scripts. Use a dedicated read-only Odoo account.
 
-```bash
-impodo-cli preflight \
-  --profile profiles/examples/golden_slice.yaml \
-  --input examples/golden \
-  --metadata snapshots/run-20260728/dev-metadata.json \
-  --records snapshots/run-20260728/dev-records.json \
-  --output runs/run-20260728
+## Safe run sequence
+
+The profile and source directory are inputs to every relevant step. The
+commands below use the repository's product example.
+
+### 1. Validate and prepare the source
+
+This step does not connect to Odoo.
+
+```powershell
+impodo-cli profile `
+  --profile .\profiles\examples\products.yaml `
+  --input .\examples\golden `
+  --output .\build\profile\prepared-records.json
 ```
 
-Outputs:
+Resolve profile, typing, identity, and source issues before capturing target
+evidence.
 
-```text
-runs/run-20260728/
-├── impodo_preflight_manifest.json
-└── impodo_preflight_report.xlsx
+### 2. Capture required metadata
+
+```powershell
+impodo-cli snapshot-metadata `
+  --profile .\profiles\examples\products.yaml `
+  --connector json2 `
+  --output .\build\snapshots\metadata.json
 ```
 
-The command verifies matching metadata/record fingerprints, profile bindings
-when present, record source hashes when present, and record completeness. It
-then runs preparation, metadata validation, resolution, matching, comparison,
-and classification. The workbook is generated from the canonical JSON
-manifest.
+### 3. Capture relevant target records
 
-It makes no network call.
-
-Add `--preview-dir build/previews` to render one PNG per workbook sheet for
-visual verification. Preview generation uses the same workbook runtime and is
-optional.
-
-There is no one-shot live command. The explicit capture/offline separation is
-intentional.
-
-### Synthetic benchmark
-
-```bash
-impodo-cli benchmark --rows 360000
+```powershell
+impodo-cli snapshot-records `
+  --profile .\profiles\examples\products.yaml `
+  --input .\examples\golden `
+  --connector json2 `
+  --output .\build\snapshots\records.json
 ```
 
-This measures an in-memory identity dictionary only. It is not an end-to-end
-performance or memory test and has no pass/fail timing threshold.
+The connector plans and batches reads by model. Do not replace this with one
+Odoo request per source row; that creates an N+1 bottleneck and weakens the
+evidence boundary.
 
-## Console behavior
+For controlled fixtures, `--connector snapshot --snapshot <path>` can replace
+the live connector in either snapshot command.
 
-Successful preflight prints a bounded summary:
+### 4. Classify offline
 
-```text
-CREATE 42 | UPDATE 18 | UNCHANGED 51 | AMBIGUOUS 2 | BLOCKED 7
-Manifest: runs/run-20260728/impodo_preflight_manifest.json
-Review workbook: runs/run-20260728/impodo_preflight_report.xlsx
-Semantic hash: sha256:…
+```powershell
+impodo-cli preflight `
+  --profile .\profiles\examples\products.yaml `
+  --input .\examples\golden `
+  --metadata .\build\snapshots\metadata.json `
+  --records .\build\snapshots\records.json `
+  --output .\build\preflight
 ```
 
-Console output does not print credentials, full records, raw failed cells, or
-numeric Odoo IDs.
+Use `--preview-dir <directory>` only when rendered workbook previews are
+needed for visual verification.
 
-## Exit codes
+The preflight step makes no network calls. It produces a canonical manifest
+and a review workbook. Review `BLOCKED` and `AMBIGUOUS` decisions first, then
+`CREATE`, `UPDATE`, and `UNCHANGED` classifications and their field-level
+evidence.
+
+## Exit behavior
 
 | Code | Meaning |
 | ---: | --- |
-| `0` | Command completed and artifacts are valid; row-level blocked or ambiguous outcomes may exist |
-| `2` | CLI usage or configuration error |
-| `3` | Profile or source package structural/security validation failed |
-| `4` | Connector, authentication, authorization, or transport failure |
-| `6` | Manifest/workbook report generation failed |
+| `0` | Command completed successfully |
+| `2` | Invalid command-line arguments |
+| `3` | Profile, source, path, or value error |
+| `4` | Connector or target-read error |
+| `6` | Report-generation error |
 
-Row-level `BLOCKED` and `AMBIGUOUS` are expected review outcomes, not process
-failures. Automation may apply a separate policy to reject a run whose summary
-contains either.
+Treat any non-zero code as a failed run. Do not promote partial output.
 
-Argument parsing also exits with argparse's standard code `2`. The CLI maps
-profile, source, and local value errors to `3`; connector errors to `4`; and
-workbook/report errors to `6`.
+For an isolated index-performance diagnostic, run
+`impodo-cli benchmark --rows 360000`. It uses synthetic in-memory data and
+does not validate a migration or connect to Odoo.
 
-## Safe write behavior
+## Evidence rules
 
-- Parent directories are created when needed.
-- Prefer a new run directory for each reviewed result.
-- JSON files are written to a `.partial` sibling and atomically renamed.
-- Workbook creation uses a temporary working directory.
-- The manifest is finalized before workbook generation. If workbook creation
-  fails, the manifest can remain by itself; treat the directory as incomplete
-  until both required output files exist.
+- Keep the profile, source files, metadata snapshot, record snapshot, manifest,
+  and workbook together.
+- Do not edit captured snapshots or the generated manifest.
+- Recapture both snapshots when the target, database, profile, or relevant
+  source evidence changes.
+- A successful preflight is review evidence only. It is not approval, a clean
+  migration package, or permission to write to Odoo.
 
-## Operator runbook
-
-1. Confirm the source package and profile intended for review.
-2. Confirm the exact URL and database are authorised for read-only inspection.
-3. Validate the profile offline.
-4. Capture metadata and address any model/field mismatch.
-5. Capture records and confirm completeness.
-6. Run offline preflight.
-7. Verify the target fingerprint and input hashes on `Target`.
-8. Review `Blocked Records` and `Ambiguous Matches` first.
-9. Review proposed updates with `Field Differences`.
-10. Reconcile summary counts with source expectations.
-11. Retain the complete run directory according to the data policy.
-
-No step in this runbook authorizes or performs an Odoo write.
-
-## Staleness
-
-A result describes the target snapshot timestamp, not the current target.
-Operators must recapture records when:
-
-- source or profile content changes;
-- the target database is restored, upgraded, or reconfigured;
-- relevant modules change;
-- target data may have changed since review;
-- the requirements plan changes;
-- a snapshot integrity check fails.
-
-The proof of concept displays the snapshot timestamp prominently but does not
-invent a universal maximum age; that is an operational policy decision.
-
-## Credentials and logs
-
-The connector reads `IMPODO_ODOO_BASE_URL`, `IMPODO_ODOO_DATABASE`,
-`IMPODO_ODOO_API_KEY`, `IMPODO_ODOO_TIMEOUT_SECONDS`, and
-`IMPODO_ODOO_PAGE_SIZE`. Regardless of names:
-
-- the API key is excluded from configuration representations and errors;
-- HTTP response bodies are not included in errors;
-- exception text is sanitized;
-- shell examples never inline secrets;
-- successful commands print bounded counts, output paths, and the semantic
-  hash; there is no separate structured logging subsystem.
+The normative behavior is defined in the
+[profile-driven preflight contract](../contracts/preflight.md). Profile syntax
+is documented in the [profile authoring guide](profile-authoring.md).

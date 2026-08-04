@@ -109,7 +109,7 @@
           </div>
         {% endif %}
       {% endif %}
-      <form method="post" action="/projects/{{ project.project_id }}/schema/scope" data-model-picker>
+      <form method="post" action="/projects/{{ project.project_id }}/schema" data-model-picker>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="revision" value="{{ project.revision }}">
         <div class="model-picker-tools">
@@ -118,19 +118,27 @@
             <input
               type="search"
               data-model-search
-              placeholder="Search Product or product.template"
+              placeholder="Product or product.template"
               autocomplete="off"
+              aria-controls="model-picker-list"
+              aria-describedby="model-picker-count"
             >
           </label>
           {% if focus_model_count < model_choices|length %}
             <label class="checkbox">
               <input type="checkbox" data-show-all-models>
-              Show models outside the project application focus
+              Browse all models
             </label>
           {% endif %}
-          <p class="muted" data-model-count></p>
+          <p
+            class="muted"
+            id="model-picker-count"
+            role="status"
+            aria-live="polite"
+            data-model-count
+          ></p>
         </div>
-        <fieldset class="model-picker-list">
+        <fieldset class="model-picker-list" id="model-picker-list">
           <legend>Permitted target models for schema capture and mapping</legend>
           {% for choice in model_choices %}
             <label

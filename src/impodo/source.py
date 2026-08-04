@@ -167,6 +167,70 @@ def load_source_tables(
     return tuple(tables)
 
 
+def load_selected_source_table(
+    path: str | Path,
+    *,
+    dataset: str,
+    table_key: str,
+    encoding: str | None,
+    delimiter: str | None,
+    header_row: int,
+    named_table_range: str | None = None,
+) -> SourceTable:
+    """Load one frozen browser dataset through the strict source reader.
+
+    Browser selections identify worksheets and named tables independently of
+    the profile-driven CLI. This adapter preserves that exact selection while
+    reusing the same passive XLSX, row, column, and cell safety limits.
+    """
+
+    source_path = Path(path).resolve()
+    if not source_path.is_file() or source_path.is_symlink():
+        raise SourceLoadError("stored source artifact is unavailable")
+    if source_path.stat().st_size > MAX_SOURCE_FILE_BYTES:
+        raise SourceLoadError(
+            f"source file exceeds {MAX_SOURCE_FILE_BYTES} bytes: {source_path.name}"
+        )
+    data = source_path.read_bytes()
+    suffix = source_path.suffix.casefold()
+    if suffix == ".csv":
+        if table_key != "csv":
+            raise SourceLoadError("CSV dataset selection is invalid")
+        headers, rows = _load_csv(
+            source_path,
+            encoding or "utf-8-sig",
+            delimiter or ",",
+        )
+    elif suffix == ".xlsx":
+        if table_key.startswith("sheet:"):
+            sheet = table_key.removeprefix("sheet:")
+            cell_range = None
+        elif table_key.startswith("table:") and named_table_range:
+            selected = table_key.removeprefix("table:")
+            try:
+                sheet, _table_name = selected.rsplit(":", 1)
+            except ValueError as error:
+                raise SourceLoadError("Named-table selection is invalid") from error
+            cell_range = named_table_range
+        else:
+            raise SourceLoadError("XLSX dataset selection is invalid")
+        headers, rows = _load_xlsx(
+            source_path,
+            sheet=sheet,
+            header_row=header_row,
+            cell_range=cell_range,
+        )
+    else:
+        raise SourceLoadError("Only CSV and XLSX source files are supported")
+    return SourceTable(
+        dataset=dataset,
+        path=source_path,
+        headers=headers,
+        rows=rows,
+        content_hash="sha256:" + sha256(data).hexdigest(),
+    )
+
+
 def _contained_source_path(root: Path, relative_name: str) -> Path:
     """Resolve one declared source path without permitting link/path escape."""
 
@@ -229,6 +293,7 @@ def _load_xlsx(
     *,
     sheet: str,
     header_row: int,
+    cell_range: str | None = None,
 ) -> tuple[tuple[str, ...], tuple[SourceRow, ...]]:
     """Read one worksheet from a passive, bounded XLSX container.
 
@@ -269,16 +334,43 @@ def _load_xlsx(
                 f"available sheets: {available}"
             )
         worksheet = workbook[sheet]
-        if worksheet.max_column > MAX_SOURCE_COLUMNS:
+        minimum_column = 1
+        maximum_column = worksheet.max_column
+        maximum_row: int | None = None
+        if cell_range is not None:
+            try:
+                from openpyxl.utils.cell import range_boundaries
+
+                (
+                    minimum_column,
+                    selected_header_row,
+                    maximum_column,
+                    maximum_row,
+                ) = range_boundaries(cell_range)
+            except (TypeError, ValueError) as error:
+                raise SourceLoadError(
+                    f"named table has an invalid range: {path.name}#{sheet}"
+                ) from error
+            if selected_header_row != header_row:
+                raise SourceLoadError(
+                    f"named-table header changed since inspection: {path.name}#{sheet}"
+                )
+        if maximum_column - minimum_column + 1 > MAX_SOURCE_COLUMNS:
             raise SourceLoadError(
                 f"worksheet {sheet!r} exceeds {MAX_SOURCE_COLUMNS} columns"
             )
-        if worksheet.max_row - header_row > MAX_SOURCE_ROWS:
+        selected_maximum_row = maximum_row or worksheet.max_row
+        if selected_maximum_row - header_row > MAX_SOURCE_ROWS:
             raise SourceLoadError(
                 f"worksheet {sheet!r} exceeds {MAX_SOURCE_ROWS} possible data rows"
             )
 
-        iterator = worksheet.iter_rows(min_row=header_row)
+        iterator = worksheet.iter_rows(
+            min_row=header_row,
+            max_row=maximum_row,
+            min_col=minimum_column,
+            max_col=maximum_column,
+        )
         try:
             header_cells = next(iterator)
         except StopIteration as exc:
@@ -296,7 +388,7 @@ def _load_xlsx(
             row_number = cells[0].row if cells else header_row + len(rows) + 1
             _reject_unsafe_cells(cells, path.name, row_number)
             values = [cell.value for cell in cells[: len(headers)]]
-            if len(cells) > len(headers) and any(
+            if cell_range is None and len(cells) > len(headers) and any(
                 cell.value is not None for cell in cells[len(headers) :]
             ):
                 raise SourceLoadError(
@@ -506,11 +598,36 @@ def prepare_sources(
     """
 
     tables = load_source_tables(profile, input_directory)
+    root = Path(input_directory).resolve()
+    return prepare_source_tables(
+        profile,
+        tables,
+        source_hashes={
+            table.path.relative_to(root).as_posix(): table.content_hash
+            for table in sorted(tables, key=lambda item: item.dataset)
+        },
+    )
+
+
+def prepare_source_tables(
+    profile: ProfileDocument,
+    tables: Iterable[SourceTable],
+    *,
+    source_hashes: dict[str, str],
+) -> PreparedBundle:
+    """Prepare already selected full-row tables for browser or CLI preflight."""
+
+    selected_tables = tuple(tables)
+    by_dataset = {table.dataset: table for table in selected_tables}
+    if len(by_dataset) != len(selected_tables):
+        raise SourceLoadError("Prepared source tables must be unique by dataset")
+    if set(by_dataset) != {dataset.name for dataset in profile.datasets}:
+        raise SourceLoadError("Prepared source tables do not match the profile")
     records: list[PreparedRecord] = []
     issues: list[Issue] = []
 
     for dataset in profile.datasets:
-        table = next(item for item in tables if item.dataset == dataset.name)
+        table = by_dataset[dataset.name]
         missing_headers = sorted(_required_headers(dataset) - set(table.headers))
         if missing_headers:
             issues.append(
@@ -536,13 +653,7 @@ def prepare_sources(
     return PreparedBundle(
         records=tuple(records),
         issues=tuple(issues),
-        source_hashes=dict(
-            (
-                table.path.relative_to(Path(input_directory).resolve()).as_posix(),
-                table.content_hash,
-            )
-            for table in sorted(tables, key=lambda item: item.dataset)
-        ),
+        source_hashes=dict(sorted(source_hashes.items())),
     )
 
 

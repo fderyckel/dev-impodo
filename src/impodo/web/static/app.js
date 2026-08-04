@@ -128,33 +128,37 @@ document.addEventListener("DOMContentLoaded", () => {
     const count = modelPicker.querySelector("[data-model-count]");
     const choices = Array.from(
       modelPicker.querySelectorAll("[data-model-choice]")
-    );
+    ).map((element) => ({
+      element,
+      checkbox: element.querySelector('input[name="permitted_models"]'),
+      inFocus: element.dataset.inFocus === "true",
+      searchText: element.dataset.modelSearchText || "",
+    }));
     const updateModelChoices = () => {
       const query = search?.value.trim().toLocaleLowerCase() || "";
+      const hasQuery = Boolean(query);
+      const browseAll = Boolean(showAll?.checked);
       let visibleCount = 0;
       let selectedCount = 0;
       for (const choice of choices) {
-        const checkbox = choice.querySelector('input[name="permitted_models"]');
-        const selected = Boolean(checkbox?.checked);
-        const inFocus = choice.dataset.inFocus === "true";
-        const matches = (choice.dataset.modelSearchText || "").includes(query);
+        const selected = Boolean(choice.checkbox?.checked);
+        const matches = choice.searchText.includes(query);
         const visible =
-          matches && (Boolean(showAll?.checked) || inFocus || selected);
-        choice.hidden = !visible;
+          matches && (hasQuery || browseAll || choice.inFocus || selected);
+        choice.element.hidden = !visible;
         visibleCount += visible ? 1 : 0;
         selectedCount += selected ? 1 : 0;
       }
       if (count) {
         count.textContent =
-          `${visibleCount} models shown · ${selectedCount} selected`;
+          `${visibleCount} of ${choices.length} available models shown · ` +
+          `${selectedCount} selected`;
       }
     };
     search?.addEventListener("input", updateModelChoices);
     showAll?.addEventListener("change", updateModelChoices);
-    for (const checkbox of modelPicker.querySelectorAll(
-      'input[name="permitted_models"]'
-    )) {
-      checkbox.addEventListener("change", updateModelChoices);
+    for (const choice of choices) {
+      choice.checkbox?.addEventListener("change", updateModelChoices);
     }
     updateModelChoices();
   }
@@ -524,9 +528,46 @@ document.addEventListener("DOMContentLoaded", () => {
     const search = catalog.querySelector("[data-scalar-field-search]");
     const mappedOnly = catalog.querySelector("[data-show-mapped-scalars]");
     const count = catalog.querySelector("[data-scalar-field-count]");
+    const topScroll = catalog.querySelector(
+      "[data-scalar-table-scroll-top]"
+    );
+    const topScrollSpacer = catalog.querySelector(
+      "[data-scalar-table-scroll-spacer]"
+    );
+    const tableScroll = catalog.querySelector("[data-scalar-table-scroll]");
+    const scalarTable = tableScroll?.querySelector(".mapping-table");
     const rows = Array.from(
       catalog.querySelectorAll("[data-scalar-field-row]")
     );
+    const updateScalarTableScroll = () => {
+      if (!topScroll || !topScrollSpacer || !tableScroll) {
+        return;
+      }
+      const scrollWidth = tableScroll.scrollWidth;
+      topScrollSpacer.style.width = `${scrollWidth}px`;
+      topScroll.hidden = scrollWidth <= tableScroll.clientWidth + 1;
+      if (!topScroll.hidden) {
+        topScroll.scrollLeft = tableScroll.scrollLeft;
+      }
+    };
+    topScroll?.addEventListener("scroll", () => {
+      if (tableScroll && tableScroll.scrollLeft !== topScroll.scrollLeft) {
+        tableScroll.scrollLeft = topScroll.scrollLeft;
+      }
+    });
+    tableScroll?.addEventListener("scroll", () => {
+      if (topScroll && topScroll.scrollLeft !== tableScroll.scrollLeft) {
+        topScroll.scrollLeft = tableScroll.scrollLeft;
+      }
+    });
+    window.addEventListener("resize", updateScalarTableScroll);
+    if (tableScroll && "ResizeObserver" in window) {
+      const scrollResizeObserver = new ResizeObserver(updateScalarTableScroll);
+      scrollResizeObserver.observe(tableScroll);
+      if (scalarTable) {
+        scrollResizeObserver.observe(scalarTable);
+      }
+    }
     const updateScalarFieldRows = () => {
       const query = search?.value.trim().toLowerCase() || "";
       let visible = 0;
@@ -546,6 +587,7 @@ document.addEventListener("DOMContentLoaded", () => {
         count.textContent =
           `${visible} of ${rows.length} fields shown / ${mapped} mapped`;
       }
+      window.requestAnimationFrame(updateScalarTableScroll);
     };
     search?.addEventListener("input", updateScalarFieldRows);
     mappedOnly?.addEventListener("change", updateScalarFieldRows);

@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from impodo.connectors import MetadataRequest, RecordRequest
 from impodo.local_odoo_reader import (
     LocalOdooMetadataReader,
     LocalOdooReaderError,
@@ -197,6 +198,60 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         ):
             reader.get_target_fingerprint(mismatched, self.profile)
 
+    def test_preflight_capture_batches_models_in_one_rolled_back_shell(self) -> None:
+        calls = []
+        payload = {
+            "database": "odoo19_local",
+            "version": "19.0",
+            "models": {
+                "res.partner": {
+                    "description": "Contact",
+                    "fields": {
+                        "ref": {
+                            "string": "Reference",
+                            "type": "char",
+                            "required": False,
+                            "readonly": False,
+                        }
+                    },
+                }
+            },
+            "records": {
+                "res.partner": [
+                    {"id": 7, "ref": "P-7"},
+                ]
+            },
+        }
+
+        def runner(command, script, cwd, timeout):
+            calls.append((command, script, cwd, timeout))
+            return _result(payload)
+
+        metadata, records = LocalOdooMetadataReader(
+            runner=runner
+        ).get_preflight_snapshots(
+            self.project,
+            self.profile,
+            (MetadataRequest(model="res.partner", fields=("ref",)),),
+            (
+                RecordRequest(
+                    model="res.partner",
+                    fields=("ref",),
+                    domain=(("ref", "in", ("P-7",)),),
+                ),
+            ),
+        )
+
+        self.assertEqual(metadata.fingerprint, records.fingerprint)
+        self.assertEqual(records.records["res.partner"][0].values["ref"], "P-7")
+        script = calls[0][1]
+        self.assertEqual(script.count(".fields_get("), 1)
+        self.assertEqual(script.count(".search_read("), 1)
+        self.assertIn("for request in metadata_requests:", script)
+        self.assertIn("for request in record_requests:", script)
+        self.assertIn("while True:", script)
+        self.assertIn("env.cr.rollback()", script)
+
     def test_reader_exposes_no_generic_shell_or_write_surface(self) -> None:
         public = {
             name
@@ -209,6 +264,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
                 "get_target_fingerprint",
                 "get_model_catalog",
                 "get_model_metadata",
+                "get_preflight_snapshots",
             },
         )
 

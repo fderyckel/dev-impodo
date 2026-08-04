@@ -711,6 +711,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.connection_calls: list[tuple[str, str, OdooConnectionMode | None]] = []
         self.schema_calls: list[tuple[str, str]] = []
         self.model_catalog_calls: list[tuple[str, str]] = []
+        self.readiness_calls = []
         self.local_odoo_reader = MagicMock(spec=LocalOdooMetadataReader)
 
         def connection_tester(project, api_key):
@@ -727,6 +728,20 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.model_catalog_calls.append((project.project_id, api_key))
             return _browser_model_catalog(project)
 
+        def readiness_reader(project, metadata_requests, record_requests):
+            self.readiness_calls.append(
+                (project.project_id, metadata_requests, record_requests)
+            )
+            metadata = _browser_schema(project)
+            records = RecordSnapshot(
+                fingerprint=metadata.fingerprint,
+                records={item.model: () for item in record_requests},
+                requested_fields={
+                    item.model: item.fields for item in record_requests
+                },
+            )
+            return metadata, records
+
         self.app = create_app(
             self.temporary.name,
             launch_token="launch-secret",
@@ -735,6 +750,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             connection_tester=connection_tester,
             schema_reader=schema_reader,
             model_catalog_reader=model_catalog_reader,
+            readiness_reader=readiness_reader,
             local_odoo_reader=self.local_odoo_reader,
         )
         self.client = TestClient(self.app)
@@ -1304,12 +1320,40 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Contact", model_page.text)
         self.assertIn("res.partner", model_page.text)
         self.assertIn(
-            "Show models outside the project application focus",
+            "Browse all models",
+            model_page.text,
+        )
+        self.assertIn(
+            f'action="/projects/{project_id}/schema"',
+            model_page.text,
+        )
+        self.assertIn('aria-live="polite"', model_page.text)
+        self.assertIn(
+            'data-model-search-text="product product.template product stock"',
             model_page.text,
         )
 
-        rejected_scope = self.client.post(
+        scope_alias = self.client.get(
             f"/projects/{project_id}/schema/scope",
+            follow_redirects=False,
+        )
+        self.assertEqual(scope_alias.status_code, 303)
+        self.assertEqual(
+            scope_alias.headers["location"],
+            f"/projects/{project_id}/schema",
+        )
+
+        model_picker_script = self.client.get("/static/app.js")
+        self.assertIn("const hasQuery = Boolean(query);", model_picker_script.text)
+        self.assertIn(
+            "matches && (hasQuery || browseAll || choice.inFocus || selected)",
+            model_picker_script.text,
+        )
+        model_picker_styles = self.client.get("/static/app.css")
+        self.assertIn("label.model-choice[hidden]", model_picker_styles.text)
+
+        rejected_scope = self.client.post(
+            f"/projects/{project_id}/schema",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -1324,7 +1368,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         scope = self.client.post(
-            f"/projects/{project_id}/schema/scope",
+            f"/projects/{project_id}/schema",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -1374,7 +1418,23 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Source + fallback", mapping_page.text)
         self.assertIn("Leave unset / Odoo default", mapping_page.text)
         self.assertIn("Search scalar fields", mapping_page.text)
+        self.assertIn("data-scalar-table-scroll-top", mapping_page.text)
+        self.assertIn(
+            'aria-label="Scroll scalar target fields horizontally"',
+            mapping_page.text,
+        )
+        self.assertIn("data-scalar-table-scroll", mapping_page.text)
         self.assertIn("Preview", mapping_page.text)
+
+        mapping_script = self.client.get("/static/app.js")
+        self.assertIn("updateScalarTableScroll", mapping_script.text)
+        self.assertIn(
+            "new ResizeObserver(updateScalarTableScroll)",
+            mapping_script.text,
+        )
+        mapping_styles = self.client.get("/static/app.css")
+        self.assertIn(".scalar-table-scroll-top", mapping_styles.text)
+        self.assertIn("overflow-x: scroll", mapping_styles.text)
 
         selection = (
             self.app.state.context.repository.get_source_selection(project_id)
@@ -1455,9 +1515,42 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "Imported product",
         )
 
+        summary = self.client.get(f"/projects/{project_id}/summary")
+        self.assertIn("Check data readiness", summary.text)
+        checked = self.client.post(
+            f"/projects/{project_id}/summary/check",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(checked.status_code, 303)
+        readiness_page = self.client.get(checked.headers["location"])
+        self.assertIn("Ready", readiness_page.text)
+        self.assertIn("Needs review", readiness_page.text)
+        self.assertIn("Blocked", readiness_page.text)
+        self.assertIn("Rows", readiness_page.text)
+        self.assertIn("Technical details", readiness_page.text)
+        self.assertIn("Generate review package", readiness_page.text)
+        self.assertIn("Impodo did not change Odoo", readiness_page.text)
+        self.assertEqual(len(self.readiness_calls), 1)
+        readiness_requests = self.readiness_calls[0][2]
+        self.assertEqual(
+            [item.model for item in readiness_requests],
+            ["res.partner"],
+        )
+        self.assertEqual(readiness_requests[0].domain[0], "|")
+        evidence = self.client.get(
+            f"/projects/{project_id}/summary/manifest"
+        )
+        self.assertEqual(evidence.status_code, 200)
+        self.assertIn(
+            "application/json",
+            evidence.headers["content-type"],
+        )
+
         project = self.app.state.context.repository.get(project_id)
         changed_scope = self.client.post(
-            f"/projects/{project_id}/schema/scope",
+            f"/projects/{project_id}/schema",
             data={
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),

@@ -235,6 +235,38 @@ class PlannerTests(unittest.TestCase):
         )
         self.assertIn(["active", "=", True], request.domain)
 
+    def test_datasets_for_same_model_share_one_or_domain(self) -> None:
+        assets = self.profile.dataset("assets")
+        changed_assets = assets.model_copy(
+            update={
+                "target": assets.target.model_copy(
+                    update={"model": "res.partner"}
+                )
+            }
+        )
+        changed_profile = self.profile.model_copy(
+            update={
+                "datasets": tuple(
+                    changed_assets if item.name == "assets" else item
+                    for item in self.profile.datasets
+                )
+            }
+        )
+
+        requests = plan_record_requests(changed_profile, self.bundle.records)
+        partner_requests = [
+            item for item in requests if item.model == "res.partner"
+        ]
+
+        self.assertEqual(len(partner_requests), 1)
+        self.assertEqual(partner_requests[0].domain[0], "|")
+        domain_fields = {
+            item[0]
+            for item in partner_requests[0].domain
+            if isinstance(item, list)
+        }
+        self.assertEqual(domain_fields, {"ref", "code"})
+
 
 if __name__ == "__main__":
     unittest.main()

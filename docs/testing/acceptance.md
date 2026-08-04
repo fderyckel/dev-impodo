@@ -2,13 +2,14 @@
 
 ## Current conclusion
 
-The local proof of concept is green:
+The repository has automated evidence for the current browser workflow,
+profile-driven preflight, local-stack controls, security boundaries, and
+internal release process. The maintained preflight fixture produces all five
+classifications, and unchanged saved inputs produce deterministic manifests.
 
-- 46 tests pass with the real workbook integration enabled;
-- the BOM preparation example succeeds;
-- the committed 12-candidate golden fixture produces all five outcomes;
-- the manifest is deterministic for unchanged saved inputs;
-- the live connector is exercised with mocked transport only.
+Do not copy a fixed test count into documentation. The discovered suite is the
+current executable inventory; optional environment-gated integrations must be
+reported separately.
 
 This is not yet live-target acceptance. The required 100–300-record sanitized
 slice, live target runs, Odoo-side ACL evidence, and expected-scale memory
@@ -16,26 +17,33 @@ evidence remain pending.
 
 ## Validation command
 
-From `/Users/francois/dev-impodo`:
+From the repository root on Windows PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force .\.tmp | Out-Null
+$env:TEMP = (Resolve-Path .\.tmp).Path
+$env:TMP = $env:TEMP
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+On macOS or Linux:
 
 ```bash
-IMPODO_RUN_WORKBOOK_TESTS=1 \
-PYTHONPATH=src \
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Without `IMPODO_RUN_WORKBOOK_TESTS=1`, the workbook integration test is skipped.
+Set `IMPODO_RUN_WORKBOOK_TESTS=1` only when the optional workbook-rendering
+runtime is installed and that integration is part of the acceptance run.
 
 ## Automated test inventory
 
-| File | Current coverage |
+| Area | Current test modules |
 | --- | --- |
-| `tests/test_profile_and_values.py` | all scalar types, decimal quantization, explicit booleans, null policies, example profiles, unknown keys, validate-only contradiction, and cycles |
-| `tests/test_source_and_planner.py` | typed BOM preparation, strict CSV/XLSX loading, native XLSX values, actual worksheet rows, formula rejection, duplicate headers, safe paths/formats, symbolic references, duplicate source identity, minimal metadata fields, one request per model, target-domain preservation |
-| `tests/test_catalog_metadata.py` | target duplicate preservation, ID-to-business-reference conversion, complete golden metadata, readonly fields, relation mismatch, missing reference model |
-| `tests/test_engine.py` | all five outcomes, exact scalar/many2many differences, target-only resolution, composite relational identity, decimal comparison, scoped matching, missing parent, target ambiguity, grouped evidence, ID leakage, byte determinism, create-only policy, many2many operations |
-| `tests/test_connectors.py` | official JSON-2 endpoint shape, bearer/database headers, named `fields_get`, pagination, timeout redaction, closed public surface, API-key redaction |
-| `tests/test_reporting_cli.py` | read-only CLI commands, existing profile command, manifest and twelve-sheet workbook generation |
+| Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_web_app` |
+| Mapping and preparation authoring | `test_mapping_semantics`, `test_derived_entities` |
+| Profile-driven preflight | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_reporting_cli` |
+| Local Odoo lifecycle | `test_local_odoo_reader`, `test_local_stack` |
+| Security, governance, hosting, and release | `test_project_security`, `test_governance`, `test_hosting_contracts`, `test_internal_release` |
 
 ## Classification matrix
 
@@ -309,8 +317,10 @@ Structural requirements already apply:
 
 ## Acceptance gate
 
-Local proof-of-concept validation is complete when all 46 tests pass and the
-offline commands reproduce the documented result.
+Local automated validation is complete when the currently discovered required
+suite passes and the offline commands reproduce the documented result. Record
+optional integration skips explicitly; do not treat an unavailable optional
+runtime as executed evidence.
 
 deployment milestone acceptance additionally requires:
 

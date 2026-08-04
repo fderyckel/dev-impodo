@@ -170,8 +170,19 @@
               </label>
               <p class="muted" data-scalar-field-count></p>
             </div>
-            <div class="table-scroll">
-            <table class="data-table mapping-table">
+            <div
+              class="scalar-table-scroll-top"
+              data-scalar-table-scroll-top
+              role="region"
+              tabindex="0"
+              aria-label="Scroll scalar target fields horizontally"
+              aria-controls="scalar-table-scroll-{{ dataset_index }}"
+              hidden
+            >
+              <div class="scalar-table-scroll-spacer" data-scalar-table-scroll-spacer aria-hidden="true"></div>
+            </div>
+            <div class="table-scroll" id="scalar-table-scroll-{{ dataset_index }}" data-scalar-table-scroll>
+              <table class="data-table mapping-table">
               <thead><tr><th>Value provider</th><th>Canonical value</th><th>Odoo field</th><th>Metadata</th><th>Preview</th><th>Policies</th></tr></thead>
               <tbody>
                 {% for row in view.scalar_rows %}
@@ -302,7 +313,7 @@
                   </tr>
                 {% endfor %}
               </tbody>
-            </table>
+              </table>
             </div>
           </div>
 
@@ -464,7 +475,9 @@
       <div class="actions mapping-actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Back to schema</a>
         <button class="button secondary" name="action" value="draft" type="submit">Save and validate draft</button>
-        {% if schema.origin.value != 'LOCAL_MANUAL' %}
+        {% if submission %}
+          <a class="button primary" href="/projects/{{ project.project_id }}/summary">Check data readiness</a>
+        {% elif schema.origin.value != 'LOCAL_MANUAL' %}
           <button class="button primary" name="action" value="submit" type="submit">Submit exact validated mapping</button>
         {% endif %}
       </div>

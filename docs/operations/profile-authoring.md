@@ -1,17 +1,22 @@
-# Profile authoring
+# Profile authoring guide
 
-Profiles are strict YAML documents. Unknown keys, contradictory settings,
-invalid relation origins, inconsistent identity arity, and dependency cycles
-fail before source or target processing.
+## Scope
 
-Start from the [profile template](../../profiles/template.yaml).
+Profiles configure the expert CLI preflight engine. They are strict YAML and
+are not generated from browser mapping revisions. Start with
+[`profiles/template.yaml`](../../profiles/template.yaml), then validate the
+profile with the CLI before capturing Odoo evidence.
 
-## Root
+A profile must contain business keys and symbolic relationships. Never put an
+Odoo URL, database, credential, API key, or numeric Odoo record ID in it.
+
+## Minimal structure
 
 ```yaml
 profile:
-  id: products
-  description: Governed product preflight
+  id: products_v1
+  description: Governed product migration profile
+
 datasets:
   - name: products
     source:
@@ -26,67 +31,46 @@ datasets:
         - source_fields: [article_code]
           target_fields: [default_code]
           type: string
-          normalize: {trim: true}
-    fields: {}
-    relations: {}
+          normalize:
+            trim: true
+    fields:
+      name:
+        source: description
+        type: string
+        required: true
+        required_on_create: true
+        compare: true
+        normalize:
+          trim: true
+          collapse_whitespace: true
 ```
 
-Profile IDs must start with a lowercase letter and contain only lowercase
-letters, digits, `_`, or `-`. Dataset names follow the same rule except that
-`-` is not allowed.
+Unknown keys, duplicate dataset names, invalid relations, inconsistent key
+arity, and dependency cycles are rejected.
 
-## Dataset
+## Dataset source and mode
 
-```yaml
-- name: products
-  source:
-    file: products.csv
-    encoding: utf-8-sig
-    delimiter: ","
-  target:
-    model: product.template
-    mode: upsert
-  source_identity:
-    fields: [article_code, company_code]
-```
+For CSV, declare `source.file`. For XLSX, also declare the explicit worksheet
+required by the schema; do not rely on an active or first sheet.
 
-Modes:
+Choose one target mode:
 
-- `upsert`: classify zero matches as `CREATE`, one match by comparison;
-- `create`: zero matches are `CREATE`; `on_existing` must be `block` or
-  `unchanged`;
-- `reference`: available to other datasets but not an import candidate.
+- `upsert`: create when missing; compare one existing match.
+- `create`: create when missing and apply the declared existing-record policy.
+- `reference`: resolve relationships without producing an import decision.
 
-`source.encoding` defaults to `utf-8-sig` and `source.delimiter` defaults to
-`,` when omitted.
+Use one dataset for one governed entity and target model. Split unrelated
+entities instead of creating one wide, ambiguous profile.
 
-For XLSX, name the worksheet explicitly:
+## Identity and scope
+
+`source_identity.fields` makes each source row traceable. `target_identity`
+defines the business key used to find an Odoo record.
 
 ```yaml
-- name: products
-  source:
-    file: D365 Products.xlsx
-    sheet: Released products
-    header_row: 3
-```
+source_identity:
+  fields: [article_code, company_code]
 
-`sheet` is required for `.xlsx` and forbidden for `.csv`. `header_row`
-defaults to `1`; a different value is allowed only for `.xlsx`. CSV-only
-`encoding` and `delimiter` settings are rejected when explicitly supplied for
-an XLSX source.
-
-Only contained relative `.csv` and `.xlsx` paths are valid. Absolute paths,
-parent traversal, legacy `.xls`, macro-enabled workbooks, encrypted files,
-formulas, Excel error cells, external links/connections, embedded objects,
-duplicate or blank headers, and unsafe Office containers are rejected before
-record preparation. XLSX blank rows are skipped while `source_row` retains the
-actual worksheet row number.
-
-## Target identity and scope
-
-Scalar component:
-
-```yaml
 target_identity:
   components:
     - source_fields: [article_code]
@@ -94,23 +78,6 @@ target_identity:
       type: string
       normalize:
         trim: true
-```
-
-Composite identity adds components in order.
-
-`source_identity.fields` is the trimmed string key used for source
-traceability and duplicate detection. It is separate from the typed
-`target_identity`. Choose it so that two different source keys cannot
-normalize to the same target identity.
-
-Company-scoped identity:
-
-```yaml
-target_identity:
-  components:
-    - source_fields: [article_code]
-      target_fields: [default_code]
-      type: string
   scope:
     - source_fields: [company_code]
       target_fields: [company_id]
@@ -119,82 +86,45 @@ target_identity:
         target_fields: [x_external_code]
 ```
 
-Scope values are part of uniqueness and comparison. They are resolved by
-business keys.
+Use `scope` when a key is unique only within a company, parent, site, or other
+business boundary. Prefer stable external codes or governed natural keys.
+Names are usually poor identifiers, and database IDs are not portable.
 
 ## Scalar fields
 
+Declare only fields needed for validation or comparison.
+
 ```yaml
 fields:
-  name:
-    source: description
-    type: string
+  active:
+    source: active
+    type: boolean
     required: true
-    required_on_create: true
     compare: true
-    validate_only: false
-    normalize:
-      trim: true
-      collapse_whitespace: true
-      casefold: false
-      empty_as_null: true
+
+  list_price:
+    source: sales_price
+    type: decimal
+    compare: true
     null_policy: distinct
 ```
 
-Supported types:
+Useful controls include:
 
-- `string`
-- `integer`
-- `decimal`
-- `boolean`
-- `date`
-- `datetime`
+- `required`: the source value must be present;
+- `required_on_create`: creation needs the value;
+- `compare`: include it in change classification;
+- `validate_only`: validate without proposing a target change;
+- `normalize`: apply declared string normalization;
+- `null_policy`: keep null comparison explicit.
 
-Decimal example:
+Supported portable types include string, integer, decimal, boolean, date, and
+timezone-aware datetime. Use decimal for business quantities and prices; do
+not route them through binary floating point.
 
-```yaml
-quantity:
-  source: source_quantity
-  type: decimal
-  compare: true
-  normalize:
-    decimal_places: 4
-```
+## Relationships
 
-Booleans accept explicit true/false tokens only. Dates use ISO
-`YYYY-MM-DD`. Datetimes use ISO-8601 and normalize to UTC; naive datetimes are
-accepted only when the profile timezone is `UTC`.
-
-`decimal_places` quantizes with decimal half-up rounding. For example,
-`1.235` at two places becomes `1.24`; values never pass through binary
-floating point.
-
-`validate_only: true` requires `compare: false`. Such fields are typed and
-validated but do not propose a future value or affect `UPDATE`.
-
-Null policies:
-
-- `distinct`: null and empty string differ;
-- `equivalent`: null and empty string compare equal;
-- `ignore_source_null`: a null source does not change the target.
-
-`empty_as_null` runs before the null policy. To preserve an empty string as
-distinct from null, set `normalize.empty_as_null: false`.
-
-Scalar defaults:
-
-| Setting | Default |
-| --- | --- |
-| `required` | `false` |
-| `required_on_create` | `false` |
-| `compare` | `true` |
-| `validate_only` | `false` |
-| `null_policy` | `distinct` |
-| `trim` / `collapse_whitespace` / `casefold` | `false` |
-| `empty_as_null` | `true` |
-| `timezone` | `UTC` |
-
-## Target-only many2one
+Resolve relationships through business keys.
 
 ```yaml
 relations:
@@ -212,125 +142,55 @@ relations:
     operation: replace
 ```
 
-The planner retrieves `uom.uom.x_external_code` once in a batch. Required or
-compared references must use error policies; an unresolved proposed relation
-cannot safely continue as a warning.
-
-For a governed reference whose rendered business identity includes scope,
-`target_scope_fields` may be added:
-
-```yaml
-resolve:
-  target_model: x_uc.reference
-  target_fields: [code]
-  target_scope_fields: [company_code]
-```
-
-In the proof of concept these scope fields are used when reverse-rendering an existing Odoo
-relation. Forward source-to-target resolution still matches only
-`target_fields`; duplicate codes across scopes are therefore ambiguous.
-
-## Incoming-dataset many2one
+For many-to-many input, declare the separator and operation:
 
 ```yaml
 relations:
-  asset_id:
-    kind: many2one
-    source_fields: [asset_code]
+  tag_ids:
+    kind: many2many
+    source_fields: [tag_codes]
+    separator: ";"
     resolve:
-      dataset: assets
-      target_source_fields: [asset_code]
-    required: true
+      target_model: x_uc.tag
+      target_fields: [x_external_code]
     compare: true
+    on_missing: error
+    on_ambiguous: error
+    operation: replace
 ```
 
-`target_source_fields` must equal the referenced dataset's declared source
-identity. The engine resolves the referenced prepared record, then carries its
-target model, identity, and scope.
+Use `replace`, `add`, or `remove` deliberately. Missing or ambiguous
+references should normally be errors; relaxing either policy needs an
+explicit business decision.
 
-## Many2many
+Incoming references to another source dataset remain symbolic until the
+dependency graph is resolved. Keep every referenced dataset in the same
+profile and avoid dependency cycles.
 
-```yaml
-tag_ids:
-  kind: many2many
-  source_fields: [tag_codes]
-  separator: ";"
-  resolve:
-    target_model: product.tag
-    target_fields: [x_external_code]
-  compare: true
-  operation: replace
-```
+## Target domains
 
-Operations:
-
-- `replace`: final set equals source set;
-- `add`: final set is existing union source;
-- `remove`: final set is existing minus source.
-
-Order does not matter. Duplicate or empty source items are validation issues.
-
-Relation defaults:
-
-| Setting | Default |
-| --- | --- |
-| `compare` | `true` |
-| `validate_only` | `false` |
-| `required` | `false` |
-| `required_on_create` | `false` |
-| `on_missing` / `on_ambiguous` | `error` |
-| `operation` | `replace` |
-| `separator` | `;` |
-| `null_policy` | `distinct` |
-
-`many2one` supports only `replace`. `many2many` requires exactly one
-list-valued source column. A missing-reference warning is allowed only when
-the relation is not compared and is neither required nor required on create;
-ambiguity can be a warning only when the relation is not compared.
-
-## Target domain
+Use `target_domain` only for a stable, governed restriction that is part of
+the matching rule. A domain must not hide duplicates that should be reviewed.
+Keep it small and auditable.
 
 ```yaml
 target_domain:
   - [active, "=", true]
-  - [company_id, "!=", false]
 ```
 
-The domain restricts the candidate catalog. Source identity restrictions are
-added by the request planner. Do not use a domain that can hide legitimate
-identity matches.
+## Authoring workflow
 
-The local contract accepts the domain as a YAML list but does not implement a
-complete Odoo-domain grammar. Live Odoo validates its semantics. Offline
-fixtures and saved record snapshots are assumed to have been captured with
-the intended domain; `SnapshotConnector` does not re-evaluate it.
+1. Copy the template and give the profile a versioned, meaningful ID.
+2. Add one dataset and its business identity.
+3. Add the smallest useful scalar and relationship mappings.
+4. Run `impodo-cli profile` against representative source files.
+5. Fix all schema, type, duplicate-identity, and relationship issues.
+6. Review the generated prepared-record JSON before any live snapshot.
+7. Add edge cases to the maintained examples or tests when the rule is
+   reusable.
 
-## Profile changes
-
-This proof of concept has one current profile shape and no compatibility
-promise for saved profiles. When changing any of the following, update the
-profile in place and regenerate prepared records, snapshots, and review
-artifacts:
-
-- source/target mapping;
-- identity or scope;
-- normalization or null behavior;
-- comparison participation;
-- relationship policy;
-- target domain.
-
-Profiles must never contain URLs, database IDs, numeric record IDs,
-usernames, passwords, API keys, or tokens.
-
-## Validate and inspect prepared records
-
-```bash
-PYTHONPATH=src .venv/bin/python -m impodo profile \
-  --profile profiles/examples/products.yaml \
-  --input examples/golden \
-  --output build/products/prepared-records.json
-```
-
-See the complete profiles under [profile examples](../../profiles/examples). For
-expected decisions, copy-paste workflows, and failure behavior, see
-[examples and edge cases](../examples-and-edge-cases.md).
+The runnable profiles in [`profiles/examples`](../../profiles/examples) show
+products, bills of materials, and the golden slice. The normative invariants
+and classification behavior are in the
+[preflight contract](../contracts/preflight.md); execution is covered by the
+[CLI runbook](cli.md).

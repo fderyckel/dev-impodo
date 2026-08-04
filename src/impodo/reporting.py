@@ -60,6 +60,27 @@ def write_preflight_outputs(
     return manifest_path, workbook_path
 
 
+def write_review_workbook(
+    manifest_path: str | Path,
+    workbook_path: str | Path,
+    *,
+    preview_directory: str | Path | None = None,
+) -> Path:
+    """Build the Excel review projection from an existing manifest."""
+
+    manifest = Path(manifest_path)
+    workbook = Path(workbook_path)
+    if not manifest.is_file():
+        raise ReportGenerationError("The readiness manifest does not exist")
+    workbook.parent.mkdir(parents=True, exist_ok=True)
+    _build_workbook(
+        manifest,
+        workbook,
+        preview_directory=preview_directory,
+    )
+    return workbook
+
+
 def _build_workbook(
     manifest_path: Path,
     workbook_path: Path,

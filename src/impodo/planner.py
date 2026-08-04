@@ -64,9 +64,13 @@ def plan_record_requests(
         fields[dataset.target.model].update(_dataset_target_fields(dataset))
         dataset_records = records_by_dataset.get(dataset.name, ())
         source_domain = _identity_domain(dataset, dataset_records)
-        domains[dataset.target.model] = _combine_domains(
+        dataset_domain = _combine_domains(
             list(dataset.target_domain),
             source_domain,
+        )
+        domains[dataset.target.model] = _or_domains(
+            domains.get(dataset.target.model, []),
+            dataset_domain,
         )
 
         for component, references in _identity_reference_groups(

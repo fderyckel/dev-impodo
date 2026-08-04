@@ -14,7 +14,8 @@ validated model allowlist.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 import json
 import os
 from pathlib import Path
@@ -22,7 +23,13 @@ import re
 import subprocess
 from typing import Any, Callable, Mapping, Sequence
 
-from .connectors import ConnectorError, MetadataSnapshot, RecordSnapshot
+from .connectors import (
+    ConnectorError,
+    MetadataRequest,
+    MetadataSnapshot,
+    RecordRequest,
+    RecordSnapshot,
+)
 from .local_stack import LocalStackProfile
 from .models import (
     FieldMetadata,
@@ -37,6 +44,7 @@ from .projects import MigrationProject, OdooConnectionMode
 _OUTPUT_MARKER = "__IMPODO_LOCAL_ODOO_JSON__"
 _MAX_OUTPUT_BYTES = 32 * 1024 * 1024
 _MODEL_NAME = re.compile(r"^[a-z][a-z0-9_.]{0,199}$")
+_FIELD_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,199}$")
 _DATABASE_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,200}$")
 _MODEL_FIELDS = (
     "name",
@@ -199,6 +207,142 @@ class LocalOdooMetadataReader:
             limitations=(
                 "Captured through a fixed local Odoo shell transaction that "
                 "is rolled back on exit.",
+            ),
+        )
+
+    def get_preflight_snapshots(
+        self,
+        project: MigrationProject,
+        profile: LocalStackProfile,
+        metadata_requests: Sequence[MetadataRequest],
+        record_requests: Sequence[RecordRequest],
+    ) -> tuple[MetadataSnapshot, RecordSnapshot]:
+        """Capture one consistent, read-only metadata and record snapshot.
+
+        The fixed shell script loops over planned models, never source rows.
+        Record reads are deterministically paginated and the shell transaction
+        is rolled back before exit.
+        """
+
+        metadata = tuple(metadata_requests)
+        records = tuple(record_requests)
+        permitted_models = set(project.intended_models)
+        requested_models = {
+            *(item.model for item in metadata),
+            *(item.model for item in records),
+        }
+        if not requested_models or not requested_models.issubset(permitted_models):
+            raise LocalOdooReaderError(
+                "Local readiness requests must stay inside the project model scope."
+            )
+        for request in metadata:
+            if (
+                _MODEL_NAME.fullmatch(request.model) is None
+                or request.all_fields
+                or any(_FIELD_NAME.fullmatch(field) is None for field in request.fields)
+            ):
+                raise LocalOdooReaderError(
+                    "The local readiness metadata request is invalid."
+                )
+        for request in records:
+            if (
+                _MODEL_NAME.fullmatch(request.model) is None
+                or any(_FIELD_NAME.fullmatch(field) is None for field in request.fields)
+            ):
+                raise LocalOdooReaderError(
+                    "The local readiness record request is invalid."
+                )
+        payload = self._invoke(
+            project,
+            profile,
+            _preflight_script(metadata, records),
+        )
+        fingerprint = self._fingerprint(project, payload)
+        raw_models = payload.get("models")
+        raw_records = payload.get("records")
+        if not isinstance(raw_models, Mapping) or not isinstance(
+            raw_records, Mapping
+        ):
+            raise LocalOdooReaderError(
+                "The local readiness response is invalid."
+            )
+
+        parsed_models: dict[str, ModelMetadata] = {}
+        for request in metadata:
+            raw_model = raw_models.get(request.model)
+            if not isinstance(raw_model, Mapping):
+                raise LocalOdooReaderError(
+                    "The local readiness metadata response is incomplete."
+                )
+            raw_fields = raw_model.get("fields")
+            if not isinstance(raw_fields, Mapping):
+                raise LocalOdooReaderError(
+                    "The local readiness metadata response is invalid."
+                )
+            parsed_models[request.model] = ModelMetadata(
+                model=request.model,
+                description=str(raw_model.get("description") or request.model),
+                fields={
+                    str(name): _field_metadata(str(name), details)
+                    for name, details in raw_fields.items()
+                },
+            )
+
+        parsed_records: dict[str, tuple[TargetRecord, ...]] = {}
+        requested_fields: dict[str, tuple[str, ...]] = {}
+        for request in records:
+            raw_items = raw_records.get(request.model)
+            if not isinstance(raw_items, list):
+                raise LocalOdooReaderError(
+                    "The local readiness record response is incomplete."
+                )
+            seen: set[int] = set()
+            model_records: list[TargetRecord] = []
+            for item in raw_items:
+                if not isinstance(item, Mapping):
+                    raise LocalOdooReaderError(
+                        "The local readiness record response is invalid."
+                    )
+                try:
+                    odoo_id = int(item["id"])
+                except (KeyError, TypeError, ValueError) as error:
+                    raise LocalOdooReaderError(
+                        "The local readiness record response is invalid."
+                    ) from error
+                if odoo_id <= 0 or odoo_id in seen:
+                    raise LocalOdooReaderError(
+                        "The local readiness record response has duplicate IDs."
+                    )
+                seen.add(odoo_id)
+                model_records.append(
+                    TargetRecord(
+                        model=request.model,
+                        odoo_id=odoo_id,
+                        values={
+                            field: item.get(field)
+                            for field in request.fields
+                            if field in item
+                        },
+                    )
+                )
+            parsed_records[request.model] = tuple(model_records)
+            requested_fields[request.model] = tuple(request.fields)
+
+        return (
+            MetadataSnapshot(
+                fingerprint=fingerprint,
+                models=parsed_models,
+                complete=True,
+                limitations=(
+                    "Captured through a fixed local Odoo shell transaction that "
+                    "is rolled back on exit.",
+                ),
+            ),
+            RecordSnapshot(
+                fingerprint=fingerprint,
+                records=parsed_records,
+                requested_fields=requested_fields,
+                complete=True,
             ),
         )
 
@@ -434,6 +578,84 @@ payload = {{
 }}
 """
     )
+
+
+def _preflight_script(
+    metadata_requests: tuple[MetadataRequest, ...],
+    record_requests: tuple[RecordRequest, ...],
+) -> str:
+    metadata_payload = [
+        {"model": item.model, "fields": list(item.fields)}
+        for item in metadata_requests
+    ]
+    record_payload = [
+        {
+            "model": item.model,
+            "fields": list(item.fields),
+            "domain": _json_value(item.domain),
+        }
+        for item in record_requests
+    ]
+    encoded_metadata = json.dumps(metadata_payload, ensure_ascii=True)
+    encoded_records = json.dumps(record_payload, ensure_ascii=True)
+    if len(encoded_metadata) + len(encoded_records) > 8 * 1024 * 1024:
+        raise LocalOdooReaderError(
+            "The local readiness request exceeds the safe request limit."
+        )
+    return _script(
+        f"""
+metadata_requests = json.loads({encoded_metadata!r})
+record_requests = json.loads({encoded_records!r})
+captured_models = {{}}
+for request in metadata_requests:
+    model = env[request["model"]].sudo()
+    captured_models[request["model"]] = {{
+        "description": model._description,
+        "fields": model.fields_get(
+            allfields=request["fields"],
+            attributes={list(_FIELD_ATTRIBUTES)!r},
+        ),
+    }}
+captured_records = {{}}
+for request in record_requests:
+    model = env[request["model"]].sudo()
+    offset = 0
+    rows = []
+    while True:
+        page = model.search_read(
+            request["domain"],
+            ["id", *request["fields"]],
+            offset=offset,
+            limit=500,
+            order="id asc",
+        )
+        rows.extend(page)
+        if len(page) < 500:
+            break
+        offset += len(page)
+    captured_records[request["model"]] = rows
+payload = {{
+    "database": env.cr.dbname,
+    "version": release.version,
+    "models": captured_models,
+    "records": captured_records,
+}}
+"""
+    )
+
+
+def _json_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, tuple | list):
+        return [_json_value(item) for item in value]
+    if isinstance(value, Mapping):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    return value
 
 
 def _script(body: str) -> str:

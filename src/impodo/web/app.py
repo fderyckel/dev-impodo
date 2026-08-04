@@ -8,9 +8,10 @@ from pathlib import Path
 import re
 import secrets
 from typing import Callable
+from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
@@ -85,6 +86,16 @@ from ..projects import (
     ProjectStatus,
     registration_problems,
 )
+from ..readiness import (
+    BrowserReadinessService,
+    MANIFEST_NAME,
+    ReadinessError,
+)
+from ..reporting import (
+    ReportGenerationError,
+    WORKBOOK_NAME,
+    write_review_workbook,
+)
 from ..secrets import CredentialVault, SecretStore, SecretStoreError
 from ..workspace import (
     MappingWorkspaceService,
@@ -132,6 +143,14 @@ _APPLICATION_MODULE_PREFIXES = {
 ConnectionTester = Callable[[MigrationProject, str], str]
 SchemaReader = Callable[[MigrationProject, str], MetadataSnapshot]
 ModelCatalogReader = Callable[[MigrationProject, str], RecordSnapshot]
+BrowserReadinessReader = Callable[
+    [
+        MigrationProject,
+        tuple[MetadataRequest, ...],
+        tuple[RecordRequest, ...],
+    ],
+    tuple[MetadataSnapshot, RecordSnapshot],
+]
 
 
 @dataclass(slots=True)
@@ -144,6 +163,7 @@ class WebContext:
     derived_entities: DerivedEntityWorkspaceService
     schema_workspace: SchemaWorkspaceService
     mapping_workspace: MappingWorkspaceService
+    readiness: BrowserReadinessService
     artifacts: ArtifactStore
     actor: Actor
     authorization: AuthorizationPolicy
@@ -153,6 +173,7 @@ class WebContext:
     connection_tester: ConnectionTester
     schema_reader: SchemaReader
     model_catalog_reader: ModelCatalogReader
+    readiness_reader: BrowserReadinessReader | None
     local_stack: LocalStackService
     local_odoo_reader: LocalOdooMetadataReader
 
@@ -167,6 +188,7 @@ def create_local_app(
     connection_tester: ConnectionTester | None = None,
     schema_reader: SchemaReader | None = None,
     model_catalog_reader: ModelCatalogReader | None = None,
+    readiness_reader: BrowserReadinessReader | None = None,
     actor: Actor = LOCAL_ACTOR,
     authorization: AuthorizationPolicy | None = None,
     artifact_store: ArtifactStore | None = None,
@@ -202,6 +224,11 @@ def create_local_app(
             repository,
             resolved_authorization,
         ),
+        readiness=BrowserReadinessService(
+            repository,
+            resolved_artifacts,
+            resolved_authorization,
+        ),
         artifacts=resolved_artifacts,
         actor=actor,
         authorization=resolved_authorization,
@@ -211,6 +238,7 @@ def create_local_app(
         connection_tester=connection_tester or _test_connection,
         schema_reader=schema_reader or _read_schema,
         model_catalog_reader=model_catalog_reader or _read_model_catalog,
+        readiness_reader=readiness_reader,
         local_stack=local_stack_service or LocalStackService(),
         local_odoo_reader=local_odoo_reader or LocalOdooMetadataReader(),
     )
@@ -791,8 +819,138 @@ def create_local_app(
     @app.get("/projects/{project_id}/summary", response_class=HTMLResponse)
     async def project_summary(request: Request, project_id: str):
         require_session(request)
+        return _render_summary(request, context, project_id)
+
+    @app.post("/projects/{project_id}/summary/check")
+    async def check_project_data(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
         project = context.repository.get(project_id)
-        return _render(request, "project_summary.html", project=project)
+
+        def reader(metadata_requests, record_requests):
+            return _read_readiness_snapshots(
+                context,
+                project,
+                metadata_requests,
+                record_requests,
+            )
+
+        try:
+            await run_in_threadpool(
+                context.readiness.run,
+                project_id,
+                reader=reader,
+                actor=context.actor,
+            )
+        except (
+            ConnectorError,
+            ProjectError,
+            ReadinessError,
+            SecretStoreError,
+            WorkspaceError,
+        ) as error:
+            return _render_summary(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, "Data readiness check completed.")
+        return RedirectResponse(
+            f"/projects/{project_id}/summary",
+            status_code=303,
+        )
+
+    @app.get("/projects/{project_id}/summary/manifest")
+    async def download_readiness_manifest(request: Request, project_id: str):
+        require_session(request)
+        report = context.readiness.current_report(project_id)
+        if report is None:
+            raise HTTPException(status_code=404, detail="Readiness report not found")
+        path = _readiness_report_path(
+            context,
+            project_id,
+            report.run_id,
+            MANIFEST_NAME,
+        )
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Readiness manifest not found")
+        return FileResponse(
+            path,
+            media_type="application/json",
+            filename=f"impodo-{project_id[:8]}-preflight.json",
+        )
+
+    @app.post("/projects/{project_id}/summary/package")
+    async def generate_readiness_package(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        report = context.readiness.current_report(project_id)
+        if report is None:
+            raise HTTPException(status_code=404, detail="Readiness report not found")
+        if report.status != "READY":
+            return _render_summary(
+                request,
+                context,
+                project_id,
+                error="Resolve the rows that need attention before creating the package.",
+                status_code=422,
+            )
+        manifest_path = _readiness_report_path(
+            context,
+            project_id,
+            report.run_id,
+            MANIFEST_NAME,
+        )
+        workbook_path = _readiness_report_path(
+            context,
+            project_id,
+            report.run_id,
+            WORKBOOK_NAME,
+        )
+        try:
+            await run_in_threadpool(
+                write_review_workbook,
+                manifest_path,
+                workbook_path,
+            )
+        except (OSError, ReportGenerationError) as error:
+            return _render_summary(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, "Review package created.")
+        return RedirectResponse(
+            f"/projects/{project_id}/summary",
+            status_code=303,
+        )
+
+    @app.get("/projects/{project_id}/summary/workbook")
+    async def download_readiness_workbook(request: Request, project_id: str):
+        require_session(request)
+        report = context.readiness.current_report(project_id)
+        if report is None:
+            raise HTTPException(status_code=404, detail="Readiness report not found")
+        path = _readiness_report_path(
+            context,
+            project_id,
+            report.run_id,
+            WORKBOOK_NAME,
+        )
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Review package not found")
+        return FileResponse(
+            path,
+            media_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+            filename=f"impodo-{project_id[:8]}-review.xlsx",
+        )
 
     @app.get("/projects/{project_id}/sources", response_class=HTMLResponse)
     async def project_sources(request: Request, project_id: str):
@@ -1291,7 +1449,27 @@ def create_local_app(
             status_code=303,
         )
 
-    @app.post("/projects/{project_id}/schema/scope")
+    @app.get(
+        "/projects/{project_id}/schema/scope",
+        name="redirect_project_schema_scope",
+        include_in_schema=False,
+    )
+    async def redirect_project_schema_scope(request: Request, project_id: str):
+        require_session(request)
+        return RedirectResponse(
+            f"/projects/{project_id}/schema",
+            status_code=303,
+        )
+
+    @app.post(
+        "/projects/{project_id}/schema",
+        name="update_project_schema_scope",
+    )
+    @app.post(
+        "/projects/{project_id}/schema/scope",
+        name="update_project_schema_scope_legacy",
+        include_in_schema=False,
+    )
     async def update_project_schema_scope(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "permitted_models"})
@@ -1704,6 +1882,53 @@ def _read_model_catalog(
     )
 
 
+def _read_readiness_snapshots(
+    context: WebContext,
+    project: MigrationProject,
+    metadata_requests: tuple[MetadataRequest, ...],
+    record_requests: tuple[RecordRequest, ...],
+) -> tuple[MetadataSnapshot, RecordSnapshot]:
+    """Read one consistent target snapshot through the configured boundary."""
+
+    if context.readiness_reader is not None:
+        return context.readiness_reader(
+            project,
+            metadata_requests,
+            record_requests,
+        )
+    local_profile = _selected_local_profile(context, project)
+    if project.odoo_connection_mode is OdooConnectionMode.LOCAL:
+        if local_profile is None:
+            raise WorkspaceError(
+                "Choose and validate the matching local odoo.conf before "
+                "checking data."
+            )
+        return context.local_odoo_reader.get_preflight_snapshots(
+            project,
+            local_profile,
+            metadata_requests,
+            record_requests,
+        )
+    api_key = context.secret_store.get(_target_credential_id(project))
+    if not api_key:
+        raise SecretStoreError(
+            "Enter an Odoo API key for this remote target before checking data."
+        )
+    if project.odoo_connection_mode is None:
+        raise WorkspaceError("Configure the Odoo target before checking data")
+    connector = Json2ReadConnector(
+        Json2Config(
+            base_url=project.odoo_base_url,
+            database=project.odoo_database,
+            api_key=api_key,
+            connection_mode=project.odoo_connection_mode.value,
+        )
+    )
+    metadata = connector.get_model_metadata(metadata_requests)
+    records = connector.get_records(record_requests)
+    return metadata, records
+
+
 def _target_credential_id(project: MigrationProject) -> str:
     """Bind a stored API key to one project and exact Odoo destination."""
 
@@ -1763,6 +1988,85 @@ def _render_target(
         error=error,
         status_code=status_code,
     )
+
+
+def _render_summary(
+    request: Request,
+    context: WebContext,
+    project_id: str,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+):
+    project = context.repository.get(project_id)
+    revision = context.repository.get_mapping_revision(project_id)
+    submission = (
+        context.repository.get_mapping_submission(project_id, revision.version)
+        if revision is not None
+        else None
+    )
+    report = context.readiness.current_report(project_id)
+    status_filter = request.query_params.get("status", "").strip()
+    if status_filter not in {"", "ready", "needs_review", "blocked"}:
+        status_filter = ""
+    dataset_filter = request.query_params.get("dataset", "").strip()
+    available_datasets = {
+        item.dataset for item in (report.datasets if report else ())
+    }
+    if dataset_filter not in available_datasets:
+        dataset_filter = ""
+    rows = tuple(
+        item
+        for item in (report.rows if report else ())
+        if (not status_filter or item.status == status_filter)
+        and (not dataset_filter or item.dataset == dataset_filter)
+    )
+    return _render(
+        request,
+        "project_summary.html",
+        project=project,
+        revision=revision,
+        submission=submission,
+        readiness=report,
+        readiness_rows=rows,
+        review_workbook_ready=(
+            report is not None
+            and _readiness_report_path(
+                context,
+                project_id,
+                report.run_id,
+                WORKBOOK_NAME,
+            ).is_file()
+        ),
+        status_filter=status_filter,
+        dataset_filter=dataset_filter,
+        error=error,
+        status_code=status_code,
+    )
+
+
+def _readiness_report_path(
+    context: WebContext,
+    project_id: str,
+    run_id: str,
+    filename: str,
+) -> Path:
+    try:
+        canonical_run_id = str(UUID(run_id))
+    except (ValueError, AttributeError) as error:
+        raise HTTPException(
+            status_code=404,
+            detail="Readiness report not found",
+        ) from error
+    if filename not in {MANIFEST_NAME, WORKBOOK_NAME}:
+        raise HTTPException(status_code=404, detail="Report file not found")
+    reports_root = (
+        context.repository.project_directory(project_id) / "reports"
+    ).resolve()
+    target = (reports_root / canonical_run_id / filename).resolve()
+    if target.parent.parent != reports_root:
+        raise HTTPException(status_code=404, detail="Report file not found")
+    return target
 
 
 def _require_local_stack_access(

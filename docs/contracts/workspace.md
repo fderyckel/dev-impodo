@@ -121,12 +121,25 @@ It emits deterministic issues, coverage, deferred checks, and a validation
 hash.
 
 Row-level uniqueness, required values, full transformations, and actual
-relationship resolution remain deferred to staging and preflight. Bounded
-preview is not clean-package certification.
+relationship resolution are deferred from mapping validation to the Summary
+readiness check. Bounded preview is not clean-package certification.
 
 DuckDB retains append-only mapping revisions, validation results, and
 submissions. `SUBMITTED` binds the exact mapping and validation hashes and
 requires all blocking issues resolved and warnings acknowledged. It is ready
-for later functional review; it is not approval and grants no Odoo write
+for the row-level readiness check; it is not approval and grants no Odoo write
 capability.
 
+## Row-level readiness
+
+Summary offers one **Check data readiness** action for the current submitted
+mapping. It reloads every frozen source row, applies generated parent/child
+dataset rules, and checks business keys, values, relationships, and target
+matches through the existing preflight engine.
+
+The UI keeps three row-level outcomes: **Ready**, **Needs review**, and
+**Blocked**. Status cards and dataset counts filter the source-row table;
+plain-language reason and next-action text is shown first, while technical
+codes stay collapsed. Target reads are grouped by model, never by source row.
+When all rows are ready, the user can generate the Excel review package from
+the canonical JSON evidence. All target access remains read-only.

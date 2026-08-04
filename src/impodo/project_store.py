@@ -34,6 +34,7 @@ from .projects import (
     ProjectSummary,
     SourceFile,
 )
+from .readiness import ReadinessReport
 from .workspace import (
     MappingDraft,
     OdooModelCatalog,
@@ -44,7 +45,7 @@ from .workspace import (
 )
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 class DuckDbProjectRepository:
@@ -1174,8 +1175,110 @@ class DuckDbProjectRepository:
             except Exception:
                 connection.rollback()
                 raise
-        self._update_registry(project)
-        self._write_registration_manifest(project)
+
+    def get_readiness_report(
+        self,
+        project_id: str,
+        mapping_id: str,
+        mapping_version: int,
+        mapping_content_hash: str,
+    ) -> ReadinessReport | None:
+        values = self._read_json_rows(
+            project_id,
+            """
+            SELECT report_json
+              FROM readiness_run
+             WHERE mapping_id = ?
+               AND mapping_version = ?
+               AND mapping_content_hash = ?
+             ORDER BY checked_at DESC, run_id
+            """,
+            [mapping_id, mapping_version, mapping_content_hash],
+        )
+        return ReadinessReport.from_json(values[0]) if values else None
+
+    def save_readiness_report(
+        self,
+        project_id: str,
+        report: ReadinessReport,
+        *,
+        actor: Actor,
+    ) -> None:
+        try:
+            canonical_run_id = str(UUID(report.run_id))
+        except (ValueError, AttributeError) as error:
+            raise WorkspaceError("Readiness run identifier is invalid") from error
+        if report.project_id != project_id:
+            raise WorkspaceError("Readiness report belongs to another project")
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            submission = connection.execute(
+                """
+                SELECT submission_id
+                  FROM mapping_submission
+                 WHERE mapping_id = ?
+                   AND version = ?
+                   AND content_hash = ?
+                 ORDER BY submitted_at DESC
+                 LIMIT 1
+                """,
+                [
+                    report.mapping_id,
+                    report.mapping_version,
+                    report.mapping_content_hash,
+                ],
+            ).fetchone()
+            if submission is None:
+                raise WorkspaceError(
+                    "Readiness report does not match a submitted mapping"
+                )
+            revision = self._project_revision(connection)
+            connection.begin()
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO readiness_run
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        canonical_run_id,
+                        report.mapping_id,
+                        report.mapping_version,
+                        report.mapping_content_hash,
+                        report.target_hash,
+                        report.checked_at.isoformat(),
+                        report.checked_by,
+                        report.to_json(),
+                    ],
+                )
+                connection.execute(
+                    """
+                    UPDATE project
+                       SET current_run_id = ?,
+                           approval_status = 'REVIEW_REQUIRED'
+                    """,
+                    [canonical_run_id],
+                )
+                self._insert_workspace_audit(
+                    connection,
+                    revision=revision,
+                    event_type="READINESS_CHECK_COMPLETED",
+                    detail=(
+                        f"run {canonical_run_id}: {report.status}; "
+                        f"{report.total_count} row(s)"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        updated_project = self.get(project_id)
+        self._update_registry(updated_project)
+        self._write_registration_manifest(updated_project)
 
     def project_directory(self, project_id: str) -> Path:
         try:
@@ -1487,6 +1590,17 @@ class DuckDbProjectRepository:
                 submission_json VARCHAR NOT NULL
             );
 
+            CREATE TABLE readiness_run (
+                run_id VARCHAR PRIMARY KEY,
+                mapping_id VARCHAR NOT NULL,
+                mapping_version INTEGER NOT NULL,
+                mapping_content_hash VARCHAR NOT NULL,
+                target_hash VARCHAR NOT NULL,
+                checked_at VARCHAR NOT NULL,
+                checked_by VARCHAR NOT NULL,
+                report_json VARCHAR NOT NULL
+            );
+
             CREATE TABLE audit_event (
                 event_id BIGINT PRIMARY KEY,
                 event_type VARCHAR NOT NULL,
@@ -1796,6 +1910,22 @@ class DuckDbProjectRepository:
                         """
                     )
                     version = 9
+                if version == 9:
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS readiness_run (
+                            run_id VARCHAR PRIMARY KEY,
+                            mapping_id VARCHAR NOT NULL,
+                            mapping_version INTEGER NOT NULL,
+                            mapping_content_hash VARCHAR NOT NULL,
+                            target_hash VARCHAR NOT NULL,
+                            checked_at VARCHAR NOT NULL,
+                            checked_by VARCHAR NOT NULL,
+                            report_json VARCHAR NOT NULL
+                        )
+                        """
+                    )
+                    version = 10
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

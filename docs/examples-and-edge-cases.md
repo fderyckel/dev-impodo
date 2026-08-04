@@ -7,23 +7,24 @@ explicitly.
 
 ## 1. Complete offline example
 
-Run these commands from `/Users/francois/dev-impodo`.
+Run these commands from the repository root after installing Impodo in the
+active environment.
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m impodo snapshot-metadata \
+impodo-cli snapshot-metadata \
   --profile profiles/examples/golden_slice.yaml \
   --connector snapshot \
   --snapshot fixtures/golden/target_snapshot.json \
   --output build/golden/metadata.json
 
-PYTHONPATH=src .venv/bin/python -m impodo snapshot-records \
+impodo-cli snapshot-records \
   --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --connector snapshot \
   --snapshot fixtures/golden/target_snapshot.json \
   --output build/golden/records.json
 
-PYTHONPATH=src .venv/bin/python -m impodo preflight \
+impodo-cli preflight \
   --profile profiles/examples/golden_slice.yaml \
   --input examples/golden \
   --metadata build/golden/metadata.json \
@@ -573,22 +574,10 @@ evidence.
 
 ## 11. Test pointers
 
-| Behavior | Automated evidence |
-| --- | --- |
-| Types, booleans, null policies, strict profiles | `tests/test_profile_and_values.py` |
-| CSV/XLSX safety, prepared records, duplicate source identities, batching, domains | `tests/test_source_and_planner.py` |
-| Catalog duplicates, business references, metadata mismatch | `tests/test_catalog_metadata.py` |
-| Five classifications, scopes, composite identity, relations, determinism | `tests/test_engine.py` |
-| JSON-2 headers, pagination, timeout redaction, closed public surface | `tests/test_connectors.py` |
-| CLI and real workbook generation | `tests/test_reporting_cli.py` |
-
-Run all 46 tests, including the workbook integration:
-
-```bash
-IMPODO_RUN_WORKBOOK_TESTS=1 \
-PYTHONPATH=src \
-.venv/bin/python -m unittest discover -s tests -v
-```
+The current test inventory, platform-specific validation commands, optional
+workbook gate, and remaining evidence are maintained in the
+[acceptance and test strategy](testing/acceptance.md). Do not rely on a fixed
+test count copied into an example.
 
 Live-target smoke tests, a 100–300-record sanitized acceptance slice, memory
 profiling of the historical 360,000-row package, and Odoo-side ACL evidence

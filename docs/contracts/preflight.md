@@ -2,8 +2,8 @@
 
 ## Status and scope
 
-**Status:** Implemented as a profile-driven CLI/engine; not compiled from the
-browser's submitted mapping revisions.
+**Status:** Implemented for both strict CLI profiles and submitted browser
+mapping revisions.
 
 The preflight engine answers, without changing Odoo:
 
@@ -14,7 +14,7 @@ Its outputs are review evidence, not an executable import plan or Odoo write
 authorization.
 
 ```text
-strict profile + CSV/XLSX
+strict profile or submitted browser mapping + frozen CSV/XLSX
 -> typed prepared records
 -> batched target requirements
 -> metadata and record snapshots
@@ -156,8 +156,12 @@ include a persisted requirements-plan hash.
 
 ## Integration boundary
 
-Browser mapping submission, normalization approval, preflight classification,
-clean-package certification, functional approval, and Odoo execution are
-separate states. Joining them requires a full-row staging/compiler boundary
-that does not yet exist.
+The browser compiles the exact submitted mapping into the same preflight
+contract, stages every frozen source row, and repeats related parent/child
+generation over the complete dataset. Summary presents `CREATE`, `UPDATE`,
+and `UNCHANGED` as **Ready**, `AMBIGUOUS` as **Needs review**, and `BLOCKED` as
+**Blocked**, with dataset and source-row evidence.
 
+Mapping submission, preflight classification, clean-package certification,
+functional approval, and Odoo execution remain separate states. The browser
+readiness check is read-only and grants no Odoo write capability.

@@ -592,6 +592,10 @@ import/export, functional review, and approval.
 - joins, expansion, grouping, and declarative business rules;
 - scalable execution against large files.
 
+The current delivery sequence, integration boundaries, and acceptance gates
+are maintained in the
+[data-quality and staging delivery plan](plans/data-quality-and-staging-plan.md).
+
 ### Phase 4 — Integrated preflight
 
 - consume staged datasets;
