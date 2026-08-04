@@ -422,6 +422,18 @@ class LocalStackService:
         status = self._statuses.get(project_id, LocalStackStatus.unconfigured())
         return self._decorate_status(project_id, status)
 
+    def forget_project(self, project_id: str) -> None:
+        """Drop session-only state after confirming no owned service is running."""
+
+        with self._control_lock:
+            if self._managed_services(project_id):
+                raise LocalStackError(
+                    "Stop the local services managed by Impodo before deleting "
+                    "this project."
+                )
+            self._statuses.pop(project_id, None)
+            self._ownership.pop(project_id, None)
+
     def mark_metadata_ready(
         self,
         project_id: str,

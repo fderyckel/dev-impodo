@@ -212,6 +212,7 @@
                 <input type="search" value="{{ view.field_query }}" data-scalar-field-search placeholder="Search label, technical name, or type" autocomplete="off">
               </label>
               <button class="button secondary" type="button" data-field-search-submit>Search all fields</button>
+              <small>Typing filters the loaded page only. Press Enter or choose Search all fields to query the complete captured catalog. Searching never saves mapping progress.</small>
               <label class="checkbox">
                 <input type="checkbox" data-show-mapped-scalars {% if view.mapped_only %}checked{% endif %}>
                 Show mapped fields only

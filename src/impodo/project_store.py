@@ -6,8 +6,9 @@ from contextlib import contextmanager
 from datetime import date, datetime, timezone
 import json
 from pathlib import Path
+import shutil
 from typing import Iterable, Iterator
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import duckdb
 
@@ -29,6 +30,7 @@ from .projects import (
     MigrationProject,
     OdooConnectionMode,
     ProjectConflictError,
+    ProjectError,
     ProjectNotFoundError,
     ProjectStatus,
     ProjectSummary,
@@ -138,6 +140,64 @@ class DuckDbProjectRepository:
             )
             for row in rows
         )
+
+    def delete(
+        self,
+        project_id: str,
+        *,
+        expected_revision: int,
+    ) -> None:
+        """Permanently remove one contained project and its registry row."""
+
+        project_dir = self.project_directory(project_id)
+        database_path = project_dir / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            current = connection.execute(
+                "SELECT revision FROM project"
+            ).fetchone()
+        if current is None:
+            raise ProjectNotFoundError("Project not found")
+        if int(current[0]) != expected_revision:
+            raise ProjectConflictError(
+                "The project was modified by another request"
+            )
+
+        staged = self.root / f".{project_id}.deleting-{uuid4()}"
+        if staged.parent != self.root or staged.exists():
+            raise ProjectError("Could not prepare the project for deletion")
+
+        project_dir.rename(staged)
+        registry_deleted = False
+        try:
+            with self._connect(self.registry_path) as connection:
+                registered = connection.execute(
+                    """
+                    SELECT revision
+                      FROM project_registry
+                     WHERE project_id = ?
+                    """,
+                    [project_id],
+                ).fetchone()
+                if registered is None:
+                    raise ProjectNotFoundError("Project not found")
+                if int(registered[0]) != expected_revision:
+                    raise ProjectConflictError(
+                        "The project was modified by another request"
+                    )
+                connection.execute(
+                    "DELETE FROM project_registry WHERE project_id = ?",
+                    [project_id],
+                )
+                registry_deleted = True
+            shutil.rmtree(staged)
+        except Exception:
+            if not registry_deleted and staged.exists() and not project_dir.exists():
+                staged.rename(project_dir)
+            raise
 
     def get_source_catalogs(
         self,
@@ -1430,8 +1490,9 @@ class DuckDbProjectRepository:
             canonical = str(UUID(project_id))
         except (ValueError, AttributeError) as error:
             raise ProjectNotFoundError("Invalid project identifier") from error
-        target = (self.root / canonical).resolve()
-        if target.parent != self.root:
+        candidate = self.root / canonical
+        target = candidate.resolve()
+        if target != candidate or target.parent != self.root:
             raise ProjectNotFoundError("Invalid project identifier")
         return target
 

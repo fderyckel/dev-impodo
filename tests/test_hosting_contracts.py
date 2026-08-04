@@ -79,6 +79,23 @@ class AuthorizationContractTests(unittest.TestCase):
 
         self.assertEqual(self.repository.list(), ())
 
+    def test_project_delete_requires_its_own_capability(self) -> None:
+        creator = actor("Project creator", Capability.PROJECT_CREATE)
+        project = self.service.create_project(
+            actor=creator,
+            name="Protected project",
+            source_system="CSV",
+        )
+
+        with self.assertRaisesRegex(AuthorizationError, "project.delete"):
+            self.service.delete_project(
+                project.project_id,
+                actor=creator,
+                expected_revision=project.revision,
+            )
+
+        self.assertEqual(self.repository.get(project.project_id), project)
+
 
 class ArtifactStoreContractTests(unittest.TestCase):
     def setUp(self) -> None:

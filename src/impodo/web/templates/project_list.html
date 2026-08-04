@@ -23,24 +23,77 @@
         <span>Status</span>
         <span>Last updated</span>
         <span>Revision</span>
+        <span>Actions</span>
       </div>
       {% for project in projects %}
-        <a class="project-row" href="/projects/{{ project.project_id }}">
-          <div class="project-name">
-            <svg class="ui-icon" aria-hidden="true" focusable="false">
-              <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#folder"></use>
-            </svg>
-            <div>
-              <strong>{{ project.name }}</strong>
-              <span>Governed migration project</span>
+        <div class="project-row-shell">
+          <a class="project-row" href="/projects/{{ project.project_id }}">
+            <div class="project-name">
+              <svg class="ui-icon" aria-hidden="true" focusable="false">
+                <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#folder"></use>
+              </svg>
+              <div>
+                <strong>{{ project.name }}</strong>
+                <span>Governed migration project</span>
+              </div>
             </div>
-          </div>
-          <span class="status {{ project.status.value|lower }}">{{ project.status.value }}</span>
-          <span class="project-updated">{{ project.updated_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
-          <span class="project-revision">v{{ project.revision }}</span>
-        </a>
+            <span class="status {{ project.status.value|lower }}">{{ project.status.value }}</span>
+            <span class="project-updated">{{ project.updated_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+            <span class="project-revision">v{{ project.revision }}</span>
+            <span class="project-action-spacer" aria-hidden="true"></span>
+          </a>
+          <form
+            class="project-delete-form"
+            method="post"
+            action="/projects/{{ project.project_id }}/delete"
+            data-project-delete-form
+            data-project-name="{{ project.name }}"
+          >
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="revision" value="{{ project.revision }}">
+            <button
+              class="project-delete-button"
+              type="button"
+              aria-label="Delete {{ project.name }}"
+              title="Delete project"
+              data-project-delete-trigger
+            >
+              <svg class="ui-icon" aria-hidden="true" focusable="false">
+                <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#trash3"></use>
+              </svg>
+            </button>
+          </form>
+        </div>
       {% endfor %}
     </section>
+
+    <dialog
+      class="project-delete-dialog"
+      aria-labelledby="project-delete-title"
+      data-project-delete-dialog
+    >
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Permanent deletion</p>
+          <h2 id="project-delete-title">Delete project?</h2>
+        </div>
+        <form method="dialog">
+          <button class="dialog-close" type="submit" aria-label="Close dialog">×</button>
+        </form>
+      </div>
+      <p>
+        This deletes the project, uploaded files, mappings, reports, and audit
+        history. This cannot be undone.
+      </p>
+      <div class="dialog-actions">
+        <form method="dialog">
+          <button class="button secondary" type="submit">Cancel</button>
+        </form>
+        <button class="button danger" type="button" data-project-delete-confirm>
+          Delete project
+        </button>
+      </div>
+    </dialog>
   {% else %}
     <section class="empty-state">
       <h2>No projects yet</h2>

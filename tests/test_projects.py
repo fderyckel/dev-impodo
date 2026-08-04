@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -20,6 +21,7 @@ from impodo.projects import (
     OdooConnectionMode,
     ProjectConflictError,
     ProjectError,
+    ProjectNotFoundError,
     ProjectRegistrationError,
     ProjectService,
     ProjectStatus,
@@ -259,6 +261,55 @@ class ProjectLifecycleTests(unittest.TestCase):
             connection.execute(
                 f'ALTER TABLE project ADD COLUMN "{legacy_column}" VARCHAR'
             )
+
+    def test_delete_permanently_removes_registered_project_and_artifacts(
+        self,
+    ) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Disposable rehearsal",
+            source_system="CSV",
+        )
+        project_dir = self.repository.project_directory(project.project_id)
+        (project_dir / "reports" / "review.txt").write_text(
+            "disposable",
+            encoding="utf-8",
+        )
+        now = datetime.now(timezone.utc)
+        registered = replace(
+            project,
+            status=ProjectStatus.REGISTERED,
+            revision=project.revision + 1,
+            updated_at=now,
+            registered_at=now,
+        )
+        self.repository.save(
+            registered,
+            expected_revision=project.revision,
+            event_type="TEST_PROJECT_REGISTERED",
+            event_detail="",
+            actor=LOCAL_ACTOR,
+        )
+
+        with self.assertRaisesRegex(ProjectConflictError, "reload before deleting"):
+            self.service.delete_project(
+                project.project_id,
+                actor=LOCAL_ACTOR,
+                expected_revision=project.revision,
+            )
+        self.assertTrue(project_dir.is_dir())
+
+        deleted = self.service.delete_project(
+            registered.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=registered.revision,
+        )
+
+        self.assertEqual(deleted, registered)
+        self.assertFalse(project_dir.exists())
+        self.assertEqual(self.repository.list(), ())
+        with self.assertRaises(ProjectNotFoundError):
+            self.repository.get(registered.project_id)
             connection.execute(
                 f'UPDATE project SET "{legacy_column}" = ?',
                 ["legacy-label"],

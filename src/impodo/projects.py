@@ -136,6 +136,13 @@ class ProjectRepository(Protocol):
 
     def list(self) -> tuple[ProjectSummary, ...]: ...
 
+    def delete(
+        self,
+        project_id: str,
+        *,
+        expected_revision: int,
+    ) -> None: ...
+
     def save(
         self,
         project: MigrationProject,
@@ -194,6 +201,32 @@ class ProjectService:
             updated_at=now,
         )
         self.repository.create(project, actor=actor)
+        return project
+
+    def delete_project(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+    ) -> MigrationProject:
+        """Permanently delete one project regardless of lifecycle status."""
+
+        canonical_project_id = _canonical_project_id(project_id)
+        self.authorization.require(
+            actor,
+            Capability.PROJECT_DELETE,
+            project_id=canonical_project_id,
+        )
+        project = self.repository.get(canonical_project_id)
+        if project.revision != expected_revision:
+            raise ProjectConflictError(
+                "The project changed in another request; reload before deleting"
+            )
+        self.repository.delete(
+            canonical_project_id,
+            expected_revision=expected_revision,
+        )
         return project
 
     def update_details(

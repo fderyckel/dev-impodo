@@ -108,6 +108,45 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const projectDeleteDialog = document.querySelector(
+    "[data-project-delete-dialog]"
+  );
+  const projectDeleteTitle = projectDeleteDialog?.querySelector(
+    "#project-delete-title"
+  );
+  const projectDeleteConfirm = projectDeleteDialog?.querySelector(
+    "[data-project-delete-confirm]"
+  );
+  let pendingProjectDeleteForm = null;
+
+  for (const trigger of document.querySelectorAll(
+    "[data-project-delete-trigger]"
+  )) {
+    trigger.addEventListener("click", () => {
+      const form = trigger.closest("[data-project-delete-form]");
+      if (!form || !projectDeleteDialog) {
+        return;
+      }
+      pendingProjectDeleteForm = form;
+      if (projectDeleteTitle) {
+        const projectName = form.dataset.projectName || "this project";
+        projectDeleteTitle.textContent = `Delete “${projectName}”?`;
+      }
+      projectDeleteDialog.showModal();
+    });
+  }
+
+  projectDeleteConfirm?.addEventListener("click", () => {
+    const form = pendingProjectDeleteForm;
+    pendingProjectDeleteForm = null;
+    projectDeleteDialog?.close();
+    form?.requestSubmit();
+  });
+
+  projectDeleteDialog?.addEventListener("close", () => {
+    pendingProjectDeleteForm = null;
+  });
+
   const targetModels = Array.from(
     document.querySelectorAll("[data-target-model]")
   );
@@ -172,13 +211,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const saveStatus = mappingForm.querySelector(
       "[data-mapping-save-status]"
     );
-    const saveProgress = mappingForm.querySelector(
-      "[data-save-mapping-progress]"
-    );
     const saveError = mappingForm.querySelector("[data-mapping-save-error]");
     let dirty = false;
     let submitting = false;
-    mappingForm.dataset.mappingDirty = "false";
 
     const savedAt = saveStatus?.dataset.savedAt;
     if (saveStatus && savedAt) {
@@ -209,7 +244,6 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       dirty = true;
-      mappingForm.dataset.mappingDirty = "true";
       if (saveStatus) {
         saveStatus.textContent = "Unsaved changes.";
         saveStatus.classList.add("unsaved");
@@ -274,7 +308,11 @@ document.addEventListener("DOMContentLoaded", () => {
         const csrfToken = mappingForm.querySelector(
           'input[name="csrf_token"]'
         )?.value;
-        const response = await fetch(mappingForm.action, {
+        const mappingSaveUrl = mappingForm.getAttribute("action");
+        if (!mappingSaveUrl) {
+          throw new Error("The mapping save URL is missing.");
+        }
+        const response = await fetch(mappingSaveUrl, {
           method: "POST",
           headers: {
             Accept: "application/json",
@@ -318,20 +356,13 @@ document.addEventListener("DOMContentLoaded", () => {
           );
         }
         dirty = false;
-        mappingForm.dataset.mappingDirty = "false";
         if (saveStatus) {
           saveStatus.textContent = payload.message || "Mapping saved.";
         }
-        const pendingRedirect = mappingForm.dataset.pendingRedirect;
-        delete mappingForm.dataset.pendingRedirect;
-        window.location.assign(
-          pendingRedirect || payload.redirect_url || window.location.pathname
-        );
+        window.location.assign(payload.redirect_url || window.location.pathname);
       } catch (error) {
         submitting = false;
         dirty = true;
-        mappingForm.dataset.mappingDirty = "true";
-        delete mappingForm.dataset.pendingRedirect;
         mappingForm.removeAttribute("aria-busy");
         const message =
           !responseReceived && error instanceof TypeError
@@ -358,16 +389,6 @@ document.addEventListener("DOMContentLoaded", () => {
       event.returnValue = "";
     });
 
-    document.addEventListener("keydown", (event) => {
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        event.key.toLocaleLowerCase() === "s" &&
-        saveProgress
-      ) {
-        event.preventDefault();
-        mappingForm.requestSubmit(saveProgress);
-      }
-    });
   }
 
   const modelPicker = document.querySelector("[data-model-picker]");
@@ -998,36 +1019,12 @@ document.addEventListener("DOMContentLoaded", () => {
       query.set("scalar_page", "1");
       query.set("relation_page", "1");
       const destination = `${window.location.pathname}?${query.toString()}`;
-      const activeMappingForm = document.querySelector("[data-mapping-form]");
-      const saveProgressButton = activeMappingForm?.querySelector(
-        "[data-save-mapping-progress]"
-      );
-      if (
-        activeMappingForm?.dataset.mappingDirty === "true" &&
-        saveProgressButton
-      ) {
-        activeMappingForm.dataset.pendingRedirect = destination;
-        activeMappingForm.requestSubmit(saveProgressButton);
-        return;
-      }
       window.location.assign(destination);
     };
-    let fieldSearchTimer;
-    const scheduleFieldCatalogSearch = () => {
-      window.clearTimeout(fieldSearchTimer);
-      if (count) {
-        count.textContent = "Searching all captured scalar fields\u2026";
-      }
-      fieldSearchTimer = window.setTimeout(navigateFieldCatalog, 500);
-    };
-    searchSubmit?.addEventListener("click", () => {
-      window.clearTimeout(fieldSearchTimer);
-      navigateFieldCatalog();
-    });
+    searchSubmit?.addEventListener("click", navigateFieldCatalog);
     search?.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
-        window.clearTimeout(fieldSearchTimer);
         navigateFieldCatalog();
       }
     });
@@ -1083,11 +1080,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       window.requestAnimationFrame(updateScalarTableScroll);
     };
-    search?.addEventListener("input", () => {
-      updateScalarFieldRows();
-      scheduleFieldCatalogSearch();
-    });
-    mappedOnly?.addEventListener("change", navigateFieldCatalog);
+    search?.addEventListener("input", updateScalarFieldRows);
+    mappedOnly?.addEventListener("change", updateScalarFieldRows);
     for (const provider of catalog.querySelectorAll("[data-value-source]")) {
       provider.addEventListener("change", updateScalarFieldRows);
     }

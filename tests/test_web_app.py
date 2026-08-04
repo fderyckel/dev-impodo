@@ -783,6 +783,88 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.client.close()
         self.temporary.cleanup()
 
+    def test_project_list_permanently_deletes_project_after_confirmation(
+        self,
+    ) -> None:
+        created = self._post(
+            "/projects/new",
+            {
+                "csrf_token": self.csrf,
+                "name": "Disposable rehearsal",
+                "source_system": "Other",
+            },
+        )
+        project_id = created.headers["location"].split("/")[2]
+        project = self.app.state.context.repository.get(project_id)
+        targeted = self._post(
+            f"/projects/{project_id}/target",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(project.revision),
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://odoo.example.test",
+                "odoo_database": "migration",
+                "intended_applications": "Contacts",
+                "api_key": "disposable-api-key",
+                "remember_api_key": "1",
+                "action": "save",
+            },
+        )
+        self.assertEqual(targeted.status_code, 303)
+        self.assertEqual(len(self.secrets.values), 1)
+
+        project = self.app.state.context.repository.get(project_id)
+        project_dir = self.app.state.context.repository.project_directory(project_id)
+        project_list = self.client.get("/projects")
+        self.assertIn(
+            f'action="/projects/{project_id}/delete"',
+            project_list.text,
+        )
+        self.assertIn('data-project-delete-dialog', project_list.text)
+        self.assertIn('data-project-delete-trigger', project_list.text)
+        self.assertIn('bootstrap-icons.svg#trash3', project_list.text)
+        self.assertIn(
+            "This deletes the project, uploaded files, mappings, reports, and audit",
+            project_list.text,
+        )
+        self.assertIn("This cannot be undone.", project_list.text)
+        self.assertNotIn("does not change Odoo", project_list.text)
+        self.assertNotIn(
+            "Records already created or updated in Odoo will remain",
+            project_list.text,
+        )
+
+        stale = self._post(
+            f"/projects/{project_id}/delete",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(project.revision - 1),
+            },
+        )
+        self.assertEqual(stale.status_code, 422)
+        self.assertTrue(project_dir.is_dir())
+        self.assertEqual(len(self.secrets.values), 1)
+
+        deleted = self._post(
+            f"/projects/{project_id}/delete",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(project.revision),
+            },
+        )
+        self.assertEqual(deleted.status_code, 303)
+        self.assertEqual(deleted.headers["location"], "/projects")
+        self.assertFalse(project_dir.exists())
+        self.assertEqual(self.secrets.values, {})
+        missing = self.client.get(f"/projects/{project_id}")
+        self.assertEqual(missing.status_code, 404)
+        refreshed = self.client.get(deleted.headers["location"])
+        self.assertIn('Deleted project "Disposable rehearsal".', refreshed.text)
+
+        script = self.client.get("/static/app.js")
+        self.assertIn("projectDeleteDialog.showModal()", script.text)
+        self.assertIn("form?.requestSubmit()", script.text)
+
     def test_local_schema_draft_does_not_call_the_odoo_api(self) -> None:
         context = self.app.state.context
         created = context.projects.create_project(
@@ -1441,6 +1523,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Source + fallback", mapping_page.text)
         self.assertIn("Leave unset / Odoo default", mapping_page.text)
         self.assertIn("Search scalar fields", mapping_page.text)
+        self.assertIn("Searching never saves mapping progress.", mapping_page.text)
         self.assertIn("data-scalar-table-scroll-top", mapping_page.text)
         self.assertIn(
             'aria-label="Scroll scalar target fields horizontally"',
@@ -1463,8 +1546,21 @@ class ProjectSetupWizardTests(unittest.TestCase):
             mapping_script.text,
         )
         self.assertIn('window.addEventListener("beforeunload"', mapping_script.text)
-        self.assertIn("mappingForm.requestSubmit(saveProgress)", mapping_script.text)
-        self.assertIn("fetch(mappingForm.action", mapping_script.text)
+        self.assertNotIn("scheduleFieldCatalogSearch", mapping_script.text)
+        self.assertNotIn("pendingRedirect", mapping_script.text)
+        self.assertNotIn(
+            "mappingForm.requestSubmit(saveProgress)",
+            mapping_script.text,
+        )
+        self.assertIn(
+            'search?.addEventListener("input", updateScalarFieldRows)',
+            mapping_script.text,
+        )
+        self.assertIn(
+            'mappingForm.getAttribute("action")',
+            mapping_script.text,
+        )
+        self.assertNotIn("fetch(mappingForm.action", mapping_script.text)
         self.assertIn(
             "Your unsaved changes are still on this page",
             mapping_script.text,

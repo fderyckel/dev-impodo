@@ -170,6 +170,22 @@ class LocalStackConfigurationTests(unittest.TestCase):
 
         self.assertEqual(refreshed.base_url, "http://127.0.0.1:28069")
 
+    def test_forget_project_clears_only_inactive_session_state(self) -> None:
+        service = LocalStackService(
+            probe=lambda profile: LocalStackStatus(
+                config_path=str(profile.config_path),
+                base_url=profile.base_url,
+                database_hint=profile.database_hint,
+                checks=(),
+                profile=profile,
+            )
+        )
+        service.select_config("project-1", self.config)
+
+        service.forget_project("project-1")
+
+        self.assertIsNone(service.get("project-1").profile)
+
     def test_starts_postgresql_then_odoo_with_fixed_commands(self) -> None:
         profile = read_odoo_config(self.config)
         initial = _stack_status(
@@ -443,6 +459,9 @@ class LocalStackConfigurationTests(unittest.TestCase):
             "already manages local services",
         ):
             service.start("project-1")
+
+        with self.assertRaisesRegex(LocalStackError, "before deleting"):
+            service.forget_project("project-1")
 
         self.assertEqual(starter.call_count, 1)
         self.assertEqual(service.get("project-1").managed_services, ("Odoo",))

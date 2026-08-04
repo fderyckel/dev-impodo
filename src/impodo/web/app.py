@@ -93,6 +93,7 @@ from ..project_store import DuckDbProjectRepository
 from ..projects import (
     MigrationProject,
     OdooConnectionMode,
+    ProjectConflictError,
     ProjectError,
     ProjectNotFoundError,
     ProjectRegistrationError,
@@ -319,6 +320,45 @@ def create_local_app(
             "project_list.html",
             projects=context.repository.list(),
         )
+
+    @app.post("/projects/{project_id}/delete")
+    async def delete_project(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "revision"})
+        try:
+            expected_revision = _revision(form)
+            project = context.repository.get(project_id)
+            if project.revision != expected_revision:
+                raise ProjectConflictError(
+                    "The project changed in another request; reload before deleting"
+                )
+            context.authorization.require(
+                context.actor,
+                Capability.PROJECT_DELETE,
+                project_id=project.project_id,
+            )
+            context.local_stack.forget_project(project.project_id)
+            context.secret_store.delete(_target_credential_id(project))
+            deleted = context.projects.delete_project(
+                project.project_id,
+                actor=context.actor,
+                expected_revision=expected_revision,
+            )
+        except AuthorizationError as error:
+            raise HTTPException(
+                status_code=403,
+                detail="Not authorized to delete this project",
+            ) from error
+        except (LocalStackError, SecretStoreError, ProjectError) as error:
+            return _render(
+                request,
+                "project_list.html",
+                projects=context.repository.list(),
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, f'Deleted project "{deleted.name}".')
+        return RedirectResponse("/projects", status_code=303)
 
     @app.get("/projects/new", response_class=HTMLResponse)
     async def new_project_form(request: Request):
