@@ -36,7 +36,10 @@ from ..connectors import (
     RecordSnapshot,
 )
 from ..derived_entities import (
+    DerivedEntityRule,
     DerivedEntityWorkspaceService,
+    RelatedDatasetRule,
+    related_dataset_links,
 )
 from ..intake import SourceIntakeError, SourceIntakeService
 from ..inspection import (
@@ -1091,6 +1094,103 @@ def create_local_app(
             status_code=303,
         )
 
+    @app.post("/projects/{project_id}/derived-entities/related/preview")
+    async def preview_project_related_datasets(
+        request: Request,
+        project_id: str,
+    ):
+        form = await request.form()
+        fields = {
+            "csrf_token",
+            "expected_parent_version",
+            "source_dataset_id",
+            "parent_dataset_name",
+            "child_dataset_name",
+            "parent_key_column_key",
+            "scope_column_key",
+            "child_key_column_key",
+            "blank_policy",
+        }
+        _secure_form(request, form, fields)
+        try:
+            rule, preview = context.derived_entities.preview_related_split(
+                project_id,
+                source_dataset_id=_text(form, "source_dataset_id"),
+                parent_dataset_name=_text(form, "parent_dataset_name"),
+                child_dataset_name=_text(form, "child_dataset_name"),
+                parent_key_column_key=_text(form, "parent_key_column_key"),
+                scope_column_key=_text(form, "scope_column_key") or None,
+                child_key_column_key=_text(form, "child_key_column_key"),
+                blank_policy=_text(form, "blank_policy"),
+            )
+        except (WorkspaceError, ValueError) as error:
+            return _render_derived_entities(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        return _render_derived_entities(
+            request,
+            context,
+            project_id,
+            pending_related={"rule": rule, "preview": preview},
+        )
+
+    @app.post("/projects/{project_id}/derived-entities/related/save")
+    async def save_project_related_datasets(
+        request: Request,
+        project_id: str,
+    ):
+        form = await request.form()
+        fields = {
+            "csrf_token",
+            "expected_parent_version",
+            "source_dataset_id",
+            "parent_dataset_name",
+            "child_dataset_name",
+            "parent_key_column_key",
+            "scope_column_key",
+            "child_key_column_key",
+            "blank_policy",
+        }
+        _secure_form(request, form, fields)
+        try:
+            plan, rule = context.derived_entities.save_related_split(
+                project_id,
+                source_dataset_id=_text(form, "source_dataset_id"),
+                parent_dataset_name=_text(form, "parent_dataset_name"),
+                child_dataset_name=_text(form, "child_dataset_name"),
+                parent_key_column_key=_text(form, "parent_key_column_key"),
+                scope_column_key=_text(form, "scope_column_key") or None,
+                child_key_column_key=_text(form, "child_key_column_key"),
+                blank_policy=_text(form, "blank_policy"),
+                expected_parent_version=_optional_int(
+                    _text(form, "expected_parent_version")
+                ),
+                actor=context.actor,
+            )
+        except (WorkspaceError, ValueError) as error:
+            return _render_derived_entities(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            (
+                f"Created related datasets {rule.parent_dataset_name} and "
+                f"{rule.child_dataset_name} in plan version {plan.version}."
+            ),
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/derived-entities",
+            status_code=303,
+        )
+
     @app.post(
         "/projects/{project_id}/derived-entities/{rule_id}/delete"
     )
@@ -1408,7 +1508,7 @@ def create_local_app(
     @app.post("/projects/{project_id}/mapping/save")
     async def save_project_mapping(request: Request, project_id: str):
         form = await request.form()
-        selection = context.repository.get_source_selection(project_id)
+        selection = context.repository.get_mapping_source_selection(project_id)
         if selection is None:
             raise HTTPException(status_code=422, detail="Source selection missing")
 
@@ -1925,6 +2025,7 @@ def _render_derived_entities(
     *,
     error: str | None = None,
     status_code: int = 200,
+    pending_related: dict[str, object] | None = None,
 ):
     project = context.repository.get(project_id)
     selection = context.repository.get_source_selection(project_id)
@@ -1955,20 +2056,49 @@ def _render_derived_entities(
         for column in dataset.columns
     )
     rule_views: list[dict[str, object]] = []
+    related_rule_views: list[dict[str, object]] = []
     for rule in (plan.rules if plan else ()):
         try:
-            preview = context.derived_entities.preview(project_id, rule)
+            preview = (
+                context.derived_entities.preview(project_id, rule)
+                if isinstance(rule, DerivedEntityRule)
+                else context.derived_entities.preview_related(project_id, rule)
+            )
             preview_error = None
         except WorkspaceError as preview_failure:
             preview = None
             preview_error = str(preview_failure)
-        rule_views.append(
+        target = (
+            rule_views
+            if isinstance(rule, DerivedEntityRule)
+            else related_rule_views
+        )
+        target.append(
             {
                 "rule": rule,
                 "preview": preview,
                 "preview_error": preview_error,
             }
         )
+    split_sources = {
+        view["rule"].source_dataset_id for view in related_rule_views
+    }
+    related_source_views = tuple(
+        {
+            "dataset": dataset,
+            "columns": dataset.columns,
+            "has_split": dataset.dataset_id in split_sources,
+            "parent_name_default": _related_dataset_name_default(
+                dataset.name,
+                "parents",
+            ),
+            "child_name_default": _related_dataset_name_default(
+                dataset.name,
+                "lines",
+            ),
+        }
+        for dataset in (selection.datasets if selection else ())
+    )
     namespace = re.sub(
         r"[^a-z0-9]+",
         "_",
@@ -1985,10 +2115,20 @@ def _render_derived_entities(
         source_choices=source_choices,
         model_choices=model_choices,
         rule_views=tuple(rule_views),
+        related_rule_views=tuple(related_rule_views),
+        related_source_views=related_source_views,
+        pending_related=pending_related,
         namespace_default=namespace,
         error=error,
         status_code=status_code,
     )
+
+
+def _related_dataset_name_default(source_name: str, suffix: str) -> str:
+    base = re.sub(r"[^a-z0-9]+", "_", source_name.casefold()).strip("_")
+    if not base or not base[0].isalpha():
+        base = "source"
+    return f"{base[:54]}_{suffix}"
 
 
 def _schema_model_choices(
@@ -2110,7 +2250,8 @@ def _render_mapping(
     error: str | None = None,
     status_code: int = 200,
 ):
-    selection = context.repository.get_source_selection(project_id)
+    selection = context.repository.get_mapping_source_selection(project_id)
+    preparation_plan = context.repository.get_derived_entity_plan(project_id)
     schema = context.repository.get_odoo_schema_catalog(project_id)
     governance = context.repository.get_schema_governance(project_id)
     revision = context.repository.get_mapping_revision(project_id)
@@ -2145,6 +2286,7 @@ def _render_mapping(
                 index: request.query_params.get(f"target_model_{index}", "")
                 for index, _item in enumerate(selection.datasets)
             },
+            related_dataset_links(preparation_plan),
         )
         if selection and schema
         else ()
@@ -2182,6 +2324,7 @@ def _mapping_dataset_views(
     existing_datasets,
     source_catalogs=(),
     selected_models=None,
+    related_links=(),
 ) -> tuple[dict[str, object], ...]:
     existing_by_id = {item.dataset_id: item for item in existing_datasets}
     models = {item.name: item for item in schema.models}
@@ -2191,6 +2334,9 @@ def _mapping_dataset_views(
         for item in keys
         if item.status is BusinessKeyStatus.CONFIRMED
     )
+    link_by_child = {item.child_dataset_id: item for item in related_links}
+    link_by_parent = {item.parent_dataset_id: item for item in related_links}
+    parent_ids = {item.parent_dataset_id for item in related_links}
     result: list[dict[str, object]] = []
     for dataset_index, source_dataset in enumerate(selection.datasets):
         source_samples = _mapping_source_samples(
@@ -2365,8 +2511,46 @@ def _mapping_dataset_views(
                     for item in selection.datasets
                     if item.dataset_id != source_dataset.dataset_id
                 ),
+                "related_role": (
+                    "child"
+                    if source_dataset.dataset_id in link_by_child
+                    else (
+                        "parent"
+                        if source_dataset.dataset_id in parent_ids
+                        else None
+                    )
+                ),
+                "recommended_source_identity": (
+                    link_by_child[source_dataset.dataset_id].child_identity_column_keys
+                    if source_dataset.dataset_id in link_by_child
+                    else (
+                        link_by_parent[
+                            source_dataset.dataset_id
+                        ].reference_column_keys
+                        if source_dataset.dataset_id in link_by_parent
+                        else ()
+                    )
+                ),
             }
         )
+    views_by_dataset = {
+        view["source"].dataset_id: view for view in result
+    }
+    for view in result:
+        source = view["source"]
+        link = link_by_child.get(source.dataset_id)
+        if link is None:
+            continue
+        parent_view = views_by_dataset.get(link.parent_dataset_id)
+        parent_model = parent_view["selected_model"] if parent_view else None
+        for relation_row in view["relation_rows"]:
+            metadata = relation_row["metadata"]
+            if metadata.relation != parent_model:
+                continue
+            relation_row["recommended_dataset_id"] = link.parent_dataset_id
+            relation_row["recommended_source_columns"] = (
+                link.reference_column_keys
+            )
     return tuple(result)
 
 

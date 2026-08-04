@@ -8,14 +8,14 @@ ensure that every proposed import value satisfies an approved, auditable
 data-quality policy before it can be considered releasable.
 
 This is the normalization and validation portion of the
-[end-to-end migration product](product-vision.md). Source/workbook discovery,
+[end-to-end migration product](../product-vision.md). Source/workbook discovery,
 interactive mapping, durable staging, approval, execution, and reconciliation
 are defined there and are not silently included in this rules slice.
 
 **Status:** Proposed for implementation and architecture approval.
 
 The normative breadth and release criteria are defined by the
-[data transformation coverage contract](contracts/data-transformation-coverage.md).
+[data-quality coverage specification](data-quality-coverage.md).
 The early slices in this plan deliberately start with low-risk source-field
 rules. The later slices close the structural transformation, entity
 resolution, domain validation, Odoo semantic, and clean-package gaps identified
@@ -952,7 +952,7 @@ Tests:
 Gate:
 
 - every applicable release gate in the
-  [coverage contract](contracts/data-transformation-coverage.md#9-clean-package-release-gates)
+  [coverage specification](data-quality-coverage.md#clean-package-release-gates)
   passes for the exact package before the data manager can label it clean for
   Odoo target rehearsal.
 

@@ -1,12 +1,13 @@
 # Impodo documentation
 
-This documentation is the design authority for the read-only Odoo preflight
-milestone. Where an example and a normative rule disagree, text marked
-**MUST**, **MUST NOT**, **SHOULD**, or **MAY** is authoritative.
+This index covers the current local browser workflow, the profile-driven
+read-only preflight engine, and the future migration product.
 
-The read-only milestone is one part of the larger Impodo migration product.
-See [End-to-end migration product vision](product-vision.md) for source
-inspection, mapping, staging, approval, loading, and reconciliation.
+Accepted decisions and contracts are normative. Architecture describes the
+current composition and boundaries; operations explain how to use it; testing
+records evidence; plans and the product vision describe future or historical
+delivery. Where an example conflicts with a **MUST**, **MUST NOT**, **SHOULD**,
+or **MAY** rule, the normative rule wins.
 
 ## Terminology
 
@@ -18,56 +19,46 @@ roadmap phases. Do not use Phase A or Phase B.
 
 ## Architecture
 
-- [Security and infrastructure](security-and-infrastructure.md) — factual
+- [Architecture overview](architecture/overview.md) — current system context,
+  browser and preflight boundaries, component layers, evidence flow,
+  performance invariants, and deployment seams.
+- [Security and infrastructure](architecture/security-and-infrastructure.md) — factual
   overview of the local architecture, implemented controls, infrastructure
   requirements, data handling, verification evidence, and current limitations.
-
 - [End-to-end migration product vision](product-vision.md) — complete product
   workflow, mapping architecture, staging, relation handling, executor
   boundary, edge cases, and roadmap.
-- [Architecture review](architecture-review.md) — current-state evidence,
-  fitness assessment, risks, and readiness gates.
-- [Read-only preflight architecture](architecture/read-only-preflight.md) —
-  boundaries, components, data flow, invariants, comparison semantics, and
-  deployment model.
 - [Architecture decisions](decisions/README.md) — accepted decisions that
   constrain implementation.
-- [Implementation plan](implementation-plan.md) — package layout, sequence,
+
+## Plans and delivery history
+
+- [Implementation plan](plans/implementation-plan.md) — package layout, sequence,
   deliverables, and definition of done.
-- [Historical delivery Phase 2B relationship and semantic-validation proposal](phase-2-relationship-semantic-validation-proposal.md)
+- [Historical delivery Phase 2B relationship and semantic-validation proposal](plans/phase-2-relationship-semantic-validation-proposal.md)
   — the implemented relationship-mapping increment, its contracts, and its
   acceptance criteria; current delivery status is in the product vision.
-- [Data-quality rules implementation plan](data-quality-rules-implementation-plan.md)
+- [Data-quality rules implementation plan](plans/data-quality-rules-implementation-plan.md)
   — phased delivery of governed corrections, structural transformations,
   entity resolution, Odoo-aware validation, package quality gates, and
   acceptance criteria.
+- [Data-quality coverage specification](plans/data-quality-coverage.md) —
+  proposed 24-family coverage measure and clean-package release gates.
 
 ## Contracts
 
-- [Migration project contract](contracts/migration-project.md) — Stage A
-  fields, lifecycle, source evidence, persistence, and browser safety boundary.
-- [Source catalog contract](contracts/source-catalog.md) — Stage B file
-  inventory, bounded preview, candidate types, statistics, and hash binding.
-- [Source workspace and semantic-mapping contract](contracts/source-workspace.md)
-  — source confirmation, frozen datasets, Odoo schema capture, invalidation,
-  governed keys, relationships, semantic validation, and submissions.
-- [Data-transformation coverage contract](contracts/data-transformation-coverage.md)
-  — 24 transformation and cleaning case families, the measurable 95%
-  threshold, Odoo-specific semantics, and clean-package release gates.
-- [Derived-entity authoring](derived-entity-authoring.md)
-  — the implemented browser slice for category-owned and other related-entity
-  IDs extracted from denormalized source fields, plus its execution boundary.
-- [Profile contract](contracts/profile.md) — how a profile maps,
-  types, identifies, resolves, and compares data.
-- [Prepared record contract](contracts/prepared-record.md) — the
-  target-independent boundary after source validation.
-- [Snapshot contracts](contracts/snapshots.md) — target
-  fingerprint, model metadata, and target-record catalogs.
-- [Preflight result contract](contracts/preflight-result.md) —
-  classifications, field differences, reference evidence, and portable
-  manifest rules.
-- [Read connector contract](contracts/read-connector.md) — the intentionally
-  narrow interface implemented by fixtures and live Odoo access.
+- [Migration project contract](contracts/migration-project.md) — project
+  lifecycle, registration requirements, source/target evidence, audit, and
+  persistence boundary.
+- [Browser workspace contract](contracts/workspace.md) — source inspection,
+  confirmation, dataset freezing, target schema, governed mapping,
+  invalidation, validation, and submission.
+- [Profile-driven preflight contract](contracts/preflight.md) — strict profile,
+  typed preparation, closed Odoo reads, snapshots, classification, and
+  portable review evidence.
+- [Normalization dry-run governance contract](contracts/normalization-governance.md)
+  — implemented standalone approval lifecycle, explicit integration status,
+  and the boundary between source approval and Odoo authorization.
 
 ## Operations and quality
 
@@ -86,19 +77,23 @@ roadmap phases. Do not use Phase A or Phase B.
 
 - [CLI and operating model](operations/cli.md) — commands, artifact flow,
   exit behavior, secrets, and runbook.
+- [Profile authoring](operations/profile-authoring.md) — strict YAML profile
+  structure, mapping examples, validation rules, and inspection commands.
+- [Derived-entity authoring](derived-entity-authoring.md) — the implemented
+  browser slice for related-entity datasets extracted from denormalized source
+  fields, plus its execution boundary.
 - [Examples and edge cases](examples-and-edge-cases.md) — copy-paste runs,
   profile patterns, expected outcomes, failure cases, and current limitations.
 - [Acceptance and test strategy](testing/acceptance.md) — test layers, golden
   slice, determinism checks, and acceptance traceability.
+- [Design QA evidence](testing/design-qa.md) — point-in-time visual fidelity
+  findings, completed checks, and blocked browser-verification evidence.
 - [Glossary](glossary.md) — canonical project terminology.
 
-## Proof-of-concept status
+## Documentation maintenance
 
-These documents describe one current contract shape. There are no released
-contract generations or compatibility guarantees yet. When the shape changes,
-the examples, fixtures, generated artifacts, implementation, and documentation
-change together.
-
-All source, fixtures, examples, generated review packages, and documentation
-belong under `/Users/francois/dev-impodo`. No commit, push, publication, or
-deployment is performed by this milestone.
+Keep one active authority for each concept. When a contract changes, update
+its implementation, fixtures, examples, generated artifacts, tests, and links
+together. Label proposals and historical delivery documents explicitly; use
+Git history instead of retaining stale architecture summaries in the active
+documentation tree.

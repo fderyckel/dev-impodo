@@ -639,7 +639,7 @@ Confirmed:
   [Stage E](#stage-e--normalize-and-validate);
 - the proposed default customer-data storage, retention, deletion, and access
   controls are recorded in the
-  [security and infrastructure overview](security-and-infrastructure.md#data-protection-and-retention).
+  [security and infrastructure overview](architecture/security-and-infrastructure.md#data-protection-and-retention).
 
 The mapping workspace may make governed local changes to drafts and derived
 staging records in order to validate and correct data. This does **not** give

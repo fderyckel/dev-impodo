@@ -472,19 +472,21 @@ history but requires the active mapping to be reviewed against the new source.
 
 ### Optional: derive related entities from a source field
 
-Select **Review derived entities** when a source field contains reusable
-records that Odoo stores in a separate model. For example, a product-category
-label can produce category-owned identities without borrowing any product ID.
-Choose the source field, derived dataset name, target model, stable namespace,
-blank policy, and an optional hierarchy separator. Impodo stores an immutable,
-hash-bound rule revision and shows deterministic IDs from the bounded inspected
-sample.
+Select **Prepare related datasets** when one source table contains records that
+Odoo stores separately.
 
-This preview is not a complete extracted dataset and is not yet available in
-the relationship mapper. Full-row staging, cross-project alias survivorship,
-Odoo External-ID resolution, and export remain later slices. See
-[Derived-entity authoring](../derived-entity-authoring.md) for the exact current
-boundary.
+- For a reusable lookup field such as product category, extract governed
+  candidates without borrowing a product identity. Lookup extraction remains a
+  bounded preview and is not yet available in Mapping.
+- For a repeated parent with multiple lines, choose the parent key, optional
+  company/site scope, and line key. Review the counts and sample groups before
+  creating mapping-ready parent and child datasets. Impodo keeps every original
+  row in the child dataset and suggests the inverse many2one relationship only
+  when the selected Odoo models match.
+
+Full-row canonical staging, cross-project alias survivorship, Odoo External-ID
+resolution, and export remain later slices. See [Related-dataset
+preparation](../derived-entity-authoring.md) for the exact current boundary.
 
 ## 5. Capture the Odoo schema
 
@@ -888,9 +890,9 @@ must never be enabled as generic automatic corrections.
 
 The product-stage definitions are maintained in the
 [end-to-end product vision](../product-vision.md). The detailed
-[data-quality rules implementation plan](../data-quality-rules-implementation-plan.md)
+[data-quality rules implementation plan](../plans/data-quality-rules-implementation-plan.md)
 and the normative
-[data-transformation coverage contract](../contracts/data-transformation-coverage.md)
+[data-quality coverage specification](../plans/data-quality-coverage.md)
 define the proposed delivery scope. They are not statements that every
 capability is already available in the browser.
 

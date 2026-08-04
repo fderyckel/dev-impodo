@@ -42,7 +42,7 @@ impodo-cli profile \
 Performs strict profile validation and typed source preparation. It does not
 contact Odoo. The input directory may contain profile-declared `.csv` and
 `.xlsx` files. XLSX profiles must select a worksheet explicitly; see
-[Profile authoring](../../PROFILE_AUTHORING.md).
+[Profile authoring](profile-authoring.md).
 
 ### Capture target metadata
 

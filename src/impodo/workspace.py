@@ -356,6 +356,9 @@ class WorkspaceRepository(Protocol):
         actor: Actor,
     ) -> None: ...
     def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
+    def get_mapping_source_selection(
+        self, project_id: str
+    ) -> SourceSelection | None: ...
     def save_source_selection(
         self,
         project_id: str,
@@ -992,7 +995,7 @@ class MappingWorkspaceService:
             Capability.MAPPING_SUBMIT if submit else Capability.MAPPING_EDIT
         )
         self.authorization.require(actor, capability, project_id=project_id)
-        selection = self.repository.get_source_selection(project_id)
+        selection = self.repository.get_mapping_source_selection(project_id)
         schema = self.repository.get_odoo_schema_catalog(project_id)
         governance = self.repository.get_schema_governance(project_id)
         if selection is None or schema is None:
@@ -1099,7 +1102,7 @@ class MappingWorkspaceService:
             actor, Capability.MAPPING_EDIT, project_id=project_id
         )
         revision = self.repository.get_mapping_revision(project_id)
-        selection = self.repository.get_source_selection(project_id)
+        selection = self.repository.get_mapping_source_selection(project_id)
         schema = self.repository.get_odoo_schema_catalog(project_id)
         governance = self.repository.get_schema_governance(project_id)
         if revision is None or selection is None or schema is None:
@@ -1130,7 +1133,7 @@ class MappingWorkspaceService:
             Capability.MAPPING_SUBMIT if submit else Capability.MAPPING_EDIT
         )
         self.authorization.require(actor, capability, project_id=project_id)
-        selection = self.repository.get_source_selection(project_id)
+        selection = self.repository.get_mapping_source_selection(project_id)
         schema = self.repository.get_odoo_schema_catalog(project_id)
         if selection is None or schema is None:
             raise WorkspaceError("Freeze datasets and capture Odoo schema first")

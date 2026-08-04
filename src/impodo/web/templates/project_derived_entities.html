@@ -1,26 +1,26 @@
 {% extends "base.html" %}
-{% block title %}Derived entities · {{ project.name }} · Impodo{% endblock %}
+{% block title %}Prepare related datasets - {{ project.name }} - Impodo{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Source preparation · Reusable related records</p>
-      <h1>Derive related entities from source fields</h1>
-      <p>Turn a denormalized field into category-owned or otherwise entity-owned identities without borrowing an ID from a product row.</p>
+      <p class="eyebrow">Source preparation - related records</p>
+      <h1>Prepare related datasets</h1>
+      <p>Turn one repeated source table into clear datasets that can be mapped to Odoo without editing the original file.</p>
     </div>
     {% if plan %}
-      <span class="status registered">PLAN · v{{ plan.version }}</span>
+      <span class="status registered">PLAN - v{{ plan.version }}</span>
     {% endif %}
   </div>
 
-  <div class="notice warning">
-    This slice stores a hash-bound extraction plan and previews the bounded inspected sample.
-    It does not yet execute full-row staging, create an Odoo record, or certify an export package.
+  <div class="notice">
+    <strong>Your source evidence stays unchanged.</strong>
+    Impodo stores a reviewed, hash-bound preparation rule. Parent and child splits become normal datasets in Mapping; full-row staging and export certification remain later execution steps.
   </div>
 
   {% if not selection %}
     <section class="form-card empty-state">
       <h2>No frozen datasets</h2>
-      <p>Freeze the physical source datasets before defining derived entities.</p>
+      <p>Freeze the physical source datasets before preparing related records.</p>
       <a class="button primary" href="/projects/{{ project.project_id }}/datasets">Freeze datasets</a>
     </section>
   {% else %}
@@ -29,153 +29,321 @@
       <div class="definition-list">
         <div><dt>Frozen source</dt><dd><code title="{{ selection.content_hash }}">{{ selection.content_hash }}</code></dd></div>
         {% if plan %}
-          <div><dt>Derived plan</dt><dd><code title="{{ plan.content_hash }}">{{ plan.content_hash }}</code></dd></div>
+          <div><dt>Preparation plan</dt><dd><code title="{{ plan.content_hash }}">{{ plan.content_hash }}</code></dd></div>
         {% endif %}
       </div>
-      <p class="muted">Freezing a new source selection invalidates the current derived plan. Saving a derived rule invalidates the current mapping so it can be reviewed again.</p>
+      <p class="muted">Changing the frozen source or a preparation rule invalidates the current mapping so it cannot silently use an outdated structure.</p>
     </section>
 
-    {% for view in rule_views %}
-      {% set rule = view.rule %}
-      {% set preview = view.preview %}
-      <section class="form-card">
+    {% if pending_related %}
+      {% set pending_rule = pending_related.rule %}
+      {% set pending_preview = pending_related.preview %}
+      <section class="form-card related-preview" id="related-preview">
         <div class="page-heading compact">
           <div>
-            <p class="eyebrow">Derived dataset</p>
-            <h2>{{ rule.output_dataset_name }}</h2>
-            <p><code>{{ rule.target_model }}</code> · display field <code>{{ rule.target_name_field }}</code></p>
+            <p class="eyebrow">Review before creating</p>
+            <h2>{{ pending_rule.parent_dataset_name }} and {{ pending_rule.child_dataset_name }}</h2>
+            <p>Check that Impodo understood the repeated parent and its lines correctly.</p>
+          </div>
+          <span class="status registered">PREVIEW</span>
+        </div>
+
+        <div class="notice success">
+          Impodo will create one <strong>{{ pending_rule.parent_dataset_name }}</strong> record for each governed parent key and keep every source row in <strong>{{ pending_rule.child_dataset_name }}</strong>.
+        </div>
+
+        <div class="metric-grid">
+          <div><span>Source rows</span><strong>{{ pending_preview.source_rows }}</strong></div>
+          <div>
+            <span>Parent candidates in profile</span>
+            <strong>{{ pending_preview.parent_candidate_count }}{% if not pending_preview.parent_candidate_count_is_exact %} estimate{% endif %}</strong>
+          </div>
+          <div><span>Child rows retained</span><strong>{{ pending_preview.child_rows }}</strong></div>
+          <div><span>Sample groups checked</span><strong>{{ pending_preview.sampled_parent_groups }}</strong></div>
+        </div>
+
+        {% if pending_preview.blank_parent_sample_rows or pending_preview.blank_scope_sample_rows or pending_preview.blank_child_key_sample_rows %}
+          <div class="notice warning">
+            The inspected sample contains missing identity values: {{ pending_preview.blank_parent_sample_rows }} parent, {{ pending_preview.blank_scope_sample_rows }} scope, and {{ pending_preview.blank_child_key_sample_rows }} line key. These rows will follow the <strong>{{ pending_rule.blank_policy }}</strong> policy.
+          </div>
+        {% endif %}
+        {% if pending_preview.duplicate_child_key_sample_rows %}
+          <div class="notice error">
+            {{ pending_preview.duplicate_child_key_sample_rows }} sampled line(s) repeat the same parent, scope, and line key. Choose a better line key or correct the source rule before continuing.
+          </div>
+        {% endif %}
+        {% if pending_preview.normalized_key_sample_rows %}
+          <div class="notice warning">
+            {{ pending_preview.normalized_key_sample_rows }} sampled row(s) need whitespace or Unicode normalization. Impodo will preserve the raw evidence and use the governed normalized key for grouping.
+          </div>
+        {% endif %}
+
+        {% if pending_preview.parent_samples %}
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Parent key</th><th>Scope</th><th>Sample lines</th><th>Example line keys</th></tr></thead>
+              <tbody>
+                {% for sample in pending_preview.parent_samples %}
+                  <tr>
+                    <th>{{ sample.parent_key }}</th>
+                    <td>{{ sample.scope or "No separate scope" }}</td>
+                    <td>{{ sample.sampled_child_rows }}</td>
+                    <td>{{ sample.sampled_child_keys|join(', ') }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endif %}
+
+        <form method="post" action="/projects/{{ project.project_id }}/derived-entities/related/save">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
+          <input type="hidden" name="source_dataset_id" value="{{ pending_rule.source_dataset_id }}">
+          <input type="hidden" name="parent_dataset_name" value="{{ pending_rule.parent_dataset_name }}">
+          <input type="hidden" name="child_dataset_name" value="{{ pending_rule.child_dataset_name }}">
+          <input type="hidden" name="parent_key_column_key" value="{{ pending_rule.parent_key_column_key }}">
+          <input type="hidden" name="scope_column_key" value="{{ pending_rule.scope_column_key or '' }}">
+          <input type="hidden" name="child_key_column_key" value="{{ pending_rule.child_key_column_key }}">
+          <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
+          <div class="actions">
+            <a class="button secondary" href="/projects/{{ project.project_id }}/derived-entities">Change selections</a>
+            <button class="button primary" type="submit">Create these related datasets</button>
+          </div>
+        </form>
+      </section>
+    {% endif %}
+
+    {% for view in related_rule_views %}
+      {% set rule = view.rule %}
+      {% set preview = view.preview %}
+      <section class="form-card related-rule-card">
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Prepared parent and child</p>
+            <h2>{{ rule.parent_dataset_name }} + {{ rule.child_dataset_name }}</h2>
+            <p>Generated from <strong>{{ preview.source_dataset_name if preview else rule.source_dataset_id }}</strong>.</p>
           </div>
           <form method="post" action="/projects/{{ project.project_id }}/derived-entities/{{ rule.rule_id }}/delete">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
-            <button class="button secondary" type="submit">Remove rule</button>
+            <button class="button secondary" type="submit">Remove split</button>
           </form>
         </div>
 
-        <div class="definition-list">
-          <div><dt>Identity owner</dt><dd>{{ rule.output_dataset_name }}, never the source product or child row</dd></div>
-          <div><dt>External-ID namespace</dt><dd><code>{{ rule.external_id_namespace }}</code></dd></div>
-          <div><dt>Parent separator</dt><dd>{{ rule.parent_separator or "Flat values" }}</dd></div>
-          <div><dt>Blank policy</dt><dd>{{ rule.blank_policy }}</dd></div>
+        <div class="relationship-summary">
+          <div><span>Parent dataset</span><strong>{{ rule.parent_dataset_name }}</strong><small>one row per parent key</small></div>
+          <div class="relationship-connector" aria-hidden="true">1 to many</div>
+          <div><span>Child dataset</span><strong>{{ rule.child_dataset_name }}</strong><small>every original source row</small></div>
         </div>
 
+        <div class="definition-list">
+          <div><dt>Parent key</dt><dd>{{ rule.parent_key_column_key }}</dd></div>
+          <div><dt>Scope</dt><dd>{{ rule.scope_column_key or "No separate scope" }}</dd></div>
+          <div><dt>Line key</dt><dd>{{ rule.child_key_column_key }}</dd></div>
+          <div><dt>Missing keys</dt><dd>{{ rule.blank_policy }}</dd></div>
+        </div>
         {% if view.preview_error %}
           <div class="notice error">{{ view.preview_error }}</div>
         {% elif preview %}
-          <p>
-            Previewed {{ preview.sampled_source_rows }} inspected sample rows from
-            <strong>{{ preview.source_dataset_name }}.{{ preview.source_column_name }}</strong>.
-            The full source profile reports {{ preview.full_distinct_count }} distinct values{% if not preview.full_distinct_count_is_exact %} or more{% endif %}.
+          <p class="muted">
+            The current source profile shows {{ preview.parent_candidate_count }} parent candidate(s){% if not preview.parent_candidate_count_is_exact %}; the composite count is an estimate until full staging{% endif %}. Mapping retains {{ preview.child_rows }} child row(s) and suggests the child-to-parent relationship when the selected Odoo models match.
           </p>
-          {% if preview.blank_sample_rows %}
-            <div class="notice warning">
-              {{ preview.blank_sample_rows }} sampled row(s) have no value and will follow the <strong>{{ rule.blank_policy }}</strong> policy during full staging.
-            </div>
-          {% endif %}
-          {% if preview.invalid_path_sample_rows %}
-            <div class="notice error">
-              {{ preview.invalid_path_sample_rows }} sampled path value(s) contain an empty hierarchy segment and require correction.
-            </div>
-          {% endif %}
-          {% if preview.candidates %}
-            <div class="table-scroll">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Canonical entity</th>
-                    <th>Stable Impodo ID</th>
-                    <th>Odoo External ID</th>
-                    <th>Parent entity</th>
-                    <th>Sample evidence</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for candidate in preview.candidates %}
-                    <tr>
-                      <td>
-                        <strong>{{ candidate.name }}</strong><br>
-                        <code>{{ candidate.canonical_key }}</code>
-                      </td>
-                      <td><code>{{ candidate.entity_id }}</code></td>
-                      <td><code>{{ candidate.odoo_external_id }}</code></td>
-                      <td>{% if candidate.parent_entity_id %}<code>{{ candidate.parent_entity_id }}</code>{% else %}Root{% endif %}</td>
-                      <td>
-                        {{ candidate.sampled_source_row_count }} contributing row(s)
-                        {% if candidate.requires_alias_review %}
-                          <br><strong>Review aliases:</strong> {{ candidate.aliases|join(', ') }}
-                        {% else %}
-                          <br>{{ candidate.aliases|join(', ') }}
-                        {% endif %}
-                      </td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          {% else %}
-            <p class="muted">The bounded sample contains no non-empty candidate values.</p>
-          {% endif %}
         {% endif %}
       </section>
     {% endfor %}
 
-    <section class="form-card">
-      <h2>Add a derived-entity rule</h2>
-      <p>
-        Impodo normalizes Unicode, trims and collapses whitespace, and compares identities case-insensitively.
-        A hierarchy separator such as <code>/</code> produces parent entities before child entities.
-      </p>
-      <form method="post" action="/projects/{{ project.project_id }}/derived-entities/save">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
-        <div class="form-grid">
-          <label>
-            Source field
-            <select name="source_binding" required>
-              <option value="">Choose a frozen column</option>
-              {% for choice in source_choices %}
-                <option value="{{ choice.value }}">{{ choice.dataset_name }} · {{ choice.column_name }} ({{ choice.candidate_type }})</option>
-              {% endfor %}
-            </select>
-          </label>
-          <label>
-            Derived dataset name
-            <input name="output_dataset_name" placeholder="product_categories" pattern="[a-z][a-z0-9_]{0,62}" required>
-          </label>
-          <label>
-            Odoo target model
-            <input name="target_model" list="derived-target-models" placeholder="product.category" required>
-            <datalist id="derived-target-models">
-              {% for model in model_choices %}<option value="{{ model.name }}">{{ model.label }}</option>{% endfor %}
-            </datalist>
-          </label>
-          <label>
-            Odoo display field
-            <input name="target_name_field" value="name" pattern="[a-z_][a-z0-9_.]{0,127}" required>
-          </label>
-          <label>
-            Stable source-system namespace
-            <input name="external_id_namespace" value="{{ namespace_default }}" pattern="[a-z][a-z0-9_]{0,39}" required>
-            <small>Keep this namespace unchanged across rehearsals and production migration.</small>
-          </label>
-          <label>
-            Optional hierarchy separator
-            <input name="parent_separator" maxlength="10" placeholder="/">
-            <small>Leave empty for flat categories or lookup values.</small>
-          </label>
-          <label>
-            Blank source values
-            <select name="blank_policy">
-              <option value="block">Block full staging</option>
-              <option value="quarantine">Quarantine affected rows</option>
-            </select>
-          </label>
-        </div>
-        <div class="actions">
-          <button class="button primary" type="submit">Save and preview rule</button>
-        </div>
-      </form>
+    <section class="form-card" id="create-related-datasets">
+      <p class="eyebrow">Recommended for BOMs and line-based files</p>
+      <h2>Create related datasets</h2>
+      <p class="lead-instruction">Choose the value repeated on every line, the optional company or site scope, and the field that distinguishes each line. Impodo handles grouping and generated identities.</p>
+
+      {% for source_view in related_source_views %}
+        {% set dataset = source_view.dataset %}
+        <details class="source-preparation-choice" {% if loop.first and not source_view.has_split %}open{% endif %}>
+          <summary>
+            <span><strong>{{ dataset.name }}</strong><small>{{ dataset.row_count }} rows - {{ dataset.columns|length }} fields</small></span>
+            {% if source_view.has_split %}<span class="status registered">SPLIT READY</span>{% endif %}
+          </summary>
+          {% if source_view.has_split %}
+            <div class="notice success">This source already has a reviewed parent/child split. Remove that split above before replacing it.</div>
+          {% else %}
+            <form method="post" action="/projects/{{ project.project_id }}/derived-entities/related/preview">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
+              <input type="hidden" name="source_dataset_id" value="{{ dataset.dataset_id }}">
+
+              <div class="guided-step">
+                <span class="step-number">1</span>
+                <div>
+                  <h3>Name the two datasets</h3>
+                  <p class="muted">Use names that describe what one parent and one line represent.</p>
+                  <div class="form-grid">
+                    <label>
+                      Parent dataset
+                      <input name="parent_dataset_name" value="{{ source_view.parent_name_default }}" pattern="[a-z][a-z0-9_]{0,62}" required>
+                      <small>Example: <code>boms</code> or <code>orders</code>.</small>
+                    </label>
+                    <label>
+                      Child dataset
+                      <input name="child_dataset_name" value="{{ source_view.child_name_default }}" pattern="[a-z][a-z0-9_]{0,62}" required>
+                      <small>Example: <code>bom_components</code> or <code>order_lines</code>.</small>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="guided-step">
+                <span class="step-number">2</span>
+                <div>
+                  <h3>Tell Impodo how rows belong together</h3>
+                  <div class="form-grid">
+                    <label>
+                      Which field identifies the parent?
+                      <select name="parent_key_column_key" required>
+                        <option value="">Choose the repeated parent value</option>
+                        {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }} ({{ column.candidate_type }})</option>{% endfor %}
+                      </select>
+                      <small>For the sample BOM file, choose <code>BOMId</code>.</small>
+                    </label>
+                    <label>
+                      Does that identity need company, site, or tenant scope?
+                      <select name="scope_column_key">
+                        <option value="">No separate scope</option>
+                        {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }}</option>{% endfor %}
+                      </select>
+                      <small>For the sample BOM file, choose <code>dataAreaId</code>.</small>
+                    </label>
+                    <label>
+                      Which field distinguishes each line inside the parent?
+                      <select name="child_key_column_key" required>
+                        <option value="">Choose the line identity</option>
+                        {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }} ({{ column.candidate_type }})</option>{% endfor %}
+                      </select>
+                      <small>For the sample BOM file, choose <code>LineNum</code>.</small>
+                    </label>
+                    <label>
+                      If a required key is missing
+                      <select name="blank_policy">
+                        <option value="block">Block the affected records</option>
+                        <option value="quarantine">Quarantine the affected records</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="actions">
+                <button class="button primary" type="submit">Preview related datasets</button>
+              </div>
+            </form>
+          {% endif %}
+        </details>
+      {% endfor %}
     </section>
+
+    <details class="form-card secondary-preparation">
+      <summary>
+        <span><strong>Extract reusable lookup values</strong><small>For categories, tags, and other values stored only as a source field.</small></span>
+      </summary>
+
+      {% for view in rule_views %}
+        {% set rule = view.rule %}
+        {% set preview = view.preview %}
+        <section class="nested-rule-card">
+          <div class="page-heading compact">
+            <div>
+              <p class="eyebrow">Derived lookup dataset</p>
+              <h2>{{ rule.output_dataset_name }}</h2>
+              <p><code>{{ rule.target_model }}</code> - display field <code>{{ rule.target_name_field }}</code></p>
+            </div>
+            <form method="post" action="/projects/{{ project.project_id }}/derived-entities/{{ rule.rule_id }}/delete">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
+              <button class="button secondary" type="submit">Remove rule</button>
+            </form>
+          </div>
+          {% if view.preview_error %}
+            <div class="notice error">{{ view.preview_error }}</div>
+          {% elif preview %}
+            <p>Previewed {{ preview.sampled_source_rows }} inspected rows from <strong>{{ preview.source_dataset_name }}.{{ preview.source_column_name }}</strong>.</p>
+            {% if preview.candidates %}
+              <details>
+                <summary>Technical identity evidence for {{ preview.candidates|length }} candidate(s)</summary>
+                <div class="table-scroll">
+                  <table class="data-table">
+                    <thead><tr><th>Canonical entity</th><th>Stable Impodo ID</th><th>Odoo External ID</th><th>Sample evidence</th></tr></thead>
+                    <tbody>
+                      {% for candidate in preview.candidates %}
+                        <tr>
+                          <td><strong>{{ candidate.name }}</strong><br><code>{{ candidate.canonical_key }}</code></td>
+                          <td><code>{{ candidate.entity_id }}</code></td>
+                          <td><code>{{ candidate.odoo_external_id }}</code></td>
+                          <td>{{ candidate.sampled_source_row_count }} contributing row(s)</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            {% endif %}
+          {% endif %}
+        </section>
+      {% endfor %}
+
+      <section class="nested-rule-card">
+        <h2>Add a lookup extraction rule</h2>
+        <p>Impodo normalizes the selected value and assigns an identity owned by the related Odoo model, never by a contributing product or line.</p>
+        <form method="post" action="/projects/{{ project.project_id }}/derived-entities/save">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
+          <div class="form-grid">
+            <label>
+              Source field
+              <select name="source_binding" required>
+                <option value="">Choose a frozen column</option>
+                {% for choice in source_choices %}
+                  <option value="{{ choice.value }}">{{ choice.dataset_name }} - {{ choice.column_name }} ({{ choice.candidate_type }})</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              Derived dataset name
+              <input name="output_dataset_name" placeholder="product_categories" pattern="[a-z][a-z0-9_]{0,62}" required>
+            </label>
+            <label>
+              Odoo target model
+              <input name="target_model" list="derived-target-models" placeholder="product.category" required>
+              <datalist id="derived-target-models">
+                {% for model in model_choices %}<option value="{{ model.name }}">{{ model.label }}</option>{% endfor %}
+              </datalist>
+            </label>
+            <label>
+              Odoo display field
+              <input name="target_name_field" value="name" pattern="[a-z_][a-z0-9_.]{0,127}" required>
+            </label>
+            <label>
+              Stable source-system namespace
+              <input name="external_id_namespace" value="{{ namespace_default }}" pattern="[a-z][a-z0-9_]{0,39}" required>
+            </label>
+            <label>
+              Optional hierarchy separator
+              <input name="parent_separator" maxlength="10" placeholder="/">
+            </label>
+            <label>
+              Blank source values
+              <select name="blank_policy">
+                <option value="block">Block full staging</option>
+                <option value="quarantine">Quarantine affected rows</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button class="button primary" type="submit">Save and preview lookup</button>
+          </div>
+        </form>
+      </section>
+    </details>
 
     <div class="actions">
       <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to datasets</a>

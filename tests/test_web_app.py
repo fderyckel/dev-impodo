@@ -1190,18 +1190,79 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"/projects/{project_id}/derived-entities",
         )
         derived_page = self.client.get(frozen.headers["location"])
-        self.assertIn("Derive related entities from source fields", derived_page.text)
-        self.assertIn("does not yet execute full-row staging", derived_page.text)
+        self.assertIn("Prepare related datasets", derived_page.text)
+        self.assertIn(
+            "full-row staging and export certification remain later",
+            derived_page.text,
+        )
         selection = (
             self.app.state.context.repository.get_source_selection(project_id)
         )
         self.assertIsNotNone(selection)
         product_name = selection.datasets[1].columns[1]
+        product_code = selection.datasets[1].columns[0]
+        related_preview = self.client.post(
+            f"/projects/{project_id}/derived-entities/related/preview",
+            data={
+                "csrf_token": self.csrf,
+                "expected_parent_version": "",
+                "source_dataset_id": selection.datasets[1].dataset_id,
+                "parent_dataset_name": "product_groups",
+                "child_dataset_name": "product_rows",
+                "parent_key_column_key": product_name.stable_key,
+                "scope_column_key": "",
+                "child_key_column_key": product_code.stable_key,
+                "blank_policy": "block",
+            },
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(related_preview.status_code, 200)
+        self.assertIn("Review before creating", related_preview.text)
+        self.assertIn("Create these related datasets", related_preview.text)
+        saved_related = self.client.post(
+            f"/projects/{project_id}/derived-entities/related/save",
+            data={
+                "csrf_token": self.csrf,
+                "expected_parent_version": "",
+                "source_dataset_id": selection.datasets[1].dataset_id,
+                "parent_dataset_name": "product_groups",
+                "child_dataset_name": "product_rows",
+                "parent_key_column_key": product_name.stable_key,
+                "scope_column_key": "",
+                "child_key_column_key": product_code.stable_key,
+                "blank_policy": "block",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(saved_related.status_code, 303)
+        related_page = self.client.get(saved_related.headers["location"])
+        self.assertIn(
+            "Created related datasets product_groups and product_rows",
+            related_page.text,
+        )
+        related_plan = (
+            self.app.state.context.repository.get_derived_entity_plan(project_id)
+        )
+        self.assertIsNotNone(related_plan)
+        removed_related = self.client.post(
+            (
+                f"/projects/{project_id}/derived-entities/"
+                f"{related_plan.rules[0].rule_id}/delete"
+            ),
+            data={
+                "csrf_token": self.csrf,
+                "expected_parent_version": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(removed_related.status_code, 303)
         saved_derived = self.client.post(
             f"/projects/{project_id}/derived-entities/save",
             data={
                 "csrf_token": self.csrf,
-                "expected_parent_version": "",
+                "expected_parent_version": "2",
                 "source_binding": (
                     f"{selection.datasets[1].dataset_id}|{product_name.stable_key}"
                 ),
@@ -1220,7 +1281,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Saved derived dataset product_names", derived_preview.text)
         self.assertIn("Example product", derived_preview.text)
         self.assertIn("impodo_dynamics_ax_2012.res_partner_", derived_preview.text)
-        self.assertIn("never the source product or child row", derived_preview.text)
+        self.assertIn("never by a contributing product or line", derived_preview.text)
         self.assertNotIn("entity:P001", derived_preview.text)
 
         project = self.app.state.context.repository.get(project_id)

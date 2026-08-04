@@ -12,7 +12,7 @@ from uuid import UUID
 import duckdb
 
 from .access import Actor
-from .derived_entities import DerivedEntityPlan
+from .derived_entities import DerivedEntityPlan, mapping_source_selection
 from .inspection import SourceFileCatalog, SourceInspectionError
 from .mapping_semantics import (
     MappingRevision,
@@ -376,6 +376,21 @@ class DuckDbProjectRepository:
             "SELECT selection_json FROM source_selection WHERE singleton_id = 1",
         )
         return SourceSelection.from_json(value) if value else None
+
+    def get_mapping_source_selection(
+        self,
+        project_id: str,
+    ) -> SourceSelection | None:
+        """Return physical or prepared logical datasets used by mapping."""
+
+        selection = self.get_source_selection(project_id)
+        if selection is None:
+            return None
+        return mapping_source_selection(
+            selection,
+            self.get_derived_entity_plan(project_id),
+            self.get_source_catalogs(project_id),
+        )
 
     def save_source_selection(
         self,

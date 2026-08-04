@@ -64,7 +64,7 @@ binding, but its mapping contract was intentionally minimal.
 | Submission | Non-empty mappings may become `SUBMITTED` | No fresh exact-hash validation is required; `SUBMITTED` correctly is not approval |
 | Versioning | A version number is incremented | The DuckDB `mapping_draft` singleton replaces the previous JSON rather than retaining immutable mapping revisions |
 | Invalidation | Source/schema changes delete the current draft | Stale work is removed from the active workspace but not retained as an immutable historical artifact |
-| Field cardinality | A source and target pair may appear only once globally | Target uniqueness should be per dataset; the product vision permits one source column to feed multiple target fields when each mapping is explicit |
+| Field cardinality | A source and target pair may appear only once globally | Target uniqueness should be per dataset; the [product vision](../product-vision.md) permits one source column to feed multiple target fields when each mapping is explicit |
 
 The existing preflight profile and engine already implement most of the
 required relationship semantics: composite and scoped identities, incoming

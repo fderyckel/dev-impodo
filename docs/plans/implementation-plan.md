@@ -3,7 +3,7 @@
 This plan records the read-only proof-of-concept implementation. The roadmap
 from source-file discovery through mapping, staging, approval, Odoo execution,
 and reconciliation is maintained in
-[End-to-end migration product vision](product-vision.md).
+[End-to-end migration product vision](../product-vision.md).
 
 ## Current status
 

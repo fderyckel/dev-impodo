@@ -1487,6 +1487,154 @@ label.model-choice input {
   margin-top: 1.5rem;
 }
 
+.lead-instruction {
+  max-width: 72ch;
+  font-size: 1.05rem;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 1.4rem 0;
+  background: var(--line);
+}
+
+.metric-grid > div {
+  min-width: 0;
+  background: var(--surface);
+  padding: 1rem;
+}
+
+.metric-grid span,
+.relationship-summary span {
+  display: block;
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.metric-grid strong {
+  display: block;
+  margin-top: .25rem;
+  color: var(--impodo-charcoal-dark);
+  font-size: 1.35rem;
+}
+
+.source-preparation-choice,
+.secondary-preparation {
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.source-preparation-choice > summary,
+.secondary-preparation > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+  padding: 1rem 1.1rem;
+  list-style-position: inside;
+}
+
+.source-preparation-choice > summary small,
+.secondary-preparation > summary small {
+  display: block;
+  margin-top: .18rem;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.source-preparation-choice > form,
+.source-preparation-choice > .notice,
+.secondary-preparation > form,
+.secondary-preparation > section {
+  margin: 0 1.1rem 1.1rem;
+}
+
+.guided-step {
+  display: grid;
+  grid-template-columns: 2.4rem minmax(0, 1fr);
+  gap: .85rem;
+  border-top: 1px solid var(--line);
+  padding: 1.25rem 0;
+}
+
+.guided-step:first-of-type {
+  border-top: 0;
+}
+
+.guided-step h3 {
+  margin: 0;
+}
+
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--impodo-charcoal-dark);
+  color: white;
+  font-weight: 800;
+}
+
+.related-preview {
+  border-top: 4px solid var(--impodo-red);
+}
+
+.related-rule-card {
+  border-left: 4px solid var(--impodo-charcoal);
+}
+
+.relationship-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: .75rem;
+  margin: 1.25rem 0;
+}
+
+.relationship-summary > div:not(.relationship-connector) {
+  border: 1px solid var(--line);
+  background: var(--impodo-soft);
+  padding: 1rem;
+}
+
+.relationship-summary strong,
+.relationship-summary small {
+  display: block;
+}
+
+.relationship-summary strong {
+  margin-top: .25rem;
+  font-size: 1.12rem;
+}
+
+.relationship-summary small {
+  margin-top: .2rem;
+  color: var(--muted);
+}
+
+.relationship-connector {
+  align-self: center;
+  color: var(--impodo-red-dark);
+  font-size: .78rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.nested-rule-card {
+  border-top: 1px solid var(--line);
+  padding-top: 1.2rem;
+}
+
 @media (max-width: 920px) {
   .steps {
     display: flex;
@@ -1498,6 +1646,10 @@ label.model-choice input {
   }
 
   .definition-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1697,6 +1849,15 @@ label.model-choice input {
   .field-catalog-tools,
   .definition-list {
     grid-template-columns: 1fr;
+  }
+
+  .metric-grid,
+  .relationship-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .relationship-connector {
+    justify-self: start;
   }
 
   .definition-list > div {

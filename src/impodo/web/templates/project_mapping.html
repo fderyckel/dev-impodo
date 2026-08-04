@@ -43,9 +43,15 @@
         <section class="form-card mapping-dataset">
           <div class="page-heading compact">
             <div>
-              <p class="eyebrow">Dataset {{ loop.index }}</p>
+              <p class="eyebrow">
+                Dataset {{ loop.index }}
+                {% if view.related_role %} - generated {{ view.related_role }}{% endif %}
+              </p>
               <h2>{{ view.source.name }}</h2>
-              <p>{{ view.source.row_count }} rows · {{ view.source.columns|length }} source columns</p>
+              <p>
+                {{ view.source.row_count }}{% if view.related_role == 'parent' %} profiled parent candidates{% else %} rows{% endif %}
+                · {{ view.source.columns|length }} source columns
+              </p>
             </div>
             <code>{{ view.source.dataset_id }}</code>
           </div>
@@ -84,7 +90,7 @@
           <h3 id="source-identity-{{ dataset_index }}">Source trace identity</h3>
           <p class="muted">Select the stable source columns used for traceability and duplicate detection.</p>
           <select name="source_identity_{{ dataset_index }}" multiple size="{{ [view.source.columns|length, 6]|min }}">
-            {% set selected_source_identity = view.mapping.source_identity_column_keys if view.mapping else () %}
+            {% set selected_source_identity = view.mapping.source_identity_column_keys if view.mapping else view.recommended_source_identity %}
             {% for column in view.source.columns %}
               <option value="{{ column.stable_key }}" {% if column.stable_key in selected_source_identity %}selected{% endif %}>
                 {{ column.source_name }} ({{ column.candidate_type }})
@@ -316,11 +322,16 @@
                     Map a child dataset to <code>{{ row.metadata.relation }}.{{ row.metadata.relation_field or "inverse many2one" }}</code>. Impodo never proposes writing this one2many list directly.
                   </div>
                 {% else %}
+                  {% if row.recommended_dataset_id and not mapping %}
+                    <div class="notice success">
+                      Suggested from your related-dataset preparation. Review the fields below; Impodo will block missing or ambiguous parents.
+                    </div>
+                  {% endif %}
                   <div class="form-grid">
                     <label>
                       Source key column(s), in business-key order
                       <select name="relation_source_{{ dataset_index }}_{{ relation_index }}" multiple size="{{ [view.source.columns|length, 5]|min }}">
-                        {% set selected_relation_sources = mapping.source_column_keys if mapping else () %}
+                        {% set selected_relation_sources = mapping.source_column_keys if mapping else (row.recommended_source_columns or ()) %}
                         {% for column in view.source.columns %}
                           <option value="{{ column.stable_key }}" {% if column.stable_key in selected_relation_sources %}selected{% endif %}>
                             {{ column.source_name }}
@@ -330,7 +341,7 @@
                     </label>
                     <label>
                       Resolution origin
-                      {% set selected_origin = mapping.resolver.origin.value if mapping else 'target_catalog' %}
+                      {% set selected_origin = mapping.resolver.origin.value if mapping else ('dataset' if row.recommended_dataset_id else 'target_catalog') %}
                       <select name="relation_origin_{{ dataset_index }}_{{ relation_index }}">
                         <option value="target_catalog" {% if selected_origin == 'target_catalog' %}selected{% endif %}>Existing Odoo catalog</option>
                         <option value="dataset" {% if selected_origin == 'dataset' %}selected{% endif %}>Incoming dataset</option>
@@ -341,7 +352,8 @@
                       <select name="relation_dataset_{{ dataset_index }}_{{ relation_index }}">
                         <option value="">Not incoming</option>
                         {% for candidate in view.other_datasets %}
-                          <option value="{{ candidate.dataset_id }}" {% if mapping and mapping.resolver.dataset_id == candidate.dataset_id %}selected{% endif %}>
+                          {% set selected_dataset_id = mapping.resolver.dataset_id if mapping else row.recommended_dataset_id %}
+                          <option value="{{ candidate.dataset_id }}" {% if selected_dataset_id == candidate.dataset_id %}selected{% endif %}>
                             {{ candidate.name }}
                           </option>
                         {% endfor %}

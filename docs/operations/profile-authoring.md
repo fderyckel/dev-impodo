@@ -4,7 +4,7 @@ Profiles are strict YAML documents. Unknown keys, contradictory settings,
 invalid relation origins, inconsistent identity arity, and dependency cycles
 fail before source or target processing.
 
-Start from [profiles/template.yaml](profiles/template.yaml).
+Start from the [profile template](../../profiles/template.yaml).
 
 ## Root
 
@@ -331,6 +331,6 @@ PYTHONPATH=src .venv/bin/python -m impodo profile \
   --output build/products/prepared-records.json
 ```
 
-See the complete profiles under [profiles/examples](profiles/examples). For
+See the complete profiles under [profile examples](../../profiles/examples). For
 expected decisions, copy-paste workflows, and failure behavior, see
-[docs/examples-and-edge-cases.md](docs/examples-and-edge-cases.md).
+[examples and edge cases](../examples-and-edge-cases.md).

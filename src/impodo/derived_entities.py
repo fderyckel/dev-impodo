@@ -1,14 +1,14 @@
-"""Governed plans for extracting reusable entities from denormalized fields.
+"""Governed source-preparation plans for related logical datasets.
 
-This module deliberately implements the authoring boundary only.  It derives a
-bounded preview from the already-inspected source catalog; the future staging
-compiler must repeat the same deterministic rules over every source row before
-an export can be certified.
+The browser can author bounded previews for lookup extraction and parent/child
+dataset splits.  Split datasets participate in mapping, while the future
+staging compiler must repeat the same deterministic rules over every source row
+before an export can be certified.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
@@ -23,7 +23,7 @@ from .projects import MigrationProject
 from .workspace import SourceDataset, SourceSelection, WorkspaceError
 
 
-DERIVED_ENTITY_CONTRACT_VERSION = 1
+DERIVED_ENTITY_CONTRACT_VERSION = 2
 _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _EXTERNAL_ID_NAMESPACE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _TECHNICAL_NAME = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
@@ -102,6 +102,77 @@ class DerivedEntityRule:
 
 
 @dataclass(frozen=True, slots=True)
+class RelatedDatasetRule:
+    """Project one repeated parent and its child rows from a frozen dataset."""
+
+    rule_id: str
+    source_dataset_id: str
+    parent_dataset_name: str
+    child_dataset_name: str
+    parent_key_column_key: str
+    child_key_column_key: str
+    scope_column_key: str | None = None
+    blank_policy: str = "block"
+
+    def __post_init__(self) -> None:
+        try:
+            canonical_rule_id = str(UUID(self.rule_id))
+        except (ValueError, AttributeError) as error:
+            raise ValueError("Related-dataset rule identifier is invalid") from error
+        object.__setattr__(self, "rule_id", canonical_rule_id)
+
+        source_dataset_id = self.source_dataset_id.strip()
+        if not source_dataset_id or len(source_dataset_id) > 200:
+            raise ValueError("Source dataset identifier is invalid")
+        object.__setattr__(self, "source_dataset_id", source_dataset_id)
+
+        parent_name = _validated_dataset_name(
+            self.parent_dataset_name,
+            "Parent dataset",
+        )
+        child_name = _validated_dataset_name(
+            self.child_dataset_name,
+            "Child dataset",
+        )
+        if parent_name == child_name:
+            raise ValueError("Parent and child dataset names must be different")
+        object.__setattr__(self, "parent_dataset_name", parent_name)
+        object.__setattr__(self, "child_dataset_name", child_name)
+
+        parent_key = _validated_column_key(
+            self.parent_key_column_key,
+            "Parent key",
+        )
+        child_key = _validated_column_key(
+            self.child_key_column_key,
+            "Line key",
+        )
+        if parent_key == child_key:
+            raise ValueError("Parent key and line key must use different fields")
+        object.__setattr__(self, "parent_key_column_key", parent_key)
+        object.__setattr__(self, "child_key_column_key", child_key)
+
+        scope = self.scope_column_key
+        if scope is not None:
+            scope = scope.strip() or None
+            if scope is not None:
+                scope = _validated_column_key(scope, "Scope")
+                if scope in {parent_key, child_key}:
+                    raise ValueError(
+                        "Scope must use a different field from the parent and line keys"
+                    )
+        object.__setattr__(self, "scope_column_key", scope)
+
+        blank_policy = self.blank_policy.strip().casefold()
+        if blank_policy not in _SUPPORTED_BLANK_POLICIES:
+            raise ValueError("Blank policy must be block or quarantine")
+        object.__setattr__(self, "blank_policy", blank_policy)
+
+
+SourcePreparationRule = DerivedEntityRule | RelatedDatasetRule
+
+
+@dataclass(frozen=True, slots=True)
 class DerivedEntityPlan:
     """Immutable revision of all derived-entity authoring rules in a project."""
 
@@ -109,7 +180,7 @@ class DerivedEntityPlan:
     version: int
     project_id: str
     source_selection_hash: str
-    rules: tuple[DerivedEntityRule, ...]
+    rules: tuple[SourcePreparationRule, ...]
     updated_at: datetime
     updated_by: str
     contract_version: int = DERIVED_ENTITY_CONTRACT_VERSION
@@ -125,7 +196,7 @@ class DerivedEntityPlan:
             "project_id": self.project_id,
             "source_selection_hash": self.source_selection_hash,
             "rules": [
-                asdict(item)
+                _rule_payload(item, contract_version=self.contract_version)
                 for item in sorted(self.rules, key=lambda rule: rule.rule_id)
             ],
             "updated_at": self.updated_at.isoformat(),
@@ -142,24 +213,26 @@ class DerivedEntityPlan:
     @classmethod
     def from_json(cls, value: str) -> "DerivedEntityPlan":
         payload = json.loads(value)
+        content_hash = payload.get("content_hash")
+        unhashed = dict(payload)
+        unhashed.pop("content_hash", None)
+        if content_hash != _content_hash(unhashed):
+            raise ValueError("Derived-entity plan content hash is invalid")
+        contract_version = int(
+            payload.get("contract_version", 1)
+        )
+        if contract_version not in {1, DERIVED_ENTITY_CONTRACT_VERSION}:
+            raise ValueError("Derived-entity plan contract version is unsupported")
         result = cls(
             plan_id=str(payload["plan_id"]),
             version=int(payload["version"]),
             project_id=str(payload["project_id"]),
             source_selection_hash=str(payload["source_selection_hash"]),
-            rules=tuple(
-                DerivedEntityRule(**item) for item in payload.get("rules", ())
-            ),
+            rules=tuple(_rule_from_payload(item) for item in payload.get("rules", ())),
             updated_at=datetime.fromisoformat(str(payload["updated_at"])),
             updated_by=str(payload["updated_by"]),
-            contract_version=int(
-                payload.get("contract_version", DERIVED_ENTITY_CONTRACT_VERSION)
-            ),
+            contract_version=contract_version,
         )
-        if result.contract_version != DERIVED_ENTITY_CONTRACT_VERSION:
-            raise ValueError("Derived-entity plan contract version is unsupported")
-        if payload.get("content_hash") != result.content_hash:
-            raise ValueError("Derived-entity plan content hash is invalid")
         return result
 
 
@@ -189,6 +262,45 @@ class DerivedEntityPreview:
     blank_sample_rows: int
     invalid_path_sample_rows: int
     candidates: tuple[DerivedEntityCandidate, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RelatedParentSample:
+    """One parent group shown as bounded, human-readable evidence."""
+
+    parent_key: str
+    scope: str | None
+    sampled_child_rows: int
+    sampled_child_keys: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RelatedDatasetPreview:
+    """Bounded evidence for one proposed parent/child split."""
+
+    source_dataset_name: str
+    source_rows: int
+    parent_candidate_count: int
+    parent_candidate_count_is_exact: bool
+    child_rows: int
+    sampled_source_rows: int
+    sampled_parent_groups: int
+    blank_parent_sample_rows: int
+    blank_scope_sample_rows: int
+    blank_child_key_sample_rows: int
+    duplicate_child_key_sample_rows: int
+    normalized_key_sample_rows: int
+    parent_samples: tuple[RelatedParentSample, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RelatedDatasetLink:
+    """Mapping guidance from a generated child dataset to its parent."""
+
+    parent_dataset_id: str
+    child_dataset_id: str
+    reference_column_keys: tuple[str, ...]
+    child_identity_column_keys: tuple[str, ...]
 
 
 class DerivedEntityRepository(Protocol):
@@ -276,9 +388,7 @@ class DerivedEntityWorkspaceService:
             blank_policy=blank_policy,
         )
         existing_names = {item.name for item in selection.datasets}
-        existing_names.update(
-            item.output_dataset_name for item in (current.rules if current else ())
-        )
+        existing_names.update(_rule_dataset_names(current.rules if current else ()))
         if rule.output_dataset_name in existing_names:
             raise WorkspaceError("Derived dataset names must be unique in the project")
 
@@ -299,6 +409,157 @@ class DerivedEntityWorkspaceService:
             actor=actor,
         )
         return plan, rule
+
+    def preview_related_split(
+        self,
+        project_id: str,
+        *,
+        source_dataset_id: str,
+        parent_dataset_name: str,
+        child_dataset_name: str,
+        parent_key_column_key: str,
+        child_key_column_key: str,
+        scope_column_key: str | None,
+        blank_policy: str,
+    ) -> tuple[RelatedDatasetRule, RelatedDatasetPreview]:
+        """Validate and preview a split without changing the project plan."""
+
+        selection = self.repository.get_source_selection(project_id)
+        if selection is None:
+            raise WorkspaceError("Freeze source datasets before preparing related data")
+        rule = self._related_rule(
+            selection,
+            source_dataset_id=source_dataset_id,
+            parent_dataset_name=parent_dataset_name,
+            child_dataset_name=child_dataset_name,
+            parent_key_column_key=parent_key_column_key,
+            child_key_column_key=child_key_column_key,
+            scope_column_key=scope_column_key,
+            blank_policy=blank_policy,
+        )
+        self._validate_related_rule_availability(
+            rule,
+            selection,
+            self.repository.get_derived_entity_plan(project_id),
+        )
+        return (
+            rule,
+            preview_related_datasets(
+                rule,
+                selection,
+                self.repository.get_source_catalogs(project_id),
+            ),
+        )
+
+    def save_related_split(
+        self,
+        project_id: str,
+        *,
+        source_dataset_id: str,
+        parent_dataset_name: str,
+        child_dataset_name: str,
+        parent_key_column_key: str,
+        child_key_column_key: str,
+        scope_column_key: str | None,
+        blank_policy: str,
+        expected_parent_version: int | None,
+        actor: Actor,
+    ) -> tuple[DerivedEntityPlan, RelatedDatasetRule]:
+        """Persist one reviewed parent/child split as an immutable plan revision."""
+
+        self.authorization.require(
+            actor,
+            Capability.NORMALIZATION_DECIDE,
+            project_id=project_id,
+        )
+        selection = self.repository.get_source_selection(project_id)
+        if selection is None:
+            raise WorkspaceError("Freeze source datasets before preparing related data")
+        current = self.repository.get_derived_entity_plan(project_id)
+        actual_parent = current.version if current else None
+        if expected_parent_version != actual_parent:
+            raise WorkspaceError(
+                "The source-preparation plan was modified by another request; reload it"
+            )
+        if current and current.source_selection_hash != selection.content_hash:
+            raise WorkspaceError(
+                "The source-preparation plan is stale; rebuild it from the frozen datasets"
+            )
+
+        rule = self._related_rule(
+            selection,
+            source_dataset_id=source_dataset_id,
+            parent_dataset_name=parent_dataset_name,
+            child_dataset_name=child_dataset_name,
+            parent_key_column_key=parent_key_column_key,
+            child_key_column_key=child_key_column_key,
+            scope_column_key=scope_column_key,
+            blank_policy=blank_policy,
+        )
+        self._validate_related_rule_availability(rule, selection, current)
+
+        plan = DerivedEntityPlan(
+            plan_id=current.plan_id if current else str(uuid4()),
+            version=(current.version + 1 if current else 1),
+            project_id=project_id,
+            source_selection_hash=selection.content_hash,
+            rules=(*(current.rules if current else ()), rule),
+            updated_at=datetime.now(timezone.utc),
+            updated_by=actor.identity.display_name,
+        )
+        self.repository.save_derived_entity_plan(
+            project_id,
+            plan,
+            expected_parent_version=actual_parent,
+            actor=actor,
+        )
+        return plan, rule
+
+    @staticmethod
+    def _related_rule(
+        selection: SourceSelection,
+        *,
+        source_dataset_id: str,
+        parent_dataset_name: str,
+        child_dataset_name: str,
+        parent_key_column_key: str,
+        child_key_column_key: str,
+        scope_column_key: str | None,
+        blank_policy: str,
+    ) -> RelatedDatasetRule:
+        rule = RelatedDatasetRule(
+            rule_id=str(uuid4()),
+            source_dataset_id=source_dataset_id,
+            parent_dataset_name=parent_dataset_name,
+            child_dataset_name=child_dataset_name,
+            parent_key_column_key=parent_key_column_key,
+            child_key_column_key=child_key_column_key,
+            scope_column_key=scope_column_key,
+            blank_policy=blank_policy,
+        )
+        _related_source_dataset(selection, rule)
+        return rule
+
+    @staticmethod
+    def _validate_related_rule_availability(
+        rule: RelatedDatasetRule,
+        selection: SourceSelection,
+        current: DerivedEntityPlan | None,
+    ) -> None:
+        existing_names = {item.name for item in selection.datasets}
+        existing_names.update(_rule_dataset_names(current.rules if current else ()))
+        if {rule.parent_dataset_name, rule.child_dataset_name}.intersection(
+            existing_names
+        ):
+            raise WorkspaceError("Related dataset names must be unique in the project")
+        if any(
+            isinstance(item, RelatedDatasetRule)
+            and item.source_dataset_id == rule.source_dataset_id
+            for item in (current.rules if current else ())
+        ):
+            raise WorkspaceError(
+                "This source dataset already has a parent/child split; remove it before creating another"
+            )
 
     def delete_rule(
         self,
@@ -349,6 +610,20 @@ class DerivedEntityWorkspaceService:
         if selection is None:
             raise WorkspaceError("Freeze source datasets before deriving entities")
         return preview_derived_entities(
+            rule,
+            selection,
+            self.repository.get_source_catalogs(project_id),
+        )
+
+    def preview_related(
+        self,
+        project_id: str,
+        rule: RelatedDatasetRule,
+    ) -> RelatedDatasetPreview:
+        selection = self.repository.get_source_selection(project_id)
+        if selection is None:
+            raise WorkspaceError("Freeze source datasets before preparing related data")
+        return preview_related_datasets(
             rule,
             selection,
             self.repository.get_source_catalogs(project_id),
@@ -461,6 +736,207 @@ def preview_derived_entities(
     )
 
 
+def preview_related_datasets(
+    rule: RelatedDatasetRule,
+    selection: SourceSelection,
+    catalogs: Iterable[SourceFileCatalog],
+) -> RelatedDatasetPreview:
+    """Preview grouping and line identity from bounded inspection evidence."""
+
+    dataset = _related_source_dataset(selection, rule)
+    table = _source_table(dataset, catalogs)
+    columns = {item.stable_key: item for item in dataset.columns}
+    profiles = {item.ordinal: item for item in table.columns}
+    parent_column = columns[rule.parent_key_column_key]
+    child_column = columns[rule.child_key_column_key]
+    scope_column = (
+        columns[rule.scope_column_key] if rule.scope_column_key else None
+    )
+
+    grouped: dict[tuple[str | None, str], list[str]] = {}
+    blank_parent = 0
+    blank_scope = 0
+    blank_child = 0
+    duplicate_children = 0
+    normalized_rows = 0
+    seen_children: set[tuple[str | None, str, str]] = set()
+    for row in table.preview_rows:
+        parent_raw = _row_value(row, parent_column.ordinal)
+        child_raw = _row_value(row, child_column.ordinal)
+        scope_raw = (
+            _row_value(row, scope_column.ordinal) if scope_column else None
+        )
+        parent, parent_changed = _normalized_key(parent_raw)
+        child, child_changed = _normalized_key(child_raw)
+        scope, scope_changed = (
+            _normalized_key(scope_raw) if scope_column else (None, False)
+        )
+        if parent is None:
+            blank_parent += 1
+        if scope_column and scope is None:
+            blank_scope += 1
+        if child is None:
+            blank_child += 1
+        if parent_changed or child_changed or scope_changed:
+            normalized_rows += 1
+        if parent is None or child is None or (scope_column and scope is None):
+            continue
+        identity = (scope, parent, child)
+        if identity in seen_children:
+            duplicate_children += 1
+        else:
+            seen_children.add(identity)
+        grouped.setdefault((scope, parent), []).append(child)
+
+    parent_profile = profiles[parent_column.ordinal]
+    scope_profile = profiles[scope_column.ordinal] if scope_column else None
+    parent_count_exact = bool(parent_profile.distinct_count_is_exact)
+    if scope_profile is not None:
+        parent_count_exact = bool(
+            parent_count_exact
+            and scope_profile.distinct_count_is_exact
+            and scope_profile.distinct_count <= 1
+        )
+    parent_count = max(parent_profile.distinct_count, len(grouped))
+    samples = tuple(
+        RelatedParentSample(
+            parent_key=parent,
+            scope=scope,
+            sampled_child_rows=len(children),
+            sampled_child_keys=tuple(children[:5]),
+        )
+        for (scope, parent), children in list(grouped.items())[:5]
+    )
+    return RelatedDatasetPreview(
+        source_dataset_name=dataset.name,
+        source_rows=table.row_count,
+        parent_candidate_count=parent_count,
+        parent_candidate_count_is_exact=parent_count_exact,
+        child_rows=table.row_count,
+        sampled_source_rows=len(table.preview_rows),
+        sampled_parent_groups=len(grouped),
+        blank_parent_sample_rows=blank_parent,
+        blank_scope_sample_rows=blank_scope,
+        blank_child_key_sample_rows=blank_child,
+        duplicate_child_key_sample_rows=duplicate_children,
+        normalized_key_sample_rows=normalized_rows,
+        parent_samples=samples,
+    )
+
+
+def mapping_source_selection(
+    selection: SourceSelection,
+    plan: DerivedEntityPlan | None,
+    catalogs: Iterable[SourceFileCatalog] = (),
+) -> SourceSelection:
+    """Replace split physical sources with mapping-ready logical datasets."""
+
+    split_rules = {
+        item.source_dataset_id: item
+        for item in (plan.rules if plan else ())
+        if isinstance(item, RelatedDatasetRule)
+    }
+    if not split_rules:
+        return selection
+
+    catalog_set = tuple(catalogs)
+    effective: list[SourceDataset] = []
+    for dataset in selection.datasets:
+        rule = split_rules.get(dataset.dataset_id)
+        if rule is None:
+            effective.append(dataset)
+            continue
+        parent_rows = preview_related_datasets(
+            rule,
+            selection,
+            catalog_set,
+        ).parent_candidate_count
+        parent_columns = tuple(
+            item
+            for key in (
+                rule.parent_key_column_key,
+                rule.scope_column_key,
+            )
+            if key is not None
+            for item in dataset.columns
+            if item.stable_key == key
+        )
+        parent_id, child_id = _related_dataset_ids(rule)
+        effective.extend(
+            (
+                replace(
+                    dataset,
+                    dataset_id=parent_id,
+                    name=rule.parent_dataset_name,
+                    row_count=parent_rows,
+                    columns=parent_columns,
+                ),
+                replace(
+                    dataset,
+                    dataset_id=child_id,
+                    name=rule.child_dataset_name,
+                ),
+            )
+        )
+
+    effective_hash = _content_hash(
+        {
+            "source_selection_hash": selection.content_hash,
+            "source_preparation_hash": plan.content_hash if plan else None,
+            "datasets": [
+                {
+                    "dataset_id": item.dataset_id,
+                    "name": item.name,
+                    "row_count": item.row_count,
+                    "columns": [column.stable_key for column in item.columns],
+                }
+                for item in effective
+            ],
+        }
+    )
+    return replace(
+        selection,
+        datasets=tuple(effective),
+        content_hash=effective_hash,
+    )
+
+
+def related_dataset_links(
+    plan: DerivedEntityPlan | None,
+) -> tuple[RelatedDatasetLink, ...]:
+    """Return safe UI suggestions for inverse many2one mapping."""
+
+    result: list[RelatedDatasetLink] = []
+    for rule in (plan.rules if plan else ()):
+        if not isinstance(rule, RelatedDatasetRule):
+            continue
+        parent_id, child_id = _related_dataset_ids(rule)
+        result.append(
+            RelatedDatasetLink(
+                parent_dataset_id=parent_id,
+                child_dataset_id=child_id,
+                reference_column_keys=tuple(
+                    item
+                    for item in (
+                        rule.parent_key_column_key,
+                        rule.scope_column_key,
+                    )
+                    if item is not None
+                ),
+                child_identity_column_keys=tuple(
+                    item
+                    for item in (
+                        rule.parent_key_column_key,
+                        rule.scope_column_key,
+                        rule.child_key_column_key,
+                    )
+                    if item is not None
+                ),
+            )
+        )
+    return tuple(result)
+
+
 def _source_dataset(
     selection: SourceSelection,
     dataset_id: str,
@@ -475,6 +951,62 @@ def _source_dataset(
     if column_key not in {item.stable_key for item in dataset.columns}:
         raise WorkspaceError("Choose a column from the selected frozen dataset")
     return dataset
+
+
+def _related_source_dataset(
+    selection: SourceSelection,
+    rule: RelatedDatasetRule,
+) -> SourceDataset:
+    dataset = next(
+        (
+            item
+            for item in selection.datasets
+            if item.dataset_id == rule.source_dataset_id
+        ),
+        None,
+    )
+    if dataset is None:
+        raise WorkspaceError("Choose a dataset from the frozen source selection")
+    available = {item.stable_key for item in dataset.columns}
+    required = {
+        rule.parent_key_column_key,
+        rule.child_key_column_key,
+        *(
+            (rule.scope_column_key,)
+            if rule.scope_column_key is not None
+            else ()
+        ),
+    }
+    if not required.issubset(available):
+        raise WorkspaceError("Choose key fields from the selected frozen dataset")
+    return dataset
+
+
+def _source_table(
+    dataset: SourceDataset,
+    catalogs: Iterable[SourceFileCatalog],
+):
+    catalog = next(
+        (
+            item
+            for item in catalogs
+            if item.file_id == dataset.file_id
+            and item.source_sha256 == dataset.source_sha256
+            and item.content_hash == dataset.catalog_hash
+        ),
+        None,
+    )
+    table = next(
+        (
+            item
+            for item in (catalog.tables if catalog else ())
+            if item.table_key == dataset.table_key
+        ),
+        None,
+    )
+    if table is None:
+        raise WorkspaceError("The frozen dataset no longer matches its source catalog")
+    return table
 
 
 def _normalized_path(
@@ -517,6 +1049,90 @@ def _identifiers(
         f"entity:{identity}",
         f"impodo_{rule.external_id_namespace}.{model_token}_{identity.hex}",
     )
+
+
+def _related_dataset_ids(rule: RelatedDatasetRule) -> tuple[str, str]:
+    payload = _canonical_json(
+        {
+            "source_dataset_id": rule.source_dataset_id,
+            "parent_dataset_name": rule.parent_dataset_name,
+            "child_dataset_name": rule.child_dataset_name,
+            "parent_key_column_key": rule.parent_key_column_key,
+            "scope_column_key": rule.scope_column_key,
+            "child_key_column_key": rule.child_key_column_key,
+        }
+    )
+    identity = uuid5(NAMESPACE_URL, f"urn:impodo:related-datasets:{payload}")
+    return (
+        f"related:{identity}:parent",
+        f"related:{identity}:child",
+    )
+
+
+def _rule_dataset_names(rules: Iterable[SourcePreparationRule]) -> set[str]:
+    names: set[str] = set()
+    for rule in rules:
+        if isinstance(rule, DerivedEntityRule):
+            names.add(rule.output_dataset_name)
+        else:
+            names.update((rule.parent_dataset_name, rule.child_dataset_name))
+    return names
+
+
+def _rule_payload(
+    rule: SourcePreparationRule,
+    *,
+    contract_version: int,
+) -> dict[str, object]:
+    payload = asdict(rule)
+    if contract_version >= 2:
+        return {
+            "kind": (
+                "lookup" if isinstance(rule, DerivedEntityRule) else "parent_child"
+            ),
+            **payload,
+        }
+    return payload
+
+
+def _rule_from_payload(payload: dict[str, object]) -> SourcePreparationRule:
+    values = dict(payload)
+    kind = str(values.pop("kind", "lookup"))
+    if kind == "lookup":
+        return DerivedEntityRule(**values)
+    if kind == "parent_child":
+        return RelatedDatasetRule(**values)
+    raise ValueError("Source-preparation rule kind is unsupported")
+
+
+def _validated_dataset_name(value: str, label: str) -> str:
+    canonical = value.strip()
+    if not _DATASET_NAME.fullmatch(canonical):
+        raise ValueError(
+            f"{label} names must use lowercase letters, digits, and underscores"
+        )
+    return canonical
+
+
+def _validated_column_key(value: str, label: str) -> str:
+    canonical = value.strip()
+    if not canonical or len(canonical) > 500:
+        raise ValueError(f"{label} field is invalid")
+    return canonical
+
+
+def _row_value(row: tuple[object, ...], ordinal: int) -> object:
+    return row[ordinal - 1] if 0 < ordinal <= len(row) else None
+
+
+def _normalized_key(raw: object) -> tuple[str | None, bool]:
+    if raw is None:
+        return None, False
+    original = str(raw)
+    canonical = " ".join(unicodedata.normalize("NFKC", original).split())
+    if not canonical:
+        return None, bool(original)
+    return canonical, canonical != original
 
 
 def _content_hash(payload: object) -> str:
