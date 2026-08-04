@@ -119,11 +119,23 @@ Each frozen dataset declares:
   optional bounded expert custom pattern;
 - required, comparison, validate-only, and null policies;
 - many2one/many2many relationships resolved through another dataset or an
-  existing-target business key.
+  existing-target business key;
+- exact source-choice-to-Odoo-choice mappings for captured scalar selections
+  and single-column many2one relationships using one unscoped, confirmed
+  text-based target business key.
 
 One2many is represented through the child dataset's owning many2one. One
 source column may feed several explicitly governed target mappings.
 Odoo-default intent stays visibly unverified until controlled target rehearsal.
+
+The browser value-matching dialog counts every distinct non-empty value in one
+frozen physical source column. It suggests exact key matches only. Scalar
+targets come from the captured Odoo selection metadata; many2one targets come
+from one batched, read-only target-model request. The dialog omits ambiguous
+business-key values and persists portable source and target keys, never Odoo
+numeric IDs. Quick matching is bounded to 500 source choices and 2,000 target
+records; composite or scoped keys continue through the normal governed mapping
+workflow.
 
 End-user explanations of every scalar provider, type, transformation, policy,
 and preview belong in the

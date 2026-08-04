@@ -643,6 +643,389 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
+    const valueMatchDialog = document.querySelector(
+      "[data-value-match-dialog]"
+    );
+    const valueMatchTitle = valueMatchDialog?.querySelector(
+      "[data-value-match-title]"
+    );
+    const valueMatchError = valueMatchDialog?.querySelector(
+      "[data-value-match-error]"
+    );
+    const valueMatchStatus = valueMatchDialog?.querySelector(
+      "[data-value-match-status]"
+    );
+    const valueMatchTableWrap = valueMatchDialog?.querySelector(
+      "[data-value-match-table-wrap]"
+    );
+    const valueMatchRows = valueMatchDialog?.querySelector(
+      "[data-value-match-rows]"
+    );
+    const useValueMatches = valueMatchDialog?.querySelector(
+      "[data-use-value-matches]"
+    );
+    let activeValueMatch = null;
+    let valueMatchRequest = null;
+
+    const parseValueMatches = (storage) => {
+      try {
+        const values = JSON.parse(storage.value || "[]");
+        return new Map(
+          values
+            .filter(
+              (item) =>
+                item &&
+                typeof item.source_value === "string" &&
+                typeof item.target_value === "string"
+            )
+            .map((item) => [item.source_value, item.target_value])
+        );
+      } catch {
+        return new Map();
+      }
+    };
+
+    const showValueMatchError = (message) => {
+      if (valueMatchError) {
+        valueMatchError.textContent = message;
+        valueMatchError.hidden = false;
+      }
+      if (valueMatchStatus) {
+        valueMatchStatus.textContent = "";
+      }
+      if (valueMatchTableWrap) {
+        valueMatchTableWrap.hidden = true;
+      }
+      if (useValueMatches) {
+        useValueMatches.disabled = true;
+      }
+    };
+
+    const resetValueMatchDialog = () => {
+      if (valueMatchError) {
+        valueMatchError.textContent = "";
+        valueMatchError.hidden = true;
+      }
+      if (valueMatchRows) {
+        valueMatchRows.replaceChildren();
+      }
+      if (valueMatchTableWrap) {
+        valueMatchTableWrap.hidden = true;
+      }
+      if (valueMatchStatus) {
+        valueMatchStatus.textContent = "Loading source and Odoo choices...";
+      }
+      if (useValueMatches) {
+        useValueMatches.disabled = true;
+      }
+    };
+
+    const renderValueMatchRows = (payload) => {
+      if (!valueMatchRows || !activeValueMatch) {
+        return;
+      }
+      const sourceChoices = Array.isArray(payload.source_choices)
+        ? payload.source_choices
+        : [];
+      const targetChoices = Array.isArray(payload.target_choices)
+        ? payload.target_choices
+        : [];
+      const targetValues = new Set(
+        targetChoices.map((choice) => String(choice.value))
+      );
+      const existing = parseValueMatches(activeValueMatch.storage);
+      let suggested = 0;
+
+      const hydrateTargetSelect = (select) => {
+        if (select.dataset.choicesLoaded === "true") {
+          return;
+        }
+        const selectedValue = select.value;
+        for (const choice of targetChoices) {
+          const value = String(choice.value);
+          if (value === selectedValue) {
+            continue;
+          }
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = String(choice.label || choice.value);
+          select.append(option);
+        }
+        select.dataset.choicesLoaded = "true";
+      };
+
+      const releaseTargetSelect = (select) => {
+        for (const option of Array.from(select.options)) {
+          if (option.value && !option.selected) {
+            option.remove();
+          }
+        }
+        select.dataset.choicesLoaded = "false";
+      };
+
+      for (const sourceChoice of sourceChoices) {
+        const sourceValue = String(sourceChoice.value);
+        const row = document.createElement("tr");
+        const sourceCell = document.createElement("td");
+        const countCell = document.createElement("td");
+        const targetCell = document.createElement("td");
+        const select = document.createElement("select");
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "Choose Odoo choice";
+        select.append(placeholder);
+        select.dataset.sourceValue = sourceValue;
+        select.setAttribute("aria-label", `Odoo choice for ${sourceValue}`);
+
+        const savedTarget = existing.get(sourceValue);
+        const suggestedTarget = targetValues.has(sourceValue)
+          ? sourceValue
+          : "";
+        const selectedTarget =
+          savedTarget && targetValues.has(savedTarget)
+            ? savedTarget
+            : suggestedTarget;
+        if (selectedTarget) {
+          const choice = targetChoices.find(
+            (item) => String(item.value) === selectedTarget
+          );
+          const selectedOption = document.createElement("option");
+          selectedOption.value = selectedTarget;
+          selectedOption.textContent = String(
+            choice?.label || choice?.value || selectedTarget
+          );
+          selectedOption.selected = true;
+          select.append(selectedOption);
+          if (!savedTarget && suggestedTarget) {
+            suggested += 1;
+          }
+        }
+        select.addEventListener("pointerdown", () =>
+          hydrateTargetSelect(select)
+        );
+        select.addEventListener("focus", () => hydrateTargetSelect(select));
+        select.addEventListener("keydown", () => hydrateTargetSelect(select));
+        select.addEventListener("change", () =>
+          window.queueMicrotask(() => releaseTargetSelect(select))
+        );
+        select.addEventListener("blur", () => releaseTargetSelect(select));
+
+        sourceCell.textContent = sourceValue;
+        countCell.textContent = String(sourceChoice.count);
+        targetCell.append(select);
+        row.append(sourceCell, countCell, targetCell);
+        valueMatchRows.append(row);
+      }
+
+      const ambiguousValues = Array.isArray(payload.ambiguous_values)
+        ? payload.ambiguous_values
+        : [];
+      if (valueMatchStatus) {
+        const parts = [
+          `${sourceChoices.length} source choice(s) found.`,
+          `${suggested} exact match(es) suggested.`,
+        ];
+        if (ambiguousValues.length) {
+          parts.push(
+            `${ambiguousValues.length} duplicate Odoo key value(s) were left out.`
+          );
+        }
+        valueMatchStatus.textContent = parts.join(" ");
+      }
+      if (valueMatchTableWrap) {
+        valueMatchTableWrap.hidden = false;
+      }
+      if (useValueMatches) {
+        useValueMatches.disabled = sourceChoices.length === 0;
+      }
+      activeValueMatch.sourceCount = sourceChoices.length;
+    };
+
+    for (const trigger of mappingForm.querySelectorAll(
+      "[data-open-value-match]"
+    )) {
+      trigger.addEventListener("click", async () => {
+        if (!valueMatchDialog) {
+          return;
+        }
+        resetValueMatchDialog();
+        valueMatchRequest?.abort();
+        const kind = trigger.dataset.valueMatchKind || "";
+        const row = trigger.closest(
+          kind === "scalar"
+            ? "[data-scalar-mapping-row]"
+            : "[data-relation-mapping-row]"
+        );
+        const storage = row?.querySelector("[data-value-match-storage]");
+        activeValueMatch = null;
+        if (!(storage instanceof HTMLInputElement) || !row) {
+          return;
+        }
+        if (valueMatchTitle) {
+          valueMatchTitle.textContent = `Match source choices to ${
+            trigger.dataset.targetLabel || "Odoo"
+          }`;
+        }
+        valueMatchDialog.showModal();
+
+        let sourceColumnKey = "";
+        let businessKeyId = "";
+        if (kind === "scalar") {
+          const provider = row.querySelector("[data-value-source]")?.value;
+          sourceColumnKey =
+            row.querySelector('[name^="scalar_source_"]')?.value || "";
+          if (!["source", "source_with_fallback"].includes(provider)) {
+            showValueMatchError("Choose Source column as the value source first.");
+            return;
+          }
+        } else {
+          const origin = row.querySelector('[name^="relation_origin_"]')?.value;
+          const source = row.querySelector('[name^="relation_source_"]');
+          const selectedSources = source
+            ? Array.from(source.selectedOptions, (option) => option.value)
+            : [];
+          sourceColumnKey = selectedSources[0] || "";
+          businessKeyId =
+            row.querySelector('[name^="relation_key_"]')?.value || "";
+          if (origin !== "target_catalog") {
+            showValueMatchError(
+              "Choose Existing Odoo records before matching these choices."
+            );
+            return;
+          }
+          if (selectedSources.length !== 1) {
+            showValueMatchError("Choose exactly one source column first.");
+            return;
+          }
+          if (!businessKeyId) {
+            showValueMatchError(
+              "Choose how the related Odoo record is identified first."
+            );
+            return;
+          }
+        }
+        if (!sourceColumnKey) {
+          showValueMatchError("Choose one source column first.");
+          return;
+        }
+
+        activeValueMatch = {
+          trigger,
+          storage,
+          sourceCount: 0,
+        };
+        const csrfToken =
+          mappingForm.querySelector('input[name="csrf_token"]')?.value || "";
+        const body = new FormData();
+        body.set("csrf_token", csrfToken);
+        body.set("kind", kind);
+        body.set("dataset_id", trigger.dataset.datasetId || "");
+        body.set("source_column_key", sourceColumnKey);
+        body.set("target_model", trigger.dataset.targetModel || "");
+        body.set("target_field", trigger.dataset.targetField || "");
+        body.set("business_key_id", businessKeyId);
+        valueMatchRequest = new AbortController();
+        try {
+          const response = await fetch(
+            valueMatchDialog.dataset.valueMatchEndpoint || "",
+            {
+              method: "POST",
+              headers: { Accept: "application/json" },
+              body,
+              signal: valueMatchRequest.signal,
+            }
+          );
+          let payload = {};
+          try {
+            payload = await response.json();
+          } catch (_error) {
+            payload = {};
+          }
+          if (!response.ok) {
+            throw new Error(
+              payload.detail ||
+                `The choices could not be loaded (HTTP ${response.status}).`
+            );
+          }
+          renderValueMatchRows(payload);
+        } catch (error) {
+          if (error?.name === "AbortError") {
+            return;
+          }
+          showValueMatchError(
+            error instanceof Error
+              ? error.message
+              : "The choices could not be loaded."
+          );
+        }
+      });
+    }
+
+    useValueMatches?.addEventListener("click", () => {
+      if (!activeValueMatch || !valueMatchRows) {
+        return;
+      }
+      const mappings = Array.from(
+        valueMatchRows.querySelectorAll("select[data-source-value]")
+      )
+        .filter((select) => select.value)
+        .map((select) => ({
+          source_value: select.dataset.sourceValue || "",
+          target_value: select.value,
+        }));
+      activeValueMatch.storage.value = JSON.stringify(mappings);
+      activeValueMatch.storage.dispatchEvent(
+        new Event("input", { bubbles: true })
+      );
+      const summary = activeValueMatch.storage
+        .closest("[data-scalar-mapping-row], [data-relation-mapping-row]")
+        ?.querySelector("[data-value-match-summary]");
+      if (summary) {
+        summary.textContent = `${mappings.length} of ${activeValueMatch.sourceCount} source choice(s) matched`;
+      }
+      const trigger = activeValueMatch.trigger;
+      activeValueMatch = null;
+      valueMatchDialog?.close();
+      trigger.focus();
+    });
+
+    for (const close of valueMatchDialog?.querySelectorAll(
+      "[data-close-value-match]"
+    ) || []) {
+      close.addEventListener("click", () => valueMatchDialog?.close());
+    }
+
+    valueMatchDialog?.addEventListener("close", () => {
+      valueMatchRequest?.abort();
+      valueMatchRequest = null;
+      activeValueMatch = null;
+    });
+
+    for (const storage of mappingForm.querySelectorAll(
+      "[data-value-match-storage]"
+    )) {
+      const row = storage.closest(
+        "[data-scalar-mapping-row], [data-relation-mapping-row]"
+      );
+      row?.addEventListener("change", (event) => {
+        const name = event.target?.name || "";
+        const changesValueIdentity =
+          name.startsWith("scalar_source_") ||
+          name.startsWith("scalar_value_source_") ||
+          name.startsWith("relation_source_") ||
+          name.startsWith("relation_origin_") ||
+          name.startsWith("relation_key_");
+        if (!changesValueIdentity || storage.value === "[]") {
+          return;
+        }
+        storage.value = "[]";
+        const summary = row.querySelector("[data-value-match-summary]");
+        if (summary) {
+          summary.textContent = "Use when source and Odoo choices differ";
+        }
+      });
+    }
+
     window.addEventListener("beforeunload", (event) => {
       if (!dirty || submitting) {
         return;

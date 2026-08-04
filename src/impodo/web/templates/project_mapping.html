@@ -304,6 +304,29 @@
                           </datalist>
                         {% endif %}
                       </div>
+                      {% if row.metadata.selection %}
+                        <input
+                          type="hidden"
+                          name="scalar_value_matches_{{ dataset_index }}_{{ field_index }}"
+                          value="{{ row.value_mappings_json }}"
+                          data-value-match-storage
+                        >
+                        <div class="value-match-entry">
+                          <button
+                            class="button secondary compact"
+                            type="button"
+                            data-open-value-match
+                            data-value-match-kind="scalar"
+                            data-dataset-id="{{ view.source.dataset_id }}"
+                            data-target-model="{{ view.selected_model }}"
+                            data-target-field="{{ row.metadata.name }}"
+                            data-target-label="{{ row.metadata.label }}"
+                          >Match values</button>
+                          <small data-value-match-summary>
+                            {% if row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Use when source and Odoo choices differ{% endif %}
+                          </small>
+                        </div>
+                      {% endif %}
                     </td>
                     <td class="transform-cell">
                       {% set transform = mapping.transform if mapping else none %}
@@ -708,6 +731,29 @@
                     </label>
                   </div>
                   <div class="policy-row">
+                    {% if row.metadata.type == 'many2one' %}
+                      <input
+                        type="hidden"
+                        name="relation_value_matches_{{ dataset_index }}_{{ relation_index }}"
+                        value="{{ row.value_mappings_json }}"
+                        data-value-match-storage
+                      >
+                      <div class="value-match-entry relationship-value-match-entry">
+                        <button
+                          class="button secondary compact"
+                          type="button"
+                          data-open-value-match
+                          data-value-match-kind="relationship"
+                          data-dataset-id="{{ view.source.dataset_id }}"
+                          data-target-model="{{ view.selected_model }}"
+                          data-target-field="{{ row.metadata.name }}"
+                          data-target-label="{{ row.metadata.label }}"
+                        >Match values</button>
+                        <small data-value-match-summary>
+                          {% if row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Use when source and Odoo choices differ{% endif %}
+                        </small>
+                      </div>
+                    {% endif %}
                     <label><input type="checkbox" name="relation_compare_{{ dataset_index }}_{{ relation_index }}" value="1" {% if not mapping or mapping.compare %}checked{% endif %}> Compare</label>
                     <label><input type="checkbox" name="relation_validate_only_{{ dataset_index }}_{{ relation_index }}" value="1" {% if mapping and mapping.validate_only %}checked{% endif %}> Validate only</label>
                     <label><input type="checkbox" name="relation_required_{{ dataset_index }}_{{ relation_index }}" value="1" {% if mapping and mapping.required %}checked{% endif %}> Required</label>
@@ -844,6 +890,40 @@
         {% endif %}
       </div>
     </form>
+    <dialog
+      class="value-match-dialog"
+      data-value-match-dialog
+      data-value-match-endpoint="/projects/{{ project.project_id }}/mapping/value-choices"
+      aria-labelledby="value-match-title"
+    >
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Match values</p>
+          <h2 id="value-match-title" data-value-match-title>Match source choices to Odoo</h2>
+          <p>For each source choice, select the value already available in Odoo.</p>
+        </div>
+        <button class="dialog-close" type="button" data-close-value-match aria-label="Close dialog">×</button>
+      </div>
+      <div class="notice error" data-value-match-error role="alert" hidden></div>
+      <p class="muted" data-value-match-status role="status" aria-live="polite"></p>
+      <div class="table-scroll value-match-table-wrap" data-value-match-table-wrap hidden>
+        <table class="data-table value-match-table">
+          <thead>
+            <tr>
+              <th>Source choice</th>
+              <th>Rows</th>
+              <th>Odoo choice</th>
+            </tr>
+          </thead>
+          <tbody data-value-match-rows></tbody>
+        </table>
+      </div>
+      <p class="muted">Impodo will keep these choices with this mapping. It will not create or change Odoo records.</p>
+      <div class="dialog-actions">
+        <button class="button secondary" type="button" data-close-value-match>Cancel</button>
+        <button class="button primary" type="button" data-use-value-matches disabled>Use matches</button>
+      </div>
+    </dialog>
   {% else %}
     <section class="form-card">
       <div class="empty-state">

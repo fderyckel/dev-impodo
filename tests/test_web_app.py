@@ -39,6 +39,7 @@ from impodo.mapping_semantics import (
     ScalarFieldMapping,
     ScalarValueSource,
     SchemaGovernance,
+    ValueMapping,
 )
 from impodo.models import (
     FieldMetadata,
@@ -50,6 +51,7 @@ from impodo.models import (
 from impodo.projects import OdooConnectionMode, ProjectStatus
 from impodo.secrets import MemorySecretStore
 from impodo.web import create_app
+from impodo.web.app import _source_value_choices
 from impodo.workspace import (
     OdooSchemaCatalog,
     SchemaField,
@@ -1324,6 +1326,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.app.state.context.repository.get_source_selection(project_id)
         )
         self.assertIsNotNone(selection)
+        source_choices = _source_value_choices(
+            self.app.state.context,
+            project_id,
+            selection.datasets[0].dataset_id,
+            selection.datasets[0].columns[0].stable_key,
+        )
+        self.assertEqual(source_choices, ({"value": "C001", "count": 1},))
         product_name = selection.datasets[1].columns[1]
         product_code = selection.datasets[1].columns[0]
         related_preview = self.client.post(
@@ -2098,6 +2107,187 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIsNone(context.repository.get_mapping_revision(project_id))
 
+    def test_selection_choices_load_and_save_from_the_mapping_dialog(self) -> None:
+        project_id, dataset, business_key = self._mapping_ready_project(
+            scalar_field_count=1,
+            selection_field=True,
+        )
+        source_identity, source_value = dataset.columns
+
+        page = self.client.get(f"/projects/{project_id}/mapping")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("data-value-match-dialog", page.text)
+        self.assertIn("Match values", page.text)
+        with patch(
+            "impodo.web.app._source_value_choices",
+            return_value=(
+                {"value": "French", "count": 12},
+                {"value": "German", "count": 4},
+            ),
+        ):
+            choices = self.client.post(
+                f"/projects/{project_id}/mapping/value-choices",
+                data={
+                    "csrf_token": self.csrf,
+                    "kind": "scalar",
+                    "dataset_id": dataset.dataset_id,
+                    "source_column_key": source_value.stable_key,
+                    "target_model": "res.partner",
+                    "target_field": "field_0000",
+                    "business_key_id": "",
+                },
+                headers=POST_HEADERS,
+            )
+
+        self.assertEqual(choices.status_code, 200)
+        self.assertEqual(
+            choices.json()["target_choices"],
+            [
+                {"value": "fr_FR", "label": "French (France)"},
+                {"value": "de_DE", "label": "German"},
+            ],
+        )
+        entries = [
+            ["csrf_token", self.csrf],
+            ["action", "save_progress"],
+            ["expected_parent_version", ""],
+            ["expected_working_draft_version", ""],
+            ["editable_dataset_id", dataset.dataset_id],
+            ["target_model_0", "res.partner"],
+            ["mode_0", "upsert"],
+            ["on_existing_0", "block"],
+            ["source_identity_0", source_identity.stable_key],
+            ["business_key_0", business_key.key_id],
+            ["identity_source_0_0", source_identity.stable_key],
+            ["visible_scalar_target_0", "field_0000"],
+            ["scalar_value_source_0_1", "source"],
+            ["scalar_source_0_1", source_value.stable_key],
+            ["scalar_type_0_1", "string"],
+            ["scalar_case_0_1", "preserve"],
+            ["scalar_compare_0_1", "1"],
+            ["scalar_null_0_1", "distinct"],
+            [
+                "scalar_value_matches_0_1",
+                '[{"source_value":"French","target_value":"fr_FR"}]',
+            ],
+        ]
+        saved = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            json={"entries": entries},
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+
+        self.assertEqual(saved.status_code, 200)
+        working = self.app.state.context.repository.get_mapping_working_draft(
+            project_id
+        )
+        self.assertEqual(
+            working.definition.datasets[0].fields[0].value_mappings,
+            (ValueMapping("French", "fr_FR"),),
+        )
+
+    def test_relationship_choices_are_read_once_without_exposing_odoo_ids(
+        self,
+    ) -> None:
+        project_id, dataset, business_key = self._mapping_ready_project(
+            scalar_field_count=0,
+            relationship_field_count=1,
+        )
+        source_value = dataset.columns[1]
+        context = self.app.state.context
+        calls = []
+
+        def readiness_reader(project, metadata_requests, record_requests):
+            calls.append((metadata_requests, record_requests))
+            metadata = _browser_schema(project)
+            return metadata, RecordSnapshot(
+                fingerprint=metadata.fingerprint,
+                records={
+                    "res.partner": (
+                        TargetRecord("res.partner", 10, {"ref": "FR"}),
+                        TargetRecord("res.partner", 11, {"ref": "DE"}),
+                        TargetRecord("res.partner", 12, {"ref": "BE"}),
+                        TargetRecord("res.partner", 13, {"ref": "BE"}),
+                    )
+                },
+                requested_fields={"res.partner": ("ref",)},
+            )
+
+        context.readiness_reader = readiness_reader
+        with patch(
+            "impodo.web.app._source_value_choices",
+            return_value=({"value": "FRA", "count": 3},),
+        ):
+            response = self.client.post(
+                f"/projects/{project_id}/mapping/value-choices",
+                data={
+                    "csrf_token": self.csrf,
+                    "kind": "relationship",
+                    "dataset_id": dataset.dataset_id,
+                    "source_column_key": source_value.stable_key,
+                    "target_model": "res.partner",
+                    "target_field": "relation_0000",
+                    "business_key_id": business_key.key_id,
+                },
+                headers=POST_HEADERS,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls[0][1]), 1)
+        self.assertEqual(
+            response.json()["target_choices"],
+            [
+                {"value": "DE", "label": "DE"},
+                {"value": "FR", "label": "FR"},
+            ],
+        )
+        self.assertEqual(response.json()["ambiguous_values"], ["BE"])
+        self.assertNotIn("odoo_id", response.text)
+        source_identity = dataset.columns[0]
+        saved = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            json={
+                "entries": [
+                    ["csrf_token", self.csrf],
+                    ["action", "save_progress"],
+                    ["expected_parent_version", ""],
+                    ["expected_working_draft_version", ""],
+                    ["editable_dataset_id", dataset.dataset_id],
+                    ["target_model_0", "res.partner"],
+                    ["mode_0", "upsert"],
+                    ["on_existing_0", "block"],
+                    ["source_identity_0", source_identity.stable_key],
+                    ["business_key_0", business_key.key_id],
+                    ["identity_source_0_0", source_identity.stable_key],
+                    ["visible_relation_target_0", "relation_0000"],
+                    ["relation_source_0_0", source_value.stable_key],
+                    ["relation_origin_0_0", "target_catalog"],
+                    ["relation_key_0_0", business_key.key_id],
+                    ["relation_operation_0_0", "replace"],
+                    ["relation_compare_0_0", "1"],
+                    ["relation_missing_0_0", "error"],
+                    ["relation_ambiguous_0_0", "error"],
+                    ["relation_null_0_0", "distinct"],
+                    ["relation_separator_0_0", ";"],
+                    [
+                        "relation_value_matches_0_0",
+                        '[{"source_value":"FRA","target_value":"FR"}]',
+                    ],
+                ]
+            },
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+
+        self.assertEqual(saved.status_code, 200)
+        working = context.repository.get_mapping_working_draft(project_id)
+        self.assertEqual(
+            working.definition.datasets[0]
+            .relationships[0]
+            .resolver.value_mappings,
+            (ValueMapping("FRA", "FR"),),
+        )
+
     def test_relationship_catalog_is_searchable_and_progressively_disclosed(
         self,
     ) -> None:
@@ -2410,6 +2600,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         *,
         scalar_field_count: int,
         relationship_field_count: int = 0,
+        selection_field: bool = False,
     ):
         context = self.app.state.context
         created = context.projects.create_project(
@@ -2481,12 +2672,23 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 SchemaField(
                     name=f"field_{index:04d}",
                     label=f"Field {index:04d}",
-                    type="char",
+                    type=(
+                        "selection"
+                        if selection_field and index == 0
+                        else "char"
+                    ),
                     required=False,
                     readonly=False,
                     relation=None,
                     relation_field=None,
-                    selection=(),
+                    selection=(
+                        (
+                            ("fr_FR", "French (France)"),
+                            ("de_DE", "German"),
+                        )
+                        if selection_field and index == 0
+                        else ()
+                    ),
                 )
                 for index in range(scalar_field_count)
             ),

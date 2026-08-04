@@ -26,6 +26,7 @@ from impodo.mapping_semantics import (
     ScalarValueRuleError,
     ScalarValueSource,
     SchemaGovernance,
+    ValueMapping,
     canonicalize_scalar_value,
 )
 from impodo.workspace import (
@@ -241,6 +242,89 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             changed,
         )
         self.assertNotEqual(definition.content_hash, changed.content_hash)
+
+    def test_source_choices_map_to_selection_keys_before_validation(self) -> None:
+        mapping = ScalarFieldMapping(
+            target_field="lang",
+            source_column_key="partner.name",
+            transform=ScalarTransformPolicy(case_mode="uppercase"),
+            value_mappings=(
+                ValueMapping("French (France)", "fr_FR"),
+                ValueMapping("German", "de_DE"),
+            ),
+        )
+
+        self.assertEqual(
+            canonicalize_scalar_value(mapping, " French (France) "),
+            "fr_FR",
+        )
+        definition = _valid_definition(self.selection, self.governance)
+        company, partner = definition.datasets
+        changed = replace(
+            definition,
+            datasets=(company, replace(partner, fields=(mapping,))),
+        )
+        self.assertEqual(
+            MappingDefinition.from_json(changed.to_json())
+            .datasets[1]
+            .fields[0]
+            .value_mappings,
+            mapping.value_mappings,
+        )
+
+    def test_selection_value_match_must_target_an_odoo_choice(self) -> None:
+        definition = _valid_definition(self.selection, self.governance)
+        company, partner = definition.datasets
+        language = ScalarFieldMapping(
+            target_field="lang",
+            source_column_key="partner.name",
+            value_mappings=(ValueMapping("French", "not_an_odoo_key"),),
+        )
+        partner_model = next(
+            item for item in self.schema.models if item.name == "res.partner"
+        )
+        schema = replace(
+            self.schema,
+            models=tuple(
+                replace(
+                    item,
+                    fields=(
+                        *item.fields,
+                        SchemaField(
+                            name="lang",
+                            label="Language",
+                            type="selection",
+                            required=False,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(
+                                ("fr_FR", "French (France)"),
+                                ("de_DE", "German"),
+                            ),
+                        ),
+                    ),
+                )
+                if item is partner_model
+                else item
+                for item in self.schema.models
+            ),
+        )
+        result = self.validator.validate(
+            replace(
+                definition,
+                datasets=(company, replace(partner, fields=(language,))),
+            ),
+            self.selection,
+            schema,
+            self.governance,
+        )
+
+        self.assertEqual(result.status, MappingValidationStatus.INVALID)
+        self.assertIn(
+            "MAPPING_SELECTION_VALUE_INVALID",
+            {item.code for item in result.issues},
+        )
 
     def test_strict_date_boolean_and_datetime_parsing(self) -> None:
         date_mapping = ScalarFieldMapping(

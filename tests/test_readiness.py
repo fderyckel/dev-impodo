@@ -28,12 +28,14 @@ from impodo.mapping_semantics import (
     IdentityComponentMapping,
     MappingDefinition,
     MappingTargetMode,
+    ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipResolver,
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarTransformPolicy,
     ScalarValidationPolicy,
+    ValueMapping,
 )
 from impodo.models import (
     Classification,
@@ -176,6 +178,48 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             {issue.code for issue in child_decisions[1].issues},
             {"SOURCE_TEXT_LENGTH_INVALID"},
         )
+
+    def test_relationship_choice_match_stages_the_odoo_business_key(self) -> None:
+        evidence = self._evidence(
+            (("BOM-A", "1", "FRA"), ("BOM-A", "2", "BEL"))
+        )
+        definition = evidence[1]
+        parent, child = definition.datasets
+        country = RelationshipMapping(
+            target_field="country_id",
+            kind="many2one",
+            source_column_keys=("column:component",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.TARGET_CATALOG,
+                model="res.country",
+                key_mappings=(
+                    ReferenceKeyMapping("column:component", "code"),
+                ),
+                value_mappings=(
+                    ValueMapping("FRA", "FR"),
+                    ValueMapping("BEL", "BE"),
+                ),
+            ),
+        )
+        definition = replace(
+            definition,
+            datasets=(
+                parent,
+                replace(child, relationships=(country,)),
+            ),
+        )
+
+        staged = stage_browser_mapping(
+            evidence[0],
+            definition,
+            *evidence[2:],
+        )
+        references = [
+            record.references["country_id"].key
+            for record in staged.prepared.by_dataset()["bom_components"]
+        ]
+
+        self.assertEqual(references, [("FR",), ("BE",)])
 
     def test_transformation_impact_compares_every_raw_and_proposed_value(self) -> None:
         evidence = self._evidence(

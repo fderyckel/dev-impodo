@@ -1719,7 +1719,8 @@ label.model-choice input {
 }
 
 .local-stack-dialog,
-.project-delete-dialog {
+.project-delete-dialog,
+.value-match-dialog {
   width: min(720px, calc(100vw - 2rem));
   max-height: min(780px, calc(100vh - 2rem));
   margin: auto;
@@ -1731,7 +1732,8 @@ label.model-choice input {
 }
 
 .local-stack-dialog::backdrop,
-.project-delete-dialog::backdrop {
+.project-delete-dialog::backdrop,
+.value-match-dialog::backdrop {
   background: rgba(41, 44, 40, .58);
 }
 
@@ -1742,6 +1744,52 @@ label.model-choice input {
 
 .project-delete-dialog {
   width: min(560px, calc(100vw - 2rem));
+}
+
+.value-match-dialog {
+  width: min(980px, calc(100vw - 2rem));
+  overflow: auto;
+}
+
+.value-match-entry {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin-top: .65rem;
+}
+
+.value-match-entry small {
+  max-width: 30ch;
+  color: var(--muted);
+}
+
+.button.compact {
+  min-height: 36px;
+  padding: .42rem .72rem;
+}
+
+.value-match-table-wrap {
+  max-height: min(54vh, 560px);
+  margin-top: 1rem;
+  overflow: auto;
+}
+
+.value-match-table th {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: var(--surface);
+}
+
+.value-match-table th:nth-child(2),
+.value-match-table td:nth-child(2) {
+  width: 6rem;
+  text-align: right;
+}
+
+.value-match-table select {
+  width: 100%;
+  min-width: 17rem;
 }
 
 .dialog-heading {

@@ -37,8 +37,10 @@ from .value_rules import (
 )
 
 
-MAPPING_CONTRACT_VERSION = 4
-MAPPING_VALIDATOR_VERSION = "4.0.0"
+MAPPING_CONTRACT_VERSION = 5
+MAPPING_VALIDATOR_VERSION = "5.0.0"
+MAX_VALUE_MAPPINGS = 1_000
+MAX_VALUE_MAPPING_LENGTH = 10_000
 _RELATION_TYPES = frozenset({"many2one", "many2many", "one2many"})
 _VALUE_TYPES = frozenset(TYPE_COMPATIBILITY)
 _NULL_POLICIES = frozenset(
@@ -204,15 +206,54 @@ class ReferenceKeyMapping:
 
 
 @dataclass(frozen=True, slots=True)
+class ValueMapping:
+    """Map one visible source choice to one portable Odoo choice."""
+
+    source_value: str
+    target_value: str
+
+    def __post_init__(self) -> None:
+        if (
+            not self.source_value
+            or len(self.source_value) > MAX_VALUE_MAPPING_LENGTH
+        ):
+            raise ValueError("Source choice is invalid")
+        if (
+            not self.target_value
+            or len(self.target_value) > MAX_VALUE_MAPPING_LENGTH
+        ):
+            raise ValueError("Odoo choice is invalid")
+
+
+def _normalized_value_mappings(
+    mappings: tuple[ValueMapping, ...],
+) -> tuple[ValueMapping, ...]:
+    if len(mappings) > MAX_VALUE_MAPPINGS:
+        raise ValueError(
+            f"Value matching is limited to {MAX_VALUE_MAPPINGS} choices"
+        )
+    ordered = tuple(sorted(mappings, key=lambda item: item.source_value))
+    if len({item.source_value for item in ordered}) != len(ordered):
+        raise ValueError("Each source choice can be matched only once")
+    return ordered
+
+
+@dataclass(frozen=True, slots=True)
 class RelationshipResolver:
     origin: ResolverOrigin
     dataset_id: str | None = None
     model: str | None = None
     key_mappings: tuple[ReferenceKeyMapping, ...] = ()
     scope_mappings: tuple[ReferenceKeyMapping, ...] = ()
+    value_mappings: tuple[ValueMapping, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "origin", ResolverOrigin(self.origin))
+        object.__setattr__(
+            self,
+            "value_mappings",
+            _normalized_value_mappings(self.value_mappings),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +276,7 @@ class ScalarFieldMapping:
     validation: ScalarValidationPolicy = field(
         default_factory=ScalarValidationPolicy
     )
+    value_mappings: tuple[ValueMapping, ...] = ()
     value_type: str = "string"
     required: bool = False
     required_on_create: bool = False
@@ -256,6 +298,11 @@ class ScalarFieldMapping:
             self,
             "value_source",
             ScalarValueSource(self.value_source),
+        )
+        object.__setattr__(
+            self,
+            "value_mappings",
+            _normalized_value_mappings(self.value_mappings),
         )
 
 
@@ -281,35 +328,53 @@ def canonicalize_scalar_value(
 
     if mapping.value_source is ScalarValueSource.ODOO_DEFAULT:
         raise ScalarValueError("Odoo-default fields have no local proposed value")
-    if mapping.value_source is ScalarValueSource.CONSTANT:
-        raw_value = mapping.literal_value
-    elif mapping.value_source is ScalarValueSource.SOURCE_WITH_FALLBACK:
-        prepared_source = _transform_scalar_text(
-            raw_source_value,
-            mapping.transform,
-        )
-        raw_value = (
-            mapping.literal_value
-            if prepared_source is None
-            else prepared_source
-        )
+    source_choice = (
+        str(raw_source_value).strip()
+        if raw_source_value is not None
+        else None
+    )
+    matched_value = next(
+        (
+            item.target_value
+            for item in mapping.value_mappings
+            if item.source_value == source_choice
+        ),
+        None,
+    )
+    if matched_value is not None:
+        prepared = matched_value
     else:
-        raw_value = raw_source_value
+        if mapping.value_source is ScalarValueSource.CONSTANT:
+            raw_value = mapping.literal_value
+        elif mapping.value_source is ScalarValueSource.SOURCE_WITH_FALLBACK:
+            prepared_source = _transform_scalar_text(
+                raw_source_value,
+                mapping.transform,
+            )
+            raw_value = (
+                mapping.literal_value
+                if prepared_source is None
+                else prepared_source
+            )
+        else:
+            raw_value = raw_source_value
 
-    try:
-        rule_context = dict(formula_context or {})
-        rule_context["value"] = raw_value
-        prepared = prepare_rule_text(
-            raw_value,
-            mapping.transform,
-            formula_context=rule_context,
-        )
-    except ScalarRuleError as error:
-        raise ScalarValueRuleError(error.code, str(error)) from error
-    if prepared is None:
-        if mapping.required:
-            raise ScalarValueError("Required value is empty after transformation")
-        return None
+        try:
+            rule_context = dict(formula_context or {})
+            rule_context["value"] = raw_value
+            prepared = prepare_rule_text(
+                raw_value,
+                mapping.transform,
+                formula_context=rule_context,
+            )
+        except ScalarRuleError as error:
+            raise ScalarValueRuleError(error.code, str(error)) from error
+        if prepared is None:
+            if mapping.required:
+                raise ScalarValueError(
+                    "Required value is empty after transformation"
+                )
+            return None
 
     try:
         if mapping.value_type == "string":
@@ -1344,7 +1409,56 @@ class MappingSemanticValidator:
                     target_field=field_mapping.target_field,
                 )
             )
-        elif field_mapping.value_type not in _VALUE_TYPES or (
+        if field_mapping.value_mappings:
+            if field_mapping.value_source not in {
+                ScalarValueSource.SOURCE,
+                ScalarValueSource.SOURCE_WITH_FALLBACK,
+            }:
+                issues.append(
+                    _issue(
+                        "MAPPING_VALUE_MATCH_INVALID",
+                        path,
+                        "Value matching requires a source column.",
+                        "Choose Source column or Source + fallback.",
+                        dataset=dataset,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+            selection_keys = {str(item[0]) for item in metadata.selection}
+            if not selection_keys:
+                issues.append(
+                    _issue(
+                        "MAPPING_VALUE_MATCH_INVALID",
+                        path,
+                        "This Odoo field does not provide a list of choices.",
+                        "Use value matching only for captured Odoo choices.",
+                        dataset=dataset,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+            invalid_target = next(
+                (
+                    item.target_value
+                    for item in field_mapping.value_mappings
+                    if item.target_value not in selection_keys
+                ),
+                None,
+            )
+            if invalid_target is not None:
+                issues.append(
+                    _issue(
+                        "MAPPING_SELECTION_VALUE_INVALID",
+                        path,
+                        (
+                            f"{invalid_target!r} is not an available Odoo "
+                            f"choice for {field_mapping.target_field}."
+                        ),
+                        "Choose one of the captured Odoo choices.",
+                        dataset=dataset,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+        if field_mapping.value_type not in _VALUE_TYPES or (
             metadata.type
             not in TYPE_COMPATIBILITY.get(
                 field_mapping.value_type, frozenset()
@@ -2072,7 +2186,12 @@ class MappingSemanticValidator:
                         dataset=dataset,
                     )
                 )
-            if resolver.model or resolver.key_mappings or resolver.scope_mappings:
+            if (
+                resolver.model
+                or resolver.key_mappings
+                or resolver.scope_mappings
+                or resolver.value_mappings
+            ):
                 issues.append(
                     _issue(
                         "MAPPING_REFERENCE_KEY_INVALID",
@@ -2143,6 +2262,20 @@ class MappingSemanticValidator:
                         source_column=mapping.source_column_key,
                     )
                 )
+            if mapping.target_field not in model_fields:
+                issues.append(
+                    _issue(
+                        "MAPPING_TARGET_FIELD_UNKNOWN",
+                        path,
+                        (
+                            f"Resolver field {resolver.model}."
+                            f"{mapping.target_field} is unavailable."
+                        ),
+                        "Choose a captured field.",
+                        dataset=dataset,
+                        target_field=mapping.target_field,
+                    )
+                )
         mapped_sources = tuple(
             item.source_column_key
             for item in (*resolver.key_mappings, *resolver.scope_mappings)
@@ -2160,18 +2293,41 @@ class MappingSemanticValidator:
                     dataset=dataset,
                 )
             )
-            if mapping.target_field not in model_fields:
+        if resolver.value_mappings and (
+            len(source_columns) != 1
+            or len(resolver.key_mappings) != 1
+            or bool(resolver.scope_mappings)
+        ):
+            issues.append(
+                _issue(
+                    "MAPPING_VALUE_MATCH_INVALID",
+                    path,
+                    (
+                        "Value matching currently supports one source choice "
+                        "and one Odoo business-key field."
+                    ),
+                    "Choose a single-column, single-key relationship.",
+                    dataset=dataset,
+                )
+            )
+        elif resolver.value_mappings:
+            key_field = resolver.key_mappings[0].target_field
+            key_metadata = next(
+                (item for item in model.fields if item.name == key_field),
+                None,
+            )
+            if key_metadata is not None and key_metadata.type not in {
+                "char",
+                "text",
+                "selection",
+            }:
                 issues.append(
                     _issue(
-                        "MAPPING_TARGET_FIELD_UNKNOWN",
+                        "MAPPING_VALUE_MATCH_INVALID",
                         path,
-                        (
-                            f"Resolver field {resolver.model}."
-                            f"{mapping.target_field} is unavailable."
-                        ),
-                        "Choose a captured field.",
+                        "Quick matching requires a text-based Odoo key.",
+                        "Use the normal governed mapping for this key type.",
                         dataset=dataset,
-                        target_field=mapping.target_field,
                     )
                 )
         if require_governed_key and not _matches_business_key(
@@ -2297,6 +2453,18 @@ def _dataset_mapping_to_dict(
                 "formula",
             ):
                 transform.pop(name, None)
+    if contract_version < 5:
+        for item in payload.get("fields", ()):
+            item.pop("value_mappings", None)
+        for component in (
+            *payload.get("target_identity", ()),
+            *payload.get("target_scope", ()),
+        ):
+            resolver = component.get("resolver")
+            if resolver:
+                resolver.pop("value_mappings", None)
+        for relation in payload.get("relationships", ()):
+            relation.get("resolver", {}).pop("value_mappings", None)
     return payload
 
 
@@ -2377,6 +2545,10 @@ def _scalar_field_mapping_from_dict(
             ),
             pattern=str(validation_payload.get("pattern", "")),
         ),
+        value_mappings=tuple(
+            ValueMapping(**item)
+            for item in payload.get("value_mappings", ())
+        ),
         value_type=str(payload.get("value_type", "string")),
         required=bool(payload.get("required", False)),
         required_on_create=bool(
@@ -2437,6 +2609,10 @@ def _resolver_from_dict(
         scope_mappings=tuple(
             ReferenceKeyMapping(**item)
             for item in payload.get("scope_mappings", ())
+        ),
+        value_mappings=tuple(
+            ValueMapping(**item)
+            for item in payload.get("value_mappings", ())
         ),
     )
 

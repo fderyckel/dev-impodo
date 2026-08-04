@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from collections import Counter
 from dataclasses import dataclass, replace
 import hashlib
 import json
@@ -34,7 +35,7 @@ from ..access import (
     CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
 )
-from ..artifacts import ArtifactStore, LocalArtifactStore
+from ..artifacts import ArtifactStore, ArtifactStoreError, LocalArtifactStore
 from ..business_keys import (
     describe_business_key,
     recommend_business_key,
@@ -90,6 +91,7 @@ from ..mapping_semantics import (
     ScalarValidationPolicy,
     ScalarValueError,
     ScalarValueSource,
+    ValueMapping,
     canonicalize_scalar_value,
     mapping_issue_fingerprint,
 )
@@ -117,6 +119,7 @@ from ..reporting import (
     write_review_workbook,
 )
 from ..secrets import CredentialVault, SecretStore, SecretStoreError
+from ..source import SourceLoadError, load_selected_source_table
 from ..workspace import (
     MappingWorkspaceService,
     OdooModelCatalog,
@@ -157,6 +160,8 @@ MAPPING_MAX_FORM_NAME_LENGTH = 256
 MAPPING_MAX_FORM_VALUE_LENGTH = 64 * 1024
 DEFAULT_MAPPING_FIELDS_PER_PAGE = 3
 MAPPING_FIELD_PAGE_SIZES = (3, 10, 20, 50)
+VALUE_MATCH_MAX_SOURCE_CHOICES = 500
+VALUE_MATCH_MAX_TARGET_CHOICES = 2_000
 READINESS_ROWS_PER_PAGE = 100
 _APPLICATION_MODULE_PREFIXES = {
     "Accounting": ("account", "analytic"),
@@ -1814,6 +1819,136 @@ def create_local_app(
         require_session(request)
         return _render_mapping(request, context, project_id)
 
+    @app.post("/projects/{project_id}/mapping/value-choices")
+    async def project_mapping_value_choices(
+        request: Request,
+        project_id: str,
+    ):
+        """Return bounded source and Odoo choices for the mapping dialog."""
+
+        require_session(request)
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {
+                "csrf_token",
+                "kind",
+                "dataset_id",
+                "source_column_key",
+                "target_model",
+                "target_field",
+                "business_key_id",
+            },
+        )
+        try:
+            kind = _text(form, "kind")
+            if kind not in {"scalar", "relationship"}:
+                raise WorkspaceError("Choose a supported Odoo field")
+            selection = context.repository.get_mapping_source_selection(
+                project_id
+            )
+            schema = context.repository.get_odoo_schema_catalog(project_id)
+            governance = context.repository.get_schema_governance(project_id)
+            if selection is None or schema is None or governance is None:
+                raise WorkspaceError(
+                    "Freeze the source and confirm the Odoo schema first"
+                )
+            dataset_id = _text(form, "dataset_id")
+            source_column_key = _text(form, "source_column_key")
+            source_dataset = next(
+                (
+                    item
+                    for item in selection.datasets
+                    if item.dataset_id == dataset_id
+                ),
+                None,
+            )
+            if source_dataset is None or source_column_key not in {
+                item.stable_key for item in source_dataset.columns
+            }:
+                raise WorkspaceError("Choose one current source column")
+            source_choices = await run_in_threadpool(
+                _source_value_choices,
+                context,
+                project_id,
+                dataset_id,
+                source_column_key,
+            )
+            target_model = _text(form, "target_model")
+            target_field = _text(form, "target_field")
+            model = next(
+                (item for item in schema.models if item.name == target_model),
+                None,
+            )
+            field = next(
+                (
+                    item
+                    for item in (model.fields if model else ())
+                    if item.name == target_field
+                ),
+                None,
+            )
+            if model is None or field is None:
+                raise WorkspaceError("Choose one current Odoo field")
+            ambiguous_values: tuple[str, ...] = ()
+            if kind == "scalar":
+                if not field.selection:
+                    raise WorkspaceError(
+                        "This Odoo field does not provide a list of choices"
+                    )
+                target_choices = tuple(
+                    {
+                        "value": str(value),
+                        "label": str(label),
+                    }
+                    for value, label in field.selection
+                )
+            else:
+                if field.type != "many2one" or not field.relation:
+                    raise WorkspaceError(
+                        "Value matching currently supports linked single records"
+                    )
+                key = next(
+                    (
+                        item
+                        for item in governance.business_keys
+                        if item.key_id == _text(form, "business_key_id")
+                        and item.model == field.relation
+                        and item.status is BusinessKeyStatus.CONFIRMED
+                    ),
+                    None,
+                )
+                if key is None:
+                    raise WorkspaceError(
+                        "Choose one confirmed key for the related Odoo records"
+                    )
+                project = context.repository.get(project_id)
+                target_choices, ambiguous_values = await run_in_threadpool(
+                    _relationship_value_choices,
+                    context,
+                    project,
+                    schema,
+                    field,
+                    key,
+                )
+            return JSONResponse(
+                {
+                    "source_choices": source_choices,
+                    "target_choices": target_choices,
+                    "ambiguous_values": ambiguous_values,
+                }
+            )
+        except (
+            ArtifactStoreError,
+            ConnectorError,
+            ProjectError,
+            SecretStoreError,
+            SourceLoadError,
+            WorkspaceError,
+        ) as error:
+            return JSONResponse({"detail": str(error)}, status_code=422)
+
     @app.get(
         "/projects/{project_id}/mapping/transformation-impact",
         response_class=HTMLResponse,
@@ -2382,6 +2517,179 @@ def _read_readiness_snapshots(
     return metadata, records
 
 
+def _source_value_choices(
+    context: WebContext,
+    project_id: str,
+    dataset_id: str,
+    source_column_key: str,
+) -> tuple[dict[str, object], ...]:
+    """Count every non-empty source choice from one frozen physical column."""
+
+    selection = context.repository.get_source_selection(project_id)
+    dataset = next(
+        (
+            item
+            for item in (selection.datasets if selection else ())
+            if item.dataset_id == dataset_id
+        ),
+        None,
+    )
+    if dataset is None:
+        raise WorkspaceError(
+            "Value matching is available for original frozen datasets"
+        )
+    column = next(
+        (
+            item
+            for item in dataset.columns
+            if item.stable_key == source_column_key
+        ),
+        None,
+    )
+    if column is None:
+        raise WorkspaceError("Choose one current source column")
+    project = context.repository.get(project_id)
+    source_file = next(
+        (item for item in project.source_files if item.file_id == dataset.file_id),
+        None,
+    )
+    catalog = next(
+        (
+            item
+            for item in context.repository.get_source_catalogs(project_id)
+            if item.file_id == dataset.file_id
+        ),
+        None,
+    )
+    table_catalog = next(
+        (
+            item
+            for item in (catalog.tables if catalog else ())
+            if item.table_key == dataset.table_key
+        ),
+        None,
+    )
+    if source_file is None or catalog is None or table_catalog is None:
+        raise WorkspaceError("Frozen source evidence is incomplete")
+    named_range = (
+        table_catalog.named_tables[0].cell_range
+        if table_catalog.kind == "NAMED_TABLE" and table_catalog.named_tables
+        else None
+    )
+    with context.artifacts.materialize_source(
+        project_id,
+        source_file.stored_name,
+    ) as path:
+        table = load_selected_source_table(
+            path,
+            dataset=dataset.name,
+            table_key=dataset.table_key,
+            encoding=dataset.encoding,
+            delimiter=dataset.delimiter,
+            header_row=dataset.header_row,
+            named_table_range=named_range,
+        )
+    expected_hash = f"sha256:{dataset.source_sha256.removeprefix('sha256:')}"
+    if table.content_hash != expected_hash:
+        raise WorkspaceError("Stored source content changed after selection")
+    counts = Counter(
+        str(row.values.get(column.source_name)).strip()
+        for row in table.rows
+        if row.values.get(column.source_name) is not None
+        and str(row.values.get(column.source_name)).strip()
+    )
+    if len(counts) > VALUE_MATCH_MAX_SOURCE_CHOICES:
+        raise WorkspaceError(
+            "This column has too many distinct choices for quick matching"
+        )
+    return tuple(
+        {"value": value, "count": count}
+        for value, count in sorted(
+            counts.items(),
+            key=lambda item: item[0].casefold(),
+        )
+    )
+
+
+def _relationship_value_choices(
+    context: WebContext,
+    project: MigrationProject,
+    schema,
+    field: SchemaField,
+    key: BusinessKeyDefinition,
+) -> tuple[tuple[dict[str, str], ...], tuple[str, ...]]:
+    """Read existing Odoo choices once and expose only portable key values."""
+
+    if schema.origin is not SchemaOrigin.LIVE_API:
+        raise WorkspaceError(
+            "Capture the live Odoo schema before loading existing choices"
+        )
+    if len(key.key_fields) != 1 or key.scope_fields:
+        raise WorkspaceError(
+            "Quick matching currently supports one Odoo key without scope"
+        )
+    related_model = next(
+        (item for item in schema.models if item.name == field.relation),
+        None,
+    )
+    if related_model is None:
+        raise WorkspaceError("Capture the related Odoo model before matching")
+    key_field = key.key_fields[0]
+    field_by_name = {item.name: item for item in related_model.fields}
+    if key_field not in field_by_name:
+        raise WorkspaceError("The confirmed Odoo key is no longer available")
+    if field_by_name[key_field].type not in {"char", "text", "selection"}:
+        raise WorkspaceError(
+            "Quick matching currently supports text-based Odoo keys"
+        )
+    available_fields = set(field_by_name)
+    display_field = "name" if "name" in available_fields else key_field
+    requested_fields = tuple(dict.fromkeys((key_field, display_field)))
+    _metadata, snapshot = _read_readiness_snapshots(
+        context,
+        project,
+        (),
+        (
+            RecordRequest(
+                model=field.relation,
+                fields=requested_fields,
+            ),
+        ),
+    )
+    if snapshot.fingerprint.target_hash != schema.target_hash:
+        raise WorkspaceError("Odoo choices came from a different target")
+    records = snapshot.records.get(field.relation, ())
+    if len(records) > VALUE_MATCH_MAX_TARGET_CHOICES:
+        raise WorkspaceError(
+            "This Odoo model has too many records for quick matching"
+        )
+    by_key: dict[str, list[object]] = {}
+    for record in records:
+        raw_key = record.values.get(key_field)
+        if raw_key is None or str(raw_key).strip() == "":
+            continue
+        by_key.setdefault(str(raw_key), []).append(record)
+    ambiguous = tuple(
+        sorted(
+            (value for value, matches in by_key.items() if len(matches) != 1),
+            key=str.casefold,
+        )
+    )
+    choices: list[dict[str, str]] = []
+    for value, matches in by_key.items():
+        if len(matches) != 1:
+            continue
+        label_value = matches[0].values.get(display_field)
+        label = str(label_value or value)
+        if display_field != key_field and label != value:
+            label = f"{label} ({value})"
+        choices.append({"value": value, "label": label})
+    return (
+        tuple(sorted(choices, key=lambda item: item["label"].casefold())),
+        ambiguous,
+    )
+
+
 def _target_credential_id(project: MigrationProject) -> str:
     """Bind a stored API key to one project and exact Odoo destination."""
 
@@ -2755,6 +3063,37 @@ def _validate_mapping_form_pairs(pairs: list[tuple[str, str]]) -> None:
                 status_code=413,
                 detail="A mapping value is too large",
             )
+
+
+def _value_mappings_from_form(
+    form,
+    field_name: str,
+) -> tuple[ValueMapping, ...]:
+    raw_value = _text(form, field_name)
+    if not raw_value:
+        return ()
+    try:
+        payload = json.loads(raw_value)
+    except json.JSONDecodeError as error:
+        raise ValueError("Matched choices could not be read") from error
+    if not isinstance(payload, list) or len(payload) > VALUE_MATCH_MAX_SOURCE_CHOICES:
+        raise ValueError("Matched choices are invalid")
+    mappings: list[ValueMapping] = []
+    for item in payload:
+        if not isinstance(item, dict) or set(item) != {
+            "source_value",
+            "target_value",
+        }:
+            raise ValueError("Matched choices are invalid")
+        source_value = item["source_value"]
+        target_value = item["target_value"]
+        if not isinstance(source_value, str) or not isinstance(
+            target_value,
+            str,
+        ):
+            raise ValueError("Matched choices are invalid")
+        mappings.append(ValueMapping(source_value, target_value))
+    return tuple(mappings)
 
 
 def _mapping_save_error_response(
@@ -3732,6 +4071,16 @@ def _mapping_dataset_views(
                 "index": field_index,
                 "metadata": field,
                 "mapping": scalar_by_target.get(field.name),
+                "value_mappings_json": _value_mappings_json(
+                    scalar_by_target[field.name].value_mappings
+                    if field.name in scalar_by_target
+                    else ()
+                ),
+                "matched_choice_count": len(
+                    scalar_by_target[field.name].value_mappings
+                    if field.name in scalar_by_target
+                    else ()
+                ),
                 "canonical_type": _canonical_mapping_type(field.type),
                 "source_samples": source_samples,
                 "recommended_source_column": (
@@ -3847,6 +4196,12 @@ def _mapping_dataset_views(
                     mapping.resolver if mapping else None,
                     related_keys,
                 ),
+                "value_mappings_json": _value_mappings_json(
+                    mapping.resolver.value_mappings if mapping else ()
+                ),
+                "matched_choice_count": len(
+                    mapping.resolver.value_mappings if mapping else ()
+                ),
             }
             if recommendation is not None:
                 row["recommended_dataset_id"] = recommendation["dataset_id"]
@@ -3927,6 +4282,20 @@ def _mapping_dataset_views(
             }
         )
     return tuple(result)
+
+
+def _value_mappings_json(mappings) -> str:
+    return json.dumps(
+        [
+            {
+                "source_value": item.source_value,
+                "target_value": item.target_value,
+            }
+            for item in mappings
+        ],
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
 
 
 def _mapping_source_samples(
@@ -4099,6 +4468,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"scalar_segment_length_{dataset_index}_{field_index}",
                     f"scalar_character_class_{dataset_index}_{field_index}",
                     f"scalar_pattern_{dataset_index}_{field_index}",
+                    f"scalar_value_matches_{dataset_index}_{field_index}",
                     f"scalar_compare_{dataset_index}_{field_index}",
                     f"scalar_validate_only_{dataset_index}_{field_index}",
                     f"scalar_required_{dataset_index}_{field_index}",
@@ -4127,6 +4497,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"relation_ambiguous_{dataset_index}_{relation_index}",
                     f"relation_null_{dataset_index}_{relation_index}",
                     f"relation_separator_{dataset_index}_{relation_index}",
+                    f"relation_value_matches_{dataset_index}_{relation_index}",
                 }
             )
     return allowed
@@ -4371,6 +4742,10 @@ def _mapping_datasets_from_form(
                             f"scalar_pattern_{dataset_index}_{field_index}",
                         ),
                     ),
+                    value_mappings=_value_mappings_from_form(
+                        form,
+                        f"scalar_value_matches_{dataset_index}_{field_index}",
+                    ),
                     value_type=(
                         _text(
                             form,
@@ -4434,6 +4809,14 @@ def _mapping_datasets_from_form(
                 or ResolverOrigin.TARGET_CATALOG.value
             )
             if origin is ResolverOrigin.DATASET:
+                value_mappings = _value_mappings_from_form(
+                    form,
+                    f"relation_value_matches_{dataset_index}_{relation_index}",
+                )
+                if value_mappings:
+                    raise ValueError(
+                        "Existing-record matches cannot use an incoming dataset"
+                    )
                 resolver = RelationshipResolver(
                     origin=origin,
                     dataset_id=_text(
@@ -4443,15 +4826,24 @@ def _mapping_datasets_from_form(
                     or None,
                 )
             else:
-                resolver = _target_catalog_resolver(
-                    metadata.relation,
-                    keys.get(
-                        _text(
-                            form,
-                            f"relation_key_{dataset_index}_{relation_index}",
-                        )
+                resolver = replace(
+                    _target_catalog_resolver(
+                        metadata.relation,
+                        keys.get(
+                            _text(
+                                form,
+                                f"relation_key_{dataset_index}_{relation_index}",
+                            )
+                        ),
+                        selected_sources,
                     ),
-                    selected_sources,
+                    value_mappings=_value_mappings_from_form(
+                        form,
+                        (
+                            f"relation_value_matches_{dataset_index}_"
+                            f"{relation_index}"
+                        ),
+                    ),
                 )
             relationships.append(
                 RelationshipMapping(

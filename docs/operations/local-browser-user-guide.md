@@ -317,7 +317,10 @@ include a time. The browser's governed timezone is currently UTC.
 
 When Odoo exposes a selection list, use its technical value—the stored key—not
 only its translated display label. The field control offers the captured
-technical choices for constants and fallbacks.
+technical choices for constants and fallbacks. When a source column uses
+different choices, select **Match values**. The dialog shows each distinct
+source choice and its row count; choose the corresponding Odoo choice, then
+select **Use matches**. You can save a partial match and return to finish it.
 
 #### Apply transformations
 
@@ -327,6 +330,7 @@ empty and the fallback is needed.
 
 ```text
 selected source, constant, or governed fallback
+-> optional exact source-choice to Odoo-choice match
 -> optional safe formula
 -> trim
 -> collapse spaces
@@ -480,6 +484,14 @@ These links use confirmed matching rules:
 
 - **Another incoming dataset** when the related record is part of this project;
 - **Existing Odoo records** when it must already exist in the target.
+
+For a many2one link to existing records, **Match values** provides the same
+simple source-choice-to-Odoo-choice dialog. Choose one source column and one
+confirmed Odoo business key first. For example, match source country `FRA` to
+the existing Odoo country key `FR`. Impodo stores `FRA -> FR`, resolves `FR`
+during the readiness check, and never stores the Odoo numeric record ID.
+Duplicate Odoo key values are omitted and reported instead of guessed. The
+dialog is read-only: it does not create or change Odoo records.
 
 The page shows three linked fields at first. Search the complete captured model
 by business label, technical field name, or related Odoo model; for example,

@@ -835,6 +835,7 @@ def _stage_table(
                 source_row=row.number,
             )
         )
+        _apply_relationship_value_mappings(values, mapping)
         _apply_scalar_mappings(
             values,
             effective,
@@ -924,6 +925,7 @@ def _stage_derived_table(
             values[link.parent_key_column_key] = (
                 " / ".join(key_path[:-1]) if key_path[:-1] else None
             )
+        _apply_relationship_value_mappings(values, mapping)
         _apply_scalar_mappings(
             values,
             effective,
@@ -1115,6 +1117,33 @@ def _apply_scalar_mappings(
                 )
 
 
+def _apply_relationship_value_mappings(
+    values: dict[str, object],
+    mapping: DatasetMapping,
+) -> None:
+    """Replace authored source choices with confirmed Odoo business keys."""
+
+    for relationship in mapping.relationships:
+        matches = relationship.resolver.value_mappings
+        if not matches or len(relationship.source_column_keys) != 1:
+            continue
+        source_column = relationship.source_column_keys[0]
+        raw_value = values.get(source_column)
+        if raw_value is None:
+            continue
+        source_value = str(raw_value).strip()
+        target_value = next(
+            (
+                item.target_value
+                for item in matches
+                if item.source_value == source_value
+            ),
+            None,
+        )
+        if target_value is not None:
+            values[source_column] = target_value
+
+
 def _transformation_outcome(
     field,
     raw_value: object,
@@ -1153,6 +1182,8 @@ def _transformation_rule_summary(field) -> str:
         rules.append("Source + fallback")
     else:
         rules.append("Source")
+    if field.value_mappings:
+        rules.append(f"Match {len(field.value_mappings)} source choice(s)")
     transform = field.transform
     if transform.formula:
         rules.append("Formula")
