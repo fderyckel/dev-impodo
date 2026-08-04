@@ -139,6 +139,80 @@ class Json2ConnectorTests(unittest.TestCase):
             "Name",
         )
 
+    def test_schema_constraint_evidence_is_batched_for_all_models(self) -> None:
+        calls = []
+
+        def transport(url, headers, body, timeout, method):
+            del headers, timeout, method
+            payload = json.loads(body) if body else None
+            calls.append((url, payload))
+            if url.endswith("/web/version"):
+                return 200, {"version": "19.0"}
+            if url.endswith("/json/2/ir.model/search_read"):
+                return 200, [
+                    {"id": 42, "model": "x.model"},
+                    {"id": 43, "model": "y.model"},
+                ]
+            if url.endswith("/json/2/ir.model.constraint/search_read"):
+                return 200, [
+                    {
+                        "id": 7,
+                        "name": "x_model_code_uniq",
+                        "definition": "UNIQUE(code)",
+                        "model": [42, "Custom Model"],
+                    }
+                ]
+            return 200, {
+                "code": {
+                    "string": "Code",
+                    "type": "char",
+                    "required": True,
+                    "readonly": False,
+                }
+            }
+
+        connector = Json2ReadConnector(self.config(), transport=transport)
+        snapshot = connector.get_model_metadata(
+            [
+                MetadataRequest(
+                    "x.model",
+                    (),
+                    all_fields=True,
+                    include_unique_constraints=True,
+                ),
+                MetadataRequest(
+                    "y.model",
+                    (),
+                    all_fields=True,
+                    include_unique_constraints=True,
+                ),
+            ]
+        )
+
+        constraints = snapshot.models["x.model"].unique_constraints
+        self.assertEqual(len(constraints), 1)
+        self.assertEqual(constraints[0].definition, "UNIQUE(code)")
+        self.assertEqual(
+            sum(url.endswith("/json/2/ir.model/search_read") for url, _ in calls),
+            1,
+        )
+        model_call = next(
+            payload
+            for url, payload in calls
+            if url.endswith("/json/2/ir.model/search_read")
+        )
+        self.assertEqual(
+            model_call["domain"],
+            [["model", "in", ["x.model", "y.model"]]],
+        )
+        self.assertEqual(
+            sum(
+                url.endswith("/json/2/ir.model.constraint/search_read")
+                for url, _ in calls
+            ),
+            1,
+        )
+
     def test_timeout_error_is_redacted(self) -> None:
         def transport(url, headers, body, timeout, method):
             raise TimeoutError("contains super-secret-token")

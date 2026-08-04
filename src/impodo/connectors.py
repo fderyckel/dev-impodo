@@ -494,9 +494,11 @@ class Json2ReadConnector:
         limitations = list(self._fingerprint_limitations)
         if any(item.include_unique_constraints for item in ordered_requests):
             constraint_models = tuple(
-                item.model
-                for item in ordered_requests
-                if item.include_unique_constraints
+                dict.fromkeys(
+                    item.model
+                    for item in ordered_requests
+                    if item.include_unique_constraints
+                )
             )
             try:
                 constraints = self._get_unique_constraints(constraint_models)

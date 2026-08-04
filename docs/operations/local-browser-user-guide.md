@@ -177,14 +177,31 @@ mapping.
 A business key is the stable value used to find one Odoo record. It is never
 the internal numeric `id`.
 
-![Business-key governance.](../images/impodo-local-browser-guide/05-business-keys.png)
+For each permitted model, Impodo keeps the page simple:
 
-| Target | Natural key | Scope example |
+1. If Odoo exposes one safe uniqueness rule, review the suggested matching
+   field and choose **Use suggestion**.
+2. If there is no single safe suggestion, choose a field by its business label.
+   The technical name remains visible in brackets.
+3. Add **Within** only when the same value may exist in several companies or
+   organizational scopes.
+4. Use **Combined key or technical entry** only for a genuinely composite key.
+5. Select **Confirm keys and open mapping** to create governed evidence.
+
+This works for standard and custom models. For example, a custom model with an
+Odoo uniqueness rule on `code` and `company_id` can be presented as **Code,
+within Company** without requiring the data manager to remember either
+technical name.
+
+Some standard examples still need judgment:
+
+| Target | Page behavior | Important limitation |
 | --- | --- | --- |
-| Contact | `ref` | `company_id` |
-| Product | `default_code` | `company_id` when required |
-| Account | `code` | `company_id` |
-| Country | `code` | none |
+| Country | Suggest Country Code (`code`) | Odoo enforces uniqueness |
+| Product variant | Suggest Internal Reference (`default_code`) | Odoo permits duplicates |
+| Product template | Suggest Internal Reference (`default_code`) | Multi-variant templates may have no template-level reference |
+| Contact | Ask the owner to choose | Odoo has no universally safe contact key |
+| Account | Ask the owner to choose | Odoo 19 account codes depend on company context; do not invent a `company_id` field |
 
 Avoid mutable names, guessed fields, sample-only uniqueness, or numeric IDs.
 Confirmation records the intended rule; **Check data readiness** later applies

@@ -121,6 +121,12 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
             "models": {
                 "res.partner": {
                     "description": "Contact",
+                    "unique_constraints": [
+                        {
+                            "name": "res_partner_ref_uniq",
+                            "definition": "UNIQUE(ref)",
+                        }
+                    ],
                     "fields": {
                         "name": {
                             "string": "Name",
@@ -168,6 +174,10 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
             partner_fields["message_ids"].relation,
             "mail.message",
         )
+        self.assertEqual(
+            snapshot.models["res.partner"].unique_constraints[0].definition,
+            "UNIQUE(ref)",
+        )
         script = calls[0][1]
         self.assertIn(
             "requested_models = ('res.partner', 'res.company')",
@@ -175,6 +185,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         )
         self.assertEqual(script.count(".fields_get("), 1)
         self.assertIn("for model_name in requested_models:", script)
+        self.assertIn('env["ir.model.constraint"].sudo().search', script)
         self.assertIn("allfields=[]", script)
         self.assertIn("ensure_ascii=True", script)
         self.assertIn("env.cr.rollback()", script)

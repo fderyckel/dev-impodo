@@ -1412,11 +1412,16 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("<h2>Contact <code>res.partner</code></h2>", schema_page.text)
         self.assertIn("Search fields", schema_page.text)
         self.assertIn("Show readonly and system fields", schema_page.text)
+        self.assertIn("Impodo found no single safe recommendation", schema_page.text)
+        self.assertIn("Reference (ref)", schema_page.text)
+        self.assertIn("Combined key or technical entry", schema_page.text)
         governed = self.client.post(
             f"/projects/{project_id}/schema/govern",
             data={
                 "csrf_token": self.csrf,
-                "key_fields_0": "ref",
+                "primary_key_field_0": "ref",
+                "primary_scope_field_0": "",
+                "key_fields_0": "",
                 "scope_fields_0": "",
                 "key_description_0": "Unique contact reference",
             },

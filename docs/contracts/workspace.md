@@ -72,8 +72,12 @@ Target evidence has one explicit origin:
 
 Live discovery captures permitted models and their effective Odoo 19 fields,
 including type, required/readonly state, relation metadata, inverse field, and
-selection values. Abstract and transient models are excluded. The permitted
-model set is explicit; related models are not silently added.
+selection values. It also attempts one batched read of explicit Odoo database
+uniqueness constraints for all permitted models. Constraint access is optional:
+if the remote read user cannot see this metadata, schema capture continues
+without constraint-backed recommendations. Abstract and transient models are
+excluded. The permitted model set is explicit; related models are not silently
+added.
 
 Model discovery is paginated and read-only. Field capture performs one
 `fields_get` request per selected model, never one call per field or source
@@ -90,6 +94,12 @@ A user with `schema.govern` confirms versioned natural business keys for each
 target model. A definition contains an ordered key, optional company/tenant
 scope, description, actor, content hash, and confirmed status. Keys are never
 inferred from field names.
+
+The browser may show one non-binding recommendation before confirmation. A
+recommendation comes from an exact versioned model rule or one unambiguous,
+supported Odoo uniqueness constraint. Multiple possible constraints do not
+produce a guess. The recommendation remains outside governed state until the
+user explicitly selects and confirms it.
 
 Relationships and target matching use governed business keys, not remembered
 numeric Odoo IDs.
