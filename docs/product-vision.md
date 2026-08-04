@@ -43,7 +43,7 @@ flowchart LR
     Stage["Store canonical rows,<br/>issues, and relations"]
     Preflight["Match against Odoo<br/>and classify changes"]
     Approve["Review and approve<br/>a frozen import plan"]
-    Load["Controlled Odoo<br/>DEV / TEST / PROD load"]
+    Load["Controlled Odoo<br/>target load"]
     Reconcile["Reconcile every row<br/>and produce reports"]
 
     Files --> Inspect
@@ -84,7 +84,7 @@ The legacy labels “Phase A” and “Phase B” are retired and must not be us
 A migration project identifies:
 
 - source system and source export date;
-- target Odoo environment;
+- exact Odoo target;
 - responsible data manager and functional owner;
 - source files;
 - optional migration application scope for reviewer context;
@@ -208,7 +208,7 @@ to the local staging dataset; the raw source file remains unchanged, and the
 correction is versioned with its reason and operator evidence.
 
 Read-only validation cannot prove every Odoo ORM constraint, automation, or
-custom business rule. A controlled DEV/TEST rehearsal remains necessary
+custom business rule. A controlled target rehearsal remains necessary
 before production.
 
 #### Initial first-migration rule proposal
@@ -325,14 +325,14 @@ table. Approval freezes:
 - validation-rule version;
 - canonical staged-data hash;
 - exact planned actions and dependency order;
-- target environment;
+- exact target identity;
 - approver, time, scope, and expiry or staleness policy.
 
 Any changed input invalidates approval and requires a new preflight.
 
 For the first release, the **data manager** approves mapping versions and
 import plans. The approval record identifies that person, the approved scope,
-the target environment, and the expiry. Functional stakeholders may review
+the exact target, and the expiry. Functional stakeholders may review
 business rules, but their review does not replace the data manager's recorded
 approval.
 
@@ -340,12 +340,13 @@ approval.
 
 The executor is a separate capability and security milestone. It:
 
-- runs first in DEV, then TEST, and only later in approved production;
+- runs only against organisation-approved targets under the project's own
+  promotion policy;
 - accepts only a frozen approved plan;
 - uses a dedicated restricted service account;
 - creates and updates in dependency order;
 - keeps writes in bounded batches;
-- records an environment-specific source-key-to-Odoo-ID crosswalk;
+- records a target-database-specific source-key-to-Odoo-ID crosswalk;
 - resolves staged business references to runtime IDs only at execution;
 - supports idempotency and restart;
 - captures every success and failure;
@@ -353,7 +354,7 @@ The executor is a separate capability and security milestone. It:
 - stops or isolates dependent records after a parent failure.
 
 Odoo IDs are allowed in the execution journal and crosswalk because those
-artifacts are environment-specific. They remain forbidden from portable
+artifacts are target-database-specific. They remain forbidden from portable
 mapping, staging, approval, and review contracts.
 
 ### Stage K — Reconcile
@@ -597,13 +598,13 @@ import/export, functional review, and approval.
 - preserve the current business-key matcher and comparator;
 - strengthen snapshot request and domain binding;
 - add a reviewed 100–300-record organization-specific slice;
-- complete live DEV and TEST read-only validation.
+- complete live-target read-only validation.
 
 ### Phase 5 — Approval and restricted executor
 
 - frozen import-plan contract;
 - signatures, roles, staleness, and expiry;
-- DEV/TEST-only initial executor;
+- organisation-approved-target-only initial executor;
 - dependency ordering and runtime crosswalk;
 - idempotency, retries, and reconciliation;
 - separate security review.
@@ -632,7 +633,7 @@ Confirmed:
 - the first release begins with exported `.xlsx`/`.csv` files, a local DuckDB
   staging store, and a disposable local Odoo laboratory;
 - the initial on-premise target is Odoo 19.4. The planned Odoo 20.0 move in
-  September requires a separate compatibility check and DEV/TEST rehearsal;
+  September requires a separate compatibility check and target rehearsal;
 - the data manager approves mapping versions and frozen import plans;
 - the initial transformation and business-rule proposal is recorded in
   [Stage E](#stage-e--normalize-and-validate);

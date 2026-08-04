@@ -10,8 +10,8 @@ The local proof of concept is green:
 - the manifest is deterministic for unchanged saved inputs;
 - the live connector is exercised with mocked transport only.
 
-This is not yet target DEV/TEST acceptance. The required 100–300-record sanitized
-slice, live environment runs, Odoo-side ACL evidence, and expected-scale memory
+This is not yet live-target acceptance. The required 100–300-record sanitized
+slice, live target runs, Odoo-side ACL evidence, and expected-scale memory
 evidence remain pending.
 
 ## Validation command
@@ -165,7 +165,7 @@ snapshots. It is not a hardened parser for arbitrary third-party JSON.
 - proxy/redirect behavior;
 - stable pagination while target data is controlled;
 - sentinel `write_date` unchanged before/after capture;
-- equivalent fixture, DEV, and TEST semantic results.
+- equivalent fixture and live-target semantic results.
 
 No local test creates temporary Odoo records.
 
@@ -229,7 +229,7 @@ Current deterministic guarantee:
 produce byte-identical canonical manifest JSON.
 
 The semantic hash includes the snapshot timestamp because it is part of the
-environment fingerprint. Recapturing identical target data at a later time
+target fingerprint. Recapturing identical target data at a later time
 therefore changes the snapshot and semantic hash. This is intentional evidence
 binding, not nondeterminism.
 
@@ -293,7 +293,7 @@ Structural requirements already apply:
 
 | Milestone criterion | Local status | Remaining evidence |
 | --- | --- | --- |
-| Same profile path for fixture, DEV, TEST | architecture supports it | live DEV/TEST runs |
+| Same profile path for fixture and live targets | architecture supports it | live target runs |
 | No connector write operation | verified in code/tests | Odoo ACL proof |
 | Every import candidate gets one outcome | verified for compact fixture | larger acceptance slice |
 | Exact before/after updates | verified | reviewer confirmation |
@@ -304,7 +304,7 @@ Structural requirements already apply:
 | Composite/scoped identities | verified locally | real target scopes |
 | Relational comparison | verified locally | real target relationships |
 | 100–300 sanitized records | not complete | build and review |
-| Live DEV and TEST | not complete | execute smoke tests |
+| Live authorised target | not complete | execute smoke tests |
 | Historical-scale memory | not complete | profile and document |
 
 ## Acceptance gate
@@ -315,7 +315,7 @@ offline commands reproduce the documented result.
 deployment milestone acceptance additionally requires:
 
 - the reviewed 100–300-record slice;
-- live DEV and TEST smoke runs;
+- live target smoke runs;
 - Odoo-side read-only account evidence;
 - partner confirmation of Odoo version, routing, context, keys, scopes,
   decimal, and timezone rules;

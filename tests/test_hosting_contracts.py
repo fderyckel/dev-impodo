@@ -183,7 +183,6 @@ class ExportApprovalContractTests(unittest.TestCase):
             plan_id="plan-001",
             project_id=str(uuid4()),
             run_id="run-001",
-            target_environment="TEST",
             source_hashes={"products.xlsx": HASH_A},
             mapping_hash=HASH_B,
             ruleset_hash=HASH_C,
@@ -214,7 +213,7 @@ class ExportApprovalContractTests(unittest.TestCase):
             approved_at=NOW,
             policy_version="policy-1",
             expires_at=NOW + timedelta(hours=4),
-            reason="Approved for the governed TEST rehearsal",
+            reason="Approved for the governed target rehearsal",
         )
 
         self.assertTrue(approval.authorizes(plan, at=NOW + timedelta(hours=1)))

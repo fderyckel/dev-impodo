@@ -14,7 +14,6 @@ from impodo.local_stack import LocalStackProfile
 from impodo.projects import (
     MigrationProject,
     OdooConnectionMode,
-    TargetEnvironment,
 )
 
 
@@ -38,9 +37,8 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
             name="Local metadata",
             source_system="CSV",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
-            target_environment=TargetEnvironment.DEV,
             odoo_base_url="http://127.0.0.1:8069",
-            odoo_database="odoo19_dev",
+            odoo_database="odoo19_local",
             intended_models=("res.partner", "res.company"),
         )
         self.profile = LocalStackProfile(
@@ -52,7 +50,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
             http_interface="127.0.0.1",
             http_port=8069,
             base_url="http://127.0.0.1:8069",
-            database_hint="odoo19_dev",
+            database_hint="odoo19_local",
             pg_isready_path=None,
             pg_ctl_path=None,
             pg_data_path=None,
@@ -67,7 +65,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
     def test_catalogue_is_one_fixed_read_without_an_api_key(self) -> None:
         calls = []
         payload = {
-            "database": "odoo19_dev",
+            "database": "odoo19_local",
             "version": "19.0",
             "records": [
                 {
@@ -117,7 +115,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
     def test_fields_get_captures_effective_inherited_fields_once_per_model(self) -> None:
         calls = []
         payload = {
-            "database": "odoo19_dev",
+            "database": "odoo19_local",
             "version": "19.4",
             "models": {
                 "res.partner": {
@@ -186,9 +184,8 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
             name="Wrong target",
             source_system="CSV",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
-            target_environment=TargetEnvironment.DEV,
             odoo_base_url="http://127.0.0.1:8070",
-            odoo_database="odoo19_dev",
+            odoo_database="odoo19_local",
         )
         reader = LocalOdooMetadataReader(
             runner=lambda *_args: self.fail("runner must not be called")
@@ -198,7 +195,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
             LocalOdooReaderError,
             "does not match",
         ):
-            reader.get_environment_fingerprint(mismatched, self.profile)
+            reader.get_target_fingerprint(mismatched, self.profile)
 
     def test_reader_exposes_no_generic_shell_or_write_surface(self) -> None:
         public = {
@@ -209,7 +206,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         self.assertEqual(
             public,
             {
-                "get_environment_fingerprint",
+                "get_target_fingerprint",
                 "get_model_catalog",
                 "get_model_metadata",
             },

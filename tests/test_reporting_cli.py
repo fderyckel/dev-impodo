@@ -65,7 +65,7 @@ class WorkbookIntegrationTests(unittest.TestCase):
                 workbook_xml = archive.read("xl/workbook.xml").decode()
             for sheet_name in (
                 "Dashboard",
-                "Target Environment",
+                "Target",
                 "Dataset Summary",
                 "Proposed Creates",
                 "Proposed Updates",

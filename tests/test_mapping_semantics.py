@@ -493,8 +493,8 @@ def _schema_catalog() -> OdooSchemaCatalog:
         target_hash="sha256:target",
         captured_at=NOW,
         captured_by="Test operator",
-        environment="DEV",
-        database="odoo19_dev",
+        connection_mode="LOCAL",
+        database="odoo19_local",
         odoo_version="19.0",
         models=(
             SchemaModel(

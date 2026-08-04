@@ -14,7 +14,7 @@ This proof of concept answers one question without changing Odoo:
 > cannot be decided safely?
 
 The implementation produces review evidence only. It has a complete
-fixture-backed path and an Odoo 19 JSON-2 read adapter. Live target DEV/TEST
+fixture-backed path and an Odoo 19 JSON-2 read adapter. Live-target
 validation, Odoo-side ACL evidence, and the larger sanitized acceptance slice
 remain external acceptance gates.
 
@@ -25,7 +25,7 @@ Implemented:
 - strict YAML profile loading;
 - strict CSV and profile-declared XLSX worksheet ingestion;
 - typed source preparation;
-- environment-independent prepared records;
+- target-independent prepared records;
 - composite and relational target identities;
 - company/site/parent-style scoped identity;
 - incoming-dataset and target-only relation resolution;
@@ -54,7 +54,7 @@ The future sequence remains:
 ```text
 read-only preflight
 → approval manifest
-→ environment-independent import plan
+→ target-independent import plan
 → separately reviewed restricted executor
 → retry and reconciliation
 → SharePoint workflow
@@ -230,7 +230,7 @@ requirements hash.
 The complete public protocol is:
 
 ```python
-get_environment_fingerprint()
+get_target_fingerprint()
 get_model_metadata(requests)
 get_records(requests)
 ```
@@ -249,7 +249,7 @@ call, or SQL surface.
 
 - requires HTTPS, except for an explicitly enabled literal-loopback local
   development target;
-- accepts only `DEV` and `TEST`;
+- accepts only `LOCAL` and `REMOTE` connection modes;
 - sends bearer authorization and `X-Odoo-Database`;
 - calls `POST /json/2/<model>/<method>`;
 - sends named JSON arguments;
@@ -429,7 +429,7 @@ An incomplete record snapshot stops the run before any decisions.
 - engine name and profile ID;
 - source hashes;
 - exact metadata and record snapshot hashes;
-- target environment fingerprint;
+- target fingerprint;
 - five classification totals;
 - decisions and differences;
 - grouped reference resolutions;
@@ -443,7 +443,7 @@ The serializer rejects the keys `odoo_id`, `odoo_ids`, `record_id`, and
 The workbook is generated from that manifest and has:
 
 1. Dashboard
-2. Target Environment
+2. Target
 3. Dataset Summary
 4. Proposed Creates
 5. Proposed Updates
@@ -473,7 +473,7 @@ The manifest includes:
 - exact source-file byte hashes;
 - exact saved snapshot byte hashes;
 - engine name;
-- environment fingerprint, including snapshot timestamp;
+- target fingerprint, including snapshot timestamp;
 - semantic hash over the complete payload except the semantic hash field.
 
 There is no generated manifest timestamp or run ID. The snapshot timestamp is
@@ -518,7 +518,7 @@ Not yet implemented or measured:
 The CLI separates target capture from offline analysis:
 
 ```text
-DEV or TEST capture
+authorised target capture
        ↓
 saved metadata + record snapshots
        ↓
@@ -531,7 +531,7 @@ The committed 12-candidate fixture proves the local semantic path. Before
 claiming deployment acceptance, complete:
 
 - a reviewed 100–300-record sanitized slice;
-- live DEV and TEST smoke runs;
+- live-target smoke runs;
 - confirmation of governed business keys, scopes, decimals, and timezones;
 - real database routing and company-context decisions;
 - Odoo-side read-only account/ACL evidence;

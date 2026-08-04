@@ -12,8 +12,8 @@ translates these controls into endpoint-preparation actions.
 | --- | --- |
 | Application | Local Python process with a browser interface bound to `127.0.0.1` |
 | Source data | Governed `.csv` and `.xlsx` intake with local DuckDB storage |
-| Odoo access | Read-only access to Odoo 19 DEV/TEST only |
-| Production | Not an available target |
+| Odoo access | Read-only access to authorised Odoo 19 targets |
+| Lifecycle stage | Defined by the project, not by Impodo |
 | Odoo writes | No create, update, delete, import, or generic method capability |
 | Hosted/cloud service | Not yet part of the current local deployment |
 
@@ -35,7 +35,7 @@ Managed Windows workstation
         |
         | outbound HTTPS over company-controlled network/VPN
         v
-  Odoo 19 DEV or TEST
+  authorised Odoo 19 target
         dedicated read-only service user
 ```
 
@@ -62,7 +62,7 @@ Not implemented:
   review and authorization workflow;
 - a signed end-user installer or an accepted internal release bundle;
 - a pinned disposable Odoo/PostgreSQL Compose laboratory;
-- Production target selection;
+- organisation-specific lifecycle classification or promotion enforcement;
 - Odoo create, update, delete, import, reconciliation, or other write
   execution.
 
@@ -154,14 +154,14 @@ rest depends on BitLocker and Windows access controls.
 
 Remote mode:
 
-- accepts only DEV or TEST and requires HTTPS;
+- requires a non-loopback HTTPS target;
 - dispatches only Odoo 19 JSON-2 `fields_get` and `search_read`;
 - refuses redirects before bearer credentials can be forwarded;
 - projects and paginates target reads deterministically.
 
 Local mode:
 
-- accepts HTTP only for literal `127.0.0.1` or `::1` Odoo DEV targets;
+- accepts HTTP only for literal `127.0.0.1` or `::1` Odoo targets;
 - uses the explicitly selected `odoo.conf` and fixed, bounded model-catalogue
   or `fields_get` operations without a generic shell/RPC surface;
 - reads `ir.model` once for discovery and calls `fields_get` once per selected
@@ -209,7 +209,7 @@ The workstation must be company-owned and managed, with:
   folders;
 - an explicit backup decision matching classification and deletion duties.
 
-Remote Odoo DEV/TEST additionally requires:
+Remote Odoo additionally requires:
 
 - company-controlled LAN/VPN routing and a TLS chain trusted by Python;
 - exact URL and database-routing name;
@@ -247,11 +247,12 @@ support-access rules for the data being processed.
 
 ## Release and verification evidence
 
-Verified locally on Windows on 3 August 2026, before the later concurrent
-target-fingerprint refactor entered the working tree:
+Verified locally on Windows on 3 August 2026 after the target-fingerprint
+refactor:
 
-- default Python suite: **140 tests run, 139 passed, one optional workbook test
+- Python suite in bounded groups: **141 tests run, 140 passed, one optional workbook test
   skipped, no failures**;
+- focused target-contract regression: **54 tests passed**;
 - Windows project-root security suite: protected DACL creation/verification and
   unsafe-root rejection passed;
 - `requirements.windows-py312.lock`: exact Python 3.12 dependency pins,
@@ -260,12 +261,10 @@ target-fingerprint refactor entered the working tree:
   installed-wheel CLI smoke test, dependency audit with no known
   vulnerabilities, and validated CycloneDX SBOM passed.
 
-Immediately before handoff, that separate target-fingerprint refactor was
-incomplete: the current suite ran 83 tests with one failure and 18 errors
-because existing callers, fixtures, and tests still referenced the removed
-`EnvironmentFingerprint`, `TargetEnvironment`, and prior connector arguments.
-No release may be promoted until that refactor is completed and the full suite
-is green again. The release gate also refuses the current dirty worktree.
+The target-fingerprint refactor is complete across callers, fixtures, browser
+flows, contracts, and tests. The optional workbook integration remains an
+optional-tooling gate because Node.js is not installed on this workstation. The
+release gate also refuses the current dirty worktree.
 
 The tests cover the loopback session boundary, Host/origin/CSRF controls,
 security headers, local/remote URL separation, credential rebinding, DuckDB

@@ -1,12 +1,13 @@
 # Snapshot contracts
 
-Snapshots are immutable, environment-specific inputs. Metadata and record
+Snapshots are immutable, target-specific inputs. Metadata and record
 snapshots share the same fingerprint:
 
 ```json
 {
-  "environment": "DEV",
-  "database": "odoo_dev",
+  "target_hash": "sha256:…",
+  "connection_mode": "REMOTE",
+  "database": "migration_review",
   "odoo_version": "19.0",
   "snapshot_timestamp": "2026-07-28T12:00:00Z",
   "module_versions": {"example_core": "2.0.0"}
@@ -76,7 +77,7 @@ and does not invalidate otherwise complete metadata.
 ```
 
 This is the only serialized milestone artifact that permits numeric Odoo IDs.
-It is environment-specific, not portable, and is not an approval manifest.
+It is target-database-specific, not portable, and is not an approval manifest.
 
 Many2one values may be an ID or Odoo `[id, display_name]` pair. Many2many
 values are ID arrays. Display names are ignored. IDs are reverse-resolved
@@ -86,7 +87,7 @@ through reference catalogs before comparison.
 
 When preflight loads saved snapshots, it verifies:
 
-- identical environment fingerprints;
+- identical target fingerprints;
 - selected profile ID when the binding is present;
 - record-snapshot source hashes against the current source package when the
   binding is present;

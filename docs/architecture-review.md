@@ -3,7 +3,7 @@
 **Review date:** 2026-07-28
 **Reviewed artifact:** current proof of concept
 **Verdict:** the local fixture path is implemented and validated; deployment
-acceptance remains pending on the larger sanitized slice, live DEV/TEST
+acceptance remains pending on the larger sanitized slice, live-target
 evidence, and Odoo-side access controls
 
 This verdict applies only to the read-only preflight component. It is not a
@@ -53,14 +53,14 @@ The review traced:
 
 The connector boundary is capability-limited. It exposes no arbitrary model
 method and internally accepts only `fields_get` and `search_read`. The live
-configuration rejects production aliases and non-HTTPS URLs. The API key is a
+configuration enforces local-loopback and remote-HTTPS URL rules. The API key is a
 non-repr field and error messages do not include response bodies or secrets.
 
 Defense in depth still requires:
 
 - a dedicated Odoo service user;
 - read-only ACLs and record rules;
-- a DEV or TEST environment;
+- an authorised Odoo target;
 - approved host/network policy;
 - API key rotation outside this repository.
 
@@ -112,7 +112,7 @@ second decision source.
 
 The manifest binds the profile by ID rather than profile-file hash.
 Its semantic hash includes source hashes, saved snapshot file hashes, and the
-environment fingerprint including snapshot timestamp. Snapshot envelopes do
+target fingerprint including snapshot timestamp. Snapshot envelopes do
 not yet persist the request domain or a requirements-plan hash.
 
 ## Scale assessment
@@ -137,14 +137,14 @@ end-to-end source/snapshot/workbook benchmark.
 - The manifest is byte-deterministic for unchanged saved inputs.
 - The generated workbook contains and visually exposes all twelve governed
   sheets.
-- No live Odoo DEV or TEST call was made as part of this repository-only
+- No live authorised Odoo target call was made as part of this repository-only
   validation.
 
 ## Limitations and required partner confirmation
 
 1. The initial target version is confirmed as Odoo 19.4, which provides the
    JSON-2 interface used by this component. The planned Odoo 20.0 move in
-   September remains subject to a compatibility check and new DEV/TEST
+   September remains subject to a compatibility check and new target
    acceptance evidence.
 2. Confirm the real URL/database routing and whether `X-Odoo-Database` is
    required.
@@ -168,7 +168,7 @@ end-to-end source/snapshot/workbook benchmark.
     days; it is not a substitute for the customer's written policy.
 
 These do not block offline fixture correctness. They block claiming live target
-DEV/TEST acceptance.
+live-target acceptance.
 
 ## Readiness gate
 
@@ -176,7 +176,7 @@ The read-only engine is ready for:
 
 - code review;
 - local fixture review;
-- configuration with sanitized target DEV/TEST data;
+- configuration with sanitized target data;
 - Odoo-side read-only access verification.
 
 It is not approval to build or run a write executor. That later milestone must

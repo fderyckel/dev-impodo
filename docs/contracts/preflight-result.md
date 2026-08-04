@@ -1,7 +1,7 @@
 # Preflight result contract
 
 The canonical output is `impodo_preflight_manifest.json`. It is portable: it
-contains business keys, typed values, and a separated environment fingerprint,
+contains business keys, typed values, and a separated target fingerprint,
 but no numeric Odoo IDs.
 
 ## Envelope
@@ -15,7 +15,7 @@ but no numeric Odoo IDs.
     "metadata": "sha256:…",
     "records": "sha256:…"
   },
-  "target_environment": {},
+  "target": {},
   "summary": {
     "CREATE": 5,
     "UPDATE": 2,
@@ -121,7 +121,7 @@ text.
 `impodo_preflight_report.xlsx` is derived from this manifest:
 
 - Dashboard
-- Target Environment
+- Target
 - Dataset Summary
 - Proposed Creates
 - Proposed Updates

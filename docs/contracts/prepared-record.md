@@ -1,6 +1,6 @@
 # Prepared record contract
 
-A prepared record is the explicit environment-independent boundary after
+A prepared record is the explicit target-independent boundary after
 source parsing. Every nonblank CSV record or XLSX data row produces one
 record, including rows with field-level validation errors.
 

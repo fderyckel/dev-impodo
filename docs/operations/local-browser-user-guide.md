@@ -18,7 +18,7 @@ This guide covers the current workflow:
 7. validate and submit the exact mapping revision.
 
 Impodo is currently a planning and validation tool. It cannot create, change,
-or delete Odoo records, and it does not offer a Production target.
+or delete Odoo records; every target connection remains read-only.
 
 The screenshots in this guide show the current local-browser interface at a
 1440 × 1024 desktop viewport. All names, files, people, hashes, and target
@@ -41,7 +41,7 @@ For a routine project, use this checklist:
 - Record the project owner, functional owner, data classification, retention,
   source system, and source export date.
 - Add the final CSV or Excel source files.
-- Configure only an approved Odoo DEV or TEST target.
+- Configure only an authorised Odoo 19 target.
 - Inspect every file and resolve or acknowledge its warnings.
 - Give each selected table a short, stable dataset name.
 - Freeze the selection.
@@ -94,7 +94,7 @@ new approved export instead of editing the registered evidence in place.
 
 Ask the Odoo administrator or functional owner for:
 
-- the approved DEV or TEST URL and database name;
+- the exact authorised URL and database name;
 - a dedicated, least-privilege API key;
 - the exact technical model names in scope, such as `res.partner`;
 - the target fields that may be mapped;
@@ -142,7 +142,7 @@ This guide follows one fictional project:
 | Project | Belgium contacts migration |
 | Source system | Dynamics AX 2012 |
 | Source files | `companies.csv`, `contacts.csv` |
-| Target | Odoo 19 DEV |
+| Target | Local Odoo 19 |
 | Odoo models | Companies, contacts, contact categories |
 | Goal | Prepare companies and contacts while preserving company and category relationships |
 
@@ -166,7 +166,7 @@ Use a name that a reviewer will recognise six months later.
 Good examples:
 
 - `Belgium contacts migration - rehearsal 2`
-- `Legacy products and categories - Odoo TEST`
+- `Legacy products and categories - controlled rehearsal`
 - `France opening balances - approved extract 2026-06-30`
 
 Avoid names such as `test`, `new migration`, or `final v2`.
@@ -251,8 +251,8 @@ its size and digital fingerprint. The original source file is not modified.
 
 Choose one:
 
-- **Local Odoo** for an Odoo DEV instance on the same computer;
-- **Remote / on-premises Odoo** for an approved HTTPS DEV or TEST server.
+- **Local Odoo** for an Odoo instance on the same computer;
+- **Remote / on-premises Odoo** for an authorised HTTPS server.
 
 Enter the exact URL and database supplied by the Odoo administrator. A
 connection test is read-only. Local Windows mode uses the selected
@@ -896,7 +896,7 @@ all of these:
   transformation register?
 - Is everyone clear that current semantic validation has not executed those
   rules against every source row?
-- Does the displayed evidence belong to the intended DEV or TEST project?
+- Does the displayed evidence belong to the intended project and exact target?
 - Is the exact validated revision the one being submitted?
 
 ## Common problems

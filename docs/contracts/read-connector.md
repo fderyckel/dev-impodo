@@ -9,7 +9,7 @@ snapshot-domain objects.
 The name describes the port. Implementations are:
 
 - `SnapshotConnector` — reads committed or generated JSON fixtures;
-- `Json2ReadConnector` — reads an approved Odoo DEV or TEST environment.
+- `Json2ReadConnector` — reads an authorised Odoo target.
 
 Both are interchangeable from the application layer upward.
 
@@ -22,7 +22,7 @@ from typing import Protocol, Sequence
 
 
 class OdooReadConnector(Protocol):
-    def get_environment_fingerprint(self) -> EnvironmentFingerprint: ...
+    def get_target_fingerprint(self) -> TargetFingerprint: ...
 
     def get_model_metadata(
         self, requests: Sequence[MetadataRequest],
@@ -50,8 +50,8 @@ not expose that library or arbitrary method execution through the connector.
 
 ## Fingerprint behavior
 
-The adapter configuration contains the DEV/TEST environment label, database,
-base URL, credentials, timeout, page size, and optional programmatic context
+The adapter configuration contains connection mode, database, base URL,
+credentials, timeout, page size, and optional programmatic context
 and module names. The response contains the fields defined in the
 [snapshot contract](snapshots.md). The base URL and credential remain
 adapter-private.
@@ -115,7 +115,7 @@ Responsibilities:
 - translate requirements into narrowly projected, paginated reads;
 - capture required model metadata;
 - enforce HTTPS except for explicitly enabled literal-loopback local mode,
-  DEV/TEST environment selection, timeout, deterministic ordering, retry
+  local/remote connection rules, timeout, deterministic ordering, retry
   rules, and rejection of redirects before credentials can be forwarded;
 - write no artifact containing credentials or authorization state.
 
@@ -151,5 +151,5 @@ the absence of public write/generic-call methods. Fixture-backed integration
 tests cover field projection and the complete classification path.
 
 No live Odoo call is part of the local suite. Before deployment acceptance, run in an
-isolated DEV and TEST environment with a dedicated read-only account and
+isolated authorised target with a dedicated read-only account and
 compare a sentinel record's write timestamp before and after the suite.

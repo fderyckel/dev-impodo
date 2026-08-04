@@ -48,7 +48,7 @@ delegation; related models are never added to scope automatically.
 
 The catalog contains field label, technical name, type, required/readonly
 flags, relation, inverse `relation_field`, and selection values. Capture fails
-closed when the model set, environment, database, or Odoo 19 version differs
+closed when the model set, target identity, database, or Odoo 19 version differs
 from the project boundary. Recapturing the schema invalidates current schema
 governance and the active mapping pointer while retaining history.
 
@@ -85,7 +85,7 @@ Constants and fallbacks are stored as raw governed literals and validated
 against the captured Odoo field type and selection keys. `odoo_default` means
 the future create payload omits that field; it does not call `default_get`.
 Because schema metadata cannot prove the runtime default, this provider emits a
-warning that must be acknowledged and later verified in DEV/TEST.
+warning that must be acknowledged and later verified on the target.
 
 The browser preview uses only the bounded, hash-bound samples already captured
 during source inspection. It never performs a per-field Odoo query and is not a

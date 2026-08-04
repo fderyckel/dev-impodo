@@ -6,7 +6,7 @@ This document tells what a Windows laptop must provide so that an authorised use
 
 Impodo runs as a local Python application and opens its user
 interface in the laptop's default browser. It stores its working data on that
-laptop and can connect to an Odoo 19 DEV or TEST environment.
+laptop and can connect to an authorised Odoo 19 target.
 
 ## Required workstation baseline
 
@@ -93,21 +93,11 @@ installs the exact locked versions, including:
 - the Windows keyring integration used with Credential Manager; and
 - the remaining packages declared by the Impodo release.
 
+The complete package and version list is recorded in the
+[Windows Python 3.12 dependency lock](../../requirements.windows-py312.lock).
+
 Do not replace the locked dependency installation with individually selected
 package versions.
-
-## Software that is not required
-
-A normal data-manager laptop does **not** need:
-
-- the standalone DuckDB command-line tool;
-- Git or a cloned Impodo source repository;
-- Node.js;
-- a separate web server such as IIS, Apache, or nginx;
-- a DuckDB server;
-- direct PostgreSQL access or database administration tools; or
-- Odoo and PostgreSQL installed locally when Impodo uses a remote Odoo
-  DEV/TEST environment.
 
 Developers using an editable source checkout have different requirements.
 Those are documented in the
@@ -152,11 +142,11 @@ size of migration files and monitored during the pilot.
 
 Choose one of the following operating modes for the laptop.
 
-### Remote Odoo DEV/TEST
+### Remote Odoo
 
 For the normal remote mode, IT and the Odoo administrator must provide:
 
-- outbound HTTPS access from the laptop to the approved Odoo 19 DEV/TEST URL,
+- outbound HTTPS access from the laptop to the authorised Odoo 19 URL,
   including any required corporate LAN or VPN route;
 - a TLS certificate chain trusted by the installed Python 3.12 runtime;
 - the exact Odoo base URL and database-routing name;
@@ -175,14 +165,13 @@ browser—can reach the Odoo URL successfully.
 ### Odoo running on the same laptop
 
 Local mode is optional and is a separate workstation setup. If it is required,
-IT must additionally provide a working Odoo 19 development/test installation,
+IT must additionally provide a working Odoo 19 installation,
 its compatible PostgreSQL service, and a readable `odoo.conf`. The Odoo HTTP
 endpoint and PostgreSQL listener must bind to loopback. Impodo can inspect and,
 for a compatible local workspace, start that stack, but it does not install
 Odoo or PostgreSQL.
 
-A local Odoo installation is not needed when the approved target is a remote
-DEV/TEST environment.
+A local Odoo installation is not needed when the authorised target is remote.
 
 ## Source-file access
 
@@ -209,18 +198,10 @@ The laptop is ready for the user only when all of these checks pass:
 - [ ] Impodo can create `%LOCALAPPDATA%\Impodo\projects` and apply its protected
       access-control list.
 - [ ] A small approved CSV or XLSX file can be added to a test project.
-- [ ] The intended Odoo 19 DEV/TEST connection passes Impodo's connection test.
+- [ ] The intended Odoo 19 target passes Impodo's connection test.
 - [ ] Quitting Impodo stops the local application, and starting the shortcut
       again reopens the existing test project.
 
 After these checks, give the user the shortcut, the approved Odoo connection
 details, and the
 [local-browser user guide](local-browser-user-guide.md).
-
-## Current qualification gaps
-
-The repository currently establishes the runtime and operational requirements
-above, but it does not yet define a release-qualified Windows-version matrix,
-browser-version matrix, minimum CPU/RAM specification, or minimum free-disk
-figure. Those values must be measured on the intended corporate Windows build
-and expected migration size before IT publishes them as guaranteed minimums.

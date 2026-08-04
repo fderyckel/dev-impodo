@@ -208,7 +208,7 @@ Completed and locally mocked:
 - `fields_get`;
 - projected, paginated `search_read`;
 - deterministic `id asc`;
-- HTTPS and DEV/TEST restrictions;
+- local-loopback and remote-HTTPS restrictions;
 - timeouts and bounded transient-read retries;
 - cross-host redirect rejection;
 - redacted errors and API-key representation;
@@ -216,7 +216,7 @@ Completed and locally mocked:
 
 Pending live evidence:
 
-- real target DEV and TEST connectivity;
+- real authorised-target connectivity;
 - service-account ACL and record-rule confirmation;
 - sentinel write-timestamp comparison;
 - database routing and company context;
@@ -235,7 +235,7 @@ Partially completed:
 Still required:
 
 - sanitized 100–300-record organization-specific golden slice;
-- live DEV and TEST runs;
+- live target runs;
 - end-to-end scale, memory, snapshot-size, and workbook timing evidence;
 - retention and access policy;
 - strict snapshot trust decision;
@@ -250,7 +250,7 @@ separate:
 2. large-domain batching and scale controls;
 3. CLI context/module configuration;
 4. workbook discovery and preview UI above the implemented XLSX adapter;
-5. live DEV/TEST evidence and acceptance fixtures.
+5. live target evidence and acceptance fixtures.
 
 Do not combine any of those with a future write executor.
 
@@ -271,9 +271,9 @@ The local proof of concept is complete when:
 
 ## deployment acceptance definition
 
-Do not claim target environment acceptance until:
+Do not claim live-target acceptance until:
 
-- the same governed profile path succeeds with fixture, DEV, and TEST
+- the same governed profile path succeeds with fixture and authorised live targets
   snapshots;
 - the 100–300-record sanitized slice is reviewed;
 - Odoo-side read-only controls are evidenced;

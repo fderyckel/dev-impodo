@@ -88,7 +88,7 @@ boundaries:
   integrate with the delivery Phase 3 staging/transformation compiler;
 - fuzzy entity resolution and survivorship integrate with data-manager review;
 - Odoo semantic certification integrates with captured schema, read-only
-  target preflight, and DEV/TEST rehearsal;
+  target preflight, and controlled target rehearsal;
 - clean-package certification integrates with staging, approval, and
   reconciliation.
 
@@ -396,7 +396,7 @@ comparison MUST be a separate, visible comparison policy.
 
 ### 6.1 Domain objects
 
-Add environment-independent domain objects:
+Add target-independent domain objects:
 
 ```text
 RuleEvent
@@ -919,7 +919,7 @@ Primary modules:
 - Odoo semantic validator;
 - staging/preflight integration;
 - package certificate and quarantine workflow;
-- DEV/TEST rehearsal adapter.
+- controlled target-rehearsal adapter.
 
 Deliver:
 
@@ -935,7 +935,7 @@ Deliver:
   hashes;
 - a clean-package certificate that remains separate from mapping submission,
   normalization approval, and execution approval;
-- controlled Odoo 19 DEV/TEST rehearsal evidence.
+- controlled Odoo 19 target-rehearsal evidence.
 
 Tests:
 
@@ -954,7 +954,7 @@ Gate:
 - every applicable release gate in the
   [coverage contract](contracts/data-transformation-coverage.md#9-clean-package-release-gates)
   passes for the exact package before the data manager can label it clean for
-  Odoo DEV/TEST rehearsal.
+  Odoo target rehearsal.
 
 ## 10. Acceptance matrix
 
@@ -990,7 +990,7 @@ Minimum business acceptance cases:
 | relationship crosses an invalid company boundary | Blocked |
 | Odoo selection label supplied instead of technical key | Blocked unless an approved translation exists |
 | quarantined rows plus candidates do not equal source rows | Clean-package certification blocked |
-| exact package passes rules but not Odoo DEV/TEST constraints | Not clean for execution; package remains blocked |
+| exact package passes rules but not target Odoo constraints | Not clean for execution; package remains blocked |
 
 Minimum product-code corpus:
 
@@ -1050,7 +1050,7 @@ Recommended rollout:
 12. introduce fuzzy entity candidates in suggestion-only mode;
 13. add reviewed survivorship after false-positive/false-negative analysis;
 14. require Odoo semantic and clean-package gates;
-15. make controlled DEV/TEST rehearsal evidence mandatory before execution
+15. make controlled target-rehearsal evidence mandatory before execution
     approval.
 
 No rule should move directly from draft to rejection enforcement on an
@@ -1112,7 +1112,7 @@ The feature is complete only when:
   custom-constraint risks are resolved or fail closed;
 - every source row is accounted for as a candidate, reference,
   quarantine/exclusion, or other governed terminal category;
-- the exact clean-package candidate passes controlled Odoo 19 DEV/TEST
+- the exact clean-package candidate passes controlled Odoo 19 target
   rehearsal;
 - mapping validity, rule-engine success, normalization approval,
   clean-package certification, and execution approval remain separate states;

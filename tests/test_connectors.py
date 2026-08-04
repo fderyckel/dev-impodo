@@ -20,7 +20,7 @@ class Json2ConnectorTests(unittest.TestCase):
     def config(self, **overrides):
         values = {
             "base_url": "https://odoo.example.test",
-            "database": "odoo_test",
+            "database": "odoo_review",
             "api_key": "super-secret-token",
             "connection_mode": "REMOTE",
             "timeout_seconds": 0.1,
@@ -70,7 +70,7 @@ class Json2ConnectorTests(unittest.TestCase):
             )
         )
         self.assertTrue(
-            all(call[1]["X-Odoo-Database"] == "odoo_test" for call in post_calls)
+            all(call[1]["X-Odoo-Database"] == "odoo_review" for call in post_calls)
         )
         self.assertTrue(all(call[2]["order"] == "id asc" for call in post_calls))
 

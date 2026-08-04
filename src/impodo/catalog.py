@@ -6,7 +6,7 @@ implementations return those records as :class:`TargetRecord` objects.
 batched business-key and numeric-ID lookups without issuing an Odoo request per
 source row.
 
-Numeric Odoo IDs exist only inside this environment-specific catalog. Resolved
+Numeric Odoo IDs exist only inside this target-database-specific catalog. Resolved
 relationships leave the catalog as portable :class:`BusinessReference`
 objects.
 """
@@ -51,7 +51,7 @@ class TargetCatalog:
         return self._records.get(model, ())
 
     def by_id(self, model: str, odoo_id: int) -> TargetRecord | None:
-        """Return one captured target record by its environment-specific ID."""
+        """Return one captured target record by its target-database-specific ID."""
 
         return self._by_id.get(model, {}).get(odoo_id)
 

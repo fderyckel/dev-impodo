@@ -41,7 +41,7 @@ class LocalStackConfigurationTests(unittest.TestCase):
                     "db_host = 127.0.0.1",
                     "db_port = 5544",
                     "db_user = odoo",
-                    "db_name = odoo19_dev",
+                    "db_name = odoo19_local",
                     "db_password = postgres-secret",
                     "admin_passwd = master-secret",
                 )
@@ -72,7 +72,7 @@ class LocalStackConfigurationTests(unittest.TestCase):
 
         self.assertEqual(profile.base_url, "http://127.0.0.1:18069")
         self.assertEqual(profile.db_port, 5544)
-        self.assertEqual(profile.database_hint, "odoo19_dev")
+        self.assertEqual(profile.database_hint, "odoo19_local")
         self.assertEqual(
             profile.pg_isready_path,
             self.workspace

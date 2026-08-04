@@ -23,7 +23,7 @@ The product-level coverage claim applies to:
 - one or more source tables feeding Odoo 19 models;
 - scalar, many2one, one2many-through-the-child, and many2many values;
 - deterministic local preparation, canonical staging, target preflight,
-  approval, and controlled DEV/TEST execution;
+  approval, and controlled target execution;
 - ordinary master data, reference data, and transactional migration rows.
 
 The following are outside the initial 95% claim unless a project explicitly
@@ -168,7 +168,7 @@ mapping validator exists. Bounded sample previews are not full-row execution.
 | `TC-21` | Evidence, privacy, and governance | Raw/governed/typed lineage, masking, rule ownership/version, correction decisions, hashes, approval, and immutable history | **Mandatory** | Implemented foundation |
 | `TC-22` | Exception correction and reprocessing | Quarantine queue, reason, owner, expiry, correction route, rerun, resolved evidence, and no in-place mutation of frozen input | **Mandatory** | Partial |
 | `TC-23` | Repeatability and scale | Idempotence, deterministic ordering, bounded resources, safe pattern runtime, batched lookups, no per-row Odoo calls, and representative-scale proof | **Mandatory** | Partial |
-| `TC-24` | Reconciliation and clean-package certification | Source/staged/candidate/quarantine counts, control totals, target changes, package hash, staleness, DEV/TEST rehearsal, and final data-manager decision | **Mandatory** | Partial |
+| `TC-24` | Reconciliation and clean-package certification | Source/staged/candidate/quarantine counts, control totals, target changes, package hash, staleness, target rehearsal, and final data-manager decision | **Mandatory** | Partial |
 
 ## 7. Fixed processing order
 
@@ -190,7 +190,7 @@ immutable source bytes and source-row identity
 -> canonical staging and quarantine
 -> read-only target preflight
 -> clean-package certification
--> controlled DEV/TEST rehearsal
+-> controlled target rehearsal
 ```
 
 Rules that alter identity must run before duplicate and relationship checks.
@@ -267,17 +267,17 @@ Before a row is import-candidate:
   rule;
 - translated fields must declare language;
 - fields intended to use an Odoo runtime default must remain visibly
-  unverified until DEV/TEST rehearsal;
+  unverified until target rehearsal;
 - readonly, computed, related, inverse, custom constraints, and model-specific
   behavior must fail closed or be explicitly deferred to rehearsal.
 
 Read-only validation cannot prove every Odoo ORM constraint, automation,
-onchange, compute, or custom module rule. DEV/TEST execution evidence remains
+onchange, compute, or custom module rule. Target execution evidence remains
 mandatory.
 
 ## 9. Clean-package release gates
 
-The data manager may label a package **clean for Odoo DEV/TEST rehearsal** only
+The data manager may label a package **clean for Odoo target rehearsal** only
 when all applicable gates pass:
 
 - 100% of source rows are accounted for as canonical candidates, references,
@@ -298,7 +298,7 @@ when all applicable gates pass:
 - every warning and permitted exception is acknowledged by the authorized
   role;
 - the package contains no unresolved sensitive-data exposure;
-- the exact package passes controlled Odoo 19 DEV/TEST rehearsal.
+- the exact package passes controlled Odoo 19 target rehearsal.
 
 `PASS` from a rules engine is not enough when any gate above is absent.
 Likewise, a valid mapping submission is not a clean-package certificate.

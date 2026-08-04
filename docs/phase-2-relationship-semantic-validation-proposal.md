@@ -276,7 +276,7 @@ The compiler enforces the existing fail-closed rules:
 
 ### 4.4 Shared compiled semantics
 
-Add a pure `mapping_semantics.py` layer with environment-independent values:
+Add a pure `mapping_semantics.py` layer with target-independent values:
 
 ```text
 MappingDefinition
@@ -349,7 +349,7 @@ then recaptures the catalog. Recapture produces a new schema hash and makes
 the current mapping stale.
 
 The schema scope is a Stage C artifact. It should not silently mutate the
-registered target environment or broaden the connector's public capability.
+registered Odoo target or broaden the connector's public capability.
 
 ## 6. Semantic validation
 

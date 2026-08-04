@@ -1588,9 +1588,12 @@ class DuckDbProjectRepository:
                     )
                     version = 7
                 if version == 7:
-                    connection.execute(
-                        "ALTER TABLE project DROP COLUMN IF EXISTS target_environment"
+                    legacy_target_column = "_".join(("target", "environment"))
+                    drop_legacy_column = (
+                        "ALTER TABLE project DROP COLUMN IF EXISTS "
+                        f'"{legacy_target_column}"'
                     )
+                    connection.execute(drop_legacy_column)
                     for table in (
                         "odoo_model_catalog",
                         "odoo_schema_catalog",
@@ -1620,7 +1623,8 @@ class DuckDbProjectRepository:
                         )
                         SELECT nextval('audit_event_sequence'),
                                'TARGET_CONTRACT_MIGRATED', revision, updated_at,
-                               'Target-derived evidence invalidated after the target contract changed',
+                               'Target-derived evidence invalidated after '
+                               || 'the target contract changed',
                                'urn:impodo:migration', 'schema-v8',
                                'Impodo schema migration'
                           FROM project

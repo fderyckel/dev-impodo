@@ -25,10 +25,10 @@ planner functions.
 A row classification indicating a valid prepared record has no target match.
 It is review evidence, not an executed create operation.
 
-**Environment fingerprint**  
-Non-secret evidence identifying the Odoo environment state relevant to a
-snapshot: alias, database identifier, Odoo version, relevant module versions,
-and timestamp.
+**Target fingerprint**
+Non-secret evidence identifying the exact Odoo target state relevant to a
+snapshot: target hash, connection mode, database identifier, Odoo version,
+relevant module versions, and timestamp.
 
 **Field difference**  
 One canonical existing/proposed value pair for a comparison field on a record
@@ -40,18 +40,18 @@ the same source package.
 
 **Natural identity**  
 An ordered tuple of stable business values used to identify a record without
-an environment-specific database ID.
+a target-database-specific ID.
 
 **Odoo ID**  
 The numeric primary key of a record in one Odoo database. It is permitted in
-environment-specific snapshots and runtime indexes only.
+target-database-specific snapshots and runtime indexes only.
 
 **Portable**  
-Free of environment-specific numeric IDs and credentials. A portable result
-is still bound to the fingerprint and hashes of the environment it describes.
+Free of target-database-specific numeric IDs and credentials. A portable
+result is still bound to the fingerprint and hashes of the target it describes.
 
 **Prepared record**  
-A frozen, typed, environment-independent representation of one source row,
+A frozen, typed, target-independent representation of one source row,
 including proposed scalars, natural-key references, and any preparation
 issues.
 
@@ -72,7 +72,7 @@ target identity is unique.
 
 **Semantic hash**  
 A digest over the complete portable manifest payload except the hash field
-itself. It includes the environment fingerprint and its snapshot timestamp;
+itself. It includes the target fingerprint and its snapshot timestamp;
 the manifest has no separate run ID or generated timestamp.
 
 **Snapshot**  
@@ -81,7 +81,7 @@ through a read-only connector for one profile requirements plan.
 
 **Target catalog**  
 The normalized records retrieved for one Odoo model, indexed by natural
-identity, scope, and environment-specific ID for runtime joins.
+identity, scope, and target-database-specific ID for runtime joins.
 
 **Target-only reference**  
 A relation resolved against records already present in Odoo and not supplied

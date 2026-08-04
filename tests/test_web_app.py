@@ -25,12 +25,13 @@ from impodo.local_stack import (
     ReadinessLevel,
 )
 from impodo.models import (
-    EnvironmentFingerprint,
     FieldMetadata,
     ModelMetadata,
+    TargetFingerprint,
     TargetRecord,
+    target_identity_hash,
 )
-from impodo.projects import OdooConnectionMode, ProjectStatus, TargetEnvironment
+from impodo.projects import OdooConnectionMode, ProjectStatus
 from impodo.secrets import MemorySecretStore
 from impodo.web import create_app
 from impodo.workspace import SchemaOrigin, SourceSelection
@@ -178,7 +179,7 @@ class LocalStackBrowserTests(unittest.TestCase):
                     "db_host = 127.0.0.1",
                     "db_port = 5544",
                     "db_user = odoo",
-                    "db_name = odoo19_dev",
+                    "db_name = odoo19_local",
                     "db_password = postgres-secret",
                     "admin_passwd = master-secret",
                 )
@@ -340,7 +341,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertIn("status-ready", refreshed.text)
         self.assertIn("status-action", refreshed.text)
         self.assertIn('value="http://127.0.0.1:18069"', refreshed.text)
-        self.assertIn('value="odoo19_dev"', refreshed.text)
+        self.assertIn('value="odoo19_local"', refreshed.text)
         self.assertNotIn("postgres-secret", refreshed.text)
         self.assertNotIn("master-secret", refreshed.text)
         self.assertIn("Start PostgreSQL and Odoo", refreshed.text)
@@ -501,9 +502,8 @@ class LocalStackBrowserTests(unittest.TestCase):
                 "csrf_token": self.csrf,
                 "revision": "1",
                 "odoo_connection_mode": "REMOTE",
-                "target_environment": "TEST",
-                "odoo_base_url": "https://odoo-test.example.com",
-                "odoo_database": "odoo_test",
+                "odoo_base_url": "https://odoo.example.com",
+                "odoo_database": "odoo_review",
                 "action": "save",
             },
             headers=POST_HEADERS,
@@ -613,15 +613,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.connection_calls.append(
                 (project.project_id, api_key, project.odoo_connection_mode)
             )
-            return "Read-only local connection succeeded: DEV / Odoo 19.4"
+            return "Read-only local connection succeeded: migration / Odoo 19.4"
 
         def schema_reader(project, api_key):
             self.schema_calls.append((project.project_id, api_key))
-            return _browser_schema()
+            return _browser_schema(project)
 
         def model_catalog_reader(project, api_key):
             self.model_catalog_calls.append((project.project_id, api_key))
-            return _browser_model_catalog()
+            return _browser_model_catalog(project)
 
         self.app = create_app(
             self.temporary.name,
@@ -656,9 +656,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         registered = replace(
             created,
             odoo_connection_mode=OdooConnectionMode.LOCAL,
-            target_environment=TargetEnvironment.DEV,
             odoo_base_url="http://127.0.0.1:8069",
-            odoo_database="odoo19_dev",
+            odoo_database="odoo19_local",
             intended_models=("res.partner",),
             status=ProjectStatus.REGISTERED,
             revision=2,
@@ -719,9 +718,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         registered = replace(
             created,
             odoo_connection_mode=OdooConnectionMode.LOCAL,
-            target_environment=TargetEnvironment.DEV,
             odoo_base_url="http://127.0.0.1:18069",
-            odoo_database="odoo19_dev",
+            odoo_database="odoo19_local",
             intended_applications=("Contacts",),
             status=ProjectStatus.REGISTERED,
             revision=2,
@@ -779,7 +777,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     "db_host = 127.0.0.1",
                     "db_port = 5544",
                     "db_user = odoo",
-                    "db_name = odoo19_dev",
+                    "db_name = odoo19_local",
                 )
             ),
             encoding="utf-8",
@@ -799,10 +797,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         configured_local_stack = context.local_stack
 
         self.local_odoo_reader.get_model_catalog.return_value = (
-            _browser_model_catalog()
+            _browser_model_catalog(registered)
         )
         self.local_odoo_reader.get_model_metadata.return_value = (
-            _browser_schema()
+            _browser_schema(registered)
         )
 
         page = self.client.get(f"/projects/{registered.project_id}/schema")
@@ -948,9 +946,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "csrf_token": self.csrf,
                 "revision": "5",
                 "odoo_connection_mode": "LOCAL",
-                "target_environment": "DEV",
                 "odoo_base_url": "http://127.0.0.1:8069",
-                "odoo_database": "odoo19_dev",
+                "odoo_database": "odoo19_local",
                 "api_key": "super-secret-token",
                 "intended_applications": "Contacts",
                 "action": "test",
@@ -1302,9 +1299,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "csrf_token": self.csrf,
                 "revision": "1",
                 "odoo_connection_mode": "LOCAL",
-                "target_environment": "DEV",
                 "odoo_base_url": "http://127.0.0.1:8069",
-                "odoo_database": "odoo19_dev",
+                "odoo_database": "odoo19_local",
                 "api_key": "local-only-key",
                 "action": "test",
             },
@@ -1317,9 +1313,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "csrf_token": self.csrf,
                 "revision": "2",
                 "odoo_connection_mode": "REMOTE",
-                "target_environment": "TEST",
-                "odoo_base_url": "https://odoo-test.example.com",
-                "odoo_database": "odoo_test",
+                "odoo_base_url": "https://odoo.example.com",
+                "odoo_database": "odoo_review",
                 "action": "test",
             },
             headers=POST_HEADERS,
@@ -1348,11 +1343,16 @@ def _csrf(html: str) -> str:
     return matched.group(1)
 
 
-def _browser_schema() -> MetadataSnapshot:
+def _browser_schema(project) -> MetadataSnapshot:
     return MetadataSnapshot(
-        fingerprint=EnvironmentFingerprint(
-            environment="DEV",
-            database="odoo19_dev",
+        fingerprint=TargetFingerprint(
+            target_hash=target_identity_hash(
+                connection_mode=project.odoo_connection_mode.value,
+                base_url=project.odoo_base_url,
+                database=project.odoo_database,
+            ),
+            connection_mode=project.odoo_connection_mode.value,
+            database=project.odoo_database,
             odoo_version="19.0",
             snapshot_timestamp="2026-07-29T12:00:00Z",
             module_versions={"base": "19.0.1.0"},
@@ -1404,10 +1404,15 @@ def _browser_schema() -> MetadataSnapshot:
     )
 
 
-def _browser_model_catalog() -> RecordSnapshot:
-    fingerprint = EnvironmentFingerprint(
-        environment="DEV",
-        database="odoo19_dev",
+def _browser_model_catalog(project) -> RecordSnapshot:
+    fingerprint = TargetFingerprint(
+        target_hash=target_identity_hash(
+            connection_mode=project.odoo_connection_mode.value,
+            base_url=project.odoo_base_url,
+            database=project.odoo_database,
+        ),
+        connection_mode=project.odoo_connection_mode.value,
+        database=project.odoo_database,
         odoo_version="19.0",
         snapshot_timestamp="2026-07-30T12:00:00Z",
         module_versions={"base": "19.0.1.0"},

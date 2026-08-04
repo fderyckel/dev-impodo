@@ -62,7 +62,7 @@ flowchart LR
 | `access.py` | Stable actor identities, capabilities, and authorization port |
 | `artifacts.py` | Storage-neutral artifact port and contained local adapter |
 | `jobs.py` | Idempotent durable-job contracts and synchronous local adapter |
-| `approvals.py` | Immutable frozen TEST-plan and key-user approval evidence |
+| `approvals.py` | Immutable frozen target-plan and key-user approval evidence |
 | `projects.py` | Multi-user-ready project commands and optimistic revisions |
 | `project_store.py` | Local DuckDB project adapter and actor-bound audit events |
 
@@ -96,7 +96,7 @@ before matching, comparison, or serialization.
 `OdooReadConnector` exposes exactly:
 
 ```python
-get_environment_fingerprint()
+get_target_fingerprint()
 get_model_metadata(requests)
 get_records(requests)
 ```
@@ -221,7 +221,7 @@ system of record.
 Every state-changing project command receives a verified actor. Audit events
 retain stable issuer and subject identifiers rather than treating the
 human-entered data-manager name as authorization. Normalization decisions,
-whole-run approval, and future TEST export approval are separate immutable
+whole-run approval, and future target export approval are separate immutable
 records. An export approval binds one exact frozen-plan hash and grants no
 generic Odoo call capability.
 

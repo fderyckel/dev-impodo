@@ -3,7 +3,8 @@
     "kind": "metadata",
     "complete": true,
     "fingerprint": {
-      "environment": "FIXTURE",
+      "target_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "connection_mode": "SNAPSHOT",
       "database": "golden-slice",
       "odoo_version": "19.0",
       "snapshot_timestamp": "2026-07-28T12:00:00Z",
@@ -187,7 +188,8 @@
     "kind": "records",
     "complete": true,
     "fingerprint": {
-      "environment": "FIXTURE",
+      "target_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "connection_mode": "SNAPSHOT",
       "database": "golden-slice",
       "odoo_version": "19.0",
       "snapshot_timestamp": "2026-07-28T12:00:00Z",

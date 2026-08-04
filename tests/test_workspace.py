@@ -18,10 +18,11 @@ from impodo.inspection import (
     SourceTableCatalog,
 )
 from impodo.models import (
-    EnvironmentFingerprint,
     FieldMetadata,
     ModelMetadata,
+    TargetFingerprint,
     TargetRecord,
+    target_identity_hash,
 )
 from impodo.mapping_semantics import (
     BusinessKeyDefinition,
@@ -39,7 +40,6 @@ from impodo.projects import (
     OdooConnectionMode,
     ProjectStatus,
     SourceFile,
-    TargetEnvironment,
 )
 from impodo.workspace import (
     FieldMapping,
@@ -79,9 +79,8 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             functional_owner="Functional Owner",
             business_unit="Example Business Unit",
             odoo_connection_mode=OdooConnectionMode.LOCAL,
-            target_environment=TargetEnvironment.DEV,
             odoo_base_url="http://127.0.0.1:8069",
-            odoo_database="odoo19_dev",
+            odoo_database="odoo19_local",
             intended_applications=("Contacts",),
             intended_models=("res.partner",),
             status=ProjectStatus.REGISTERED,
@@ -611,9 +610,14 @@ def _catalog(
 
 def _metadata_snapshot() -> MetadataSnapshot:
     return MetadataSnapshot(
-        fingerprint=EnvironmentFingerprint(
-            environment="DEV",
-            database="odoo19_dev",
+        fingerprint=TargetFingerprint(
+            target_hash=target_identity_hash(
+                connection_mode="LOCAL",
+                base_url="http://127.0.0.1:8069",
+                database="odoo19_local",
+            ),
+            connection_mode="LOCAL",
+            database="odoo19_local",
             odoo_version="19.0",
             snapshot_timestamp="2026-07-29T12:00:00Z",
             module_versions={"base": "19.0.1.0"},
@@ -647,9 +651,14 @@ def _metadata_snapshot() -> MetadataSnapshot:
 
 
 def _model_catalog_snapshot() -> RecordSnapshot:
-    fingerprint = EnvironmentFingerprint(
-        environment="DEV",
-        database="odoo19_dev",
+    fingerprint = TargetFingerprint(
+        target_hash=target_identity_hash(
+            connection_mode="LOCAL",
+            base_url="http://127.0.0.1:8069",
+            database="odoo19_local",
+        ),
+        connection_mode="LOCAL",
+        database="odoo19_local",
         odoo_version="19.0",
         snapshot_timestamp="2026-07-30T12:00:00Z",
         module_versions={"base": "19.0.1.0"},

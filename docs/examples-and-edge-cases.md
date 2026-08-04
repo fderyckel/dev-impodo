@@ -64,7 +64,7 @@ The compact fixture has 12 import candidates:
 
 This fixture covers the required semantic shapes, but it is not the planned
 100–300-record deployment acceptance slice. That larger sanitized slice and live
-DEV/TEST runs remain acceptance work.
+Live-target runs remain acceptance work.
 
 ## 2. Prepared-record example
 
@@ -455,7 +455,7 @@ duplicate check over canonical target identities.
 | Odoo version endpoint unavailable | Fingerprint records version `unknown` plus a non-blocking limitation |
 | Module-version read unavailable | Non-blocking limitation, when relevant modules were configured |
 | URL is not HTTPS | Configuration is rejected |
-| Environment is not `DEV` or `TEST` | Configuration is rejected |
+| Connection mode is not `LOCAL` or `REMOTE` | Configuration is rejected |
 | Redirect changes hostname | Transport rejects it |
 
 Current snapshot limitations:
@@ -519,7 +519,7 @@ not infer digits or rounding from Odoo field metadata.
 
 - Portable serialization rejects keys named `odoo_id`, `odoo_ids`,
   `record_id`, or `record_ids` anywhere in the manifest.
-- Target snapshot IDs are allowed because snapshots are environment-specific.
+- Target snapshot IDs are allowed because snapshots are target-database-specific.
 - Existing relation IDs are reverse-resolved through a business-key catalog
   before they enter a difference.
 - A missing reverse-resolution record blocks the affected candidate instead
@@ -590,6 +590,6 @@ PYTHONPATH=src \
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Live DEV/TEST smoke tests, a 100–300-record sanitized acceptance slice, memory
+Live-target smoke tests, a 100–300-record sanitized acceptance slice, memory
 profiling of the historical 360,000-row package, and Odoo-side ACL evidence
 are not part of the local automated suite.

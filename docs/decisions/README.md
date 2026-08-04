@@ -8,7 +8,7 @@ contracts.
 
 **Status:** Accepted  
 **Decision:** Source adapters produce immutable, typed,
-environment-independent `PreparedRecord` objects with structured issues.
+target-independent `PreparedRecord` objects with structured issues.
 Comparison consumes prepared records, never raw source rows.
 
 **Why:** The old shape checked values without retaining typed mappings.
@@ -28,7 +28,7 @@ fixture testing independent of spreadsheets.
 
 **Status:** Accepted  
 **Decision:** Target metadata and records are captured as separate,
-content-addressed, environment-specific snapshots. Comparison can run entirely
+content-addressed, target-specific snapshots. Comparison can run entirely
 offline from those files.
 
 **Why:** It separates live connectivity from domain correctness, makes tests
@@ -67,8 +67,8 @@ through normal application code and makes the milestone auditable.
 ordered natural identity, and natural scope. Snapshot relation IDs are
 reverse-resolved before comparison.
 
-**Why:** Numeric IDs vary between fixture, DEV, TEST, and future environments.
-Comparing them or approving them would make the plan environment-dependent.
+**Why:** Numeric IDs vary between fixtures and Odoo databases. Comparing them
+or approving them would make the plan target-dependent.
 
 **Consequences:**
 
@@ -120,7 +120,7 @@ bind a decision to exact evidence.
 **Consequences:**
 
 - decimals use typed lossless strings and integers use JSON integers;
-- the snapshot timestamp is part of the environment fingerprint and therefore
+- the snapshot timestamp is part of the target fingerprint and therefore
   part of the semantic hash;
 - the manifest adds no separate generated timestamp or run ID;
 - profile identity is hashed through the manifest, but the proof of concept

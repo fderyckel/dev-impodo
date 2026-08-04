@@ -121,7 +121,7 @@ profile domain when they cannot be narrowed safely.
 `OdooReadConnector` is the three-method port consumed by the workflow:
 
 ```text
-get_environment_fingerprint
+get_target_fingerprint
 get_model_metadata
 get_records
 ```
@@ -131,7 +131,7 @@ dispatcher allowlists only `fields_get` and `search_read`. Record reads use
 deterministic `id asc` pagination and reject repeated IDs across pages.
 
 `SnapshotConnector` implements the same port from JSON files. Snapshot writers
-bind evidence to the profile, source hashes, and environment fingerprint.
+bind evidence to the profile, source hashes, and target fingerprint.
 This makes live capture replaceable by deterministic offline replay without
 changing the engine.
 
@@ -160,7 +160,7 @@ in portable decisions or reports.
 
 `PreflightEngine.run()` is the central orchestrator. It:
 
-1. verifies that both snapshots describe the same environment;
+1. verifies that both snapshots describe the same exact target;
 2. validates metadata;
 3. creates the target catalog;
 4. resolves incoming and target-only logical references;
@@ -184,7 +184,7 @@ The modules exchange immutable dataclasses from `models.py` rather than raw
 dictionaries. Important boundaries are:
 
 - `PreparedRecord`: typed source row with unresolved/resolved business values;
-- `TargetRecord`: environment-specific captured Odoo row, including its ID;
+- `TargetRecord`: target-database-specific captured Odoo row, including its ID;
 - `LogicalReference`: a lookup still to perform;
 - `BusinessReference`: a resolved, portable relation;
 - `Issue` and `ReferenceResolution`: validation and lookup evidence;
@@ -225,7 +225,7 @@ Reporting
 
 Only `TargetRecord` and the private catalog indexes carry numeric Odoo IDs.
 Prepared data, business references, decisions, and reports remain
-environment-independent.
+target-independent.
 
 ## 6. Performance and Odoo blind spots to watch
 

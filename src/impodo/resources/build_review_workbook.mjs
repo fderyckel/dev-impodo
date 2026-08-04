@@ -10,7 +10,7 @@ const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
 const workbook = Workbook.create();
 const sheetNames = [
   "Dashboard",
-  "Target Environment",
+  "Target",
   "Dataset Summary",
   "Proposed Creates",
   "Proposed Updates",
@@ -314,10 +314,10 @@ const targetRows = [
   ["Source Hashes", manifest.source_hashes],
 ];
 styleDataSheet(
-  sheets["Target Environment"],
+  sheets["Target"],
   ["Attribute", "Value"],
   targetRows,
-  "EnvironmentTable",
+  "TargetTable",
 );
 
 const dashboard = sheets["Dashboard"];

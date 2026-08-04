@@ -57,8 +57,8 @@ roadmap phases. Do not use Phase A or Phase B.
 - [Profile contract](contracts/profile.md) — how a profile maps,
   types, identifies, resolves, and compares data.
 - [Prepared record contract](contracts/prepared-record.md) — the
-  environment-independent boundary after source validation.
-- [Snapshot contracts](contracts/snapshots.md) — environment
+  target-independent boundary after source validation.
+- [Snapshot contracts](contracts/snapshots.md) — target
   fingerprint, model metadata, and target-record catalogs.
 - [Preflight result contract](contracts/preflight-result.md) —
   classifications, field differences, reference evidence, and portable

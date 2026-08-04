@@ -36,7 +36,6 @@ Those transitions must be added before downstream workflow stages depend on them
 | Retention days | Defaults to `90` | Yes |
 | Authorised support access | Defaults to false | Yes |
 | Odoo connection mode | Optional | `LOCAL` or `REMOTE` |
-| Target environment | Optional | `DEV` or `TEST` |
 | Odoo base URL | Optional | Literal loopback URL for `LOCAL`; HTTPS server URL for `REMOTE` |
 | Odoo database | Optional | Yes |
 | Intended applications | Optional | Browser discovery filter and reviewer context |
@@ -127,7 +126,7 @@ Repository paths are not part of the application contract.
 - State-changing requests require an authenticated launch session, exact
   Origin or Referer, a CSRF token, and non-cross-site Fetch Metadata when that
   optional browser header is present.
-- Production environments are rejected.
+- Impodo does not classify targets using organisation-specific lifecycle labels.
 - Local mode permits HTTP only for literal `127.0.0.1` or `::1` loopback
   addresses. Remote mode requires HTTPS and rejects loopback targets.
 - Connection testing uses only the existing Odoo read connector.

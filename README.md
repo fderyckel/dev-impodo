@@ -17,10 +17,10 @@ which stores project evidence, source inspection results, frozen datasets,
 Odoo schema captures, mapping revisions, and validation results.
 
 The platform accepts `.csv` and `.xlsx` source files. It can connect to an
-Odoo 19 DEV or TEST environment. A local Windows instance uses an explicitly
+authorised Odoo 19 target. A local Windows instance uses an explicitly
 selected `odoo.conf` and fixed read-only metadata operations without an Odoo
 API key. A remote instance requires HTTPS and a dedicated read-only API key.
-Production is not an available target.
+Impodo does not classify targets by an organisation's lifecycle stages.
 
 The browser, source inspection, and read-only Odoo connection work on both
 operating systems. The in-browser assistant that discovers and starts a local

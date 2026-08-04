@@ -233,6 +233,55 @@ class ProjectLifecycleTests(unittest.TestCase):
         self.assertEqual(mapping_table, ("mapping_revision",))
         self.assertEqual(model_catalog_table, ("odoo_model_catalog",))
 
+    def test_version_seven_target_label_is_removed_fail_closed(self) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Legacy target label",
+            source_system="CSV",
+        )
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+        legacy_column = "_".join(("target", "environment"))
+        with self.repository._connect(database_path) as connection:
+            connection.execute(
+                f'ALTER TABLE project ADD COLUMN "{legacy_column}" VARCHAR'
+            )
+            connection.execute(
+                f'UPDATE project SET "{legacy_column}" = ?',
+                ["legacy-label"],
+            )
+            connection.execute(
+                "INSERT INTO odoo_schema_catalog VALUES (1, '{}')"
+            )
+            connection.execute("UPDATE schema_version SET version = 7")
+
+        migrated = self.repository.get(project.project_id)
+
+        self.assertEqual(migrated.approval_status.value, "INVALIDATED")
+        self.assertIsNone(
+            self.repository.get_odoo_schema_catalog(project.project_id)
+        )
+        with self.repository._connect(database_path) as connection:
+            legacy_column_row = connection.execute(
+                """
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_name = 'project' AND column_name = ?
+                """,
+                [legacy_column],
+            ).fetchone()
+            migration_event = connection.execute(
+                """
+                SELECT event_type
+                  FROM audit_event
+                 WHERE event_type = 'TARGET_CONTRACT_MIGRATED'
+                """
+            ).fetchone()
+        self.assertIsNone(legacy_column_row)
+        self.assertEqual(migration_event, ("TARGET_CONTRACT_MIGRATED",))
+
     def test_complete_project_can_be_registered(self) -> None:
         project = self.service.create_project(
             actor=LOCAL_ACTOR,
