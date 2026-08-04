@@ -15,7 +15,7 @@ from openpyxl import Workbook
 from openpyxl.worksheet.table import Table
 
 from impodo.access import Actor, ActorIdentity, Capability
-from impodo.connectors import MetadataSnapshot, RecordSnapshot
+from impodo.connectors import ConnectorError, MetadataSnapshot, RecordSnapshot
 from impodo.local_odoo_reader import LocalOdooMetadataReader
 from impodo.local_stack import (
     LocalStackCheck,
@@ -199,6 +199,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         (self.workspace / "logs").mkdir()
         self.picker_calls = 0
         self.start_calls = 0
+        self.stack_running = False
         self.started_processes = []
 
         def pick_config():
@@ -206,6 +207,7 @@ class LocalStackBrowserTests(unittest.TestCase):
             return self.config
 
         def probe(profile):
+            odoo_ready = self.stack_running
             return LocalStackStatus(
                 config_path=str(profile.config_path),
                 base_url=profile.base_url,
@@ -226,12 +228,20 @@ class LocalStackBrowserTests(unittest.TestCase):
                     LocalStackCheck(
                         "odoo",
                         "Odoo server",
-                        ReadinessLevel.ACTION,
-                        "Odoo is not responding yet.",
+                        (
+                            ReadinessLevel.READY
+                            if odoo_ready
+                            else ReadinessLevel.ACTION
+                        ),
+                        (
+                            "Odoo 19.0 is responding."
+                            if odoo_ready
+                            else "Odoo is not responding yet."
+                        ),
                     ),
                     LocalStackCheck(
                         "api",
-                        "Impodo API",
+                        "Database access (read-only)",
                         ReadinessLevel.UNKNOWN,
                         "Use Save and test connection.",
                     ),
@@ -241,8 +251,14 @@ class LocalStackBrowserTests(unittest.TestCase):
 
         def starter(profile):
             self.start_calls += 1
+            self.stack_running = True
             process = MagicMock()
             process.poll.return_value = None
+            process.terminate.side_effect = lambda: setattr(
+                self,
+                "stack_running",
+                False,
+            )
             self.started_processes.append(process)
             return LocalStackStartResult(
                 status=LocalStackStatus(
@@ -270,7 +286,7 @@ class LocalStackBrowserTests(unittest.TestCase):
                         ),
                         LocalStackCheck(
                             "api",
-                            "Impodo API",
+                            "Database access (read-only)",
                             ReadinessLevel.UNKNOWN,
                             "Use Save and test connection.",
                         ),
@@ -286,12 +302,17 @@ class LocalStackBrowserTests(unittest.TestCase):
             probe=probe,
             starter=starter,
         )
+        self.local_odoo_reader = MagicMock(spec=LocalOdooMetadataReader)
+        self.local_odoo_reader.get_target_fingerprint.side_effect = (
+            lambda project, _profile: _browser_schema(project).fingerprint
+        )
         self.app = create_app(
             self.temporary.name,
             launch_token="launch-secret",
             session_secret="session-secret",
             secret_store=MemorySecretStore(),
             local_stack_service=local_stack,
+            local_odoo_reader=self.local_odoo_reader,
         )
         self.client = TestClient(self.app)
         launched = self.client.get(
@@ -387,6 +408,89 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertIn("Odoo 19.0 is responding", page.text)
         self.assertIn("Control services started by Impodo", page.text)
         self.assertIn("Stop managed services", page.text)
+
+    def test_local_connection_test_opens_all_green_results(self) -> None:
+        self._select_and_start_stack()
+
+        tested = self.client.post(
+            f"/projects/{self.project_id}/target",
+            data={
+                "csrf_token": self.csrf,
+                "revision": "1",
+                "odoo_connection_mode": "LOCAL",
+                "odoo_base_url": "http://127.0.0.1:18069",
+                "odoo_database": "odoo19_local",
+                "action": "test",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(tested.status_code, 303)
+        self.assertEqual(
+            tested.headers["location"],
+            f"/projects/{self.project_id}/target?local_stack=1",
+        )
+        results = self.client.get(tested.headers["location"])
+        self.assertIn('data-auto-open="true"', results.text)
+        self.assertEqual(results.text.count("status-ready"), 4)
+        self.assertIn("Database access (read-only)", results.text)
+        self.assertIn("Read-only database access succeeded", results.text)
+        self.local_odoo_reader.get_target_fingerprint.assert_called_once()
+
+    def test_local_connection_test_opens_mixed_failure_results(self) -> None:
+        self.client.post(
+            f"/projects/{self.project_id}/local-stack/select-config",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+        )
+
+        tested = self.client.post(
+            f"/projects/{self.project_id}/target",
+            data={
+                "csrf_token": self.csrf,
+                "revision": "1",
+                "odoo_connection_mode": "LOCAL",
+                "odoo_base_url": "http://127.0.0.1:18069",
+                "odoo_database": "odoo19_local",
+                "action": "test",
+            },
+            headers=POST_HEADERS,
+        )
+
+        self.assertEqual(tested.status_code, 422)
+        self.assertIn('data-auto-open="true"', tested.text)
+        self.assertEqual(tested.text.count("status-ready"), 2)
+        self.assertEqual(tested.text.count("status-error"), 2)
+        self.assertIn("Local connection checks failed: Odoo server", tested.text)
+        self.assertIn("Read-only database access failed", tested.text)
+        self.local_odoo_reader.get_target_fingerprint.assert_not_called()
+
+    def test_local_connection_test_marks_database_access_failure(self) -> None:
+        self._select_and_start_stack()
+        self.local_odoo_reader.get_target_fingerprint.side_effect = ConnectorError(
+            "The configured database could not be opened."
+        )
+
+        tested = self.client.post(
+            f"/projects/{self.project_id}/target",
+            data={
+                "csrf_token": self.csrf,
+                "revision": "1",
+                "odoo_connection_mode": "LOCAL",
+                "odoo_base_url": "http://127.0.0.1:18069",
+                "odoo_database": "odoo19_local",
+                "action": "test",
+            },
+            headers=POST_HEADERS,
+        )
+
+        self.assertEqual(tested.status_code, 422)
+        self.assertIn('data-auto-open="true"', tested.text)
+        self.assertEqual(tested.text.count("status-ready"), 3)
+        self.assertEqual(tested.text.count("status-error"), 1)
+        self.assertIn("The configured database could not be opened", tested.text)
+        self.assertIn("Read-only database access failed", tested.text)
 
     def test_stop_requires_confirmation_and_stops_only_managed_process(self) -> None:
         self._select_and_start_stack()
@@ -1083,8 +1187,41 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(frozen.status_code, 303)
         self.assertEqual(
             frozen.headers["location"],
-            f"/projects/{project_id}/schema",
+            f"/projects/{project_id}/derived-entities",
         )
+        derived_page = self.client.get(frozen.headers["location"])
+        self.assertIn("Derive related entities from source fields", derived_page.text)
+        self.assertIn("does not yet execute full-row staging", derived_page.text)
+        selection = (
+            self.app.state.context.repository.get_source_selection(project_id)
+        )
+        self.assertIsNotNone(selection)
+        product_name = selection.datasets[1].columns[1]
+        saved_derived = self.client.post(
+            f"/projects/{project_id}/derived-entities/save",
+            data={
+                "csrf_token": self.csrf,
+                "expected_parent_version": "",
+                "source_binding": (
+                    f"{selection.datasets[1].dataset_id}|{product_name.stable_key}"
+                ),
+                "output_dataset_name": "product_names",
+                "target_model": "res.partner",
+                "target_name_field": "name",
+                "external_id_namespace": "dynamics_ax_2012",
+                "parent_separator": "",
+                "blank_policy": "block",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(saved_derived.status_code, 303)
+        derived_preview = self.client.get(saved_derived.headers["location"])
+        self.assertIn("Saved derived dataset product_names", derived_preview.text)
+        self.assertIn("Example product", derived_preview.text)
+        self.assertIn("impodo_dynamics_ax_2012.res_partner_", derived_preview.text)
+        self.assertIn("never the source product or child row", derived_preview.text)
+        self.assertNotIn("entity:P001", derived_preview.text)
 
         project = self.app.state.context.repository.get(project_id)
         refreshed_models = self._post(

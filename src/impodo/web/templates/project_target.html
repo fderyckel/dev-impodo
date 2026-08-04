@@ -8,7 +8,11 @@
     <h1>Choose the read-only target</h1>
     <p>Connect to an authorised Odoo 19 target on this computer or through
       HTTPS. Impodo keeps the connection read-only.</p>
-    <form method="post" action="/projects/{{ project.project_id }}/target">
+    <form
+      method="post"
+      action="/projects/{{ project.project_id }}/target"
+      data-target-form
+    >
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ project.revision }}">
 
@@ -88,7 +92,13 @@
       </fieldset>
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/files">Back</a>
-        <button class="button secondary" type="submit" name="action" value="test">Save and test connection</button>
+        <button
+          class="button secondary"
+          type="submit"
+          name="action"
+          value="test"
+          data-test-connection-button
+        >Save and test connection</button>
         <button class="button primary" type="submit" name="action" value="save">Save and continue</button>
       </div>
     </form>

@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Derived entities · {{ project.name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Source preparation · Reusable related records</p>
+      <h1>Derive related entities from source fields</h1>
+      <p>Turn a denormalized field into category-owned or otherwise entity-owned identities without borrowing an ID from a product row.</p>
+    </div>
+    {% if plan %}
+      <span class="status registered">PLAN · v{{ plan.version }}</span>
+    {% endif %}
+  </div>
+
+  <div class="notice warning">
+    This slice stores a hash-bound extraction plan and previews the bounded inspected sample.
+    It does not yet execute full-row staging, create an Odoo record, or certify an export package.
+  </div>
+
+  {% if not selection %}
+    <section class="form-card empty-state">
+      <h2>No frozen datasets</h2>
+      <p>Freeze the physical source datasets before defining derived entities.</p>
+      <a class="button primary" href="/projects/{{ project.project_id }}/datasets">Freeze datasets</a>
+    </section>
+  {% else %}
+    <section class="form-card evidence-card">
+      <h2>Evidence binding</h2>
+      <div class="definition-list">
+        <div><dt>Frozen source</dt><dd><code title="{{ selection.content_hash }}">{{ selection.content_hash }}</code></dd></div>
+        {% if plan %}
+          <div><dt>Derived plan</dt><dd><code title="{{ plan.content_hash }}">{{ plan.content_hash }}</code></dd></div>
+        {% endif %}
+      </div>
+      <p class="muted">Freezing a new source selection invalidates the current derived plan. Saving a derived rule invalidates the current mapping so it can be reviewed again.</p>
+    </section>
+
+    {% for view in rule_views %}
+      {% set rule = view.rule %}
+      {% set preview = view.preview %}
+      <section class="form-card">
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Derived dataset</p>
+            <h2>{{ rule.output_dataset_name }}</h2>
+            <p><code>{{ rule.target_model }}</code> · display field <code>{{ rule.target_name_field }}</code></p>
+          </div>
+          <form method="post" action="/projects/{{ project.project_id }}/derived-entities/{{ rule.rule_id }}/delete">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
+            <button class="button danger" type="submit">Remove rule</button>
+          </form>
+        </div>
+
+        <div class="definition-list">
+          <div><dt>Identity owner</dt><dd>{{ rule.output_dataset_name }}, never the source product or child row</dd></div>
+          <div><dt>External-ID namespace</dt><dd><code>{{ rule.external_id_namespace }}</code></dd></div>
+          <div><dt>Parent separator</dt><dd>{{ rule.parent_separator or "Flat values" }}</dd></div>
+          <div><dt>Blank policy</dt><dd>{{ rule.blank_policy }}</dd></div>
+        </div>
+
+        {% if view.preview_error %}
+          <div class="notice error">{{ view.preview_error }}</div>
+        {% elif preview %}
+          <p>
+            Previewed {{ preview.sampled_source_rows }} inspected sample rows from
+            <strong>{{ preview.source_dataset_name }}.{{ preview.source_column_name }}</strong>.
+            The full source profile reports {{ preview.full_distinct_count }} distinct values{% if not preview.full_distinct_count_is_exact %} or more{% endif %}.
+          </p>
+          {% if preview.blank_sample_rows %}
+            <div class="notice warning">
+              {{ preview.blank_sample_rows }} sampled row(s) have no value and will follow the <strong>{{ rule.blank_policy }}</strong> policy during full staging.
+            </div>
+          {% endif %}
+          {% if preview.invalid_path_sample_rows %}
+            <div class="notice error">
+              {{ preview.invalid_path_sample_rows }} sampled path value(s) contain an empty hierarchy segment and require correction.
+            </div>
+          {% endif %}
+          {% if preview.candidates %}
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Canonical entity</th>
+                    <th>Stable Impodo ID</th>
+                    <th>Odoo External ID</th>
+                    <th>Parent entity</th>
+                    <th>Sample evidence</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for candidate in preview.candidates %}
+                    <tr>
+                      <td>
+                        <strong>{{ candidate.name }}</strong><br>
+                        <code>{{ candidate.canonical_key }}</code>
+                      </td>
+                      <td><code>{{ candidate.entity_id }}</code></td>
+                      <td><code>{{ candidate.odoo_external_id }}</code></td>
+                      <td>{% if candidate.parent_entity_id %}<code>{{ candidate.parent_entity_id }}</code>{% else %}Root{% endif %}</td>
+                      <td>
+                        {{ candidate.sampled_source_row_count }} contributing row(s)
+                        {% if candidate.requires_alias_review %}
+                          <br><strong>Review aliases:</strong> {{ candidate.aliases|join(', ') }}
+                        {% else %}
+                          <br>{{ candidate.aliases|join(', ') }}
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="muted">The bounded sample contains no non-empty candidate values.</p>
+          {% endif %}
+        {% endif %}
+      </section>
+    {% endfor %}
+
+    <section class="form-card">
+      <h2>Add a derived-entity rule</h2>
+      <p>
+        Impodo normalizes Unicode, trims and collapses whitespace, and compares identities case-insensitively.
+        A hierarchy separator such as <code>/</code> produces parent entities before child entities.
+      </p>
+      <form method="post" action="/projects/{{ project.project_id }}/derived-entities/save">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
+        <div class="form-grid">
+          <label>
+            Source field
+            <select name="source_binding" required>
+              <option value="">Choose a frozen column</option>
+              {% for choice in source_choices %}
+                <option value="{{ choice.value }}">{{ choice.dataset_name }} · {{ choice.column_name }} ({{ choice.candidate_type }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            Derived dataset name
+            <input name="output_dataset_name" placeholder="product_categories" pattern="[a-z][a-z0-9_]{0,62}" required>
+          </label>
+          <label>
+            Odoo target model
+            <input name="target_model" list="derived-target-models" placeholder="product.category" required>
+            <datalist id="derived-target-models">
+              {% for model in model_choices %}<option value="{{ model.name }}">{{ model.label }}</option>{% endfor %}
+            </datalist>
+          </label>
+          <label>
+            Odoo display field
+            <input name="target_name_field" value="name" pattern="[a-z_][a-z0-9_.]{0,127}" required>
+          </label>
+          <label>
+            Stable source-system namespace
+            <input name="external_id_namespace" value="{{ namespace_default }}" pattern="[a-z][a-z0-9_]{0,39}" required>
+            <small>Keep this namespace unchanged across rehearsals and production migration.</small>
+          </label>
+          <label>
+            Optional hierarchy separator
+            <input name="parent_separator" maxlength="10" placeholder="/">
+            <small>Leave empty for flat categories or lookup values.</small>
+          </label>
+          <label>
+            Blank source values
+            <select name="blank_policy">
+              <option value="block">Block full staging</option>
+              <option value="quarantine">Quarantine affected rows</option>
+            </select>
+          </label>
+        </div>
+        <div class="actions">
+          <button class="button primary" type="submit">Save and preview rule</button>
+        </div>
+      </form>
+    </section>
+
+    <div class="actions">
+      <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to datasets</a>
+      <a class="button primary" href="/projects/{{ project.project_id }}/schema">Continue to Odoo schema</a>
+    </div>
+  {% endif %}
+{% endblock %}

@@ -32,6 +32,7 @@ POSTGRES_STOP_TIMEOUT_SECONDS = 15
 ODOO_START_TIMEOUT_SECONDS = 30
 ODOO_POLL_INTERVAL_SECONDS = 0.5
 LOOPBACK_NAMES = frozenset({"127.0.0.1", "::1", "localhost"})
+DATABASE_ACCESS_LABEL = "Database access (read-only)"
 
 
 class LocalStackError(ValueError):
@@ -438,7 +439,7 @@ class LocalStackService:
             )
         verified = LocalStackCheck(
             key="api",
-            label="Impodo metadata reader",
+            label=DATABASE_ACCESS_LABEL,
             level=ReadinessLevel.READY,
             message="Odoo metadata read succeeded.",
             detail=(
@@ -450,6 +451,63 @@ class LocalStackService:
             current,
             checks=tuple(
                 verified if check.key == "api" else check
+                for check in current.checks
+            ),
+        )
+        return self._store_status(project_id, updated)
+
+    def mark_connection_ready(
+        self,
+        project_id: str,
+        *,
+        database: str,
+        odoo_version: str,
+    ) -> LocalStackStatus:
+        """Record successful read-only database access for this session."""
+
+        current = self.get(project_id)
+        verified = LocalStackCheck(
+            key="api",
+            label=DATABASE_ACCESS_LABEL,
+            level=ReadinessLevel.READY,
+            message="Read-only database access succeeded.",
+            detail=f"{database}; Odoo {odoo_version}",
+        )
+        updated = replace(
+            current,
+            checks=tuple(
+                verified if check.key == "api" else check
+                for check in current.checks
+            ),
+        )
+        return self._store_status(project_id, updated)
+
+    def mark_connection_error(
+        self,
+        project_id: str,
+        *,
+        detail: str,
+    ) -> LocalStackStatus:
+        """Record a definitive failed local connection test."""
+
+        current = self.get(project_id)
+        failed = LocalStackCheck(
+            key="api",
+            label=DATABASE_ACCESS_LABEL,
+            level=ReadinessLevel.ERROR,
+            message="Read-only database access failed.",
+            detail=detail,
+        )
+        updated = replace(
+            current,
+            checks=tuple(
+                failed
+                if check.key == "api"
+                else (
+                    check
+                    if check.level is ReadinessLevel.READY
+                    else replace(check, level=ReadinessLevel.ERROR)
+                )
                 for check in current.checks
             ),
         )
@@ -1258,7 +1316,7 @@ def _waiting_check(key: str, label: str, message: str) -> LocalStackCheck:
 def _api_check() -> LocalStackCheck:
     return LocalStackCheck(
         key="api",
-        label="Impodo metadata reader",
+        label=DATABASE_ACCESS_LABEL,
         level=ReadinessLevel.UNKNOWN,
         message=(
             "Select the target database, then use Save and test connection. "

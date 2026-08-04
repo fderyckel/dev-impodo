@@ -603,7 +603,7 @@ def _stack_status(
             ),
             LocalStackCheck(
                 "api",
-                "Impodo API",
+                "Database access (read-only)",
                 ReadinessLevel.UNKNOWN,
                 "Use Save and test connection.",
             ),

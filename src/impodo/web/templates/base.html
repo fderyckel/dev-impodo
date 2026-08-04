@@ -48,7 +48,7 @@
         </button>
         <div class="brand-lockup">
           <a class="brand" href="/projects">IMPODO</a>
-          <span class="brand-tagline">Impodo - Import Anything into Odoo</span>
+          <span class="brand-tagline">Import Anything into Odoo</span>
         </div>
       </div>
       <span class="boundary">
@@ -175,13 +175,12 @@
         Data remains on this computer.
       </span>
       <span class="creator-credit">
-        Made in Luxembourg
+        Made in 
         <img
           class="luxembourg-flag"
           src="{{ url_for('static', path='/flag-luxembourg.svg') }}"
           alt="Luxembourg flag"
         >
-        by FdR
       </span>
       <form method="post" action="/quit">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

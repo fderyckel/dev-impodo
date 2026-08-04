@@ -185,6 +185,22 @@ document.addEventListener("DOMContentLoaded", () => {
     updateFieldRows();
   }
 
+  const targetForm = document.querySelector("[data-target-form]");
+  targetForm?.addEventListener("submit", (event) => {
+    const button = event.submitter;
+    if (!button?.matches("[data-test-connection-button]")) {
+      return;
+    }
+    const action = document.createElement("input");
+    action.type = "hidden";
+    action.name = "action";
+    action.value = "test";
+    targetForm.append(action);
+    targetForm.setAttribute("aria-busy", "true");
+    button.disabled = true;
+    button.textContent = "Testing connection...";
+  });
+
   const localStackDialog = document.querySelector("[data-local-stack-dialog]");
   const localStackEntry = document.querySelector("[data-local-stack-entry]");
   const apiKeyEntries = Array.from(

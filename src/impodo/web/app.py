@@ -35,6 +35,9 @@ from ..connectors import (
     RecordRequest,
     RecordSnapshot,
 )
+from ..derived_entities import (
+    DerivedEntityWorkspaceService,
+)
 from ..intake import SourceIntakeError, SourceIntakeService
 from ..inspection import (
     SourceInspectionError,
@@ -49,6 +52,7 @@ from ..local_stack import (
     LocalStackError,
     LocalStackProfile,
     LocalStackService,
+    ReadinessLevel,
 )
 from ..mapping_semantics import (
     BusinessKeyDefinition,
@@ -134,6 +138,7 @@ class WebContext:
     intake: SourceIntakeService
     inspections: SourceInspectionService
     sources: SourceWorkspaceService
+    derived_entities: DerivedEntityWorkspaceService
     schema_workspace: SchemaWorkspaceService
     mapping_workspace: MappingWorkspaceService
     artifacts: ArtifactStore
@@ -182,6 +187,10 @@ def create_local_app(
             resolved_authorization,
         ),
         sources=SourceWorkspaceService(repository, resolved_authorization),
+        derived_entities=DerivedEntityWorkspaceService(
+            repository,
+            resolved_authorization,
+        ),
         schema_workspace=SchemaWorkspaceService(
             repository,
             resolved_authorization,
@@ -609,6 +618,8 @@ def create_local_app(
                 "action",
             },
         )
+        local_test_requested = False
+        show_local_results = False
         try:
             project = context.projects.update_target(
                 project_id,
@@ -619,6 +630,11 @@ def create_local_app(
                 odoo_database=_text(form, "odoo_database"),
                 intended_applications=form.getlist("intended_applications"),
             )
+            action = _text(form, "action")
+            local_test_requested = (
+                action == "test"
+                and project.odoo_connection_mode is OdooConnectionMode.LOCAL
+            )
             submitted_key = _text(form, "api_key")
             credential_id = _target_credential_id(project)
             if submitted_key:
@@ -627,13 +643,40 @@ def create_local_app(
                     submitted_key,
                     persistent="remember_api_key" in form,
                 )
-            if _text(form, "action") == "test":
+            if action == "test":
                 local_profile = _selected_local_profile(context, project)
                 if local_profile is not None:
+                    show_local_results = True
+                    status = await run_in_threadpool(
+                        context.local_stack.refresh,
+                        project_id,
+                    )
+                    local_profile = _selected_local_profile(context, project)
+                    if local_profile is None:
+                        raise LocalStackError(
+                            "Choose and validate odoo.conf before testing "
+                            "database access."
+                        )
+                    blocked_checks = tuple(
+                        check.label
+                        for check in status.checks
+                        if check.key != "api"
+                        and check.level is not ReadinessLevel.READY
+                    )
+                    if blocked_checks:
+                        raise LocalStackError(
+                            "Local connection checks failed: "
+                            f"{', '.join(blocked_checks)}."
+                        )
                     fingerprint = await run_in_threadpool(
                         context.local_odoo_reader.get_target_fingerprint,
                         project,
                         local_profile,
+                    )
+                    context.local_stack.mark_connection_ready(
+                        project_id,
+                        database=fingerprint.database,
+                        odoo_version=fingerprint.odoo_version,
                     )
                     result = (
                         "Read-only local connection succeeded: "
@@ -661,17 +704,32 @@ def create_local_app(
                         api_key,
                     )
                 _flash(request, result)
+                target_url = f"/projects/{project_id}/target"
+                if show_local_results:
+                    target_url = f"{target_url}?local_stack=1"
                 return RedirectResponse(
-                    f"/projects/{project_id}/target",
+                    target_url,
                     status_code=303,
                 )
-        except (ProjectError, SecretStoreError, ConnectorError) as error:
+        except (
+            ProjectError,
+            SecretStoreError,
+            ConnectorError,
+            LocalStackError,
+            WorkspaceError,
+        ) as error:
+            if local_test_requested:
+                context.local_stack.mark_connection_error(
+                    project_id,
+                    detail=str(error),
+                )
             return _render_target(
                 request,
                 context,
                 context.repository.get(project_id),
                 error=str(error),
                 status_code=422,
+                open_local_stack=local_test_requested,
             )
         return RedirectResponse(
             f"/projects/{project.project_id}/review",
@@ -915,7 +973,7 @@ def create_local_app(
             f"Frozen source selection version {selection.version}.",
         )
         return RedirectResponse(
-            f"/projects/{project_id}/schema",
+            f"/projects/{project_id}/derived-entities",
             status_code=303,
         )
 
@@ -960,6 +1018,116 @@ def create_local_app(
             )
         return RedirectResponse(
             f"/projects/{project_id}/schema",
+            status_code=303,
+        )
+
+    @app.get(
+        "/projects/{project_id}/derived-entities",
+        response_class=HTMLResponse,
+    )
+    async def project_derived_entities(request: Request, project_id: str):
+        require_session(request)
+        return _render_derived_entities(request, context, project_id)
+
+    @app.post("/projects/{project_id}/derived-entities/save")
+    async def save_project_derived_entity(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {
+                "csrf_token",
+                "expected_parent_version",
+                "source_binding",
+                "output_dataset_name",
+                "target_model",
+                "target_name_field",
+                "external_id_namespace",
+                "parent_separator",
+                "blank_policy",
+            },
+        )
+        source_binding = _text(form, "source_binding")
+        if "|" not in source_binding:
+            return _render_derived_entities(
+                request,
+                context,
+                project_id,
+                error="Choose a frozen source column",
+                status_code=422,
+            )
+        source_dataset_id, source_column_key = source_binding.split("|", 1)
+        try:
+            plan, rule = context.derived_entities.save_rule(
+                project_id,
+                output_dataset_name=_text(form, "output_dataset_name"),
+                source_dataset_id=source_dataset_id,
+                source_column_key=source_column_key,
+                target_model=_text(form, "target_model"),
+                target_name_field=_text(form, "target_name_field"),
+                external_id_namespace=_text(form, "external_id_namespace"),
+                parent_separator=_text(form, "parent_separator") or None,
+                blank_policy=_text(form, "blank_policy"),
+                expected_parent_version=_optional_int(
+                    _text(form, "expected_parent_version")
+                ),
+                actor=context.actor,
+            )
+        except (WorkspaceError, ValueError) as error:
+            return _render_derived_entities(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            f"Saved derived dataset {rule.output_dataset_name} in plan "
+            f"version {plan.version}.",
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/derived-entities",
+            status_code=303,
+        )
+
+    @app.post(
+        "/projects/{project_id}/derived-entities/{rule_id}/delete"
+    )
+    async def delete_project_derived_entity(
+        request: Request,
+        project_id: str,
+        rule_id: str,
+    ):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "expected_parent_version"},
+        )
+        try:
+            plan = context.derived_entities.delete_rule(
+                project_id,
+                rule_id,
+                expected_parent_version=_optional_int(
+                    _text(form, "expected_parent_version")
+                ),
+                actor=context.actor,
+            )
+        except (WorkspaceError, ValueError) as error:
+            return _render_derived_entities(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            f"Removed the derived-entity rule; plan version {plan.version} is current.",
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/derived-entities",
             status_code=303,
         )
 
@@ -1748,6 +1916,79 @@ def _dataset_choices(
                 }
             )
     return tuple(choices)
+
+
+def _render_derived_entities(
+    request: Request,
+    context: WebContext,
+    project_id: str,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+):
+    project = context.repository.get(project_id)
+    selection = context.repository.get_source_selection(project_id)
+    plan = context.repository.get_derived_entity_plan(project_id)
+    schema = context.repository.get_odoo_schema_catalog(project_id)
+    model_choices = tuple(
+        sorted(
+            (
+                {"name": item.name, "label": item.label}
+                for item in (schema.models if schema else ())
+            ),
+            key=lambda item: str(item["name"]),
+        )
+    )
+    if not model_choices:
+        model_choices = tuple(
+            {"name": name, "label": name}
+            for name in sorted(project.intended_models)
+        )
+    source_choices = tuple(
+        {
+            "value": f"{dataset.dataset_id}|{column.stable_key}",
+            "dataset_name": dataset.name,
+            "column_name": column.source_name,
+            "candidate_type": column.candidate_type,
+        }
+        for dataset in (selection.datasets if selection else ())
+        for column in dataset.columns
+    )
+    rule_views: list[dict[str, object]] = []
+    for rule in (plan.rules if plan else ()):
+        try:
+            preview = context.derived_entities.preview(project_id, rule)
+            preview_error = None
+        except WorkspaceError as preview_failure:
+            preview = None
+            preview_error = str(preview_failure)
+        rule_views.append(
+            {
+                "rule": rule,
+                "preview": preview,
+                "preview_error": preview_error,
+            }
+        )
+    namespace = re.sub(
+        r"[^a-z0-9]+",
+        "_",
+        project.source_system.casefold(),
+    ).strip("_")[:40]
+    if not namespace or not namespace[0].isalpha():
+        namespace = "legacy"
+    return _render(
+        request,
+        "project_derived_entities.html",
+        project=project,
+        selection=selection,
+        plan=plan,
+        source_choices=source_choices,
+        model_choices=model_choices,
+        rule_views=tuple(rule_views),
+        namespace_default=namespace,
+        error=error,
+        status_code=status_code,
+    )
 
 
 def _schema_model_choices(

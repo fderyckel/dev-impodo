@@ -295,12 +295,13 @@ The assistant shows four separate results:
 | **Configuration** | The selected file contains a valid, explicit loopback PostgreSQL and Odoo HTTP configuration. |
 | **PostgreSQL** | Green means `pg_isready.exe` confirmed that PostgreSQL is accepting connections on the configured host and port. Orange means action is required or only an open port could be detected. |
 | **Odoo server** | Green means the loopback HTTP endpoint answered `/web/webclient/version_info` and identified itself as Odoo 19. |
-| **Impodo metadata reader** | This remains grey until **Save and test connection** proves that the selected local Odoo installation can open the configured database. |
+| **Database access (read-only)** | This remains grey until **Save and test connection** proves that the selected local Odoo installation can open the configured database. |
 
 Green means ready, orange means action is needed or the result is incomplete,
 red means the check failed or the configuration is unsafe, and grey means the
 check has not run yet. The text beside every colour is authoritative; colour
-is not the only status indicator.
+is not the only status indicator. After **Save and test connection**, any
+required check that is still incomplete is shown as a red failed result.
 
 Selecting `odoo.conf` does not upload or copy it. Impodo extracts only the
 non-secret routing settings needed for these checks and does not retain
