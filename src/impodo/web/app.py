@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass, replace
 import hashlib
 import json
@@ -49,7 +50,6 @@ from ..connectors import (
     RecordSnapshot,
 )
 from ..derived_entities import (
-    DerivedDatasetLink,
     DerivedEntityRule,
     DerivedEntityWorkspaceService,
     RelatedDatasetRule,
@@ -80,6 +80,7 @@ from ..mapping_semantics import (
     IdentityComponentMapping,
     MappingDefinition,
     MappingTargetMode,
+    MappingValidationStatus,
     ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipResolver,
@@ -108,6 +109,7 @@ from ..readiness import (
     BrowserReadinessService,
     MANIFEST_NAME,
     ReadinessError,
+    stage_browser_mapping,
 )
 from ..reporting import (
     ReportGenerationError,
@@ -153,7 +155,9 @@ MAPPING_MAX_FORM_FIELDS = 25_000
 MAPPING_MAX_JSON_ENTRIES = 10_000
 MAPPING_MAX_FORM_NAME_LENGTH = 256
 MAPPING_MAX_FORM_VALUE_LENGTH = 64 * 1024
-MAPPING_FIELDS_PER_PAGE = 25
+DEFAULT_MAPPING_FIELDS_PER_PAGE = 3
+MAPPING_FIELD_PAGE_SIZES = (3, 10, 20, 50)
+READINESS_ROWS_PER_PAGE = 100
 _APPLICATION_MODULE_PREFIXES = {
     "Accounting": ("account", "analytic"),
     "Contacts": ("contacts",),
@@ -1810,6 +1814,235 @@ def create_local_app(
         require_session(request)
         return _render_mapping(request, context, project_id)
 
+    @app.get(
+        "/projects/{project_id}/mapping/transformation-impact",
+        response_class=HTMLResponse,
+    )
+    async def project_transformation_impact(request: Request, project_id: str):
+        """Render full-row transformation evidence without contacting Odoo."""
+
+        require_session(request)
+        project = context.repository.get(project_id)
+        revision = context.repository.get_mapping_revision(project_id)
+        if revision is None:
+            return _render_mapping(
+                request,
+                context,
+                project_id,
+                error="Validate the mapping before reviewing transformations.",
+                status_code=422,
+            )
+        validation = context.repository.get_mapping_validation(
+            project_id,
+            revision.version,
+        )
+        if validation is None or validation.status is MappingValidationStatus.INVALID:
+            return _render_mapping(
+                request,
+                context,
+                project_id,
+                error=(
+                    "Resolve the mapping validation findings before reviewing "
+                    "all transformed values."
+                ),
+                status_code=422,
+            )
+        physical_selection = context.repository.get_source_selection(project_id)
+        effective_selection = context.repository.get_mapping_source_selection(
+            project_id
+        )
+        if physical_selection is None or effective_selection is None:
+            return _render_mapping(
+                request,
+                context,
+                project_id,
+                error="Freeze the source datasets before reviewing transformations.",
+                status_code=422,
+            )
+        working_draft = context.repository.get_mapping_working_draft(project_id)
+        if (
+            working_draft is not None
+            and working_draft.definition.source_selection_hash
+            == effective_selection.content_hash
+            and working_draft.content_hash != revision.definition.content_hash
+        ):
+            return _render_mapping(
+                request,
+                context,
+                project_id,
+                error=(
+                    "Validate the current saved changes before reviewing their "
+                    "transformation impact."
+                ),
+                status_code=422,
+            )
+        try:
+            staged = await run_in_threadpool(
+                stage_browser_mapping,
+                project,
+                revision.definition,
+                physical_selection,
+                effective_selection,
+                context.repository.get_derived_entity_plan(project_id),
+                context.repository.get_source_catalogs(project_id),
+                context.artifacts,
+                collect_transformation_impact=True,
+            )
+        except (OSError, ReadinessError, WorkspaceError) as error:
+            return _render(
+                request,
+                "project_transformation_impact.html",
+                project=project,
+                revision=revision,
+                report=None,
+                rows=(),
+                datasets=(),
+                field_labels={},
+                error=str(error),
+                status_code=422,
+            )
+        report = staged.transformation_impact
+        assert report is not None
+        schema = context.repository.get_odoo_schema_catalog(project_id)
+        model_by_name = {
+            model.name: model for model in (schema.models if schema else ())
+        }
+        dataset_by_id = {
+            dataset.dataset_id: dataset for dataset in effective_selection.datasets
+        }
+        field_labels = {}
+        for mapping in revision.definition.datasets:
+            dataset = dataset_by_id.get(mapping.dataset_id)
+            model = model_by_name.get(mapping.target_model)
+            if dataset is None or model is None:
+                continue
+            for field in model.fields:
+                field_labels[(dataset.name, field.name)] = field.label
+        return _render(
+            request,
+            "project_transformation_impact.html",
+            project=project,
+            revision=revision,
+            report=report,
+            rows=report.rows,
+            datasets=tuple(staged.dataset_labels.items()),
+            field_labels=field_labels,
+            error=None,
+        )
+
+    @app.post("/projects/{project_id}/mapping/transformation-impact.csv")
+    async def download_transformation_impact(request: Request, project_id: str):
+        """Download every affected raw-to-proposed value without Node.js."""
+
+        require_session(request)
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        project = context.repository.get(project_id)
+        revision = context.repository.get_mapping_revision(project_id)
+        if revision is None:
+            raise HTTPException(status_code=422, detail="Validate the mapping first")
+        validation = context.repository.get_mapping_validation(
+            project_id,
+            revision.version,
+        )
+        if validation is None or validation.status is MappingValidationStatus.INVALID:
+            raise HTTPException(
+                status_code=422,
+                detail="Resolve mapping validation findings first",
+            )
+        physical_selection = context.repository.get_source_selection(project_id)
+        effective_selection = context.repository.get_mapping_source_selection(
+            project_id
+        )
+        if physical_selection is None or effective_selection is None:
+            raise HTTPException(status_code=422, detail="Freeze the source datasets first")
+        working_draft = context.repository.get_mapping_working_draft(project_id)
+        if (
+            working_draft is not None
+            and working_draft.definition.source_selection_hash
+            == effective_selection.content_hash
+            and working_draft.content_hash != revision.definition.content_hash
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Validate the current saved mapping changes first",
+            )
+
+        report_directory = (
+            context.repository.project_directory(project_id)
+            / "reports"
+            / "transformation-impact"
+        ).resolve()
+        report_directory.mkdir(parents=True, exist_ok=True)
+        hash_token = revision.definition.content_hash.removeprefix("sha256:")[:16]
+        filename = f"transformation-impact-v{revision.version}-{hash_token}.csv"
+        target = (report_directory / filename).resolve()
+        if target.parent != report_directory:
+            raise HTTPException(status_code=404, detail="Report file not found")
+        partial = target.with_name(f".{target.name}.partial")
+
+        def build_csv() -> None:
+            try:
+                with partial.open("w", encoding="utf-8-sig", newline="") as stream:
+                    writer = csv.writer(stream)
+                    writer.writerow(
+                        (
+                            "Dataset",
+                            "Excel row",
+                            "Source column",
+                            "Odoo target field",
+                            "Raw source",
+                            "Proposed value",
+                            "Rules applied",
+                            "Result",
+                            "Message",
+                        )
+                    )
+
+                    def write_impact(row) -> None:
+                        writer.writerow(
+                            tuple(
+                                _safe_spreadsheet_text(value)
+                                for value in (
+                                    row.dataset,
+                                    row.source_row,
+                                    row.source_column,
+                                    row.target_field,
+                                    row.raw_value,
+                                    row.proposed_value,
+                                    row.rules,
+                                    row.outcome,
+                                    row.message,
+                                )
+                            )
+                        )
+
+                    stage_browser_mapping(
+                        project,
+                        revision.definition,
+                        physical_selection,
+                        effective_selection,
+                        context.repository.get_derived_entity_plan(project_id),
+                        context.repository.get_source_catalogs(project_id),
+                        context.artifacts,
+                        collect_transformation_impact=True,
+                        transformation_detail_limit=0,
+                        transformation_impact_sink=write_impact,
+                    )
+                partial.replace(target)
+            finally:
+                partial.unlink(missing_ok=True)
+
+        try:
+            await run_in_threadpool(build_csv)
+        except (OSError, ReadinessError, WorkspaceError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        return FileResponse(
+            target,
+            media_type="text/csv; charset=utf-8",
+            filename=filename,
+        )
+
     @app.post("/projects/{project_id}/mapping/save")
     async def save_project_mapping(request: Request, project_id: str):
         require_session(request)
@@ -2235,12 +2468,29 @@ def _render_summary(
     }
     if dataset_filter not in available_datasets:
         dataset_filter = ""
-    rows = tuple(
+    matching_rows = tuple(
         item
         for item in (report.rows if report else ())
         if (not status_filter or item.status == status_filter)
         and (not dataset_filter or item.dataset == dataset_filter)
     )
+    row_total = len(matching_rows)
+    row_page_count = max(
+        1,
+        (row_total + READINESS_ROWS_PER_PAGE - 1)
+        // READINESS_ROWS_PER_PAGE,
+    )
+    row_page = min(
+        _positive_query_int(
+            request.query_params.get("page"),
+            default=1,
+        ),
+        row_page_count,
+    )
+    row_start_index = (row_page - 1) * READINESS_ROWS_PER_PAGE
+    rows = matching_rows[
+        row_start_index : row_start_index + READINESS_ROWS_PER_PAGE
+    ]
     return _render(
         request,
         "project_summary.html",
@@ -2249,6 +2499,32 @@ def _render_summary(
         submission=submission,
         readiness=report,
         readiness_rows=rows,
+        readiness_row_total=row_total,
+        readiness_row_start=(row_start_index + 1 if row_total else 0),
+        readiness_row_end=min(
+            row_start_index + READINESS_ROWS_PER_PAGE,
+            row_total,
+        ),
+        readiness_row_page=row_page,
+        readiness_row_page_count=row_page_count,
+        readiness_row_previous_url=(
+            _summary_rows_url(
+                request,
+                project_id,
+                page=row_page - 1 if row_page > 2 else None,
+            )
+            if row_page > 1
+            else None
+        ),
+        readiness_row_next_url=(
+            _summary_rows_url(
+                request,
+                project_id,
+                page=row_page + 1,
+            )
+            if row_page < row_page_count
+            else None
+        ),
         review_workbook_ready=(
             report is not None
             and _readiness_report_path(
@@ -2263,6 +2539,25 @@ def _render_summary(
         error=error,
         status_code=status_code,
     )
+
+
+def _summary_rows_url(
+    request: Request,
+    project_id: str,
+    *,
+    page: int | None,
+) -> str:
+    params = {
+        name: value
+        for name, value in request.query_params.items()
+        if name in {"status", "dataset"} and len(value) <= 256
+    }
+    if page is not None and page > 1:
+        params["page"] = str(page)
+    query = urlencode(params)
+    base = f"/projects/{project_id}/summary"
+    url = f"{base}?{query}" if query else base
+    return f"{url}#readiness-rows"
 
 
 def _readiness_report_path(
@@ -2490,7 +2785,10 @@ def _mapping_return_url(
     allowed_names = {
         "mapping_dataset",
         "scalar_page",
+        "scalar_page_size",
         "relation_page",
+        "relation_page_size",
+        "relation_query",
         "field_query",
         "mapped_only",
     }
@@ -2519,6 +2817,18 @@ def _positive_query_int(value: str | None, *, default: int) -> int:
     except ValueError:
         return default
     return parsed if parsed > 0 else default
+
+
+def _mapping_field_page_size(value: str | None) -> int:
+    requested = _positive_query_int(
+        value,
+        default=DEFAULT_MAPPING_FIELDS_PER_PAGE,
+    )
+    return (
+        requested
+        if requested in MAPPING_FIELD_PAGE_SIZES
+        else DEFAULT_MAPPING_FIELDS_PER_PAGE
+    )
 
 
 def _revision(form: FormData) -> int:
@@ -3043,10 +3353,17 @@ def _render_mapping(
         request.query_params.get("scalar_page"),
         default=1,
     )
+    scalar_page_size = _mapping_field_page_size(
+        request.query_params.get("scalar_page_size")
+    )
     relation_page = _positive_query_int(
         request.query_params.get("relation_page"),
         default=1,
     )
+    relation_page_size = _mapping_field_page_size(
+        request.query_params.get("relation_page_size")
+    )
+    relation_query = request.query_params.get("relation_query", "").strip()[:128]
     field_query = request.query_params.get("field_query", "").strip()[:128]
     mapped_only = request.query_params.get("mapped_only") == "1"
     lookup_links = derived_dataset_links(preparation_plan)
@@ -3078,7 +3395,10 @@ def _render_mapping(
             lookup_samples,
             active_dataset_index=active_dataset_index,
             scalar_page=scalar_page,
+            scalar_page_size=scalar_page_size,
             relation_page=relation_page,
+            relation_page_size=relation_page_size,
+            relation_query=relation_query,
             field_query=field_query,
             mapped_only=mapped_only,
         )
@@ -3095,6 +3415,40 @@ def _render_mapping(
             save_error=None,
         )
         if view["active"]:
+            view["scalar_page_size_options"] = tuple(
+                {
+                    "size": size,
+                    "url": _mapping_return_url(
+                        request,
+                        project_id,
+                        scalar_page=1,
+                        scalar_page_size=(
+                            None
+                            if size == DEFAULT_MAPPING_FIELDS_PER_PAGE
+                            else size
+                        ),
+                        save_error=None,
+                    ),
+                }
+                for size in MAPPING_FIELD_PAGE_SIZES
+            )
+            view["relation_page_size_options"] = tuple(
+                {
+                    "size": size,
+                    "url": _mapping_return_url(
+                        request,
+                        project_id,
+                        relation_page=1,
+                        relation_page_size=(
+                            None
+                            if size == DEFAULT_MAPPING_FIELDS_PER_PAGE
+                            else size
+                        ),
+                        save_error=None,
+                    ),
+                }
+                for size in MAPPING_FIELD_PAGE_SIZES
+            )
             view["scalar_previous_url"] = (
                 _mapping_return_url(
                     request,
@@ -3180,7 +3534,10 @@ def _mapping_dataset_views(
     *,
     active_dataset_index=None,
     scalar_page=1,
+    scalar_page_size=DEFAULT_MAPPING_FIELDS_PER_PAGE,
     relation_page=1,
+    relation_page_size=DEFAULT_MAPPING_FIELDS_PER_PAGE,
+    relation_query="",
     field_query="",
     mapped_only=False,
 ) -> tuple[dict[str, object], ...]:
@@ -3202,6 +3559,40 @@ def _mapping_dataset_views(
     for item in derived_links:
         derived_by_consumer.setdefault(item.consumer_dataset_id, []).append(item)
     prepared_source_samples = prepared_source_samples or {}
+
+    def selected_mapping_model_name(dataset_index, source_dataset) -> str:
+        existing = existing_by_id.get(source_dataset.dataset_id)
+        derived_link = derived_by_dataset.get(source_dataset.dataset_id)
+        selected_override = (
+            selected_models.get(dataset_index, "")
+            if selected_models is not None
+            else ""
+        )
+        if selected_override in models:
+            return selected_override
+        if existing and existing.target_model in models:
+            return existing.target_model
+        if (
+            derived_link is not None
+            and derived_link.target_model in models
+        ):
+            return derived_link.target_model
+        return next(
+            (
+                item.model
+                for item in confirmed
+                if item.model in models
+            ),
+            schema.models[0].name if schema.models else "",
+        )
+
+    selected_model_by_dataset = {
+        source_dataset.dataset_id: selected_mapping_model_name(
+            dataset_index,
+            source_dataset,
+        )
+        for dataset_index, source_dataset in enumerate(selection.datasets)
+    }
     result: list[dict[str, object]] = []
     for dataset_index, source_dataset in enumerate(selection.datasets):
         active = (
@@ -3214,34 +3605,9 @@ def _mapping_dataset_views(
         )
         existing = existing_by_id.get(source_dataset.dataset_id)
         derived_link = derived_by_dataset.get(source_dataset.dataset_id)
-        selected_override = (
-            selected_models.get(dataset_index, "")
-            if selected_models is not None
-            else ""
-        )
-        selected_model_name = (
-            selected_override
-            if selected_override in models
-            else (
-                existing.target_model
-                if existing and existing.target_model in models
-                else (
-                    derived_link.target_model
-                    if derived_link is not None
-                    and derived_link.target_model in models
-                    else (
-                        next(
-                            (
-                                item.model
-                                for item in confirmed
-                                if item.model in models
-                            ),
-                            schema.models[0].name if schema.models else "",
-                        )
-                    )
-                )
-            )
-        )
+        selected_model_name = selected_model_by_dataset[
+            source_dataset.dataset_id
+        ]
         model = models.get(selected_model_name)
         model_keys = tuple(
             item for item in confirmed if item.model == selected_model_name
@@ -3349,14 +3715,14 @@ def _mapping_dataset_views(
         )
         scalar_page_count = max(
             1,
-            (len(matching_scalars) + MAPPING_FIELDS_PER_PAGE - 1)
-            // MAPPING_FIELDS_PER_PAGE,
+            (len(matching_scalars) + scalar_page_size - 1)
+            // scalar_page_size,
         )
         current_scalar_page = min(max(scalar_page, 1), scalar_page_count)
-        scalar_start = (current_scalar_page - 1) * MAPPING_FIELDS_PER_PAGE
+        scalar_start = (current_scalar_page - 1) * scalar_page_size
         visible_scalars = (
             matching_scalars[
-                scalar_start : scalar_start + MAPPING_FIELDS_PER_PAGE
+                scalar_start : scalar_start + scalar_page_size
             ]
             if active
             else ()
@@ -3393,27 +3759,74 @@ def _mapping_dataset_views(
             for field in (model.fields if model else ())
             if field.type in {"many2one", "many2many", "one2many"}
         )
-        relation_candidates = tuple(
-            (relation_index, field)
-            for relation_index, field in enumerate(all_relation_fields)
-            if field.name not in identity_targets
-            and (
-                not normalized_query
-                or normalized_query
-                in f"{field.label} {field.name} {field.type}".casefold()
+        relation_recommendations: dict[str, dict[str, object]] = {}
+        related_link = link_by_child.get(source_dataset.dataset_id)
+        if related_link is not None:
+            parent_model = selected_model_by_dataset.get(
+                related_link.parent_dataset_id
             )
-            and (not mapped_only or field.name in relation_by_target)
+            for field in all_relation_fields:
+                if (
+                    field.name not in identity_targets
+                    and field.type in {"many2one", "many2many"}
+                    and field.relation == parent_model
+                ):
+                    relation_recommendations[field.name] = {
+                        "dataset_id": related_link.parent_dataset_id,
+                        "source_columns": related_link.reference_column_keys,
+                    }
+        for link in derived_by_consumer.get(source_dataset.dataset_id, ()):
+            derived_model = selected_model_by_dataset.get(link.derived_dataset_id)
+            matches = tuple(
+                field
+                for field in all_relation_fields
+                if field.name not in identity_targets
+                and field.type == "many2one"
+                and field.relation == derived_model
+            )
+            if len(matches) == 1:
+                relation_recommendations[matches[0].name] = {
+                    "dataset_id": link.derived_dataset_id,
+                    "source_columns": (link.source_column_key,),
+                    "kind": "extracted_lookup",
+                }
+        normalized_relation_query = relation_query.casefold()
+        relation_candidates = sorted(
+            (
+                (relation_index, field)
+                for relation_index, field in enumerate(all_relation_fields)
+                if field.name not in identity_targets
+                and (
+                    not normalized_relation_query
+                    or normalized_relation_query
+                    in (
+                        f"{field.label} {field.name} {field.type} "
+                        f"{field.relation or ''}"
+                    ).casefold()
+                )
+            ),
+            key=lambda item: (
+                0
+                if item[1].name in relation_by_target
+                else (
+                    1
+                    if item[1].name in relation_recommendations
+                    else 2
+                ),
+                item[1].label.casefold(),
+                item[1].name,
+            ),
         )
         relation_page_count = max(
             1,
-            (len(relation_candidates) + MAPPING_FIELDS_PER_PAGE - 1)
-            // MAPPING_FIELDS_PER_PAGE,
+            (len(relation_candidates) + relation_page_size - 1)
+            // relation_page_size,
         )
         current_relation_page = min(max(relation_page, 1), relation_page_count)
-        relation_start = (current_relation_page - 1) * MAPPING_FIELDS_PER_PAGE
+        relation_start = (current_relation_page - 1) * relation_page_size
         visible_relations = (
             relation_candidates[
-                relation_start : relation_start + MAPPING_FIELDS_PER_PAGE
+                relation_start : relation_start + relation_page_size
             ]
             if active
             else ()
@@ -3421,21 +3834,28 @@ def _mapping_dataset_views(
         relation_rows: list[dict[str, object]] = []
         for relation_index, field in visible_relations:
             mapping = relation_by_target.get(field.name)
+            recommendation = relation_recommendations.get(field.name)
             related_keys = tuple(
                 item for item in confirmed if item.model == field.relation
             )
-            relation_rows.append(
-                {
-                    "index": relation_index,
-                    "metadata": field,
-                    "mapping": mapping,
-                    "related_keys": related_keys,
-                    "selected_key": _resolver_business_key(
-                        mapping.resolver if mapping else None,
-                        related_keys,
-                    ),
-                }
-            )
+            row: dict[str, object] = {
+                "index": relation_index,
+                "metadata": field,
+                "mapping": mapping,
+                "related_keys": related_keys,
+                "selected_key": _resolver_business_key(
+                    mapping.resolver if mapping else None,
+                    related_keys,
+                ),
+            }
+            if recommendation is not None:
+                row["recommended_dataset_id"] = recommendation["dataset_id"]
+                row["recommended_source_columns"] = recommendation[
+                    "source_columns"
+                ]
+                if recommendation.get("kind"):
+                    row["recommendation_kind"] = recommendation["kind"]
+            relation_rows.append(row)
         result.append(
             {
                 "index": dataset_index,
@@ -3458,12 +3878,15 @@ def _mapping_dataset_views(
                 "scalar_mapped_total": len(scalar_by_target),
                 "scalar_page": current_scalar_page,
                 "scalar_page_count": scalar_page_count,
+                "scalar_page_size": scalar_page_size,
                 "relation_rows": tuple(relation_rows),
                 "relation_catalog_total": len(all_relation_fields),
                 "relation_matching_total": len(relation_candidates),
                 "relation_mapped_total": len(relation_by_target),
                 "relation_page": current_relation_page,
                 "relation_page_count": relation_page_count,
+                "relation_page_size": relation_page_size,
+                "relation_query": relation_query,
                 "field_query": field_query,
                 "mapped_only": mapped_only,
                 "other_datasets": tuple(
@@ -3503,56 +3926,6 @@ def _mapping_dataset_views(
                 ),
             }
         )
-    views_by_dataset = {
-        view["source"].dataset_id: view for view in result
-    }
-    for view in result:
-        source = view["source"]
-        link = link_by_child.get(source.dataset_id)
-        if link is None:
-            continue
-        parent_view = views_by_dataset.get(link.parent_dataset_id)
-        parent_model = parent_view["selected_model"] if parent_view else None
-        for relation_row in view["relation_rows"]:
-            metadata = relation_row["metadata"]
-            if metadata.relation != parent_model:
-                continue
-            relation_row["recommended_dataset_id"] = link.parent_dataset_id
-            relation_row["recommended_source_columns"] = (
-                link.reference_column_keys
-            )
-    for view in result:
-        source = view["source"]
-        recommendations: list[
-            tuple[dict[str, object], DerivedDatasetLink]
-        ] = []
-        for link in derived_by_consumer.get(source.dataset_id, ()):
-            derived_view = views_by_dataset.get(link.derived_dataset_id)
-            derived_model = (
-                derived_view["selected_model"] if derived_view else None
-            )
-            matches = tuple(
-                relation_row
-                for relation_row in view["relation_rows"]
-                if relation_row["metadata"].type == "many2one"
-                and relation_row["metadata"].relation == derived_model
-            )
-            if len(matches) == 1:
-                recommendations.append((matches[0], link))
-        for relation_row in view["relation_rows"]:
-            matches = tuple(
-                link
-                for candidate, link in recommendations
-                if candidate is relation_row
-            )
-            if len(matches) != 1:
-                continue
-            link = matches[0]
-            relation_row["recommended_dataset_id"] = link.derived_dataset_id
-            relation_row["recommended_source_columns"] = (
-                link.source_column_key,
-            )
-            relation_row["recommendation_kind"] = "extracted_lookup"
     return tuple(result)
 
 
@@ -3649,6 +4022,16 @@ def _display_mapping_value(value: object) -> str:
     if hasattr(value, "isoformat"):
         return str(value.isoformat())
     return str(value)
+
+
+def _safe_spreadsheet_text(value: object) -> object:
+    """Prevent CSV values from becoming formulas when opened in Excel."""
+
+    if not isinstance(value, str):
+        return value
+    if value.lstrip("\t\r\n").startswith(("=", "+", "-", "@")):
+        return f"'{value}"
+    return value
 
 
 def _mapping_allowed_fields(form, selection, schema) -> set[str]:

@@ -9,6 +9,7 @@ import re
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -31,6 +32,10 @@ from impodo.mapping_semantics import (
     DatasetMapping,
     IdentityComponentMapping,
     MappingTargetMode,
+    ReferenceKeyMapping,
+    RelationshipMapping,
+    RelationshipResolver,
+    ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
     SchemaGovernance,
@@ -1528,21 +1533,29 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(governed.status_code, 303)
         mapping_page = self.client.get(governed.headers["location"])
-        self.assertIn(
-            "Governed mapping · Map source columns to Odoo",
-            mapping_page.text,
-        )
-        self.assertIn("Map source columns to Odoo", mapping_page.text)
+        self.assertIn("<p class=\"eyebrow\">Mapping</p>", mapping_page.text)
+        self.assertIn("Match your data to Odoo", mapping_page.text)
+        self.assertIn('<details class="technical-evidence">', mapping_page.text)
+        self.assertNotIn("Evidence binding", mapping_page.text)
+        self.assertIn("How do we identify each source row?", mapping_page.text)
+        self.assertIn("How do we find the matching Odoo record?", mapping_page.text)
+        self.assertIn('class="identity-pair"', mapping_page.text)
         self.assertIn("res.partner::name", mapping_page.text)
-        self.assertIn("Existing Odoo catalog", mapping_page.text)
+        self.assertIn("Existing Odoo records", mapping_page.text)
         self.assertIn("inverse parent_id", mapping_page.text)
         self.assertIn("Source + fallback", mapping_page.text)
         self.assertIn("Leave unset / Odoo default", mapping_page.text)
-        self.assertIn("Search scalar fields", mapping_page.text)
+        self.assertIn("Fields to fill in Odoo", mapping_page.text)
+        self.assertNotIn("Scalar target fields", mapping_page.text)
+        self.assertIn("Find an Odoo field", mapping_page.text)
         self.assertIn(
-            "Results and totals update here without refreshing or saving",
+            "Choose where each Odoo field gets its value",
             mapping_page.text,
         )
+        self.assertIn("Links to other Odoo records", mapping_page.text)
+        self.assertIn("such as a product category", mapping_page.text)
+        self.assertIn("Find a linked Odoo field", mapping_page.text)
+        self.assertIn("data-relation-pagination", mapping_page.text)
         self.assertIn("data-scalar-pagination", mapping_page.text)
         self.assertIn("data-scalar-table-scroll-top", mapping_page.text)
         self.assertIn(
@@ -1571,13 +1584,16 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("new DOMParser()", mapping_script.text)
         self.assertIn("window.history.replaceState", mapping_script.text)
         self.assertIn("restoreScalarRow(row)", mapping_script.text)
+        self.assertIn("restoreRelationRow(row)", mapping_script.text)
+        self.assertIn("scheduleRelationCatalogSearch", mapping_script.text)
+        self.assertIn("relationDraftRows", mapping_script.text)
         self.assertNotIn("pendingRedirect", mapping_script.text)
         self.assertNotIn(
             "mappingForm.requestSubmit(saveProgress)",
             mapping_script.text,
         )
         self.assertIn(
-            "Searching the complete scalar-field catalog",
+            "Searching Odoo fields",
             mapping_script.text,
         )
         self.assertIn(
@@ -1766,6 +1782,32 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(product_field.validation.segment_location, "first")
         self.assertEqual(product_field.validation.character_class, "uppercase")
 
+        impact_link = (
+            f"/projects/{project_id}/mapping/transformation-impact"
+        )
+        self.assertIn("Review transformation impact", submitted_page.text)
+        impact_page = self.client.get(impact_link)
+        self.assertEqual(impact_page.status_code, 200)
+        self.assertIn("Transformation impact", impact_page.text)
+        self.assertIn("Raw source", impact_page.text)
+        self.assertIn("Proposed value", impact_page.text)
+        self.assertIn("Download filtered rows (.csv)", impact_page.text)
+        self.assertIn("Download all affected rows (.csv)", impact_page.text)
+        self.assertIn("Your registered Excel or CSV source remains unchanged", impact_page.text)
+        self.assertIn("data-impact-row", impact_page.text)
+        impact_csv = self.client.post(
+            f"{impact_link}.csv",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(impact_csv.status_code, 200)
+        self.assertIn("text/csv", impact_csv.headers["content-type"])
+        self.assertIn("Raw source", impact_csv.text)
+        self.assertIn("Proposed value", impact_csv.text)
+        mapping_script = self.client.get("/static/app.js")
+        self.assertIn('new Blob(["\\uFEFF"', mapping_script.text)
+        self.assertIn("data-impact-export", mapping_script.text)
+
         summary = self.client.get(f"/projects/{project_id}/summary")
         self.assertIn("Check data readiness", summary.text)
         checked = self.client.post(
@@ -1783,6 +1825,116 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Technical details", readiness_page.text)
         self.assertIn("Generate review package", readiness_page.text)
         self.assertIn("Impodo did not change Odoo", readiness_page.text)
+
+        readiness = self.app.state.context.readiness
+        report = readiness.current_report(project_id)
+        assert report is not None
+        sample_row = report.rows[0]
+        paged_rows = tuple(
+            replace(
+                sample_row,
+                source_row=index,
+                status="blocked" if index <= 120 else "ready",
+                identity=f"ROW-{index:04d}",
+            )
+            for index in range(1, 202)
+        )
+        paged_datasets = tuple(
+            replace(
+                item,
+                total=201,
+                ready=81,
+                needs_review=0,
+                blocked=120,
+            )
+            if item.dataset == sample_row.dataset
+            else item
+            for item in report.datasets
+        )
+        paged_report = replace(
+            report,
+            datasets=paged_datasets,
+            rows=paged_rows,
+        )
+        with patch.object(
+            readiness,
+            "current_report",
+            return_value=paged_report,
+        ):
+            first_page = self.client.get(
+                f"/projects/{project_id}/summary"
+            )
+            self.assertEqual(
+                first_page.text.count("data-readiness-row"),
+                100,
+            )
+            self.assertIn("Rows 1-100 of 201", first_page.text)
+            self.assertIn("Page 1 of 3", first_page.text)
+            self.assertIn("ROW-0100", first_page.text)
+            self.assertNotIn("ROW-0101", first_page.text)
+            next_match = re.search(
+                r'href="([^"]+)" data-readiness-next',
+                first_page.text,
+            )
+            assert next_match is not None
+            next_query = parse_qs(
+                urlsplit(unescape(next_match.group(1))).query
+            )
+            self.assertEqual(next_query["page"], ["2"])
+
+            second_page = self.client.get(
+                f"/projects/{project_id}/summary?page=2"
+            )
+            self.assertEqual(
+                second_page.text.count("data-readiness-row"),
+                100,
+            )
+            self.assertIn("Rows 101-200 of 201", second_page.text)
+            self.assertIn("ROW-0101", second_page.text)
+            self.assertIn("ROW-0200", second_page.text)
+            self.assertNotIn("ROW-0001", second_page.text)
+
+            clamped_page = self.client.get(
+                f"/projects/{project_id}/summary?page=999"
+            )
+            self.assertEqual(
+                clamped_page.text.count("data-readiness-row"),
+                1,
+            )
+            self.assertIn("Rows 201-201 of 201", clamped_page.text)
+            self.assertIn("Page 3 of 3", clamped_page.text)
+            self.assertIn("ROW-0201", clamped_page.text)
+
+            filtered_page = self.client.get(
+                f"/projects/{project_id}/summary",
+                params={
+                    "status": "blocked",
+                    "dataset": sample_row.dataset,
+                    "page": "2",
+                },
+            )
+            self.assertEqual(
+                filtered_page.text.count("data-readiness-row"),
+                20,
+            )
+            self.assertIn("Rows 101-120 of 120", filtered_page.text)
+            self.assertIn("Page 2 of 2", filtered_page.text)
+            self.assertNotIn("data-readiness-next", filtered_page.text)
+            previous_match = re.search(
+                r'href="([^"]+)" data-readiness-previous',
+                filtered_page.text,
+            )
+            assert previous_match is not None
+            previous_query = parse_qs(
+                urlsplit(unescape(previous_match.group(1))).query
+            )
+            self.assertEqual(previous_query["status"], ["blocked"])
+            self.assertEqual(
+                previous_query["dataset"],
+                [sample_row.dataset],
+            )
+            self.assertNotIn("page", previous_query)
+
         self.assertEqual(len(self.readiness_calls), 1)
         readiness_requests = self.readiness_calls[0][2]
         self.assertEqual(
@@ -1946,6 +2098,102 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIsNone(context.repository.get_mapping_revision(project_id))
 
+    def test_relationship_catalog_is_searchable_and_progressively_disclosed(
+        self,
+    ) -> None:
+        project_id, dataset, _business_key = self._mapping_ready_project(
+            scalar_field_count=1,
+            relationship_field_count=51,
+        )
+        source_identity, source_value = dataset.columns
+        context = self.app.state.context
+        initial = context.mapping_workspace.save_working_draft(
+            project_id,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=dataset.dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(source_identity.stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(source_identity.stable_key,),
+                            target_fields=("ref",),
+                        ),
+                    ),
+                    relationships=(
+                        RelationshipMapping(
+                            target_field="relation_0050",
+                            kind="many2one",
+                            source_column_keys=(source_value.stable_key,),
+                            resolver=RelationshipResolver(
+                                origin=ResolverOrigin.TARGET_CATALOG,
+                                model="res.partner",
+                                key_mappings=(
+                                    ReferenceKeyMapping(
+                                        source_column_key=source_value.stable_key,
+                                        target_field="ref",
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            expected_version=None,
+            actor=context.actor,
+        )
+        self.assertEqual(initial.version, 1)
+
+        page = self.client.get(f"/projects/{project_id}/mapping")
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.text.count("data-relation-field-row"), 3)
+        self.assertIn("Showing 3 of 51 linked fields", page.text)
+        self.assertIn('data-relation-page-size="3"', page.text)
+        self.assertLess(
+            page.text.index("relation_0050"),
+            page.text.index("relation_0000"),
+        )
+        self.assertNotIn("relation_0002</code>", page.text)
+
+        expanded = self.client.get(
+            f"/projects/{project_id}/mapping?relation_page_size=20"
+        )
+        self.assertEqual(expanded.text.count("data-relation-field-row"), 20)
+        self.assertIn('data-relation-page-size="20"', expanded.text)
+
+        searched = self.client.get(
+            f"/projects/{project_id}/mapping?relation_query=relation_0049"
+        )
+        self.assertEqual(searched.status_code, 200)
+        self.assertEqual(searched.text.count("data-relation-field-row"), 1)
+        self.assertIn("Linked Field 0049", searched.text)
+        self.assertIn("Showing 1 of 1 linked fields", searched.text)
+
+        searched_by_model = self.client.get(
+            f"/projects/{project_id}/mapping?relation_query=res.partner"
+        )
+        self.assertEqual(
+            searched_by_model.text.count("data-relation-field-row"),
+            3,
+        )
+        self.assertIn("Showing 3 of 51 linked fields", searched_by_model.text)
+
+        last_page = self.client.get(
+            f"/projects/{project_id}/mapping?relation_page=17"
+        )
+        self.assertEqual(last_page.text.count("data-relation-field-row"), 3)
+        self.assertIn("relation_0049", last_page.text)
+
+        rejected_size = self.client.get(
+            f"/projects/{project_id}/mapping?relation_page_size=100"
+        )
+        self.assertEqual(
+            rejected_size.text.count("data-relation-field-row"),
+            3,
+        )
+        self.assertIn('data-relation-page-size="3"', rejected_size.text)
+
     def test_large_mapping_catalog_is_paged_and_saved_sparsely(self) -> None:
         project_id, dataset, business_key = self._mapping_ready_project(
             scalar_field_count=1500
@@ -1983,20 +2231,37 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         page = self.client.get(f"/projects/{project_id}/mapping")
         self.assertEqual(page.status_code, 200)
-        self.assertEqual(page.text.count("data-scalar-mapping-row"), 25)
-        self.assertIn("1500 matching", page.text)
-        self.assertIn("page 1 of 60", page.text)
+        self.assertEqual(page.text.count("data-scalar-mapping-row"), 3)
+        self.assertIn("Showing 3 of 1500 fields", page.text)
+        self.assertIn("Page 1 of 500", page.text)
         self.assertIn("field_0000", page.text)
-        self.assertNotIn("field_0025</code>", page.text)
+        self.assertNotIn("field_0003</code>", page.text)
         self.assertIn("template data-source-column-options", page.text)
         self.assertLess(page.text.count(source_value.stable_key), 100)
 
         last_page = self.client.get(
-            f"/projects/{project_id}/mapping?scalar_page=60"
+            f"/projects/{project_id}/mapping?scalar_page=500"
         )
-        self.assertEqual(last_page.text.count("data-scalar-mapping-row"), 25)
+        self.assertEqual(last_page.text.count("data-scalar-mapping-row"), 3)
         self.assertIn("field_1499", last_page.text)
-        self.assertIn("scalar_page=60", last_page.text)
+        self.assertIn("scalar_page=500", last_page.text)
+
+        expanded = self.client.get(
+            f"/projects/{project_id}/mapping?scalar_page_size=50"
+        )
+        self.assertEqual(expanded.text.count("data-scalar-mapping-row"), 50)
+        self.assertIn("field_0049", expanded.text)
+        self.assertNotIn("field_0050</code>", expanded.text)
+        self.assertIn('data-scalar-page-size="50"', expanded.text)
+
+        rejected_size = self.client.get(
+            f"/projects/{project_id}/mapping?scalar_page_size=100"
+        )
+        self.assertEqual(
+            rejected_size.text.count("data-scalar-mapping-row"),
+            3,
+        )
+        self.assertIn('data-scalar-page-size="3"', rejected_size.text)
 
         searched = self.client.get(
             f"/projects/{project_id}/mapping?field_query=field_1499"
@@ -2140,7 +2405,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         recovery_page = self.client.get(recovered.headers["location"])
         self.assertIn("No mapping change was saved", recovery_page.text)
 
-    def _mapping_ready_project(self, *, scalar_field_count: int):
+    def _mapping_ready_project(
+        self,
+        *,
+        scalar_field_count: int,
+        relationship_field_count: int = 0,
+    ):
         context = self.app.state.context
         created = context.projects.create_project(
             actor=context.actor,
@@ -2219,6 +2489,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     selection=(),
                 )
                 for index in range(scalar_field_count)
+            ),
+            *(
+                SchemaField(
+                    name=f"relation_{index:04d}",
+                    label=f"Linked Field {index:04d}",
+                    type="many2one",
+                    required=False,
+                    readonly=False,
+                    relation="res.partner",
+                    relation_field=None,
+                    selection=(),
+                )
+                for index in range(relationship_field_count)
             ),
         )
         schema = OdooSchemaCatalog(

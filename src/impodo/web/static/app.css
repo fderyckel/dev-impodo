@@ -702,7 +702,8 @@ input:focus,
 select:focus,
 textarea:focus,
 button:focus,
-a:focus {
+a:focus,
+summary:focus {
   outline: 3px solid #f3a6a1;
   outline-offset: 2px;
 }
@@ -719,19 +720,35 @@ label.checkbox input {
   margin-top: .28rem;
 }
 
-.evidence-card {
-  border-right: 0;
-  border-left: 0;
-  background: var(--impodo-soft);
-  padding-top: 1.8rem;
-  padding-bottom: 1.8rem;
+.technical-evidence {
+  margin: .65rem 0 1.4rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: .82rem;
+  padding: 0 0 .65rem;
 }
 
-.evidence-card h2 {
-  color: var(--impodo-red);
-  font-size: .82rem;
-  letter-spacing: .1em;
-  text-transform: uppercase;
+.technical-evidence > summary {
+  width: fit-content;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.technical-evidence > summary small {
+  margin-left: .45rem;
+  font-weight: 400;
+}
+
+.technical-evidence[open] > summary {
+  color: var(--ink);
+  margin-bottom: .8rem;
+}
+
+.technical-evidence .definition-list {
+  margin-top: 0;
+  border: 1px solid var(--line);
+  background: var(--impodo-soft);
+  padding: 1rem;
 }
 
 .definition-list {
@@ -769,6 +786,71 @@ label.checkbox input {
   border-left: 0;
 }
 
+.identity-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  margin-top: 2rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1.5rem;
+}
+
+.identity-panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--impodo-soft);
+  padding: 1.2rem;
+}
+
+.identity-panel .eyebrow {
+  margin-bottom: .35rem;
+}
+
+.identity-panel h3 {
+  margin: 0;
+  color: var(--impodo-charcoal-dark);
+  font-size: 1.12rem;
+}
+
+.identity-panel > .muted {
+  min-height: 2.8rem;
+  margin: .45rem 0 .8rem;
+}
+
+.identity-match-list {
+  margin-top: 1rem;
+}
+
+.identity-match-row {
+  border-top: 1px solid var(--line);
+  padding: 1rem 0 .15rem;
+}
+
+.identity-field-name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: .35rem .55rem;
+}
+
+.identity-role {
+  color: var(--impodo-red-dark);
+  font-size: .7rem;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.identity-field-name code {
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.identity-match-row label {
+  margin: .75rem 0;
+  font-size: .86rem;
+}
+
 .mapping-dataset > h3 {
   margin-top: 2.25rem;
   padding-top: 1.4rem;
@@ -787,8 +869,77 @@ label.checkbox input {
   padding: 1rem 1.2rem;
 }
 
-.relationship-card h4 {
-  margin: 0 0 .35rem;
+.relationship-card > summary {
+  cursor: pointer;
+  list-style-position: inside;
+  font-weight: 700;
+}
+
+.relationship-card[open] > summary {
+  margin-bottom: .8rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: .75rem;
+}
+
+.relationship-card-state {
+  float: right;
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 700;
+}
+
+.related-records {
+  margin-top: 2.25rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 1rem 0;
+}
+
+.related-records > summary {
+  position: relative;
+  cursor: pointer;
+  list-style-position: inside;
+  padding-right: 6rem;
+}
+
+.related-records-heading,
+.related-records-help {
+  display: block;
+}
+
+.related-records-heading {
+  display: inline;
+  color: var(--impodo-charcoal-dark);
+  font-size: 1.05rem;
+  font-weight: 750;
+}
+
+.related-records-help {
+  max-width: 50rem;
+  margin: .35rem 0 0 1.15rem;
+  color: var(--muted);
+  font-size: .88rem;
+  font-weight: 400;
+}
+
+.related-records-count {
+  position: absolute;
+  top: .05rem;
+  right: 0;
+  color: var(--muted);
+  font-size: .78rem;
+  font-weight: 700;
+}
+
+.related-records[open] > summary {
+  margin-bottom: 1rem;
+}
+
+.related-records-example {
+  max-width: 56rem;
+  border-left: 3px solid var(--impodo-red);
+  background: var(--impodo-soft);
+  padding: .8rem 1rem;
 }
 
 .policy-row {
@@ -1044,6 +1195,57 @@ dd {
 .field-catalog-tools .muted {
   grid-column: 1 / -1;
   margin: 0;
+}
+
+.relation-catalog-tools {
+  margin-bottom: 1rem;
+}
+
+.field-catalog-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .8rem 1.25rem;
+  margin-top: 1rem;
+}
+
+.field-page-size,
+.field-pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .45rem;
+}
+
+.field-page-size > span {
+  margin-right: .2rem;
+  color: var(--muted);
+  font-size: .82rem;
+  font-weight: 650;
+}
+
+.field-count-button {
+  min-width: 2.2rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: white;
+  color: var(--impodo-charcoal-dark);
+  font-size: .82rem;
+  font-weight: 700;
+  padding: .4rem .55rem;
+  text-align: center;
+  text-decoration: none;
+}
+
+.field-count-button:hover {
+  border-color: var(--impodo-red);
+}
+
+.field-count-button.active {
+  border-color: var(--impodo-red-dark);
+  background: var(--impodo-red-dark);
+  color: white;
 }
 
 .model-picker-list {
@@ -1955,6 +2157,23 @@ label.model-choice input {
   min-width: 15rem;
 }
 
+.readiness-row-summary,
+.readiness-pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .55rem;
+}
+
+.readiness-row-summary {
+  justify-content: flex-end;
+}
+
+.readiness-pagination {
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
 .row-field {
   display: block;
   margin-top: .25rem;
@@ -2000,6 +2219,133 @@ label.model-choice input {
   font-weight: 800;
   letter-spacing: .04em;
   text-transform: uppercase;
+}
+
+.impact-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: .8rem;
+  margin: 1rem 0 1.4rem;
+}
+
+.impact-card {
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--impodo-grey);
+  border-radius: 8px;
+  background: white;
+  padding: .85rem 1rem;
+}
+
+.impact-card span,
+.impact-card strong {
+  display: block;
+}
+
+.impact-card strong {
+  margin-top: .25rem;
+  font-size: 1.5rem;
+}
+
+.impact-card.changed,
+.impact-card.provided {
+  border-left-color: #2f6b9a;
+}
+
+.impact-card.fallback,
+.impact-card.null {
+  border-left-color: var(--impodo-warning);
+}
+
+.impact-card.invalid {
+  border-left-color: var(--danger);
+}
+
+.impact-card.unchanged {
+  border-left-color: var(--impodo-grey);
+}
+
+.impact-tools {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(12rem, 1fr));
+  align-items: end;
+  gap: .8rem;
+  margin: 1rem 0;
+}
+
+.impact-tools .muted {
+  margin: 0 0 .7rem;
+}
+
+.impact-table th:nth-child(5),
+.impact-table th:nth-child(6) {
+  min-width: 13rem;
+}
+
+.impact-table th:nth-child(7) {
+  min-width: 15rem;
+}
+
+.impact-row td:first-child {
+  border-left: 4px solid var(--impodo-grey);
+}
+
+.impact-row.outcome-changed td:first-child,
+.impact-row.outcome-provided td:first-child {
+  border-left-color: #2f6b9a;
+}
+
+.impact-row.outcome-fallback td:first-child,
+.impact-row.outcome-null td:first-child {
+  border-left-color: var(--impodo-warning);
+}
+
+.impact-row.outcome-invalid td:first-child {
+  border-left-color: var(--danger);
+}
+
+.impact-value {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.impact-value.proposed {
+  font-weight: 700;
+}
+
+.impact-result {
+  display: inline-block;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: .22rem .55rem;
+  font-size: .78rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.impact-result.changed,
+.impact-result.provided {
+  border-color: #a8c5da;
+  background: #eef6fb;
+  color: #245579;
+}
+
+.impact-result.fallback,
+.impact-result.null {
+  border-color: #e5c37f;
+  background: var(--warning-bg);
+  color: var(--impodo-warning);
+}
+
+.impact-result.invalid {
+  border-color: #e4aaa6;
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+@media (max-width: 820px) {
+  .impact-tools {
+    grid-template-columns: 1fr;
+  }
 }
 
 .nested-rule-card {
@@ -2235,10 +2581,30 @@ label.model-choice input {
   .summary-grid,
   .choice-grid,
   .mode-grid,
+  .identity-pair,
   .model-picker-tools,
   .field-catalog-tools,
   .definition-list {
     grid-template-columns: 1fr;
+  }
+
+  .identity-panel > .muted {
+    min-height: 0;
+  }
+
+  .field-catalog-navigation {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .related-records > summary {
+    padding-right: 0;
+  }
+
+  .related-records-count {
+    position: static;
+    display: block;
+    margin: .35rem 0 0 1.15rem;
   }
 
   .metric-grid,

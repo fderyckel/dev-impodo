@@ -32,11 +32,13 @@ The screenshots use fictional training data at a desktop viewport.
 7. Confirm natural business keys and scope.
 8. Map identity, ordinary fields, and relationships.
 9. Save progress regularly, then validate a coherent mapping revision.
-10. Resolve blocking findings, review warnings, and submit the exact revision.
-11. Open **Summary**, select **Check data readiness**, and review every blocked
+10. Select **Review transformation impact** and inspect the raw-to-proposed
+    results across the frozen source.
+11. Resolve blocking findings, review warnings, and submit the exact revision.
+12. Open **Summary**, select **Check data readiness**, and review every blocked
     or decision-required row.
-12. Generate the review package when every row is ready.
-13. Use **Quit Impodo** when finished.
+13. Generate the review package when every row is ready.
+14. Use **Quit Impodo** when finished.
 
 ## Before starting
 
@@ -219,42 +221,47 @@ Choose:
 - `create` for controlled new records with an explicit existing-key policy;
 - `reference` for supporting relationship data without an import decision.
 
-Map in this order:
+The page keeps the first two choices side by side so you can compare source and
+Odoo directly. Work in this order:
 
-1. Source trace identity: the exact source row key.
-2. Target identity and company/tenant/parent scope.
-3. Writable scalar fields.
-4. Relationships.
+1. **Source**: choose the column or combination that identifies each source row.
+2. **Odoo**: choose how the matching Odoo record is identified, including any
+   company, tenant, or parent scope.
+3. **Fields to fill in Odoo**: choose where ordinary values come from.
+4. **Links to other Odoo records**: connect categories, units, companies,
+   parents, and other related records.
 
-### Scalar fields: choose what Impodo should do
+### Fields to fill in Odoo
 
 A scalar field is an ordinary Odoo value such as a name, code, date, amount,
-checkbox, note, or selection. Each row in **Scalar target fields** answers four
-questions:
+checkbox, note, or selection. The page calls these **Fields to fill in Odoo**;
+you do not need to know the technical term. Each row answers four questions:
 
 1. Where should the value come from?
 2. What consistent value type should Impodo produce?
 3. Which transformations should be applied?
 4. How should the value be checked and compared?
 
-Start with the Odoo field you want to populate, then work from left to right.
-Use **Show mapped fields only** after the first save to focus on the choices
-you have made.
+Only three fields are shown at first. Search by business label or technical
+name, or use the **3**, **10**, **20**, and **50** controls to show more. Start
+with the Odoo field you want to populate, then work from left to right. Use
+**Show only fields already mapped** after the first save to focus on the
+choices you have made.
 
 #### Choose where the value comes from
 
-![Value-provider and canonical-value controls in the scalar mapping table.](../images/impodo-local-browser-guide/06-scalar-value-providers.png)
+![Value source and cleanup controls in the Odoo field mapping table.](../images/impodo-local-browser-guide/06-scalar-value-providers.png)
 
 Each row represents one Odoo field:
 
 | Column | What it tells you |
 | --- | --- |
-| **Value provider** | Where the proposed value comes from |
-| **Canonical value** | How Impodo normalizes and interprets that value |
+| **Value comes from** | Where the proposed value comes from |
+| **Format and cleanup** | How Impodo normalizes and interprets that value |
 | **Odoo field** | The business label and technical field name |
-| **Metadata** | The captured Odoo type and whether the field is required or read-only |
+| **Odoo details** | The captured Odoo type and whether the field is required or read-only |
 | **Preview** | One source example before and after the current rules |
-| **Policies** | Whether and when the field is compared or required |
+| **Checks** | Whether and when the field is compared or required |
 
 A read-only Odoo field may appear as useful target context, but it cannot be
 proposed for writing. **Not mapped** excludes the field even when default
@@ -422,11 +429,23 @@ converted.
 
 The preview is a working aid, not the complete dataset result. Select **Save
 progress** to keep unfinished work without validation. Select **Validate draft**
-to check the complete mapping definition. After submitting the exact validated
-revision, open **Summary** and select **Check data readiness**; that step reloads
-every frozen row, applies these controls, checks relationships and target
-matches, and reports **Ready**, **Needs review**, or **Blocked** without changing
-Odoo.
+to check the complete mapping definition. When that definition is valid, select
+**Review transformation impact** before submission. Impodo then reloads every
+frozen source row locally and reports each affected raw source value beside its
+proposed value without contacting Odoo.
+
+The transformation page provides complete counts for changed, fallback, null,
+invalid, constant-provided, and unchanged values. The browser table shows up to
+5,000 affected values and supports local dataset, outcome, and text filters.
+Select **Download filtered rows (.csv)** for the current view or **Download all
+affected rows (.csv)** for complete row-level evidence. These controls use only
+the JavaScript shipped with Impodo; they do not use a CDN, browser extension, or
+Node.js.
+
+After submitting the exact validated revision, open **Summary** and select
+**Check data readiness**. That later step repeats the mapping over every frozen
+row, checks relationships and target matches, and reports **Ready**, **Needs
+review**, or **Blocked** without changing Odoo.
 
 #### Worked example
 
@@ -448,14 +467,27 @@ cell becomes null after trimming, so Impodo uses `"Unnamed company"`. During
 the row-level readiness check, an existing contact can be compared normally;
 a new contact must have the resulting name before it can be marked ready.
 
-### Map relationships
+### Link to other Odoo records
 
 ![Relationship mapping.](../images/impodo-local-browser-guide/07-relationship-mapping.png)
 
-Relationships use governed business keys:
+Open **Links to other Odoo records** when a source value must point to a
+category, unit of measure, company, parent, or another Odoo record. For example,
+the `Category` value on a product row can be matched to a category in another
+incoming dataset or to an existing category in Odoo.
 
-- **Incoming dataset** when the related record is part of this project;
-- **Existing Odoo catalog** when it must already exist in the target.
+These links use confirmed matching rules:
+
+- **Another incoming dataset** when the related record is part of this project;
+- **Existing Odoo records** when it must already exist in the target.
+
+The page shows three linked fields at first. Search the complete captured model
+by business label, technical field name, or related Odoo model; for example,
+`Category`, `categ_id`, or `product.category`. Use **3**, **10**, **20**, or
+**50** to change the number shown. Existing mappings appear first, followed by
+Impodo's prepared-dataset suggestions and then the remaining fields in
+alphabetical order. Searching and paging use the cached schema and do not
+reconnect to Odoo.
 
 For many2many fields, declare the separator and `replace`, `add`, or `remove`.
 Do not map a parent's one2many list directly; map the inverse many2one on each
@@ -488,6 +520,12 @@ Validation checks the mapping structure and meaning. Row-level values,
 uniqueness, relationship resolution, and target matches are checked after
 submission through **Check data readiness**.
 
+For a valid or valid-with-warnings revision, select **Review transformation
+impact** before submission. This is the normalization and transformation review:
+it compares the raw scalar input with the locally proposed value across every
+frozen row. Resolve invalid results and obtain the data owner's agreement on
+intentional changes before submitting the exact mapping.
+
 **Submit exact validated mapping** binds the exact mapping, validation, source,
 schema, and business-key evidence. Submission is not functional approval,
 clean-package certification, an Odoo import, or a write action.
@@ -514,14 +552,19 @@ the check again. When every row is ready, generate the review package. The
 readiness check and review package remain read-only and do not authorize an
 Odoo import.
 
+The downloadable Excel review package is created by Impodo's controlled Python
+runtime using the same `openpyxl` dependency already used for governed XLSX
+intake. It does not require Node.js. The workbook is downloaded for review; it
+is not embedded as an Excel preview in the browser.
+
 ## Use Impodo safely today
 
 - Preserve the registered source and prefer a new source-owner export for
   corrections.
 - Configure each visible provider, transformation, type, and policy so its
   intent is retained with the mapping hash.
-- Use the preview while authoring, then use **Check data readiness** for the
-  complete frozen row set.
+- Use the one-value preview while authoring, **Review transformation impact**
+  after validation, and **Check data readiness** after submission.
 - Recheck business keys, transformations, and relationships after any source
   or mapping revision.
 - Treat **Valid**, **Submitted**, and **Ready** as review states, never as Odoo

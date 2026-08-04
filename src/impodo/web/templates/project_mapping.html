@@ -3,9 +3,9 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Governed mapping · Map source columns to Odoo</p>
-      <h1>Map source columns to Odoo</h1>
-      <p>Define each dataset's identity, scope, scalar fields, and logical business-key relationships.</p>
+      <p class="eyebrow">Mapping</p>
+      <h1>Match your data to Odoo</h1>
+      <p>Choose how each source dataset identifies records and fills Odoo fields.</p>
     </div>
     {% if has_unvalidated_changes %}
       <span class="status">WORKING DRAFT · v{{ working_draft.version }}</span>
@@ -51,8 +51,11 @@
       {% endfor %}
       <div class="notice error" data-mapping-save-error role="alert" hidden></div>
 
-      <section class="form-card evidence-card">
-        <h2>Evidence binding</h2>
+      <details class="technical-evidence">
+        <summary>
+          Technical evidence
+          <small>For audit and support</small>
+        </summary>
         <div class="definition-list">
           <div><dt>Frozen source</dt><dd><code title="{{ selection.content_hash }}">{{ selection.content_hash }}</code></dd></div>
           <div><dt>Governed schema</dt><dd><code title="{{ governance.content_hash }}">{{ governance.content_hash }}</code></dd></div>
@@ -60,7 +63,7 @@
           {% if revision %}<div><dt>Mapping</dt><dd><code title="{{ revision.definition.content_hash }}">{{ revision.definition.content_hash }}</code></dd></div>{% endif %}
           {% if validation %}<div><dt>Validation</dt><dd><code title="{{ validation.validation_hash }}">{{ validation.validation_hash }}</code></dd></div>{% endif %}
         </div>
-      </section>
+      </details>
 
       {% for view in dataset_views %}
         {% set dataset_index = view.index %}
@@ -129,96 +132,106 @@
             </label>
           </div>
 
-          <h3 id="source-identity-{{ dataset_index }}">Source trace identity</h3>
-          <p class="muted">Select the stable source columns used for traceability and duplicate detection.</p>
-          <select name="source_identity_{{ dataset_index }}" multiple size="{{ [view.source.columns|length, 6]|min }}">
-            {% set selected_source_identity = view.mapping.source_identity_column_keys if view.mapping else view.recommended_source_identity %}
-            {% for column in view.source.columns %}
-              <option value="{{ column.stable_key }}" {% if column.stable_key in selected_source_identity %}selected{% endif %}>
-                {{ column.source_name }} ({{ column.candidate_type }})
-              </option>
-            {% endfor %}
-          </select>
+          <div class="identity-pair">
+            <section class="identity-panel" aria-labelledby="source-identity-{{ dataset_index }}">
+              <p class="eyebrow">Source</p>
+              <h3 id="source-identity-{{ dataset_index }}">How do we identify each source row?</h3>
+              <p class="muted">Choose the column or combination of columns that identifies a row in this dataset.</p>
+              <label>
+                Source identifier
+                <select name="source_identity_{{ dataset_index }}" multiple size="{{ [view.source.columns|length, 6]|min }}">
+                  {% set selected_source_identity = view.mapping.source_identity_column_keys if view.mapping else view.recommended_source_identity %}
+                  {% for column in view.source.columns %}
+                    <option value="{{ column.stable_key }}" {% if column.stable_key in selected_source_identity %}selected{% endif %}>
+                      {{ column.source_name }} ({{ column.candidate_type }})
+                    </option>
+                  {% endfor %}
+                </select>
+                <small>Use Ctrl or Cmd to select more than one column.</small>
+              </label>
+            </section>
 
-          <h3 id="target-identity-{{ dataset_index }}">Target identity and scope</h3>
-          {% if view.business_keys %}
-            <label>
-              Confirmed target business key
-              <select name="business_key_{{ dataset_index }}">
-                {% for key in view.business_keys %}
-                  <option value="{{ key.key_id }}" {% if view.selected_key and key.key_id == view.selected_key.key_id %}selected{% endif %}>
-                    {{ key.description or key.key_id }} · {{ key.key_fields|join(' + ') }}
-                    {% if key.scope_fields %} / scope {{ key.scope_fields|join(' + ') }}{% endif %}
-                  </option>
-                {% endfor %}
-              </select>
-            </label>
-            <div class="table-scroll">
-              <table class="data-table">
-                <thead><tr><th>Role</th><th>Odoo field</th><th>Type</th><th>Source component(s)</th><th>Resolver key</th></tr></thead>
-                <tbody>
+            <section class="identity-panel" aria-labelledby="target-identity-{{ dataset_index }}">
+              <p class="eyebrow">Odoo</p>
+              <h3 id="target-identity-{{ dataset_index }}">How do we find the matching Odoo record?</h3>
+              <p class="muted">Choose the matching rule, then connect each Odoo identity field to your source.</p>
+              {% if view.business_keys %}
+                <label>
+                  Odoo matching rule
+                  <select name="business_key_{{ dataset_index }}">
+                    {% for key in view.business_keys %}
+                      <option value="{{ key.key_id }}" {% if view.selected_key and key.key_id == view.selected_key.key_id %}selected{% endif %}>
+                        {{ key.description or key.key_id }} · {{ key.key_fields|join(' + ') }}
+                        {% if key.scope_fields %} / scope {{ key.scope_fields|join(' + ') }}{% endif %}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <div class="identity-match-list">
                   {% for row in view.identity_rows %}
-                    <tr>
-                      <td>{{ "Scope" if row.scope else "Identity" }}</td>
-                      <th>{{ row.target_field }}</th>
-                      <td>{{ row.metadata.type if row.metadata else "unknown" }}</td>
-                      <td>
+                    <div class="identity-match-row">
+                      <div class="identity-field-name">
+                        <span class="identity-role">{{ "Scope" if row.scope else "Identity" }}</span>
+                        <strong>{{ row.metadata.label if row.metadata else row.target_field }}</strong>
+                        <code>{{ row.target_field }}</code>
+                      </div>
+                      <label>
+                        Source column{% if row.relational %}(s){% endif %}
                         <select name="identity_source_{{ dataset_index }}_{{ loop.index0 }}" data-lazy-source-column {% if row.relational %}multiple size="{{ [view.source.columns|length, 5]|min }}"{% endif %}>
-                          <option value="">Choose source</option>
+                          <option value="">Choose source column</option>
                           {% for selected_source in row.selected_sources %}
                             {% set column = view.source_by_key.get(selected_source) %}
                             {% if column %}<option value="{{ column.stable_key }}" selected>{{ column.source_name }}</option>{% endif %}
                           {% endfor %}
                         </select>
-                      </td>
-                      <td>
-                        {% if row.relational %}
+                      </label>
+                      {% if row.relational %}
+                        <label>
+                          Related record matching rule
                           <select name="identity_resolver_key_{{ dataset_index }}_{{ loop.index0 }}">
-                            <option value="">Choose confirmed related key</option>
+                            <option value="">Choose a matching rule</option>
                             {% for key in row.related_keys %}
                               <option value="{{ key.key_id }}" {% if row.selected_related_key and key.key_id == row.selected_related_key.key_id %}selected{% endif %}>
                                 {{ key.model }} · {{ key.key_fields|join(' + ') }}
                               </option>
                             {% endfor %}
                           </select>
-                        {% else %}
-                          <span class="muted">Scalar</span>
-                        {% endif %}
-                      </td>
-                    </tr>
+                        </label>
+                      {% endif %}
+                    </div>
                   {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          {% else %}
-            <div class="empty-state">
-              <p>No confirmed business key exists for {{ view.selected_model }}.</p>
-              <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Confirm schema keys</a>
-            </div>
-          {% endif %}
+                </div>
+              {% else %}
+                <div class="empty-state compact">
+                  <p>No matching rule has been confirmed for {{ view.selected_model }}.</p>
+                  <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Set an Odoo matching rule</a>
+                </div>
+              {% endif %}
+            </section>
+          </div>
 
           {% if view.active %}
-          <h3 id="scalar-fields-{{ dataset_index }}">Scalar target fields</h3>
-          <p class="muted">Choose one governed value provider per target field. Constants, fallbacks, and transformations are stored in the exact mapping hash.</p>
+          <h3 id="scalar-fields-{{ dataset_index }}">Fields to fill in Odoo</h3>
+          <p class="muted">Choose where each Odoo field gets its value. Start with the fields below or search for another one.</p>
           <div
             data-scalar-field-catalog
             data-scalar-catalog-total="{{ view.scalar_catalog_total }}"
             data-scalar-matching-total="{{ view.scalar_matching_total }}"
             data-scalar-mapped-total="{{ view.scalar_mapped_total }}"
+            data-scalar-page-size="{{ view.scalar_page_size }}"
           >
             <div class="field-catalog-tools">
               <label>
-                Search scalar fields
-                <input type="search" value="{{ view.field_query }}" data-scalar-field-search placeholder="Search label, technical name, or type" autocomplete="off">
+                Find an Odoo field
+                <input type="search" value="{{ view.field_query }}" data-scalar-field-search placeholder="Example: Sales Price, barcode, or list_price" autocomplete="off">
               </label>
-              <button class="button secondary" type="button" data-field-search-submit>Search now</button>
-              <small>Search covers every scalar field in the active target model. Results and totals update here without refreshing or saving mapping progress.</small>
+              <button class="button secondary" type="button" data-field-search-submit>Search</button>
               <label class="checkbox">
                 <input type="checkbox" data-show-mapped-scalars {% if view.mapped_only %}checked{% endif %}>
-                Show mapped fields only
+                Show only fields already mapped
               </label>
               <p class="muted" data-scalar-field-count>
-                {{ view.scalar_matching_total }} matching · {{ view.scalar_mapped_total }} mapped · page {{ view.scalar_page }} of {{ view.scalar_page_count }}
+                Showing {{ view.scalar_rows|length }} of {{ view.scalar_matching_total }} fields · {{ view.scalar_mapped_total }} mapped
               </p>
             </div>
             <div
@@ -234,7 +247,7 @@
             </div>
             <div class="table-scroll" id="scalar-table-scroll-{{ dataset_index }}" data-scalar-table-scroll>
               <table class="data-table mapping-table">
-              <thead><tr><th>Value provider</th><th>Canonical value</th><th>Odoo field</th><th>Metadata</th><th>Preview</th><th>Policies</th></tr></thead>
+              <thead><tr><th>Value comes from</th><th>Format and cleanup</th><th>Odoo field</th><th>Odoo details</th><th>Preview</th><th>Checks</th></tr></thead>
               <tbody>
                 {% for row in view.scalar_rows %}
                   {% set field_index = row.index %}
@@ -563,31 +576,70 @@
               </tbody>
               </table>
             </div>
-            <nav class="actions" aria-label="Scalar field pages" data-scalar-pagination>
-              {% if view.scalar_previous_url %}<a class="button secondary" href="{{ view.scalar_previous_url }}">Previous fields</a>{% endif %}
-              <span class="muted">Page {{ view.scalar_page }} of {{ view.scalar_page_count }}</span>
-              {% if view.scalar_next_url %}<a class="button secondary" href="{{ view.scalar_next_url }}">Next fields</a>{% endif %}
+            <nav class="field-catalog-navigation" aria-label="Odoo field display options" data-scalar-pagination>
+              <div class="field-page-size" aria-label="Number of fields shown per page">
+                <span>Fields shown:</span>
+                {% for option in view.scalar_page_size_options %}
+                  <a
+                    class="field-count-button{% if option.size == view.scalar_page_size %} active{% endif %}"
+                    href="{{ option.url }}"
+                    {% if option.size == view.scalar_page_size %}aria-current="page"{% endif %}
+                  >{{ option.size }}</a>
+                {% endfor %}
+              </div>
+              <div class="field-pagination">
+                {% if view.scalar_previous_url %}<a class="button secondary" href="{{ view.scalar_previous_url }}">Previous</a>{% endif %}
+                <span class="muted">Page {{ view.scalar_page }} of {{ view.scalar_page_count }}</span>
+                {% if view.scalar_next_url %}<a class="button secondary" href="{{ view.scalar_next_url }}">Next</a>{% endif %}
+              </div>
             </nav>
           </div>
 
-          <h3 id="relationships-{{ dataset_index }}">Relationships</h3>
-          <p class="muted">
-            {{ view.relation_matching_total }} matching relationship fields · {{ view.relation_mapped_total }} mapped · page {{ view.relation_page }} of {{ view.relation_page_count }}
+          <details class="related-records" {% if view.relation_mapped_total %}open{% endif %}>
+          <summary id="relationships-{{ dataset_index }}">
+            <span class="related-records-heading">Links to other Odoo records</span>
+            <span class="related-records-help">Use this when a field points to another record, such as a product category, unit of measure, company, or parent.</span>
+            <span class="related-records-count">{{ view.relation_mapped_total }} mapped</span>
+          </summary>
+          <p class="related-records-example">
+            Example: connect the <strong>Category</strong> value in a products file to the matching category in Odoo or in another incoming dataset.
           </p>
+          <div
+            data-relation-field-catalog
+            data-relation-catalog-total="{{ view.relation_catalog_total }}"
+            data-relation-matching-total="{{ view.relation_matching_total }}"
+            data-relation-mapped-total="{{ view.relation_mapped_total }}"
+            data-relation-page-size="{{ view.relation_page_size }}"
+          >
+          <div class="field-catalog-tools relation-catalog-tools">
+            <label>
+              Find a linked Odoo field
+              <input type="search" value="{{ view.relation_query }}" data-relation-field-search placeholder="Example: Category, categ_id, or product.category" autocomplete="off">
+            </label>
+            <button class="button secondary" type="button" data-relation-search-submit>Search</button>
+            <p class="muted" data-relation-field-count role="status" aria-live="polite">
+              Showing {{ view.relation_rows|length }} of {{ view.relation_matching_total }} linked fields · {{ view.relation_mapped_total }} mapped
+            </p>
+          </div>
+          <div data-relation-field-results>
           {% if view.relation_rows %}
             {% for row in view.relation_rows %}
               {% set relation_index = row.index %}
               {% set mapping = row.mapping %}
-              <div class="relationship-card" data-relation-mapping-row data-target-field="{{ row.metadata.name }}">
+              <details class="relationship-card" data-relation-mapping-row data-relation-field-row data-target-field="{{ row.metadata.name }}" data-relation-search-text="{{ row.metadata.label|lower }} {{ row.metadata.name|lower }} {{ row.metadata.type|lower }} {{ (row.metadata.relation or '')|lower }}" {% if mapping or row.recommended_dataset_id %}open{% endif %}>
+                <summary>
+                  <span><strong>{{ row.metadata.label }}</strong> <code>{{ row.metadata.name }}</code></span>
+                  <span class="relationship-card-state">{{ "Mapped" if mapping else "Not mapped" }}</span>
+                </summary>
                 <input type="hidden" name="visible_relation_target_{{ dataset_index }}" value="{{ row.metadata.name }}">
-                <h4>{{ row.metadata.label }} · <code>{{ row.metadata.name }}</code></h4>
                 <p>
                   {{ row.metadata.type }} → {{ row.metadata.relation or "unknown model" }}
                   {% if row.metadata.relation_field %} · inverse {{ row.metadata.relation_field }}{% endif %}
                 </p>
                 {% if row.metadata.type == 'one2many' %}
                   <div class="notice warning">
-                    Map a child dataset to <code>{{ row.metadata.relation }}.{{ row.metadata.relation_field or "inverse many2one" }}</code>. Impodo never proposes writing this one2many list directly.
+                    This list is filled from its child records. Map the child dataset's parent field instead.
+                    <span class="technical-details">Technical field: <code>{{ row.metadata.relation }}.{{ row.metadata.relation_field or "inverse many2one" }}</code></span>
                   </div>
                 {% else %}
                   {% if row.recommended_dataset_id and not mapping %}
@@ -601,7 +653,7 @@
                   {% endif %}
                   <div class="form-grid">
                     <label>
-                      Source key column(s), in business-key order
+                      Source column(s) containing the related record
                       <select name="relation_source_{{ dataset_index }}_{{ relation_index }}" multiple size="{{ [view.source.columns|length, 5]|min }}" data-lazy-source-column>
                         {% set selected_relation_sources = mapping.source_column_keys if mapping else (row.recommended_source_columns or ()) %}
                         {% for selected_source in selected_relation_sources %}
@@ -611,15 +663,15 @@
                       </select>
                     </label>
                     <label>
-                      Resolution origin
+                      Where should Impodo find the related record?
                       {% set selected_origin = mapping.resolver.origin.value if mapping else ('dataset' if row.recommended_dataset_id else 'target_catalog') %}
                       <select name="relation_origin_{{ dataset_index }}_{{ relation_index }}">
-                        <option value="target_catalog" {% if selected_origin == 'target_catalog' %}selected{% endif %}>Existing Odoo catalog</option>
-                        <option value="dataset" {% if selected_origin == 'dataset' %}selected{% endif %}>Incoming dataset</option>
+                        <option value="target_catalog" {% if selected_origin == 'target_catalog' %}selected{% endif %}>Existing Odoo records</option>
+                        <option value="dataset" {% if selected_origin == 'dataset' %}selected{% endif %}>Another incoming dataset</option>
                       </select>
                     </label>
                     <label>
-                      Incoming dataset
+                      Which incoming dataset?
                       <select name="relation_dataset_{{ dataset_index }}_{{ relation_index }}">
                         <option value="">Not incoming</option>
                         {% for candidate in view.other_datasets %}
@@ -631,7 +683,7 @@
                       </select>
                     </label>
                     <label>
-                      Confirmed target-catalog key
+                      How is the related record identified?
                       <select name="relation_key_{{ dataset_index }}_{{ relation_index }}">
                         <option value="">Choose related key</option>
                         {% for key in row.related_keys %}
@@ -678,20 +730,35 @@
                     </select>
                   </div>
                 {% endif %}
-              </div>
+              </details>
             {% endfor %}
           {% else %}
-            <p class="muted">No relationship field matches the current catalogue filter.</p>
+            <p class="empty-state compact">No linked Odoo field matches your search.</p>
           {% endif %}
-          <nav class="actions" aria-label="Relationship field pages">
-            {% if view.relation_previous_url %}<a class="button secondary" href="{{ view.relation_previous_url }}">Previous relationships</a>{% endif %}
-            <span class="muted">Page {{ view.relation_page }} of {{ view.relation_page_count }}</span>
-            {% if view.relation_next_url %}<a class="button secondary" href="{{ view.relation_next_url }}">Next relationships</a>{% endif %}
+          </div>
+          <nav class="field-catalog-navigation" aria-label="Linked Odoo field display options" data-relation-pagination>
+            <div class="field-page-size" aria-label="Number of linked fields shown per page">
+              <span>Fields shown:</span>
+              {% for option in view.relation_page_size_options %}
+                <a
+                  class="field-count-button{% if option.size == view.relation_page_size %} active{% endif %}"
+                  href="{{ option.url }}"
+                  {% if option.size == view.relation_page_size %}aria-current="page"{% endif %}
+                >{{ option.size }}</a>
+              {% endfor %}
+            </div>
+            <div class="field-pagination">
+              {% if view.relation_previous_url %}<a class="button secondary" href="{{ view.relation_previous_url }}">Previous</a>{% endif %}
+              <span class="muted">Page {{ view.relation_page }} of {{ view.relation_page_count }}</span>
+              {% if view.relation_next_url %}<a class="button secondary" href="{{ view.relation_next_url }}">Next</a>{% endif %}
+            </div>
           </nav>
+          </div>
+          </details>
           {% else %}
             <div class="empty-state compact">
               <p>
-                {{ view.scalar_mapped_total }} scalar and {{ view.relation_mapped_total }} relationship mappings are saved for this dataset.
+                {{ view.scalar_mapped_total }} Odoo fields and {{ view.relation_mapped_total }} linked-record fields are mapped for this dataset.
               </p>
               <a class="button secondary" href="{{ view.edit_url }}">Open this dataset's field catalogue</a>
             </div>
@@ -727,6 +794,12 @@
             </div>
           {% else %}
             <p>No static semantic issue was found. Runtime data checks remain deferred to staging and preflight.</p>
+          {% endif %}
+          {% if validation.status.value != 'INVALID' and revision and not has_unvalidated_changes %}
+            <div class="actions">
+              <a class="button secondary" href="/projects/{{ project.project_id }}/mapping/transformation-impact">Review transformation impact</a>
+            </div>
+            <p class="muted">Applies the exact validated mapping to every frozen source row. This does not contact or change Odoo.</p>
           {% endif %}
           {% for item in warning_issues %}
             <label class="acknowledgement">

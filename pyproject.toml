@@ -48,7 +48,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 impodo = [
-  "resources/*.mjs",
   "web/static/*",
   "web/templates/*.html",
 ]

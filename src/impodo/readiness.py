@@ -87,10 +87,125 @@ from .workspace import SourceDataset, SourceSelection, WorkspaceError
 
 READINESS_CONTRACT_VERSION = 1
 MANIFEST_NAME = "impodo_preflight_manifest.json"
+TRANSFORMATION_IMPACT_DETAIL_LIMIT = 5_000
 
 
 class ReadinessError(WorkspaceError):
     """Raised when the current browser evidence cannot be checked safely."""
+
+
+@dataclass(frozen=True, slots=True)
+class TransformationImpactRow:
+    """One visible raw-to-proposed scalar value change."""
+
+    dataset: str
+    source_row: int
+    source_column: str
+    target_field: str
+    raw_value: str
+    proposed_value: str
+    rules: str
+    outcome: str
+    message: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class TransformationImpactReport:
+    """Bounded browser projection with complete all-row outcome counts."""
+
+    mapping_content_hash: str
+    evaluated_count: int
+    changed_count: int
+    fallback_count: int
+    null_count: int
+    invalid_count: int
+    provided_count: int
+    unchanged_count: int
+    rows: tuple[TransformationImpactRow, ...]
+    detail_limit: int = TRANSFORMATION_IMPACT_DETAIL_LIMIT
+
+    @property
+    def impact_count(self) -> int:
+        return (
+            self.changed_count
+            + self.fallback_count
+            + self.null_count
+            + self.invalid_count
+            + self.provided_count
+        )
+
+    @property
+    def truncated(self) -> bool:
+        return self.impact_count > len(self.rows)
+
+
+@dataclass(slots=True)
+class _TransformationImpactCollector:
+    mapping_content_hash: str
+    detail_limit: int = TRANSFORMATION_IMPACT_DETAIL_LIMIT
+    evaluated_count: int = 0
+    changed_count: int = 0
+    fallback_count: int = 0
+    null_count: int = 0
+    invalid_count: int = 0
+    provided_count: int = 0
+    unchanged_count: int = 0
+    rows: list[TransformationImpactRow] | None = None
+    sink: Callable[[TransformationImpactRow], None] | None = None
+
+    def __post_init__(self) -> None:
+        if self.rows is None:
+            self.rows = []
+
+    def record(
+        self,
+        *,
+        dataset: str,
+        source_row: int,
+        source_column: str,
+        target_field: str,
+        raw_value: object,
+        proposed_value: object,
+        rules: str,
+        outcome: str,
+        message: str = "",
+    ) -> None:
+        self.evaluated_count += 1
+        attribute = f"{outcome}_count"
+        setattr(self, attribute, getattr(self, attribute) + 1)
+        if outcome == "unchanged":
+            return
+        impact = TransformationImpactRow(
+            dataset=dataset,
+            source_row=source_row,
+            source_column=source_column,
+            target_field=target_field,
+            raw_value=_display_value(raw_value),
+            proposed_value=_display_value(proposed_value),
+            rules=rules,
+            outcome=outcome,
+            message=message,
+        )
+        if self.sink is not None:
+            self.sink(impact)
+        if len(self.rows or ()) >= self.detail_limit:
+            return
+        assert self.rows is not None
+        self.rows.append(impact)
+
+    def report(self) -> TransformationImpactReport:
+        return TransformationImpactReport(
+            mapping_content_hash=self.mapping_content_hash,
+            evaluated_count=self.evaluated_count,
+            changed_count=self.changed_count,
+            fallback_count=self.fallback_count,
+            null_count=self.null_count,
+            invalid_count=self.invalid_count,
+            provided_count=self.provided_count,
+            unchanged_count=self.unchanged_count,
+            rows=tuple(self.rows or ()),
+            detail_limit=self.detail_limit,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,6 +359,7 @@ class StagedBrowserMapping:
     prepared: PreparedBundle
     dataset_labels: Mapping[str, str]
     source_field_labels: Mapping[tuple[str, str], str]
+    transformation_impact: TransformationImpactReport | None = None
 
 
 class BrowserReadinessService:
@@ -364,6 +480,11 @@ def stage_browser_mapping(
     plan: DerivedEntityPlan | None,
     catalogs: Iterable[SourceFileCatalog],
     artifacts: ArtifactStore,
+    *,
+    collect_transformation_impact: bool = False,
+    transformation_detail_limit: int = TRANSFORMATION_IMPACT_DETAIL_LIMIT,
+    transformation_impact_sink: Callable[[TransformationImpactRow], None]
+    | None = None,
 ) -> StagedBrowserMapping:
     """Compile browser mapping meaning and apply it to every selected row."""
 
@@ -395,6 +516,15 @@ def stage_browser_mapping(
         link.derived_dataset_id: (rule, link)
         for link, rule in zip(lookup_links, lookup_rules, strict=True)
     }
+    impact_collector = (
+        _TransformationImpactCollector(
+            definition.content_hash,
+            detail_limit=transformation_detail_limit,
+            sink=transformation_impact_sink,
+        )
+        if collect_transformation_impact
+        else None
+    )
     lookup_by_consumer: dict[
         str,
         list[tuple[DerivedEntityRule, DerivedDatasetLink]],
@@ -477,6 +607,7 @@ def stage_browser_mapping(
                     loaded[physical.dataset_id],
                     lookup_rule,
                     lookup_link,
+                    impact_collector=impact_collector,
                 )
             else:
                 staged, issues = _stage_table(
@@ -487,6 +618,7 @@ def stage_browser_mapping(
                     rule,
                     role,
                     tuple(lookup_by_consumer.get(effective.dataset_id, ())),
+                    impact_collector=impact_collector,
                 )
             staged_tables.append(staged)
             preparation_issues.extend(issues)
@@ -522,6 +654,9 @@ def stage_browser_mapping(
         prepared=prepared,
         dataset_labels={item.name: item.name.replace("_", " ").title() for item in effective_selection.datasets},
         source_field_labels=source_labels,
+        transformation_impact=(
+            impact_collector.report() if impact_collector is not None else None
+        ),
     )
 
 
@@ -655,6 +790,8 @@ def _stage_table(
     lookup_bindings: tuple[
         tuple[DerivedEntityRule, DerivedDatasetLink], ...
     ] = (),
+    *,
+    impact_collector: _TransformationImpactCollector | None = None,
 ) -> tuple[SourceTable, tuple[Issue, ...]]:
     source_name_by_key = {
         column.stable_key: column.source_name for column in physical.columns
@@ -698,7 +835,13 @@ def _stage_table(
                 source_row=row.number,
             )
         )
-        _apply_scalar_mappings(values, effective, mapping)
+        _apply_scalar_mappings(
+            values,
+            effective,
+            mapping,
+            source_row=row.number,
+            impact_collector=impact_collector,
+        )
         staged_rows.append(SourceRow(number=row.number, values=values))
     headers = (
         *(column.stable_key for column in effective.columns),
@@ -727,6 +870,8 @@ def _stage_derived_table(
     table: SourceTable,
     rule: DerivedEntityRule,
     link: DerivedDatasetLink,
+    *,
+    impact_collector: _TransformationImpactCollector | None = None,
 ) -> tuple[SourceTable, tuple[Issue, ...]]:
     """Materialize every unique related record from the full source table."""
 
@@ -779,7 +924,13 @@ def _stage_derived_table(
             values[link.parent_key_column_key] = (
                 " / ".join(key_path[:-1]) if key_path[:-1] else None
             )
-        _apply_scalar_mappings(values, effective, mapping)
+        _apply_scalar_mappings(
+            values,
+            effective,
+            mapping,
+            source_row=generated_row,
+            impact_collector=impact_collector,
+        )
         evidence_row = int(entry["source_row"])
         aliases = entry["aliases"]
         assert isinstance(aliases, set)
@@ -876,7 +1027,13 @@ def _apply_scalar_mappings(
     values: dict[str, object],
     effective: SourceDataset,
     mapping: DatasetMapping,
+    *,
+    source_row: int,
+    impact_collector: _TransformationImpactCollector | None = None,
 ) -> None:
+    source_name_by_key = {
+        column.stable_key: column.source_name for column in effective.columns
+    }
     for index, field in enumerate(mapping.fields):
         if field.value_source is ScalarValueSource.ODOO_DEFAULT:
             continue
@@ -886,7 +1043,7 @@ def _apply_scalar_mappings(
             else None
         )
         try:
-            values[_synthetic_field(index)] = canonicalize_scalar_value(
+            proposed = canonicalize_scalar_value(
                 field,
                 raw,
                 formula_context={
@@ -899,17 +1056,123 @@ def _apply_scalar_mappings(
                     },
                 },
             )
+            values[_synthetic_field(index)] = proposed
+            if impact_collector is not None:
+                outcome = _transformation_outcome(field, raw, proposed)
+                impact_collector.record(
+                    dataset=effective.name,
+                    source_row=source_row,
+                    source_column=(
+                        source_name_by_key.get(field.source_column_key or "")
+                        or "Constant value"
+                    ),
+                    target_field=field.target_field,
+                    raw_value=raw,
+                    proposed_value=proposed,
+                    rules=_transformation_rule_summary(field),
+                    outcome=outcome,
+                )
         except ScalarValueRuleError as error:
             values[_synthetic_field(index)] = InvalidPreparedValue(
                 code=error.code,
                 message=str(error),
             )
+            if impact_collector is not None:
+                impact_collector.record(
+                    dataset=effective.name,
+                    source_row=source_row,
+                    source_column=(
+                        source_name_by_key.get(field.source_column_key or "")
+                        or "Constant value"
+                    ),
+                    target_field=field.target_field,
+                    raw_value=raw,
+                    proposed_value="Invalid",
+                    rules=_transformation_rule_summary(field),
+                    outcome="invalid",
+                    message=str(error),
+                )
         except ScalarValueError as error:
             values[_synthetic_field(index)] = (
                 None
                 if "required value" in str(error).casefold()
                 else "__impodo_invalid_value__"
             )
+            if impact_collector is not None:
+                impact_collector.record(
+                    dataset=effective.name,
+                    source_row=source_row,
+                    source_column=(
+                        source_name_by_key.get(field.source_column_key or "")
+                        or "Constant value"
+                    ),
+                    target_field=field.target_field,
+                    raw_value=raw,
+                    proposed_value="Invalid",
+                    rules=_transformation_rule_summary(field),
+                    outcome="invalid",
+                    message=str(error),
+                )
+
+
+def _transformation_outcome(
+    field,
+    raw_value: object,
+    proposed_value: object,
+) -> str:
+    if field.value_source is ScalarValueSource.CONSTANT:
+        return "provided"
+    if (
+        field.value_source is ScalarValueSource.SOURCE_WITH_FALLBACK
+        and _fallback_was_used(field, raw_value)
+    ):
+        return "fallback"
+    if proposed_value is None and raw_value is not None:
+        return "null"
+    if _display_value(raw_value) != _display_value(proposed_value):
+        return "changed"
+    return "unchanged"
+
+
+def _fallback_was_used(field, raw_value: object) -> bool:
+    if raw_value is None:
+        return True
+    value = str(raw_value)
+    if field.transform.trim:
+        value = value.strip()
+    if field.transform.collapse_whitespace:
+        value = " ".join(value.split())
+    return field.transform.empty_as_null and value == ""
+
+
+def _transformation_rule_summary(field) -> str:
+    rules = []
+    if field.value_source is ScalarValueSource.CONSTANT:
+        rules.append("Constant")
+    elif field.value_source is ScalarValueSource.SOURCE_WITH_FALLBACK:
+        rules.append("Source + fallback")
+    else:
+        rules.append("Source")
+    transform = field.transform
+    if transform.formula:
+        rules.append("Formula")
+    if transform.trim:
+        rules.append("Trim")
+    if transform.collapse_whitespace:
+        rules.append("Collapse spaces")
+    if transform.search_value:
+        rules.append("Find and replace")
+    if transform.case_mode != "preserve":
+        rules.append(f"Case: {transform.case_mode}")
+    if transform.empty_as_null:
+        rules.append("Empty to null")
+    if field.value_type != "string":
+        rules.append(f"Parse {field.value_type}")
+    if transform.decimal_places is not None:
+        rules.append(f"Round to {transform.decimal_places} places")
+    if field.validation.configured:
+        rules.append("Final value check")
+    return " + ".join(rules)
 
 
 def _attach_preparation_issues(

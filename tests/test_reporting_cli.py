@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 import tempfile
 import unittest
 import zipfile
+
+from openpyxl import load_workbook
 
 from impodo.cli import build_parser, main
 from impodo.reporting import (
@@ -46,10 +47,6 @@ class CliTests(unittest.TestCase):
             self.assertNotIn("odoo_id", output.read_text())
 
 
-@unittest.skipUnless(
-    os.environ.get("IMPODO_RUN_WORKBOOK_TESTS") == "1",
-    "set IMPODO_RUN_WORKBOOK_TESTS=1 for artifact-tool workbook integration",
-)
 class WorkbookIntegrationTests(unittest.TestCase):
     def test_review_workbook_and_manifest_are_generated(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -78,6 +75,31 @@ class WorkbookIntegrationTests(unittest.TestCase):
                 "Metadata Coverage",
             ):
                 self.assertIn(sheet_name, workbook_xml)
+            workbook = load_workbook(workbook_path, read_only=True, data_only=False)
+            self.assertEqual(
+                workbook["Field Differences"]["F3"].value,
+                "Existing Target",
+            )
+            self.assertEqual(
+                workbook["Field Differences"]["G3"].value,
+                "Proposed Source",
+            )
+            self.assertTrue(
+                str(workbook["Dashboard"]["B5"].value).startswith("=")
+            )
+            workbook.close()
+
+    def test_workbook_csv_previews_need_no_external_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "report"
+            previews = Path(directory) / "previews"
+            write_preflight_outputs(
+                golden_result(),
+                output,
+                preview_directory=previews,
+            )
+            self.assertTrue((previews / "dashboard.csv").is_file())
+            self.assertTrue((previews / "field-differences.csv").is_file())
 
 
 if __name__ == "__main__":

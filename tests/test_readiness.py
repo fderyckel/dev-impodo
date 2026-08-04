@@ -32,6 +32,7 @@ from impodo.mapping_semantics import (
     RelationshipResolver,
     ResolverOrigin,
     ScalarFieldMapping,
+    ScalarTransformPolicy,
     ScalarValidationPolicy,
 )
 from impodo.models import (
@@ -175,6 +176,44 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             {issue.code for issue in child_decisions[1].issues},
             {"SOURCE_TEXT_LENGTH_INVALID"},
         )
+
+    def test_transformation_impact_compares_every_raw_and_proposed_value(self) -> None:
+        evidence = self._evidence(
+            (
+                ("BOM-A", "1", " comp-1 "),
+                ("BOM-A", "2", "COMP-2"),
+            )
+        )
+        definition = evidence[1]
+        parent, child = definition.datasets
+        component = replace(
+            child.fields[0],
+            transform=ScalarTransformPolicy(trim=True, case_mode="uppercase"),
+        )
+        definition = replace(
+            definition,
+            datasets=(parent, replace(child, fields=(component,))),
+        )
+
+        staged = stage_browser_mapping(
+            evidence[0],
+            definition,
+            *evidence[2:],
+            collect_transformation_impact=True,
+        )
+
+        report = staged.transformation_impact
+        self.assertIsNotNone(report)
+        self.assertEqual(report.evaluated_count, 3)
+        self.assertEqual(report.changed_count, 1)
+        self.assertEqual(report.unchanged_count, 2)
+        self.assertEqual(len(report.rows), 1)
+        self.assertEqual(report.rows[0].source_row, 2)
+        self.assertEqual(report.rows[0].source_column, "Component")
+        self.assertEqual(report.rows[0].raw_value, " comp-1 ")
+        self.assertEqual(report.rows[0].proposed_value, "COMP-1")
+        self.assertIn("Trim", report.rows[0].rules)
+        self.assertIn("Case: uppercase", report.rows[0].rules)
 
     def test_product_category_column_stages_categories_and_product_links(
         self,

@@ -80,9 +80,14 @@
             {% if dataset_filter %} · {{ dataset_filter.replace('_', ' ')|title }}{% endif %}
           </h2>
         </div>
-        {% if status_filter or dataset_filter %}
-          <a class="button secondary small" href="/projects/{{ project.project_id }}/summary#readiness-rows">Clear filter</a>
-        {% endif %}
+        <div class="readiness-row-summary">
+          <span class="muted">
+            Rows {{ readiness_row_start }}-{{ readiness_row_end }} of {{ readiness_row_total }}
+          </span>
+          {% if status_filter or dataset_filter %}
+            <a class="button secondary small" href="/projects/{{ project.project_id }}/summary#readiness-rows">Clear filter</a>
+          {% endif %}
+        </div>
       </div>
       {% if readiness_rows %}
         <div class="table-scroll">
@@ -92,7 +97,7 @@
             </thead>
             <tbody>
               {% for row in readiness_rows %}
-                <tr>
+                <tr data-readiness-row>
                   <td>{{ row.dataset_label }}</td>
                   <td>{{ row.source_row }}</td>
                   <th>{{ row.identity }}</th>
@@ -113,6 +118,17 @@
             </tbody>
           </table>
         </div>
+        {% if readiness_row_page_count > 1 %}
+          <nav class="readiness-pagination" aria-label="Readiness row pages">
+            {% if readiness_row_previous_url %}
+              <a class="button secondary" href="{{ readiness_row_previous_url }}" data-readiness-previous>Previous</a>
+            {% endif %}
+            <span class="muted">Page {{ readiness_row_page }} of {{ readiness_row_page_count }}</span>
+            {% if readiness_row_next_url %}
+              <a class="button secondary" href="{{ readiness_row_next_url }}" data-readiness-next>Next</a>
+            {% endif %}
+          </nav>
+        {% endif %}
       {% else %}
         <div class="empty-state compact">
           <h3>No rows in this view</h3>

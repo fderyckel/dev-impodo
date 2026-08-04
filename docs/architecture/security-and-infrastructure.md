@@ -54,6 +54,8 @@ storage, telemetry service, direct PostgreSQL target access, or SSH surface.
 - Host validation, restrictive response headers, framing denial, and
   `Cache-Control: no-store` reduce browser attack surface.
 - API documentation, CORS, proxy forwarding, and access logs are disabled.
+- Transformation-report filtering and CSV download use JavaScript shipped with
+  Impodo. No CDN, browser extension, or Node.js runtime is required.
 
 Loopback uses HTTP, so the session cookie cannot use `Secure`. Literal
 loopback binding, exact-host validation, the ephemeral port, and the launch
@@ -122,6 +124,10 @@ EDR/antimalware, host firewall, a supported browser, approved Python 3.12,
 writable local application/temp storage, and an accepted internal Impodo
 bundle. Remote targets additionally require trusted TLS, governed network/VPN
 routing, and an evidenced read-only Odoo account.
+
+Excel review packages are generated locally with the controlled Python
+`openpyxl` dependency already required for XLSX intake. Node.js is not an
+Impodo workstation dependency.
 
 Impodo requires no inbound firewall opening. Detailed installation and
 verification steps belong in the

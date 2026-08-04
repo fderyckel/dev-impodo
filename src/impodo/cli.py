@@ -74,7 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     preflight_parser.add_argument("--output", required=True)
     preflight_parser.add_argument(
         "--preview-dir",
-        help="optional rendered PNG verification directory for workbook sheets",
+        help="optional CSV verification directory for workbook sheets",
     )
 
     benchmark_parser = subparsers.add_parser(

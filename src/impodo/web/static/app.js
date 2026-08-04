@@ -327,6 +327,109 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  const relationDraftRows = new Map();
+  const relationRowState = (row) => {
+    const visibleTarget = row.querySelector(
+      'input[name^="visible_relation_target_"]'
+    );
+    if (!visibleTarget?.name || !visibleTarget.value) {
+      return null;
+    }
+    const controls = Array.from(
+      row.querySelectorAll('[name^="relation_"]')
+    ).filter(
+      (control) =>
+        control instanceof HTMLInputElement ||
+        control instanceof HTMLSelectElement ||
+        control instanceof HTMLTextAreaElement
+    );
+    const entries = [];
+    const states = [];
+    for (const control of controls) {
+      const state = {
+        name: control.name,
+        values:
+          control instanceof HTMLSelectElement && control.multiple
+            ? Array.from(control.selectedOptions, (option) => option.value)
+            : [control.value],
+        checked:
+          control instanceof HTMLInputElement &&
+          ["checkbox", "radio"].includes(control.type)
+            ? control.checked
+            : null,
+      };
+      states.push(state);
+      if (control.disabled || state.checked === false) {
+        continue;
+      }
+      for (const value of state.values) {
+        entries.push([control.name, value]);
+      }
+    }
+    const source = row.querySelector('select[name^="relation_source_"]');
+    return {
+      key: `${visibleTarget.name}\u0000${visibleTarget.value}`,
+      visibleName: visibleTarget.name,
+      targetField: visibleTarget.value,
+      hasSource: Boolean(source?.selectedOptions.length),
+      controlNames: [...new Set(controls.map((control) => control.name))],
+      entries,
+      states,
+    };
+  };
+  const rememberRelationRow = (row) => {
+    const state = relationRowState(row);
+    if (state) {
+      relationDraftRows.set(state.key, state);
+    }
+  };
+  const restoreRelationRow = (row) => {
+    const current = relationRowState(row);
+    const saved = current ? relationDraftRows.get(current.key) : null;
+    if (!saved) {
+      return;
+    }
+    const stateByName = new Map(
+      saved.states.map((state) => [state.name, state])
+    );
+    for (const control of row.querySelectorAll('[name^="relation_"]')) {
+      const state = stateByName.get(control.name);
+      if (!state) {
+        continue;
+      }
+      if (
+        control instanceof HTMLSelectElement &&
+        control.matches("[data-lazy-source-column]")
+      ) {
+        initializeLazySourceSelect(control);
+        hydrateSourceOptions(control);
+      }
+      if (
+        control instanceof HTMLInputElement &&
+        ["checkbox", "radio"].includes(control.type)
+      ) {
+        control.checked = Boolean(state.checked);
+      } else if (control instanceof HTMLSelectElement && control.multiple) {
+        const selected = new Set(state.values);
+        for (const option of control.options) {
+          option.selected = selected.has(option.value);
+        }
+      } else if (
+        control instanceof HTMLInputElement ||
+        control instanceof HTMLSelectElement ||
+        control instanceof HTMLTextAreaElement
+      ) {
+        control.value = state.values[0] || "";
+      }
+      if (
+        control instanceof HTMLSelectElement &&
+        control.matches("[data-lazy-source-column]")
+      ) {
+        releaseSourceOptions(control);
+      }
+    }
+  };
+
   const mappingForm = document.querySelector("[data-mapping-form]");
   if (mappingForm) {
     const saveStatus = mappingForm.querySelector(
@@ -369,6 +472,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (scalarRow) {
         window.queueMicrotask(() => rememberScalarRow(scalarRow));
       }
+      const relationRow = event.target.closest("[data-relation-mapping-row]");
+      if (relationRow) {
+        window.queueMicrotask(() => rememberRelationRow(relationRow));
+      }
       if (saveStatus) {
         saveStatus.textContent = "Unsaved changes.";
         saveStatus.classList.add("unsaved");
@@ -410,6 +517,21 @@ document.addEventListener("DOMContentLoaded", () => {
           data.delete(name);
         }
         if (!state.providerValue) {
+          continue;
+        }
+        for (const [name, value] of state.entries) {
+          data.append(name, value);
+        }
+      }
+      for (const state of relationDraftRows.values()) {
+        const visibleTargets = new Set(data.getAll(state.visibleName));
+        if (!visibleTargets.has(state.targetField)) {
+          data.append(state.visibleName, state.targetField);
+        }
+        for (const name of state.controlNames) {
+          data.delete(name);
+        }
+        if (!state.hasSource) {
           continue;
         }
         for (const [name, value] of state.entries) {
@@ -1205,7 +1327,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const matchingTotal = catalog.dataset.scalarMatchingTotal || rows.length;
         const mappedTotal = catalog.dataset.scalarMappedTotal || mapped;
         count.textContent =
-          `${visible} loaded fields shown · ${matchingTotal} matching · ${mappedTotal} mapped`;
+          `Showing ${visible} of ${matchingTotal} fields · ${mappedTotal} mapped`;
       }
       window.requestAnimationFrame(updateScalarTableScroll);
     };
@@ -1254,7 +1376,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const url = catalogSearchUrl(requestedUrl);
       catalog.setAttribute("aria-busy", "true");
       if (count) {
-        count.textContent = "Searching the complete scalar-field catalog\u2026";
+        count.textContent = "Searching Odoo fields\u2026";
       }
       try {
         const response = await fetch(url, {
@@ -1262,7 +1384,7 @@ document.addEventListener("DOMContentLoaded", () => {
           signal: activeController.signal,
         });
         if (!response.ok) {
-          throw new Error(`Scalar-field search failed (HTTP ${response.status}).`);
+          throw new Error(`Field search failed (HTTP ${response.status}).`);
         }
         const documentResult = new DOMParser().parseFromString(
           await response.text(),
@@ -1275,7 +1397,7 @@ document.addEventListener("DOMContentLoaded", () => {
           "[data-scalar-table-scroll]"
         );
         if (!incomingCatalog || !incomingTableScroll || !tableScroll) {
-          throw new Error("Scalar-field search returned an incomplete result.");
+          throw new Error("Field search returned an incomplete result.");
         }
         tableScroll.replaceChildren(
           ...Array.from(incomingTableScroll.childNodes, (node) =>
@@ -1326,7 +1448,7 @@ document.addEventListener("DOMContentLoaded", () => {
           count.textContent =
             error instanceof Error
               ? error.message
-              : "Scalar-field search failed.";
+              : "Field search failed.";
         }
       } finally {
         if (fieldSearchController === activeController) {
@@ -1338,7 +1460,7 @@ document.addEventListener("DOMContentLoaded", () => {
       window.clearTimeout(fieldSearchTimer);
       updateScalarFieldRows();
       if (count) {
-        count.textContent = "Searching the complete scalar-field catalog\u2026";
+        count.textContent = "Searching Odoo fields\u2026";
       }
       fieldSearchTimer = window.setTimeout(() => loadScalarCatalog(), 200);
     };
@@ -1361,5 +1483,230 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     initializeCatalogRows();
     updateScalarFieldRows();
+  }
+
+  for (const catalog of document.querySelectorAll(
+    "[data-relation-field-catalog]"
+  )) {
+    const search = catalog.querySelector("[data-relation-field-search]");
+    const searchSubmit = catalog.querySelector(
+      "[data-relation-search-submit]"
+    );
+    const count = catalog.querySelector("[data-relation-field-count]");
+    const results = catalog.querySelector("[data-relation-field-results]");
+    let relationSearchTimer;
+    let relationSearchController;
+
+    const initializeRelationRows = () => {
+      for (const row of catalog.querySelectorAll(
+        "[data-relation-mapping-row]"
+      )) {
+        restoreRelationRow(row);
+        for (const select of row.querySelectorAll(
+          "select[data-lazy-source-column]"
+        )) {
+          initializeLazySourceSelect(select);
+        }
+      }
+    };
+    const relationCatalogUrl = (requestedUrl = null) => {
+      const url = new URL(requestedUrl || window.location.href);
+      if (requestedUrl === null) {
+        const searchValue = search?.value.trim() || "";
+        if (searchValue) {
+          url.searchParams.set("relation_query", searchValue);
+        } else {
+          url.searchParams.delete("relation_query");
+        }
+        url.searchParams.set("relation_page", "1");
+      }
+      return url;
+    };
+    const loadRelationCatalog = async (requestedUrl = null) => {
+      window.clearTimeout(relationSearchTimer);
+      relationSearchController?.abort();
+      const activeController = new AbortController();
+      relationSearchController = activeController;
+      const url = relationCatalogUrl(requestedUrl);
+      catalog.setAttribute("aria-busy", "true");
+      if (count) {
+        count.textContent = "Searching linked Odoo fields\u2026";
+      }
+      try {
+        const response = await fetch(url, {
+          headers: { Accept: "text/html" },
+          signal: activeController.signal,
+        });
+        if (!response.ok) {
+          throw new Error(
+            `Linked-field search failed (HTTP ${response.status}).`
+          );
+        }
+        const documentResult = new DOMParser().parseFromString(
+          await response.text(),
+          "text/html"
+        );
+        const incomingCatalog = documentResult.querySelector(
+          "[data-relation-field-catalog]"
+        );
+        const incomingResults = incomingCatalog?.querySelector(
+          "[data-relation-field-results]"
+        );
+        if (!incomingCatalog || !incomingResults || !results) {
+          throw new Error("Linked-field search returned an incomplete result.");
+        }
+        results.replaceChildren(
+          ...Array.from(incomingResults.childNodes, (node) =>
+            document.importNode(node, true)
+          )
+        );
+        const pagination = catalog.querySelector("[data-relation-pagination]");
+        const incomingPagination = incomingCatalog.querySelector(
+          "[data-relation-pagination]"
+        );
+        if (pagination && incomingPagination) {
+          pagination.replaceWith(document.importNode(incomingPagination, true));
+        }
+        for (const name of [
+          "relationCatalogTotal",
+          "relationMatchingTotal",
+          "relationMappedTotal",
+          "relationPageSize",
+        ]) {
+          catalog.dataset[name] = incomingCatalog.dataset[name] || "0";
+        }
+        const incomingCount = incomingCatalog.querySelector(
+          "[data-relation-field-count]"
+        );
+        if (count && incomingCount) {
+          count.textContent = incomingCount.textContent.trim();
+        }
+        initializeRelationRows();
+        window.history.replaceState(
+          {},
+          "",
+          `${url.pathname}${url.search}${url.hash}`
+        );
+        if (mappingForm) {
+          const saveUrl = new URL(
+            mappingForm.getAttribute("action") || window.location.pathname,
+            window.location.href
+          );
+          saveUrl.search = url.search;
+          mappingForm.setAttribute(
+            "action",
+            `${saveUrl.pathname}${saveUrl.search}`
+          );
+        }
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          return;
+        }
+        if (count) {
+          count.textContent =
+            error instanceof Error
+              ? error.message
+              : "Linked-field search failed.";
+        }
+      } finally {
+        if (relationSearchController === activeController) {
+          catalog.removeAttribute("aria-busy");
+        }
+      }
+    };
+    const scheduleRelationCatalogSearch = () => {
+      window.clearTimeout(relationSearchTimer);
+      if (count) {
+        count.textContent = "Searching linked Odoo fields\u2026";
+      }
+      relationSearchTimer = window.setTimeout(
+        () => loadRelationCatalog(),
+        200
+      );
+    };
+    search?.addEventListener("input", scheduleRelationCatalogSearch);
+    search?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        loadRelationCatalog();
+      }
+    });
+    searchSubmit?.addEventListener("click", () => loadRelationCatalog());
+    catalog.addEventListener("click", (event) => {
+      const link = event.target.closest("[data-relation-pagination] a");
+      if (!link) {
+        return;
+      }
+      event.preventDefault();
+      loadRelationCatalog(link.href);
+    });
+    initializeRelationRows();
+  }
+
+  for (const report of document.querySelectorAll("[data-impact-report]")) {
+    const dataset = report.querySelector("[data-impact-dataset]");
+    const outcome = report.querySelector("[data-impact-outcome]");
+    const search = report.querySelector("[data-impact-search]");
+    const count = report.querySelector("[data-impact-visible-count]");
+    const empty = report.querySelector("[data-impact-empty]");
+    const rows = Array.from(report.querySelectorAll("[data-impact-row]"));
+
+    const visibleRows = () => rows.filter((row) => !row.hidden);
+    const updateImpactRows = () => {
+      const selectedDataset = dataset?.value || "";
+      const selectedOutcome = outcome?.value || "";
+      const query = search?.value.trim().toLocaleLowerCase() || "";
+      let visible = 0;
+      for (const row of rows) {
+        const show =
+          (!selectedDataset || row.dataset.dataset === selectedDataset) &&
+          (!selectedOutcome || row.dataset.outcome === selectedOutcome) &&
+          (!query || (row.dataset.search || "").includes(query));
+        row.hidden = !show;
+        if (show) {
+          visible += 1;
+        }
+      }
+      if (count) {
+        count.textContent = `${visible} row${visible === 1 ? "" : "s"} shown`;
+      }
+      if (empty) {
+        empty.hidden = visible !== 0;
+      }
+    };
+
+    const csvValue = (value) => {
+      let safe = String(value ?? "");
+      if (/^[\t\r\n]*[=+\-@]/.test(safe)) {
+        safe = `'${safe}`;
+      }
+      return `"${safe.replaceAll('"', '""')}"`;
+    };
+    report.querySelector("[data-impact-export]")?.addEventListener("click", () => {
+      const table = report.querySelector("[data-impact-table]");
+      if (!table) {
+        return;
+      }
+      const header = Array.from(table.querySelectorAll("thead th"), (cell) =>
+        csvValue(cell.textContent.trim())
+      );
+      const body = visibleRows().map((row) =>
+        Array.from(row.cells, (cell) => csvValue(cell.textContent.trim())).join(",")
+      );
+      const blob = new Blob(["\uFEFF", [header.join(","), ...body].join("\r\n")], {
+        type: "text/csv;charset=utf-8",
+      });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = report.dataset.exportName || "impodo-transformation-impact.csv";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(link.href);
+    });
+    dataset?.addEventListener("change", updateImpactRows);
+    outcome?.addEventListener("change", updateImpactRows);
+    search?.addEventListener("input", updateImpactRows);
+    updateImpactRows();
   }
 });
