@@ -70,6 +70,7 @@ from ..mapping_semantics import (
     BusinessKeyStatus,
     DatasetMapping,
     IdentityComponentMapping,
+    MappingDefinition,
     MappingTargetMode,
     ReferenceKeyMapping,
     RelationshipMapping,
@@ -1699,7 +1700,8 @@ def create_local_app(
 
     @app.post("/projects/{project_id}/mapping/save")
     async def save_project_mapping(request: Request, project_id: str):
-        form = await request.form()
+        require_session(request)
+        json_request = _is_json_request(request)
         selection = context.repository.get_mapping_source_selection(project_id)
         if selection is None:
             raise HTTPException(status_code=422, detail="Source selection missing")
@@ -1708,9 +1710,12 @@ def create_local_app(
         governance = context.repository.get_schema_governance(project_id)
         if schema is None:
             raise HTTPException(status_code=422, detail="Odoo schema missing")
-        allowed = _mapping_allowed_fields(form, selection, schema)
-        _secure_form(request, form, allowed)
         try:
+            form = await _mapping_request_form(request)
+            if json_request:
+                require_csrf(request, request.headers.get("x-csrf-token", ""))
+            allowed = _mapping_allowed_fields(form, selection, schema)
+            _secure_form(request, form, allowed)
             action = _text(form, "action")
             if action not in {"save_progress", "draft", "submit"}:
                 raise WorkspaceError(
@@ -1728,7 +1733,21 @@ def create_local_app(
                 schema,
                 governance,
             )
-            working_draft = context.mapping_workspace.save_working_draft(
+            datasets = _merge_partial_mapping_datasets(
+                datasets,
+                _active_mapping_definition(
+                    context,
+                    project_id,
+                    selection,
+                    schema,
+                    governance,
+                ),
+                form,
+                selection,
+                schema,
+            )
+            working_draft = await run_in_threadpool(
+                context.mapping_workspace.save_working_draft,
                 project_id,
                 datasets=datasets,
                 expected_version=expected_working_version,
@@ -1742,29 +1761,65 @@ def create_local_app(
                         "No semantic validation was run."
                     ),
                 )
+                if json_request:
+                    return JSONResponse(
+                        {
+                            "message": (
+                                f"Saved working draft version "
+                                f"{working_draft.version}."
+                            ),
+                            "redirect_url": _mapping_return_url(
+                                request,
+                                project_id,
+                            ),
+                        }
+                    )
                 return RedirectResponse(
-                    f"/projects/{project_id}/mapping",
+                    _mapping_return_url(request, project_id),
                     status_code=303,
                 )
-            revision, validation, submission = (
-                context.mapping_workspace.save_definition(
-                    project_id,
-                    datasets=datasets,
-                    expected_parent_version=expected_parent,
-                    submit=action == "submit",
-                    warning_acknowledgements=_texts(
-                        form, "warning_acknowledgement"
-                    ),
-                    actor=context.actor,
-                )
+            revision, validation, submission = await run_in_threadpool(
+                context.mapping_workspace.save_definition,
+                project_id,
+                datasets=datasets,
+                expected_parent_version=expected_parent,
+                submit=action == "submit",
+                warning_acknowledgements=_texts(
+                    form, "warning_acknowledgement"
+                ),
+                actor=context.actor,
+            )
+        except HTTPException as error:
+            return _mapping_save_error_response(
+                request,
+                project_id,
+                error,
+                json_request=json_request,
             )
         except (ValueError, WorkspaceError) as error:
-            return _render_mapping(
-                request,
-                context,
-                project_id,
-                error=str(error),
-                status_code=422,
+            if json_request:
+                current_working = (
+                    context.repository.get_mapping_working_draft(project_id)
+                )
+                current_revision = context.repository.get_mapping_revision(
+                    project_id
+                )
+                return JSONResponse(
+                    {
+                        "detail": str(error),
+                        "expected_working_draft_version": (
+                            current_working.version if current_working else None
+                        ),
+                        "expected_parent_version": (
+                            current_revision.version if current_revision else None
+                        ),
+                    },
+                    status_code=422,
+                )
+            request.session["mapping_error"] = str(error)
+            return RedirectResponse(
+                _mapping_return_url(request, project_id),
+                status_code=303,
             )
         if submission is not None:
             _flash(
@@ -1779,8 +1834,19 @@ def create_local_app(
                     f"{validation.status.value.replace('_', ' ').casefold()}."
                 ),
             )
+        if json_request:
+            return JSONResponse(
+                {
+                    "message": (
+                        f"Mapping submitted as version {revision.version}."
+                        if submission is not None
+                        else f"Saved mapping version {revision.version}."
+                    ),
+                    "redirect_url": _mapping_return_url(request, project_id),
+                }
+            )
         return RedirectResponse(
-            f"/projects/{project_id}/mapping",
+            _mapping_return_url(request, project_id),
             status_code=303,
         )
 
@@ -2175,6 +2241,167 @@ def _secure_form(
     unexpected = {key for key, _value in form.multi_items()} - allowed_fields
     if unexpected:
         raise HTTPException(status_code=422, detail="Unexpected form fields")
+
+
+def _is_json_request(request: Request) -> bool:
+    return request.headers.get("content-type", "").partition(";")[0].strip() == (
+        "application/json"
+    )
+
+
+async def _mapping_request_form(request: Request) -> FormData:
+    body = await _bounded_request_body(
+        request,
+        maximum_bytes=MAPPING_MAX_REQUEST_BYTES,
+    )
+    content_type = request.headers.get("content-type", "").partition(";")[0].strip()
+    if content_type == "application/json":
+        try:
+            payload = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise HTTPException(
+                status_code=400,
+                detail="Mapping request is not valid JSON",
+            ) from error
+        if not isinstance(payload, dict) or set(payload) != {"entries"}:
+            raise HTTPException(
+                status_code=422,
+                detail="Mapping request has unexpected properties",
+            )
+        entries = payload["entries"]
+        if not isinstance(entries, list):
+            raise HTTPException(
+                status_code=422,
+                detail="Mapping entries must be a list",
+            )
+        if len(entries) > MAPPING_MAX_JSON_ENTRIES:
+            raise HTTPException(
+                status_code=413,
+                detail="Mapping request contains too many entries",
+            )
+        pairs: list[tuple[str, str]] = []
+        for item in entries:
+            if (
+                not isinstance(item, list)
+                or len(item) != 2
+                or not all(isinstance(value, str) for value in item)
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Each mapping entry must contain a name and value",
+                )
+            pairs.append((item[0], item[1]))
+        _validate_mapping_form_pairs(pairs)
+        return FormData(pairs)
+    if content_type == "application/x-www-form-urlencoded":
+        try:
+            pairs = parse_qsl(
+                body.decode("ascii"),
+                keep_blank_values=True,
+                encoding="utf-8",
+                errors="strict",
+                max_num_fields=MAPPING_MAX_FORM_FIELDS,
+            )
+        except (UnicodeDecodeError, ValueError) as error:
+            raise HTTPException(
+                status_code=400,
+                detail="Mapping form could not be read safely",
+            ) from error
+        _validate_mapping_form_pairs(pairs)
+        return FormData(pairs)
+    raise HTTPException(
+        status_code=415,
+        detail="Mapping saves require JSON or URL-encoded form data",
+    )
+
+
+async def _bounded_request_body(
+    request: Request,
+    *,
+    maximum_bytes: int,
+) -> bytes:
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > maximum_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail="Mapping request is too large",
+            )
+    return bytes(body)
+
+
+def _validate_mapping_form_pairs(pairs: list[tuple[str, str]]) -> None:
+    for name, value in pairs:
+        if not name or len(name) > MAPPING_MAX_FORM_NAME_LENGTH:
+            raise HTTPException(
+                status_code=422,
+                detail="Mapping request contains an invalid field name",
+            )
+        if len(value) > MAPPING_MAX_FORM_VALUE_LENGTH:
+            raise HTTPException(
+                status_code=413,
+                detail="A mapping value is too large",
+            )
+
+
+def _mapping_save_error_response(
+    request: Request,
+    project_id: str,
+    error: HTTPException,
+    *,
+    json_request: bool,
+):
+    detail = str(error.detail)
+    if json_request:
+        return JSONResponse({"detail": detail}, status_code=error.status_code)
+    if error.status_code in {400, 413, 415}:
+        return_url = _mapping_return_url(request, project_id)
+        separator = "&" if "?" in return_url else "?"
+        return RedirectResponse(
+            f"{return_url}{separator}save_error=request_rejected",
+            status_code=303,
+        )
+    return JSONResponse({"detail": detail}, status_code=error.status_code)
+
+
+def _mapping_return_url(
+    request: Request,
+    project_id: str,
+    **updates: object,
+) -> str:
+    allowed_names = {
+        "mapping_dataset",
+        "scalar_page",
+        "relation_page",
+        "field_query",
+        "mapped_only",
+    }
+    params = {
+        name: value
+        for name, value in request.query_params.items()
+        if (
+            name in allowed_names
+            or re.fullmatch(r"target_model_\d+", name) is not None
+        )
+        and len(value) <= 256
+    }
+    for name, value in updates.items():
+        if value is None or value == "":
+            params.pop(name, None)
+        else:
+            params[name] = str(value)
+    query = urlencode(params)
+    base = f"/projects/{project_id}/mapping"
+    return f"{base}?{query}" if query else base
+
+
+def _positive_query_int(value: str | None, *, default: int) -> int:
+    try:
+        parsed = int(value or "")
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
 
 
 def _revision(form: FormData) -> int:
@@ -2591,6 +2818,14 @@ def _render_mapping(
     error: str | None = None,
     status_code: int = 200,
 ):
+    session_error = request.session.pop("mapping_error", None)
+    if error is None and isinstance(session_error, str):
+        error = session_error
+    if error is None and request.query_params.get("save_error") == "request_rejected":
+        error = (
+            "The mapping request exceeded a safety limit or could not be read. "
+            "No mapping change was saved; the last working draft is loaded."
+        )
     selection = context.repository.get_mapping_source_selection(project_id)
     preparation_plan = context.repository.get_derived_entity_plan(project_id)
     schema = context.repository.get_odoo_schema_catalog(project_id)
@@ -2645,6 +2880,24 @@ def _render_mapping(
         if selection is not None
         else ()
     )
+    dataset_count = len(selection.datasets) if selection is not None else 0
+    active_dataset_index = min(
+        _positive_query_int(
+            request.query_params.get("mapping_dataset"),
+            default=0,
+        ),
+        max(dataset_count - 1, 0),
+    )
+    scalar_page = _positive_query_int(
+        request.query_params.get("scalar_page"),
+        default=1,
+    )
+    relation_page = _positive_query_int(
+        request.query_params.get("relation_page"),
+        default=1,
+    )
+    field_query = request.query_params.get("field_query", "").strip()[:128]
+    mapped_only = request.query_params.get("mapped_only") == "1"
     dataset_views = (
         _mapping_dataset_views(
             selection,
@@ -2657,10 +2910,65 @@ def _render_mapping(
                 for index, _item in enumerate(selection.datasets)
             },
             related_dataset_links(preparation_plan),
+            active_dataset_index=active_dataset_index,
+            scalar_page=scalar_page,
+            relation_page=relation_page,
+            field_query=field_query,
+            mapped_only=mapped_only,
         )
         if selection and schema
         else ()
     )
+    for view in dataset_views:
+        view["edit_url"] = _mapping_return_url(
+            request,
+            project_id,
+            mapping_dataset=view["index"],
+            scalar_page=1,
+            relation_page=1,
+            save_error=None,
+        )
+        if view["active"]:
+            view["scalar_previous_url"] = (
+                _mapping_return_url(
+                    request,
+                    project_id,
+                    scalar_page=int(view["scalar_page"]) - 1,
+                    save_error=None,
+                )
+                if int(view["scalar_page"]) > 1
+                else None
+            )
+            view["scalar_next_url"] = (
+                _mapping_return_url(
+                    request,
+                    project_id,
+                    scalar_page=int(view["scalar_page"]) + 1,
+                    save_error=None,
+                )
+                if int(view["scalar_page"]) < int(view["scalar_page_count"])
+                else None
+            )
+            view["relation_previous_url"] = (
+                _mapping_return_url(
+                    request,
+                    project_id,
+                    relation_page=int(view["relation_page"]) - 1,
+                    save_error=None,
+                )
+                if int(view["relation_page"]) > 1
+                else None
+            )
+            view["relation_next_url"] = (
+                _mapping_return_url(
+                    request,
+                    project_id,
+                    relation_page=int(view["relation_page"]) + 1,
+                    save_error=None,
+                )
+                if int(view["relation_page"]) < int(view["relation_page_count"])
+                else None
+            )
     warning_issues = tuple(
         {
             "issue": item,
@@ -2701,6 +3009,12 @@ def _mapping_dataset_views(
     source_catalogs=(),
     selected_models=None,
     related_links=(),
+    *,
+    active_dataset_index=None,
+    scalar_page=1,
+    relation_page=1,
+    field_query="",
+    mapped_only=False,
 ) -> tuple[dict[str, object], ...]:
     existing_by_id = {item.dataset_id: item for item in existing_datasets}
     models = {item.name: item for item in schema.models}
@@ -2715,6 +3029,10 @@ def _mapping_dataset_views(
     parent_ids = {item.parent_dataset_id for item in related_links}
     result: list[dict[str, object]] = []
     for dataset_index, source_dataset in enumerate(selection.datasets):
+        active = (
+            active_dataset_index is None
+            or dataset_index == active_dataset_index
+        )
         source_samples = _mapping_source_samples(
             source_dataset,
             source_catalogs,
@@ -2824,6 +3142,36 @@ def _mapping_dataset_views(
             for field in (model.fields if model else ())
             if field.type not in {"many2one", "many2many", "one2many"}
         )
+        scalar_candidates = tuple(
+            (field_index, field)
+            for field_index, field in enumerate(all_scalar_fields)
+            if field.name not in identity_targets
+        )
+        normalized_query = field_query.casefold()
+        matching_scalars = tuple(
+            (field_index, field)
+            for field_index, field in scalar_candidates
+            if (
+                not normalized_query
+                or normalized_query
+                in f"{field.label} {field.name} {field.type}".casefold()
+            )
+            and (not mapped_only or field.name in scalar_by_target)
+        )
+        scalar_page_count = max(
+            1,
+            (len(matching_scalars) + MAPPING_FIELDS_PER_PAGE - 1)
+            // MAPPING_FIELDS_PER_PAGE,
+        )
+        current_scalar_page = min(max(scalar_page, 1), scalar_page_count)
+        scalar_start = (current_scalar_page - 1) * MAPPING_FIELDS_PER_PAGE
+        visible_scalars = (
+            matching_scalars[
+                scalar_start : scalar_start + MAPPING_FIELDS_PER_PAGE
+            ]
+            if active
+            else ()
+        )
         scalar_rows = tuple(
             {
                 "index": field_index,
@@ -2837,23 +3185,45 @@ def _mapping_dataset_views(
                     source_dataset.columns,
                 ),
             }
-            for field_index, field in enumerate(all_scalar_fields)
-            if field.name not in identity_targets
+            for field_index, field in visible_scalars
         )
         relation_by_target = (
             {item.target_field: item for item in existing.relationships}
             if existing
             else {}
         )
-        relation_rows: list[dict[str, object]] = []
         all_relation_fields = tuple(
             field
             for field in (model.fields if model else ())
             if field.type in {"many2one", "many2many", "one2many"}
         )
-        for relation_index, field in enumerate(all_relation_fields):
-            if field.name in identity_targets:
-                continue
+        relation_candidates = tuple(
+            (relation_index, field)
+            for relation_index, field in enumerate(all_relation_fields)
+            if field.name not in identity_targets
+            and (
+                not normalized_query
+                or normalized_query
+                in f"{field.label} {field.name} {field.type}".casefold()
+            )
+            and (not mapped_only or field.name in relation_by_target)
+        )
+        relation_page_count = max(
+            1,
+            (len(relation_candidates) + MAPPING_FIELDS_PER_PAGE - 1)
+            // MAPPING_FIELDS_PER_PAGE,
+        )
+        current_relation_page = min(max(relation_page, 1), relation_page_count)
+        relation_start = (current_relation_page - 1) * MAPPING_FIELDS_PER_PAGE
+        visible_relations = (
+            relation_candidates[
+                relation_start : relation_start + MAPPING_FIELDS_PER_PAGE
+            ]
+            if active
+            else ()
+        )
+        relation_rows: list[dict[str, object]] = []
+        for relation_index, field in visible_relations:
             mapping = relation_by_target.get(field.name)
             related_keys = tuple(
                 item for item in confirmed if item.model == field.relation
@@ -2873,7 +3243,12 @@ def _mapping_dataset_views(
         result.append(
             {
                 "index": dataset_index,
+                "active": active,
                 "source": source_dataset,
+                "source_by_key": {
+                    item.stable_key: item for item in source_dataset.columns
+                },
+                "source_samples": source_samples,
                 "mapping": existing,
                 "selected_model": selected_model_name,
                 "model": model,
@@ -2882,7 +3257,19 @@ def _mapping_dataset_views(
                 "selected_key": selected_key,
                 "identity_rows": tuple(identity_rows),
                 "scalar_rows": scalar_rows,
+                "scalar_catalog_total": len(scalar_candidates),
+                "scalar_matching_total": len(matching_scalars),
+                "scalar_mapped_total": len(scalar_by_target),
+                "scalar_page": current_scalar_page,
+                "scalar_page_count": scalar_page_count,
                 "relation_rows": tuple(relation_rows),
+                "relation_catalog_total": len(all_relation_fields),
+                "relation_matching_total": len(relation_candidates),
+                "relation_mapped_total": len(relation_by_target),
+                "relation_page": current_relation_page,
+                "relation_page_count": relation_page_count,
+                "field_query": field_query,
+                "mapped_only": mapped_only,
                 "other_datasets": tuple(
                     item
                     for item in selection.datasets
@@ -3028,6 +3415,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
     allowed = {
         "csrf_token",
         "action",
+        "editable_dataset_id",
         "expected_parent_version",
         "expected_working_draft_version",
         "warning_acknowledgement",
@@ -3042,6 +3430,8 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                 f"on_existing_{dataset_index}",
                 f"source_identity_{dataset_index}",
                 f"business_key_{dataset_index}",
+                f"visible_scalar_target_{dataset_index}",
+                f"visible_relation_target_{dataset_index}",
             }
         )
         target_model = _text(form, f"target_model_{dataset_index}")
@@ -3551,6 +3941,154 @@ def _mapping_datasets_from_form(
             )
         )
     return tuple(datasets)
+
+
+def _active_mapping_definition(
+    context: WebContext,
+    project_id: str,
+    selection,
+    schema,
+    governance,
+) -> MappingDefinition | None:
+    expected_schema_hash = (
+        governance.content_hash if governance is not None else schema.content_hash
+    )
+    working_draft = context.repository.get_mapping_working_draft(project_id)
+    if (
+        working_draft is not None
+        and working_draft.definition.source_selection_hash == selection.content_hash
+        and working_draft.definition.schema_hash == expected_schema_hash
+    ):
+        return working_draft.definition
+    revision = context.repository.get_mapping_revision(project_id)
+    if (
+        revision is not None
+        and revision.definition.source_selection_hash == selection.content_hash
+        and revision.definition.schema_hash == expected_schema_hash
+    ):
+        return revision.definition
+    return None
+
+
+def _merge_partial_mapping_datasets(
+    parsed_datasets: tuple[DatasetMapping, ...],
+    active_definition: MappingDefinition | None,
+    form: FormData,
+    selection,
+    schema,
+) -> tuple[DatasetMapping, ...]:
+    editable_dataset_id = _text(form, "editable_dataset_id")
+    if not editable_dataset_id:
+        return parsed_datasets
+    dataset_indexes = {
+        item.dataset_id: index for index, item in enumerate(selection.datasets)
+    }
+    editable_index = dataset_indexes.get(editable_dataset_id)
+    if editable_index is None:
+        raise WorkspaceError("Editable mapping dataset is not current")
+
+    parsed_by_id = {item.dataset_id: item for item in parsed_datasets}
+    existing_by_id = {
+        item.dataset_id: item
+        for item in (active_definition.datasets if active_definition else ())
+    }
+    models = {item.name: item for item in schema.models}
+    merged: list[DatasetMapping] = []
+    for source_dataset in selection.datasets:
+        parsed = parsed_by_id[source_dataset.dataset_id]
+        existing = existing_by_id.get(source_dataset.dataset_id)
+        compatible_existing = (
+            existing
+            if existing is not None
+            and existing.target_model == parsed.target_model
+            else None
+        )
+        if source_dataset.dataset_id != editable_dataset_id:
+            if parsed.fields or parsed.relationships:
+                raise WorkspaceError(
+                    "Mapping request changed a dataset that is not being edited"
+                )
+            merged.append(
+                replace(
+                    parsed,
+                    fields=(compatible_existing.fields if compatible_existing else ()),
+                    relationships=(
+                        compatible_existing.relationships
+                        if compatible_existing
+                        else ()
+                    ),
+                )
+            )
+            continue
+
+        model = models.get(parsed.target_model)
+        if model is None:
+            raise WorkspaceError("Choose a captured target model")
+        scalar_names = {
+            item.name
+            for item in model.fields
+            if item.type not in {"many2one", "many2many", "one2many"}
+        }
+        relation_names = {
+            item.name
+            for item in model.fields
+            if item.type in {"many2one", "many2many", "one2many"}
+        }
+        visible_scalars = set(
+            _texts(form, f"visible_scalar_target_{editable_index}")
+        )
+        visible_relations = set(
+            _texts(form, f"visible_relation_target_{editable_index}")
+        )
+        if not visible_scalars.issubset(scalar_names):
+            raise WorkspaceError("Visible scalar mapping fields are not current")
+        if not visible_relations.issubset(relation_names):
+            raise WorkspaceError("Visible relationship fields are not current")
+        if any(item.target_field not in visible_scalars for item in parsed.fields):
+            raise WorkspaceError("Mapping request changed a hidden scalar field")
+        if any(
+            item.target_field not in visible_relations
+            for item in parsed.relationships
+        ):
+            raise WorkspaceError("Mapping request changed a hidden relationship")
+
+        field_by_target = {
+            item.target_field: item
+            for item in (compatible_existing.fields if compatible_existing else ())
+            if item.target_field not in visible_scalars
+        }
+        field_by_target.update({item.target_field: item for item in parsed.fields})
+        relation_by_target = {
+            item.target_field: item
+            for item in (
+                compatible_existing.relationships if compatible_existing else ()
+            )
+            if item.target_field not in visible_relations
+        }
+        relation_by_target.update(
+            {item.target_field: item for item in parsed.relationships}
+        )
+        identity_targets = {
+            target
+            for component in (*parsed.target_identity, *parsed.target_scope)
+            for target in component.target_fields
+        }
+        merged.append(
+            replace(
+                parsed,
+                fields=tuple(
+                    item
+                    for target, item in sorted(field_by_target.items())
+                    if target not in identity_targets
+                ),
+                relationships=tuple(
+                    item
+                    for target, item in sorted(relation_by_target.items())
+                    if target not in identity_targets
+                ),
+            )
+        )
+    return tuple(merged)
 
 
 def _target_catalog_resolver(

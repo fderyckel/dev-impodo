@@ -38,10 +38,18 @@
   {% endif %}
 
   {% if selection and schema and governance %}
-    <form method="post" action="/projects/{{ project.project_id }}/mapping/save" data-mapping-form>
+    <form
+      method="post"
+      action="/projects/{{ project.project_id }}/mapping/save{% if request.url.query %}?{{ request.url.query }}{% endif %}"
+      data-mapping-form
+    >
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="expected_parent_version" value="{{ revision.version if revision else '' }}">
       <input type="hidden" name="expected_working_draft_version" value="{{ working_draft.version if working_draft else '' }}">
+      {% for view in dataset_views %}
+        {% if view.active %}<input type="hidden" name="editable_dataset_id" value="{{ view.source.dataset_id }}">{% endif %}
+      {% endfor %}
+      <div class="notice error" data-mapping-save-error role="alert" hidden></div>
 
       <section class="form-card evidence-card">
         <h2>Evidence binding</h2>
@@ -69,8 +77,26 @@
                 · {{ view.source.columns|length }} source columns
               </p>
             </div>
-            <code>{{ view.source.dataset_id }}</code>
+            <div>
+              <code>{{ view.source.dataset_id }}</code>
+              {% if view.active %}
+                <span class="status registered">Editing fields</span>
+              {% else %}
+                <a class="button secondary" href="{{ view.edit_url }}">Edit this dataset</a>
+              {% endif %}
+            </div>
           </div>
+
+          <template data-source-column-options>
+            {% for column in view.source.columns %}
+              {% set sample_values = view.source_samples.get(column.stable_key, ()) %}
+              <option
+                value="{{ column.stable_key }}"
+                data-sample="{{ sample_values[0] if sample_values else '' }}"
+                data-sample-present="{{ 'true' if sample_values and sample_values[0] is not none else 'false' }}"
+              >{{ column.source_name }} ({{ column.candidate_type }})</option>
+            {% endfor %}
+          </template>
 
           <div class="form-grid">
             <label>
@@ -137,12 +163,11 @@
                       <th>{{ row.target_field }}</th>
                       <td>{{ row.metadata.type if row.metadata else "unknown" }}</td>
                       <td>
-                        <select name="identity_source_{{ dataset_index }}_{{ loop.index0 }}" {% if row.relational %}multiple size="{{ [view.source.columns|length, 5]|min }}"{% endif %}>
+                        <select name="identity_source_{{ dataset_index }}_{{ loop.index0 }}" data-lazy-source-column {% if row.relational %}multiple size="{{ [view.source.columns|length, 5]|min }}"{% endif %}>
                           <option value="">Choose source</option>
-                          {% for column in view.source.columns %}
-                            <option value="{{ column.stable_key }}" {% if column.stable_key in row.selected_sources %}selected{% endif %}>
-                              {{ column.source_name }}
-                            </option>
+                          {% for selected_source in row.selected_sources %}
+                            {% set column = view.source_by_key.get(selected_source) %}
+                            {% if column %}<option value="{{ column.stable_key }}" selected>{{ column.source_name }}</option>{% endif %}
                           {% endfor %}
                         </select>
                       </td>
@@ -172,19 +197,28 @@
             </div>
           {% endif %}
 
+          {% if view.active %}
           <h3 id="scalar-fields-{{ dataset_index }}">Scalar target fields</h3>
           <p class="muted">Choose one governed value provider per target field. Constants, fallbacks, and transformations are stored in the exact mapping hash.</p>
-          <div data-scalar-field-catalog>
+          <div
+            data-scalar-field-catalog
+            data-scalar-catalog-total="{{ view.scalar_catalog_total }}"
+            data-scalar-matching-total="{{ view.scalar_matching_total }}"
+            data-scalar-mapped-total="{{ view.scalar_mapped_total }}"
+          >
             <div class="field-catalog-tools">
               <label>
                 Search scalar fields
-                <input type="search" data-scalar-field-search placeholder="Search label, technical name, or type" autocomplete="off">
+                <input type="search" value="{{ view.field_query }}" data-scalar-field-search placeholder="Search label, technical name, or type" autocomplete="off">
               </label>
+              <button class="button secondary" type="button" data-field-search-submit>Search all fields</button>
               <label class="checkbox">
-                <input type="checkbox" data-show-mapped-scalars>
+                <input type="checkbox" data-show-mapped-scalars {% if view.mapped_only %}checked{% endif %}>
                 Show mapped fields only
               </label>
-              <p class="muted" data-scalar-field-count></p>
+              <p class="muted" data-scalar-field-count>
+                {{ view.scalar_matching_total }} matching · {{ view.scalar_mapped_total }} mapped · page {{ view.scalar_page }} of {{ view.scalar_page_count }}
+              </p>
             </div>
             <div
               class="scalar-table-scroll-top"
@@ -208,10 +242,12 @@
                   <tr
                     data-scalar-mapping-row
                     data-scalar-field-row
+                    data-target-field="{{ row.metadata.name }}"
                     data-field-search-text="{{ row.metadata.label|lower }} {{ row.metadata.name|lower }} {{ row.metadata.type|lower }}"
                     data-mapped="{{ 'true' if mapping else 'false' }}"
                   >
                     <td class="value-provider-cell">
+                      <input type="hidden" name="visible_scalar_target_{{ dataset_index }}" value="{{ row.metadata.name }}">
                       <select name="scalar_value_source_{{ dataset_index }}_{{ field_index }}" data-value-source>
                         <option value="" {% if not mapping %}selected{% endif %}>Not mapped</option>
                         <option value="source" {% if value_source == 'source' %}selected{% endif %}>Source column</option>
@@ -221,14 +257,17 @@
                       </select>
                       <div class="provider-control" data-provider-source {% if value_source not in ('source', 'source_with_fallback') %}hidden{% endif %}>
                         <label>Source column
-                          <select name="scalar_source_{{ dataset_index }}_{{ field_index }}" data-source-column>
+                          <select name="scalar_source_{{ dataset_index }}_{{ field_index }}" data-source-column data-lazy-source-column>
                             <option value="">Choose source column</option>
-                        {% for column in view.source.columns %}
-                            {% set sample_values = row.source_samples.get(column.stable_key, ()) %}
-                            <option value="{{ column.stable_key }}" data-sample="{{ sample_values[0] if sample_values else '' }}" data-sample-present="{{ 'true' if sample_values and sample_values[0] is not none else 'false' }}" {% if mapping and mapping.source_column_key == column.stable_key %}selected{% endif %}>
-                              {{ column.source_name }} ({{ column.candidate_type }})
-                            </option>
-                        {% endfor %}
+                            {% if mapping and mapping.source_column_key %}
+                              {% set selected_column = view.source_by_key.get(mapping.source_column_key) %}
+                              {% set sample_values = row.source_samples.get(mapping.source_column_key, ()) %}
+                              {% if selected_column %}
+                                <option value="{{ selected_column.stable_key }}" data-sample="{{ sample_values[0] if sample_values else '' }}" data-sample-present="{{ 'true' if sample_values and sample_values[0] is not none else 'false' }}" selected>
+                                  {{ selected_column.source_name }} ({{ selected_column.candidate_type }})
+                                </option>
+                              {% endif %}
+                            {% endif %}
                           </select>
                         </label>
                       </div>
@@ -521,14 +560,23 @@
               </tbody>
               </table>
             </div>
+            <nav class="actions" aria-label="Scalar field pages">
+              {% if view.scalar_previous_url %}<a class="button secondary" href="{{ view.scalar_previous_url }}">Previous fields</a>{% endif %}
+              <span class="muted">Page {{ view.scalar_page }} of {{ view.scalar_page_count }}</span>
+              {% if view.scalar_next_url %}<a class="button secondary" href="{{ view.scalar_next_url }}">Next fields</a>{% endif %}
+            </nav>
           </div>
 
           <h3 id="relationships-{{ dataset_index }}">Relationships</h3>
+          <p class="muted">
+            {{ view.relation_matching_total }} matching relationship fields · {{ view.relation_mapped_total }} mapped · page {{ view.relation_page }} of {{ view.relation_page_count }}
+          </p>
           {% if view.relation_rows %}
             {% for row in view.relation_rows %}
               {% set relation_index = row.index %}
               {% set mapping = row.mapping %}
-              <div class="relationship-card">
+              <div class="relationship-card" data-relation-mapping-row data-target-field="{{ row.metadata.name }}">
+                <input type="hidden" name="visible_relation_target_{{ dataset_index }}" value="{{ row.metadata.name }}">
                 <h4>{{ row.metadata.label }} · <code>{{ row.metadata.name }}</code></h4>
                 <p>
                   {{ row.metadata.type }} → {{ row.metadata.relation or "unknown model" }}
@@ -547,12 +595,11 @@
                   <div class="form-grid">
                     <label>
                       Source key column(s), in business-key order
-                      <select name="relation_source_{{ dataset_index }}_{{ relation_index }}" multiple size="{{ [view.source.columns|length, 5]|min }}">
+                      <select name="relation_source_{{ dataset_index }}_{{ relation_index }}" multiple size="{{ [view.source.columns|length, 5]|min }}" data-lazy-source-column>
                         {% set selected_relation_sources = mapping.source_column_keys if mapping else (row.recommended_source_columns or ()) %}
-                        {% for column in view.source.columns %}
-                          <option value="{{ column.stable_key }}" {% if column.stable_key in selected_relation_sources %}selected{% endif %}>
-                            {{ column.source_name }}
-                          </option>
+                        {% for selected_source in selected_relation_sources %}
+                          {% set column = view.source_by_key.get(selected_source) %}
+                          {% if column %}<option value="{{ column.stable_key }}" selected>{{ column.source_name }}</option>{% endif %}
                         {% endfor %}
                       </select>
                     </label>
@@ -627,7 +674,20 @@
               </div>
             {% endfor %}
           {% else %}
-            <p class="muted">The selected model has no configurable relationship fields.</p>
+            <p class="muted">No relationship field matches the current catalogue filter.</p>
+          {% endif %}
+          <nav class="actions" aria-label="Relationship field pages">
+            {% if view.relation_previous_url %}<a class="button secondary" href="{{ view.relation_previous_url }}">Previous relationships</a>{% endif %}
+            <span class="muted">Page {{ view.relation_page }} of {{ view.relation_page_count }}</span>
+            {% if view.relation_next_url %}<a class="button secondary" href="{{ view.relation_next_url }}">Next relationships</a>{% endif %}
+          </nav>
+          {% else %}
+            <div class="empty-state compact">
+              <p>
+                {{ view.scalar_mapped_total }} scalar and {{ view.relation_mapped_total }} relationship mappings are saved for this dataset.
+              </p>
+              <a class="button secondary" href="{{ view.edit_url }}">Open this dataset's field catalogue</a>
+            </div>
           {% endif %}
         </section>
       {% endfor %}

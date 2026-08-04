@@ -24,6 +24,16 @@ from impodo.local_stack import (
     LocalStackStatus,
     ReadinessLevel,
 )
+from impodo.mapping_semantics import (
+    BusinessKeyDefinition,
+    BusinessKeyStatus,
+    DatasetMapping,
+    IdentityComponentMapping,
+    MappingTargetMode,
+    ScalarFieldMapping,
+    ScalarValueSource,
+    SchemaGovernance,
+)
 from impodo.models import (
     FieldMetadata,
     ModelMetadata,
@@ -34,7 +44,15 @@ from impodo.models import (
 from impodo.projects import OdooConnectionMode, ProjectStatus
 from impodo.secrets import MemorySecretStore
 from impodo.web import create_app
-from impodo.workspace import SchemaOrigin, SourceSelection
+from impodo.workspace import (
+    OdooSchemaCatalog,
+    SchemaField,
+    SchemaModel,
+    SchemaOrigin,
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1441,6 +1459,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn('window.addEventListener("beforeunload"', mapping_script.text)
         self.assertIn("mappingForm.requestSubmit(saveProgress)", mapping_script.text)
+        self.assertIn("fetch(mappingForm.action", mapping_script.text)
+        self.assertIn(
+            "Your unsaved changes are still on this page",
+            mapping_script.text,
+        )
+        self.assertIn("hydrateSourceOptions", mapping_script.text)
         mapping_styles = self.client.get("/static/app.css")
         self.assertIn(".scalar-table-scroll-top", mapping_styles.text)
         self.assertIn("overflow-x: scroll", mapping_styles.text)
@@ -1727,6 +1751,317 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(len(self.connection_calls), 1)
         self.assertEqual(self.connection_calls[0][1], "local-only-key")
+
+    def test_large_mapping_catalog_is_paged_and_saved_sparsely(self) -> None:
+        project_id, dataset, business_key = self._mapping_ready_project(
+            scalar_field_count=1500
+        )
+        source_identity, source_value = dataset.columns
+        context = self.app.state.context
+        initial = context.mapping_workspace.save_working_draft(
+            project_id,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=dataset.dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(source_identity.stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(source_identity.stable_key,),
+                            target_fields=("ref",),
+                        ),
+                    ),
+                    fields=tuple(
+                        ScalarFieldMapping(
+                            target_field=f"field_{index:04d}",
+                            source_column_key=source_value.stable_key,
+                            value_source=ScalarValueSource.SOURCE,
+                        )
+                        for index in range(1500)
+                    ),
+                ),
+            ),
+            expected_version=None,
+            actor=context.actor,
+        )
+        self.assertEqual(initial.version, 1)
+
+        page = self.client.get(f"/projects/{project_id}/mapping")
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.text.count("data-scalar-mapping-row"), 25)
+        self.assertIn("1500 matching", page.text)
+        self.assertIn("page 1 of 60", page.text)
+        self.assertIn("field_0000", page.text)
+        self.assertNotIn("field_0025</code>", page.text)
+        self.assertIn("template data-source-column-options", page.text)
+        self.assertLess(page.text.count(source_value.stable_key), 100)
+
+        last_page = self.client.get(
+            f"/projects/{project_id}/mapping?scalar_page=60"
+        )
+        self.assertEqual(last_page.text.count("data-scalar-mapping-row"), 25)
+        self.assertIn("field_1499", last_page.text)
+        self.assertIn("scalar_page=60", last_page.text)
+
+        entries = [
+            ["csrf_token", self.csrf],
+            ["action", "save_progress"],
+            ["expected_parent_version", ""],
+            ["expected_working_draft_version", "1"],
+            ["editable_dataset_id", dataset.dataset_id],
+            ["target_model_0", "res.partner"],
+            ["mode_0", "upsert"],
+            ["on_existing_0", "block"],
+            ["source_identity_0", source_identity.stable_key],
+            ["business_key_0", business_key.key_id],
+            ["identity_source_0_0", source_identity.stable_key],
+            ["visible_scalar_target_0", "field_0000"],
+            ["scalar_value_source_0_1", "constant"],
+            ["scalar_literal_0_1", "Updated safely"],
+            ["scalar_type_0_1", "string"],
+            ["scalar_case_0_1", "preserve"],
+            ["scalar_compare_0_1", "1"],
+            ["scalar_null_0_1", "distinct"],
+        ]
+        saved = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            json={"entries": entries},
+            headers={
+                **POST_HEADERS,
+                "X-CSRF-Token": self.csrf,
+            },
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertIn("redirect_url", saved.json())
+        working = context.repository.get_mapping_working_draft(project_id)
+        self.assertEqual(working.version, 2)
+        self.assertEqual(len(working.definition.datasets[0].fields), 1500)
+        updated = {
+            item.target_field: item
+            for item in working.definition.datasets[0].fields
+        }
+        self.assertEqual(updated["field_0000"].literal_value, "Updated safely")
+        self.assertEqual(
+            updated["field_1499"].source_column_key,
+            source_value.stable_key,
+        )
+
+        denied = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            json={"entries": entries},
+            headers={
+                **POST_HEADERS,
+                "X-CSRF-Token": "incorrect",
+            },
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(
+            context.repository.get_mapping_working_draft(project_id).version,
+            2,
+        )
+
+        invalid_entries = [
+            list(item)
+            for item in entries
+            if item[0] not in {"source_identity_0", "identity_source_0_0"}
+        ]
+        for item in invalid_entries:
+            if item[0] == "action":
+                item[1] = "submit"
+            elif item[0] == "expected_working_draft_version":
+                item[1] = "2"
+        invalid = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            json={"entries": invalid_entries},
+            headers={
+                **POST_HEADERS,
+                "X-CSRF-Token": self.csrf,
+            },
+        )
+        self.assertEqual(invalid.status_code, 422)
+        self.assertEqual(invalid.json()["expected_working_draft_version"], 3)
+        self.assertEqual(invalid.json()["expected_parent_version"], 1)
+
+        retry_entries = [list(item) for item in entries]
+        for item in retry_entries:
+            if item[0] == "expected_working_draft_version":
+                item[1] = "3"
+            elif item[0] == "expected_parent_version":
+                item[1] = "1"
+        retried = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            json={"entries": retry_entries},
+            headers={
+                **POST_HEADERS,
+                "X-CSRF-Token": self.csrf,
+            },
+        )
+        self.assertEqual(retried.status_code, 200)
+        self.assertEqual(
+            context.repository.get_mapping_working_draft(project_id).version,
+            4,
+        )
+
+        oversized = b'{"entries":[["csrf_token","' + (
+            b"x" * (5 * 1024 * 1024)
+        ) + b'"]]}'
+        rejected = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            content=oversized,
+            headers={
+                **POST_HEADERS,
+                "Content-Type": "application/json",
+                "X-CSRF-Token": self.csrf,
+            },
+        )
+        self.assertEqual(rejected.status_code, 413)
+        self.assertEqual(
+            context.repository.get_mapping_working_draft(project_id).version,
+            4,
+        )
+
+        excessive_form = "&".join(
+            [f"field_{index}=x" for index in range(25_001)]
+        )
+        recovered = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            content=excessive_form,
+            headers={
+                **POST_HEADERS,
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(recovered.status_code, 303)
+        self.assertIn("save_error=request_rejected", recovered.headers["location"])
+        recovery_page = self.client.get(recovered.headers["location"])
+        self.assertIn("No mapping change was saved", recovery_page.text)
+
+    def _mapping_ready_project(self, *, scalar_field_count: int):
+        context = self.app.state.context
+        created = context.projects.create_project(
+            actor=context.actor,
+            name="Large mapping",
+            source_system="CSV",
+        )
+        now = datetime.now(timezone.utc)
+        registered = replace(
+            created,
+            odoo_connection_mode=OdooConnectionMode.LOCAL,
+            odoo_base_url="http://127.0.0.1:8069",
+            odoo_database="odoo19_local",
+            intended_models=("res.partner",),
+            status=ProjectStatus.REGISTERED,
+            revision=2,
+            updated_at=now,
+            registered_at=now,
+        )
+        context.repository.save(
+            registered,
+            expected_revision=created.revision,
+            event_type="TEST_PROJECT_REGISTERED",
+            event_detail="",
+            actor=context.actor,
+        )
+        dataset = SourceDataset(
+            dataset_id="dataset:large",
+            name="large_contacts",
+            file_id="source:large",
+            table_key="contacts",
+            source_sha256="sha256:" + "1" * 64,
+            catalog_hash="sha256:" + "2" * 64,
+            encoding="utf-8",
+            delimiter=",",
+            header_row=1,
+            row_count=1,
+            columns=(
+                SourceDatasetColumn(1, "Reference", "column:ref", "string"),
+                SourceDatasetColumn(2, "Value", "column:value", "string"),
+            ),
+        )
+        selection = SourceSelection(
+            selection_id=str(uuid4()),
+            version=1,
+            project_id=registered.project_id,
+            created_at=now,
+            created_by=context.actor.identity.display_name,
+            datasets=(dataset,),
+            content_hash="sha256:" + "3" * 64,
+        )
+        context.repository.save_source_selection(
+            registered.project_id,
+            selection,
+            actor=context.actor,
+        )
+        fields = (
+            SchemaField(
+                name="ref",
+                label="Reference",
+                type="char",
+                required=True,
+                readonly=False,
+                relation=None,
+                relation_field=None,
+                selection=(),
+            ),
+            *(
+                SchemaField(
+                    name=f"field_{index:04d}",
+                    label=f"Field {index:04d}",
+                    type="char",
+                    required=False,
+                    readonly=False,
+                    relation=None,
+                    relation_field=None,
+                    selection=(),
+                )
+                for index in range(scalar_field_count)
+            ),
+        )
+        schema = OdooSchemaCatalog(
+            project_id=registered.project_id,
+            target_hash=target_identity_hash(
+                connection_mode=registered.odoo_connection_mode.value,
+                base_url=registered.odoo_base_url,
+                database=registered.odoo_database,
+            ),
+            captured_at=now,
+            captured_by=context.actor.identity.display_name,
+            connection_mode=registered.odoo_connection_mode.value,
+            database=registered.odoo_database,
+            odoo_version="19.0",
+            models=(SchemaModel("res.partner", "Contact", fields),),
+            content_hash="sha256:" + "4" * 64,
+        )
+        context.repository.save_odoo_schema_catalog(
+            registered.project_id,
+            schema,
+            actor=context.actor,
+        )
+        business_key = BusinessKeyDefinition(
+            key_id="res.partner:ref",
+            model="res.partner",
+            key_fields=("ref",),
+            description="Unique reference",
+            status=BusinessKeyStatus.CONFIRMED,
+        )
+        governance = SchemaGovernance(
+            governance_id=str(uuid4()),
+            version=1,
+            project_id=registered.project_id,
+            catalog_hash=schema.content_hash,
+            permitted_models=("res.partner",),
+            business_keys=(business_key,),
+            recorded_at=now,
+            recorded_by=context.actor.identity.display_name,
+        )
+        context.repository.save_schema_governance(
+            registered.project_id,
+            governance,
+            actor=context.actor,
+        )
+        return registered.project_id, dataset, business_key
 
     def _post(self, path: str, data: dict[str, str]):
         return self.client.post(

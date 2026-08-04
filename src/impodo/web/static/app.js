@@ -121,6 +121,52 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const hydrateSourceOptions = (select) => {
+    if (select.dataset.sourceOptionsLoaded === "true") {
+      return;
+    }
+    const template = select
+      .closest(".mapping-dataset")
+      ?.querySelector("template[data-source-column-options]");
+    if (!(template instanceof HTMLTemplateElement)) {
+      return;
+    }
+    const selectedValues = new Set(
+      Array.from(select.selectedOptions, (option) => option.value)
+    );
+    const placeholder = Array.from(select.options).find(
+      (option) => option.value === ""
+    );
+    select.replaceChildren();
+    if (placeholder) {
+      select.append(placeholder.cloneNode(true));
+    }
+    select.append(template.content.cloneNode(true));
+    for (const option of select.options) {
+      option.selected = selectedValues.has(option.value);
+    }
+    select.dataset.sourceOptionsLoaded = "true";
+  };
+
+  const releaseSourceOptions = (select) => {
+    if (select.dataset.sourceOptionsLoaded !== "true") {
+      return;
+    }
+    const retained = Array.from(select.options)
+      .filter((option) => option.value === "" || option.selected)
+      .map((option) => option.cloneNode(true));
+    select.replaceChildren(...retained);
+    select.dataset.sourceOptionsLoaded = "false";
+  };
+
+  for (const select of document.querySelectorAll(
+    "select[data-lazy-source-column]"
+  )) {
+    select.addEventListener("pointerdown", () => hydrateSourceOptions(select));
+    select.addEventListener("focus", () => hydrateSourceOptions(select));
+    select.addEventListener("blur", () => releaseSourceOptions(select));
+  }
+
   const mappingForm = document.querySelector("[data-mapping-form]");
   if (mappingForm) {
     const saveStatus = mappingForm.querySelector(
@@ -129,6 +175,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const saveProgress = mappingForm.querySelector(
       "[data-save-mapping-progress]"
     );
+    const saveError = mappingForm.querySelector("[data-mapping-save-error]");
     let dirty = false;
     let submitting = false;
 
@@ -169,9 +216,47 @@ document.addEventListener("DOMContentLoaded", () => {
     mappingForm.addEventListener("input", markMappingDirty);
     mappingForm.addEventListener("change", markMappingDirty);
 
-    mappingForm.addEventListener("submit", (event) => {
+    const sparseMappingEntries = (submitter) => {
+      const data = new FormData(mappingForm);
+      data.set("action", submitter?.value || "");
+      for (const row of mappingForm.querySelectorAll(
+        "[data-scalar-mapping-row]"
+      )) {
+        if (row.querySelector("[data-value-source]")?.value) {
+          continue;
+        }
+        for (const control of row.querySelectorAll('[name^="scalar_"]')) {
+          data.delete(control.name);
+        }
+      }
+      for (const row of mappingForm.querySelectorAll(
+        "[data-relation-mapping-row]"
+      )) {
+        const source = row.querySelector('select[name^="relation_source_"]');
+        if (source && source.selectedOptions.length > 0) {
+          continue;
+        }
+        for (const control of row.querySelectorAll('[name^="relation_"]')) {
+          data.delete(control.name);
+        }
+      }
+      return Array.from(data.entries(), ([name, value]) => [
+        name,
+        typeof value === "string" ? value : "",
+      ]);
+    };
+
+    mappingForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (submitting) {
+        return;
+      }
       submitting = true;
       mappingForm.setAttribute("aria-busy", "true");
+      if (saveError) {
+        saveError.hidden = true;
+        saveError.textContent = "";
+      }
       if (saveStatus) {
         const action = event.submitter?.value || "";
         saveStatus.textContent =
@@ -181,6 +266,71 @@ document.addEventListener("DOMContentLoaded", () => {
               ? "Saving, validating, and submitting..."
               : "Saving and validating...";
         saveStatus.classList.remove("unsaved");
+      }
+      try {
+        const csrfToken = mappingForm.querySelector(
+          'input[name="csrf_token"]'
+        )?.value;
+        const response = await fetch(mappingForm.action, {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken || "",
+          },
+          body: JSON.stringify({
+            entries: sparseMappingEntries(event.submitter),
+          }),
+        });
+        let payload = {};
+        try {
+          payload = await response.json();
+        } catch (_error) {
+          payload = {};
+        }
+        if (!response.ok) {
+          const workingVersion = mappingForm.querySelector(
+            'input[name="expected_working_draft_version"]'
+          );
+          const parentVersion = mappingForm.querySelector(
+            'input[name="expected_parent_version"]'
+          );
+          if (
+            workingVersion &&
+            Object.hasOwn(payload, "expected_working_draft_version")
+          ) {
+            workingVersion.value =
+              payload.expected_working_draft_version ?? "";
+          }
+          if (
+            parentVersion &&
+            Object.hasOwn(payload, "expected_parent_version")
+          ) {
+            parentVersion.value = payload.expected_parent_version ?? "";
+          }
+          throw new Error(payload.detail || "The mapping could not be saved.");
+        }
+        dirty = false;
+        if (saveStatus) {
+          saveStatus.textContent = payload.message || "Mapping saved.";
+        }
+        window.location.assign(payload.redirect_url || window.location.pathname);
+      } catch (error) {
+        submitting = false;
+        dirty = true;
+        mappingForm.removeAttribute("aria-busy");
+        const message =
+          error instanceof Error
+            ? error.message
+            : "The mapping could not be saved.";
+        if (saveError) {
+          saveError.textContent = `${message} Your unsaved changes are still on this page.`;
+          saveError.hidden = false;
+        }
+        if (saveStatus) {
+          saveStatus.textContent = "Save failed. Unsaved changes are retained.";
+          saveStatus.classList.add("unsaved");
+        }
       }
     });
 
@@ -707,6 +857,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "[data-scalar-field-catalog]"
   )) {
     const search = catalog.querySelector("[data-scalar-field-search]");
+    const searchSubmit = catalog.querySelector("[data-field-search-submit]");
     const mappedOnly = catalog.querySelector("[data-show-mapped-scalars]");
     const count = catalog.querySelector("[data-scalar-field-count]");
     const topScroll = catalog.querySelector(
@@ -720,6 +871,30 @@ document.addEventListener("DOMContentLoaded", () => {
     const rows = Array.from(
       catalog.querySelectorAll("[data-scalar-field-row]")
     );
+    const navigateFieldCatalog = () => {
+      const query = new URLSearchParams(window.location.search);
+      const searchValue = search?.value.trim() || "";
+      if (searchValue) {
+        query.set("field_query", searchValue);
+      } else {
+        query.delete("field_query");
+      }
+      if (mappedOnly?.checked) {
+        query.set("mapped_only", "1");
+      } else {
+        query.delete("mapped_only");
+      }
+      query.set("scalar_page", "1");
+      query.set("relation_page", "1");
+      window.location.assign(`${window.location.pathname}?${query.toString()}`);
+    };
+    searchSubmit?.addEventListener("click", navigateFieldCatalog);
+    search?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        navigateFieldCatalog();
+      }
+    });
     const updateScalarTableScroll = () => {
       if (!topScroll || !topScrollSpacer || !tableScroll) {
         return;
@@ -765,13 +940,15 @@ document.addEventListener("DOMContentLoaded", () => {
         mapped += isMapped ? 1 : 0;
       }
       if (count) {
+        const matchingTotal = catalog.dataset.scalarMatchingTotal || rows.length;
+        const mappedTotal = catalog.dataset.scalarMappedTotal || mapped;
         count.textContent =
-          `${visible} of ${rows.length} fields shown / ${mapped} mapped`;
+          `${visible} loaded fields shown · ${matchingTotal} matching · ${mappedTotal} mapped`;
       }
       window.requestAnimationFrame(updateScalarTableScroll);
     };
     search?.addEventListener("input", updateScalarFieldRows);
-    mappedOnly?.addEventListener("change", updateScalarFieldRows);
+    mappedOnly?.addEventListener("change", navigateFieldCatalog);
     for (const provider of catalog.querySelectorAll("[data-value-source]")) {
       provider.addEventListener("change", updateScalarFieldRows);
     }
