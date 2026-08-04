@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import date, datetime, timezone
+from html import unescape
 from io import BytesIO
 from pathlib import Path
 import re
@@ -859,7 +860,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         missing = self.client.get(f"/projects/{project_id}")
         self.assertEqual(missing.status_code, 404)
         refreshed = self.client.get(deleted.headers["location"])
-        self.assertIn('Deleted project "Disposable rehearsal".', refreshed.text)
+        self.assertIn(
+            'Deleted project "Disposable rehearsal".',
+            unescape(refreshed.text),
+        )
 
         script = self.client.get("/static/app.js")
         self.assertIn("projectDeleteDialog.showModal()", script.text)
@@ -1308,7 +1312,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         derived_page = self.client.get(frozen.headers["location"])
         self.assertIn("Prepare related datasets", derived_page.text)
         self.assertIn(
-            "full-row staging and export certification remain later",
+            "readiness repeats the rule over every source row",
             derived_page.text,
         )
         selection = (
@@ -1374,21 +1378,30 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(removed_related.status_code, 303)
+        derived_rule_data = {
+            "csrf_token": self.csrf,
+            "expected_parent_version": "2",
+            "source_binding": (
+                f"{selection.datasets[1].dataset_id}|{product_name.stable_key}"
+            ),
+            "output_dataset_name": "product_names",
+            "target_model": "res.partner",
+            "target_name_field": "name",
+            "external_id_namespace": "dynamics_ax_2012",
+            "parent_separator": "",
+            "blank_policy": "block",
+        }
+        lookup_preview = self.client.post(
+            f"/projects/{project_id}/derived-entities/lookup/preview",
+            data=derived_rule_data,
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(lookup_preview.status_code, 200)
+        self.assertIn("Review before creating", lookup_preview.text)
+        self.assertIn("Create this related dataset", lookup_preview.text)
         saved_derived = self.client.post(
             f"/projects/{project_id}/derived-entities/save",
-            data={
-                "csrf_token": self.csrf,
-                "expected_parent_version": "2",
-                "source_binding": (
-                    f"{selection.datasets[1].dataset_id}|{product_name.stable_key}"
-                ),
-                "output_dataset_name": "product_names",
-                "target_model": "res.partner",
-                "target_name_field": "name",
-                "external_id_namespace": "dynamics_ax_2012",
-                "parent_separator": "",
-                "blank_policy": "block",
-            },
+            data=derived_rule_data,
             headers=POST_HEADERS,
             follow_redirects=False,
         )
@@ -1397,7 +1410,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Saved derived dataset product_names", derived_preview.text)
         self.assertIn("Example product", derived_preview.text)
         self.assertIn("impodo_dynamics_ax_2012.res_partner_", derived_preview.text)
-        self.assertIn("never by a contributing product or line", derived_preview.text)
+        self.assertIn(
+            "available in Mapping beside the original rows",
+            derived_preview.text,
+        )
         self.assertNotIn("entity:P001", derived_preview.text)
 
         project = self.app.state.context.repository.get(project_id)
@@ -1523,7 +1539,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Source + fallback", mapping_page.text)
         self.assertIn("Leave unset / Odoo default", mapping_page.text)
         self.assertIn("Search scalar fields", mapping_page.text)
-        self.assertIn("Searching never saves mapping progress.", mapping_page.text)
+        self.assertIn(
+            "Results and totals update here without refreshing or saving",
+            mapping_page.text,
+        )
+        self.assertIn("data-scalar-pagination", mapping_page.text)
         self.assertIn("data-scalar-table-scroll-top", mapping_page.text)
         self.assertIn(
             'aria-label="Scroll scalar target fields horizontally"',
@@ -1546,14 +1566,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
             mapping_script.text,
         )
         self.assertIn('window.addEventListener("beforeunload"', mapping_script.text)
-        self.assertNotIn("scheduleFieldCatalogSearch", mapping_script.text)
+        self.assertIn("scheduleScalarCatalogSearch", mapping_script.text)
+        self.assertIn("new AbortController()", mapping_script.text)
+        self.assertIn("new DOMParser()", mapping_script.text)
+        self.assertIn("window.history.replaceState", mapping_script.text)
+        self.assertIn("restoreScalarRow(row)", mapping_script.text)
         self.assertNotIn("pendingRedirect", mapping_script.text)
         self.assertNotIn(
             "mappingForm.requestSubmit(saveProgress)",
             mapping_script.text,
         )
         self.assertIn(
-            'search?.addEventListener("input", updateScalarFieldRows)',
+            "Searching the complete scalar-field catalog",
             mapping_script.text,
         )
         self.assertIn(
@@ -1566,6 +1590,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             mapping_script.text,
         )
         self.assertIn("hydrateSourceOptions", mapping_script.text)
+        self.assertIn("option.defaultSelected = selected", mapping_script.text)
         mapping_styles = self.client.get("/static/app.css")
         self.assertIn(".scalar-table-scroll-top", mapping_styles.text)
         self.assertIn("overflow-x: scroll", mapping_styles.text)
@@ -1582,6 +1607,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
         customer, product = selection.datasets
         customer_code, customer_name = customer.columns
         product_code, product_name = product.columns
+        mapping_selection = (
+            self.app.state.context.repository.get_mapping_source_selection(
+                project_id
+            )
+        )
+        self.assertIsNotNone(mapping_selection)
+        mapped_customer, product_names, mapped_product = (
+            mapping_selection.datasets
+        )
+        product_name_key, product_name_value = product_names.columns
+        self.assertEqual(mapped_customer.dataset_id, customer.dataset_id)
+        self.assertEqual(mapped_product.dataset_id, product.dataset_id)
         business_key_id = schema_governance.business_keys[0].key_id
         saved_progress = self.client.post(
             f"/projects/{project_id}/mapping/save",
@@ -1600,6 +1637,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "scalar_null_0_1": "distinct",
                 "target_model_1": "res.partner",
                 "mode_1": "upsert",
+                "target_model_2": "res.partner",
+                "mode_2": "upsert",
             },
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -1654,24 +1693,34 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "scalar_null_0_1": "distinct",
                 "target_model_1": "res.partner",
                 "mode_1": "upsert",
-                "source_identity_1": product_code.stable_key,
+                "source_identity_1": product_name_key.stable_key,
                 "business_key_1": business_key_id,
-                "identity_source_1_0": product_code.stable_key,
-                "scalar_value_source_1_1": "constant",
-                "scalar_literal_1_1": "Imported product",
+                "identity_source_1_0": product_name_value.stable_key,
+                "scalar_value_source_1_1": "source",
+                "scalar_source_1_1": product_name_value.stable_key,
                 "scalar_type_1_1": "string",
-                "scalar_case_1_1": "sentence",
-                "scalar_search_1_1": "product",
-                "scalar_replacement_1_1": "product",
-                "scalar_search_mode_1_1": "literal",
-                "scalar_replace_all_1_1": "1",
-                "scalar_exact_length_1_1": "16",
-                "scalar_segment_location_1_1": "first",
-                "scalar_segment_length_1_1": "1",
-                "scalar_character_class_1_1": "uppercase",
-                "scalar_pattern_1_1": "[A-Z][a-z ]{15}",
                 "scalar_compare_1_1": "1",
                 "scalar_null_1_1": "distinct",
+                "target_model_2": "res.partner",
+                "mode_2": "upsert",
+                "source_identity_2": product_code.stable_key,
+                "business_key_2": business_key_id,
+                "identity_source_2_0": product_code.stable_key,
+                "scalar_value_source_2_1": "constant",
+                "scalar_literal_2_1": "Imported product",
+                "scalar_type_2_1": "string",
+                "scalar_case_2_1": "sentence",
+                "scalar_search_2_1": "product",
+                "scalar_replacement_2_1": "product",
+                "scalar_search_mode_2_1": "literal",
+                "scalar_replace_all_2_1": "1",
+                "scalar_exact_length_2_1": "16",
+                "scalar_segment_location_2_1": "first",
+                "scalar_segment_length_2_1": "1",
+                "scalar_character_class_2_1": "uppercase",
+                "scalar_pattern_2_1": "[A-Z][a-z ]{15}",
+                "scalar_compare_2_1": "1",
+                "scalar_null_2_1": "distinct",
             },
             headers=POST_HEADERS,
             follow_redirects=False,

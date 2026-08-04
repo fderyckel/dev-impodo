@@ -16,6 +16,8 @@ from impodo.derived_entities import (
     DerivedEntityRule,
     DerivedEntityWorkspaceService,
     RelatedDatasetRule,
+    derived_dataset_links,
+    derived_mapping_samples,
     mapping_source_selection,
     preview_derived_entities,
     preview_related_datasets,
@@ -333,6 +335,130 @@ class DerivedEntityPreviewTests(unittest.TestCase):
         self.assertEqual(
             bom_relation["recommended_source_columns"],
             (dataset.columns[1].stable_key,),
+        )
+
+    def test_lookup_extraction_becomes_mapping_ready_with_product_link(self) -> None:
+        selection, catalog = _source_evidence(
+            rows=(("P001", "Article"), ("P002", "Service"), ("P003", "Article"))
+        )
+        rule = replace(_rule(selection), parent_separator=None)
+        plan = DerivedEntityPlan(
+            plan_id=str(uuid4()),
+            version=1,
+            project_id=selection.project_id,
+            source_selection_hash=selection.content_hash,
+            rules=(rule,),
+            updated_at=datetime.now(timezone.utc),
+            updated_by="Test operator",
+        )
+
+        effective = mapping_source_selection(selection, plan, (catalog,))
+        link = derived_dataset_links(plan)[0]
+        preview = preview_derived_entities(rule, selection, (catalog,))
+        samples = {
+            link.derived_dataset_id: derived_mapping_samples(link, preview)
+        }
+
+        self.assertEqual(
+            tuple(item.name for item in effective.datasets),
+            ("product_categories", "products"),
+        )
+        self.assertEqual(effective.datasets[0].row_count, 2)
+        self.assertEqual(
+            tuple(item.stable_key for item in effective.datasets[0].columns),
+            (link.canonical_key_column_key, link.name_column_key),
+        )
+        self.assertEqual(link.consumer_dataset_id, selection.datasets[0].dataset_id)
+
+        schema = OdooSchemaCatalog(
+            project_id=selection.project_id,
+            target_hash="sha256:" + "1" * 64,
+            captured_at=datetime.now(timezone.utc),
+            captured_by="Test operator",
+            connection_mode="LOCAL",
+            database="test",
+            odoo_version="19.0",
+            models=(
+                SchemaModel(
+                    name="product.category",
+                    label="Product Category",
+                    fields=(_schema_field("name", "Name", "char"),),
+                ),
+                SchemaModel(
+                    name="product.template",
+                    label="Product",
+                    fields=(
+                        _schema_field("default_code", "Reference", "char"),
+                        _schema_field(
+                            "categ_id",
+                            "Product Category",
+                            "many2one",
+                            relation="product.category",
+                        ),
+                    ),
+                ),
+            ),
+            content_hash="sha256:" + "2" * 64,
+            origin=SchemaOrigin.LIVE_API,
+        )
+        governance = SchemaGovernance(
+            governance_id=str(uuid4()),
+            version=1,
+            project_id=selection.project_id,
+            catalog_hash=schema.content_hash,
+            permitted_models=("product.category", "product.template"),
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="product.category::name",
+                    model="product.category",
+                    key_fields=("name",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+                BusinessKeyDefinition(
+                    key_id="product.template::default_code",
+                    model="product.template",
+                    key_fields=("default_code",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+            recorded_at=datetime.now(timezone.utc),
+            recorded_by="Test operator",
+        )
+
+        views = _mapping_dataset_views(
+            effective,
+            schema,
+            governance,
+            (),
+            (catalog,),
+            {1: "product.template"},
+            (),
+            (link,),
+            samples,
+        )
+
+        self.assertEqual(views[0]["selected_model"], "product.category")
+        self.assertEqual(views[0]["related_role"], "lookup")
+        self.assertEqual(
+            views[0]["recommended_source_identity"],
+            (link.canonical_key_column_key,),
+        )
+        self.assertEqual(
+            views[0]["identity_rows"][0]["selected_sources"],
+            (link.name_column_key,),
+        )
+        category_relation = next(
+            item
+            for item in views[1]["relation_rows"]
+            if item["metadata"].name == "categ_id"
+        )
+        self.assertEqual(
+            category_relation["recommended_dataset_id"],
+            link.derived_dataset_id,
+        )
+        self.assertEqual(
+            category_relation["recommended_source_columns"],
+            (selection.datasets[0].columns[1].stable_key,),
         )
 
 

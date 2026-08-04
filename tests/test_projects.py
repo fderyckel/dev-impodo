@@ -262,6 +262,40 @@ class ProjectLifecycleTests(unittest.TestCase):
                 f'ALTER TABLE project ADD COLUMN "{legacy_column}" VARCHAR'
             )
 
+            connection.execute(
+                f'UPDATE project SET "{legacy_column}" = ?',
+                ["legacy-label"],
+            )
+            connection.execute(
+                "INSERT INTO odoo_schema_catalog VALUES (1, '{}')"
+            )
+            connection.execute("UPDATE schema_version SET version = 7")
+
+        migrated = self.repository.get(project.project_id)
+
+        self.assertEqual(migrated.approval_status.value, "INVALIDATED")
+        self.assertIsNone(
+            self.repository.get_odoo_schema_catalog(project.project_id)
+        )
+        with self.repository._connect(database_path) as connection:
+            legacy_column_row = connection.execute(
+                """
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_name = 'project' AND column_name = ?
+                """,
+                [legacy_column],
+            ).fetchone()
+            migration_event = connection.execute(
+                """
+                SELECT event_type
+                  FROM audit_event
+                 WHERE event_type = 'TARGET_CONTRACT_MIGRATED'
+                """
+            ).fetchone()
+        self.assertIsNone(legacy_column_row)
+        self.assertEqual(migration_event, ("TARGET_CONTRACT_MIGRATED",))
+
     def test_delete_permanently_removes_registered_project_and_artifacts(
         self,
     ) -> None:
@@ -310,39 +344,6 @@ class ProjectLifecycleTests(unittest.TestCase):
         self.assertEqual(self.repository.list(), ())
         with self.assertRaises(ProjectNotFoundError):
             self.repository.get(registered.project_id)
-            connection.execute(
-                f'UPDATE project SET "{legacy_column}" = ?',
-                ["legacy-label"],
-            )
-            connection.execute(
-                "INSERT INTO odoo_schema_catalog VALUES (1, '{}')"
-            )
-            connection.execute("UPDATE schema_version SET version = 7")
-
-        migrated = self.repository.get(project.project_id)
-
-        self.assertEqual(migrated.approval_status.value, "INVALIDATED")
-        self.assertIsNone(
-            self.repository.get_odoo_schema_catalog(project.project_id)
-        )
-        with self.repository._connect(database_path) as connection:
-            legacy_column_row = connection.execute(
-                """
-                SELECT column_name
-                  FROM information_schema.columns
-                 WHERE table_name = 'project' AND column_name = ?
-                """,
-                [legacy_column],
-            ).fetchone()
-            migration_event = connection.execute(
-                """
-                SELECT event_type
-                  FROM audit_event
-                 WHERE event_type = 'TARGET_CONTRACT_MIGRATED'
-                """
-            ).fetchone()
-        self.assertIsNone(legacy_column_row)
-        self.assertEqual(migration_event, ("TARGET_CONTRACT_MIGRATED",))
 
     def test_version_ten_database_adds_working_mapping_draft(self) -> None:
         project = self.service.create_project(

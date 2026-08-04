@@ -73,7 +73,7 @@
               </p>
               <h2>{{ view.source.name }}</h2>
               <p>
-                {{ view.source.row_count }}{% if view.related_role == 'parent' %} profiled parent candidates{% else %} rows{% endif %}
+                {{ view.source.row_count }}{% if view.related_role in ('parent', 'lookup') %} prepared candidates{% else %} rows{% endif %}
                 · {{ view.source.columns|length }} source columns
               </p>
             </div>
@@ -211,8 +211,8 @@
                 Search scalar fields
                 <input type="search" value="{{ view.field_query }}" data-scalar-field-search placeholder="Search label, technical name, or type" autocomplete="off">
               </label>
-              <button class="button secondary" type="button" data-field-search-submit>Search all fields</button>
-              <small>Typing filters the loaded page only. Press Enter or choose Search all fields to query the complete captured catalog. Searching never saves mapping progress.</small>
+              <button class="button secondary" type="button" data-field-search-submit>Search now</button>
+              <small>Search covers every scalar field in the active target model. Results and totals update here without refreshing or saving mapping progress.</small>
               <label class="checkbox">
                 <input type="checkbox" data-show-mapped-scalars {% if view.mapped_only %}checked{% endif %}>
                 Show mapped fields only
@@ -239,7 +239,8 @@
                 {% for row in view.scalar_rows %}
                   {% set field_index = row.index %}
                   {% set mapping = row.mapping %}
-                  {% set value_source = mapping.value_source.value if mapping else '' %}
+                  {% set recommended_source = row.recommended_source_column %}
+                  {% set value_source = mapping.value_source.value if mapping else ('source' if recommended_source else '') %}
                   <tr
                     data-scalar-mapping-row
                     data-scalar-field-row
@@ -250,7 +251,7 @@
                     <td class="value-provider-cell">
                       <input type="hidden" name="visible_scalar_target_{{ dataset_index }}" value="{{ row.metadata.name }}">
                       <select name="scalar_value_source_{{ dataset_index }}_{{ field_index }}" data-value-source>
-                        <option value="" {% if not mapping %}selected{% endif %}>Not mapped</option>
+                        <option value="" {% if not mapping and not recommended_source %}selected{% endif %}>Not mapped</option>
                         <option value="source" {% if value_source == 'source' %}selected{% endif %}>Source column</option>
                         <option value="constant" {% if value_source == 'constant' %}selected{% endif %}>Constant value</option>
                         <option value="source_with_fallback" {% if value_source == 'source_with_fallback' %}selected{% endif %}>Source + fallback</option>
@@ -260,9 +261,10 @@
                         <label>Source column
                           <select name="scalar_source_{{ dataset_index }}_{{ field_index }}" data-source-column data-lazy-source-column>
                             <option value="">Choose source column</option>
-                            {% if mapping and mapping.source_column_key %}
-                              {% set selected_column = view.source_by_key.get(mapping.source_column_key) %}
-                              {% set sample_values = row.source_samples.get(mapping.source_column_key, ()) %}
+                            {% set selected_source_column = mapping.source_column_key if mapping and mapping.source_column_key else recommended_source %}
+                            {% if selected_source_column %}
+                              {% set selected_column = view.source_by_key.get(selected_source_column) %}
+                              {% set sample_values = row.source_samples.get(selected_source_column, ()) %}
                               {% if selected_column %}
                                 <option value="{{ selected_column.stable_key }}" data-sample="{{ sample_values[0] if sample_values else '' }}" data-sample-present="{{ 'true' if sample_values and sample_values[0] is not none else 'false' }}" selected>
                                   {{ selected_column.source_name }} ({{ selected_column.candidate_type }})
@@ -561,7 +563,7 @@
               </tbody>
               </table>
             </div>
-            <nav class="actions" aria-label="Scalar field pages">
+            <nav class="actions" aria-label="Scalar field pages" data-scalar-pagination>
               {% if view.scalar_previous_url %}<a class="button secondary" href="{{ view.scalar_previous_url }}">Previous fields</a>{% endif %}
               <span class="muted">Page {{ view.scalar_page }} of {{ view.scalar_page_count }}</span>
               {% if view.scalar_next_url %}<a class="button secondary" href="{{ view.scalar_next_url }}">Next fields</a>{% endif %}
@@ -590,7 +592,11 @@
                 {% else %}
                   {% if row.recommended_dataset_id and not mapping %}
                     <div class="notice success">
-                      Suggested from your related-dataset preparation. Review the fields below; Impodo will block missing or ambiguous parents.
+                      {% if row.recommendation_kind == 'extracted_lookup' %}
+                        Suggested from the related records extracted from this source field. Review the fields below; Impodo will resolve each value against that incoming dataset.
+                      {% else %}
+                        Suggested from your related-dataset preparation. Review the fields below; Impodo will block missing or ambiguous parents.
+                      {% endif %}
                     </div>
                   {% endif %}
                   <div class="form-grid">

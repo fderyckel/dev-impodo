@@ -66,7 +66,8 @@ start a local Odoo stack separately before connecting to it in Impodo.
   keys; one2many relationships are handled through the child inverse field.
 - Authors hash-bound derived-entity rules that assign deterministic,
   related-entity-owned IDs to reusable values found in denormalized source
-  fields, with bounded alias and hierarchy previews.
+  fields, with bounded alias and hierarchy previews; extracted datasets appear
+  beside the original rows in Mapping and are materialized during readiness.
 - Prepares repeated-parent source tables as guided parent and child logical
   datasets, carries every source row into the child dataset, and offers both
   datasets to Mapping with safe inverse-many2one guidance.
@@ -78,8 +79,8 @@ business key invalidates the active mapping so it must be validated again.
 
 **Delivery status:** Phase 1 (source discovery), Phase 2A (target schema),
 Phase 2B (identities, scope, and relationships), Phase 2C.1 (scalar providers,
-transformations, and guided value rules), lookup-derived authoring, and mapping-ready parent/child
-dataset preparation are implemented. Full-row structural staging, governed lookup
+transformations, and guided value rules), mapping-ready lookup extraction, and
+parent/child dataset preparation are implemented. Durable structural staging, governed lookup
 translations, mapping import/export, functional review, and approval remain in
 later delivery scope.
 

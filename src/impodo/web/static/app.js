@@ -191,20 +191,141 @@ document.addEventListener("DOMContentLoaded", () => {
     if (select.dataset.sourceOptionsLoaded !== "true") {
       return;
     }
+    const selectedValues = new Set(
+      Array.from(select.selectedOptions, (option) => option.value)
+    );
     const retained = Array.from(select.options)
       .filter((option) => option.value === "" || option.selected)
       .map((option) => option.cloneNode(true));
     select.replaceChildren(...retained);
+    for (const option of select.options) {
+      const selected = selectedValues.has(option.value);
+      option.selected = selected;
+      option.defaultSelected = selected;
+    }
     select.dataset.sourceOptionsLoaded = "false";
+  };
+
+  const initializeLazySourceSelect = (select) => {
+    if (select.dataset.lazySourceInitialized === "true") {
+      return;
+    }
+    select.dataset.lazySourceInitialized = "true";
+    select.addEventListener("pointerdown", () => hydrateSourceOptions(select));
+    select.addEventListener("focus", () => hydrateSourceOptions(select));
+    select.addEventListener("blur", () => releaseSourceOptions(select));
   };
 
   for (const select of document.querySelectorAll(
     "select[data-lazy-source-column]"
   )) {
-    select.addEventListener("pointerdown", () => hydrateSourceOptions(select));
-    select.addEventListener("focus", () => hydrateSourceOptions(select));
-    select.addEventListener("blur", () => releaseSourceOptions(select));
+    initializeLazySourceSelect(select);
   }
+
+  const scalarDraftRows = new Map();
+  const scalarRowState = (row) => {
+    const visibleTarget = row.querySelector(
+      'input[name^="visible_scalar_target_"]'
+    );
+    if (!visibleTarget?.name || !visibleTarget.value) {
+      return null;
+    }
+    const controls = Array.from(
+      row.querySelectorAll('[name^="scalar_"]')
+    ).filter(
+      (control) =>
+        control instanceof HTMLInputElement ||
+        control instanceof HTMLSelectElement ||
+        control instanceof HTMLTextAreaElement
+    );
+    const entries = [];
+    const states = [];
+    for (const control of controls) {
+      const state = {
+        name: control.name,
+        values:
+          control instanceof HTMLSelectElement && control.multiple
+            ? Array.from(control.selectedOptions, (option) => option.value)
+            : [control.value],
+        checked:
+          control instanceof HTMLInputElement &&
+          ["checkbox", "radio"].includes(control.type)
+            ? control.checked
+            : null,
+      };
+      states.push(state);
+      if (control.disabled) {
+        continue;
+      }
+      if (state.checked === false) {
+        continue;
+      }
+      for (const value of state.values) {
+        entries.push([control.name, value]);
+      }
+    }
+    return {
+      key: `${visibleTarget.name}\u0000${visibleTarget.value}`,
+      visibleName: visibleTarget.name,
+      targetField: visibleTarget.value,
+      providerValue: row.querySelector("[data-value-source]")?.value || "",
+      controlNames: [...new Set(controls.map((control) => control.name))],
+      entries,
+      states,
+    };
+  };
+  const rememberScalarRow = (row) => {
+    const state = scalarRowState(row);
+    if (state) {
+      scalarDraftRows.set(state.key, state);
+    }
+  };
+  const restoreScalarRow = (row) => {
+    const current = scalarRowState(row);
+    const saved = current ? scalarDraftRows.get(current.key) : null;
+    if (!saved) {
+      return;
+    }
+    const stateByName = new Map(
+      saved.states.map((state) => [state.name, state])
+    );
+    for (const control of row.querySelectorAll('[name^="scalar_"]')) {
+      const state = stateByName.get(control.name);
+      if (!state) {
+        continue;
+      }
+      if (
+        control instanceof HTMLSelectElement &&
+        control.matches("[data-lazy-source-column]")
+      ) {
+        initializeLazySourceSelect(control);
+        hydrateSourceOptions(control);
+      }
+      if (
+        control instanceof HTMLInputElement &&
+        ["checkbox", "radio"].includes(control.type)
+      ) {
+        control.checked = Boolean(state.checked);
+      } else if (control instanceof HTMLSelectElement && control.multiple) {
+        const selected = new Set(state.values);
+        for (const option of control.options) {
+          option.selected = selected.has(option.value);
+        }
+      } else if (
+        control instanceof HTMLInputElement ||
+        control instanceof HTMLSelectElement ||
+        control instanceof HTMLTextAreaElement
+      ) {
+        control.value = state.values[0] || "";
+      }
+      if (
+        control instanceof HTMLSelectElement &&
+        control.matches("[data-lazy-source-column]")
+      ) {
+        releaseSourceOptions(control);
+      }
+    }
+  };
 
   const mappingForm = document.querySelector("[data-mapping-form]");
   if (mappingForm) {
@@ -244,6 +365,10 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       dirty = true;
+      const scalarRow = event.target.closest("[data-scalar-mapping-row]");
+      if (scalarRow) {
+        window.queueMicrotask(() => rememberScalarRow(scalarRow));
+      }
       if (saveStatus) {
         saveStatus.textContent = "Unsaved changes.";
         saveStatus.classList.add("unsaved");
@@ -274,6 +399,21 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         for (const control of row.querySelectorAll('[name^="relation_"]')) {
           data.delete(control.name);
+        }
+      }
+      for (const state of scalarDraftRows.values()) {
+        const visibleTargets = new Set(data.getAll(state.visibleName));
+        if (!visibleTargets.has(state.targetField)) {
+          data.append(state.visibleName, state.targetField);
+        }
+        for (const name of state.controlNames) {
+          data.delete(name);
+        }
+        if (!state.providerValue) {
+          continue;
+        }
+        for (const [name, value] of state.entries) {
+          data.append(name, value);
         }
       }
       return Array.from(data.entries(), ([name, value]) => [
@@ -863,7 +1003,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  for (const row of document.querySelectorAll("[data-scalar-mapping-row]")) {
+  const initializeScalarRow = (row) => {
+    if (row.dataset.scalarRowInitialized === "true") {
+      return;
+    }
+    row.dataset.scalarRowInitialized = "true";
+    for (const select of row.querySelectorAll(
+      "select[data-lazy-source-column]"
+    )) {
+      initializeLazySourceSelect(select);
+    }
     const provider = row.querySelector("[data-value-source]");
     const sourceControl = row.querySelector("[data-provider-source]");
     const literalControl = row.querySelector("[data-provider-literal]");
@@ -983,6 +1132,10 @@ document.addEventListener("DOMContentLoaded", () => {
       control.addEventListener("input", updateScalarRow);
     }
     updateScalarRow();
+  };
+
+  for (const row of document.querySelectorAll("[data-scalar-mapping-row]")) {
+    initializeScalarRow(row);
   }
 
   for (const catalog of document.querySelectorAll(
@@ -999,35 +1152,10 @@ document.addEventListener("DOMContentLoaded", () => {
       "[data-scalar-table-scroll-spacer]"
     );
     const tableScroll = catalog.querySelector("[data-scalar-table-scroll]");
-    const scalarTable = tableScroll?.querySelector(".mapping-table");
-    const rows = Array.from(
+    let scalarTable = tableScroll?.querySelector(".mapping-table");
+    let rows = Array.from(
       catalog.querySelectorAll("[data-scalar-field-row]")
     );
-    const navigateFieldCatalog = () => {
-      const query = new URLSearchParams(window.location.search);
-      const searchValue = search?.value.trim() || "";
-      if (searchValue) {
-        query.set("field_query", searchValue);
-      } else {
-        query.delete("field_query");
-      }
-      if (mappedOnly?.checked) {
-        query.set("mapped_only", "1");
-      } else {
-        query.delete("mapped_only");
-      }
-      query.set("scalar_page", "1");
-      query.set("relation_page", "1");
-      const destination = `${window.location.pathname}?${query.toString()}`;
-      window.location.assign(destination);
-    };
-    searchSubmit?.addEventListener("click", navigateFieldCatalog);
-    search?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        navigateFieldCatalog();
-      }
-    });
     const updateScalarTableScroll = () => {
       if (!topScroll || !topScrollSpacer || !tableScroll) {
         return;
@@ -1050,8 +1178,9 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
     window.addEventListener("resize", updateScalarTableScroll);
+    let scrollResizeObserver;
     if (tableScroll && "ResizeObserver" in window) {
-      const scrollResizeObserver = new ResizeObserver(updateScalarTableScroll);
+      scrollResizeObserver = new ResizeObserver(updateScalarTableScroll);
       scrollResizeObserver.observe(tableScroll);
       if (scalarTable) {
         scrollResizeObserver.observe(scalarTable);
@@ -1080,11 +1209,157 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       window.requestAnimationFrame(updateScalarTableScroll);
     };
-    search?.addEventListener("input", updateScalarFieldRows);
-    mappedOnly?.addEventListener("change", updateScalarFieldRows);
-    for (const provider of catalog.querySelectorAll("[data-value-source]")) {
-      provider.addEventListener("change", updateScalarFieldRows);
-    }
+    const initializeCatalogRows = () => {
+      rows = Array.from(
+        catalog.querySelectorAll("[data-scalar-field-row]")
+      );
+      for (const row of rows) {
+        restoreScalarRow(row);
+        initializeScalarRow(row);
+        const provider = row.querySelector("[data-value-source]");
+        if (
+          provider &&
+          provider.dataset.catalogCountInitialized !== "true"
+        ) {
+          provider.dataset.catalogCountInitialized = "true";
+          provider.addEventListener("change", updateScalarFieldRows);
+        }
+      }
+    };
+    let fieldSearchTimer;
+    let fieldSearchController;
+    const catalogSearchUrl = (requestedUrl = null) => {
+      const url = new URL(requestedUrl || window.location.href);
+      if (requestedUrl === null) {
+        const searchValue = search?.value.trim() || "";
+        if (searchValue) {
+          url.searchParams.set("field_query", searchValue);
+        } else {
+          url.searchParams.delete("field_query");
+        }
+        if (mappedOnly?.checked) {
+          url.searchParams.set("mapped_only", "1");
+        } else {
+          url.searchParams.delete("mapped_only");
+        }
+        url.searchParams.set("scalar_page", "1");
+      }
+      return url;
+    };
+    const loadScalarCatalog = async (requestedUrl = null) => {
+      window.clearTimeout(fieldSearchTimer);
+      fieldSearchController?.abort();
+      const activeController = new AbortController();
+      fieldSearchController = activeController;
+      const url = catalogSearchUrl(requestedUrl);
+      catalog.setAttribute("aria-busy", "true");
+      if (count) {
+        count.textContent = "Searching the complete scalar-field catalog\u2026";
+      }
+      try {
+        const response = await fetch(url, {
+          headers: { Accept: "text/html" },
+          signal: activeController.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Scalar-field search failed (HTTP ${response.status}).`);
+        }
+        const documentResult = new DOMParser().parseFromString(
+          await response.text(),
+          "text/html"
+        );
+        const incomingCatalog = documentResult.querySelector(
+          "[data-scalar-field-catalog]"
+        );
+        const incomingTableScroll = incomingCatalog?.querySelector(
+          "[data-scalar-table-scroll]"
+        );
+        if (!incomingCatalog || !incomingTableScroll || !tableScroll) {
+          throw new Error("Scalar-field search returned an incomplete result.");
+        }
+        tableScroll.replaceChildren(
+          ...Array.from(incomingTableScroll.childNodes, (node) =>
+            document.importNode(node, true)
+          )
+        );
+        scalarTable = tableScroll.querySelector(".mapping-table");
+        if (scalarTable && scrollResizeObserver) {
+          scrollResizeObserver.observe(scalarTable);
+        }
+        const pagination = catalog.querySelector("[data-scalar-pagination]");
+        const incomingPagination = incomingCatalog.querySelector(
+          "[data-scalar-pagination]"
+        );
+        if (pagination && incomingPagination) {
+          pagination.replaceWith(document.importNode(incomingPagination, true));
+        }
+        for (const name of [
+          "scalarCatalogTotal",
+          "scalarMatchingTotal",
+          "scalarMappedTotal",
+        ]) {
+          catalog.dataset[name] = incomingCatalog.dataset[name] || "0";
+        }
+        initializeCatalogRows();
+        updateScalarFieldRows();
+        window.history.replaceState(
+          {},
+          "",
+          `${url.pathname}${url.search}${url.hash}`
+        );
+        if (mappingForm) {
+          const saveUrl = new URL(
+            mappingForm.getAttribute("action") || window.location.pathname,
+            window.location.href
+          );
+          saveUrl.search = url.search;
+          mappingForm.setAttribute(
+            "action",
+            `${saveUrl.pathname}${saveUrl.search}`
+          );
+        }
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          return;
+        }
+        if (count) {
+          count.textContent =
+            error instanceof Error
+              ? error.message
+              : "Scalar-field search failed.";
+        }
+      } finally {
+        if (fieldSearchController === activeController) {
+          catalog.removeAttribute("aria-busy");
+        }
+      }
+    };
+    const scheduleScalarCatalogSearch = () => {
+      window.clearTimeout(fieldSearchTimer);
+      updateScalarFieldRows();
+      if (count) {
+        count.textContent = "Searching the complete scalar-field catalog\u2026";
+      }
+      fieldSearchTimer = window.setTimeout(() => loadScalarCatalog(), 200);
+    };
+    search?.addEventListener("input", scheduleScalarCatalogSearch);
+    search?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        loadScalarCatalog();
+      }
+    });
+    searchSubmit?.addEventListener("click", () => loadScalarCatalog());
+    mappedOnly?.addEventListener("change", () => loadScalarCatalog());
+    catalog.addEventListener("click", (event) => {
+      const link = event.target.closest("[data-scalar-pagination] a");
+      if (!link) {
+        return;
+      }
+      event.preventDefault();
+      loadScalarCatalog(link.href);
+    });
+    initializeCatalogRows();
     updateScalarFieldRows();
   }
 });

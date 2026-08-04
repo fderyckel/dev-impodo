@@ -147,7 +147,11 @@ pointer.
 
 Use **Prepare related datasets** when one denormalized source field represents
 reusable related records or when repeated parent/line data needs a governed
-split. This remains a bounded authoring preview; see
+split. For one related-record field, preview the unique candidates and create
+the related dataset. Mapping then shows both the new related dataset and the
+original rows, and suggests a compatible incoming many2one relationship.
+Readiness repeats the rule over every frozen row; the page preview remains
+bounded evidence. See
 [derived-entity authoring](../derived-entity-authoring.md).
 
 ## 3. Target schema

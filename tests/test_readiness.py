@@ -12,7 +12,9 @@ from uuid import uuid4
 from impodo.connectors import MetadataSnapshot, RecordSnapshot
 from impodo.derived_entities import (
     DerivedEntityPlan,
+    DerivedEntityRule,
     RelatedDatasetRule,
+    derived_dataset_links,
     mapping_source_selection,
 )
 from impodo.engine import PreflightEngine
@@ -26,6 +28,7 @@ from impodo.mapping_semantics import (
     IdentityComponentMapping,
     MappingDefinition,
     MappingTargetMode,
+    RelationshipMapping,
     RelationshipResolver,
     ResolverOrigin,
     ScalarFieldMapping,
@@ -171,6 +174,71 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         self.assertEqual(
             {issue.code for issue in child_decisions[1].issues},
             {"SOURCE_TEXT_LENGTH_INVALID"},
+        )
+
+    def test_product_category_column_stages_categories_and_product_links(
+        self,
+    ) -> None:
+        evidence, link = self._lookup_evidence(
+            (("P001", "Article"), ("P002", "Service"), ("P003", "Article"))
+        )
+
+        staged = stage_browser_mapping(*evidence)
+        by_dataset = staged.prepared.by_dataset()
+
+        self.assertEqual(
+            [item.source_identity for item in by_dataset["product_categories"]],
+            [("article",), ("service",)],
+        )
+        self.assertEqual(
+            [
+                item.references["categ_id"].key
+                for item in by_dataset["products"]
+            ],
+            [("article",), ("service",), ("article",)],
+        )
+        self.assertEqual(
+            evidence[3].datasets[0].dataset_id,
+            link.derived_dataset_id,
+        )
+
+        metadata, records = self._product_snapshots(evidence[0])
+        result = PreflightEngine().run(
+            staged.profile,
+            staged.prepared,
+            metadata,
+            records,
+        )
+
+        self.assertEqual(result.counts[Classification.CREATE.value], 5)
+        self.assertEqual(result.counts[Classification.BLOCKED.value], 0)
+
+    def test_blank_derived_reference_blocks_only_affected_product(self) -> None:
+        evidence, _link = self._lookup_evidence(
+            (("P001", "Article"), ("P002", ""))
+        )
+
+        staged = stage_browser_mapping(*evidence)
+        products = staged.prepared.by_dataset()["products"]
+
+        self.assertFalse(products[0].blocked)
+        self.assertEqual(
+            {item.code for item in products[1].issues},
+            {"DERIVED_REFERENCE_MISSING"},
+        )
+
+    def test_conflicting_lookup_spelling_requires_review(self) -> None:
+        evidence, _link = self._lookup_evidence(
+            (("P001", "Article"), ("P002", "ARTICLE"))
+        )
+
+        staged = stage_browser_mapping(*evidence)
+        category = staged.prepared.by_dataset()["product_categories"][0]
+
+        self.assertEqual(category.source_identity, ("article",))
+        self.assertEqual(
+            {item.code for item in category.issues},
+            {"DERIVED_ALIAS_REVIEW_REQUIRED"},
         )
 
     def _evidence(self, rows):
@@ -351,6 +419,174 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             _SingleArtifactStore(source_path),
         )
 
+    def _lookup_evidence(self, rows):
+        project_id = str(uuid4())
+        file_id = str(uuid4())
+        source_path = self.root / f"{file_id}.csv"
+        source_path.write_text(
+            "DefaultCode,Category\n"
+            + "".join(",".join(row) + "\n" for row in rows),
+            encoding="utf-8",
+        )
+        digest = sha256(source_path.read_bytes()).hexdigest()
+        now = datetime.now(timezone.utc)
+        table = SourceTableCatalog(
+            table_key="csv",
+            name="products",
+            kind="CSV",
+            hidden=False,
+            header_row=1,
+            row_count=len(rows),
+            column_count=2,
+            columns=(
+                _column_profile(1, "DefaultCode", len({row[0] for row in rows})),
+                _column_profile(2, "Category", len({row[1] for row in rows})),
+            ),
+            preview_rows=tuple(rows),
+        )
+        catalog = SourceFileCatalog(
+            contract_version=1,
+            file_id=file_id,
+            display_name="products.csv",
+            source_sha256=digest,
+            source_size_bytes=source_path.stat().st_size,
+            format="csv",
+            inspected_at=now,
+            encoding="utf-8",
+            delimiter=",",
+            tables=(table,),
+        )
+        columns = (
+            SourceDatasetColumn(
+                1,
+                "DefaultCode",
+                "column:default_code",
+                "string",
+            ),
+            SourceDatasetColumn(2, "Category", "column:category", "string"),
+        )
+        physical_dataset = SourceDataset(
+            dataset_id="dataset:products",
+            name="products",
+            file_id=file_id,
+            table_key="csv",
+            source_sha256=digest,
+            catalog_hash=catalog.content_hash,
+            encoding="utf-8",
+            delimiter=",",
+            header_row=1,
+            row_count=len(rows),
+            columns=columns,
+        )
+        physical = SourceSelection(
+            selection_id=str(uuid4()),
+            version=1,
+            project_id=project_id,
+            created_at=now,
+            created_by="Tester",
+            datasets=(physical_dataset,),
+            content_hash="sha256:" + "3" * 64,
+        )
+        rule = DerivedEntityRule(
+            rule_id=str(uuid4()),
+            output_dataset_name="product_categories",
+            source_dataset_id=physical_dataset.dataset_id,
+            source_column_key=columns[1].stable_key,
+            target_model="product.category",
+            target_name_field="name",
+            external_id_namespace="legacy",
+            blank_policy="block",
+        )
+        plan = DerivedEntityPlan(
+            plan_id=str(uuid4()),
+            version=1,
+            project_id=project_id,
+            source_selection_hash=physical.content_hash,
+            rules=(rule,),
+            updated_at=now,
+            updated_by="Tester",
+        )
+        effective = mapping_source_selection(physical, plan, (catalog,))
+        link = derived_dataset_links(plan)[0]
+        category, products = effective.datasets
+        definition = MappingDefinition(
+            mapping_id=str(uuid4()),
+            source_selection_hash=effective.content_hash,
+            schema_hash="sha256:" + "4" * 64,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=category.dataset_id,
+                    target_model="product.category",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(
+                        link.canonical_key_column_key,
+                    ),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(link.name_column_key,),
+                            target_fields=("name",),
+                        ),
+                    ),
+                ),
+                DatasetMapping(
+                    dataset_id=products.dataset_id,
+                    target_model="product.template",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(columns[0].stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(columns[0].stable_key,),
+                            target_fields=("default_code",),
+                        ),
+                    ),
+                    relationships=(
+                        RelationshipMapping(
+                            target_field="categ_id",
+                            kind="many2one",
+                            source_column_keys=(columns[1].stable_key,),
+                            resolver=RelationshipResolver(
+                                origin=ResolverOrigin.DATASET,
+                                dataset_id=category.dataset_id,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        project = MigrationProject(
+            project_id=project_id,
+            name="Product migration",
+            source_system="Legacy ERP",
+            odoo_connection_mode=OdooConnectionMode.LOCAL,
+            odoo_base_url="http://127.0.0.1:8069",
+            odoo_database="odoo19_dev",
+            intended_models=("product.category", "product.template"),
+            source_files=(
+                SourceFile(
+                    file_id=file_id,
+                    display_name="products.csv",
+                    stored_name=source_path.name,
+                    size_bytes=source_path.stat().st_size,
+                    sha256=digest,
+                    received_at=now,
+                ),
+            ),
+            status=ProjectStatus.REGISTERED,
+            registered_at=now,
+        )
+        return (
+            (
+                project,
+                definition,
+                physical,
+                effective,
+                plan,
+                (catalog,),
+                _SingleArtifactStore(source_path),
+            ),
+            link,
+        )
+
     @staticmethod
     def _snapshots(project: MigrationProject):
         fingerprint = TargetFingerprint(
@@ -396,6 +632,51 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             requested_fields={
                 "mrp.bom": ("code",),
                 "mrp.bom.line": ("bom_id", "component_code", "sequence"),
+            },
+        )
+        return metadata, records
+
+    @staticmethod
+    def _product_snapshots(project: MigrationProject):
+        fingerprint = TargetFingerprint(
+            target_hash=target_identity_hash(
+                connection_mode="LOCAL",
+                base_url=project.odoo_base_url,
+                database=project.odoo_database,
+            ),
+            connection_mode="LOCAL",
+            database=project.odoo_database,
+            odoo_version="19.0",
+            snapshot_timestamp="2026-08-04T00:00:00Z",
+        )
+        metadata = MetadataSnapshot(
+            fingerprint=fingerprint,
+            models={
+                "product.category": ModelMetadata(
+                    model="product.category",
+                    description="Product Category",
+                    fields={"name": FieldMetadata("name", "char")},
+                ),
+                "product.template": ModelMetadata(
+                    model="product.template",
+                    description="Product",
+                    fields={
+                        "default_code": FieldMetadata("default_code", "char"),
+                        "categ_id": FieldMetadata(
+                            "categ_id",
+                            "many2one",
+                            relation="product.category",
+                        ),
+                    },
+                ),
+            },
+        )
+        records = RecordSnapshot(
+            fingerprint=fingerprint,
+            records={"product.category": (), "product.template": ()},
+            requested_fields={
+                "product.category": ("name",),
+                "product.template": ("categ_id", "default_code"),
             },
         )
         return metadata, records

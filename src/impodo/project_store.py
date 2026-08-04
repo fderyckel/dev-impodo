@@ -150,6 +150,7 @@ class DuckDbProjectRepository:
         """Permanently remove one contained project and its registry row."""
 
         project_dir = self.project_directory(project_id)
+        canonical_project_id = project_dir.name
         database_path = project_dir / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -166,7 +167,7 @@ class DuckDbProjectRepository:
                 "The project was modified by another request"
             )
 
-        staged = self.root / f".{project_id}.deleting-{uuid4()}"
+        staged = self.root / f".{canonical_project_id}.deleting-{uuid4()}"
         if staged.parent != self.root or staged.exists():
             raise ProjectError("Could not prepare the project for deletion")
 
@@ -180,7 +181,7 @@ class DuckDbProjectRepository:
                       FROM project_registry
                      WHERE project_id = ?
                     """,
-                    [project_id],
+                    [canonical_project_id],
                 ).fetchone()
                 if registered is None:
                     raise ProjectNotFoundError("Project not found")
@@ -190,7 +191,7 @@ class DuckDbProjectRepository:
                     )
                 connection.execute(
                     "DELETE FROM project_registry WHERE project_id = ?",
-                    [project_id],
+                    [canonical_project_id],
                 )
                 registry_deleted = True
             shutil.rmtree(staged)
@@ -830,6 +831,32 @@ class DuckDbProjectRepository:
                     "Freeze datasets and capture Odoo schema first"
                 )
             selection = SourceSelection.from_json(str(selection_row[0]))
+            plan_row = connection.execute(
+                """
+                SELECT revision.plan_json
+                  FROM derived_entity_plan_current AS current
+                  JOIN derived_entity_plan_revision AS revision
+                    ON revision.plan_id = current.plan_id
+                   AND revision.version = current.version
+                 WHERE current.singleton_id = 1
+                """
+            ).fetchone()
+            plan = (
+                DerivedEntityPlan.from_json(str(plan_row[0]))
+                if plan_row is not None
+                else None
+            )
+            catalog_rows = connection.execute(
+                "SELECT catalog_json FROM source_catalog ORDER BY file_id"
+            ).fetchall()
+            mapping_selection = mapping_source_selection(
+                selection,
+                plan,
+                tuple(
+                    SourceFileCatalog.from_json(str(row[0]))
+                    for row in catalog_rows
+                ),
+            )
             schema = OdooSchemaCatalog.from_json(str(schema_row[0]))
             governance_row = connection.execute(
                 """
@@ -853,7 +880,7 @@ class DuckDbProjectRepository:
             )
             if (
                 draft.definition.source_selection_hash
-                != selection.content_hash
+                != mapping_selection.content_hash
                 or draft.definition.schema_hash != expected_schema_hash
             ):
                 raise WorkspaceError(

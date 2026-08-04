@@ -1,9 +1,8 @@
 """Governed source-preparation plans for related logical datasets.
 
 The browser can author bounded previews for lookup extraction and parent/child
-dataset splits.  Split datasets participate in mapping, while the future
-staging compiler must repeat the same deterministic rules over every source row
-before an export can be certified.
+dataset splits.  Both rule types participate in mapping and are repeated over
+every source row by readiness staging without changing the frozen source.
 """
 
 from __future__ import annotations
@@ -20,7 +19,12 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 from .access import Actor, AuthorizationPolicy, Capability
 from .inspection import SourceFileCatalog
 from .projects import MigrationProject
-from .workspace import SourceDataset, SourceSelection, WorkspaceError
+from .workspace import (
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+    WorkspaceError,
+)
 
 
 DERIVED_ENTITY_CONTRACT_VERSION = 2
@@ -303,6 +307,20 @@ class RelatedDatasetLink:
     child_identity_column_keys: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class DerivedDatasetLink:
+    """Mapping guidance between one extracted dataset and its source rows."""
+
+    derived_dataset_id: str
+    consumer_dataset_id: str
+    source_column_key: str
+    canonical_key_column_key: str
+    name_column_key: str
+    parent_key_column_key: str | None
+    target_model: str
+    target_name_field: str
+
+
 class DerivedEntityRepository(Protocol):
     def get(self, project_id: str) -> MigrationProject: ...
 
@@ -360,11 +378,6 @@ class DerivedEntityWorkspaceService:
         selection = self.repository.get_source_selection(project_id)
         if selection is None:
             raise WorkspaceError("Freeze source datasets before deriving entities")
-        source_dataset = _source_dataset(
-            selection,
-            source_dataset_id,
-            source_column_key,
-        )
         current = self.repository.get_derived_entity_plan(project_id)
         actual_parent = current.version if current else None
         if expected_parent_version != actual_parent:
@@ -376,10 +389,10 @@ class DerivedEntityWorkspaceService:
                 "The derived-entity plan is stale; rebuild it from the frozen datasets"
             )
 
-        rule = DerivedEntityRule(
-            rule_id=str(uuid4()),
+        rule = self._lookup_rule(
+            selection,
             output_dataset_name=output_dataset_name,
-            source_dataset_id=source_dataset.dataset_id,
+            source_dataset_id=source_dataset_id,
             source_column_key=source_column_key,
             target_model=target_model,
             target_name_field=target_name_field,
@@ -387,10 +400,7 @@ class DerivedEntityWorkspaceService:
             parent_separator=parent_separator,
             blank_policy=blank_policy,
         )
-        existing_names = {item.name for item in selection.datasets}
-        existing_names.update(_rule_dataset_names(current.rules if current else ()))
-        if rule.output_dataset_name in existing_names:
-            raise WorkspaceError("Derived dataset names must be unique in the project")
+        self._validate_lookup_rule_availability(rule, selection, current)
 
         now = datetime.now(timezone.utc)
         plan = DerivedEntityPlan(
@@ -409,6 +419,87 @@ class DerivedEntityWorkspaceService:
             actor=actor,
         )
         return plan, rule
+
+    def preview_lookup(
+        self,
+        project_id: str,
+        *,
+        output_dataset_name: str,
+        source_dataset_id: str,
+        source_column_key: str,
+        target_model: str,
+        target_name_field: str,
+        external_id_namespace: str,
+        parent_separator: str | None,
+        blank_policy: str,
+    ) -> tuple[DerivedEntityRule, DerivedEntityPreview]:
+        """Validate and preview related-record extraction without saving it."""
+
+        selection = self.repository.get_source_selection(project_id)
+        if selection is None:
+            raise WorkspaceError("Freeze source datasets before deriving entities")
+        current = self.repository.get_derived_entity_plan(project_id)
+        rule = self._lookup_rule(
+            selection,
+            output_dataset_name=output_dataset_name,
+            source_dataset_id=source_dataset_id,
+            source_column_key=source_column_key,
+            target_model=target_model,
+            target_name_field=target_name_field,
+            external_id_namespace=external_id_namespace,
+            parent_separator=parent_separator,
+            blank_policy=blank_policy,
+        )
+        self._validate_lookup_rule_availability(rule, selection, current)
+        return (
+            rule,
+            preview_derived_entities(
+                rule,
+                selection,
+                self.repository.get_source_catalogs(project_id),
+            ),
+        )
+
+    @staticmethod
+    def _lookup_rule(
+        selection: SourceSelection,
+        *,
+        output_dataset_name: str,
+        source_dataset_id: str,
+        source_column_key: str,
+        target_model: str,
+        target_name_field: str,
+        external_id_namespace: str,
+        parent_separator: str | None,
+        blank_policy: str,
+    ) -> DerivedEntityRule:
+        source_dataset = _source_dataset(
+            selection,
+            source_dataset_id,
+            source_column_key,
+        )
+        return DerivedEntityRule(
+            rule_id=str(uuid4()),
+            output_dataset_name=output_dataset_name,
+            source_dataset_id=source_dataset.dataset_id,
+            source_column_key=source_column_key,
+            target_model=target_model,
+            target_name_field=target_name_field,
+            external_id_namespace=external_id_namespace,
+            parent_separator=parent_separator,
+            blank_policy=blank_policy,
+        )
+
+    @staticmethod
+    def _validate_lookup_rule_availability(
+        rule: DerivedEntityRule,
+        selection: SourceSelection,
+        current: DerivedEntityPlan | None,
+    ) -> None:
+        existing_names = {item.name for item in selection.datasets}
+        existing_names.update(_rule_dataset_names(current.rules if current else ()))
+        if rule.output_dataset_name in existing_names:
+            raise WorkspaceError("Derived dataset names must be unique in the project")
 
     def preview_related_split(
         self,
@@ -829,19 +920,69 @@ def mapping_source_selection(
     plan: DerivedEntityPlan | None,
     catalogs: Iterable[SourceFileCatalog] = (),
 ) -> SourceSelection:
-    """Replace split physical sources with mapping-ready logical datasets."""
+    """Expose every prepared logical dataset to the mapping workflow."""
 
     split_rules = {
         item.source_dataset_id: item
         for item in (plan.rules if plan else ())
         if isinstance(item, RelatedDatasetRule)
     }
-    if not split_rules:
+    lookup_rules: dict[str, list[DerivedEntityRule]] = {}
+    for item in (plan.rules if plan else ()):
+        if isinstance(item, DerivedEntityRule):
+            lookup_rules.setdefault(item.source_dataset_id, []).append(item)
+    if not split_rules and not lookup_rules:
         return selection
 
     catalog_set = tuple(catalogs)
     effective: list[SourceDataset] = []
     for dataset in selection.datasets:
+        for lookup_rule in sorted(
+            lookup_rules.get(dataset.dataset_id, ()),
+            key=lambda item: item.output_dataset_name,
+        ):
+            preview = preview_derived_entities(
+                lookup_rule,
+                selection,
+                catalog_set,
+            )
+            link = _derived_dataset_link(lookup_rule, plan)
+            columns = [
+                SourceDatasetColumn(
+                    ordinal=1,
+                    source_name=f"{preview.source_column_name} matching key",
+                    stable_key=link.canonical_key_column_key,
+                    candidate_type="string",
+                ),
+                SourceDatasetColumn(
+                    ordinal=2,
+                    source_name=preview.source_column_name,
+                    stable_key=link.name_column_key,
+                    candidate_type="string",
+                ),
+            ]
+            if link.parent_key_column_key is not None:
+                columns.append(
+                    SourceDatasetColumn(
+                        ordinal=3,
+                        source_name=f"Parent {preview.source_column_name} key",
+                        stable_key=link.parent_key_column_key,
+                        candidate_type="string",
+                    )
+                )
+            effective.append(
+                replace(
+                    dataset,
+                    dataset_id=link.derived_dataset_id,
+                    name=lookup_rule.output_dataset_name,
+                    row_count=max(
+                        preview.full_distinct_count,
+                        len(preview.candidates),
+                    ),
+                    columns=tuple(columns),
+                )
+            )
+
         rule = split_rules.get(dataset.dataset_id)
         if rule is None:
             effective.append(dataset)
@@ -935,6 +1076,44 @@ def related_dataset_links(
             )
         )
     return tuple(result)
+
+
+def derived_dataset_links(
+    plan: DerivedEntityPlan | None,
+) -> tuple[DerivedDatasetLink, ...]:
+    """Return mapping-ready links for extracted related-record datasets."""
+
+    return tuple(
+        _derived_dataset_link(rule, plan)
+        for rule in (plan.rules if plan else ())
+        if isinstance(rule, DerivedEntityRule)
+    )
+
+
+def derived_mapping_samples(
+    link: DerivedDatasetLink,
+    preview: DerivedEntityPreview,
+) -> dict[str, tuple[str | None, ...]]:
+    """Present bounded generated-row evidence in the normal mapping UI."""
+
+    canonical_by_entity = {
+        item.entity_id: item.canonical_key for item in preview.candidates
+    }
+    candidates = preview.candidates[:3]
+    result: dict[str, tuple[str | None, ...]] = {
+        link.canonical_key_column_key: tuple(
+            item.canonical_key for item in candidates
+        ),
+        link.name_column_key: tuple(item.name for item in candidates),
+    }
+    if link.parent_key_column_key is not None:
+        result[link.parent_key_column_key] = tuple(
+            canonical_by_entity.get(item.parent_entity_id)
+            if item.parent_entity_id is not None
+            else None
+            for item in candidates
+        )
+    return result
 
 
 def _source_dataset(
@@ -1049,6 +1228,53 @@ def _identifiers(
         f"entity:{identity}",
         f"impodo_{rule.external_id_namespace}.{model_token}_{identity.hex}",
     )
+
+
+def _derived_dataset_link(
+    rule: DerivedEntityRule,
+    plan: DerivedEntityPlan | None,
+) -> DerivedDatasetLink:
+    identity = _derived_dataset_identity(rule)
+    split = next(
+        (
+            item
+            for item in (plan.rules if plan else ())
+            if isinstance(item, RelatedDatasetRule)
+            and item.source_dataset_id == rule.source_dataset_id
+        ),
+        None,
+    )
+    consumer_dataset_id = (
+        _related_dataset_ids(split)[1] if split else rule.source_dataset_id
+    )
+    prefix = f"derived:{identity}"
+    return DerivedDatasetLink(
+        derived_dataset_id=prefix,
+        consumer_dataset_id=consumer_dataset_id,
+        source_column_key=rule.source_column_key,
+        canonical_key_column_key=f"{prefix}:canonical_key",
+        name_column_key=f"{prefix}:name",
+        parent_key_column_key=(
+            f"{prefix}:parent_key" if rule.parent_separator else None
+        ),
+        target_model=rule.target_model,
+        target_name_field=rule.target_name_field,
+    )
+
+
+def _derived_dataset_identity(rule: DerivedEntityRule) -> UUID:
+    payload = _canonical_json(
+        {
+            "output_dataset_name": rule.output_dataset_name,
+            "source_dataset_id": rule.source_dataset_id,
+            "source_column_key": rule.source_column_key,
+            "target_model": rule.target_model,
+            "target_name_field": rule.target_name_field,
+            "external_id_namespace": rule.external_id_namespace,
+            "parent_separator": rule.parent_separator,
+        }
+    )
+    return uuid5(NAMESPACE_URL, f"urn:impodo:derived-dataset:{payload}")
 
 
 def _related_dataset_ids(rule: RelatedDatasetRule) -> tuple[str, str]:

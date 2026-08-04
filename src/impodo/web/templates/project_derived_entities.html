@@ -5,7 +5,7 @@
     <div>
       <p class="eyebrow">Source preparation - related records</p>
       <h1>Prepare related datasets</h1>
-      <p>Turn one repeated source table into clear datasets that can be mapped to Odoo without editing the original file.</p>
+      <p>Turn denormalized source data into the related datasets Odoo expects without editing the original file.</p>
     </div>
     {% if plan %}
       <span class="status registered">PLAN - v{{ plan.version }}</span>
@@ -14,7 +14,7 @@
 
   <div class="notice">
     <strong>Your source evidence stays unchanged.</strong>
-    Impodo stores a reviewed, hash-bound preparation rule. Parent and child splits become normal datasets in Mapping; full-row staging and export certification remain later execution steps.
+    Impodo stores a reviewed, hash-bound preparation rule. Prepared datasets become normal datasets in Mapping, and readiness repeats the rule over every source row.
   </div>
 
   {% if not selection %}
@@ -33,6 +33,15 @@
         {% endif %}
       </div>
       <p class="muted">Changing the frozen source or a preparation rule invalidates the current mapping so it cannot silently use an outdated structure.</p>
+    </section>
+
+    <section class="form-card">
+      <h2>What does your source contain?</h2>
+      <div class="actions">
+        <a class="button primary" href="#lookup-extraction">One field contains related records</a>
+        <a class="button secondary" href="#create-related-datasets">One table contains parents and lines</a>
+      </div>
+      <p class="muted">For a product category column, choose the first option.</p>
     </section>
 
     {% if pending_related %}
@@ -155,7 +164,7 @@
 
     <section class="form-card" id="create-related-datasets">
       <p class="eyebrow">Recommended for BOMs and line-based files</p>
-      <h2>Create related datasets</h2>
+      <h2>Split parent and line rows</h2>
       <p class="lead-instruction">Choose the value repeated on every line, the optional company or site scope, and the field that distinguishes each line. Impodo handles grouping and generated identities.</p>
 
       {% for source_view in related_source_views %}
@@ -242,10 +251,73 @@
       {% endfor %}
     </section>
 
-    <details class="form-card secondary-preparation">
+    <details class="form-card secondary-preparation" id="lookup-extraction" open>
       <summary>
-        <span><strong>Extract reusable lookup values</strong><small>For categories, tags, and other values stored only as a source field.</small></span>
+        <span><strong>Create related records from one field</strong><small>For a category, payment term, or other Odoo record that exists as one column in the old system.</small></span>
       </summary>
+
+      {% if pending_lookup %}
+        {% set pending_rule = pending_lookup.rule %}
+        {% set pending_preview = pending_lookup.preview %}
+        <section class="nested-rule-card" id="lookup-preview">
+          <div class="page-heading compact">
+            <div>
+              <p class="eyebrow">Review before creating</p>
+              <h2>{{ pending_rule.output_dataset_name }}</h2>
+              <p>Check the unique related records Impodo found before adding this dataset to Mapping.</p>
+            </div>
+            <span class="status registered">PREVIEW</span>
+          </div>
+
+          <div class="notice success">
+            The original <strong>{{ pending_preview.source_dataset_name }}</strong> rows will stay available. Impodo will add one <strong>{{ pending_rule.target_model }}</strong> candidate per unique normalized value from <strong>{{ pending_preview.source_column_name }}</strong>.
+          </div>
+          <div class="metric-grid">
+            <div><span>Rows sampled</span><strong>{{ pending_preview.sampled_source_rows }}</strong></div>
+            <div><span>Related candidates shown</span><strong>{{ pending_preview.candidates|length }}</strong></div>
+            <div><span>Distinct source values</span><strong>{{ pending_preview.full_distinct_count }}{% if not pending_preview.full_distinct_count_is_exact %} estimate{% endif %}</strong></div>
+            <div><span>Blank sampled values</span><strong>{{ pending_preview.blank_sample_rows }}</strong></div>
+          </div>
+          {% if pending_preview.blank_sample_rows %}
+            <div class="notice warning">
+              {{ pending_preview.blank_sample_rows }} sampled row(s) cannot identify a related record and will follow the <strong>{{ pending_rule.blank_policy }}</strong> policy during readiness.
+            </div>
+          {% endif %}
+          {% if pending_preview.candidates %}
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead><tr><th>Related record</th><th>Matching key</th><th>Sample rows</th><th>Review</th></tr></thead>
+                <tbody>
+                  {% for candidate in pending_preview.candidates %}
+                    <tr>
+                      <th>{{ candidate.name }}</th>
+                      <td><code>{{ candidate.canonical_key }}</code></td>
+                      <td>{{ candidate.sampled_source_row_count }}</td>
+                      <td>{{ "Check source spellings" if candidate.requires_alias_review else "Ready to map" }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+
+          <form method="post" action="/projects/{{ project.project_id }}/derived-entities/save">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
+            <input type="hidden" name="source_binding" value="{{ pending_rule.source_dataset_id }}|{{ pending_rule.source_column_key }}">
+            <input type="hidden" name="output_dataset_name" value="{{ pending_rule.output_dataset_name }}">
+            <input type="hidden" name="target_model" value="{{ pending_rule.target_model }}">
+            <input type="hidden" name="target_name_field" value="{{ pending_rule.target_name_field }}">
+            <input type="hidden" name="external_id_namespace" value="{{ pending_rule.external_id_namespace }}">
+            <input type="hidden" name="parent_separator" value="{{ pending_rule.parent_separator or '' }}">
+            <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
+            <div class="actions">
+              <a class="button secondary" href="/projects/{{ project.project_id }}/derived-entities">Change selections</a>
+              <button class="button primary" type="submit">Create this related dataset</button>
+            </div>
+          </form>
+        </section>
+      {% endif %}
 
       {% for view in rule_views %}
         {% set rule = view.rule %}
@@ -253,7 +325,7 @@
         <section class="nested-rule-card">
           <div class="page-heading compact">
             <div>
-              <p class="eyebrow">Derived lookup dataset</p>
+              <p class="eyebrow">Prepared related records</p>
               <h2>{{ rule.output_dataset_name }}</h2>
               <p><code>{{ rule.target_model }}</code> - display field <code>{{ rule.target_name_field }}</code></p>
             </div>
@@ -266,7 +338,7 @@
           {% if view.preview_error %}
             <div class="notice error">{{ view.preview_error }}</div>
           {% elif preview %}
-            <p>Previewed {{ preview.sampled_source_rows }} inspected rows from <strong>{{ preview.source_dataset_name }}.{{ preview.source_column_name }}</strong>.</p>
+            <p>Impodo prepared {{ preview.candidates|length }} unique candidate(s) from the inspected rows of <strong>{{ preview.source_dataset_name }}.{{ preview.source_column_name }}</strong>. This dataset is now available in Mapping beside the original rows.</p>
             {% if preview.candidates %}
               <details>
                 <summary>Technical identity evidence for {{ preview.candidates|length }} candidate(s)</summary>
@@ -292,9 +364,9 @@
       {% endfor %}
 
       <section class="nested-rule-card">
-        <h2>Add a lookup extraction rule</h2>
-        <p>Impodo normalizes the selected value and assigns an identity owned by the related Odoo model, never by a contributing product or line.</p>
-        <form method="post" action="/projects/{{ project.project_id }}/derived-entities/save">
+        <h2>Create a related dataset</h2>
+        <p>Choose the column that contains related records. Impodo will keep one row per unique value, keep the original product or line rows, and suggest the relationship in Mapping.</p>
+        <form method="post" action="/projects/{{ project.project_id }}/derived-entities/lookup/preview">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
           <div class="form-grid">
@@ -308,7 +380,7 @@
               </select>
             </label>
             <label>
-              Derived dataset name
+              Related dataset name
               <input name="output_dataset_name" placeholder="product_categories" pattern="[a-z][a-z0-9_]{0,62}" required>
             </label>
             <label>
@@ -327,8 +399,9 @@
               <input name="external_id_namespace" value="{{ namespace_default }}" pattern="[a-z][a-z0-9_]{0,39}" required>
             </label>
             <label>
-              Optional hierarchy separator
+              Optional parent separator
               <input name="parent_separator" maxlength="10" placeholder="/">
+              <small>Leave empty for a flat list such as Article and Service.</small>
             </label>
             <label>
               Blank source values
@@ -339,7 +412,7 @@
             </label>
           </div>
           <div class="actions">
-            <button class="button primary" type="submit">Save and preview lookup</button>
+            <button class="button primary" type="submit">Preview related records</button>
           </div>
         </form>
       </section>

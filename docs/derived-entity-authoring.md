@@ -1,8 +1,9 @@
 # Related-dataset preparation
 
-**Status:** lookup extraction authoring and parent/child dataset preparation are
-implemented in the local browser. Parent/child datasets participate in Mapping.
-Full-row canonical staging and export are not implemented.
+**Status:** lookup extraction and parent/child dataset preparation are
+implemented in the local browser. Both become normal Mapping datasets, and
+readiness repeats their rules over every frozen source row. Durable canonical
+staging and Odoo execution are not implemented.
 
 ## Purpose
 
@@ -65,6 +66,21 @@ Impodo normalizes Unicode, whitespace, case-insensitive identity, and optional
 hierarchy paths. The bounded preview shows deterministic Impodo and Odoo
 External IDs without borrowing a contributing product or row identity.
 
+Review the candidates, then create the related dataset. Mapping keeps the
+original dataset and inserts the extracted dataset before it. Impodo suggests:
+
+- the rule's Odoo model for the extracted dataset;
+- a canonical source trace identity and the configured display-name field;
+- an **Incoming dataset** relationship on a compatible many2one field in the
+  original dataset.
+
+For example, one `Product Category` column can create unique
+`product.category` candidates while each `product.template.categ_id` value
+resolves against those incoming candidates. Readiness performs the extraction,
+normalization, deduplication, and relationship resolution over all source rows.
+Missing related values and conflicting display spellings block the affected
+candidate or source row for review.
+
 ## Identity contract
 
 Lookup identity input contains only:
@@ -105,16 +121,18 @@ This slice delivers:
 - automatic trace-identity defaults;
 - model-confirmed child-to-parent relationship suggestions;
 - bounded blank, duplicate, normalization, and grouping evidence;
-- lookup extraction authoring with deterministic identity previews;
+- reviewed lookup extraction with deterministic identity previews;
+- lookup-derived datasets in Mapping beside their original datasets;
+- model, identity, display-name, and compatible many2one suggestions;
+- full-row readiness materialization and incoming-dataset resolution for
+  lookup-derived records;
 - hash binding, revisions, audit, invalidation, and backward-compatible reading
   of contract-version-1 lookup plans.
 
 It does not yet deliver:
 
-- full-row canonical staging tables;
-- full-source post-normalization duplicate and referential-integrity proof;
+- durable canonical staging tables outside the readiness run;
 - a durable cross-project rename or alias registry;
-- lookup-derived datasets in the Mapping selector;
 - Odoo External-ID matching or creation;
 - import files, API writes, rehearsal, or export certification.
 

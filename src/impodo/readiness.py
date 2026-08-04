@@ -9,7 +9,7 @@ than requested inside a source-row loop.
 from __future__ import annotations
 
 from contextlib import ExitStack
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -25,7 +25,15 @@ from .connectors import (
     RecordRequest,
     RecordSnapshot,
 )
-from .derived_entities import DerivedEntityPlan, RelatedDatasetRule
+from .derived_entities import (
+    DerivedDatasetLink,
+    DerivedEntityPlan,
+    DerivedEntityRule,
+    RelatedDatasetRule,
+    _display_path,
+    _normalized_path,
+    derived_dataset_links,
+)
 from .engine import PreflightEngine
 from .inspection import SourceFileCatalog
 from .mapping_semantics import (
@@ -44,7 +52,9 @@ from .models import (
     Classification,
     Decision,
     InvalidPreparedValue,
+    Issue,
     PreflightResult,
+    Severity,
     canonical_json_bytes,
     portable_value,
     target_identity_hash,
@@ -375,6 +385,24 @@ def stage_browser_mapping(
             (rule.child_dataset_name, "child"),
         )
     }
+    lookup_links = derived_dataset_links(plan)
+    lookup_rules = tuple(
+        item
+        for item in (plan.rules if plan else ())
+        if isinstance(item, DerivedEntityRule)
+    )
+    lookup_by_dataset_id = {
+        link.derived_dataset_id: (rule, link)
+        for link, rule in zip(lookup_links, lookup_rules, strict=True)
+    }
+    lookup_by_consumer: dict[
+        str,
+        list[tuple[DerivedEntityRule, DerivedDatasetLink]],
+    ] = {}
+    for link, rule in zip(lookup_links, lookup_rules, strict=True):
+        lookup_by_consumer.setdefault(link.consumer_dataset_id, []).append(
+            (rule, link)
+        )
 
     loaded: dict[str, SourceTable] = {}
     with ExitStack() as stack:
@@ -416,6 +444,7 @@ def stage_browser_mapping(
 
         profile = _compile_profile(definition, effective_selection)
         staged_tables: list[SourceTable] = []
+        preparation_issues: list[Issue] = []
         source_labels: dict[tuple[str, str], str] = {}
         for dataset_spec in profile.datasets:
             effective = next(
@@ -424,8 +453,14 @@ def stage_browser_mapping(
                 if item.name == dataset_spec.name
             )
             mapping = mapping_by_id[effective.dataset_id]
+            lookup = lookup_by_dataset_id.get(effective.dataset_id)
             split = split_by_name.get(effective.name)
-            if split is None:
+            if lookup is not None:
+                lookup_rule, lookup_link = lookup
+                physical = physical_by_id.get(lookup_rule.source_dataset_id)
+                role = "lookup"
+                rule = None
+            elif split is None:
                 physical = physical_by_id.get(effective.dataset_id)
                 role = "source"
                 rule = None
@@ -434,16 +469,27 @@ def stage_browser_mapping(
                 physical = physical_by_id.get(rule.source_dataset_id)
             if physical is None:
                 raise ReadinessError("Prepared dataset no longer has a source")
-            staged_tables.append(
-                _stage_table(
+            if lookup is not None:
+                staged, issues = _stage_derived_table(
+                    effective,
+                    physical,
+                    mapping,
+                    loaded[physical.dataset_id],
+                    lookup_rule,
+                    lookup_link,
+                )
+            else:
+                staged, issues = _stage_table(
                     effective,
                     physical,
                     mapping,
                     loaded[physical.dataset_id],
                     rule,
                     role,
+                    tuple(lookup_by_consumer.get(effective.dataset_id, ())),
                 )
-            )
+            staged_tables.append(staged)
+            preparation_issues.extend(issues)
             for column in effective.columns:
                 source_labels[(effective.name, column.stable_key)] = column.source_name
             column_name_by_key = {
@@ -466,6 +512,11 @@ def stage_browser_mapping(
                 for item in effective_selection.datasets
             },
         )
+        if preparation_issues:
+            prepared = _attach_preparation_issues(
+                prepared,
+                preparation_issues,
+            )
     return StagedBrowserMapping(
         profile=profile,
         prepared=prepared,
@@ -601,11 +652,15 @@ def _stage_table(
     table: SourceTable,
     rule: RelatedDatasetRule | None,
     role: str,
-) -> SourceTable:
+    lookup_bindings: tuple[
+        tuple[DerivedEntityRule, DerivedDatasetLink], ...
+    ] = (),
+) -> tuple[SourceTable, tuple[Issue, ...]]:
     source_name_by_key = {
         column.stable_key: column.source_name for column in physical.columns
     }
     staged_rows: list[SourceRow] = []
+    issues: list[Issue] = []
     seen_parent_keys: set[tuple[str, ...]] = set()
     for row in table.rows:
         values = {
@@ -634,39 +689,16 @@ def _stage_table(
                 if canonical in seen_parent_keys:
                     continue
                 seen_parent_keys.add(canonical)
-        for index, field in enumerate(mapping.fields):
-            if field.value_source is ScalarValueSource.ODOO_DEFAULT:
-                continue
-            raw = (
-                values.get(field.source_column_key)
-                if field.source_column_key is not None
-                else None
+        issues.extend(
+            _normalize_derived_references(
+                values,
+                mapping,
+                lookup_bindings,
+                dataset=effective.name,
+                source_row=row.number,
             )
-            try:
-                values[_synthetic_field(index)] = canonicalize_scalar_value(
-                    field,
-                    raw,
-                    formula_context={
-                        "value": raw,
-                        **{
-                            f"column_{column.ordinal}": values.get(
-                                column.stable_key
-                            )
-                            for column in effective.columns
-                        },
-                    },
-                )
-            except ScalarValueRuleError as error:
-                values[_synthetic_field(index)] = InvalidPreparedValue(
-                    code=error.code,
-                    message=str(error),
-                )
-            except ScalarValueError as error:
-                values[_synthetic_field(index)] = (
-                    None
-                    if "required value" in str(error).casefold()
-                    else "__impodo_invalid_value__"
-                )
+        )
+        _apply_scalar_mappings(values, effective, mapping)
         staged_rows.append(SourceRow(number=row.number, values=values))
     headers = (
         *(column.stable_key for column in effective.columns),
@@ -676,12 +708,232 @@ def _stage_table(
             if field.value_source is not ScalarValueSource.ODOO_DEFAULT
         ),
     )
-    return SourceTable(
-        dataset=effective.name,
-        path=table.path,
-        headers=tuple(headers),
-        rows=tuple(staged_rows),
-        content_hash=table.content_hash,
+    return (
+        SourceTable(
+            dataset=effective.name,
+            path=table.path,
+            headers=tuple(headers),
+            rows=tuple(staged_rows),
+            content_hash=table.content_hash,
+        ),
+        tuple(issues),
+    )
+
+
+def _stage_derived_table(
+    effective: SourceDataset,
+    physical: SourceDataset,
+    mapping: DatasetMapping,
+    table: SourceTable,
+    rule: DerivedEntityRule,
+    link: DerivedDatasetLink,
+) -> tuple[SourceTable, tuple[Issue, ...]]:
+    """Materialize every unique related record from the full source table."""
+
+    source_column = next(
+        item
+        for item in physical.columns
+        if item.stable_key == rule.source_column_key
+    )
+    accumulated: dict[tuple[str, ...], dict[str, object]] = {}
+    for row in table.rows:
+        path = _normalized_path(
+            row.values.get(source_column.source_name),
+            rule.parent_separator,
+        )
+        if path is None:
+            continue
+        display_parts, key_parts = path
+        if not display_parts:
+            continue
+        for depth in range(1, len(key_parts) + 1):
+            key_path = key_parts[:depth]
+            display_path = display_parts[:depth]
+            entry = accumulated.setdefault(
+                key_path,
+                {
+                    "name": display_path[-1],
+                    "aliases": set(),
+                    "source_row": row.number,
+                },
+            )
+            aliases = entry["aliases"]
+            assert isinstance(aliases, set)
+            aliases.add(_display_path(display_path, rule.parent_separator))
+
+    rows: list[SourceRow] = []
+    issues: list[Issue] = []
+    ordered_candidates = sorted(
+        accumulated.items(),
+        key=lambda item: (len(item[0]), item[0]),
+    )
+    for generated_row, (key_path, entry) in enumerate(
+        ordered_candidates,
+        start=2,
+    ):
+        values: dict[str, object] = {
+            link.canonical_key_column_key: " / ".join(key_path),
+            link.name_column_key: str(entry["name"]),
+        }
+        if link.parent_key_column_key is not None:
+            values[link.parent_key_column_key] = (
+                " / ".join(key_path[:-1]) if key_path[:-1] else None
+            )
+        _apply_scalar_mappings(values, effective, mapping)
+        evidence_row = int(entry["source_row"])
+        aliases = entry["aliases"]
+        assert isinstance(aliases, set)
+        if len(aliases) > 1:
+            issues.append(
+                Issue(
+                    code="DERIVED_ALIAS_REVIEW_REQUIRED",
+                    message=(
+                        "multiple source spellings produce the same related "
+                        "record; review the preferred display value "
+                        f"(first seen at source row {evidence_row})"
+                    ),
+                    severity=Severity.ERROR,
+                    dataset=effective.name,
+                    row=generated_row,
+                    field=link.name_column_key,
+                )
+            )
+        rows.append(SourceRow(number=generated_row, values=values))
+
+    headers = (
+        *(column.stable_key for column in effective.columns),
+        *(
+            _synthetic_field(index)
+            for index, field in enumerate(mapping.fields)
+            if field.value_source is not ScalarValueSource.ODOO_DEFAULT
+        ),
+    )
+    return (
+        SourceTable(
+            dataset=effective.name,
+            path=table.path,
+            headers=tuple(headers),
+            rows=tuple(rows),
+            content_hash=table.content_hash,
+        ),
+        tuple(issues),
+    )
+
+
+def _normalize_derived_references(
+    values: dict[str, object],
+    mapping: DatasetMapping,
+    lookup_bindings: tuple[
+        tuple[DerivedEntityRule, DerivedDatasetLink], ...
+    ],
+    *,
+    dataset: str,
+    source_row: int,
+) -> tuple[Issue, ...]:
+    issues: list[Issue] = []
+    for rule, link in lookup_bindings:
+        relationship = next(
+            (
+                item
+                for item in mapping.relationships
+                if item.resolver.origin is ResolverOrigin.DATASET
+                and item.resolver.dataset_id == link.derived_dataset_id
+                and link.source_column_key in item.source_column_keys
+            ),
+            None,
+        )
+        if relationship is None:
+            continue
+        path = _normalized_path(
+            values.get(link.source_column_key),
+            rule.parent_separator,
+        )
+        if path is not None and path[0]:
+            values[link.source_column_key] = " / ".join(path[1])
+            continue
+        values[link.source_column_key] = None
+        issues.append(
+            Issue(
+                code=(
+                    "DERIVED_REFERENCE_QUARANTINED"
+                    if rule.blank_policy == "quarantine"
+                    else "DERIVED_REFERENCE_MISSING"
+                ),
+                message=(
+                    "the source value cannot identify a related record in "
+                    f"{rule.output_dataset_name}"
+                ),
+                severity=Severity.ERROR,
+                dataset=dataset,
+                row=source_row,
+                field=relationship.target_field,
+            )
+        )
+    return tuple(issues)
+
+
+def _apply_scalar_mappings(
+    values: dict[str, object],
+    effective: SourceDataset,
+    mapping: DatasetMapping,
+) -> None:
+    for index, field in enumerate(mapping.fields):
+        if field.value_source is ScalarValueSource.ODOO_DEFAULT:
+            continue
+        raw = (
+            values.get(field.source_column_key)
+            if field.source_column_key is not None
+            else None
+        )
+        try:
+            values[_synthetic_field(index)] = canonicalize_scalar_value(
+                field,
+                raw,
+                formula_context={
+                    "value": raw,
+                    **{
+                        f"column_{column.ordinal}": values.get(
+                            column.stable_key
+                        )
+                        for column in effective.columns
+                    },
+                },
+            )
+        except ScalarValueRuleError as error:
+            values[_synthetic_field(index)] = InvalidPreparedValue(
+                code=error.code,
+                message=str(error),
+            )
+        except ScalarValueError as error:
+            values[_synthetic_field(index)] = (
+                None
+                if "required value" in str(error).casefold()
+                else "__impodo_invalid_value__"
+            )
+
+
+def _attach_preparation_issues(
+    prepared: PreparedBundle,
+    issues: Iterable[Issue],
+) -> PreparedBundle:
+    by_row: dict[tuple[str, int], list[Issue]] = {}
+    for issue in issues:
+        if issue.dataset is None or issue.row is None:
+            continue
+        by_row.setdefault((issue.dataset, issue.row), []).append(issue)
+    return PreparedBundle(
+        records=tuple(
+            replace(
+                record,
+                issues=(
+                    *record.issues,
+                    *by_row.get((record.dataset, record.source_row), ()),
+                ),
+            )
+            for record in prepared.records
+        ),
+        issues=prepared.issues,
+        source_hashes=prepared.source_hashes,
     )
 
 

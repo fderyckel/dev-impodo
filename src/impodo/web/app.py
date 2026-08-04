@@ -49,9 +49,12 @@ from ..connectors import (
     RecordSnapshot,
 )
 from ..derived_entities import (
+    DerivedDatasetLink,
     DerivedEntityRule,
     DerivedEntityWorkspaceService,
     RelatedDatasetRule,
+    derived_dataset_links,
+    derived_mapping_samples,
     related_dataset_links,
 )
 from ..intake import SourceIntakeError, SourceIntakeService
@@ -339,7 +342,8 @@ def create_local_app(
             )
             context.local_stack.forget_project(project.project_id)
             context.secret_store.delete(_target_credential_id(project))
-            deleted = context.projects.delete_project(
+            deleted = await run_in_threadpool(
+                context.projects.delete_project,
                 project.project_id,
                 actor=context.actor,
                 expected_revision=expected_revision,
@@ -1310,6 +1314,61 @@ def create_local_app(
         return RedirectResponse(
             f"/projects/{project_id}/derived-entities",
             status_code=303,
+        )
+
+    @app.post("/projects/{project_id}/derived-entities/lookup/preview")
+    async def preview_project_derived_entity(
+        request: Request,
+        project_id: str,
+    ):
+        form = await request.form()
+        fields = {
+            "csrf_token",
+            "expected_parent_version",
+            "source_binding",
+            "output_dataset_name",
+            "target_model",
+            "target_name_field",
+            "external_id_namespace",
+            "parent_separator",
+            "blank_policy",
+        }
+        _secure_form(request, form, fields)
+        source_binding = _text(form, "source_binding")
+        if "|" not in source_binding:
+            return _render_derived_entities(
+                request,
+                context,
+                project_id,
+                error="Choose a frozen source column",
+                status_code=422,
+            )
+        source_dataset_id, source_column_key = source_binding.split("|", 1)
+        try:
+            rule, preview = context.derived_entities.preview_lookup(
+                project_id,
+                output_dataset_name=_text(form, "output_dataset_name"),
+                source_dataset_id=source_dataset_id,
+                source_column_key=source_column_key,
+                target_model=_text(form, "target_model"),
+                target_name_field=_text(form, "target_name_field"),
+                external_id_namespace=_text(form, "external_id_namespace"),
+                parent_separator=_text(form, "parent_separator") or None,
+                blank_policy=_text(form, "blank_policy"),
+            )
+        except (WorkspaceError, ValueError) as error:
+            return _render_derived_entities(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        return _render_derived_entities(
+            request,
+            context,
+            project_id,
+            pending_lookup={"rule": rule, "preview": preview},
         )
 
     @app.post("/projects/{project_id}/derived-entities/related/preview")
@@ -2652,6 +2711,7 @@ def _render_derived_entities(
     error: str | None = None,
     status_code: int = 200,
     pending_related: dict[str, object] | None = None,
+    pending_lookup: dict[str, object] | None = None,
 ):
     project = context.repository.get(project_id)
     selection = context.repository.get_source_selection(project_id)
@@ -2744,6 +2804,7 @@ def _render_derived_entities(
         related_rule_views=tuple(related_rule_views),
         related_source_views=related_source_views,
         pending_related=pending_related,
+        pending_lookup=pending_lookup,
         namespace_default=namespace,
         error=error,
         status_code=status_code,
@@ -2988,6 +3049,19 @@ def _render_mapping(
     )
     field_query = request.query_params.get("field_query", "").strip()[:128]
     mapped_only = request.query_params.get("mapped_only") == "1"
+    lookup_links = derived_dataset_links(preparation_plan)
+    lookup_samples: dict[str, dict[str, tuple[str | None, ...]]] = {}
+    if preparation_plan is not None:
+        lookup_rules = tuple(
+            rule
+            for rule in preparation_plan.rules
+            if isinstance(rule, DerivedEntityRule)
+        )
+        for link, rule in zip(lookup_links, lookup_rules, strict=True):
+            lookup_samples[link.derived_dataset_id] = derived_mapping_samples(
+                link,
+                context.derived_entities.preview(project_id, rule),
+            )
     dataset_views = (
         _mapping_dataset_views(
             selection,
@@ -3000,6 +3074,8 @@ def _render_mapping(
                 for index, _item in enumerate(selection.datasets)
             },
             related_dataset_links(preparation_plan),
+            lookup_links,
+            lookup_samples,
             active_dataset_index=active_dataset_index,
             scalar_page=scalar_page,
             relation_page=relation_page,
@@ -3099,6 +3175,8 @@ def _mapping_dataset_views(
     source_catalogs=(),
     selected_models=None,
     related_links=(),
+    derived_links=(),
+    prepared_source_samples=None,
     *,
     active_dataset_index=None,
     scalar_page=1,
@@ -3117,17 +3195,25 @@ def _mapping_dataset_views(
     link_by_child = {item.child_dataset_id: item for item in related_links}
     link_by_parent = {item.parent_dataset_id: item for item in related_links}
     parent_ids = {item.parent_dataset_id for item in related_links}
+    derived_by_dataset = {
+        item.derived_dataset_id: item for item in derived_links
+    }
+    derived_by_consumer: dict[str, list[object]] = {}
+    for item in derived_links:
+        derived_by_consumer.setdefault(item.consumer_dataset_id, []).append(item)
+    prepared_source_samples = prepared_source_samples or {}
     result: list[dict[str, object]] = []
     for dataset_index, source_dataset in enumerate(selection.datasets):
         active = (
             active_dataset_index is None
             or dataset_index == active_dataset_index
         )
-        source_samples = _mapping_source_samples(
-            source_dataset,
-            source_catalogs,
+        source_samples = prepared_source_samples.get(
+            source_dataset.dataset_id,
+            _mapping_source_samples(source_dataset, source_catalogs),
         )
         existing = existing_by_id.get(source_dataset.dataset_id)
+        derived_link = derived_by_dataset.get(source_dataset.dataset_id)
         selected_override = (
             selected_models.get(dataset_index, "")
             if selected_models is not None
@@ -3140,13 +3226,18 @@ def _mapping_dataset_views(
                 existing.target_model
                 if existing and existing.target_model in models
                 else (
-                    next(
-                        (
-                            item.model
-                            for item in confirmed
-                            if item.model in models
-                        ),
-                        schema.models[0].name if schema.models else "",
+                    derived_link.target_model
+                    if derived_link is not None
+                    and derived_link.target_model in models
+                    else (
+                        next(
+                            (
+                                item.model
+                                for item in confirmed
+                                if item.model in models
+                            ),
+                            schema.models[0].name if schema.models else "",
+                        )
                     )
                 )
             )
@@ -3213,7 +3304,15 @@ def _mapping_dataset_views(
                             and metadata.type == "many2one"
                         ),
                         "selected_sources": (
-                            component.source_column_keys if component else ()
+                            component.source_column_keys
+                            if component
+                            else (
+                                (derived_link.name_column_key,)
+                                if derived_link is not None
+                                and target_field
+                                == derived_link.target_name_field
+                                else ()
+                            )
                         ),
                         "related_keys": related_keys,
                         "selected_related_key": selected_related_key,
@@ -3269,6 +3368,13 @@ def _mapping_dataset_views(
                 "mapping": scalar_by_target.get(field.name),
                 "canonical_type": _canonical_mapping_type(field.type),
                 "source_samples": source_samples,
+                "recommended_source_column": (
+                    derived_link.name_column_key
+                    if derived_link is not None
+                    and field.name == derived_link.target_name_field
+                    and field.name not in scalar_by_target
+                    else None
+                ),
                 "preview": _scalar_mapping_preview(
                     scalar_by_target.get(field.name),
                     source_samples,
@@ -3366,16 +3472,26 @@ def _mapping_dataset_views(
                     if item.dataset_id != source_dataset.dataset_id
                 ),
                 "related_role": (
-                    "child"
-                    if source_dataset.dataset_id in link_by_child
+                    "lookup"
+                    if source_dataset.dataset_id in derived_by_dataset
                     else (
-                        "parent"
-                        if source_dataset.dataset_id in parent_ids
-                        else None
+                        "child"
+                        if source_dataset.dataset_id in link_by_child
+                        else (
+                            "parent"
+                            if source_dataset.dataset_id in parent_ids
+                            else None
+                        )
                     )
                 ),
                 "recommended_source_identity": (
-                    link_by_child[source_dataset.dataset_id].child_identity_column_keys
+                    derived_link.canonical_key_column_key,
+                )
+                if derived_link is not None
+                else (
+                    link_by_child[
+                        source_dataset.dataset_id
+                    ].child_identity_column_keys
                     if source_dataset.dataset_id in link_by_child
                     else (
                         link_by_parent[
@@ -3405,6 +3521,38 @@ def _mapping_dataset_views(
             relation_row["recommended_source_columns"] = (
                 link.reference_column_keys
             )
+    for view in result:
+        source = view["source"]
+        recommendations: list[
+            tuple[dict[str, object], DerivedDatasetLink]
+        ] = []
+        for link in derived_by_consumer.get(source.dataset_id, ()):
+            derived_view = views_by_dataset.get(link.derived_dataset_id)
+            derived_model = (
+                derived_view["selected_model"] if derived_view else None
+            )
+            matches = tuple(
+                relation_row
+                for relation_row in view["relation_rows"]
+                if relation_row["metadata"].type == "many2one"
+                and relation_row["metadata"].relation == derived_model
+            )
+            if len(matches) == 1:
+                recommendations.append((matches[0], link))
+        for relation_row in view["relation_rows"]:
+            matches = tuple(
+                link
+                for candidate, link in recommendations
+                if candidate is relation_row
+            )
+            if len(matches) != 1:
+                continue
+            link = matches[0]
+            relation_row["recommended_dataset_id"] = link.derived_dataset_id
+            relation_row["recommended_source_columns"] = (
+                link.source_column_key,
+            )
+            relation_row["recommendation_kind"] = "extracted_lookup"
     return tuple(result)
 
 
@@ -3412,6 +3560,8 @@ def _mapping_source_samples(
     source_dataset,
     source_catalogs,
 ) -> dict[str, tuple[str | None, ...]]:
+    if source_dataset.dataset_id.startswith("derived:"):
+        return {}
     catalog = next(
         (
             item
