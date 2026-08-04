@@ -54,6 +54,9 @@ roadmap phases. Do not use Phase A or Phase B.
 - [Data-transformation coverage contract](contracts/data-transformation-coverage.md)
   — 24 transformation and cleaning case families, the measurable 95%
   threshold, Odoo-specific semantics, and clean-package release gates.
+- [Derived-entity authoring](derived-entity-authoring.md)
+  — the implemented browser slice for category-owned and other related-entity
+  IDs extracted from denormalized source fields, plus its execution boundary.
 - [Profile contract](contracts/profile.md) — how a profile maps,
   types, identifies, resolves, and compares data.
 - [Prepared record contract](contracts/prepared-record.md) — the

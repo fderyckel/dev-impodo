@@ -60,6 +60,9 @@ start a local Odoo stack separately before connecting to it in Impodo.
   with bounded raw-to-proposed previews.
 - Configures many2one and many2many relationships using governed business
   keys; one2many relationships are handled through the child inverse field.
+- Authors hash-bound derived-entity rules that assign deterministic,
+  related-entity-owned IDs to reusable values found in denormalized source
+  fields, with bounded alias and hierarchy previews.
 - Creates immutable mapping revisions, validates them, and allows submission
   of the exact validated revision after blocking findings are resolved.
 
@@ -67,10 +70,11 @@ Changing a confirmed source, frozen dataset, Odoo schema capture, or governed
 business key invalidates the active mapping so it must be validated again.
 
 **Delivery status:** Phase 1 (source discovery), Phase 2A (target schema),
-Phase 2B (identities, scope, and relationships), and Phase 2C.1 (scalar
-providers and transformations) are implemented. Governed lookup translations,
-mapping import/export, functional review, and approval remain in the Phase 2C
-delivery scope.
+Phase 2B (identities, scope, and relationships), Phase 2C.1 (scalar providers
+and transformations), and the first derived-entity authoring slice are
+implemented. Full-row structural transformation/staging, governed lookup
+translations, mapping import/export, functional review, and approval remain in
+later delivery scope.
 
 ## Install and start
 

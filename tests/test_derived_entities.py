@@ -36,6 +36,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DerivedEntityPreviewTests(unittest.TestCase):
+    def test_target_display_field_must_be_one_odoo_field(self) -> None:
+        selection, _catalog = _source_evidence()
+
+        with self.assertRaisesRegex(ValueError, "valid Odoo field name"):
+            replace(_rule(selection), target_name_field="parent_id.name")
+
     def test_homonymous_children_receive_distinct_category_owned_ids(self) -> None:
         selection, catalog = _source_evidence()
         rule = _rule(selection)

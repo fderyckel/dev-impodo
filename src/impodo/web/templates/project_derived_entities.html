@@ -48,7 +48,7 @@
           <form method="post" action="/projects/{{ project.project_id }}/derived-entities/{{ rule.rule_id }}/delete">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
-            <button class="button danger" type="submit">Remove rule</button>
+            <button class="button secondary" type="submit">Remove rule</button>
           </form>
         </div>
 
@@ -78,8 +78,8 @@
             </div>
           {% endif %}
           {% if preview.candidates %}
-            <div class="table-wrap">
-              <table>
+            <div class="table-scroll">
+              <table class="data-table">
                 <thead>
                   <tr>
                     <th>Canonical entity</th>

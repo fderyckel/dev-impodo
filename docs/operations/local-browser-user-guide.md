@@ -12,10 +12,11 @@ This guide covers the current workflow:
 1. register the migration project;
 2. inspect and confirm the source files;
 3. freeze the datasets that will be mapped;
-4. capture the permitted Odoo field catalog;
-5. confirm the business keys used to find records;
-6. map ordinary fields and relationships;
-7. validate and submit the exact mapping revision.
+4. optionally author derived related entities from denormalized fields;
+5. capture the permitted Odoo field catalog;
+6. confirm the business keys used to find records;
+7. map ordinary fields and relationships;
+8. validate and submit the exact mapping revision.
 
 Impodo is currently a planning and validation tool. It cannot create, change,
 or delete Odoo records; every target connection remains read-only.
@@ -25,10 +26,11 @@ The screenshots in this guide show the current local-browser interface at a
 details shown in them belong to an isolated fictional training project.
 
 The current browser can author constants, source fallbacks, explicit
-leave-unset/Odoo-default intent, and a small allowlist of scalar
-transformations. It previews one bounded inspected sample and validates the
-mapping definition. It does not yet execute those rules against every source
-row or produce a clean canonical package. See
+leave-unset/Odoo-default intent, a small allowlist of scalar transformations,
+and derived-entity plans for reusable values stored in denormalized fields. It
+previews one bounded inspected sample and validates the mapping definition. It
+does not yet execute those rules against every source row or produce a clean
+canonical package. See
 [Normalization, transformation, and cleaning](#normalization-transformation-and-cleaning)
 before submitting a mapping.
 
@@ -45,6 +47,8 @@ For a routine project, use this checklist:
 - Inspect every file and resolve or acknowledge its warnings.
 - Give each selected table a short, stable dataset name.
 - Freeze the selection.
+- When a source field represents reusable related records, review whether it
+  needs a derived-entity rule before schema mapping.
 - Capture only the Odoo models approved for this migration.
 - Confirm a real business key for every target model.
 - Map identity first, ordinary fields second, and relationships third.
@@ -465,6 +469,22 @@ Select **Freeze selection** only after checking:
 Freezing creates a versioned definition of the source. If a file is
 reconfirmed or the selection is frozen again later, Impodo keeps the old
 history but requires the active mapping to be reviewed against the new source.
+
+### Optional: derive related entities from a source field
+
+Select **Review derived entities** when a source field contains reusable
+records that Odoo stores in a separate model. For example, a product-category
+label can produce category-owned identities without borrowing any product ID.
+Choose the source field, derived dataset name, target model, stable namespace,
+blank policy, and an optional hierarchy separator. Impodo stores an immutable,
+hash-bound rule revision and shows deterministic IDs from the bounded inspected
+sample.
+
+This preview is not a complete extracted dataset and is not yet available in
+the relationship mapper. Full-row staging, cross-project alias survivorship,
+Odoo External-ID resolution, and export remain later slices. See
+[Derived-entity authoring](../derived-entity-authoring.md) for the exact current
+boundary.
 
 ## 5. Capture the Odoo schema
 

@@ -27,6 +27,7 @@ DERIVED_ENTITY_CONTRACT_VERSION = 1
 _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _EXTERNAL_ID_NAMESPACE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _TECHNICAL_NAME = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
+_TECHNICAL_FIELD = re.compile(r"^[a-z_][a-z0-9_]{0,127}$")
 _SUPPORTED_BLANK_POLICIES = frozenset({"block", "quarantine"})
 
 
@@ -72,7 +73,7 @@ class DerivedEntityRule:
         target_name_field = self.target_name_field.strip()
         if not _TECHNICAL_NAME.fullmatch(target_model):
             raise ValueError("Target model must be a valid Odoo technical name")
-        if not _TECHNICAL_NAME.fullmatch(target_name_field):
+        if not _TECHNICAL_FIELD.fullmatch(target_name_field):
             raise ValueError("Target name field must be a valid Odoo field name")
         object.__setattr__(self, "target_model", target_model)
         object.__setattr__(self, "target_name_field", target_name_field)
