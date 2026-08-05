@@ -2,12 +2,18 @@
 
 ## Status and outcome
 
-**Status:** Proposed on 2026-08-05. Not implemented.
+**Status:** Implemented on 2026-08-05 for the bounded browser workflow.
 
 Slice 5 makes the approved, durable prepared rows the only browser input to
 the read-only Odoo comparison. It removes the current comparison-time source
 reload and transformation pass. It does not add an Odoo writer, certify a clean
 package, approve an export plan, or rehearse an import.
+
+The implementation keeps the existing routes, labels, navigation, and review
+journey. `PreflightService` loads frozen staging, quality, and normalization
+evidence; `PreflightRepository` publishes the bound report, decisions, and
+protected target snapshots atomically; and the live and local connectors
+remain limited to `fields_get` and `search_read`.
 
 The data-manager workflow remains deliberately small:
 
@@ -26,10 +32,9 @@ Odoo IDs, and internal issue codes remain in protected evidence or collapsed
 
 ## Why this slice comes before certification or export
 
-Slice 4 freezes an exact eligible-dataset hash, but the current
-`BrowserReadinessService.run()` calls the preparation path again and compares
-the newly materialized in-memory `PreparedBundle`. Identical evaluation makes
-that compatible today, but the Odoo comparison does not yet consume the
+Slice 4 froze an exact eligible-dataset hash, while the former browser
+comparison called preparation again and compared a newly materialized
+`PreparedBundle`. Slice 5 removes that seam: comparison now consumes the
 durable object that the data manager approved.
 
 An exporter built on that seam could prepare different values between approval
@@ -57,9 +62,9 @@ builds normalization evidence.
 - stop before any connector call when that evidence is missing, stale,
   incomplete, tampered with, or no longer frozen.
 
-The comparison may compile the submitted mapping into the existing
-`ProfileDocument` because that is target-independent metadata. It may not
-re-evaluate source values.
+The comparison recompiles the submitted mapping into the shared
+`CompiledMigrationPlan` and requires its semantic hash to match canonical
+staging. It may not re-evaluate source values.
 
 ### Adapt canonical rows; do not create a second evaluator
 
@@ -173,7 +178,7 @@ Introduce a storage-independent input envelope containing:
 - exact current quality run ID, content hash, and eligible row IDs;
 - exact current frozen normalization run ID, content hash, lifecycle version,
   and eligible-dataset hash;
-- compiled profile plus business dataset and field labels;
+- compiled migration plan plus business dataset and field labels;
 - the eligible `PreparedBundle` reconstructed from canonical rows;
 - deterministic source trace IDs and dataset source hashes;
 - an input content hash covering all of the above semantic bindings.
@@ -241,7 +246,9 @@ IDs.
 
 ## Persistence and invalidation
 
-Add a schema-v17 migration that evolves the current readiness store with:
+The schema-v18 preflight migration evolves the readiness store with the
+following evidence. Schema v19 additionally binds canonical staging to the
+shared compiled migration plan:
 
 - immutable preflight/readiness run headers and a distinct current pointer;
 - exact staging, quality, normalization, eligible-dataset, target, plan, and
@@ -376,7 +383,7 @@ keys remain visible; overlapping chunks cannot hide conflicts.
 
 ### 5D - Persist immutable preflight evidence
 
-Add schema v17, current pointer, frozen-input bindings, plan and snapshot
+Add the preflight schema, current pointer, frozen-input bindings, plan and snapshot
 hashes, protected target snapshot rows, bounded decision rows, atomic
 publication, restart retrieval, and invalidation. Make the portable manifest
 and workbook projections of stored evidence.
@@ -433,7 +440,8 @@ size. These are regression guards, not production sizing guarantees.
 - simple, composite, scoped, and safely supported relational identities create
   bounded exact requirements;
 - unsupported narrowing blocks rather than scanning a complete model;
-- fields and keys shared by several datasets are merged once per model;
+- fields shared by several datasets use one model projection and their keys
+  become deterministic bounded chunks;
 - large key sets split into deterministic bounded domain chunks;
 - same-model chunks merge and deduplicate identical target records;
 - conflicting repeated target records, changed fingerprints, missing pages,
@@ -465,32 +473,30 @@ size. These are regression guards, not production sizing guarantees.
 - only `fields_get` and `search_read` cross the Odoo connector boundary;
 - no UI text implies that comparison imports, exports, certifies, approves, or
   changes Odoo;
-- schema-v16 projects migrate safely and historical readiness rows do not
+- older projects migrate safely and historical readiness rows do not
   become falsely current.
 
-## Explicit blind spots this plan closes
+## Closed blind spots
 
-- `BrowserReadinessService.run()` currently calls `_prepare()` and compares a
-  newly materialized bundle instead of loading the frozen durable rows.
-- `CanonicalRow.from_dict()` currently preserves JSON shapes but does not
-  restore every typed value and logical-reference object needed by the engine.
-- current preflight decisions lack an exact canonical row trace binding.
-- `eligible_prepared_bundle()` currently requires the transient prepared
-  bundle to recover records from durable staging.
-- the current readiness report binds staging and quality but not the exact
-  frozen normalization run, eligible-dataset hash, or request-plan hash.
-- live/local snapshot hashes may be absent even though the manifest exposes
-  snapshot-hash fields.
-- the current planner can produce an empty domain for no records or unsupported
-  composite identities, which may read an entire Odoo model.
-- current same-model record requests are not a safe chunking contract because
-  connector result maps can overwrite earlier chunks.
-- current report JSON and UI paging can require loading every result row even
-  when only one bounded page is displayed.
-- the manifest is written before durable report publication and can be left as
-  orphan evidence after a failed save.
-- `mapping.submit` is not the right long-term authorization name for a target
-  comparison action.
+- Comparison loads frozen durable rows and never calls preparation or reads a
+  registered source artifact.
+- Canonical decoding restores typed values and symbolic references
+  losslessly before adapting them to `PreparedRecord`.
+- Every browser decision carries the canonical row trace hash.
+- The transient eligible-bundle adapter and readiness workflow facade were
+  removed.
+- Reports bind the frozen normalization run, eligible-dataset hash, compiled
+  input, requirement plan, result, manifest, and deterministic target snapshot
+  hashes.
+- Empty or locally unresolvable keys issue no record read; unsupported
+  narrowing fails before connector access.
+- Same-model chunks merge and deduplicate safely, and conflicting repeated
+  target rows fail closed.
+- Result rows are stored separately and paged in DuckDB instead of loading the
+  full result set for a normal browser page.
+- Failed report publication removes its unpublished artifact and preserves the
+  previous current pointer.
+- Target comparison uses the dedicated `preflight.run` capability.
 
 ## Out of scope
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 import shutil
@@ -14,6 +15,7 @@ from impodo.domain.compiler import compile_profile_document
 from impodo.models import LogicalReference
 from impodo.planner import (
     plan_metadata_requests,
+    plan_preflight_requirements,
     plan_record_requests,
 )
 from impodo.profile import SourceSpec, load_profile
@@ -206,6 +208,11 @@ class PlannerTests(unittest.TestCase):
             load_profile(ROOT / "profiles/examples/golden_slice.yaml")
         )
         self.bundle = prepare_sources(self.profile, ROOT / "examples/golden")
+        self.plannable_records = tuple(
+            record
+            for record in self.bundle.records
+            if record.source_identity != ("MISSING-L1",)
+        )
 
     def test_metadata_requests_only_profile_models_and_fields(self) -> None:
         requests = plan_metadata_requests(self.profile)
@@ -218,9 +225,8 @@ class PlannerTests(unittest.TestCase):
         self.assertNotIn("message_ids", by_model["product.template"])
 
     def test_record_requests_are_batched_by_model(self) -> None:
-        requests = plan_record_requests(self.profile, self.bundle.records)
+        requests = plan_record_requests(self.profile, self.plannable_records)
         models = [request.model for request in requests]
-        self.assertEqual(len(models), len(set(models)))
         self.assertLess(len(models), len(self.bundle.records))
         product_request = next(
             request for request in requests if request.model == "product.template"
@@ -243,12 +249,12 @@ class PlannerTests(unittest.TestCase):
         )
         request = next(
             item
-            for item in plan_record_requests(changed_profile, self.bundle.records)
+            for item in plan_record_requests(changed_profile, self.plannable_records)
             if item.model == "product.template"
         )
         self.assertIn(["active", "=", True], request.domain)
 
-    def test_datasets_for_same_model_share_one_or_domain(self) -> None:
+    def test_datasets_for_same_model_use_only_bounded_domains(self) -> None:
         assets = self.profile.dataset("assets")
         changed_assets = assets.model_copy(
             update={
@@ -266,19 +272,86 @@ class PlannerTests(unittest.TestCase):
             }
         )
 
-        requests = plan_record_requests(changed_profile, self.bundle.records)
+        requests = plan_record_requests(changed_profile, self.plannable_records)
         partner_requests = [
             item for item in requests if item.model == "res.partner"
         ]
 
-        self.assertEqual(len(partner_requests), 1)
-        self.assertEqual(partner_requests[0].domain[0], "|")
+        self.assertTrue(partner_requests)
+        self.assertTrue(all(request.domain for request in partner_requests))
         domain_fields = {
             item[0]
-            for item in partner_requests[0].domain
-            if isinstance(item, list)
+            for request in partner_requests
+            for item in request.domain
+            if isinstance(item, list) and len(item) == 3
         }
         self.assertEqual(domain_fields, {"ref", "code"})
+
+    def test_no_eligible_records_produce_no_record_reads(self) -> None:
+        requirements = plan_preflight_requirements(self.profile, ())
+
+        self.assertEqual(requirements.record_requests, ())
+
+    def test_record_keys_are_split_into_bounded_chunks(self) -> None:
+        product = next(
+            record for record in self.bundle.records if record.dataset == "products"
+        )
+        records = tuple(
+            replace(
+                product,
+                source_identity=(f"P-{index}", "BE"),
+                target_identity=(f"P-{index}",),
+            )
+            for index in range(5)
+        )
+
+        requirements = plan_preflight_requirements(
+            self.profile,
+            records,
+            maximum_keys_per_request=2,
+        )
+        product_requests = tuple(
+            request
+            for request in requirements.record_requests
+            if request.model == "product.template"
+        )
+
+        self.assertEqual(len(product_requests), 3)
+        self.assertTrue(all(request.domain for request in product_requests))
+
+    def test_incoming_identity_is_narrowed_by_parent_business_key(self) -> None:
+        profile = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/bom.yaml")
+        )
+        bundle = prepare_sources(profile, ROOT / "examples/bom")
+
+        line_request = next(
+            request
+            for request in plan_record_requests(profile, bundle.records)
+            if request.model == "mrp.bom.line"
+        )
+
+        self.assertTrue(line_request.domain)
+        self.assertIn(
+            "bom_id.code",
+            {
+                item[0]
+                for item in line_request.domain
+                if isinstance(item, list) and len(item) == 3
+            },
+        )
+
+    def test_missing_incoming_parent_never_creates_an_unbounded_read(self) -> None:
+        requests = plan_record_requests(self.profile, self.bundle.records)
+        line_requests = tuple(
+            request
+            for request in requests
+            if request.model == "x_uc.asset.line"
+        )
+
+        self.assertTrue(line_requests)
+        self.assertTrue(all(request.domain for request in line_requests))
+        self.assertNotIn("ASSET-MISSING", repr(line_requests))
 
 
 if __name__ == "__main__":

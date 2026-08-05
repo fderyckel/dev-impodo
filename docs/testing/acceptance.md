@@ -408,6 +408,55 @@ gate, and this diagnostic alone does not justify raising the 25,000-row browser
 limit. Bounded quality publication and the full mixed preparation fixture are
 still required.
 
+### Complete wide preparation diagnostic
+
+The opt-in `tests.test_preparation_scale` fixture runs the actual local
+preparation application service and DuckDB repositories. It loads a
+deterministic CSV with 30 columns, applies 20 mapped scalar fields, validates a
+business control total, produces one visible normalization effect per row, and
+durably publishes canonical staging, quality, and normalization evidence. Only
+the 25,000-row scale guard is patched by the benchmark.
+
+Command:
+
+```powershell
+$env:IMPODO_RUN_PREPARATION_SCALE = '1'
+$env:IMPODO_PREPARATION_SCALE_ROWS = '100000'
+.\.venv\Scripts\python.exe -m unittest `
+  tests.test_preparation_scale.PreparationWorkflowScaleTests.test_complete_preparation_workflow -v
+```
+
+Results on 2026-08-05:
+
+| Physical rows | Source columns | Mapped fields | Complete preparation | Peak working set | Project DB | Result |
+| ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 10,000 | 30 | 20 | 40.271 s | 383.8 MiB | 40.3 MiB | Correct; calibration only |
+| 100,000 | 30 | 20 | 429.175 s | 2,897.3 MiB | 221.8 MiB | Failed time and RAM gates |
+
+The 100,000-row source is 35,100,271 bytes with SHA-256
+`b0c39ad0abcdeb511502ff72b0cef8e6295bc62b31ec535488760cae148b3b52`.
+The published staging, quality, and normalization hashes were respectively
+`sha256:a5f10f04257b53b233217431793d8a4bfe61e2fd7772e1bd5cd70b80ad3d7200`,
+`sha256:09e27895e3b5634b58c006232fb97a31e40d5105a72430306c308eb0bea45498`,
+and
+`sha256:91e70e7e451eb72179cfe14e2de664de8530bde353d0009f5802e7a695caab2c`.
+All 100,000 rows were staged, ready, and normalization-eligible, with no
+failed control total. The measured phase times were 121.394 seconds for source
+loading and evaluation, 134.635 seconds for canonical publication, 58.315
+seconds for quality, and 113.651 seconds for normalization.
+
+This run fails the less-than-120-second and less-than-900-MiB release contract.
+The supported browser limit therefore remains 25,000 rows. Database and
+temporary-file size remain observations rather than optimization gates.
+
+The normal post-benchmark regression run executed 230 tests in 252.428 seconds:
+221 passed, 6 errored, and 3 opt-in scale tests were skipped. All six errors
+come from the concurrently changing Slice 5 planner rejecting legacy
+`asset_lines` fixtures whose Odoo reads cannot be narrowed safely. The staging,
+quality, normalization, and preparation-scale modules reported no ordinary
+regression failure. Slice 5 must reconcile those fixtures before a green full
+suite can be claimed.
+
 This is workstation evidence, not a production sizing guarantee. Wide sources,
 saved snapshots, workbooks, and Odoo transport still require representative
 measurement.

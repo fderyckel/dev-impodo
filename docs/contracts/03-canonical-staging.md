@@ -17,7 +17,7 @@ frozen source tables within the supported browser limit
 -> typed prepared records
 -> versioned canonical staging run
 -> atomic project-scoped DuckDB publication
--> existing read-only preflight compatibility path
+-> frozen-row adapter for bounded read-only preflight
 ```
 
 Artifact materialization remains an adapter responsibility. The evaluator
@@ -89,7 +89,7 @@ These dispositions are not Odoo preflight classifications. Target-dependent
 `CREATE`, `UPDATE`, `UNCHANGED`, `AMBIGUOUS`, and `BLOCKED` remain the output of
 the read-only preflight engine.
 
-## Determinism and compatibility
+## Determinism and runtime use
 
 Canonical rows use deterministic dataset/source-row ordering. Row IDs and the
 run content hash use canonical JSON and exact bound evidence. The reader rejects
@@ -97,11 +97,13 @@ unsupported versions, malformed hashes, row/lineage mismatches, duplicate row
 IDs, incomplete reconciliation, blocking-status mismatches, numeric Odoo IDs,
 or a changed content hash.
 
-`stage_browser_mapping()` remains the compatibility adapter used by the
-browser. It materializes frozen artifacts and delegates evaluation to
+`stage_browser_mapping()` is the browser's source-materialization adapter. It
+materializes frozen artifacts and delegates evaluation to
 `evaluate_browser_mapping()`. The existing readiness planner and preflight
-engine continue to consume the same `ProfileDocument` and `PreparedBundle`.
-Readiness reports bind the exact published staging run and content hash.
+engine consume the same versioned `CompiledMigrationPlan` and `PreparedBundle`.
+Canonical staging stores the compiled-plan semantic hash; frozen preflight
+rejects a recompiled plan that differs. Readiness reports bind the exact
+published staging run and content hash.
 
 Server-rendered mapping previews and full-row evaluation both call
 `evaluate_scalar_mapping_value()`. The browser preview is therefore a bounded

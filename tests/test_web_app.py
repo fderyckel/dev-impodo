@@ -1925,6 +1925,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         normalization = normalization_service.current_summary(project_id)
         assert normalization is not None
         self.assertTrue(normalization.frozen)
+        project = self.app.state.context.projects.repository.get(project_id)
+        source_artifact = (
+            self.app.state.context.projects.repository.project_directory(project_id)
+            / "inbox"
+            / project.source_files[0].stored_name
+        )
+        source_artifact.unlink()
         compared = self.client.post(
             f"/projects/{project_id}/summary/compare",
             data={"csrf_token": self.csrf},
@@ -2076,11 +2083,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.assertEqual(len(self.readiness_calls), 1)
         readiness_requests = self.readiness_calls[0][2]
+        self.assertTrue(readiness_requests)
         self.assertEqual(
-            [item.model for item in readiness_requests],
-            ["res.partner"],
+            {item.model for item in readiness_requests},
+            {"res.partner"},
         )
-        self.assertEqual(readiness_requests[0].domain[0], "|")
+        self.assertTrue(all(item.domain for item in readiness_requests))
         evidence = self.client.get(
             f"/projects/{project_id}/summary/manifest"
         )

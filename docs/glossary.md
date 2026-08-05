@@ -16,10 +16,11 @@ preparation, snapshots, comparison, hashing, and results.
 A target field declared `compare: true`. Differences in these fields decide
 between `UPDATE` and `UNCHANGED`.
 
-**Compiled profile**  
-The validated frozen `ProfileDocument` loaded from YAML, including dataset
-dependencies and field policies. Target requests are derived from it by
-planner functions.
+**Compiled migration plan**
+The immutable, versioned runtime semantics compiled from a browser mapping or
+validated YAML `ProfileDocument`. Preparation, staging, request planning,
+metadata validation, preflight, and a future package compiler consume this
+contract. Canonical staging binds its semantic hash.
 
 **Create**  
 A row classification indicating a valid prepared record has no target match.

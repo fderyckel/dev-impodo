@@ -21,7 +21,12 @@ from typing import Any, Iterable
 from .connectors import MetadataRequest, RecordRequest
 from .domain.compiler.contracts import CompiledMigrationPlan
 from .domain.errors import ReadinessError
-from .models import LogicalReference, PreparedRecord, canonical_json_bytes, portable_value
+from .models import (
+    LogicalReference,
+    PreparedRecord,
+    canonical_json_bytes,
+    portable_value,
+)
 from .profile import DatasetSpec, ResolveSpec
 
 
@@ -98,10 +103,8 @@ def plan_record_requests(
 ) -> tuple[RecordRequest, ...]:
     """Build batched target-record requests from prepared business keys.
 
-    Simple one-field identities and target-only reference keys become bounded
-    `in` domains. Composite or relational identities fall back to the
-    plan's declared domain because narrowing them incorrectly could hide a
-    legitimate match. Requested fields and models are sorted for deterministic
+    Direct, composite, and governed relational identities become bounded
+    domains. Requested fields and models are sorted for deterministic
     snapshots.
     """
 
@@ -129,23 +132,26 @@ def plan_preflight_requirements(
         dataset_records = records_by_dataset.get(dataset.name, ())
         if dataset_records:
             dataset_domains = _dataset_identity_domain_chunks(
+                plan,
                 dataset,
                 dataset_records,
+                records_by_dataset,
                 maximum_keys_per_request,
             )
             fields[dataset.target.model].update(_dataset_target_fields(dataset))
-            if dataset_domains:
+            if dataset_domains is None:
+                if dataset.target_domain:
+                    domain_chunks[dataset.target.model].append(
+                        list(dataset.target_domain)
+                    )
+                else:
+                    raise ReadinessError(
+                        f"Odoo reads for {dataset.name} cannot be narrowed safely"
+                    )
+            elif dataset_domains:
                 domain_chunks[dataset.target.model].extend(
                     _combine_domains(list(dataset.target_domain), domain)
                     for domain in dataset_domains
-                )
-            elif dataset.target_domain:
-                domain_chunks[dataset.target.model].append(
-                    list(dataset.target_domain)
-                )
-            else:
-                raise ReadinessError(
-                    f"Odoo reads for {dataset.name} cannot be narrowed safely"
                 )
 
         for component, references in _identity_reference_groups(
@@ -217,44 +223,78 @@ def plan_preflight_requirements(
 
 
 def _dataset_identity_domain_chunks(
+    plan: CompiledMigrationPlan,
     dataset: DatasetSpec,
     records: Iterable[PreparedRecord],
+    records_by_dataset: dict[str, list[PreparedRecord]],
     chunk_size: int,
-) -> list[list[Any]]:
-    fields: list[str] = []
+) -> list[list[Any]] | None:
+    fields = _dataset_identity_fields(plan, dataset)
+    if not fields:
+        return None
+    keys = []
+    for record in records:
+        key = _record_target_key(plan, dataset, record, records_by_dataset)
+        if key is not None:
+            keys.append(key)
+    return _key_domain_chunks(fields, keys, chunk_size)
+
+
+def _dataset_identity_fields(
+    plan: CompiledMigrationPlan,
+    dataset: DatasetSpec,
+    *,
+    visiting: frozenset[str] = frozenset(),
+) -> tuple[str, ...]:
+    """Return safe Odoo domain paths for one governed business identity."""
+
+    if dataset.name in visiting:
+        return ()
+    visiting = visiting | {dataset.name}
+    result: list[str] = []
     for component in (
         *dataset.target_identity.components,
         *dataset.target_identity.scope,
     ):
         if component.resolve is None:
-            fields.extend(component.target_fields)
+            result.extend(component.target_fields)
             continue
         resolve = component.resolve
-        if (
-            resolve.target_model is None
-            or len(component.target_fields) != 1
-        ):
-            return []
+        if len(component.target_fields) != 1:
+            return ()
         relation_field = component.target_fields[0]
-        fields.extend(
-            f"{relation_field}.{field}"
-            for field in (*resolve.target_fields, *resolve.target_scope_fields)
-        )
-    if not fields:
-        return []
-    keys = []
-    for record in records:
-        key = _record_target_key(dataset, record)
-        if key is None:
-            return []
-        keys.append(key)
-    return _key_domain_chunks(tuple(fields), keys, chunk_size)
+        if resolve.target_model is not None:
+            nested_fields = (
+                *resolve.target_fields,
+                *resolve.target_scope_fields,
+            )
+        else:
+            try:
+                referenced_dataset = plan.dataset(str(resolve.dataset))
+            except KeyError:
+                return ()
+            nested_fields = _dataset_identity_fields(
+                plan,
+                referenced_dataset,
+                visiting=visiting,
+            )
+        if not nested_fields:
+            return ()
+        result.extend(f"{relation_field}.{field}" for field in nested_fields)
+    return tuple(result)
 
 
 def _record_target_key(
+    plan: CompiledMigrationPlan,
     dataset: DatasetSpec,
     record: PreparedRecord,
+    records_by_dataset: dict[str, list[PreparedRecord]],
+    *,
+    visiting: frozenset[str] = frozenset(),
 ) -> tuple[Any, ...] | None:
+    if dataset.name in visiting:
+        return None
+    visiting = visiting | {dataset.name}
     result: list[Any] = []
     for components, values in (
         (dataset.target_identity.components, record.target_identity),
@@ -275,16 +315,41 @@ def _record_target_key(
             reference = values[cursor]
             cursor += 1
             resolve = component.resolve
-            if (
-                not isinstance(reference, LogicalReference)
-                or reference.origin != "target"
-                or resolve.target_model is None
-                or len(reference.key) != len(resolve.target_fields)
-                or len(reference.scope) != len(resolve.target_scope_fields)
-            ):
+            if not isinstance(reference, LogicalReference):
                 return None
-            result.extend(reference.key)
-            result.extend(reference.scope)
+            if resolve.target_model is not None:
+                if (
+                    reference.origin != "target"
+                    or len(reference.key) != len(resolve.target_fields)
+                    or len(reference.scope) != len(resolve.target_scope_fields)
+                ):
+                    return None
+                result.extend(reference.key)
+                result.extend(reference.scope)
+                continue
+            if reference.origin != "incoming" or resolve.dataset is None:
+                return None
+            try:
+                referenced_dataset = plan.dataset(resolve.dataset)
+            except KeyError:
+                return None
+            matches = [
+                candidate
+                for candidate in records_by_dataset.get(resolve.dataset, ())
+                if tuple(candidate.source_identity) == tuple(reference.key)
+            ]
+            if len(matches) != 1:
+                return None
+            referenced_key = _record_target_key(
+                plan,
+                referenced_dataset,
+                matches[0],
+                records_by_dataset,
+                visiting=visiting,
+            )
+            if referenced_key is None:
+                return None
+            result.extend(referenced_key)
         if cursor != len(values):
             return None
     return tuple(result)

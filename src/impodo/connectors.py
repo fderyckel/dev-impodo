@@ -227,25 +227,13 @@ class SnapshotConnector:
             combined = _load_json(combined_path)
             self._metadata_data = combined["metadata"]
             self._records_data = combined["records"]
-            self._metadata_hash = "sha256:" + _sha256_bytes(
-                canonical_json_bytes(self._metadata_data)
-            )
-            self._records_hash = "sha256:" + _sha256_bytes(
-                canonical_json_bytes(self._records_data)
-            )
         else:
             if metadata_path is None or records_path is None:
                 raise ConnectorConfigurationError(
                     "SnapshotConnector requires combined_path or both snapshot paths"
                 )
-            metadata_file = Path(metadata_path)
-            records_file = Path(records_path)
-            metadata_bytes = metadata_file.read_bytes()
-            records_bytes = records_file.read_bytes()
-            self._metadata_data = json.loads(metadata_bytes)
-            self._records_data = json.loads(records_bytes)
-            self._metadata_hash = "sha256:" + _sha256_bytes(metadata_bytes)
-            self._records_hash = "sha256:" + _sha256_bytes(records_bytes)
+            self._metadata_data = json.loads(Path(metadata_path).read_bytes())
+            self._records_data = json.loads(Path(records_path).read_bytes())
         _validate_snapshot_binding(
             self._metadata_data,
             expected_profile_id,

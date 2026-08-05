@@ -12,11 +12,6 @@ import duckdb
 
 from ...access import Actor
 from ...projects import ProjectNotFoundError
-
-
-
-
-
 from .audit import AuditMixin
 from .invalidation import EvidenceInvalidationMixin
 from .migrations.project import ProjectMigrationsMixin
@@ -77,6 +72,7 @@ class DuckDbDatabase(
             self._migrate_project_database(connection)
             rows = connection.execute(query, parameters or []).fetchall()
         return tuple(str(row[0]) for row in rows)
+
     def _read_singleton_json(
         self,
         project_id: str,
@@ -84,6 +80,7 @@ class DuckDbDatabase(
     ) -> str | None:
         values = self._read_json_rows(project_id, query)
         return values[0] if values else None
+
     def _save_singleton(
         self,
         project_id: str,
@@ -146,12 +143,14 @@ class DuckDbDatabase(
             except Exception:
                 connection.rollback()
                 raise
+
     @staticmethod
     def _project_revision(connection: duckdb.DuckDBPyConnection) -> int:
         row = connection.execute("SELECT revision FROM project").fetchone()
         if row is None:
             raise ProjectNotFoundError("Project not found")
         return int(row[0])
+
     @contextmanager
     def _connect(self, path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
         with self.connection_factory.connect(path) as connection:

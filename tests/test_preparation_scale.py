@@ -85,10 +85,12 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             self.fail("The benchmark requires identity, changed, and numeric fields")
 
         fixture_started = perf_counter()
-        project_id = self._prepare_project_and_evidence(
-            row_count=PREPARATION_SCALE_ROWS,
-            column_count=PREPARATION_SCALE_COLUMNS,
-            mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
+        project_id, source_sha256, source_size_bytes = (
+            self._prepare_project_and_evidence(
+                row_count=PREPARATION_SCALE_ROWS,
+                column_count=PREPARATION_SCALE_COLUMNS,
+                mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
+            )
         )
         fixture_seconds = perf_counter() - fixture_started
 
@@ -180,6 +182,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             f"mapped_fields={PREPARATION_SCALE_MAPPED_FIELDS}, "
             f"fixture={fixture_seconds:.3f}s, total={elapsed:.3f}s, "
             f"peak={peak_mib:.1f} MiB, database={database_mib:.1f} MiB, "
+            f"source_bytes={source_size_bytes}, source_sha256={source_sha256}, "
             f"{phase_text}, staging_hash={staging.content_hash}, "
             f"quality_hash={quality.content_hash}, "
             f"normalization_hash={normalization.content_hash}"
@@ -205,11 +208,19 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         self.assertEqual(staging.failed_control_total_count, 0)
 
         if PREPARATION_SCALE_ROWS >= 100_000:
-            self.assertLess(elapsed, PREPARATION_TIME_LIMIT_SECONDS)
-            self.assertLess(
-                peak_mib,
-                PREPARATION_PEAK_WORKING_SET_LIMIT_MIB,
-            )
+            failures = []
+            if elapsed >= PREPARATION_TIME_LIMIT_SECONDS:
+                failures.append(
+                    f"{elapsed:.3f}s is not below "
+                    f"{PREPARATION_TIME_LIMIT_SECONDS}s"
+                )
+            if peak_mib >= PREPARATION_PEAK_WORKING_SET_LIMIT_MIB:
+                failures.append(
+                    f"{peak_mib:.1f} MiB is not below "
+                    f"{PREPARATION_PEAK_WORKING_SET_LIMIT_MIB} MiB"
+                )
+            if failures:
+                self.fail("; ".join(failures))
 
     def _prepare_project_and_evidence(
         self,
@@ -217,7 +228,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         row_count: int,
         column_count: int,
         mapped_field_count: int,
-    ) -> str:
+    ) -> tuple[str, str, int]:
         project = self.context.projects.create_project(
             actor=self.context.actor,
             name="100k complete preparation benchmark",
@@ -393,7 +404,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             ),
             actor=self.context.actor,
         )
-        return registered.project_id
+        return registered.project_id, stored.sha256, stored.size_bytes
 
 
 def _headers(column_count: int) -> tuple[str, ...]:

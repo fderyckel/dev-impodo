@@ -14,6 +14,12 @@ from impodo.canonical import (
     values_equal,
 )
 from impodo.domain.compiler import CompiledMigrationPlan, compile_profile_document
+from impodo.models import (
+    BusinessReference,
+    LogicalReference,
+    portable_value,
+    restore_portable_value,
+)
 from impodo.profile import (
     NormalizationSpec,
     ProfileLoadError,
@@ -50,6 +56,36 @@ class CanonicalValueTests(unittest.TestCase):
         self.assertTrue(values_equal(None, "", "equivalent"))
         self.assertFalse(values_equal(None, "", "distinct"))
         self.assertTrue(values_equal(None, "target", "ignore_source_null"))
+
+    def test_portable_preflight_values_round_trip_losslessly(self) -> None:
+        values = {
+            "decimal": Decimal("10.2500"),
+            "date": date(2026, 8, 5),
+            "datetime": datetime(2026, 8, 5, 12, 30, tzinfo=timezone.utc),
+            "null": None,
+            "boolean": False,
+            "integer": 42,
+            "string": "FR",
+            "logical": LogicalReference(
+                origin="target",
+                key=("FR",),
+                model="res.country",
+                target_fields=("code",),
+            ),
+            "relationships": (
+                BusinessReference("res.country", ("FR",)),
+                LogicalReference(
+                    origin="incoming",
+                    key=("PARENT-1",),
+                    dataset="parents",
+                ),
+            ),
+        }
+
+        self.assertEqual(
+            restore_portable_value(portable_value(values)),
+            values,
+        )
 
 
 class ProfileTests(unittest.TestCase):

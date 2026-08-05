@@ -2,8 +2,9 @@
 
 ## Status and outcome
 
-**Status:** In progress since 2026-08-05. P1 CPU work is implemented; the
-bounded-memory publication work and final end-to-end gate remain open.
+**Status:** In progress since 2026-08-05. P1 CPU work is implemented. The
+first complete 100,000-row workflow probe failed both the time and memory
+gates, so bounded-memory preparation and publication remain release blockers.
 
 This plan raises the supported browser preparation scope from 25,000 to
 100,000 physical source rows without weakening deterministic evidence,
@@ -136,11 +137,40 @@ therefore remains 25,000 rows. P3/P4 bounded evidence production, the
 integrated mixed fixture, and three final end-to-end runs remain required.
 
 Focused evaluator, staging, relationship, portable-evidence, quality
-publication, and normalization tests pass. A full-suite run during concurrent
-Slice 5 development reached 228 tests but was not green: the in-progress
-preflight constructor, schema-version expectations, and planner fixtures were
-temporarily inconsistent. Those failures are recorded separately from this
-optimization and must be rerun when the shared Slice 5 worktree stabilizes.
+publication, and normalization tests pass. The post-benchmark full-suite run
+during concurrent Slice 5 development executed 230 tests with 6 errors and 3
+skips. All six errors have the same Slice 5 planner cause: legacy `asset_lines`
+fixtures cannot satisfy the new fail-closed requirement that every Odoo read
+be safely narrowed. No failure was reported in the optimized staging, quality,
+normalization, or new preparation-scale paths. The planner fixtures must be
+reconciled by the active Slice 5 work before the repository suite can be green.
+
+### 2026-08-05 - Complete wide preparation diagnostic
+
+An opt-in full-workflow fixture now exercises the real application services,
+CSV loading, mapping evaluation, canonical publication, quality publication,
+normalization publication, one business control total, and one visible
+normalization effect per row. It uses 30 source columns and 20 mapped scalar
+fields. The scale guard alone is patched inside the test; no evaluator,
+publication, validation, hashing, or persistence rule is bypassed.
+
+At 10,000 rows the workflow took **40.271 seconds** and peaked at **383.8
+MiB**. At 100,000 rows it took **429.175 seconds** and peaked at **2,897.3
+MiB**, failing the required 120-second and 900-MiB gates. The 100,000-row
+phase breakdown was:
+
+| Phase | Elapsed |
+| --- | ---: |
+| Source loading and mapping evaluation | 121.394 s |
+| Canonical staging publication | 134.635 s |
+| Quality evaluation and publication | 58.315 s |
+| Normalization evaluation and publication | 113.651 s |
+
+All 100,000 rows were durably staged, classified ready, and included in the
+eligible normalization dataset; the control total passed and all three
+content hashes were published. This is a performance failure, not a logic or
+data-loss failure. The supported browser limit remains 25,000 rows. The
+database reached 221.8 MiB, which remains a recorded non-gating observation.
 
 ## Benchmark fixtures
 
@@ -194,9 +224,11 @@ rebalanced when measurements identify the actual bottleneck.
 
 ### P0 - Establish repeatable evidence
 
-**Status:** Partial. The fresh-process deep-relationship fixture, deterministic
-hashes, phase timings, and peak working-set capture are implemented. The mixed
-end-to-end and effect-heavy fixtures still need to be added.
+**Status:** Partial. The fresh-process deep-relationship fixture and a complete
+wide, effect-heavy preparation fixture now provide deterministic hashes, phase
+timings, and peak working-set capture. The related-dataset mixed fixture still
+needs to be added, but the existing complete fixture already fails both release
+gates and is sufficient to retain the current product limit.
 
 Add the opt-in benchmark harness and phase timers before changing algorithms.
 Run the existing narrow fixture at 1,000, 10,000, and 25,000 rows, then attempt
@@ -324,7 +356,8 @@ content hash.
 
 ### P5 - Close the 100,000-row release gate
 
-**Status:** Pending. The 25,000-row product limit remains authoritative.
+**Status:** Failed on the first complete 100,000-row fixture. The 25,000-row
+product limit remains authoritative while P3 and P4 are implemented.
 
 Run the focused semantic suites, full repository suite, browser workflow tests,
 all 100,000-row fixtures, and the deterministic local-target comparison. Review

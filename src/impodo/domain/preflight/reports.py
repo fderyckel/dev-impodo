@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import (
-    asdict,
-    dataclass,
-)
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
 from typing import Mapping
@@ -22,10 +19,6 @@ from ...quality import QualityRunSummary
 from ...normalization import NormalizationRunSummary
 from ...staging import StagingRunSummary
 from ..contracts import READINESS_CONTRACT_VERSION
-
-
-
-
 from ..staging.transformation_impact import _display_value
 
 

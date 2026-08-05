@@ -6,8 +6,9 @@ entire document before any source file or Odoo snapshot is read. Unknown keys,
 unsafe paths, contradictory policies, broken dataset references, and
 dependency cycles therefore fail at the boundary.
 
-The module contains no source-data or Odoo access. Its validated objects are
-consumed by `source.py`, `planner.py`, `metadata.py`, and `engine.py`.
+The module contains no source-data or Odoo access. `ProfileDocument` is an
+authoring input; the compiler converts it to `CompiledMigrationPlan` before
+source preparation, request planning, metadata validation, or comparison.
 """
 
 from __future__ import annotations

@@ -2,35 +2,30 @@
 
 from __future__ import annotations
 
-from uuid import UUID
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import json
-
+from uuid import UUID
 
 from ...access import Actor
-from ...projects import ProjectNotFoundError
-from ...domain.preflight.reports import (
-    ReadinessReport,
-    ReadinessRow,
-    ReadinessRowPage,
-)
 from ...connectors import (
     MetadataSnapshot,
     RecordSnapshot,
     metadata_snapshot_payload,
     record_snapshot_payload,
 )
+from ...domain.preflight.reports import (
+    ReadinessReport,
+    ReadinessRow,
+    ReadinessRowPage,
+)
 from ...models import canonical_json_text, target_identity_hash
+from ...projects import ProjectNotFoundError
 from ...workspace_errors import WorkspaceError
+from .constants import PREFLIGHT_ROW_BATCH_SIZE
 from .database import DuckDbDatabase
 from .project_repository import ProjectRepository
 from .repository import DuckDbRepository
-
-
-
-
-
 
 
 class PreflightRepository(DuckDbRepository):
@@ -93,6 +88,7 @@ class PreflightRepository(DuckDbRepository):
             ],
         )
         return ReadinessReport.from_json(values[0]) if values else None
+
     def save_readiness_report(
         self,
         project_id: str,
@@ -287,7 +283,9 @@ class PreflightRepository(DuckDbRepository):
                         """,
                         dataset_values,
                     )
-                for start in range(0, len(report.rows), 1_000):
+                for start in range(
+                    0, len(report.rows), PREFLIGHT_ROW_BATCH_SIZE
+                ):
                     connection.executemany(
                         """
                         INSERT INTO preflight_decision (
@@ -306,7 +304,9 @@ class PreflightRepository(DuckDbRepository):
                                 canonical_json_text(asdict(item)),
                             ]
                             for offset, item in enumerate(
-                                report.rows[start : start + 1_000]
+                                report.rows[
+                                    start : start + PREFLIGHT_ROW_BATCH_SIZE
+                                ]
                             )
                         ],
                     )

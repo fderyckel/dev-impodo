@@ -9,8 +9,16 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import MagicMock
 from uuid import uuid4
 
+from impodo.access import (
+    Actor,
+    ActorIdentity,
+    AuthorizationError,
+    CapabilityAuthorizationPolicy,
+)
+from impodo.application.preflight_service import PreflightService
 from impodo.connectors import MetadataSnapshot, RecordSnapshot
 from impodo.derived_entities import (
     DerivedEntityPlan,
@@ -80,6 +88,44 @@ from impodo.workspace_contracts import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class PreflightAuthorizationTests(unittest.TestCase):
+    def test_missing_preflight_capability_blocks_before_evidence_or_target_access(
+        self,
+    ) -> None:
+        repositories = [MagicMock() for _ in range(7)]
+        service = PreflightService(
+            staging=repositories[0],
+            quality=repositories[1],
+            normalization=repositories[2],
+            mappings=repositories[3],
+            projects=repositories[4],
+            sources=repositories[5],
+            preflight=repositories[6],
+            artifacts=MagicMock(),
+            authorization=CapabilityAuthorizationPolicy(),
+        )
+        reader = MagicMock()
+        actor = Actor(
+            identity=ActorIdentity(
+                issuer="test",
+                subject_id="restricted-user",
+                display_name="Restricted user",
+            ),
+            capabilities=frozenset(),
+        )
+
+        with self.assertRaisesRegex(AuthorizationError, "preflight.run"):
+            service.compare(
+                "00000000-0000-0000-0000-000000000000",
+                reader=reader,
+                actor=actor,
+            )
+
+        reader.assert_not_called()
+        for repository in repositories:
+            self.assertEqual(repository.mock_calls, [])
 
 
 class _SingleArtifactStore:

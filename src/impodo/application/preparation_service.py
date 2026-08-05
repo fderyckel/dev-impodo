@@ -19,12 +19,9 @@ from ..domain.staging.scale import (
 from ..domain.staging.transformation_impact import TransformationImpactRow
 from ..inspection import SourceFileCatalog
 from ..domain.mapping.contracts import MappingDefinition
-from ..domain.mapping.artifacts import MappingRevision
 from ..normalization import NormalizationRunSummary
 from ..projects import MigrationProject
-from ..quality import QualityRun, QualityRunSummary
 from ..source import SourceTable, load_selected_source_table
-from ..staging import StagingRunSummary
 from ..workspace_contracts import SourceSelection
 from ..domain.errors import ReadinessError
 from .normalization_service import NormalizationService

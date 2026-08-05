@@ -207,9 +207,14 @@ class LocalArtifactStore:
     ) -> None:
         """Remove a failed unpublished projection without touching run history."""
 
-        self._report_path(
+        path = self._report_path(
             project_id, run_id, filename, create=False
-        ).unlink(missing_ok=True)
+        )
+        path.unlink(missing_ok=True)
+        try:
+            path.parent.rmdir()
+        except OSError:
+            pass
 
     @contextmanager
     def materialize_report(

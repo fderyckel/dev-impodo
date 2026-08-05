@@ -2,9 +2,9 @@
 
 ## Status and ownership
 
-**Status:** Active delivery plan. Slices 0 through 4 are implemented for the
-bounded browser workflow; direct frozen-row preflight, package certification,
-and Odoo execution remain later slices.
+**Status:** Active delivery plan. Slices 0 through 5 are implemented for the
+bounded browser workflow; package certification and Odoo execution remain
+later slices.
 
 This plan owns the work that turns the implemented, transient all-row browser
 readiness path into durable canonical staging, governed normalization, and a
@@ -38,9 +38,9 @@ certifiable read-only preflight package. It does not redefine:
 | Quality and quarantine | Versioned automatic and guided checks, dual source/canonical accounting, immutable quarantine evidence, bounded review paging, and eligible-row filtering before Odoo comparison are integrated |
 | Staging and certification | Durable atomic canonical staging, row controls, opt-in named business totals, and normalization freeze are integrated. Clean-package certification remains absent |
 
-The next missing product seam is Slice 5: run read-only preflight directly from
-durable frozen rows instead of recomputing a transient prepared bundle.
-Clean-package certification follows that adapter boundary.
+Read-only preflight now runs directly from durable frozen rows instead of
+recomputing a transient prepared bundle. The next delivery slice is Slice 6,
+limited to advanced coverage families required by approved migration scopes.
 
 The cross-cutting
 [100,000-row performance refactor plan](100k-performance-refactor-plan.md)
@@ -215,6 +215,14 @@ defined in the
 **Gate:** no connector call occurs inside a row loop; equivalent browser and
 profile fixtures produce equivalent portable identities, resolutions, and
 classifications.
+
+**Checkpoint:** comparison reloads and verifies the exact frozen staging,
+quality, and normalization evidence without source artifacts. It creates only
+bounded read requirements, binds deterministic protected snapshots, stores
+decisions for server-side paging, and atomically advances a dedicated current
+preflight pointer. Upstream changes invalidate only the current pointer and
+retain history. The existing UI journey is unchanged and Odoo remains
+read-only.
 
 ### Slice 6 — Close advanced coverage gaps
 

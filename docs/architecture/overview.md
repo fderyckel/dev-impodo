@@ -74,11 +74,11 @@ governed business keys invalidates downstream mapping evidence.
 | Layer | Responsibilities | Main modules |
 | --- | --- | --- |
 | Browser | Local route composition, workflow routers, presenters, templates, sessions, CSRF, and security headers | `web/app.py`, `web/routers/`, `web/presenters/` |
-| Application | Project commands, intake, inspection, source selection, schema governance, mapping, preparation, quality, normalization, and preflight orchestration | `projects.py`, `intake.py`, `inspection.py`, `application/source_workspace_service.py`, `application/schema_workspace_service.py`, `application/mapping_workspace_service.py`, `derived_entities.py` |
+| Application | Project commands, intake, inspection, source selection, schema governance, mapping, preparation, quality, normalization, and preflight orchestration | `projects.py`, `intake.py`, `inspection.py`, `application/source_workspace_service.py`, `application/schema_workspace_service.py`, `application/mapping_workspace_service.py`, `application/preparation_service.py`, `application/quality_service.py`, `application/normalization_service.py`, `application/preflight_service.py` |
 | Domain | Authorization, project lifecycle, mapping meaning, staging evaluation, approvals, and deterministic values | `access.py`, `projects.py`, `domain/mapping/`, `domain/schema/`, `domain/compiler/`, `domain/staging/`, `approvals.py`, `models.py` |
 | Local adapters | Focused DuckDB repositories, artifacts, credentials, jobs, and resource-bounded workers | `adapters/duckdb/`, `artifacts.py`, `secrets.py`, `jobs.py`, `source_worker.py` |
 | Odoo reads | Remote JSON-2 reads, fixed local metadata reads, and local-stack readiness | `connectors.py`, `local_odoo_reader.py`, `local_stack.py` |
-| Preflight | Profile loading, preparation, planning, comparison, and reporting | `profile.py`, `source.py`, `planner.py`, `metadata.py`, `catalog.py`, `engine.py`, `reporting.py` |
+| Preflight | Compiled semantics, frozen-row adaptation, bounded read planning, comparison, and reporting | `domain/compiler/`, `domain/preflight/`, `planner.py`, `metadata.py`, `catalog.py`, `engine.py`, `reporting.py` |
 
 Domain and application modules do not depend on FastAPI templates. Adapters
 may be replaced without changing lifecycle or mapping semantics.
@@ -126,7 +126,7 @@ Odoo access must remain batched:
 - paginate target reads deterministically;
 - build and reuse business-key and relation indexes;
 - cache dependency resolution rather than rescanning datasets;
-- split very large `in` domains into bounded requests when implemented.
+- split very large key domains into deterministic bounded requests.
 
 No current or future Odoo reader should call `fields_get`, `search_read`,
 `browse`, or another ORM/RPC method inside a row loop. A future writer must use

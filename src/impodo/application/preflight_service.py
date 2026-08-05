@@ -20,6 +20,7 @@ from ..domain.compiler.browser_mapping_compiler import (
     browser_mapping_labels,
     compile_browser_mapping,
 )
+from ..domain.errors import ReadinessError
 from ..domain.preflight.frozen_input import (
     FrozenPreflightInput,
     build_frozen_preflight_input,
@@ -33,7 +34,6 @@ from ..engine import PreflightEngine
 from ..models import canonical_json_bytes, target_identity_hash
 from ..planner import plan_preflight_requirements
 from ..staging import StagingRunSummary
-from ..domain.errors import ReadinessError
 from .readiness_ports import (
     PreflightMappingRepository,
     PreflightNormalizationRepository,
@@ -86,7 +86,9 @@ class PreflightService:
         quality = self.quality.get_current_quality_summary(project_id)
         if quality is None or quality.staging_run_id != staging.run_id:
             return None
-        normalization = self.normalization.get_current_normalization_summary(project_id)
+        normalization = self.normalization.get_current_normalization_summary(
+            project_id
+        )
         if (
             normalization is None
             or not normalization.frozen
@@ -276,16 +278,22 @@ class PreflightService:
         revision = self.mappings.get_mapping_revision(project_id)
         if revision is None:
             raise ReadinessError("Submit the mapping before comparing with Odoo")
-        submission = self.mappings.get_mapping_submission(project_id, revision.version)
+        submission = self.mappings.get_mapping_submission(
+            project_id, revision.version
+        )
         if (
             submission is None
             or submission.mapping_content_hash != revision.definition.content_hash
         ):
-            raise ReadinessError("Submit the current mapping before comparing with Odoo")
+            raise ReadinessError(
+                "Submit the current mapping before comparing with Odoo"
+            )
         selection = self.sources.get_mapping_source_selection(project_id)
         staging_summary = self.staging.get_current_staging_summary(project_id)
         quality_summary = self.quality.get_current_quality_summary(project_id)
-        normalization = self.normalization.get_current_normalization_summary(project_id)
+        normalization = self.normalization.get_current_normalization_summary(
+            project_id
+        )
         if selection is None or staging_summary is None or quality_summary is None:
             raise ReadinessError(
                 "Prepare the data before comparing it with Odoo. Odoo was not contacted."
