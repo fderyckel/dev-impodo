@@ -1,11 +1,14 @@
 """Mapping form-to-domain translation helpers."""
 
 from __future__ import annotations
+
 from dataclasses import replace
 import hashlib
 from typing import Iterable
+
 from fastapi.responses import RedirectResponse
 from starlette.datastructures import FormData
+
 from ...mapping_semantics import (
     MAX_CONTROL_TOTALS_PER_DATASET,
     BusinessControlTotal,
@@ -27,7 +30,6 @@ from ...mapping_semantics import (
 from ...projects import MigrationProject, ProjectStatus
 from ...reference_keys import standard_reference_key
 from ...workspace import WorkspaceError
-from ..constants import *
 from ..context import WebContext
 from ..forms import (
     _checked,
@@ -36,7 +38,6 @@ from ..forms import (
     _texts,
     _value_mappings_from_form,
 )
-
 
 
 def _mapping_allowed_fields(form, selection, schema) -> set[str]:

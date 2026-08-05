@@ -1,9 +1,17 @@
 """Mapping page view-model helpers."""
 
 from __future__ import annotations
+
 import json
+
 from fastapi import Request
-from ...derived_entities import DerivedEntityRule, derived_dataset_links, derived_mapping_samples, related_dataset_links
+
+from ...derived_entities import (
+    DerivedEntityRule,
+    derived_dataset_links,
+    derived_mapping_samples,
+    related_dataset_links,
+)
 from ...mapping_semantics import (
     MAX_CONTROL_TOTALS_PER_DATASET,
     BusinessKeyStatus,
@@ -13,18 +21,21 @@ from ...mapping_semantics import (
     evaluate_scalar_mapping_value,
     mapping_issue_fingerprint,
 )
-from ...quality import MAX_MANAGER_RULES_PER_DATASET, QualityOutcomePolicy, QualityOwnerRole, QualityRuleFamily, manager_quality_rule
+from ...quality import (
+    MAX_MANAGER_RULES_PER_DATASET,
+    QualityOutcomePolicy,
+    QualityOwnerRole,
+    QualityRuleFamily,
+    manager_quality_rule,
+)
 from ...workspace import WorkspaceError
-from ..constants import *
+from ..constants import DEFAULT_MAPPING_FIELDS_PER_PAGE, MAPPING_FIELD_PAGE_SIZES
 from ..context import WebContext
-from .common import _render
 from ..forms import (
     _positive_query_int,
     _text,
 )
-
-
-
+from .common import _render
 from .mapping_forms import (
     _canonical_mapping_type,
     _related_business_keys,
@@ -32,6 +43,7 @@ from .mapping_forms import (
     _standard_reference_business_key,
 )
 from .mapping_impact import _mapping_field_page_size, _mapping_return_url
+
 
 def _render_mapping(
     request: Request,
@@ -97,7 +109,7 @@ def _render_mapping(
     )
     validation = None if has_unvalidated_changes else stored_validation
     submission = None if has_unvalidated_changes else stored_submission
-    legacy_draft = context.queries.get_mapping_draft(project_id)
+    previous_mapping_draft = context.queries.get_mapping_draft(project_id)
     source_catalogs = (
         context.queries.get_source_catalogs(project_id)
         if selection is not None
@@ -290,7 +302,7 @@ def _render_mapping(
             working_draft is not None and not working_draft_is_current
         ),
         has_unvalidated_changes=has_unvalidated_changes,
-        legacy_draft=legacy_draft,
+        has_previous_mapping_draft=previous_mapping_draft is not None,
         dataset_views=dataset_views,
         warning_issues=warning_issues,
         quality_view=quality_view,

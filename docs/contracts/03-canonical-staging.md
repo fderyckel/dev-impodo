@@ -157,7 +157,9 @@ authorization.
 
 - [`staging_contracts.py`](../../src/impodo/staging_contracts.py)
 - [`staging.py`](../../src/impodo/staging.py)
-- [`project_store.py`](../../src/impodo/project_store.py)
-- [`readiness.py`](../../src/impodo/readiness.py)
+- [`evaluator.py`](../../src/impodo/domain/staging/evaluator.py)
+- [`control_totals.py`](../../src/impodo/domain/staging/control_totals.py)
+- [`preparation_service.py`](../../src/impodo/application/preparation_service.py)
+- [`staging_repository.py`](../../src/impodo/adapters/duckdb/staging_repository.py)
 - [`test_readiness.py`](../../tests/test_readiness.py)
 - [`test_staging_store.py`](../../tests/test_staging_store.py)

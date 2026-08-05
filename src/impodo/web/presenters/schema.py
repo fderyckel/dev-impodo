@@ -1,10 +1,13 @@
 """Schema web helpers."""
 
 from __future__ import annotations
+
 from pathlib import Path
 import re
+
 from fastapi import Request
 from starlette.datastructures import FormData
+
 from ...business_keys import (
     describe_business_key,
     recommend_business_key,
@@ -12,8 +15,19 @@ from ...business_keys import (
 )
 from ...derived_entities import DerivedEntityRule
 from ...projects import MigrationProject
-from ...workspace import OdooModelCatalog, OdooModelSummary, SchemaField, SchemaModel, SchemaOrigin, WorkspaceError
-from ..constants import *
+from ...workspace import (
+    OdooModelCatalog,
+    OdooModelSummary,
+    SchemaField,
+    SchemaModel,
+    SchemaOrigin,
+    WorkspaceError,
+)
+from ..constants import (
+    _APPLICATION_MODULE_PREFIXES,
+    _MANUAL_FIELD_NAME,
+    _MANUAL_FIELD_TYPE,
+)
 from ..context import WebContext
 from ..forms import _text
 from .common import _render

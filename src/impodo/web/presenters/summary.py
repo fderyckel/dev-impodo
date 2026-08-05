@@ -1,17 +1,24 @@
 """Summary web helpers."""
 
 from __future__ import annotations
+
 from urllib.parse import urlencode
+
 from fastapi import HTTPException, Request
+
 from ...access import AuthorizationError, Capability
+from ...application.preparation_service import browser_evaluation_scale
 from ...local_stack import LocalStackError
 from ...projects import MigrationProject, OdooConnectionMode
-from ...application.preparation_service import browser_evaluation_scale
 from ...reporting import WORKBOOK_NAME
-from ..constants import *
+from ..constants import (
+    NORMALIZATION_GROUPS_PER_PAGE,
+    ODOO_APPLICATIONS,
+    READINESS_ROWS_PER_PAGE,
+)
 from ..context import WebContext
-from .common import _render
 from ..forms import _positive_query_int
+from .common import _render
 
 
 def _render_target(

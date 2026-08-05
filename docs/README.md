@@ -36,6 +36,9 @@ Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
 - [Data-quality and staging delivery plan](plans/data-quality-and-staging-plan.md)
   — current integration gap, delivery slices, acceptance requirements, and
   decisions for full-row staging through clean-package certification.
+- [100,000-row performance refactor plan](plans/100k-performance-refactor-plan.md)
+  — measured path from the current 25,000-row materializing workflow to
+  bounded 100,000-row preparation in less than two minutes.
 - [Data-quality coverage ledger](plans/data-quality-coverage.md) — current
   status of 24 capability families and the authoritative clean-package gates.
 - [Slice 4 normalization review plan](plans/slice-4-normalization-review-plan.md)

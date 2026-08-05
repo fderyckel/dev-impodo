@@ -1,16 +1,27 @@
 """Forms web helpers."""
 
 from __future__ import annotations
+
 import json
 import re
 from urllib.parse import parse_qsl
+
 from fastapi import HTTPException, Request
 from starlette.datastructures import FormData
+
 from ..mapping_semantics import ValueMapping
 from ..projects import ProjectError
 from ..workspace import WorkspaceError
+from .constants import (
+    MAPPING_MAX_FORM_FIELDS,
+    MAPPING_MAX_FORM_NAME_LENGTH,
+    MAPPING_MAX_FORM_VALUE_LENGTH,
+    MAPPING_MAX_JSON_ENTRIES,
+    MAPPING_MAX_REQUEST_BYTES,
+    VALUE_MATCH_MAX_SOURCE_CHOICES,
+)
 from .security import require_csrf
-from .constants import *
+
 
 def _secure_form(
     request: Request,

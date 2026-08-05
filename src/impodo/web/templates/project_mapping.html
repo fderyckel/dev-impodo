@@ -13,7 +13,7 @@
       <span class="status registered">Matches confirmed</span>
     {% elif revision %}
       <span class="status registered">Matches checked</span>
-    {% elif legacy_draft %}
+    {% elif has_previous_mapping_draft %}
       <span class="status">Saved work needs checking</span>
     {% endif %}
   </div>

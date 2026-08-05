@@ -73,10 +73,10 @@ governed business keys invalidates downstream mapping evidence.
 
 | Layer | Responsibilities | Main modules |
 | --- | --- | --- |
-| Browser | Local routes, templates, sessions, CSRF, and security headers | `web/` |
-| Application | Project commands, intake, inspection, schema, mapping, and derived-entity services | `projects.py`, `intake.py`, `inspection.py`, `workspace.py`, `derived_entities.py` |
-| Domain | Authorization, project lifecycle, mapping meaning, approvals, and deterministic values | `access.py`, `projects.py`, `mapping_semantics.py`, `approvals.py`, `models.py` |
-| Local adapters | DuckDB, artifacts, credentials, jobs, and resource-bounded workers | `project_store.py`, `artifacts.py`, `secrets.py`, `jobs.py`, `source_worker.py` |
+| Browser | Local route composition, workflow routers, presenters, templates, sessions, CSRF, and security headers | `web/app.py`, `web/routers/`, `web/presenters/` |
+| Application | Project commands, intake, inspection, schema, mapping, preparation, quality, normalization, and preflight orchestration | `projects.py`, `intake.py`, `inspection.py`, `workspace.py`, `derived_entities.py`, `application/` |
+| Domain | Authorization, project lifecycle, mapping meaning, staging evaluation, approvals, and deterministic values | `access.py`, `projects.py`, `mapping_semantics.py`, `domain/compiler/`, `domain/staging/`, `approvals.py`, `models.py` |
+| Local adapters | Focused DuckDB repositories, artifacts, credentials, jobs, and resource-bounded workers | `adapters/duckdb/`, `artifacts.py`, `secrets.py`, `jobs.py`, `source_worker.py` |
 | Odoo reads | Remote JSON-2 reads, fixed local metadata reads, and local-stack readiness | `connectors.py`, `local_odoo_reader.py`, `local_stack.py` |
 | Preflight | Profile loading, preparation, planning, comparison, and reporting | `profile.py`, `source.py`, `planner.py`, `metadata.py`, `catalog.py`, `engine.py`, `reporting.py` |
 

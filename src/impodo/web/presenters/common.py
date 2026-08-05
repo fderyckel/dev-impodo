@@ -1,10 +1,13 @@
 """Common web helpers."""
 
 from __future__ import annotations
+
 import re
+
 from fastapi import Request
-from ..constants import *
+
 from ..context import WebContext
+
 
 def _render(
     request: Request,

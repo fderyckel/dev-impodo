@@ -137,26 +137,9 @@ def build_schema_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
-    @router.get(
-        "/projects/{project_id}/schema/scope",
-        name="redirect_project_schema_scope",
-        include_in_schema=False,
-    )
-    async def redirect_project_schema_scope(request: Request, project_id: str):
-        require_session(request)
-        return RedirectResponse(
-            f"/projects/{project_id}/schema",
-            status_code=303,
-        )
-
     @router.post(
         "/projects/{project_id}/schema",
         name="update_project_schema_scope",
-    )
-    @router.post(
-        "/projects/{project_id}/schema/scope",
-        name="update_project_schema_scope_legacy",
-        include_in_schema=False,
     )
     async def update_project_schema_scope(request: Request, project_id: str):
         form = await request.form()

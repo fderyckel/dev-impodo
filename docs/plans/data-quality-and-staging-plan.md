@@ -42,6 +42,11 @@ The next missing product seam is Slice 5: run read-only preflight directly from
 durable frozen rows instead of recomputing a transient prepared bundle.
 Clean-package certification follows that adapter boundary.
 
+The cross-cutting
+[100,000-row performance refactor plan](100k-performance-refactor-plan.md)
+owns the measured scale extension. The current 25,000-row browser limit remains
+in force until the complete preparation and durable-comparison gates pass.
+
 ## Target flow
 
 ```text

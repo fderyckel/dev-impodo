@@ -1081,7 +1081,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         project = context.projects.repository.get(registered.project_id)
         scoped = self._post(
-            f"/projects/{registered.project_id}/schema/scope",
+            f"/projects/{registered.project_id}/schema",
             {
                 "csrf_token": self.csrf,
                 "revision": str(project.revision),
@@ -1495,16 +1495,6 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn(
             'data-model-search-text="product product.template product stock"',
             model_page.text,
-        )
-
-        scope_alias = self.client.get(
-            f"/projects/{project_id}/schema/scope",
-            follow_redirects=False,
-        )
-        self.assertEqual(scope_alias.status_code, 303)
-        self.assertEqual(
-            scope_alias.headers["location"],
-            f"/projects/{project_id}/schema",
         )
 
         model_picker_script = self.client.get("/static/app.js")

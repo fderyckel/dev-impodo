@@ -96,9 +96,9 @@ source row.
 ## Executable evidence
 
 - [`quality.py`](../../src/impodo/quality.py)
-- [`readiness.py`](../../src/impodo/readiness.py)
-- [`project_store.py`](../../src/impodo/project_store.py)
-- [`app.py`](../../src/impodo/web/app.py)
+- [`quality_service.py`](../../src/impodo/application/quality_service.py)
+- [`quality_repository.py`](../../src/impodo/adapters/duckdb/quality_repository.py)
+- [`quality.py`](../../src/impodo/web/routers/quality.py)
 - [`test_quality.py`](../../tests/test_quality.py)
 - [`test_staging_store.py`](../../tests/test_staging_store.py)
 - [`test_readiness.py`](../../tests/test_readiness.py)

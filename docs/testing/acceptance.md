@@ -367,6 +367,14 @@ This is workstation evidence, not a production sizing guarantee. Wide sources,
 saved snapshots, workbooks, and Odoo transport still require representative
 measurement.
 
+The next performance target is complete local preparation of 100,000 physical
+rows in less than 120 seconds and less than 512 MiB peak working set. It is not
+yet implemented or verified, and the supported browser limit remains 25,000
+rows until the gates in the
+[100,000-row performance refactor plan](../plans/100k-performance-refactor-plan.md)
+pass. Every optimization must append comparable before-and-after evidence here
+rather than replacing the historical results above.
+
 Structural requirements already apply:
 
 - no connector call inside the row loop;

@@ -1,9 +1,18 @@
 """Target Readers web helpers."""
 
 from __future__ import annotations
+
 from collections import Counter
 import hashlib
-from ..connectors import Json2Config, Json2ReadConnector, MetadataRequest, MetadataSnapshot, RecordRequest, RecordSnapshot
+
+from ..connectors import (
+    Json2Config,
+    Json2ReadConnector,
+    MetadataRequest,
+    MetadataSnapshot,
+    RecordRequest,
+    RecordSnapshot,
+)
 from ..local_stack import LocalStackProfile
 from ..mapping_semantics import BusinessKeyDefinition
 from ..models import target_identity_hash
@@ -12,8 +21,12 @@ from ..reference_keys import standard_reference_key
 from ..secrets import SecretStoreError
 from ..source import load_selected_source_table
 from ..workspace import SchemaField, SchemaOrigin, WorkspaceError
-from .constants import *
+from .constants import (
+    VALUE_MATCH_MAX_SOURCE_CHOICES,
+    VALUE_MATCH_MAX_TARGET_CHOICES,
+)
 from .context import WebContext
+
 
 def _test_connection(project: MigrationProject, api_key: str) -> str:
     if project.odoo_connection_mode is None:
