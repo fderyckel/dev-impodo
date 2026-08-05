@@ -6,7 +6,8 @@ import unittest
 
 from impodo.catalog import TargetCatalog
 from impodo.connectors import SnapshotConnector
-from impodo.metadata import validate_profile_metadata
+from impodo.domain.compiler import compile_profile_document
+from impodo.metadata import validate_plan_metadata
 from impodo.models import FieldMetadata, ModelMetadata, TargetRecord
 from impodo.planner import plan_metadata_requests
 from impodo.profile import load_profile
@@ -42,8 +43,8 @@ class CatalogTests(unittest.TestCase):
 
 class MetadataValidationTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.profile = load_profile(
-            ROOT / "profiles/examples/golden_slice.yaml"
+        self.profile = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/golden_slice.yaml")
         )
         connector = SnapshotConnector(
             combined_path=ROOT / "fixtures/golden/target_snapshot.json"
@@ -53,7 +54,7 @@ class MetadataValidationTests(unittest.TestCase):
         )
 
     def test_golden_metadata_is_complete(self) -> None:
-        issues, coverage = validate_profile_metadata(self.profile, self.snapshot)
+        issues, coverage = validate_plan_metadata(self.profile, self.snapshot)
         self.assertEqual(issues, ())
         self.assertTrue(all(item["status"] == "COMPLETE" for item in coverage))
 
@@ -63,7 +64,7 @@ class MetadataValidationTests(unittest.TestCase):
         fields["name"] = replace(fields["name"], readonly=True)
         models = dict(self.snapshot.models)
         models["product.template"] = replace(product, fields=fields)
-        issues, _ = validate_profile_metadata(
+        issues, _ = validate_plan_metadata(
             self.profile, replace(self.snapshot, models=models)
         )
         self.assertIn("TARGET_FIELD_READONLY", {issue.code for issue in issues})
@@ -76,7 +77,7 @@ class MetadataValidationTests(unittest.TestCase):
         )
         models = dict(self.snapshot.models)
         models["product.template"] = replace(product, fields=fields)
-        issues, _ = validate_profile_metadata(
+        issues, _ = validate_plan_metadata(
             self.profile, replace(self.snapshot, models=models)
         )
         codes = {issue.code for issue in issues}
@@ -86,7 +87,7 @@ class MetadataValidationTests(unittest.TestCase):
     def test_missing_target_only_reference_model_is_rejected(self) -> None:
         models = dict(self.snapshot.models)
         models.pop("uom.uom")
-        issues, _ = validate_profile_metadata(
+        issues, _ = validate_plan_metadata(
             self.profile, replace(self.snapshot, models=models)
         )
         self.assertTrue(

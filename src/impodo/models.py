@@ -9,6 +9,10 @@ converted before entering the portable manifest.
 
 from __future__ import annotations
 
+from collections.abc import (
+    Iterable as IterableABC,
+    Mapping as MappingABC,
+)
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -113,6 +117,7 @@ class PreparedRecord:
         | tuple[LogicalReference | BusinessReference, ...]
         | None,
     ]
+    source_trace_id: str = ""
     issues: tuple[Issue, ...] = ()
 
     @property
@@ -211,6 +216,7 @@ class Decision:
     business_scope: tuple[Any, ...]
     classification: Classification
     target_match_count: int
+    source_trace_id: str = ""
     differences: tuple[FieldDifference, ...] = ()
     issues: tuple[Issue, ...] = ()
 
@@ -283,6 +289,7 @@ class PreflightResult:
                 {
                     "dataset": decision.dataset,
                     "source_row": decision.source_row,
+                    "source_trace_id": decision.source_trace_id,
                     "business_identity": portable_value(decision.business_identity),
                     "business_scope": portable_value(decision.business_scope),
                     "classification": decision.classification.value,
@@ -389,12 +396,83 @@ def portable_value(value: Any) -> Any:
     if isinstance(value, set | frozenset):
         rendered = [portable_value(item) for item in value]
         return sorted(rendered, key=canonical_json_text)
-    if isinstance(value, Mapping):
+    if isinstance(value, MappingABC):
         return {
             str(key): portable_value(item)
             for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
         }
     return value
+
+
+def restore_portable_value(value: Any) -> Any:
+    """Losslessly restore values emitted by :func:`portable_value`.
+
+    Portable collections are restored as tuples because every collection in
+    the prepared-record boundary is immutable.  Mapping shapes are recognized
+    as references only when their complete key set matches the governed
+    reference contracts; ordinary mappings remain ordinary mappings.
+    """
+
+    if isinstance(value, list):
+        return tuple(restore_portable_value(item) for item in value)
+    if not isinstance(value, MappingABC):
+        return value
+
+    keys = frozenset(str(key) for key in value)
+    if keys == {"type", "value"}:
+        value_type = str(value["type"])
+        raw = str(value["value"])
+        if value_type == "decimal":
+            return Decimal(raw)
+        if value_type == "date":
+            return date.fromisoformat(raw)
+        if value_type == "datetime":
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                raise ValueError("portable datetime must include a timezone")
+            return parsed.astimezone(timezone.utc)
+        raise ValueError(f"unsupported portable value type: {value_type}")
+
+    logical_keys = {"origin", "key", "scope"}
+    if logical_keys.issubset(keys) and keys.issubset(
+        logical_keys | {"dataset", "model", "target_fields"}
+    ):
+        restored_key = restore_portable_value(value["key"])
+        restored_scope = restore_portable_value(value["scope"])
+        if not isinstance(restored_key, tuple) or not isinstance(
+            restored_scope, tuple
+        ):
+            raise ValueError("portable logical reference is invalid")
+        target_fields = restore_portable_value(value.get("target_fields", ()))
+        if not isinstance(target_fields, tuple):
+            raise ValueError("portable logical reference fields are invalid")
+        return LogicalReference(
+            origin=str(value["origin"]),
+            key=restored_key,
+            dataset=(str(value["dataset"]) if value.get("dataset") else None),
+            model=(str(value["model"]) if value.get("model") else None),
+            target_fields=tuple(str(item) for item in target_fields),
+            scope=restored_scope,
+        )
+
+    business_keys = {"model", "key", "scope"}
+    if keys == business_keys:
+        restored_key = restore_portable_value(value["key"])
+        restored_scope = restore_portable_value(value["scope"])
+        if not isinstance(restored_key, tuple) or not isinstance(
+            restored_scope, tuple
+        ):
+            raise ValueError("portable business reference is invalid")
+        return BusinessReference(
+            model=str(value["model"]),
+            key=restored_key,
+            scope=restored_scope,
+        )
+
+    return {
+        str(key): restore_portable_value(item)
+        for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+    }
 
 
 def canonical_json_text(value: Any) -> str:
@@ -434,12 +512,46 @@ def assert_no_numeric_odoo_ids(value: Any, path: str = "$") -> None:
     """Reject target-database-specific identifiers from portable artifacts."""
 
     forbidden = {"odoo_id", "odoo_ids", "record_id", "record_ids"}
-    if isinstance(value, Mapping):
-        for key, item in value.items():
-            normalized_key = str(key).casefold()
-            if normalized_key in forbidden:
-                raise ValueError(f"numeric Odoo identifier forbidden at {path}.{key}")
-            assert_no_numeric_odoo_ids(item, f"{path}.{key}")
-    elif isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
-        for index, item in enumerate(value):
-            assert_no_numeric_odoo_ids(item, f"{path}[{index}]")
+    pending = [(value, path)]
+    while pending:
+        current, current_path = pending.pop()
+        current_type = type(current)
+        if current_type is dict:
+            for key, item in current.items():
+                normalized_key = str(key).casefold()
+                if normalized_key in forbidden:
+                    raise ValueError(
+                        "numeric Odoo identifier forbidden at "
+                        f"{current_path}.{key}"
+                    )
+                pending.append((item, f"{current_path}.{key}"))
+            continue
+        if current_type is list or current_type is tuple:
+            pending.extend(
+                (item, f"{current_path}[{index}]")
+                for index, item in enumerate(current)
+            )
+            continue
+        if (
+            current is None
+            or current_type is int
+            or current_type is float
+            or current_type is bool
+        ):
+            continue
+        if isinstance(current, (str, bytes)):
+            continue
+        if isinstance(current, MappingABC):
+            for key, item in current.items():
+                normalized_key = str(key).casefold()
+                if normalized_key in forbidden:
+                    raise ValueError(
+                        "numeric Odoo identifier forbidden at "
+                        f"{current_path}.{key}"
+                    )
+                pending.append((item, f"{current_path}.{key}"))
+        elif isinstance(current, IterableABC):
+            pending.extend(
+                (item, f"{current_path}[{index}]")
+                for index, item in enumerate(current)
+            )

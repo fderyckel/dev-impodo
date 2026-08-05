@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from hashlib import sha256
+import os
 from pathlib import Path
 import tempfile
+from time import perf_counter
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
@@ -11,10 +14,13 @@ from uuid import uuid4
 from impodo.access import LOCAL_ACTOR
 from impodo.models import Issue, LogicalReference, PreparedRecord
 from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.constants import SCHEMA_VERSION
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
+from impodo.domain.compiler import compile_profile_document
 from impodo.planner import plan_record_requests
+from impodo.domain.preflight.frozen_input import canonical_rows_to_prepared_bundle
 from impodo.profile import load_profile
 from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
 from impodo.quality import (
@@ -25,7 +31,6 @@ from impodo.quality import (
     QualityRunStatus,
     SourceAccountingState,
     default_quality_ruleset,
-    eligible_prepared_bundle,
     evaluate_quality,
     manager_quality_rule,
 )
@@ -96,7 +101,9 @@ class QualityEvaluationTests(unittest.TestCase):
             {SourceAccountingState.REPRESENTED},
         )
         self.assertEqual(len(first.quarantine), 2)
-        eligible = eligible_prepared_bundle(staging, prepared, first)
+        eligible = canonical_rows_to_prepared_bundle(
+            staging, first, source_hashes=prepared.source_hashes
+        )
         self.assertEqual([item.source_row for item in eligible.records], [4])
 
     def test_existing_row_error_becomes_plain_quarantine_evidence(self) -> None:
@@ -215,6 +222,333 @@ class QualityEvaluationTests(unittest.TestCase):
             {item.reason_code for item in run.issues},
         )
 
+    def test_relationship_readiness_propagates_through_a_long_chain(self) -> None:
+        row_count = 64
+        rows = tuple(
+            replace(
+                _canonical_row(
+                    "5",
+                    index + 2,
+                    dataset="categories",
+                    source_identity=(f"CAT-{index:03d}",),
+                    target_identity=(f"CAT-{index:03d}",),
+                    physical_dataset_id="dataset:categories",
+                ),
+                row_id=(
+                    "sha256:"
+                    + sha256(f"category:{index}".encode("utf-8")).hexdigest()
+                ),
+            )
+            for index in range(row_count)
+        )
+        root_issue = CanonicalIssue(
+            code="SOURCE_TYPE_INVALID",
+            message="invalid value",
+            severity="error",
+            dataset="categories",
+            source_row=2,
+        )
+        rows = (
+            replace(
+                rows[0],
+                disposition=StagingDisposition.BLOCKED,
+                issues=(root_issue,),
+            ),
+            *rows[1:],
+        )
+        prepared = PreparedBundle(
+            records=tuple(
+                replace(
+                    _prepared_record(row),
+                    references=(
+                        {}
+                        if index == 0
+                        else {
+                            "parent_id": LogicalReference(
+                                origin="incoming",
+                                key=(f"CAT-{index - 1:03d}",),
+                                dataset="categories",
+                                target_fields=("name",),
+                            )
+                        }
+                    ),
+                )
+                for index, row in enumerate(rows)
+            ),
+            issues=(),
+            source_hashes={"categories": SOURCE_HASH},
+        )
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("categories",),
+        )
+
+        run = evaluate_quality(
+            project=self.project,
+            staging=_staging(self.project.project_id, rows),
+            prepared=prepared,
+            physical_rows={
+                "dataset:categories": tuple(range(2, row_count + 2)),
+            },
+            ruleset=ruleset,
+        )
+
+        self.assertEqual(run.quarantined_count, row_count)
+        self.assertEqual(
+            sum(
+                issue.reason_code == "INCOMING_RELATIONSHIP_NOT_READY"
+                for issue in run.issues
+            ),
+            row_count - 1,
+        )
+
+    def test_relationship_cycle_terminates_and_keeps_complete_evidence(self) -> None:
+        first = _canonical_row(
+            "5",
+            2,
+            dataset="categories",
+            source_identity=("A",),
+            target_identity=("A",),
+            physical_dataset_id="dataset:categories",
+        )
+        second = _canonical_row(
+            "6",
+            3,
+            dataset="categories",
+            source_identity=("B",),
+            target_identity=("B",),
+            physical_dataset_id="dataset:categories",
+        )
+        root_issue = CanonicalIssue(
+            code="SOURCE_TYPE_INVALID",
+            message="invalid value",
+            severity="error",
+            dataset="categories",
+            source_row=2,
+        )
+        first = replace(
+            first,
+            disposition=StagingDisposition.BLOCKED,
+            issues=(root_issue,),
+        )
+        rows = (first, second)
+        prepared = PreparedBundle(
+            records=(
+                replace(
+                    _prepared_record(first),
+                    references={
+                        "parent_id": LogicalReference(
+                            origin="incoming",
+                            key=("B",),
+                            dataset="categories",
+                            target_fields=("name",),
+                        )
+                    },
+                ),
+                replace(
+                    _prepared_record(second),
+                    references={
+                        "parent_id": LogicalReference(
+                            origin="incoming",
+                            key=("A",),
+                            dataset="categories",
+                            target_fields=("name",),
+                        )
+                    },
+                ),
+            ),
+            issues=(),
+            source_hashes={"categories": SOURCE_HASH},
+        )
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("categories",),
+        )
+
+        run = evaluate_quality(
+            project=self.project,
+            staging=_staging(self.project.project_id, rows),
+            prepared=prepared,
+            physical_rows={"dataset:categories": (2, 3)},
+            ruleset=ruleset,
+        )
+
+        self.assertEqual(run.quarantined_count, 2)
+        self.assertEqual(
+            sum(
+                issue.reason_code == "INCOMING_RELATIONSHIP_NOT_READY"
+                for issue in run.issues
+            ),
+            2,
+        )
+
+    def test_relationship_fan_out_and_duplicate_reference_are_processed_once(
+        self,
+    ) -> None:
+        rows = tuple(
+            _canonical_row(
+                token,
+                index + 2,
+                dataset="categories",
+                source_identity=(identity,),
+                target_identity=(identity,),
+                physical_dataset_id="dataset:categories",
+            )
+            for index, (token, identity) in enumerate(
+                (("5", "ROOT"), ("6", "LEFT"), ("7", "RIGHT"))
+            )
+        )
+        root_issue = CanonicalIssue(
+            code="SOURCE_TYPE_INVALID",
+            message="invalid value",
+            severity="error",
+            dataset="categories",
+            source_row=2,
+        )
+        rows = (
+            replace(
+                rows[0],
+                disposition=StagingDisposition.BLOCKED,
+                issues=(root_issue,),
+            ),
+            *rows[1:],
+        )
+        root_reference = LogicalReference(
+            origin="incoming",
+            key=("ROOT",),
+            dataset="categories",
+            target_fields=("name",),
+        )
+        prepared = PreparedBundle(
+            records=(
+                _prepared_record(rows[0]),
+                replace(
+                    _prepared_record(rows[1]),
+                    references={"parents": (root_reference, root_reference)},
+                ),
+                replace(
+                    _prepared_record(rows[2]),
+                    references={"parent_id": root_reference},
+                ),
+            ),
+            issues=(),
+            source_hashes={"categories": SOURCE_HASH},
+        )
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("categories",),
+        )
+
+        run = evaluate_quality(
+            project=self.project,
+            staging=_staging(self.project.project_id, rows),
+            prepared=prepared,
+            physical_rows={"dataset:categories": (2, 3, 4)},
+            ruleset=ruleset,
+        )
+
+        self.assertEqual(run.quarantined_count, 3)
+        relationship_issues = tuple(
+            issue
+            for issue in run.issues
+            if issue.reason_code == "INCOMING_RELATIONSHIP_NOT_READY"
+        )
+        self.assertEqual(len(relationship_issues), 2)
+        self.assertEqual(
+            {issue.source_row for issue in relationship_issues},
+            {3, 4},
+        )
+
+    def test_relationship_warning_does_not_propagate_as_unsafe(self) -> None:
+        rows = tuple(
+            _canonical_row(
+                token,
+                index + 2,
+                dataset="categories",
+                source_identity=(identity,),
+                target_identity=(identity,),
+                physical_dataset_id="dataset:categories",
+            )
+            for index, (token, identity) in enumerate(
+                (("5", "ROOT"), ("6", "CHILD"), ("7", "GRANDCHILD"))
+            )
+        )
+        root_issue = CanonicalIssue(
+            code="SOURCE_TYPE_INVALID",
+            message="invalid value",
+            severity="error",
+            dataset="categories",
+            source_row=2,
+        )
+        rows = (
+            replace(
+                rows[0],
+                disposition=StagingDisposition.BLOCKED,
+                issues=(root_issue,),
+            ),
+            *rows[1:],
+        )
+        prepared = PreparedBundle(
+            records=tuple(
+                replace(
+                    _prepared_record(row),
+                    references=(
+                        {}
+                        if index == 0
+                        else {
+                            "parent_id": LogicalReference(
+                                origin="incoming",
+                                key=(rows[index - 1].source_identity[0],),
+                                dataset="categories",
+                                target_fields=("name",),
+                            )
+                        }
+                    ),
+                )
+                for index, row in enumerate(rows)
+            ),
+            issues=(),
+            source_hashes={"categories": SOURCE_HASH},
+        )
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("categories",),
+        )
+        ruleset = replace(
+            ruleset,
+            rules=tuple(
+                replace(rule, outcome=QualityOutcomePolicy.WARNING)
+                if rule.family is QualityRuleFamily.RELATIONSHIP_READINESS
+                else rule
+                for rule in ruleset.rules
+            ),
+        )
+
+        run = evaluate_quality(
+            project=self.project,
+            staging=_staging(self.project.project_id, rows),
+            prepared=prepared,
+            physical_rows={"dataset:categories": (2, 3, 4)},
+            ruleset=ruleset,
+        )
+
+        by_source_row = {item.source_row: item for item in run.row_results}
+        self.assertEqual(
+            by_source_row[3].effective_disposition,
+            QualityDisposition.CANDIDATE,
+        )
+        self.assertTrue(by_source_row[3].requires_review)
+        self.assertEqual(by_source_row[4].issue_ids, ())
+        self.assertFalse(by_source_row[4].requires_review)
+
     def test_guided_warning_remains_review_without_removing_record(self) -> None:
         row = replace(
             _canonical_row("5", 2),
@@ -253,10 +587,21 @@ class QualityEvaluationTests(unittest.TestCase):
             QualityDisposition.CANDIDATE,
         )
         self.assertEqual(run.issues[0].owner_label, "Functional Owner")
-        self.assertEqual(len(eligible_prepared_bundle(staging, _prepared((row,)), run).records), 1)
+        self.assertEqual(
+            len(
+                canonical_rows_to_prepared_bundle(
+                    staging,
+                    run,
+                    source_hashes=_prepared((row,)).source_hashes,
+                ).records
+            ),
+            1,
+        )
 
     def test_set_aside_row_never_enters_odoo_record_request_plan(self) -> None:
-        profile = load_profile(ROOT / "profiles/examples/golden_slice.yaml")
+        profile = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/golden_slice.yaml")
+        )
         prepared_all = prepare_sources(profile, ROOT / "examples/golden")
         partner_records = tuple(
             item for item in prepared_all.records if item.dataset == "products"
@@ -278,6 +623,7 @@ class QualityEvaluationTests(unittest.TestCase):
                     dataset="products",
                     source_identity=record.source_identity,
                     target_identity=record.target_identity,
+                    target_scope=record.target_scope,
                     physical_dataset_id="dataset:products",
                 ),
                 target_model=record.target_model,
@@ -314,7 +660,9 @@ class QualityEvaluationTests(unittest.TestCase):
             ruleset=ruleset,
         )
 
-        eligible = eligible_prepared_bundle(staging, prepared, run)
+        eligible = canonical_rows_to_prepared_bundle(
+            staging, run, source_hashes=prepared.source_hashes
+        )
         requests = plan_record_requests(profile, eligible.records)
 
         self.assertNotIn(str(partner_records[0].target_identity[0]), repr(requests))
@@ -361,11 +709,140 @@ class QualityEvaluationTests(unittest.TestCase):
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
-        filtered = eligible_prepared_bundle(staging, prepared, run)
+        filtered = canonical_rows_to_prepared_bundle(
+            staging, run, source_hashes=prepared.source_hashes
+        )
 
         self.assertEqual(
             [record.source_identity for record in filtered.records],
             [("ELIGIBLE",)],
+        )
+
+
+class QualityRelationshipScaleTests(unittest.TestCase):
+    @unittest.skipUnless(
+        os.environ.get("IMPODO_RUN_QUALITY_SCALE") == "1",
+        "100,000-row relationship scale probe is opt-in",
+    )
+    def test_deep_dependency_chain_is_linear(self) -> None:
+        import psutil
+
+        row_count = int(os.environ.get("IMPODO_QUALITY_SCALE_ROWS", "100000"))
+        self.assertGreaterEqual(row_count, 2)
+        fixture_started = perf_counter()
+        project = replace(
+            _project(),
+            project_id="00000000-0000-0000-0000-000000000100",
+        )
+        base = _canonical_row(
+            "5",
+            2,
+            dataset="categories",
+            source_identity=("CAT-000000",),
+            target_identity=("CAT-000000",),
+            physical_dataset_id="dataset:categories",
+        )
+        rows = tuple(
+            replace(
+                base,
+                row_id=(
+                    "sha256:"
+                    + sha256(f"quality-scale:{index}".encode()).hexdigest()
+                ),
+                source_row=index + 2,
+                source_identity=(f"CAT-{index:06d}",),
+                target_identity=(f"CAT-{index:06d}",),
+                proposed_values={"name": f"CAT-{index:06d}"},
+                lineage=replace(
+                    base.lineage,
+                    source_row=index + 2,
+                    physical_source_rows=(index + 2,),
+                ),
+            )
+            for index in range(row_count)
+        )
+        root_issue = CanonicalIssue(
+            code="SOURCE_TYPE_INVALID",
+            message="invalid value",
+            severity="error",
+            dataset="categories",
+            source_row=2,
+        )
+        rows = (
+            replace(
+                rows[0],
+                disposition=StagingDisposition.BLOCKED,
+                issues=(root_issue,),
+            ),
+            *rows[1:],
+        )
+        prepared = PreparedBundle(
+            records=tuple(
+                replace(
+                    _prepared_record(row),
+                    references=(
+                        {}
+                        if index == 0
+                        else {
+                            "parent_id": LogicalReference(
+                                origin="incoming",
+                                key=(f"CAT-{index - 1:06d}",),
+                                dataset="categories",
+                                target_fields=("name",),
+                            )
+                        }
+                    ),
+                )
+                for index, row in enumerate(rows)
+            ),
+            issues=(),
+            source_hashes={"categories": SOURCE_HASH},
+        )
+        staging = _staging(project.project_id, rows)
+        ruleset = default_quality_ruleset(
+            project_id=project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("categories",),
+        )
+        fixture_elapsed = perf_counter() - fixture_started
+
+        evaluation_started = perf_counter()
+        run = evaluate_quality(
+            project=project,
+            staging=staging,
+            prepared=prepared,
+            physical_rows={
+                "dataset:categories": tuple(range(2, row_count + 2)),
+            },
+            ruleset=ruleset,
+        )
+        evaluation_elapsed = perf_counter() - evaluation_started
+        hash_started = perf_counter()
+        content_hash = run.content_hash
+        hash_elapsed = perf_counter() - hash_started
+        memory = psutil.Process().memory_info()
+        peak_mib = getattr(memory, "peak_wset", memory.rss) / (1024 * 1024)
+
+        self.assertEqual(run.quarantined_count, row_count)
+        self.assertEqual(
+            sum(
+                issue.reason_code == "INCOMING_RELATIONSHIP_NOT_READY"
+                for issue in run.issues
+            ),
+            row_count - 1,
+        )
+        self.assertTrue(content_hash.startswith("sha256:"))
+        if row_count >= 100_000:
+            self.assertLess(evaluation_elapsed, 120)
+        print(
+            "Quality relationship scale probe: "
+            f"{row_count} rows; {row_count - 1} edges; "
+            f"fixture {fixture_elapsed:.3f}s; "
+            f"evaluation {evaluation_elapsed:.3f}s; "
+            f"quality hash {hash_elapsed:.3f}s; "
+            f"{peak_mib:.1f} MiB peak working set; "
+            f"staging {run.staging_content_hash}; quality {content_hash}"
         )
 
 
@@ -626,7 +1103,7 @@ class QualityStoreTests(unittest.TestCase):
                     "PRAGMA table_info('readiness_run')"
                 ).fetchall()
             }
-            self.assertEqual(version, (17,))
+            self.assertEqual(version, (SCHEMA_VERSION,))
         self.assertIn("quality_run_id", columns)
         self.assertIn("quality_content_hash", columns)
 
@@ -656,6 +1133,7 @@ def _canonical_row(
     dataset: str = "contacts",
     source_identity: tuple[object, ...] = ("C001",),
     target_identity: tuple[object, ...] = ("C001",),
+    target_scope: tuple[object, ...] = (),
     physical_dataset_id: str = "dataset:contacts",
 ) -> CanonicalRow:
     lineage = CanonicalLineage(
@@ -678,7 +1156,7 @@ def _canonical_row(
         disposition=StagingDisposition.CANDIDATE,
         source_identity=source_identity,
         target_identity=target_identity,
-        target_scope=(),
+        target_scope=target_scope,
         proposed_values={"name": source_identity[0]},
         references={},
         issues=(),
@@ -715,6 +1193,7 @@ def _staging(project_id: str, rows: tuple[CanonicalRow, ...]) -> CanonicalStagin
         rows=ordered,
         issues=(),
         reconciliation=StagingReconciliation.from_rows(ordered),
+        compiled_plan_hash=MAPPING_HASH,
     )
 
 

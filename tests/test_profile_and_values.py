@@ -13,6 +13,7 @@ from impodo.canonical import (
     parse_value,
     values_equal,
 )
+from impodo.domain.compiler import CompiledMigrationPlan, compile_profile_document
 from impodo.profile import (
     NormalizationSpec,
     ProfileLoadError,
@@ -52,6 +53,22 @@ class CanonicalValueTests(unittest.TestCase):
 
 
 class ProfileTests(unittest.TestCase):
+    def test_profile_compiles_to_deterministic_runtime_contract(self) -> None:
+        profile = load_profile(ROOT / "profiles/examples/products.yaml")
+
+        first = compile_profile_document(profile)
+        second = compile_profile_document(profile)
+
+        self.assertEqual(first.plan_id, profile.profile.id)
+        self.assertEqual(first.origin, "profile_document")
+        self.assertEqual(first.datasets, profile.datasets)
+        self.assertEqual(first.semantic_hash, second.semantic_hash)
+        self.assertEqual(
+            CompiledMigrationPlan.from_json(first.to_json()),
+            first,
+        )
+        self.assertFalse(hasattr(first, "profile"))
+
     def test_example_profiles_validate(self) -> None:
         for path in (ROOT / "profiles/examples").glob("*.yaml"):
             with self.subTest(path=path.name):

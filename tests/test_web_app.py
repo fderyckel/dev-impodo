@@ -771,7 +771,25 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.readiness_calls.append(
                 (project.project_id, metadata_requests, record_requests)
             )
-            metadata = _browser_schema(project)
+            available_metadata = _browser_schema(project)
+            metadata = replace(
+                available_metadata,
+                models={
+                    request.model: replace(
+                        available_metadata.models[request.model],
+                        fields={
+                            field: available_metadata.models[
+                                request.model
+                            ].fields[field]
+                            for field in request.fields
+                            if field
+                            in available_metadata.models[request.model].fields
+                        },
+                    )
+                    for request in metadata_requests
+                    if request.model in available_metadata.models
+                },
+            )
             records = RecordSnapshot(
                 fingerprint=metadata.fingerprint,
                 records={item.model: () for item in record_requests},
@@ -1913,7 +1931,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             headers=POST_HEADERS,
             follow_redirects=False,
         )
-        self.assertEqual(compared.status_code, 303)
+        self.assertEqual(compared.status_code, 303, compared.text)
         readiness_page = self.client.get(compared.headers["location"])
         self.assertIn("Included in preparation", readiness_page.text)
         self.assertIn("Set aside", readiness_page.text)
@@ -1947,7 +1965,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             restored_staging.content_hash,
             staging.content_hash,
         )
-        sample_row = report.rows[0]
+        sample_row = self.app.state.context.preflight.readiness_rows(
+            project_id,
+            report.run_id,
+        ).items[0]
         paged_rows = tuple(
             replace(
                 sample_row,

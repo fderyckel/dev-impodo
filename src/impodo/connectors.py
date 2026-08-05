@@ -14,7 +14,7 @@ or execute an arbitrary Odoo model method.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import json
 import os
@@ -34,6 +34,7 @@ from .models import (
     TargetRecord,
     UniqueConstraintMetadata,
     canonical_json_bytes,
+    portable_value,
     target_identity_hash,
 )
 
@@ -77,6 +78,89 @@ class RecordSnapshot:
     requested_fields: Mapping[str, tuple[str, ...]]
     complete: bool = True
     content_hash: str | None = None
+
+
+def bind_snapshot_hashes(
+    metadata: MetadataSnapshot,
+    records: RecordSnapshot,
+) -> tuple[MetadataSnapshot, RecordSnapshot]:
+    """Validate one complete capture and attach deterministic content hashes."""
+
+    if metadata.fingerprint != records.fingerprint:
+        raise ConnectorIncompleteResultError(
+            "metadata and record snapshots have different fingerprints"
+        )
+    if not metadata.complete or not records.complete:
+        raise ConnectorIncompleteResultError("Odoo snapshot is incomplete")
+    metadata_hash = "sha256:" + _sha256_bytes(
+        canonical_json_bytes(metadata_snapshot_payload(metadata))
+    )
+    record_hash = "sha256:" + _sha256_bytes(
+        canonical_json_bytes(record_snapshot_payload(records))
+    )
+    if metadata.content_hash not in {None, metadata_hash}:
+        raise ConnectorIncompleteResultError("metadata snapshot hash is invalid")
+    if records.content_hash not in {None, record_hash}:
+        raise ConnectorIncompleteResultError("record snapshot hash is invalid")
+    return (
+        replace(metadata, content_hash=metadata_hash),
+        replace(records, content_hash=record_hash),
+    )
+
+
+def metadata_snapshot_payload(snapshot: MetadataSnapshot) -> dict[str, Any]:
+    """Return protected deterministic metadata snapshot evidence."""
+
+    return {
+        "fingerprint": snapshot.fingerprint.portable_dict(),
+        "complete": snapshot.complete,
+        "limitations": list(snapshot.limitations),
+        "models": {
+            name: {
+                "description": model.description,
+                "fields": {
+                    field_name: {
+                        "type": field.type,
+                        "label": field.label,
+                        "required": field.required,
+                        "readonly": field.readonly,
+                        "relation": field.relation,
+                        "relation_field": field.relation_field,
+                        "selection": [list(item) for item in field.selection],
+                    }
+                    for field_name, field in sorted(model.fields.items())
+                },
+                "unique_constraints": [
+                    {"name": item.name, "definition": item.definition}
+                    for item in model.unique_constraints
+                ],
+            }
+            for name, model in sorted(snapshot.models.items())
+        },
+    }
+
+
+def record_snapshot_payload(snapshot: RecordSnapshot) -> dict[str, Any]:
+    """Return protected target rows, including environment-local numeric IDs."""
+
+    return {
+        "fingerprint": snapshot.fingerprint.portable_dict(),
+        "complete": snapshot.complete,
+        "requested_fields": {
+            model: list(fields)
+            for model, fields in sorted(snapshot.requested_fields.items())
+        },
+        "models": {
+            model: [
+                {
+                    "id": record.odoo_id,
+                    "values": portable_value(record.values),
+                }
+                for record in sorted(items, key=lambda item: item.odoo_id)
+            ]
+            for model, items in sorted(snapshot.records.items())
+        },
+    }
 
 
 class OdooReadConnector(Protocol):
@@ -232,7 +316,7 @@ class SnapshotConnector:
             models=models,
             complete=complete,
             limitations=tuple(self._metadata_data.get("limitations", ())),
-            content_hash=self._metadata_hash,
+            content_hash=None,
         )
 
     def get_records(self, requests: Sequence[RecordRequest]) -> RecordSnapshot:
@@ -272,7 +356,7 @@ class SnapshotConnector:
             records=records,
             requested_fields=requested_fields,
             complete=True,
-            content_hash=self._records_hash,
+            content_hash=None,
         )
 
 
@@ -651,13 +735,23 @@ class Json2ReadConnector:
         """
 
         fingerprint = self.get_target_fingerprint()
-        records: dict[str, tuple[TargetRecord, ...]] = {}
+        records_by_model: dict[str, dict[int, TargetRecord]] = {}
         fields_by_model: dict[str, tuple[str, ...]] = {}
-        for request in sorted(requests, key=lambda item: item.model):
+        for request in sorted(
+            requests,
+            key=lambda item: (item.model, canonical_json_bytes(portable_value(item.domain))),
+        ):
             fields = tuple(dict.fromkeys(("id", *request.fields)))
-            fields_by_model[request.model] = tuple(
+            projected_fields = tuple(
                 field for field in fields if field != "id"
             )
+            previous_fields = fields_by_model.setdefault(
+                request.model, projected_fields
+            )
+            if previous_fields != projected_fields:
+                raise ConnectorConfigurationError(
+                    f"record chunks for {request.model} use different fields"
+                )
             offset = 0
             collected: list[TargetRecord] = []
             while True:
@@ -701,9 +795,17 @@ class Json2ReadConnector:
                 raise ConnectorIncompleteResultError(
                     f"pagination repeated records for {request.model}"
                 )
-            records[request.model] = tuple(
-                sorted(unique.values(), key=lambda record: record.odoo_id)
-            )
+            merged = records_by_model.setdefault(request.model, {})
+            for record_id, record in unique.items():
+                previous = merged.setdefault(record_id, record)
+                if previous != record:
+                    raise ConnectorIncompleteResultError(
+                        f"record chunks conflict for {request.model}"
+                    )
+        records = {
+            model: tuple(sorted(items.values(), key=lambda record: record.odoo_id))
+            for model, items in sorted(records_by_model.items())
+        }
         return RecordSnapshot(
             fingerprint=fingerprint,
             records=records,

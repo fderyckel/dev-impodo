@@ -12,7 +12,6 @@ from ..application.normalization_service import NormalizationService
 from ..application.preflight_service import PreflightService
 from ..application.preparation_service import PreparationService
 from ..application.quality_service import QualityService
-from ..application.readiness_workflow_service import ReadinessWorkflowService
 from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.transformation_impact_service import TransformationImpactService
@@ -61,7 +60,6 @@ class WebContext:
     schema_workspace: SchemaWorkspaceService
     mapping_workspace: MappingWorkspaceService
     preparation: PreparationService
-    readiness_workflow: ReadinessWorkflowService
     quality: QualityService
     normalization: NormalizationService
     preflight: PreflightService

@@ -23,14 +23,15 @@ from .models import (
     canonical_json_bytes,
     portable_issue,
     portable_value,
+    restore_portable_value,
 )
-from .profile import ProfileDocument
+from .domain.compiler.contracts import CompiledMigrationPlan
 from .source import PreparedBundle
 
 
-STAGING_CONTRACT_VERSION = 3
+STAGING_CONTRACT_VERSION = 4
 BROWSER_EVALUATOR_VERSION = 2
-_SUPPORTED_STAGING_CONTRACT_VERSIONS = frozenset({2, STAGING_CONTRACT_VERSION})
+_SUPPORTED_STAGING_CONTRACT_VERSIONS = frozenset({2, 3, STAGING_CONTRACT_VERSION})
 _SUPPORTED_BROWSER_EVALUATOR_VERSIONS = frozenset({1, BROWSER_EVALUATOR_VERSION})
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
@@ -52,6 +53,15 @@ class StagingDatasetRole(StrEnum):
     PARENT = "PARENT"
     CHILD = "CHILD"
     LOOKUP = "LOOKUP"
+
+
+def _count_dispositions(
+    rows: Iterable[CanonicalRow],
+) -> dict[StagingDisposition, int]:
+    counts = dict.fromkeys(StagingDisposition, 0)
+    for row in rows:
+        counts[row.disposition] += 1
+    return counts
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,17 +320,27 @@ class CanonicalRow:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "CanonicalRow":
+        source_identity = restore_portable_value(payload.get("source_identity", ()))
+        target_identity = restore_portable_value(payload.get("target_identity", ()))
+        target_scope = restore_portable_value(payload.get("target_scope", ()))
+        proposed_values = restore_portable_value(payload.get("proposed_values", {}))
+        references = restore_portable_value(payload.get("references", {}))
+        if not all(
+            isinstance(item, tuple)
+            for item in (source_identity, target_identity, target_scope)
+        ) or not isinstance(proposed_values, dict) or not isinstance(references, dict):
+            raise ValueError("Canonical row portable values are invalid")
         return cls(
             row_id=str(payload["row_id"]),
             dataset=str(payload["dataset"]),
             source_row=int(payload["source_row"]),
             target_model=str(payload["target_model"]),
             disposition=StagingDisposition(str(payload["disposition"])),
-            source_identity=tuple(payload.get("source_identity", ())),
-            target_identity=tuple(payload.get("target_identity", ())),
-            target_scope=tuple(payload.get("target_scope", ())),
-            proposed_values=dict(payload.get("proposed_values", {})),
-            references=dict(payload.get("references", {})),
+            source_identity=source_identity,
+            target_identity=target_identity,
+            target_scope=target_scope,
+            proposed_values=proposed_values,
+            references=references,
             issues=tuple(
                 CanonicalIssue.from_dict(item) for item in payload.get("issues", ())
             ),
@@ -365,23 +385,14 @@ class StagingReconciliation:
     @classmethod
     def from_rows(cls, rows: Iterable[CanonicalRow]) -> "StagingReconciliation":
         items = tuple(rows)
+        counts = _count_dispositions(items)
         return cls(
             total_rows=len(items),
-            candidate_rows=sum(
-                item.disposition is StagingDisposition.CANDIDATE for item in items
-            ),
-            reference_rows=sum(
-                item.disposition is StagingDisposition.REFERENCE for item in items
-            ),
-            blocked_rows=sum(
-                item.disposition is StagingDisposition.BLOCKED for item in items
-            ),
-            quarantined_rows=sum(
-                item.disposition is StagingDisposition.QUARANTINED for item in items
-            ),
-            excluded_rows=sum(
-                item.disposition is StagingDisposition.EXCLUDED for item in items
-            ),
+            candidate_rows=counts[StagingDisposition.CANDIDATE],
+            reference_rows=counts[StagingDisposition.REFERENCE],
+            blocked_rows=counts[StagingDisposition.BLOCKED],
+            quarantined_rows=counts[StagingDisposition.QUARANTINED],
+            excluded_rows=counts[StagingDisposition.EXCLUDED],
         )
 
     @classmethod
@@ -492,6 +503,7 @@ class StagingDatasetReconciliation:
     ) -> "StagingDatasetReconciliation":
         items = tuple(rows)
         used = tuple(sorted(set(source_rows)))
+        counts = _count_dispositions(items)
         return cls(
             dataset=dataset,
             target_model=target_model,
@@ -504,21 +516,11 @@ class StagingDatasetReconciliation:
             created_rows=max(len(items) - len(used), 0),
             combined_rows=max(lineage_links - len(items), 0),
             unrepresented_rows=input_rows - len(used),
-            candidate_rows=sum(
-                item.disposition is StagingDisposition.CANDIDATE for item in items
-            ),
-            reference_rows=sum(
-                item.disposition is StagingDisposition.REFERENCE for item in items
-            ),
-            blocked_rows=sum(
-                item.disposition is StagingDisposition.BLOCKED for item in items
-            ),
-            quarantined_rows=sum(
-                item.disposition is StagingDisposition.QUARANTINED for item in items
-            ),
-            excluded_rows=sum(
-                item.disposition is StagingDisposition.EXCLUDED for item in items
-            ),
+            candidate_rows=counts[StagingDisposition.CANDIDATE],
+            reference_rows=counts[StagingDisposition.REFERENCE],
+            blocked_rows=counts[StagingDisposition.BLOCKED],
+            quarantined_rows=counts[StagingDisposition.QUARANTINED],
+            excluded_rows=counts[StagingDisposition.EXCLUDED],
         )
 
     @classmethod
@@ -561,6 +563,7 @@ class CanonicalStagingRun:
     rows: tuple[CanonicalRow, ...]
     issues: tuple[CanonicalIssue, ...]
     reconciliation: StagingReconciliation
+    compiled_plan_hash: str | None = None
     control_totals: tuple[CanonicalControlTotal, ...] = ()
     evaluator_version: int = BROWSER_EVALUATOR_VERSION
     contract_version: int = STAGING_CONTRACT_VERSION
@@ -575,11 +578,19 @@ class CanonicalStagingRun:
             _require_hash(value, label)
         if self.derived_plan_hash is not None:
             _require_hash(self.derived_plan_hash, "derived_plan_hash")
+        if self.contract_version >= 4:
+            if self.compiled_plan_hash is None:
+                raise ValueError("Current staging evidence requires a compiled plan")
+            _require_hash(self.compiled_plan_hash, "compiled_plan_hash")
         if self.contract_version not in _SUPPORTED_STAGING_CONTRACT_VERSIONS:
             raise ValueError("Staging contract version is unsupported")
         if self.evaluator_version not in _SUPPORTED_BROWSER_EVALUATOR_VERSIONS:
             raise ValueError("Browser evaluator version is unsupported")
-        if (self.contract_version, self.evaluator_version) not in {(2, 1), (3, 2)}:
+        if (self.contract_version, self.evaluator_version) not in {
+            (2, 1),
+            (3, 2),
+            (4, 2),
+        }:
             raise ValueError("Staging and evaluator versions are incompatible")
         if self.contract_version < 3 and self.control_totals:
             raise ValueError("Legacy staging evidence cannot contain control totals")
@@ -605,16 +616,26 @@ class CanonicalStagingRun:
             raise ValueError("Control-total identifiers must be unique")
         if self.reconciliation != StagingReconciliation.from_rows(self.rows):
             raise ValueError("Staging reconciliation does not match canonical rows")
-        for row in self.rows:
+        for index, row in enumerate(self.rows):
             _validate_row(row, self)
-        rows_by_dataset = {
-            item.dataset: tuple(row for row in self.rows if row.dataset == item.dataset)
-            for item in self.datasets
+            assert_no_numeric_odoo_ids(
+                row.to_portable_dict(),
+                path=f"$.rows[{index}]",
+            )
+        rows_by_dataset_lists: dict[str, list[CanonicalRow]] = {
+            item.dataset: [] for item in self.datasets
         }
-        if set(row.dataset for row in self.rows) - set(rows_by_dataset):
+        unexpected_datasets: set[str] = set()
+        for row in self.rows:
+            dataset_rows = rows_by_dataset_lists.get(row.dataset)
+            if dataset_rows is None:
+                unexpected_datasets.add(row.dataset)
+                continue
+            dataset_rows.append(row)
+        if unexpected_datasets:
             raise ValueError("Canonical rows are missing dataset reconciliation")
         for item in self.datasets:
-            rows = rows_by_dataset[item.dataset]
+            rows = tuple(rows_by_dataset_lists[item.dataset])
             if item.output_rows != len(rows):
                 raise ValueError("Dataset reconciliation has the wrong output count")
             dispositions = StagingReconciliation.from_rows(rows)
@@ -628,7 +649,6 @@ class CanonicalStagingRun:
                 raise ValueError("Dataset dispositions do not match canonical rows")
         if sum(item.output_rows for item in self.datasets) != len(self.rows):
             raise ValueError("Dataset reconciliation does not match the run")
-        assert_no_numeric_odoo_ids(self.to_portable_dict(include_hash=False))
 
     @property
     def content_hash(self) -> str:
@@ -656,6 +676,8 @@ class CanonicalStagingRun:
             payload["control_totals"] = [
                 item.to_portable_dict() for item in self.control_totals
             ]
+        if self.contract_version >= 4:
+            payload["compiled_plan_hash"] = self.compiled_plan_hash
         if include_hash:
             payload["content_hash"] = self.content_hash
         return payload
@@ -693,6 +715,11 @@ class CanonicalStagingRun:
             reconciliation=StagingReconciliation.from_dict(
                 dict(payload["reconciliation"])
             ),
+            compiled_plan_hash=(
+                str(payload["compiled_plan_hash"])
+                if payload.get("compiled_plan_hash")
+                else None
+            ),
             control_totals=tuple(
                 CanonicalControlTotal.from_dict(item)
                 for item in payload.get("control_totals", ())
@@ -717,7 +744,7 @@ class CanonicalStagingRun:
         mapping_hash: str,
         schema_hash: str,
         derived_plan_hash: str | None,
-        profile: ProfileDocument,
+        plan: CompiledMigrationPlan,
         prepared: PreparedBundle,
         field_sources: Mapping[str, Mapping[str, tuple[str, ...]]],
         source_lineage: Mapping[
@@ -729,7 +756,10 @@ class CanonicalStagingRun:
         control_totals: tuple[CanonicalControlTotal, ...] = (),
     ) -> "CanonicalStagingRun":
         mode_by_dataset = {
-            dataset.name: dataset.target.mode for dataset in profile.datasets
+            dataset.name: dataset.target.mode for dataset in plan.datasets
+        }
+        target_model_by_dataset = {
+            dataset.name: dataset.target.model for dataset in plan.datasets
         }
         rows = tuple(
             sorted(
@@ -755,34 +785,36 @@ class CanonicalStagingRun:
                 key=_row_order,
             )
         )
-        rows_by_dataset = {
-            dataset: tuple(item for item in rows if item.dataset == dataset)
-            for dataset in dataset_evidence
+        rows_by_dataset: dict[str, list[CanonicalRow]] = {
+            dataset: [] for dataset in dataset_evidence
         }
+        for item in rows:
+            if item.dataset in rows_by_dataset:
+                rows_by_dataset[item.dataset].append(item)
+        source_rows_by_dataset: dict[str, set[int]] = {
+            dataset: set() for dataset in dataset_evidence
+        }
+        lineage_links_by_dataset = dict.fromkeys(dataset_evidence, 0)
+        for (dataset, _), (_, source_rows) in source_lineage.items():
+            if dataset not in source_rows_by_dataset:
+                continue
+            source_rows_by_dataset[dataset].update(source_rows)
+            lineage_links_by_dataset[dataset] += len(source_rows)
         datasets = tuple(
             sorted(
                 (
                     StagingDatasetReconciliation.from_rows(
                         dataset=dataset,
-                        target_model=(items[0].target_model if items else next(
-                            item.target.model
-                            for item in profile.datasets
-                            if item.name == dataset
-                        )),
+                        target_model=(
+                            items[0].target_model
+                            if items
+                            else target_model_by_dataset[dataset]
+                        ),
                         physical_dataset_id=evidence[0],
                         role=evidence[1],
                         input_rows=evidence[2],
-                        source_rows=(
-                            source_row
-                            for (name, _), (_, source_rows) in source_lineage.items()
-                            if name == dataset
-                            for source_row in source_rows
-                        ),
-                        lineage_links=sum(
-                            len(source_rows)
-                            for (name, _), (_, source_rows) in source_lineage.items()
-                            if name == dataset
-                        ),
+                        source_rows=source_rows_by_dataset[dataset],
+                        lineage_links=lineage_links_by_dataset[dataset],
                         rows=items,
                     )
                     for dataset, evidence in dataset_evidence.items()
@@ -803,6 +835,7 @@ class CanonicalStagingRun:
             rows=rows,
             issues=tuple(CanonicalIssue.from_issue(item) for item in prepared.issues),
             reconciliation=StagingReconciliation.from_rows(rows),
+            compiled_plan_hash=plan.semantic_hash,
             control_totals=tuple(
                 sorted(control_totals, key=lambda item: item.control_id)
             ),

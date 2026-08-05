@@ -323,14 +323,20 @@ class LocalOdooMetadataReader:
 
         parsed_records: dict[str, tuple[TargetRecord, ...]] = {}
         requested_fields: dict[str, tuple[str, ...]] = {}
+        request_by_model: dict[str, RecordRequest] = {}
         for request in records:
+            previous = request_by_model.setdefault(request.model, request)
+            if previous.fields != request.fields:
+                raise LocalOdooReaderError(
+                    "Local readiness chunks use inconsistent record fields."
+                )
+        for request in request_by_model.values():
             raw_items = raw_records.get(request.model)
             if not isinstance(raw_items, list):
                 raise LocalOdooReaderError(
                     "The local readiness record response is incomplete."
                 )
-            seen: set[int] = set()
-            model_records: list[TargetRecord] = []
+            model_records: dict[int, TargetRecord] = {}
             for item in raw_items:
                 if not isinstance(item, Mapping):
                     raise LocalOdooReaderError(
@@ -342,23 +348,27 @@ class LocalOdooMetadataReader:
                     raise LocalOdooReaderError(
                         "The local readiness record response is invalid."
                     ) from error
-                if odoo_id <= 0 or odoo_id in seen:
+                if odoo_id <= 0:
                     raise LocalOdooReaderError(
-                        "The local readiness record response has duplicate IDs."
+                        "The local readiness record response has invalid IDs."
                     )
-                seen.add(odoo_id)
-                model_records.append(
-                    TargetRecord(
-                        model=request.model,
-                        odoo_id=odoo_id,
-                        values={
-                            field: item.get(field)
-                            for field in request.fields
-                            if field in item
-                        },
-                    )
+                record = TargetRecord(
+                    model=request.model,
+                    odoo_id=odoo_id,
+                    values={
+                        field: item.get(field)
+                        for field in request.fields
+                        if field in item
+                    },
                 )
-            parsed_records[request.model] = tuple(model_records)
+                previous = model_records.setdefault(odoo_id, record)
+                if previous != record:
+                    raise LocalOdooReaderError(
+                        "The local readiness record chunks conflict."
+                    )
+            parsed_records[request.model] = tuple(
+                sorted(model_records.values(), key=lambda item: item.odoo_id)
+            )
             requested_fields[request.model] = tuple(request.fields)
 
         return (
@@ -677,7 +687,7 @@ for request in record_requests:
         if len(page) < 500:
             break
         offset += len(page)
-    captured_records[request["model"]] = rows
+    captured_records.setdefault(request["model"], []).extend(rows)
 payload = {{
     "database": env.cr.dbname,
     "version": release.version,

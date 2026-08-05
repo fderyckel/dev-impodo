@@ -1,6 +1,6 @@
-"""Validate a profile against captured Odoo model metadata.
+"""Validate a compiled migration plan against captured Odoo metadata.
 
-`planner.py` requests only the models and fields needed by the profile, and a
+`planner.py` requests only the models and fields needed by the plan, and a
 connector returns a :class:`MetadataSnapshot`. This module checks that the
 snapshot can support the proposed mapping before target records are compared.
 Problems are returned as structured :class:`Issue` objects; they are not
@@ -11,8 +11,9 @@ missing or incompatible field.
 from __future__ import annotations
 
 from .connectors import MetadataSnapshot
+from .domain.compiler.contracts import CompiledMigrationPlan
 from .models import Issue
-from .profile import DatasetSpec, FieldSpec, ProfileDocument, RelationSpec
+from .profile import DatasetSpec, FieldSpec, RelationSpec
 
 
 TYPE_COMPATIBILITY = {
@@ -25,11 +26,11 @@ TYPE_COMPATIBILITY = {
 }
 
 
-def validate_profile_metadata(
-    profile: ProfileDocument,
+def validate_plan_metadata(
+    plan: CompiledMigrationPlan,
     snapshot: MetadataSnapshot,
 ) -> tuple[tuple[Issue, ...], tuple[dict[str, object], ...]]:
-    """Validate all dataset and reference requirements against a snapshot.
+    """Validate all compiled dataset requirements against a snapshot.
 
     Returns:
         A pair containing blocking issues and deterministic coverage rows.
@@ -47,7 +48,7 @@ def validate_profile_metadata(
             )
         )
 
-    for dataset in profile.datasets:
+    for dataset in plan.datasets:
         model = snapshot.models.get(dataset.target.model)
         if model is None:
             issues.append(
@@ -94,7 +95,7 @@ def validate_profile_metadata(
             if relation is not None:
                 expected_model = (
                     relation.resolve.target_model
-                    or profile.dataset(str(relation.resolve.dataset)).target.model
+                    or plan.dataset(str(relation.resolve.dataset)).target.model
                 )
                 issues.extend(
                     _validate_relation(
@@ -121,7 +122,7 @@ def validate_profile_metadata(
                 continue
             expected_model = (
                 component.resolve.target_model
-                or profile.dataset(str(component.resolve.dataset)).target.model
+                or plan.dataset(str(component.resolve.dataset)).target.model
             )
             if field_metadata.type != "many2one":
                 issues.append(
@@ -251,7 +252,7 @@ def _validate_scalar(
         issues.append(
             Issue(
                 code="TARGET_TYPE_INCOMPATIBLE",
-                message=f"{field_name} is {target_type}, profile expects {spec.type}",
+                message=f"{field_name} is {target_type}, mapping expects {spec.type}",
                 dataset=dataset.name,
                 field=field_name,
             )
@@ -285,7 +286,7 @@ def _validate_relation(
         issues.append(
             Issue(
                 code="TARGET_RELATION_KIND_INCORRECT",
-                message=f"{field_name} is {target_type}, profile expects {spec.kind}",
+                message=f"{field_name} is {target_type}, mapping expects {spec.kind}",
                 dataset=dataset.name,
                 field=field_name,
             )
@@ -296,7 +297,7 @@ def _validate_relation(
                 code="TARGET_RELATED_MODEL_INCORRECT",
                 message=(
                     f"{field_name} relates to {related_model!r}, "
-                    f"profile expects {expected_model!r}"
+                    f"mapping expects {expected_model!r}"
                 ),
                 dataset=dataset.name,
                 field=field_name,

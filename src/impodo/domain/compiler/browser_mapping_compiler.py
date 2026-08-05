@@ -1,8 +1,6 @@
-"""Extracted browser mapping compiler domain behavior."""
+"""Compile browser mapping definitions into shared runtime semantics."""
 
 from __future__ import annotations
-
-
 from ..mapping.contracts import (
     MappingDefinition,
     RelationshipResolver,
@@ -14,8 +12,6 @@ from ...profile import (
     FieldSpec,
     IdentityComponent,
     NormalizationSpec,
-    ProfileDocument,
-    ProfileIdentity,
     RelationSpec,
     ResolveSpec,
     SourceIdentitySpec,
@@ -26,14 +22,16 @@ from ...profile import (
 from ...workspace_contracts import SourceSelection
 from ..errors import ReadinessError
 from ..staging.fields import synthetic_field
+from .contracts import CompiledMigrationPlan
 
-
-
-
-def _compile_profile(
+def compile_browser_mapping(
     definition: MappingDefinition,
     selection: SourceSelection,
-) -> ProfileDocument:
+    *,
+    derived_plan_hash: str | None = None,
+) -> CompiledMigrationPlan:
+    """Compile browser authoring semantics into the shared runtime contract."""
+
     datasets = {item.dataset_id: item for item in selection.datasets}
     mappings = {item.dataset_id: item for item in definition.datasets}
 
@@ -141,13 +139,40 @@ def _compile_profile(
             )
         )
     token = definition.content_hash.removeprefix("sha256:")[:24]
-    return ProfileDocument(
-        profile=ProfileIdentity(
-            id=f"browser_{token}",
-            description="Compiled from a submitted Impodo browser mapping",
-        ),
+    return CompiledMigrationPlan(
+        plan_id=f"browser_{token}",
+        origin="browser_mapping",
+        origin_hash=definition.content_hash,
+        source_selection_hash=selection.content_hash,
+        schema_hash=definition.schema_hash,
+        derived_plan_hash=derived_plan_hash,
         datasets=tuple(profile_datasets),
     )
 
 
-compile_browser_mapping = _compile_profile
+def browser_mapping_labels(
+    definition: MappingDefinition,
+    selection: SourceSelection,
+) -> tuple[dict[str, str], dict[tuple[str, str], str]]:
+    """Compile display labels without loading or evaluating source rows."""
+
+    datasets = {item.dataset_id: item for item in selection.datasets}
+    dataset_labels = {
+        item.name: item.name.replace("_", " ").title()
+        for item in selection.datasets
+    }
+    field_labels: dict[tuple[str, str], str] = {}
+    for mapping in definition.datasets:
+        dataset = datasets.get(mapping.dataset_id)
+        if dataset is None:
+            raise ReadinessError("A submitted mapping dataset is missing")
+        names = {column.stable_key: column.source_name for column in dataset.columns}
+        for column in dataset.columns:
+            field_labels[(dataset.name, column.stable_key)] = column.source_name
+        for index, field in enumerate(mapping.fields):
+            if field.value_source is ScalarValueSource.ODOO_DEFAULT:
+                continue
+            field_labels[(dataset.name, synthetic_field(index))] = (
+                names.get(field.source_column_key or "") or field.target_field
+            )
+    return dataset_labels, field_labels

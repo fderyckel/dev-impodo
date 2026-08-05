@@ -27,6 +27,7 @@ from impodo.normalization import (
     start_dry_run,
 )
 from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.constants import SCHEMA_VERSION
 from impodo.adapters.duckdb.normalization_repository import NormalizationRepository
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
@@ -353,7 +354,7 @@ class NormalizationStoreTests(unittest.TestCase):
                 for item in connection.execute("SHOW TABLES").fetchall()
                 if str(item[0]).startswith("normalization_")
             }
-            self.assertEqual(version, (17,))
+            self.assertEqual(version, (SCHEMA_VERSION,))
         self.assertEqual(restored, set(tables))
 
     def test_invalid_dry_run_evidence_is_wrapped_at_repository_boundary(

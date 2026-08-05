@@ -2,14 +2,6 @@
 
 from __future__ import annotations
 
-from .constants import (
-    NORMALIZATION_ROW_BATCH_SIZE,
-    QUALITY_ROW_BATCH_SIZE,
-    SCHEMA_VERSION,
-    STAGING_ROW_BATCH_SIZE,
-    TRANSFORMATION_IMPACT_ROW_BATCH_SIZE,
-)
-
 from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock

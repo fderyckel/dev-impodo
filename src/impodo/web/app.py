@@ -23,7 +23,6 @@ from ..application.normalization_service import NormalizationService
 from ..application.preflight_service import PreflightService
 from ..application.preparation_service import PreparationService
 from ..application.quality_service import QualityService
-from ..application.readiness_workflow_service import ReadinessWorkflowService
 from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.transformation_impact_service import TransformationImpactService
@@ -138,6 +137,8 @@ def create_local_app(
         quality_repository,
         normalization_repository,
         mapping_repository,
+        project_repository,
+        source_repository,
         preflight_repository,
         resolved_artifacts,
         resolved_authorization,
@@ -183,7 +184,6 @@ def create_local_app(
             resolved_authorization,
         ),
         preparation=preparation,
-        readiness_workflow=ReadinessWorkflowService(preparation, preflight),
         quality=quality,
         normalization=normalization,
         preflight=preflight,

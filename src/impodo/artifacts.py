@@ -76,6 +76,13 @@ class ArtifactStore(Protocol):
         filename: str,
     ) -> bool: ...
 
+    def delete_report(
+        self,
+        project_id: str,
+        run_id: str,
+        filename: str,
+    ) -> None: ...
+
     def materialize_report(
         self,
         project_id: str,
@@ -191,6 +198,18 @@ class LocalArtifactStore:
     ) -> bool:
         path = self._report_path(project_id, run_id, filename, create=False)
         return not path.is_symlink() and path.is_file()
+
+    def delete_report(
+        self,
+        project_id: str,
+        run_id: str,
+        filename: str,
+    ) -> None:
+        """Remove a failed unpublished projection without touching run history."""
+
+        self._report_path(
+            project_id, run_id, filename, create=False
+        ).unlink(missing_ok=True)
 
     @contextmanager
     def materialize_report(

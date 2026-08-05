@@ -409,7 +409,8 @@ def evaluate_normalization(
 
     if staging.project_id != project.project_id or quality.project_id != project.project_id:
         raise NormalizationError("Prepared review evidence belongs to another project")
-    if quality.staging_content_hash != staging.content_hash:
+    staging_content_hash = staging.content_hash
+    if quality.staging_content_hash != staging_content_hash:
         raise NormalizationError("Prepared review no longer matches the data checks")
     if quality.mapping_hash != staging.mapping_hash or quality.schema_hash != staging.schema_hash:
         raise NormalizationError("Prepared review no longer matches the field matches")
@@ -581,22 +582,12 @@ def evaluate_normalization(
             )
         )
 
-    eligible_rows = tuple(
-        row.to_portable_dict()
-        for row in staging.rows
-        if row.row_id in eligible_ids
-    )
-    eligible_dataset_hash = _hash(
-        {
-            "staging_content_hash": staging.content_hash,
-            "quality_content_hash": quality.content_hash,
-            "rows": eligible_rows,
-        }
-    )
+    quality_content_hash = quality.content_hash
+    eligible_dataset_hash = canonical_eligible_dataset_hash(staging, quality)
     return NormalizationEvaluation(
         project_id=project.project_id,
-        staging_content_hash=staging.content_hash,
-        quality_content_hash=quality.content_hash,
+        staging_content_hash=staging_content_hash,
+        quality_content_hash=quality_content_hash,
         mapping_hash=staging.mapping_hash,
         schema_hash=staging.schema_hash,
         policy_hash=policy_hash,
@@ -749,6 +740,28 @@ def _human_label(value: str) -> str:
 
 def _hash(value: object) -> str:
     return "sha256:" + sha256(canonical_json_bytes(value)).hexdigest()
+
+
+def canonical_eligible_dataset_hash(
+    staging: CanonicalStagingRun,
+    quality: QualityRun,
+) -> str:
+    """Hash the exact quality-eligible canonical rows for durable reuse."""
+
+    if quality.staging_content_hash != staging.content_hash:
+        raise NormalizationError("Prepared data no longer matches the data checks")
+    eligible_ids = quality.eligible_row_ids
+    return _hash(
+        {
+            "staging_content_hash": staging.content_hash,
+            "quality_content_hash": quality.content_hash,
+            "rows": [
+                row.to_portable_dict()
+                for row in staging.rows
+                if row.row_id in eligible_ids
+            ],
+        }
+    )
 
 
 def _require_hash(value: str, label: str) -> None:

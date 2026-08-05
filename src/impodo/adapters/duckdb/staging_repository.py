@@ -56,10 +56,14 @@ class StagingRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Prepared data must be regenerated with the current evaluator"
             )
+        run_payload = run.to_portable_dict()
+        run_content_hash = str(run_payload["content_hash"])
         try:
-            CanonicalStagingRun.from_json(run.to_json())
+            CanonicalStagingRun.from_json(_canonical_json(run_payload))
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Prepared data evidence is invalid") from error
+        finally:
+            del run_payload
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -151,7 +155,7 @@ class StagingRepository(DuckDbRepository):
                 ).fetchone()
                 if (
                     current is not None
-                    and str(current[1]) == run.content_hash
+                    and str(current[1]) == run_content_hash
                     and str(current[2]) == run.mapping_id
                     and int(current[3]) == mapping_version
                 ):
@@ -169,18 +173,19 @@ class StagingRepository(DuckDbRepository):
                         run_id, content_hash, mapping_id, mapping_version,
                         physical_selection_hash, source_selection_hash,
                         mapping_hash, schema_hash, derived_plan_hash,
-                        contract_version, evaluator_version, status,
+                        compiled_plan_hash, contract_version,
+                        evaluator_version, status,
                         published_at, published_by, row_count,
                         run_issues_json, reconciliation_json,
                         dataset_reconciliation_json, control_totals_json,
                         retired_at,
                         retired_reason, successor_run_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                               NULL, NULL, NULL)
                     """,
                     [
                         run_id,
-                        run.content_hash,
+                        run_content_hash,
                         run.mapping_id,
                         mapping_version,
                         run.physical_selection_hash,
@@ -188,6 +193,7 @@ class StagingRepository(DuckDbRepository):
                         run.mapping_hash,
                         run.schema_hash,
                         run.derived_plan_hash,
+                        run.compiled_plan_hash,
                         run.contract_version,
                         run.evaluator_version,
                         StagingRunStatus.PUBLISHED.value,
@@ -256,7 +262,7 @@ class StagingRepository(DuckDbRepository):
                     event_type="CANONICAL_STAGING_PUBLISHED",
                     detail=(
                         f"run {run_id}: {len(run.rows)} prepared row(s); "
-                        f"{run.content_hash}"
+                        f"{run_content_hash}"
                     ),
                     actor=actor,
                 )
@@ -267,7 +273,7 @@ class StagingRepository(DuckDbRepository):
         return StagingRunSummary(
             run_id=run_id,
             project_id=project_id,
-            content_hash=run.content_hash,
+            content_hash=run_content_hash,
             mapping_id=run.mapping_id,
             mapping_version=mapping_version,
             contract_version=run.contract_version,
@@ -322,9 +328,9 @@ class StagingRepository(DuckDbRepository):
                 """
                 SELECT content_hash, mapping_id, physical_selection_hash,
                        source_selection_hash, mapping_hash, schema_hash,
-                       derived_plan_hash, contract_version, evaluator_version,
-                        run_issues_json, reconciliation_json,
-                        dataset_reconciliation_json, control_totals_json
+                       derived_plan_hash, compiled_plan_hash, contract_version,
+                       evaluator_version, run_issues_json, reconciliation_json,
+                       dataset_reconciliation_json, control_totals_json
                   FROM canonical_staging_run
                  WHERE run_id = ?
                 """,
@@ -350,12 +356,13 @@ class StagingRepository(DuckDbRepository):
             "mapping_hash": str(header[4]),
             "schema_hash": str(header[5]),
             "derived_plan_hash": str(header[6]) if header[6] else None,
-            "contract_version": int(header[7]),
-            "evaluator_version": int(header[8]),
-            "issues": json.loads(str(header[9])),
-            "reconciliation": json.loads(str(header[10])),
-            "datasets": json.loads(str(header[11])),
-            "control_totals": json.loads(str(header[12])),
+            "compiled_plan_hash": str(header[7]) if header[7] else None,
+            "contract_version": int(header[8]),
+            "evaluator_version": int(header[9]),
+            "issues": json.loads(str(header[10])),
+            "reconciliation": json.loads(str(header[11])),
+            "datasets": json.loads(str(header[12])),
+            "control_totals": json.loads(str(header[13])),
             "rows": [json.loads(str(item[0])) for item in rows],
         }
         try:

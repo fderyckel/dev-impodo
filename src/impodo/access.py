@@ -32,6 +32,7 @@ class Capability(StrEnum):
     MAPPING_SUBMIT = "mapping.submit"
     NORMALIZATION_DECIDE = "normalization.decide"
     NORMALIZATION_APPROVE = "normalization.approve"
+    PREFLIGHT_RUN = "preflight.run"
     EXPORT_PLAN_APPROVE = "export_plan.approve"
     EXPORT_PLAN_EXECUTE = "export_plan.execute"
     AUDIT_VIEW = "audit.view"

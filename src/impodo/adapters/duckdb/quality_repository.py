@@ -219,10 +219,14 @@ class QualityRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Quality evidence must be regenerated with the current evaluator"
             )
+        run_payload = run.to_portable_dict()
+        run_content_hash = str(run_payload["content_hash"])
         try:
-            QualityRun.from_json(run.to_json())
+            QualityRun.from_json(_canonical_json(run_payload))
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Quality evidence is invalid") from error
+        finally:
+            del run_payload
         project = self._projects.get(project_id)
         if run.retention_context_hash != retention_context_hash(project):
             raise WorkspaceError(
@@ -281,7 +285,7 @@ class QualityRepository(DuckDbRepository):
                      )
                     """
                 ).fetchone()
-                if current is not None and str(current[1]) == run.content_hash:
+                if current is not None and str(current[1]) == run_content_hash:
                     connection.rollback()
                     return self._quality_summary(project_id, current)
                 self._invalidate_normalization(
@@ -303,7 +307,7 @@ class QualityRepository(DuckDbRepository):
                     """,
                     [
                         run_id,
-                        run.content_hash,
+                        run_content_hash,
                         staging_run_id,
                         run.staging_content_hash,
                         run.ruleset_hash,
@@ -410,7 +414,7 @@ class QualityRepository(DuckDbRepository):
         return QualityRunSummary(
             run_id=run_id,
             project_id=project_id,
-            content_hash=run.content_hash,
+            content_hash=run_content_hash,
             staging_run_id=staging_run_id,
             staging_content_hash=run.staging_content_hash,
             ruleset_hash=run.ruleset_hash,

@@ -30,6 +30,10 @@ class EvidenceInvalidationMixin:
     ) -> None:
         """Retire the current prepared-data approval without deleting evidence."""
 
+        EvidenceInvalidationMixin._invalidate_preflight(
+            connection,
+            reason=reason,
+        )
         current = connection.execute(
             "SELECT run_id FROM normalization_current WHERE singleton_id = 1"
         ).fetchone()
@@ -49,6 +53,36 @@ class EvidenceInvalidationMixin:
             ],
         )
         connection.execute("DELETE FROM normalization_current")
+
+    @staticmethod
+    def _invalidate_preflight(
+        connection: duckdb.DuckDBPyConnection,
+        *,
+        reason: str,
+    ) -> None:
+        """Clear only the current pointer and retain immutable run evidence."""
+
+        current = connection.execute(
+            "SELECT run_id FROM preflight_current WHERE singleton_id = 1"
+        ).fetchone()
+        if current is None:
+            return
+        occurred_at = datetime.now(timezone.utc).isoformat()
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO preflight_transition
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [str(current[0]), "INVALIDATED", occurred_at, "Impodo", reason],
+        )
+        connection.execute("DELETE FROM preflight_current")
+        connection.execute(
+            """
+            UPDATE project
+               SET current_run_id = NULL,
+                   approval_status = 'INVALIDATED'
+            """
+        )
 
     @classmethod
     def _invalidate_quality(

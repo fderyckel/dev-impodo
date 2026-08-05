@@ -30,24 +30,31 @@ def _evaluate_control_totals(
     for dataset in definition.datasets:
         dataset_name = dataset_name_by_id[dataset.dataset_id]
         records = records_by_dataset.get(dataset_name, ())
-        for control in dataset.control_totals:
-            actual = Decimal("0")
-            included_rows = 0
-            empty_rows = 0
-            for record in records:
-                value = record.scalar_values.get(control.target_field)
+        controls = dataset.control_totals
+        controls_by_field = {}
+        for control in controls:
+            controls_by_field.setdefault(control.target_field, control)
+        actual_by_field = {
+            target_field: Decimal("0") for target_field in controls_by_field
+        }
+        included_by_field = {target_field: 0 for target_field in controls_by_field}
+        empty_by_field = {target_field: 0 for target_field in controls_by_field}
+        for record in records:
+            for target_field, first_control in controls_by_field.items():
+                value = record.scalar_values.get(target_field)
                 if value is None:
-                    empty_rows += 1
+                    empty_by_field[target_field] += 1
                     continue
                 if isinstance(value, bool) or not isinstance(
                     value, (int, Decimal)
                 ):
                     raise ReadinessError(
-                        f"The named total {control.name!r} did not produce "
+                        f"The named total {first_control.name!r} did not produce "
                         "numeric prepared values"
                     )
-                actual += Decimal(value)
-                included_rows += 1
+                actual_by_field[target_field] += Decimal(value)
+                included_by_field[target_field] += 1
+        for control in controls:
             control_id = "sha256:" + sha256(
                 canonical_json_bytes(
                     {
@@ -68,11 +75,11 @@ def _evaluate_control_totals(
                     dataset=dataset_name,
                     target_field=control.target_field,
                     expected_total=control.expected_total,
-                    actual_total=format(actual, "f"),
+                    actual_total=format(actual_by_field[control.target_field], "f"),
                     tolerance=control.tolerance,
                     unit=control.unit,
-                    included_rows=included_rows,
-                    empty_rows=empty_rows,
+                    included_rows=included_by_field[control.target_field],
+                    empty_rows=empty_by_field[control.target_field],
                 )
             )
     return tuple(sorted(results, key=lambda item: item.control_id))

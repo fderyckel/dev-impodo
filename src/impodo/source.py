@@ -3,7 +3,7 @@
 This module is the boundary between user-provided CSV/XLSX files and the
 profiler's typed model layer:
 
-1. :func:`load_source_tables` safely reads every file declared by the profile.
+1. :func:`load_source_tables` safely reads files declared by the compiled plan.
 2. :func:`prepare_sources` maps source columns to scalar values, identities,
    and unresolved :class:`~impodo.models.LogicalReference`
    objects.
@@ -26,26 +26,27 @@ from typing import Any, Iterable
 import zipfile
 
 from .canonical import ValueParseError, parse_field, parse_value
+from .domain.compiler.contracts import CompiledMigrationPlan
 from .models import (
     InvalidPreparedValue,
     Issue,
     LogicalReference,
     PreparedRecord,
     ScalarValue,
-    Severity,
+    canonical_json_bytes,
+    portable_value,
 )
 from .profile import (
     DatasetSpec,
     IdentityComponent,
     NormalizationSpec,
-    ProfileDocument,
     RelationSpec,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class SourceTable:
-    """One validated input table before profile mappings are applied.
+    """One validated input table before compiled mappings are applied.
 
     ``rows`` preserves physical row numbers for actionable error reporting,
     while ``content_hash`` allows the final report to identify the exact input
@@ -76,15 +77,18 @@ class PreparedBundle:
     source_hashes: dict[str, str]
 
     def by_dataset(self) -> dict[str, tuple[PreparedRecord, ...]]:
-        """Group records by dataset while preserving profile/record order.
+        """Group records by dataset while preserving plan/record order.
 
         The engine consumes these groups when it resolves dependencies and
         classifies each dataset independently.
         """
 
+        grouped: dict[str, list[PreparedRecord]] = {}
+        for record in self.records:
+            grouped.setdefault(record.dataset, []).append(record)
         return {
-            dataset: tuple(record for record in self.records if record.dataset == dataset)
-            for dataset in dict.fromkeys(record.dataset for record in self.records)
+            dataset: tuple(records)
+            for dataset, records in grouped.items()
         }
 
 
@@ -104,10 +108,10 @@ MAX_CELL_STRING_LENGTH = 1_000_000
 
 
 def load_source_tables(
-    profile: ProfileDocument,
+    plan: CompiledMigrationPlan,
     input_directory: str | Path,
 ) -> tuple[SourceTable, ...]:
-    """Load and validate every source file declared by ``profile``.
+    """Load and validate every source file declared by ``plan``.
 
     The resolved files must remain inside ``input_directory`` and satisfy the
     size and format limits defined in this module.  CSV and XLSX parsing is
@@ -115,7 +119,7 @@ def load_source_tables(
     workbook content cannot silently enter the preflight pipeline.
 
     Returns:
-        Tables in the same order as ``profile.datasets``.
+        Tables in the same order as ``plan.datasets``.
 
     Raises:
         SourceLoadError: If the input directory, a file, or its content
@@ -127,7 +131,7 @@ def load_source_tables(
         raise SourceLoadError(f"source input directory does not exist: {root}")
 
     tables: list[SourceTable] = []
-    for dataset in profile.datasets:
+    for dataset in plan.datasets:
         path = _contained_source_path(root, dataset.source.file)
         file_size = path.stat().st_size
         if file_size > MAX_SOURCE_FILE_BYTES:
@@ -135,7 +139,7 @@ def load_source_tables(
                 f"source file exceeds {MAX_SOURCE_FILE_BYTES} bytes: "
                 f"{dataset.source.file}"
             )
-        data = path.read_bytes()
+        content_hash = _source_content_hash(path)
 
         try:
             if path.suffix.casefold() == ".csv":
@@ -162,7 +166,7 @@ def load_source_tables(
                 path=path,
                 headers=headers,
                 rows=rows,
-                content_hash="sha256:" + sha256(data).hexdigest(),
+                content_hash=content_hash,
             )
         )
     return tuple(tables)
@@ -192,7 +196,7 @@ def load_selected_source_table(
         raise SourceLoadError(
             f"source file exceeds {MAX_SOURCE_FILE_BYTES} bytes: {source_path.name}"
         )
-    data = source_path.read_bytes()
+    content_hash = _source_content_hash(source_path)
     suffix = source_path.suffix.casefold()
     if suffix == ".csv":
         if table_key != "csv":
@@ -228,8 +232,18 @@ def load_selected_source_table(
         path=source_path,
         headers=headers,
         rows=rows,
-        content_hash="sha256:" + sha256(data).hexdigest(),
+        content_hash=content_hash,
     )
+
+
+def _source_content_hash(path: Path) -> str:
+    """Hash a governed source without retaining another full-file copy."""
+
+    digest = sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()
 
 
 def _contained_source_path(root: Path, relative_name: str) -> Path:
@@ -587,7 +601,7 @@ def validate_source_file(path: str | Path) -> None:
 
 
 def prepare_sources(
-    profile: ProfileDocument,
+    plan: CompiledMigrationPlan,
     input_directory: str | Path,
 ) -> PreparedBundle:
     """Convert validated source tables into engine-ready records.
@@ -598,10 +612,10 @@ def prepare_sources(
     duplicate source identities are marked after all rows have been prepared.
     """
 
-    tables = load_source_tables(profile, input_directory)
+    tables = load_source_tables(plan, input_directory)
     root = Path(input_directory).resolve()
     return prepare_source_tables(
-        profile,
+        plan,
         tables,
         source_hashes={
             table.path.relative_to(root).as_posix(): table.content_hash
@@ -611,7 +625,7 @@ def prepare_sources(
 
 
 def prepare_source_tables(
-    profile: ProfileDocument,
+    plan: CompiledMigrationPlan,
     tables: Iterable[SourceTable],
     *,
     source_hashes: dict[str, str],
@@ -622,12 +636,12 @@ def prepare_source_tables(
     by_dataset = {table.dataset: table for table in selected_tables}
     if len(by_dataset) != len(selected_tables):
         raise SourceLoadError("Prepared source tables must be unique by dataset")
-    if set(by_dataset) != {dataset.name for dataset in profile.datasets}:
-        raise SourceLoadError("Prepared source tables do not match the profile")
+    if set(by_dataset) != {dataset.name for dataset in plan.datasets}:
+        raise SourceLoadError("Prepared source tables do not match the compiled plan")
     records: list[PreparedRecord] = []
     issues: list[Issue] = []
 
-    for dataset in profile.datasets:
+    for dataset in plan.datasets:
         table = by_dataset[dataset.name]
         missing_headers = sorted(_required_headers(dataset) - set(table.headers))
         if missing_headers:
@@ -785,6 +799,17 @@ def _prepare_row(
         target_scope=target_scope,
         scalar_values=scalar_values,
         references=references,
+        source_trace_id="sha256:"
+        + sha256(
+            canonical_json_bytes(
+                {
+                    "dataset": dataset.name,
+                    "source_row": row_index,
+                    "target_model": dataset.target.model,
+                    "source_identity": portable_value(tuple(source_identity)),
+                }
+            )
+        ).hexdigest(),
         issues=tuple(row_issues),
     )
 

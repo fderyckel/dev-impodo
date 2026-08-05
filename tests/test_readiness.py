@@ -163,7 +163,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
 
         metadata, records = self._snapshots(evidence[0])
         result = PreflightEngine().run(
-            staged.profile,
+            staged.plan,
             staged.prepared,
             metadata,
             records,
@@ -227,6 +227,15 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             direct.canonical_run.to_json(),
             repeated.canonical_run.to_json(),
         )
+        self.assertEqual(
+            direct.canonical_run.compiled_plan_hash,
+            direct.plan.semantic_hash,
+        )
+        self.assertEqual(direct.plan.origin, "browser_mapping")
+        self.assertEqual(
+            direct.plan.source_selection_hash,
+            effective.content_hash,
+        )
         self.assertEqual(direct.canonical_run.reconciliation.total_rows, 5)
         self.assertEqual(direct.canonical_run.reconciliation.candidate_rows, 5)
         self.assertEqual(direct.canonical_run.reconciliation.blocked_rows, 0)
@@ -253,6 +262,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             direct.canonical_run,
             contract_version=2,
             evaluator_version=1,
+            compiled_plan_hash=None,
             control_totals=(),
         )
         restored_legacy = CanonicalStagingRun.from_json(legacy.to_json())
@@ -291,7 +301,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         staged = stage_browser_mapping(*evidence)
         metadata, records = self._snapshots(evidence[0])
         result = PreflightEngine().run(
-            staged.profile,
+            staged.plan,
             staged.prepared,
             metadata,
             records,
@@ -334,7 +344,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         staged = stage_browser_mapping(*evidence)
         metadata, records = self._snapshots(evidence[0])
         result = PreflightEngine().run(
-            staged.profile,
+            staged.plan,
             staged.prepared,
             metadata,
             records,
@@ -596,7 +606,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
 
         metadata, records = self._product_snapshots(evidence[0])
         result = PreflightEngine().run(
-            staged.profile,
+            staged.plan,
             staged.prepared,
             metadata,
             records,
@@ -1089,13 +1099,4 @@ def _column_profile(ordinal: int, name: str, distinct: int) -> SourceColumnProfi
         non_null_count=1,
         distinct_count=distinct,
         distinct_count_is_exact=True,
-        duplicate_count=0,
-        minimum=None,
-        maximum=None,
-        minimum_length=1,
-        maximum_length=20,
-    )
-
-
-if __name__ == "__main__":
-    unittest.main()
+      

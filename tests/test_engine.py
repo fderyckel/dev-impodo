@@ -5,10 +5,12 @@ from pathlib import Path
 import unittest
 
 from impodo.connectors import SnapshotConnector
+from impodo.domain.compiler import compile_profile_document
 from impodo.engine import PreflightEngine, _relation_difference
 from impodo.models import (
     BusinessReference,
     Classification,
+    assert_no_numeric_odoo_ids,
     canonical_json_bytes,
 )
 from impodo.planner import (
@@ -22,8 +24,33 @@ from impodo.source import prepare_sources
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class PortableEvidenceValidationTests(unittest.TestCase):
+    def test_nested_numeric_odoo_identifier_is_rejected_with_its_path(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            r"\$\.rows\[0\]\.record_id",
+        ):
+            assert_no_numeric_odoo_ids(
+                {"rows": [{"name": "Contact", "record_id": 42}]}
+            )
+
+    def test_nested_business_keys_remain_portable(self) -> None:
+        assert_no_numeric_odoo_ids(
+            {
+                "rows": [
+                    {
+                        "business_key": ["CONTACT-001"],
+                        "references": ({"country_code": "FR"},),
+                    }
+                ]
+            }
+        )
+
+
 def golden_result():
-    profile = load_profile(ROOT / "profiles/examples/golden_slice.yaml")
+    profile = compile_profile_document(
+        load_profile(ROOT / "profiles/examples/golden_slice.yaml")
+    )
     prepared = prepare_sources(profile, ROOT / "examples/golden")
     connector = SnapshotConnector(
         combined_path=ROOT / "fixtures/golden/target_snapshot.json"
@@ -175,7 +202,9 @@ class PreflightClassificationTests(unittest.TestCase):
         self.assertEqual(first, second)
 
     def test_create_only_dataset_blocks_existing_identity(self) -> None:
-        profile = load_profile(ROOT / "profiles/examples/golden_slice.yaml")
+        profile = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/golden_slice.yaml")
+        )
         products = profile.dataset("products")
         changed_target = products.target.model_copy(
             update={"mode": "create", "on_existing": "block"}

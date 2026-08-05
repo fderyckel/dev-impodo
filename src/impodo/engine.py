@@ -3,9 +3,9 @@
 The engine is the orchestration layer for a preflight run.  It receives typed
 source records and read-only Odoo snapshots, then:
 
-1. validates the profile against live/snapshotted Odoo metadata;
+1. validates the compiled plan against live/snapshotted Odoo metadata;
 2. resolves symbolic references to stable business references;
-3. indexes existing targets by the profile's business identity;
+3. indexes existing targets by the compiled plan's business identity;
 4. classifies each actionable source row as create, update, unchanged,
    ambiguous, or blocked; and
 5. returns deterministic, grouped evidence for reporting.
@@ -22,9 +22,10 @@ from dataclasses import replace
 from typing import Any, Iterable
 
 from .canonical import ValueParseError, parse_value, values_equal
-from .catalog import TargetCatalog, relation_id, relation_ids
+from .catalog import TargetCatalog, relation_ids
 from .connectors import MetadataSnapshot, RecordSnapshot
-from .metadata import validate_profile_metadata
+from .domain.compiler.contracts import CompiledMigrationPlan
+from .metadata import validate_plan_metadata
 from .models import (
     BusinessReference,
     Classification,
@@ -43,7 +44,6 @@ from .models import (
 from .profile import (
     DatasetSpec,
     IdentityComponent,
-    ProfileDocument,
     RelationSpec,
     ResolveSpec,
 )
@@ -55,7 +55,7 @@ class PreflightEngine:
 
     def run(
         self,
-        profile: ProfileDocument,
+        plan: CompiledMigrationPlan,
         prepared: PreparedBundle,
         metadata_snapshot: MetadataSnapshot,
         record_snapshot: RecordSnapshot,
@@ -80,27 +80,27 @@ class PreflightEngine:
         if not record_snapshot.complete:
             raise ValueError("record snapshot is incomplete")
 
-        metadata_issues, coverage = validate_profile_metadata(
-            profile, metadata_snapshot
+        metadata_issues, coverage = validate_plan_metadata(
+            plan, metadata_snapshot
         )
         catalog = TargetCatalog(record_snapshot.records)
         with_metadata_issues = _apply_dataset_issues(
             prepared.records, metadata_issues
         )
         resolved_records, resolution_evidence = _resolve_records(
-            profile, with_metadata_issues, catalog
+            plan, with_metadata_issues, catalog
         )
 
         decisions: list[Decision] = []
         runtime_issues: list[Issue] = []
-        for dataset in profile.datasets:
+        for dataset in plan.datasets:
             if dataset.target.mode == "reference":
                 continue
             dataset_records = [
                 record for record in resolved_records if record.dataset == dataset.name
             ]
             target_index, index_issues = _build_target_index(
-                profile, dataset, catalog
+                plan, dataset, catalog
             )
             runtime_issues.extend(index_issues)
             if index_issues:
@@ -110,7 +110,7 @@ class PreflightEngine:
                 ]
             for record in dataset_records:
                 decisions.append(
-                    _classify_record(profile, dataset, record, target_index, catalog)
+                    _classify_record(plan, dataset, record, target_index, catalog)
                 )
 
         all_issues = [
@@ -126,7 +126,7 @@ class PreflightEngine:
         grouped_issues = _group_issues(all_issues)
         grouped_resolutions = _group_resolutions(resolution_evidence)
         dataset_order = {
-            dataset.name: index for index, dataset in enumerate(profile.datasets)
+            dataset.name: index for index, dataset in enumerate(plan.datasets)
         }
         decisions.sort(
             key=lambda decision: (
@@ -136,7 +136,7 @@ class PreflightEngine:
             )
         )
         return PreflightResult(
-            profile_id=profile.profile.id,
+            profile_id=plan.plan_id,
             source_hashes=prepared.source_hashes,
             fingerprint=record_snapshot.fingerprint,
             metadata_snapshot_hash=metadata_snapshot.content_hash,
@@ -173,7 +173,7 @@ def _apply_dataset_issues(
 
 
 def _resolve_records(
-    profile: ProfileDocument,
+    plan: CompiledMigrationPlan,
     records: Iterable[PreparedRecord],
     catalog: TargetCatalog,
 ) -> tuple[tuple[PreparedRecord, ...], tuple[ReferenceResolution, ...]]:
@@ -201,7 +201,7 @@ def _resolve_records(
         cache_key = (record.dataset, record.source_row)
         if cache_key in cache:
             return cache[cache_key]
-        dataset = profile.dataset(record.dataset)
+        dataset = plan.dataset(record.dataset)
         record_issues = list(record.issues)
 
         identity = []
@@ -390,7 +390,7 @@ def _resolve_records(
 def _expanded_component(
     components: tuple[IdentityComponent, ...], flat_index: int
 ) -> IdentityComponent:
-    """Map a flattened identity-value index back to its profile component.
+    """Map a flattened identity-value index back to its compiled component.
 
     Direct components occupy one position per target field; resolved
     components occupy one position because they become one business reference.
@@ -406,7 +406,7 @@ def _expanded_component(
 
 
 def _build_target_index(
-    profile: ProfileDocument,
+    plan: CompiledMigrationPlan,
     dataset: DatasetSpec,
     catalog: TargetCatalog,
 ) -> tuple[
@@ -427,10 +427,10 @@ def _build_target_index(
     for target in catalog.records(dataset.target.model):
         try:
             identity = _target_identity(
-                profile, dataset.target_identity.components, target, catalog
+                plan, dataset.target_identity.components, target, catalog
             )
             scope = _target_identity(
-                profile, dataset.target_identity.scope, target, catalog
+                plan, dataset.target_identity.scope, target, catalog
             )
         except (KeyError, ValueError, ValueParseError) as exc:
             issues.append(
@@ -449,7 +449,7 @@ def _build_target_index(
 
 
 def _target_identity(
-    profile: ProfileDocument,
+    plan: CompiledMigrationPlan,
     components: tuple[IdentityComponent, ...],
     target: TargetRecord,
     catalog: TargetCatalog,
@@ -478,7 +478,7 @@ def _target_identity(
                 )
             continue
         model, identity_fields, scope_fields = _resolve_target_shape(
-            profile, component.resolve
+            plan, component.resolve
         )
         result.append(
             catalog.reference_from_id(
@@ -492,7 +492,7 @@ def _target_identity(
 
 
 def _resolve_target_shape(
-    profile: ProfileDocument,
+    plan: CompiledMigrationPlan,
     resolve: ResolveSpec,
 ) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
     """Return the model, identity fields, and scope fields for a resolver.
@@ -507,7 +507,7 @@ def _resolve_target_shape(
             resolve.target_fields,
             resolve.target_scope_fields,
         )
-    referenced = profile.dataset(str(resolve.dataset))
+    referenced = plan.dataset(str(resolve.dataset))
     identity_fields = tuple(
         target_field
         for component in referenced.target_identity.components
@@ -522,7 +522,7 @@ def _resolve_target_shape(
 
 
 def _classify_record(
-    profile: ProfileDocument,
+    plan: CompiledMigrationPlan,
     dataset: DatasetSpec,
     record: PreparedRecord,
     target_index: dict[
@@ -549,6 +549,7 @@ def _classify_record(
         return Decision(
             dataset=record.dataset,
             source_row=record.source_row,
+            source_trace_id=record.source_trace_id,
             business_identity=business_identity,
             business_scope=business_scope,
             classification=Classification.BLOCKED,
@@ -566,6 +567,7 @@ def _classify_record(
         return Decision(
             dataset=record.dataset,
             source_row=record.source_row,
+            source_trace_id=record.source_trace_id,
             business_identity=business_identity,
             business_scope=business_scope,
             classification=Classification.AMBIGUOUS,
@@ -582,6 +584,7 @@ def _classify_record(
         return Decision(
             dataset=record.dataset,
             source_row=record.source_row,
+            source_trace_id=record.source_trace_id,
             business_identity=business_identity,
             business_scope=business_scope,
             classification=classification,
@@ -600,6 +603,7 @@ def _classify_record(
             return Decision(
                 dataset=record.dataset,
                 source_row=record.source_row,
+                source_trace_id=record.source_trace_id,
                 business_identity=business_identity,
                 business_scope=business_scope,
                 classification=Classification.BLOCKED,
@@ -609,6 +613,7 @@ def _classify_record(
         return Decision(
             dataset=record.dataset,
             source_row=record.source_row,
+            source_trace_id=record.source_trace_id,
             business_identity=business_identity,
             business_scope=business_scope,
             classification=Classification.UNCHANGED,
@@ -616,7 +621,7 @@ def _classify_record(
         )
 
     differences, comparison_issues = _compare_record(
-        profile, dataset, record, matches[0], catalog
+        plan, dataset, record, matches[0], catalog
     )
     record_issues.extend(comparison_issues)
     if any(issue.blocking for issue in record_issues):
@@ -629,6 +634,7 @@ def _classify_record(
     return Decision(
         dataset=record.dataset,
         source_row=record.source_row,
+        source_trace_id=record.source_trace_id,
         business_identity=business_identity,
         business_scope=business_scope,
         classification=classification,
@@ -670,13 +676,13 @@ def _required_on_create_issues(
 
 
 def _compare_record(
-    profile: ProfileDocument,
+    plan: CompiledMigrationPlan,
     dataset: DatasetSpec,
     source: PreparedRecord,
     target: TargetRecord,
     catalog: TargetCatalog,
 ) -> tuple[list[FieldDifference], list[Issue]]:
-    """Compare one source row with its unique target using profile semantics.
+    """Compare one source row with its unique target using compiled semantics.
 
     Scalar target values are normalized with the same rules as their source
     values.  Relational target IDs are first converted to business references.
@@ -730,7 +736,7 @@ def _compare_record(
         proposed = source.references.get(field_name)
         try:
             existing = _existing_relation(
-                profile,
+                plan,
                 spec,
                 target.values.get(field_name),
                 catalog,
@@ -767,7 +773,7 @@ def _compare_record(
 
 
 def _existing_relation(
-    profile: ProfileDocument,
+    plan: CompiledMigrationPlan,
     spec: RelationSpec,
     raw_value: Any,
     catalog: TargetCatalog,
@@ -779,7 +785,7 @@ def _existing_relation(
     """
 
     model, identity_fields, scope_fields = _resolve_target_shape(
-        profile, spec.resolve
+        plan, spec.resolve
     )
     if spec.kind == "many2one":
         return catalog.reference_from_id(

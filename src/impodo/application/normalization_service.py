@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Iterable
+
 from ..access import Actor, AuthorizationPolicy, Capability
 from ..domain.staging.evaluator import StagedBrowserMapping
 from ..domain.staging.transformation_impact import TransformationImpactRow
@@ -133,7 +135,7 @@ class NormalizationService:
         staging: StagingRunSummary,
         quality_run: QualityRun,
         quality: QualityRunSummary,
-        impact_rows: tuple[TransformationImpactRow, ...],
+        impact_rows: Iterable[TransformationImpactRow],
         source_hashes: dict[str, str],
         *,
         actor: Actor,
@@ -143,7 +145,7 @@ class NormalizationService:
             effective_by_id[item.dataset_id].name: item
             for item in revision.definition.datasets
         }
-        candidates = tuple(
+        candidates = (
             NormalizationCandidate(
                 dataset=item.dataset,
                 source_row=item.source_row,

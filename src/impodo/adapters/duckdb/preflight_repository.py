@@ -3,11 +3,25 @@
 from __future__ import annotations
 
 from uuid import UUID
+from dataclasses import asdict, replace
+from datetime import datetime, timezone
+import json
 
 
 from ...access import Actor
 from ...projects import ProjectNotFoundError
-from ...domain.preflight.reports import ReadinessReport
+from ...domain.preflight.reports import (
+    ReadinessReport,
+    ReadinessRow,
+    ReadinessRowPage,
+)
+from ...connectors import (
+    MetadataSnapshot,
+    RecordSnapshot,
+    metadata_snapshot_payload,
+    record_snapshot_payload,
+)
+from ...models import canonical_json_text, target_identity_hash
 from ...workspace_errors import WorkspaceError
 from .database import DuckDbDatabase
 from .project_repository import ProjectRepository
@@ -40,12 +54,17 @@ class PreflightRepository(DuckDbRepository):
         staging_content_hash: str,
         quality_run_id: str,
         quality_content_hash: str,
+        normalization_run_id: str,
+        normalization_content_hash: str,
+        normalization_lifecycle_version: int,
+        eligible_dataset_hash: str,
     ) -> ReadinessReport | None:
         values = self._read_json_rows(
             project_id,
             """
-            SELECT report_json
-              FROM readiness_run
+            SELECT run.report_json
+              FROM preflight_current AS current
+              JOIN readiness_run AS run ON run.run_id = current.run_id
              WHERE mapping_id = ?
                AND mapping_version = ?
                AND mapping_content_hash = ?
@@ -53,7 +72,11 @@ class PreflightRepository(DuckDbRepository):
                AND staging_content_hash = ?
                AND quality_run_id = ?
                AND quality_content_hash = ?
-             ORDER BY checked_at DESC, run_id
+               AND normalization_run_id = ?
+               AND normalization_content_hash = ?
+               AND normalization_lifecycle_version = ?
+               AND eligible_dataset_hash = ?
+               AND current.singleton_id = 1
             """,
             [
                 mapping_id,
@@ -63,6 +86,10 @@ class PreflightRepository(DuckDbRepository):
                 staging_content_hash,
                 quality_run_id,
                 quality_content_hash,
+                normalization_run_id,
+                normalization_content_hash,
+                normalization_lifecycle_version,
+                eligible_dataset_hash,
             ],
         )
         return ReadinessReport.from_json(values[0]) if values else None
@@ -71,16 +98,26 @@ class PreflightRepository(DuckDbRepository):
         project_id: str,
         report: ReadinessReport,
         *,
+        metadata_snapshot: MetadataSnapshot,
+        record_snapshot: RecordSnapshot,
         actor: Actor,
     ) -> None:
         try:
             canonical_run_id = str(UUID(report.run_id))
             canonical_staging_run_id = str(UUID(report.staging_run_id))
             canonical_quality_run_id = str(UUID(report.quality_run_id))
+            canonical_normalization_run_id = str(UUID(report.normalization_run_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Readiness run identifier is invalid") from error
         if report.project_id != project_id:
             raise WorkspaceError("Readiness report belongs to another project")
+        if (
+            metadata_snapshot.content_hash != report.metadata_snapshot_hash
+            or record_snapshot.content_hash != report.record_snapshot_hash
+            or metadata_snapshot.fingerprint != record_snapshot.fingerprint
+            or metadata_snapshot.fingerprint.target_hash != report.target_hash
+        ):
+            raise WorkspaceError("Readiness snapshot evidence is invalid")
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -88,6 +125,20 @@ class PreflightRepository(DuckDbRepository):
             self._migrate_project_database(connection)
             connection.begin()
             try:
+                target = connection.execute(
+                    """
+                    SELECT odoo_connection_mode, odoo_base_url, odoo_database
+                      FROM project
+                    """
+                ).fetchone()
+                if target is None or target_identity_hash(
+                    connection_mode=str(target[0] or ""),
+                    base_url=str(target[1] or ""),
+                    database=str(target[2] or ""),
+                ) != report.target_hash:
+                    raise WorkspaceError(
+                        "Readiness report does not match the current Odoo target"
+                    )
                 submission = connection.execute(
                     """
                     SELECT submission_id
@@ -153,16 +204,27 @@ class PreflightRepository(DuckDbRepository):
                     )
                 normalization = connection.execute(
                     """
-                    SELECT run.staging_run_id, run.quality_run_id
+                    SELECT run.content_hash, run.staging_run_id,
+                           run.staging_content_hash, run.quality_run_id,
+                           run.quality_content_hash,
+                           run.eligible_dataset_hash,
+                           run.lifecycle_version
                       FROM normalization_current AS current
                       JOIN normalization_run AS run ON run.run_id = current.run_id
                      WHERE current.singleton_id = 1
+                       AND run.run_id = ?
                        AND run.status = 'FROZEN'
-                    """
+                    """,
+                    [canonical_normalization_run_id],
                 ).fetchone()
                 if normalization is None or (
-                    str(normalization[0]) != canonical_staging_run_id
-                    or str(normalization[1]) != canonical_quality_run_id
+                    str(normalization[0]) != report.normalization_content_hash
+                    or str(normalization[1]) != canonical_staging_run_id
+                    or str(normalization[2]) != report.staging_content_hash
+                    or str(normalization[3]) != canonical_quality_run_id
+                    or str(normalization[4]) != report.quality_content_hash
+                    or str(normalization[5]) != report.eligible_dataset_hash
+                    or int(normalization[6]) != report.normalization_lifecycle_version
                 ):
                     raise WorkspaceError(
                         "Approve the prepared data before saving an Odoo comparison"
@@ -175,8 +237,13 @@ class PreflightRepository(DuckDbRepository):
                         mapping_content_hash, target_hash, staging_run_id,
                         staging_content_hash, quality_run_id,
                         quality_content_hash, checked_at, checked_by,
-                        report_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        report_json, normalization_run_id,
+                        normalization_content_hash,
+                        normalization_lifecycle_version,
+                        eligible_dataset_hash, frozen_input_hash,
+                        requirement_plan_hash, metadata_snapshot_hash,
+                        record_snapshot_hash, result_hash, manifest_hash
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         canonical_run_id,
@@ -190,7 +257,131 @@ class PreflightRepository(DuckDbRepository):
                         report.quality_content_hash,
                         report.checked_at.isoformat(),
                         report.checked_by,
-                        report.to_json(),
+                        replace(report, rows=()).to_json(),
+                        canonical_normalization_run_id,
+                        report.normalization_content_hash,
+                        report.normalization_lifecycle_version,
+                        report.eligible_dataset_hash,
+                        report.frozen_input_hash,
+                        report.requirement_plan_hash,
+                        report.metadata_snapshot_hash,
+                        report.record_snapshot_hash,
+                        report.result_hash,
+                        report.manifest_hash,
+                    ],
+                )
+                dataset_values = [
+                        [
+                            canonical_run_id,
+                            ordinal,
+                            item.dataset,
+                            canonical_json_text(asdict(item)),
+                        ]
+                        for ordinal, item in enumerate(report.datasets)
+                    ]
+                if dataset_values:
+                    connection.executemany(
+                        """
+                        INSERT INTO preflight_dataset
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        dataset_values,
+                    )
+                for start in range(0, len(report.rows), 1_000):
+                    connection.executemany(
+                        """
+                        INSERT INTO preflight_decision (
+                            run_id, ordinal, source_trace_id, dataset,
+                            source_row, status, decision_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [
+                            [
+                                canonical_run_id,
+                                start + offset,
+                                item.source_trace_id,
+                                item.dataset,
+                                item.source_row,
+                                item.status,
+                                canonical_json_text(asdict(item)),
+                            ]
+                            for offset, item in enumerate(
+                                report.rows[start : start + 1_000]
+                            )
+                        ],
+                    )
+                connection.executemany(
+                    """
+                    INSERT INTO preflight_target_snapshot
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    [
+                        [
+                            canonical_run_id,
+                            "metadata",
+                            report.metadata_snapshot_hash,
+                            canonical_json_text(
+                                metadata_snapshot_payload(metadata_snapshot)
+                            ),
+                        ],
+                        [
+                            canonical_run_id,
+                            "records",
+                            report.record_snapshot_hash,
+                            canonical_json_text(
+                                record_snapshot_payload(record_snapshot)
+                            ),
+                        ],
+                    ],
+                )
+                stored = connection.execute(
+                    """
+                    SELECT
+                        (SELECT COUNT(*) FROM preflight_dataset WHERE run_id = ?),
+                        (SELECT COUNT(*) FROM preflight_decision WHERE run_id = ?),
+                        (SELECT COUNT(*) FROM preflight_target_snapshot WHERE run_id = ?)
+                    """,
+                    [canonical_run_id, canonical_run_id, canonical_run_id],
+                ).fetchone()
+                if stored is None or tuple(int(item) for item in stored) != (
+                    len(report.datasets),
+                    len(report.rows),
+                    2,
+                ):
+                    raise WorkspaceError("Readiness evidence was not stored completely")
+                previous = connection.execute(
+                    "SELECT run_id FROM preflight_current WHERE singleton_id = 1"
+                ).fetchone()
+                if previous is not None:
+                    connection.execute(
+                        """
+                        INSERT OR REPLACE INTO preflight_transition
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        [
+                            str(previous[0]),
+                            "SUPERSEDED",
+                            datetime.now(timezone.utc).isoformat(),
+                            actor.identity.display_name,
+                            canonical_run_id,
+                        ],
+                    )
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO preflight_current VALUES (1, ?)
+                    """,
+                    [canonical_run_id],
+                )
+                connection.execute(
+                    """
+                    INSERT INTO preflight_transition VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        canonical_run_id,
+                        "COMPLETED",
+                        datetime.now(timezone.utc).isoformat(),
+                        actor.identity.display_name,
+                        report.result_hash,
                     ],
                 )
                 connection.execute(
@@ -216,3 +407,63 @@ class PreflightRepository(DuckDbRepository):
                 connection.rollback()
                 raise
         self._projects.synchronize_registration_artifacts(project_id)
+
+    def get_readiness_rows(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        status: str = "",
+        dataset: str = "",
+        page: int = 1,
+        page_size: int = 100,
+    ) -> ReadinessRowPage:
+        try:
+            canonical_run_id = str(UUID(run_id))
+        except (ValueError, AttributeError) as error:
+            raise WorkspaceError("Readiness run identifier is invalid") from error
+        if page < 1 or page_size < 1 or page_size > 500:
+            raise WorkspaceError("Readiness page request is invalid")
+        clauses = ["run_id = ?"]
+        parameters: list[object] = [canonical_run_id]
+        if status:
+            clauses.append("status = ?")
+            parameters.append(status)
+        if dataset:
+            clauses.append("dataset = ?")
+            parameters.append(dataset)
+        where = " AND ".join(clauses)
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            count_row = connection.execute(
+                f"SELECT COUNT(*) FROM preflight_decision WHERE {where}",
+                parameters,
+            ).fetchone()
+            matching_count = int(count_row[0]) if count_row else 0
+            page_count = max(1, (matching_count + page_size - 1) // page_size)
+            bounded_page = min(page, page_count)
+            rows = connection.execute(
+                f"""
+                SELECT decision_json
+                  FROM preflight_decision
+                 WHERE {where}
+                 ORDER BY ordinal
+                 LIMIT ? OFFSET ?
+                """,
+                [
+                    *parameters,
+                    page_size,
+                    (bounded_page - 1) * page_size,
+                ],
+            ).fetchall()
+        return ReadinessRowPage(
+            items=tuple(
+                ReadinessRow(**json.loads(str(row[0]))) for row in rows
+            ),
+            matching_count=matching_count,
+            page=bounded_page,
+            page_count=page_count,
+        )

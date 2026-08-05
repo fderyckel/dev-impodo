@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from contextlib import ExitStack
 from typing import Callable, Iterable
 
@@ -39,17 +38,6 @@ from .readiness_ports import (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class PreparedReadinessContext:
-    project: MigrationProject
-    revision: MappingRevision
-    staged: StagedBrowserMapping
-    staging: StagingRunSummary
-    quality_run: QualityRun
-    quality: QualityRunSummary
-    normalization: NormalizationRunSummary
-
-
 class PreparationService:
     """Coordinate source loading and target-independent evidence publication."""
 
@@ -81,14 +69,6 @@ class PreparationService:
         *,
         actor: Actor,
     ) -> NormalizationRunSummary:
-        return self.prepare_context(project_id, actor=actor).normalization
-
-    def prepare_context(
-        self,
-        project_id: str,
-        *,
-        actor: Actor,
-    ) -> PreparedReadinessContext:
         self.authorization.require(
             actor,
             Capability.MAPPING_SUBMIT,
@@ -149,19 +129,11 @@ class PreparationService:
             staging,
             quality_run,
             quality,
-            tuple(impact_rows),
+            impact_rows,
             source_hashes,
             actor=actor,
         )
-        return PreparedReadinessContext(
-            project=project,
-            revision=revision,
-            staged=staged,
-            staging=staging,
-            quality_run=quality_run,
-            quality=quality,
-            normalization=normalization,
-        )
+        return normalization
 
 
 def canonical_source_hashes(selection: SourceSelection) -> dict[str, str]:

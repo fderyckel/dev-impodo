@@ -2,25 +2,45 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from hashlib import sha256
 from typing import Callable
 from uuid import uuid4
 
 from ..access import Actor, AuthorizationPolicy, Capability
 from ..artifacts import ArtifactStore
-from ..connectors import MetadataRequest, MetadataSnapshot, RecordRequest, RecordSnapshot
-from ..domain.preflight.reports import ReadinessReport, _readiness_report
+from ..connectors import (
+    MetadataRequest,
+    MetadataSnapshot,
+    RecordRequest,
+    RecordSnapshot,
+    bind_snapshot_hashes,
+)
+from ..domain.compiler.browser_mapping_compiler import (
+    browser_mapping_labels,
+    compile_browser_mapping,
+)
+from ..domain.preflight.frozen_input import (
+    FrozenPreflightInput,
+    build_frozen_preflight_input,
+)
+from ..domain.preflight.reports import (
+    ReadinessReport,
+    ReadinessRowPage,
+    _readiness_report,
+)
 from ..engine import PreflightEngine
 from ..models import canonical_json_bytes, target_identity_hash
-from ..planner import plan_metadata_requests, plan_record_requests
-from ..quality import eligible_prepared_bundle
+from ..planner import plan_preflight_requirements
 from ..staging import StagingRunSummary
 from ..domain.errors import ReadinessError
-from .preparation_service import PreparedReadinessContext
 from .readiness_ports import (
     PreflightMappingRepository,
     PreflightNormalizationRepository,
+    PreflightProjectRepository,
     PreflightQualityRepository,
     PreflightRepository,
+    PreflightSourceRepository,
     PreflightStagingRepository,
 )
 
@@ -42,6 +62,8 @@ class PreflightService:
         quality: PreflightQualityRepository,
         normalization: PreflightNormalizationRepository,
         mappings: PreflightMappingRepository,
+        projects: PreflightProjectRepository,
+        sources: PreflightSourceRepository,
         preflight: PreflightRepository,
         artifacts: ArtifactStore,
         authorization: AuthorizationPolicy,
@@ -50,6 +72,8 @@ class PreflightService:
         self.quality = quality
         self.normalization = normalization
         self.mappings = mappings
+        self.projects = projects
+        self.sources = sources
         self.preflight = preflight
         self.artifacts = artifacts
         self.authorization = authorization
@@ -76,9 +100,12 @@ class PreflightService:
         submission = self.mappings.get_mapping_submission(
             project_id, revision.version
         )
-        if submission is None:
+        if (
+            submission is None
+            or submission.mapping_content_hash != revision.definition.content_hash
+        ):
             return None
-        return self.preflight.get_readiness_report(
+        report = self.preflight.get_readiness_report(
             project_id,
             revision.mapping_id,
             revision.version,
@@ -87,43 +114,83 @@ class PreflightService:
             staging.content_hash,
             quality.run_id,
             quality.content_hash,
+            normalization.run_id,
+            normalization.content_hash,
+            normalization.lifecycle_version,
+            normalization.eligible_dataset_hash,
         )
+        if report is None:
+            return None
+        project = self.projects.get(project_id)
+        expected_target = target_identity_hash(
+            connection_mode=(
+                project.odoo_connection_mode.value
+                if project.odoo_connection_mode is not None
+                else ""
+            ),
+            base_url=project.odoo_base_url,
+            database=project.odoo_database,
+        )
+        return report if report.target_hash == expected_target else None
 
     def current_staging(self, project_id: str) -> StagingRunSummary | None:
         return self.staging.get_current_staging_summary(project_id)
 
+    def readiness_rows(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        status: str = "",
+        dataset: str = "",
+        page: int = 1,
+        page_size: int = 100,
+    ) -> ReadinessRowPage:
+        return self.preflight.get_readiness_rows(
+            project_id,
+            run_id,
+            status=status,
+            dataset=dataset,
+            page=page,
+            page_size=page_size,
+        )
+
     def compare(
         self,
-        context: PreparedReadinessContext,
+        project_id: str,
         *,
         reader: ReadinessReader,
         actor: Actor,
     ) -> ReadinessReport:
         """Compare prepared rows without invoking preparation or source loading."""
 
-        project_id = context.project.project_id
         self.authorization.require(
             actor,
-            Capability.MAPPING_SUBMIT,
+            Capability.PREFLIGHT_RUN,
             project_id=project_id,
         )
-        if not context.normalization.frozen:
+        frozen = self._load_frozen_input(project_id)
+        requirements = plan_preflight_requirements(
+            frozen.plan,
+            frozen.prepared.records,
+        )
+        if any(not request.domain for request in requirements.record_requests):
             raise ReadinessError(
-                "Approve the prepared data before comparing it with Odoo. "
+                "An Odoo record read could not be narrowed safely. "
                 "Odoo was not contacted."
             )
-        eligible = eligible_prepared_bundle(
-            context.staged.canonical_run,
-            context.staged.prepared,
-            context.quality_run,
+        metadata, records = reader(
+            requirements.metadata_requests,
+            requirements.record_requests,
         )
-        metadata_requests = plan_metadata_requests(context.staged.profile)
-        record_requests = plan_record_requests(
-            context.staged.profile,
-            eligible.records,
+        metadata, records = bind_snapshot_hashes(metadata, records)
+        _validate_snapshot_projection(
+            requirements.metadata_requests,
+            requirements.record_requests,
+            metadata,
+            records,
         )
-        metadata, records = reader(metadata_requests, record_requests)
-        project = context.project
+        project = self.projects.get(project_id)
         expected_target = target_identity_hash(
             connection_mode=(
                 project.odoo_connection_mode.value
@@ -136,32 +203,158 @@ class PreflightService:
         if metadata.fingerprint.target_hash != expected_target:
             raise ReadinessError("Readiness data came from a different Odoo target")
         result = self.engine.run(
-            context.staged.profile,
-            eligible,
+            frozen.plan,
+            frozen.prepared,
             metadata,
             records,
         )
+        if not result.metadata_snapshot_hash or not result.record_snapshot_hash:
+            raise ReadinessError("Odoo snapshot evidence is incomplete")
         run_id = str(uuid4())
         report = _readiness_report(
             run_id,
             project,
-            context.revision,
+            frozen.revision,
             result,
-            context.staged.dataset_labels,
-            context.staged.source_field_labels,
+            frozen.dataset_labels,
+            frozen.source_field_labels,
             actor,
-            context.staging,
-            context.quality,
+            frozen.staging,
+            frozen.quality,
+            frozen.normalization,
+            frozen_input_hash=frozen.content_hash,
+            requirement_plan_hash=requirements.semantic_hash,
+            metadata_snapshot_hash=result.metadata_snapshot_hash,
+            record_snapshot_hash=result.record_snapshot_hash,
         )
-        self.artifacts.write_report(
-            project_id,
-            run_id,
-            MANIFEST_NAME,
-            canonical_json_bytes(result.to_portable_dict()) + b"\n",
-        )
-        self.preflight.save_readiness_report(
-            project_id,
+        manifest = result.to_portable_dict()
+        manifest["preflight_evidence"] = {
+            "frozen_input_hash": frozen.content_hash,
+            "normalization_run_id": frozen.normalization.run_id,
+            "normalization_content_hash": frozen.normalization.content_hash,
+            "normalization_lifecycle_version": (
+                frozen.normalization.lifecycle_version
+            ),
+            "eligible_dataset_hash": frozen.normalization.eligible_dataset_hash,
+            "compiled_migration_plan_hash": frozen.plan.semantic_hash,
+            "requirement_plan_hash": requirements.semantic_hash,
+            "requirement_model_count": requirements.model_count,
+            "requirement_chunk_count": requirements.chunk_count,
+            "source_record_count": requirements.source_record_count,
+        }
+        manifest_content = canonical_json_bytes(manifest) + b"\n"
+        report = replace(
             report,
-            actor=actor,
+            manifest_hash="sha256:" + sha256(manifest_content).hexdigest(),
         )
+        try:
+            self.artifacts.write_report(
+                project_id,
+                run_id,
+                MANIFEST_NAME,
+                manifest_content,
+            )
+            self.preflight.save_readiness_report(
+                project_id,
+                report,
+                metadata_snapshot=metadata,
+                record_snapshot=records,
+                actor=actor,
+            )
+        except Exception:
+            try:
+                self.artifacts.delete_report(project_id, run_id, MANIFEST_NAME)
+            except Exception:
+                pass
+            raise
         return report
+
+    def _load_frozen_input(self, project_id: str) -> FrozenPreflightInput:
+        """Load version-checked durable evidence without source artifacts."""
+
+        project = self.projects.get(project_id)
+        revision = self.mappings.get_mapping_revision(project_id)
+        if revision is None:
+            raise ReadinessError("Submit the mapping before comparing with Odoo")
+        submission = self.mappings.get_mapping_submission(project_id, revision.version)
+        if (
+            submission is None
+            or submission.mapping_content_hash != revision.definition.content_hash
+        ):
+            raise ReadinessError("Submit the current mapping before comparing with Odoo")
+        selection = self.sources.get_mapping_source_selection(project_id)
+        staging_summary = self.staging.get_current_staging_summary(project_id)
+        quality_summary = self.quality.get_current_quality_summary(project_id)
+        normalization = self.normalization.get_current_normalization_summary(project_id)
+        if selection is None or staging_summary is None or quality_summary is None:
+            raise ReadinessError(
+                "Prepare the data before comparing it with Odoo. Odoo was not contacted."
+            )
+        if normalization is None:
+            raise ReadinessError(
+                "Approve the prepared data before comparing it with Odoo. "
+                "Odoo was not contacted."
+            )
+        staging = self.staging.get_canonical_staging_run(
+            project_id, staging_summary.run_id
+        )
+        quality = self.quality.get_quality_run(project_id, quality_summary.run_id)
+        dry_run = self.normalization.get_normalization_dry_run(
+            project_id, normalization.run_id
+        )
+        if staging is None or quality is None or dry_run is None:
+            raise ReadinessError(
+                "The approved prepared evidence is incomplete. Odoo was not contacted."
+            )
+        plan = compile_browser_mapping(
+            revision.definition,
+            selection,
+            derived_plan_hash=staging.derived_plan_hash,
+        )
+        dataset_labels, source_field_labels = browser_mapping_labels(
+            revision.definition,
+            selection,
+        )
+        return build_frozen_preflight_input(
+            project_id=project.project_id,
+            revision=revision,
+            selection=selection,
+            staging_summary=staging_summary,
+            staging=staging,
+            quality_summary=quality_summary,
+            quality=quality,
+            normalization=normalization,
+            dry_run=dry_run,
+            plan=plan,
+            dataset_labels=dataset_labels,
+            source_field_labels=source_field_labels,
+        )
+
+
+def _validate_snapshot_projection(
+    metadata_requests: tuple[MetadataRequest, ...],
+    record_requests: tuple[RecordRequest, ...],
+    metadata: MetadataSnapshot,
+    records: RecordSnapshot,
+) -> None:
+    """Require the exact planned models and field projections."""
+
+    expected_metadata = {item.model: item.fields for item in metadata_requests}
+    if set(metadata.models) != set(expected_metadata):
+        raise ReadinessError("Odoo metadata snapshot is incomplete")
+    for model, fields in expected_metadata.items():
+        if not set(metadata.models[model].fields).issubset(fields):
+            raise ReadinessError("Odoo metadata snapshot contains unplanned fields")
+
+    expected_records: dict[str, tuple[str, ...]] = {}
+    for request in record_requests:
+        previous = expected_records.setdefault(request.model, request.fields)
+        if previous != request.fields:
+            raise ReadinessError("Odoo record plan has inconsistent field projections")
+    if set(records.records) != set(expected_records) or set(
+        records.requested_fields
+    ) != set(expected_records):
+        raise ReadinessError("Odoo record snapshot is incomplete")
+    for model, fields in expected_records.items():
+        if tuple(records.requested_fields[model]) != tuple(fields):
+            raise ReadinessError("Odoo record snapshot omitted requested fields")

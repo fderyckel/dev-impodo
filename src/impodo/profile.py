@@ -293,82 +293,8 @@ class ProfileDocument(StrictModel):
     def validate_datasets(self) -> "ProfileDocument":
         """Validate unique names, incoming references, identity keys, and cycles."""
 
-        names = [dataset.name for dataset in self.datasets]
-        duplicates = sorted({name for name in names if names.count(name) > 1})
-        if duplicates:
-            raise ValueError(f"duplicate dataset names: {duplicates}")
-        known = set(names)
-        for dataset in self.datasets:
-            resolves = [
-                component.resolve
-                for component in (
-                    *dataset.target_identity.components,
-                    *dataset.target_identity.scope,
-                )
-                if component.resolve is not None
-            ]
-            resolves.extend(relation.resolve for relation in dataset.relations.values())
-            for resolve in resolves:
-                if resolve.dataset is not None and resolve.dataset not in known:
-                    raise ValueError(
-                        f"dataset {dataset.name!r} resolves unknown dataset "
-                        f"{resolve.dataset!r}"
-                    )
-                if resolve.dataset is not None and resolve.dataset in known:
-                    target_dataset = next(
-                        item
-                        for item in self.datasets
-                        if item.name == resolve.dataset
-                    )
-                    if (
-                        tuple(resolve.target_source_fields)
-                        != tuple(target_dataset.source_identity.fields)
-                    ):
-                        raise ValueError(
-                            f"dataset {dataset.name!r} resolves "
-                            f"{resolve.dataset!r} through "
-                            "target_source_fields that do not match the "
-                            "referenced dataset source identity"
-                        )
-        self._validate_dependency_cycles()
+        validate_dataset_graph(self.datasets)
         return self
-
-    def _validate_dependency_cycles(self) -> None:
-        """Reject cycles between datasets that require deferred resolution."""
-
-        graph: dict[str, set[str]] = {dataset.name: set() for dataset in self.datasets}
-        for dataset in self.datasets:
-            specs = [
-                component.resolve
-                for component in (
-                    *dataset.target_identity.components,
-                    *dataset.target_identity.scope,
-                )
-                if component.resolve is not None
-            ]
-            specs.extend(relation.resolve for relation in dataset.relations.values())
-            graph[dataset.name].update(
-                resolve.dataset for resolve in specs if resolve.dataset is not None
-            )
-
-        visiting: set[str] = set()
-        visited: set[str] = set()
-
-        def visit(name: str) -> None:
-            """Depth-first traversal with an active recursion-stack guard."""
-
-            if name in visiting:
-                raise ValueError(f"deferred dataset reference cycle includes {name!r}")
-            if name in visited:
-                return
-            visiting.add(name)
-            for dependency in graph[name]:
-                visit(dependency)
-            visiting.remove(name)
-            visited.add(name)
-
-        for dataset_name in graph:
-            visit(dataset_name)
 
     def dataset(self, name: str) -> DatasetSpec:
         """Return a dataset by stable name or raise `KeyError`."""
@@ -377,6 +303,82 @@ class ProfileDocument(StrictModel):
             if dataset.name == name:
                 return dataset
         raise KeyError(name)
+
+
+def validate_dataset_graph(datasets: tuple[DatasetSpec, ...]) -> None:
+    """Validate cross-dataset references shared by authoring and compiled contracts."""
+
+    by_name: dict[str, DatasetSpec] = {}
+    duplicates: set[str] = set()
+    for dataset in datasets:
+        if dataset.name in by_name:
+            duplicates.add(dataset.name)
+        else:
+            by_name[dataset.name] = dataset
+    if duplicates:
+        raise ValueError(f"duplicate dataset names: {sorted(duplicates)}")
+    known = set(by_name)
+    for dataset in datasets:
+        resolves = [
+            component.resolve
+            for component in (
+                *dataset.target_identity.components,
+                *dataset.target_identity.scope,
+            )
+            if component.resolve is not None
+        ]
+        resolves.extend(relation.resolve for relation in dataset.relations.values())
+        for resolve in resolves:
+            if resolve.dataset is not None and resolve.dataset not in known:
+                raise ValueError(
+                    f"dataset {dataset.name!r} resolves unknown dataset "
+                    f"{resolve.dataset!r}"
+                )
+            if resolve.dataset is not None and resolve.dataset in known:
+                target_dataset = by_name[resolve.dataset]
+                if (
+                    tuple(resolve.target_source_fields)
+                    != tuple(target_dataset.source_identity.fields)
+                ):
+                    raise ValueError(
+                        f"dataset {dataset.name!r} resolves "
+                        f"{resolve.dataset!r} through "
+                        "target_source_fields that do not match the "
+                        "referenced dataset source identity"
+                    )
+    graph: dict[str, set[str]] = {dataset.name: set() for dataset in datasets}
+    for dataset in datasets:
+        specs = [
+            component.resolve
+            for component in (
+                *dataset.target_identity.components,
+                *dataset.target_identity.scope,
+            )
+            if component.resolve is not None
+        ]
+        specs.extend(relation.resolve for relation in dataset.relations.values())
+        graph[dataset.name].update(
+            resolve.dataset for resolve in specs if resolve.dataset is not None
+        )
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(name: str) -> None:
+        """Depth-first traversal with an active recursion-stack guard."""
+
+        if name in visiting:
+            raise ValueError(f"deferred dataset reference cycle includes {name!r}")
+        if name in visited:
+            return
+        visiting.add(name)
+        for dependency in graph[name]:
+            visit(dependency)
+        visiting.remove(name)
+        visited.add(name)
+
+    for dataset_name in graph:
+        visit(dataset_name)
 
 
 class ProfileLoadError(ValueError):

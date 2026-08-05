@@ -8,6 +8,7 @@ hashes; numeric Odoo identifiers are forbidden by construction.
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -752,16 +753,38 @@ def evaluate_quality(
         raise QualityError("Quality evidence belongs to another project")
     if ruleset.mapping_hash != staging.mapping_hash or ruleset.schema_hash != staging.schema_hash:
         raise QualityError("Data checks no longer match the submitted field matches")
+    staging_content_hash = staging.content_hash
+    ruleset_hash = ruleset.content_hash
     rows_by_id = {row.row_id: row for row in staging.rows}
-    prepared_by_coordinate: dict[tuple[str, int], list[PreparedRecord]] = {}
+    prepared_by_coordinate: dict[
+        tuple[str, int],
+        PreparedRecord | tuple[PreparedRecord, ...],
+    ] = {}
     for record in prepared.records:
-        prepared_by_coordinate.setdefault((record.dataset, record.source_row), []).append(record)
-    canonical_by_coordinate: dict[tuple[str, int], list[CanonicalRow]] = {}
+        coordinate = (record.dataset, record.source_row)
+        existing = prepared_by_coordinate.get(coordinate)
+        if existing is None:
+            prepared_by_coordinate[coordinate] = record
+        elif isinstance(existing, tuple):
+            prepared_by_coordinate[coordinate] = (*existing, record)
+        else:
+            prepared_by_coordinate[coordinate] = (existing, record)
+    canonical_by_coordinate: dict[
+        tuple[str, int],
+        CanonicalRow | tuple[CanonicalRow, ...],
+    ] = {}
     for row in staging.rows:
-        canonical_by_coordinate.setdefault((row.dataset, row.source_row), []).append(row)
+        coordinate = (row.dataset, row.source_row)
+        existing = canonical_by_coordinate.get(coordinate)
+        if existing is None:
+            canonical_by_coordinate[coordinate] = row
+        elif isinstance(existing, tuple):
+            canonical_by_coordinate[coordinate] = (*existing, row)
+        else:
+            canonical_by_coordinate[coordinate] = (existing, row)
     rules_by_family = {(rule.dataset, rule.family): rule for rule in ruleset.rules if rule.source is not QualityRuleSource.MANAGER_AUTHORED}
     issue_map: dict[str, QualityIssue] = {}
-    row_issue_ids: dict[str, set[str]] = {row.row_id: set() for row in staging.rows}
+    row_issue_ids: dict[str, set[str]] = {}
 
     missing = [
         (dataset.dataset, family)
@@ -804,11 +827,21 @@ def evaluate_quality(
             policy = QualityOutcomePolicy.WARNING if item.severity == "warning" else rule.outcome
             issue = _quality_issue(project, rule, row, item.code, item.message, (item.field,) if item.field else (), policy=policy)
             issue_map[issue.issue_id] = issue
-            row_issue_ids[row.row_id].add(issue.issue_id)
+            row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
 
     for item in staging.issues:
         if item.dataset and item.source_row is not None:
-            for row in canonical_by_coordinate.get((item.dataset, item.source_row), ()):
+            matched = canonical_by_coordinate.get(
+                (item.dataset, item.source_row)
+            )
+            matched_rows = (
+                ()
+                if matched is None
+                else matched
+                if isinstance(matched, tuple)
+                else (matched,)
+            )
+            for row in matched_rows:
                 family = _family_for_issue(item)
                 rule = rules_by_family.get((row.dataset, family))
                 if rule is None:
@@ -816,20 +849,26 @@ def evaluate_quality(
                 policy = QualityOutcomePolicy.WARNING if item.severity == "warning" else rule.outcome
                 issue = _quality_issue(project, rule, row, item.code, item.message, (item.field,) if item.field else (), policy=policy)
                 issue_map[issue.issue_id] = issue
-                row_issue_ids[row.row_id].add(issue.issue_id)
+                row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
         elif item.dataset:
             issue = _setup_issue(project, item.dataset, _family_for_issue(item), item.code, item.message)
             issue_map[issue.issue_id] = issue
 
-    collision_groups: dict[bytes, list[CanonicalRow]] = {}
+    collision_groups: dict[bytes, CanonicalRow | list[CanonicalRow]] = {}
     for row in staging.rows:
         identity = (*row.target_identity, *row.target_scope)
         if not identity or any(value is None or value == "" for value in identity):
             continue
         key = canonical_json_bytes({"dataset": row.dataset, "model": row.target_model, "identity": portable_value(row.target_identity), "scope": portable_value(row.target_scope)})
-        collision_groups.setdefault(key, []).append(row)
+        existing = collision_groups.get(key)
+        if existing is None:
+            collision_groups[key] = row
+        elif isinstance(existing, list):
+            existing.append(row)
+        else:
+            collision_groups[key] = [existing, row]
     for group in collision_groups.values():
-        if len(group) < 2:
+        if not isinstance(group, list):
             continue
         for row in group:
             rule = rules_by_family.get((row.dataset, QualityRuleFamily.IDENTITY_COLLISION))
@@ -837,7 +876,7 @@ def evaluate_quality(
                 continue
             issue = _quality_issue(project, rule, row, "POST_TRANSFORM_IDENTITY_COLLISION", f"{len(group)} prepared records would use the same Odoo match. All were set aside for review.", (), policy=rule.outcome)
             issue_map[issue.issue_id] = issue
-            row_issue_ids[row.row_id].add(issue.issue_id)
+            row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
 
     for rule in (
         item
@@ -851,38 +890,128 @@ def evaluate_quality(
                 continue
             issue = _quality_issue(project, rule, row, "BUSINESS_CHECK_FAILED", reason, rule.input_fields, policy=rule.outcome)
             issue_map[issue.issue_id] = issue
-            row_issue_ids[row.row_id].add(issue.issue_id)
+            row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
 
-    # Relationship checks are propagated until a stable set is reached.  The
-    # indexes are built once, so no source-row or Odoo query occurs in the loop.
-    source_index: dict[tuple[str, bytes], list[str]] = {}
+    # Relationship checks use a dependency graph. Missing or ambiguous parents
+    # are handled while the graph is built; a queue then visits each unsafe
+    # parent and each parent-to-dependent edge at most once.
+    source_index: dict[tuple[str, bytes], str | tuple[str, ...]] = {}
     for row in staging.rows:
-        source_index.setdefault((row.dataset, canonical_json_bytes(portable_value(row.source_identity))), []).append(row.row_id)
-    changed = True
-    while changed:
-        changed = False
-        dispositions = {row.row_id: _effective_disposition(row, (issue_map[item] for item in row_issue_ids[row.row_id])) for row in staging.rows}
-        for coordinate, records in prepared_by_coordinate.items():
-            canonical_rows = canonical_by_coordinate.get(coordinate, ())
-            if len(records) != 1 or len(canonical_rows) != 1:
+        key = (
+            row.dataset,
+            canonical_json_bytes(portable_value(row.source_identity)),
+        )
+        existing = source_index.get(key)
+        if existing is None:
+            source_index[key] = row.row_id
+        elif isinstance(existing, tuple):
+            source_index[key] = (*existing, row.row_id)
+        else:
+            source_index[key] = (existing, row.row_id)
+    unsafe_dispositions = {
+        QualityDisposition.BLOCKED,
+        QualityDisposition.QUARANTINED,
+        QualityDisposition.EXCLUDED,
+    }
+    dispositions = {
+        row.row_id: _effective_disposition(
+            row,
+            (issue_map[item] for item in row_issue_ids.get(row.row_id, ())),
+        )
+        for row in staging.rows
+    }
+    dependents_by_parent: dict[str, str | list[str]] = {}
+    unresolved_dependents: set[str] = set()
+    relationship_rule_by_row: dict[str, QualityRule] = {}
+    for coordinate, record in prepared_by_coordinate.items():
+        row = canonical_by_coordinate.get(coordinate)
+        if isinstance(record, tuple) or row is None or isinstance(row, tuple):
+            continue
+        rule = rules_by_family.get(
+            (row.dataset, QualityRuleFamily.RELATIONSHIP_READINESS)
+        )
+        if rule is None:
+            continue
+        relationship_rule_by_row[row.row_id] = rule
+        seen_parent_ids: set[str] = set()
+        for reference in _logical_references(record):
+            if not reference.dataset:
                 continue
-            row = canonical_rows[0]
-            rule = rules_by_family.get((row.dataset, QualityRuleFamily.RELATIONSHIP_READINESS))
-            if rule is None:
+            matches = source_index.get(
+                (
+                    reference.dataset,
+                    canonical_json_bytes(portable_value(reference.key)),
+                ),
+                (),
+            )
+            if not isinstance(matches, str):
+                unresolved_dependents.add(row.row_id)
                 continue
-            for reference in _logical_references(records[0]):
-                if not reference.dataset:
-                    continue
-                matches = source_index.get((reference.dataset, canonical_json_bytes(portable_value(reference.key))), ())
-                unsafe = len(matches) != 1 or dispositions.get(matches[0]) in {QualityDisposition.BLOCKED, QualityDisposition.QUARANTINED, QualityDisposition.EXCLUDED}
-                if not unsafe:
-                    continue
-                message = "The linked incoming record is missing, ambiguous or set aside. This dependent record was also set aside."
-                issue = _quality_issue(project, rule, row, "INCOMING_RELATIONSHIP_NOT_READY", message, (), policy=rule.outcome)
-                if issue.issue_id not in row_issue_ids[row.row_id]:
-                    issue_map[issue.issue_id] = issue
-                    row_issue_ids[row.row_id].add(issue.issue_id)
-                    changed = True
+            if matches in seen_parent_ids:
+                continue
+            seen_parent_ids.add(matches)
+            existing = dependents_by_parent.get(matches)
+            if existing is None:
+                dependents_by_parent[matches] = row.row_id
+            elif isinstance(existing, list):
+                existing.append(row.row_id)
+            else:
+                dependents_by_parent[matches] = [existing, row.row_id]
+
+    relationship_message = (
+        "The linked incoming record is missing, ambiguous or set aside. "
+        "This dependent record was also set aside."
+    )
+
+    def attach_relationship_issue(row_id: str) -> bool:
+        """Attach one deterministic issue and report a safe-to-unsafe change."""
+
+        rule = relationship_rule_by_row[row_id]
+        row = rows_by_id[row_id]
+        issue = _quality_issue(
+            project,
+            rule,
+            row,
+            "INCOMING_RELATIONSHIP_NOT_READY",
+            relationship_message,
+            (),
+            policy=rule.outcome,
+        )
+        issue_ids = row_issue_ids.setdefault(row_id, set())
+        if issue.issue_id in issue_ids:
+            return False
+        was_unsafe = dispositions[row_id] in unsafe_dispositions
+        issue_map[issue.issue_id] = issue
+        issue_ids.add(issue.issue_id)
+        dispositions[row_id] = _effective_disposition(
+            row,
+            (issue_map[item] for item in issue_ids),
+        )
+        return not was_unsafe and dispositions[row_id] in unsafe_dispositions
+
+    for row in staging.rows:
+        if row.row_id in unresolved_dependents:
+            attach_relationship_issue(row.row_id)
+
+    queue = deque(
+        row.row_id
+        for row in staging.rows
+        if dispositions[row.row_id] in unsafe_dispositions
+    )
+    while queue:
+        parent_id = queue.popleft()
+        dependents = dependents_by_parent.get(parent_id)
+        dependent_ids = (
+            ()
+            if dependents is None
+            else dependents
+            if isinstance(dependents, list)
+            else (dependents,)
+        )
+        for dependent_id in dependent_ids:
+            became_unsafe = attach_relationship_issue(dependent_id)
+            if became_unsafe:
+                queue.append(dependent_id)
 
     row_results = tuple(
         sorted(
@@ -893,9 +1022,9 @@ def evaluate_quality(
                     source_row=row.source_row,
                     record_label=_record_label(row),
                     base_disposition=QualityDisposition(row.disposition.value),
-                    effective_disposition=_effective_disposition(row, (issue_map[item] for item in row_issue_ids[row.row_id])),
-                    issue_ids=tuple(sorted(row_issue_ids[row.row_id])),
-                    requires_review=any(issue_map[item].policy is QualityOutcomePolicy.WARNING for item in row_issue_ids[row.row_id]),
+                    effective_disposition=_effective_disposition(row, (issue_map[item] for item in row_issue_ids.get(row.row_id, ()))),
+                    issue_ids=tuple(sorted(row_issue_ids.get(row.row_id, ()))),
+                    requires_review=any(issue_map[item].policy is QualityOutcomePolicy.WARNING for item in row_issue_ids.get(row.row_id, ())),
                 )
                 for row in staging.rows
             ),
@@ -933,7 +1062,7 @@ def evaluate_quality(
             if issue.policy is not QualityOutcomePolicy.QUARANTINE:
                 continue
             row = rows_by_id[result.row_id]
-            entry_id = _hash({"staging": staging.content_hash, "row_id": row.row_id, "issue_id": issue.issue_id})
+            entry_id = _hash({"staging": staging_content_hash, "row_id": row.row_id, "issue_id": issue.issue_id})
             quarantine.append(
                 QuarantineEntry(
                     entry_id=entry_id,
@@ -955,8 +1084,8 @@ def evaluate_quality(
 
     return QualityRun(
         project_id=project.project_id,
-        staging_content_hash=staging.content_hash,
-        ruleset_hash=ruleset.content_hash,
+        staging_content_hash=staging_content_hash,
+        ruleset_hash=ruleset_hash,
         mapping_hash=staging.mapping_hash,
         schema_hash=staging.schema_hash,
         retention_context_hash=retention_context_hash(project),
@@ -964,65 +1093,6 @@ def evaluate_quality(
         source_accounting=source_accounting,
         issues=tuple(sorted(issue_map.values(), key=lambda item: item.issue_id)),
         quarantine=tuple(sorted(quarantine, key=lambda item: item.entry_id)),
-    )
-
-
-def eligible_prepared_bundle(
-    staging: CanonicalStagingRun,
-    prepared: PreparedBundle,
-    quality: QualityRun,
-) -> PreparedBundle:
-    """Return the compatibility bundle allowed to enter read-only preflight."""
-
-    def record_key(
-        dataset: str,
-        source_row: int,
-        target_model: str,
-        source_identity: tuple[Any, ...],
-    ) -> bytes:
-        return canonical_json_bytes(
-            {
-                "dataset": dataset,
-                "source_row": source_row,
-                "target_model": target_model,
-                "source_identity": portable_value(source_identity),
-            }
-        )
-
-    staged_by_key = {
-        record_key(
-            row.dataset,
-            row.source_row,
-            row.target_model,
-            row.source_identity,
-        ): row
-        for row in staging.rows
-    }
-    if len(staged_by_key) != len(staging.rows):
-        raise QualityError(
-            "Prepared records cannot be matched safely to quality rows"
-        )
-    seen: set[bytes] = set()
-    eligible: list[PreparedRecord] = []
-    for record in prepared.records:
-        key = record_key(
-            record.dataset,
-            record.source_row,
-            record.target_model,
-            record.source_identity,
-        )
-        row = staged_by_key.get(key)
-        if row is None or key in seen:
-            raise QualityError("Prepared records no longer match the quality result")
-        seen.add(key)
-        if row.row_id in quality.eligible_row_ids:
-            eligible.append(record)
-    if seen != set(staged_by_key):
-        raise QualityError("Prepared records no longer match the quality result")
-    return PreparedBundle(
-        records=tuple(eligible),
-        issues=(),
-        source_hashes=prepared.source_hashes,
     )
 
 

@@ -363,12 +363,57 @@ before loading larger inputs. The earlier 100,000-row evaluator-only probe did
 not include the integrated quality overlay and no longer defines the product
 limit.
 
+### P1 relationship and serialization diagnostic
+
+This opt-in diagnostic is intentionally narrower than the end-to-end browser
+gate. It constructs a worst-case dependency chain with one unsafe root, then
+measures target-independent quality propagation and canonical quality hashing.
+It performs no source-file, DuckDB, or Odoo operation.
+
+Command:
+
+```powershell
+$env:IMPODO_RUN_QUALITY_SCALE = '1'
+$env:IMPODO_QUALITY_SCALE_ROWS = '100000'
+.\.venv\Scripts\python.exe -m unittest `
+  tests.test_quality.QualityRelationshipScaleTests.test_deep_dependency_chain_is_linear
+```
+
+Results on 2026-08-05:
+
+| Version of the same fixture | Rows | Edges | Fixture build | Quality evaluation | Quality hash | Measured phase total | Peak working set |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Queue and compact indexes, before portable-validator optimization | 100,000 | 99,999 | 17.818 s | 24.387 s | 9.158 s | 51.363 s | 847.4 MiB |
+| Iterative portable validator | 100,000 | 99,999 | 11.297 s | 16.993 s | 7.024 s | 35.314 s | 847.5 MiB |
+| Row-bounded portable validator | 100,000 | 99,999 | 8.422 s | 16.350 s | 7.063 s | 31.835 s | 845.5 MiB |
+| Row-bounded portable validator | 10,000 | 9,999 | 0.810 s | 1.944 s | 0.526 s | 3.280 s | 140.4 MiB |
+
+The 100,000-row before/after runs produced the same staging hash
+`sha256:658971342eb9bf78c3a95be6ea8d0ee1bbec3cce3ff794aa0a729366425ec1e4`
+and quality hash
+`sha256:e6550732eb7c1fcc75e4cfa4ff1794c24ae1c04099720e140337ea7306e65abc`.
+Measured phase time improved by 38.0%. The 10x row/edge increase from 10,000
+to 100,000 remains approximately linear rather than quadratic.
+
+Environment: repository revision `852c25712068c103387d1ad167fb8d1471d3b811`
+with the documented optimization patch in a dirty worktree; Windows 11 build
+26200; Python 3.12.10; DuckDB 1.5.5; openpyxl 3.1.5; psutil 7.2.2; 31.5 GiB
+RAM; Intel64 Family 6 Model 181. Database and temporary-file size are not
+applicable to this in-memory diagnostic and are non-gating observations for
+the optimization program.
+
+The 845.5 MiB peak belongs to a deliberately all-quarantined fixture retaining
+100,000 issues and quarantine entries. It does not pass the complete memory
+gate, and this diagnostic alone does not justify raising the 25,000-row browser
+limit. Bounded quality publication and the full mixed preparation fixture are
+still required.
+
 This is workstation evidence, not a production sizing guarantee. Wide sources,
 saved snapshots, workbooks, and Odoo transport still require representative
 measurement.
 
 The next performance target is complete local preparation of 100,000 physical
-rows in less than 120 seconds and less than 512 MiB peak working set. It is not
+rows in less than 120 seconds and less than 900 MiB peak working set. It is not
 yet implemented or verified, and the supported browser limit remains 25,000
 rows until the gates in the
 [100,000-row performance refactor plan](../plans/100k-performance-refactor-plan.md)

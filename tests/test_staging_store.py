@@ -480,4 +480,5 @@ def _run(project_id: str, *, value: str, row_token: str) -> CanonicalStagingRun:
         rows=(row,),
         issues=(),
         reconciliation=StagingReconciliation.from_rows((row,)),
+        compiled_plan_hash=MAPPING_HASH,
     )

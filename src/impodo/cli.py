@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 from datetime import datetime, timezone
-from decimal import Decimal
 import json
 from pathlib import Path
 import sys
@@ -20,6 +18,7 @@ from .connectors import (
     write_metadata_snapshot,
     write_record_snapshot,
 )
+from .domain.compiler import compile_profile_document
 from .engine import PreflightEngine
 from .models import PreparedRecord, canonical_json_bytes, portable_issue, portable_value
 from .planner import plan_metadata_requests, plan_record_requests
@@ -137,7 +136,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _profile_command(arguments: argparse.Namespace) -> int:
     profile = load_profile(arguments.profile)
-    prepared = prepare_sources(profile, arguments.input)
+    plan = compile_profile_document(profile)
+    prepared = prepare_sources(plan, arguments.input)
     payload = {
         "profile": {"id": profile.profile.id},
         "source_hashes": prepared.source_hashes,
@@ -157,8 +157,9 @@ def _profile_command(arguments: argparse.Namespace) -> int:
 
 def _snapshot_metadata_command(arguments: argparse.Namespace) -> int:
     profile = load_profile(arguments.profile)
+    plan = compile_profile_document(profile)
     connector = _connector(arguments)
-    snapshot = connector.get_model_metadata(plan_metadata_requests(profile))
+    snapshot = connector.get_model_metadata(plan_metadata_requests(plan))
     write_metadata_snapshot(
         snapshot,
         arguments.output,
@@ -170,10 +171,11 @@ def _snapshot_metadata_command(arguments: argparse.Namespace) -> int:
 
 def _snapshot_records_command(arguments: argparse.Namespace) -> int:
     profile = load_profile(arguments.profile)
-    prepared = prepare_sources(profile, arguments.input)
+    plan = compile_profile_document(profile)
+    prepared = prepare_sources(plan, arguments.input)
     connector = _connector(arguments)
     snapshot = connector.get_records(
-        plan_record_requests(profile, prepared.records)
+        plan_record_requests(plan, prepared.records)
     )
     write_record_snapshot(
         snapshot,
@@ -187,18 +189,19 @@ def _snapshot_records_command(arguments: argparse.Namespace) -> int:
 
 def _preflight_command(arguments: argparse.Namespace) -> int:
     profile = load_profile(arguments.profile)
-    prepared = prepare_sources(profile, arguments.input)
+    plan = compile_profile_document(profile)
+    prepared = prepare_sources(plan, arguments.input)
     connector = SnapshotConnector(
         metadata_path=arguments.metadata,
         records_path=arguments.records,
         expected_profile_id=profile.profile.id,
         expected_source_hashes=prepared.source_hashes,
     )
-    metadata = connector.get_model_metadata(plan_metadata_requests(profile))
+    metadata = connector.get_model_metadata(plan_metadata_requests(plan))
     records = connector.get_records(
-        plan_record_requests(profile, prepared.records)
+        plan_record_requests(plan, prepared.records)
     )
-    result = PreflightEngine().run(profile, prepared, metadata, records)
+    result = PreflightEngine().run(plan, prepared, metadata, records)
     manifest, workbook = write_preflight_outputs(
         result,
         arguments.output,

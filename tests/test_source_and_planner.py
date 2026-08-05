@@ -10,6 +10,7 @@ import zipfile
 from openpyxl import Workbook
 from pydantic import ValidationError
 
+from impodo.domain.compiler import compile_profile_document
 from impodo.models import LogicalReference
 from impodo.planner import (
     plan_metadata_requests,
@@ -24,7 +25,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class PreparedRecordTests(unittest.TestCase):
     def test_bom_values_and_references_are_preserved(self) -> None:
-        profile = load_profile(ROOT / "profiles/examples/bom.yaml")
+        profile = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/bom.yaml")
+        )
         bundle = prepare_sources(profile, ROOT / "examples/bom")
         self.assertEqual(len(bundle.records), 3)
         line = next(record for record in bundle.records if record.dataset == "bom_lines")
@@ -35,7 +38,9 @@ class PreparedRecordTests(unittest.TestCase):
         self.assertNotIn("odoo", repr(line).casefold())
 
     def test_duplicate_source_identity_blocks_all_duplicates(self) -> None:
-        profile = load_profile(ROOT / "profiles/examples/bom.yaml")
+        profile = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/bom.yaml")
+        )
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
             shutil.copytree(ROOT / "examples/bom", target / "input")
@@ -61,7 +66,9 @@ class PreparedRecordTests(unittest.TestCase):
             )
 
     def test_xlsx_sheet_is_prepared_with_native_cell_types(self) -> None:
-        profile = load_profile(ROOT / "profiles/examples/products.yaml")
+        profile = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/products.yaml")
+        )
         products = profile.dataset("products")
         source = products.source.model_copy(
             update={
@@ -106,7 +113,9 @@ class PreparedRecordTests(unittest.TestCase):
         self.assertEqual(set(bundle.source_hashes), {"products.xlsx"})
 
     def test_xlsx_formula_cells_are_rejected(self) -> None:
-        profile = load_profile(ROOT / "profiles/examples/products.yaml")
+        profile = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/products.yaml")
+        )
         products = profile.dataset("products")
         source = products.source.model_copy(
             update={"file": "products.xlsx", "sheet": "Products"}
@@ -140,7 +149,9 @@ class PreparedRecordTests(unittest.TestCase):
                 prepare_sources(xlsx_profile, target)
 
     def test_xlsx_missing_sheet_and_arbitrary_zip_are_rejected(self) -> None:
-        profile = load_profile(ROOT / "profiles/examples/products.yaml")
+        profile = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/products.yaml")
+        )
         products = profile.dataset("products")
         source = products.source.model_copy(
             update={"file": "products.xlsx", "sheet": "Products"}
@@ -167,7 +178,9 @@ class PreparedRecordTests(unittest.TestCase):
                 prepare_sources(xlsx_profile, target)
 
     def test_duplicate_csv_headers_are_rejected(self) -> None:
-        profile = load_profile(ROOT / "profiles/examples/products.yaml")
+        profile = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/products.yaml")
+        )
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
             (target / "products.csv").write_text(
@@ -189,8 +202,8 @@ class PreparedRecordTests(unittest.TestCase):
 
 class PlannerTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.profile = load_profile(
-            ROOT / "profiles/examples/golden_slice.yaml"
+        self.profile = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/golden_slice.yaml")
         )
         self.bundle = prepare_sources(self.profile, ROOT / "examples/golden")
 

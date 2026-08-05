@@ -19,6 +19,7 @@ from ...models import (
 )
 from ...projects import MigrationProject
 from ...quality import QualityRunSummary
+from ...normalization import NormalizationRunSummary
 from ...staging import StagingRunSummary
 from ..contracts import READINESS_CONTRACT_VERSION
 
@@ -41,6 +42,7 @@ class ReadinessRow:
     recommended_action: str
     technical_code: str
     issue_count: int = 0
+    source_trace_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +57,14 @@ class ReadinessDataset:
 
 
 @dataclass(frozen=True, slots=True)
+class ReadinessRowPage:
+    items: tuple[ReadinessRow, ...]
+    matching_count: int
+    page: int
+    page_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class ReadinessReport:
     run_id: str
     project_id: str
@@ -65,7 +75,21 @@ class ReadinessReport:
     staging_content_hash: str
     quality_run_id: str
     quality_content_hash: str
+    normalization_run_id: str
+    normalization_content_hash: str
+    normalization_lifecycle_version: int
+    eligible_dataset_hash: str
+    frozen_input_hash: str
+    requirement_plan_hash: str
+    metadata_snapshot_hash: str
+    record_snapshot_hash: str
+    result_hash: str
+    manifest_hash: str
     target_hash: str
+    target_database: str
+    target_odoo_version: str
+    target_snapshot_at: str
+    target_module_versions: Mapping[str, str]
     checked_at: datetime
     checked_by: str
     datasets: tuple[ReadinessDataset, ...]
@@ -109,7 +133,8 @@ class ReadinessReport:
     @classmethod
     def from_json(cls, value: str) -> "ReadinessReport":
         payload = json.loads(value)
-        if int(payload.get("contract_version", 0)) != READINESS_CONTRACT_VERSION:
+        contract_version = int(payload.get("contract_version", 0))
+        if contract_version not in {3, READINESS_CONTRACT_VERSION}:
             raise ValueError("Readiness report contract version is unsupported")
         return cls(
             run_id=str(payload["run_id"]),
@@ -121,13 +146,37 @@ class ReadinessReport:
             staging_content_hash=str(payload["staging_content_hash"]),
             quality_run_id=str(payload["quality_run_id"]),
             quality_content_hash=str(payload["quality_content_hash"]),
+            normalization_run_id=str(payload.get("normalization_run_id", "")),
+            normalization_content_hash=str(
+                payload.get("normalization_content_hash", "")
+            ),
+            normalization_lifecycle_version=int(
+                payload.get("normalization_lifecycle_version", 0)
+            ),
+            eligible_dataset_hash=str(payload.get("eligible_dataset_hash", "")),
+            frozen_input_hash=str(payload.get("frozen_input_hash", "")),
+            requirement_plan_hash=str(payload.get("requirement_plan_hash", "")),
+            metadata_snapshot_hash=str(payload.get("metadata_snapshot_hash", "")),
+            record_snapshot_hash=str(payload.get("record_snapshot_hash", "")),
+            result_hash=str(payload.get("result_hash", "")),
+            manifest_hash=str(payload.get("manifest_hash", "")),
             target_hash=str(payload["target_hash"]),
+            target_database=str(payload.get("target_database", "")),
+            target_odoo_version=str(payload.get("target_odoo_version", "")),
+            target_snapshot_at=str(payload.get("target_snapshot_at", "")),
+            target_module_versions={
+                str(key): str(item)
+                for key, item in dict(
+                    payload.get("target_module_versions", {})
+                ).items()
+            },
             checked_at=datetime.fromisoformat(str(payload["checked_at"])),
             checked_by=str(payload["checked_by"]),
             datasets=tuple(
                 ReadinessDataset(**item) for item in payload.get("datasets", ())
             ),
             rows=tuple(ReadinessRow(**item) for item in payload.get("rows", ())),
+            contract_version=contract_version,
         )
 
 
@@ -141,6 +190,13 @@ def _readiness_report(
     actor: Actor,
     staging: StagingRunSummary,
     quality: QualityRunSummary,
+    normalization: NormalizationRunSummary,
+    *,
+    frozen_input_hash: str,
+    requirement_plan_hash: str,
+    metadata_snapshot_hash: str,
+    record_snapshot_hash: str,
+    manifest_hash: str = "",
 ) -> ReadinessReport:
     rows = tuple(
         _readiness_row(decision, dataset_labels, source_labels)
@@ -181,7 +237,21 @@ def _readiness_report(
         staging_content_hash=staging.content_hash,
         quality_run_id=quality.run_id,
         quality_content_hash=quality.content_hash,
+        normalization_run_id=normalization.run_id,
+        normalization_content_hash=normalization.content_hash,
+        normalization_lifecycle_version=normalization.lifecycle_version,
+        eligible_dataset_hash=normalization.eligible_dataset_hash,
+        frozen_input_hash=frozen_input_hash,
+        requirement_plan_hash=requirement_plan_hash,
+        metadata_snapshot_hash=metadata_snapshot_hash,
+        record_snapshot_hash=record_snapshot_hash,
+        result_hash=result.semantic_hash,
+        manifest_hash=manifest_hash,
         target_hash=result.fingerprint.target_hash,
+        target_database=result.fingerprint.database,
+        target_odoo_version=result.fingerprint.odoo_version,
+        target_snapshot_at=result.fingerprint.snapshot_timestamp,
+        target_module_versions=dict(sorted(result.fingerprint.module_versions.items())),
         checked_at=datetime.now(timezone.utc),
         checked_by=actor.identity.display_name,
         datasets=tuple(datasets),
@@ -233,6 +303,7 @@ def _readiness_row(
         recommended_action=action,
         technical_code=code,
         issue_count=len(decision.issues),
+        source_trace_id=decision.source_trace_id,
     )
 
 

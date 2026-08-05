@@ -11,6 +11,7 @@ import duckdb
 
 from ..constants import SCHEMA_VERSION
 from .mapping_draft_retirement import retire_mapping_draft
+from .preflight import create_preflight_schema
 
 class ProjectMigrationsMixin:
     """Keep new databases and upgrades on one versioned schema path."""
@@ -191,6 +192,7 @@ class ProjectMigrationsMixin:
                 mapping_hash VARCHAR NOT NULL,
                 schema_hash VARCHAR NOT NULL,
                 derived_plan_hash VARCHAR,
+                compiled_plan_hash VARCHAR NOT NULL,
                 contract_version INTEGER NOT NULL,
                 evaluator_version INTEGER NOT NULL,
                 status VARCHAR NOT NULL,
@@ -499,6 +501,7 @@ class ProjectMigrationsMixin:
             CREATE SEQUENCE audit_event_sequence START 1;
             """
         )
+        create_preflight_schema(connection)
 
     def _migrate_project_database(
         self,
@@ -1121,6 +1124,31 @@ class ProjectMigrationsMixin:
                 if version == 16:
                     retire_mapping_draft(connection)
                     version = 17
+                if version == 17:
+                    create_preflight_schema(connection)
+                    version = 18
+                if version == 18:
+                    connection.execute(
+                        """
+                        ALTER TABLE canonical_staging_run
+                        ADD COLUMN IF NOT EXISTS compiled_plan_hash VARCHAR
+                        """
+                    )
+                    connection.execute(
+                        """
+                        UPDATE canonical_staging_run
+                           SET status = 'INVALIDATED',
+                               retired_at = COALESCE(retired_at, ?),
+                               retired_reason = COALESCE(
+                                   retired_reason,
+                                   'COMPILED_PLAN_REQUIRED'
+                               )
+                         WHERE status = 'PUBLISHED'
+                        """,
+                        [datetime.now(timezone.utc).isoformat()],
+                    )
+                    connection.execute("DELETE FROM canonical_staging_current")
+                    version = 19
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

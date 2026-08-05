@@ -69,10 +69,16 @@ class NormalizationRepository(DuckDbRepository):
             or evaluation.evaluator_version != NORMALIZATION_EVALUATOR_VERSION
         ):
             raise WorkspaceError("Prepared review must be regenerated")
+        evaluation_payload = evaluation.to_portable_dict()
+        evaluation_content_hash = str(evaluation_payload["content_hash"])
         try:
-            NormalizationEvaluation.from_json(evaluation.to_json())
+            NormalizationEvaluation.from_json(
+                _canonical_json(evaluation_payload)
+            )
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Prepared review evidence is invalid") from error
+        finally:
+            del evaluation_payload
         project = self._projects.get(project_id)
         if evaluation.retention_context_hash != retention_context_hash(project):
             raise WorkspaceError(
@@ -128,7 +134,7 @@ class NormalizationRepository(DuckDbRepository):
                         "WHERE run.run_id = (SELECT run_id FROM normalization_current WHERE singleton_id = 1)"
                     )
                 ).fetchone()
-                if current is not None and str(current[1]) == evaluation.content_hash:
+                if current is not None and str(current[1]) == evaluation_content_hash:
                     connection.rollback()
                     return self._normalization_summary(project_id, current)
 
@@ -171,7 +177,7 @@ class NormalizationRepository(DuckDbRepository):
                     """,
                     [
                         run_id,
-                        evaluation.content_hash,
+                        evaluation_content_hash,
                         staging_run_id,
                         evaluation.staging_content_hash,
                         quality_run_id,

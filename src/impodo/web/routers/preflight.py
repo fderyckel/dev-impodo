@@ -59,7 +59,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
 
         try:
             await run_in_threadpool(
-                context.readiness_workflow.compare,
+                context.preflight.compare,
                 project_id,
                 reader=reader,
                 actor=context.actor,

@@ -1,8 +1,8 @@
-"""Build minimal, batched read requests from a validated profile.
+"""Build minimal, batched read requests from a compiled migration plan.
 
 This module sits between source preparation and connector execution:
 
-* `profile.py` defines the permitted models, fields, identities, and relations.
+* the compiler validates permitted models, fields, identities, and relations;
 * `source.py` supplies prepared source identities and reference keys.
 * this module groups those requirements per Odoo model;
 * `connectors.py` executes one metadata request and paginated record request
@@ -14,14 +14,65 @@ The planner produces data-only request contracts and never contacts Odoo.
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
+from hashlib import sha256
 from typing import Any, Iterable
 
 from .connectors import MetadataRequest, RecordRequest
-from .models import LogicalReference, PreparedRecord
-from .profile import DatasetSpec, ProfileDocument, ResolveSpec
+from .domain.compiler.contracts import CompiledMigrationPlan
+from .domain.errors import ReadinessError
+from .models import LogicalReference, PreparedRecord, canonical_json_bytes, portable_value
+from .profile import DatasetSpec, ResolveSpec
 
 
-def plan_metadata_requests(profile: ProfileDocument) -> tuple[MetadataRequest, ...]:
+PREFLIGHT_REQUIREMENT_PLAN_VERSION = 1
+MAX_KEYS_PER_RECORD_REQUEST = 500
+
+
+@dataclass(frozen=True, slots=True)
+class PreflightRequirementPlan:
+    """Versioned, deterministic and bounded target-read requirements."""
+
+    metadata_requests: tuple[MetadataRequest, ...]
+    record_requests: tuple[RecordRequest, ...]
+    source_record_count: int
+    contract_version: int = PREFLIGHT_REQUIREMENT_PLAN_VERSION
+
+    @property
+    def semantic_hash(self) -> str:
+        payload = {
+            "contract_version": self.contract_version,
+            "source_record_count": self.source_record_count,
+            "metadata": [
+                {
+                    "model": item.model,
+                    "fields": list(item.fields),
+                    "all_fields": item.all_fields,
+                    "include_unique_constraints": item.include_unique_constraints,
+                }
+                for item in self.metadata_requests
+            ],
+            "records": [
+                {
+                    "model": item.model,
+                    "fields": list(item.fields),
+                    "domain": portable_value(item.domain),
+                }
+                for item in self.record_requests
+            ],
+        }
+        return "sha256:" + sha256(canonical_json_bytes(payload)).hexdigest()
+
+    @property
+    def model_count(self) -> int:
+        return len({item.model for item in self.record_requests})
+
+    @property
+    def chunk_count(self) -> int:
+        return len(self.record_requests)
+
+
+def plan_metadata_requests(plan: CompiledMigrationPlan) -> tuple[MetadataRequest, ...]:
     """Return the smallest deterministic metadata field set per Odoo model.
 
     Target models and target-only reference models are merged so each model
@@ -29,7 +80,7 @@ def plan_metadata_requests(profile: ProfileDocument) -> tuple[MetadataRequest, .
     """
 
     fields: dict[str, set[str]] = defaultdict(set)
-    for dataset in profile.datasets:
+    for dataset in plan.datasets:
         fields[dataset.target.model].update(_dataset_target_fields(dataset))
         for resolve in _resolvers(dataset):
             if resolve.target_model is not None:
@@ -42,36 +93,60 @@ def plan_metadata_requests(profile: ProfileDocument) -> tuple[MetadataRequest, .
 
 
 def plan_record_requests(
-    profile: ProfileDocument,
+    plan: CompiledMigrationPlan,
     records: Iterable[PreparedRecord],
 ) -> tuple[RecordRequest, ...]:
     """Build batched target-record requests from prepared business keys.
 
     Simple one-field identities and target-only reference keys become bounded
     `in` domains. Composite or relational identities fall back to the
-    profile's declared domain because narrowing them incorrectly could hide a
+    plan's declared domain because narrowing them incorrectly could hide a
     legitimate match. Requested fields and models are sorted for deterministic
     snapshots.
     """
 
+    return plan_preflight_requirements(plan, records).record_requests
+
+
+def plan_preflight_requirements(
+    plan: CompiledMigrationPlan,
+    records: Iterable[PreparedRecord],
+    *,
+    maximum_keys_per_request: int = MAX_KEYS_PER_RECORD_REQUEST,
+) -> PreflightRequirementPlan:
+    """Build one deterministic plan whose record reads are always narrowed."""
+
+    if maximum_keys_per_request < 1:
+        raise ValueError("maximum_keys_per_request must be positive")
+    prepared_records = tuple(records)
     records_by_dataset: dict[str, list[PreparedRecord]] = defaultdict(list)
-    for record in records:
+    for record in prepared_records:
         records_by_dataset[record.dataset].append(record)
 
     fields: dict[str, set[str]] = defaultdict(set)
-    domains: dict[str, list[Any]] = {}
-    for dataset in profile.datasets:
-        fields[dataset.target.model].update(_dataset_target_fields(dataset))
+    domain_chunks: dict[str, list[list[Any]]] = defaultdict(list)
+    for dataset in plan.datasets:
         dataset_records = records_by_dataset.get(dataset.name, ())
-        source_domain = _identity_domain(dataset, dataset_records)
-        dataset_domain = _combine_domains(
-            list(dataset.target_domain),
-            source_domain,
-        )
-        domains[dataset.target.model] = _or_domains(
-            domains.get(dataset.target.model, []),
-            dataset_domain,
-        )
+        if dataset_records:
+            dataset_domains = _dataset_identity_domain_chunks(
+                dataset,
+                dataset_records,
+                maximum_keys_per_request,
+            )
+            fields[dataset.target.model].update(_dataset_target_fields(dataset))
+            if dataset_domains:
+                domain_chunks[dataset.target.model].extend(
+                    _combine_domains(list(dataset.target_domain), domain)
+                    for domain in dataset_domains
+                )
+            elif dataset.target_domain:
+                domain_chunks[dataset.target.model].append(
+                    list(dataset.target_domain)
+                )
+            else:
+                raise ReadinessError(
+                    f"Odoo reads for {dataset.name} cannot be narrowed safely"
+                )
 
         for component, references in _identity_reference_groups(
             dataset, dataset_records
@@ -81,43 +156,183 @@ def plan_record_requests(
                 continue
             fields[resolve.target_model].update(resolve.target_fields)
             fields[resolve.target_model].update(resolve.target_scope_fields)
-            reference_domain = _key_domain(
-                resolve.target_fields,
-                [reference.key for reference in references],
+            reference_domains = _key_domain_chunks(
+                (*resolve.target_fields, *resolve.target_scope_fields),
+                [(*reference.key, *reference.scope) for reference in references],
+                maximum_keys_per_request,
             )
-            domains[resolve.target_model] = _or_domains(
-                domains.get(resolve.target_model, []),
-                reference_domain,
-            )
+            domain_chunks[resolve.target_model].extend(reference_domains)
+            if references and not reference_domains:
+                raise ReadinessError(
+                    f"Odoo relationship reads for {dataset.name} cannot be narrowed safely"
+                )
 
         for target_field, relation in dataset.relations.items():
             resolve = relation.resolve
             if resolve.target_model is None:
                 continue
-            fields[resolve.target_model].update(resolve.target_fields)
-            fields[resolve.target_model].update(resolve.target_scope_fields)
-            keys = [
-                reference.key
+            references = [
+                reference
                 for record in dataset_records
                 for reference in _references_for_field(
                     record.references.get(target_field)
                 )
                 if reference.origin == "target"
             ]
-            relation_domain = _key_domain(resolve.target_fields, keys)
-            domains[resolve.target_model] = _or_domains(
-                domains.get(resolve.target_model, []),
-                relation_domain,
+            if not references:
+                continue
+            fields[resolve.target_model].update(resolve.target_fields)
+            fields[resolve.target_model].update(resolve.target_scope_fields)
+            reference_domains = _key_domain_chunks(
+                (*resolve.target_fields, *resolve.target_scope_fields),
+                [(*reference.key, *reference.scope) for reference in references],
+                maximum_keys_per_request,
             )
+            if not reference_domains:
+                raise ReadinessError(
+                    f"Odoo relationship reads for {dataset.name} cannot be narrowed safely"
+                )
+            domain_chunks[resolve.target_model].extend(reference_domains)
 
-    return tuple(
-        RecordRequest(
-            model=model,
-            fields=tuple(sorted(model_fields)),
-            domain=tuple(domains.get(model, ())),
-        )
-        for model, model_fields in sorted(fields.items())
+    requests: list[RecordRequest] = []
+    for model, chunks in sorted(domain_chunks.items()):
+        unique_chunks = {
+            canonical_json_bytes(portable_value(tuple(chunk))): chunk
+            for chunk in chunks
+            if chunk
+        }
+        for encoded in sorted(unique_chunks):
+            requests.append(
+                RecordRequest(
+                    model=model,
+                    fields=tuple(sorted(fields[model])),
+                    domain=tuple(unique_chunks[encoded]),
+                )
+            )
+    return PreflightRequirementPlan(
+        metadata_requests=plan_metadata_requests(plan),
+        record_requests=tuple(requests),
+        source_record_count=len(prepared_records),
     )
+
+
+def _dataset_identity_domain_chunks(
+    dataset: DatasetSpec,
+    records: Iterable[PreparedRecord],
+    chunk_size: int,
+) -> list[list[Any]]:
+    fields: list[str] = []
+    for component in (
+        *dataset.target_identity.components,
+        *dataset.target_identity.scope,
+    ):
+        if component.resolve is None:
+            fields.extend(component.target_fields)
+            continue
+        resolve = component.resolve
+        if (
+            resolve.target_model is None
+            or len(component.target_fields) != 1
+        ):
+            return []
+        relation_field = component.target_fields[0]
+        fields.extend(
+            f"{relation_field}.{field}"
+            for field in (*resolve.target_fields, *resolve.target_scope_fields)
+        )
+    if not fields:
+        return []
+    keys = []
+    for record in records:
+        key = _record_target_key(dataset, record)
+        if key is None:
+            return []
+        keys.append(key)
+    return _key_domain_chunks(tuple(fields), keys, chunk_size)
+
+
+def _record_target_key(
+    dataset: DatasetSpec,
+    record: PreparedRecord,
+) -> tuple[Any, ...] | None:
+    result: list[Any] = []
+    for components, values in (
+        (dataset.target_identity.components, record.target_identity),
+        (dataset.target_identity.scope, record.target_scope),
+    ):
+        cursor = 0
+        for component in components:
+            if component.resolve is None:
+                width = len(component.target_fields)
+                selected = values[cursor : cursor + width]
+                if len(selected) != width:
+                    return None
+                result.extend(selected)
+                cursor += width
+                continue
+            if cursor >= len(values):
+                return None
+            reference = values[cursor]
+            cursor += 1
+            resolve = component.resolve
+            if (
+                not isinstance(reference, LogicalReference)
+                or reference.origin != "target"
+                or resolve.target_model is None
+                or len(reference.key) != len(resolve.target_fields)
+                or len(reference.scope) != len(resolve.target_scope_fields)
+            ):
+                return None
+            result.extend(reference.key)
+            result.extend(reference.scope)
+        if cursor != len(values):
+            return None
+    return tuple(result)
+
+
+def _key_domain_chunks(
+    fields: tuple[str, ...],
+    keys: Iterable[tuple[Any, ...]],
+    chunk_size: int,
+) -> list[list[Any]]:
+    unique_keys = sorted(
+        {
+            tuple(key)
+            for key in keys
+            if len(key) == len(fields) and all(value is not None for value in key)
+        },
+        key=lambda item: canonical_json_bytes(portable_value(item)),
+    )
+    if not fields or not unique_keys:
+        return []
+    chunks: list[list[Any]] = []
+    for start in range(0, len(unique_keys), chunk_size):
+        batch = unique_keys[start : start + chunk_size]
+        if len(fields) == 1:
+            chunks.append([[fields[0], "in", [key[0] for key in batch]]])
+            continue
+        expressions = [
+            _and_terms(
+                [[field, "=", value] for field, value in zip(fields, key, strict=True)]
+            )
+            for key in batch
+        ]
+        chunks.append(_or_expressions(expressions))
+    return chunks
+
+
+def _and_terms(terms: list[Any]) -> list[Any]:
+    if len(terms) <= 1:
+        return terms
+    return ["&"] * (len(terms) - 1) + terms
+
+
+def _or_expressions(expressions: list[list[Any]]) -> list[Any]:
+    if len(expressions) == 1:
+        return expressions[0]
+    return ["|"] * (len(expressions) - 1) + [
+        item for expression in expressions for item in expression
+    ]
 
 
 def _dataset_target_fields(dataset: DatasetSpec) -> set[str]:
@@ -148,43 +363,6 @@ def _resolvers(dataset: DatasetSpec) -> list[ResolveSpec]:
     return resolvers
 
 
-def _identity_domain(
-    dataset: DatasetSpec,
-    records: Iterable[PreparedRecord],
-) -> list[Any]:
-    """Build a safe one-field target-identity domain when possible."""
-
-    components = dataset.target_identity.components
-    if len(components) != 1:
-        return []
-    component = components[0]
-    if component.resolve is not None or len(component.target_fields) != 1:
-        return []
-    values = sorted(
-        {
-            record.target_identity[0]
-            for record in records
-            if record.target_identity and record.target_identity[0] is not None
-        },
-        key=str,
-    )
-    if not values:
-        return []
-    return [[component.target_fields[0], "in", values]]
-
-
-def _key_domain(
-    fields: tuple[str, ...],
-    keys: Iterable[tuple[Any, ...]],
-) -> list[Any]:
-    """Build an `in` domain for unique one-field business-reference keys."""
-
-    unique_keys = sorted(set(keys), key=str)
-    if len(fields) != 1 or not unique_keys:
-        return []
-    return [[fields[0], "in", [key[0] for key in unique_keys]]]
-
-
 def _combine_domains(left: list[Any], right: list[Any]) -> list[Any]:
     """Combine two Odoo domain fragments using implicit logical AND."""
 
@@ -194,26 +372,6 @@ def _combine_domains(left: list[Any], right: list[Any]) -> list[Any]:
         return left
     # Odoo domains implicitly AND adjacent expressions.
     return [*left, *right]
-
-
-def _or_domains(left: list[Any], right: list[Any]) -> list[Any]:
-    """Combine two Odoo domain fragments as explicit logical OR."""
-
-    if not left:
-        return right
-    if not right:
-        return left
-    return ["|", *_as_expression(left), *_as_expression(right)]
-
-
-def _as_expression(domain: list[Any]) -> list[Any]:
-    """Turn an implicit-AND domain into one explicit prefix expression."""
-
-    if len(domain) <= 1:
-        return domain
-    if isinstance(domain[0], str) and domain[0] in {"&", "|", "!"}:
-        return domain
-    return ["&"] * (len(domain) - 1) + domain
 
 
 def _references_for_field(value: Any) -> tuple[LogicalReference, ...]:
@@ -233,7 +391,7 @@ def _identity_reference_groups(
     """Pair relational identity components with their prepared references.
 
     Prepared identities are flattened tuples. `cursor` reconstructs which
-    flattened value belongs to each profile component so the planner can batch
+    flattened value belongs to each compiled component so the planner can batch
     the related-model lookup.
     """
 

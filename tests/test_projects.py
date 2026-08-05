@@ -702,6 +702,16 @@ class ProjectLifecycleTests(unittest.TestCase):
                     """
                 ).fetchall()
             }
+            staging_columns = {
+                str(item[0])
+                for item in connection.execute(
+                    """
+                    SELECT column_name
+                      FROM information_schema.columns
+                     WHERE table_name = 'canonical_staging_run'
+                    """
+                ).fetchall()
+            }
         self.assertEqual(version, (SCHEMA_VERSION,))
         self.assertEqual(
             tables,
@@ -713,6 +723,7 @@ class ProjectLifecycleTests(unittest.TestCase):
         )
         self.assertIn("staging_run_id", readiness_columns)
         self.assertIn("staging_content_hash", readiness_columns)
+        self.assertIn("compiled_plan_hash", staging_columns)
 
     def test_complete_project_can_be_registered(self) -> None:
         project = self.service.create_project(

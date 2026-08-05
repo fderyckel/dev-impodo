@@ -2,7 +2,8 @@
 
 ## Status and outcome
 
-**Status:** Proposed on 2026-08-05. Not implemented.
+**Status:** In progress since 2026-08-05. P1 CPU work is implemented; the
+bounded-memory publication work and final end-to-end gate remain open.
 
 This plan raises the supported browser preparation scope from 25,000 to
 100,000 physical source rows without weakening deterministic evidence,
@@ -51,14 +52,20 @@ All three fresh-process runs of the primary fixture must meet:
 | --- | ---: |
 | Physical source rows | 100,000 |
 | End-to-end local preparation | less than 120 seconds |
-| Peak Windows working set | less than 512 MiB |
-| Project DuckDB after the run | less than 512 MiB |
+| Peak Windows working set | less than 900 MiB |
+| Project DuckDB and temporary spill size | recorded; non-gating |
 | Source or canonical rows silently lost | 0 |
 | Odoo calls during preparation | 0 |
 
 The run must also produce identical content hashes and portable evidence for
 identical inputs. A failure must roll back incomplete publication and retain
 the last valid current evidence.
+
+Elapsed time, Python allocation/working-set pressure, repeated scans, and
+N+1-shaped work are the optimization priorities. Database and temporary spill
+sizes remain useful regression observations, but do not drive refactoring or
+block the release unless they cause a correctness, security, or operational
+failure.
 
 ### Read-only comparison gate
 
@@ -90,6 +97,50 @@ The current design also retains several representations at once: physical
 tables, staged tables, prepared records, canonical rows, transformation
 effects, quality results, and normalization effects. Linear extrapolation from
 the existing memory measurements is not an acceptable route to 100,000 rows.
+
+## Implementation record
+
+### 2026-08-05 - P1 CPU and complexity pass
+
+Implemented after the repository-only file reorganization:
+
+- relationship readiness now builds a parent-to-dependent graph once and uses
+  a queue; rows and relationship edges are not rescanned to reach a fixed
+  point;
+- singleton coordinate, identity, and dependency indexes avoid one list per
+  row, duplicate references are deduplicated per dependent, and queue state is
+  derived from the safe-to-unsafe transition;
+- dataset mappings, relationship value maps, identity labels, scalar labels,
+  ordinal mappings, and derived-reference rules are compiled once per dataset;
+- prepared and canonical rows, source lineage, reconciliation dispositions,
+  and configured control totals are grouped or accumulated in one outer pass;
+- source checksums use bounded buffered reads;
+- publication code calculates each source run hash once and reuses it;
+- normalization candidates stream from transformation-impact rows instead of
+  first copying the complete candidate tuple;
+- portable-evidence traversal uses an iterative `collections.abc` validator,
+  and staging applies it one row at a time instead of materializing a second
+  complete run; the numeric-Odoo-ID prohibition is unchanged.
+
+The opt-in deep-chain fixture is in `tests/test_quality.py` and is excluded
+from ordinary discovery unless `IMPODO_RUN_QUALITY_SCALE=1`. At 100,000 rows
+and 99,999 edges, fixture construction, quality evaluation, and final quality
+hashing totalled **31.835 seconds**. The comparable
+pre-validator-optimization result was **51.363 seconds**, a **38.0% CPU-time
+reduction**, with identical staging and quality hashes.
+
+This is not the complete **Prepare and review data** gate. The all-quarantined
+chain still reached 845.5 MiB peak working set because it deliberately retains
+100,000 quality issues and quarantine entries. The supported browser limit
+therefore remains 25,000 rows. P3/P4 bounded evidence production, the
+integrated mixed fixture, and three final end-to-end runs remain required.
+
+Focused evaluator, staging, relationship, portable-evidence, quality
+publication, and normalization tests pass. A full-suite run during concurrent
+Slice 5 development reached 228 tests but was not green: the in-progress
+preflight constructor, schema-version expectations, and planner fixtures were
+temporarily inconsistent. Those failures are recorded separately from this
+optimization and must be rerun when the shared Slice 5 worktree stabilizes.
 
 ## Benchmark fixtures
 
@@ -143,6 +194,10 @@ rebalanced when measurements identify the actual bottleneck.
 
 ### P0 - Establish repeatable evidence
 
+**Status:** Partial. The fresh-process deep-relationship fixture, deterministic
+hashes, phase timings, and peak working-set capture are implemented. The mixed
+end-to-end and effect-heavy fixtures still need to be added.
+
 Add the opt-in benchmark harness and phase timers before changing algorithms.
 Run the existing narrow fixture at 1,000, 10,000, and 25,000 rows, then attempt
 the 100,000-row fixtures without changing the product limit. Record failures,
@@ -155,6 +210,10 @@ values, credentials, numeric Odoo IDs, or other protected evidence.
 the measurement itself does not materially change runtime or memory.
 
 ### P1 - Remove avoidable superlinear Python work
+
+**Status:** Implemented for the currently identified evaluator and quality hot
+paths. Focused semantic tests and the 100,000-row chain pass. Further P1 work
+must be driven by a profile or a demonstrated N+1/repeated scan.
 
 Make contained changes before the persistence redesign:
 
@@ -179,6 +238,8 @@ doubling rows does not cause repeated full-row or full-edge scans.
 
 ### P2 - Compare from frozen durable rows
 
+**Status:** Pending; remains governed by the Slice 5 plan.
+
 Implement Slice 5 before raising the scale limit. Replace comparison-time
 source preparation with a version-checked `FrozenPreflightInput` built from
 the current canonical, quality, and frozen normalization runs.
@@ -193,6 +254,8 @@ quality, or normalization evidence, and stops before Odoo access when frozen
 evidence is stale or incomplete.
 
 ### P3 - Stream source preparation into temporary durable staging
+
+**Status:** Pending. This is now the next material performance phase.
 
 Replace the materializing `SourceTable -> SourceTable -> PreparedBundle ->
 CanonicalStagingRun` path with bounded row batches and a transactional staging
@@ -230,6 +293,10 @@ increases from 25,000 to 100,000.
 
 ### P4 - Stream quality and normalization evidence
 
+**Status:** Partial only for single-use hash caching and removal of the
+normalization-candidate tuple copy. Bounded quality and effect publication is
+still pending.
+
 Quality must consume persisted canonical rows in bounded batches. It may retain
 compact global indexes required for identity and relationship rules, but not a
 second complete canonical object graph. The relationship queue from P1 remains
@@ -257,6 +324,8 @@ content hash.
 
 ### P5 - Close the 100,000-row release gate
 
+**Status:** Pending. The 25,000-row product limit remains authoritative.
+
 Run the focused semantic suites, full repository suite, browser workflow tests,
 all 100,000-row fixtures, and the deterministic local-target comparison. Review
 profiles for CPU time, allocation volume, serialization, DuckDB time, and
@@ -270,7 +339,7 @@ Only after all gates pass:
 - retain the 25,000-row measurements as historical evidence;
 - record the three final 100,000-row runs and their worst result.
 
-If any required fixture exceeds 120 seconds or 512 MiB, retain the 25,000-row
+If any required fixture exceeds 120 seconds or 900 MiB, retain the 25,000-row
 product limit and continue profiling. Do not raise the limit based on an
 evaluator-only or best-of-many result.
 

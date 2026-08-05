@@ -7,7 +7,8 @@ from typing import Protocol
 from ..access import Actor
 from ..derived_entities import DerivedEntityPlan
 from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
-from ..domain.preflight.reports import ReadinessReport
+from ..connectors import MetadataSnapshot, RecordSnapshot
+from ..domain.preflight.reports import ReadinessReport, ReadinessRowPage
 from ..governance import DryRun
 from ..inspection import SourceFileCatalog
 from ..normalization import (
@@ -151,18 +152,35 @@ class PreflightStagingRepository(Protocol):
     def get_current_staging_summary(
         self, project_id: str
     ) -> StagingRunSummary | None: ...
+    def get_canonical_staging_run(
+        self, project_id: str, run_id: str
+    ) -> CanonicalStagingRun | None: ...
 
 
 class PreflightQualityRepository(Protocol):
     def get_current_quality_summary(
         self, project_id: str
     ) -> QualityRunSummary | None: ...
+    def get_quality_run(self, project_id: str, run_id: str) -> QualityRun | None: ...
 
 
 class PreflightNormalizationRepository(Protocol):
     def get_current_normalization_summary(
         self, project_id: str
     ) -> NormalizationRunSummary | None: ...
+    def get_normalization_dry_run(
+        self, project_id: str, run_id: str
+    ) -> DryRun | None: ...
+
+
+class PreflightProjectRepository(Protocol):
+    def get(self, project_id: str) -> MigrationProject: ...
+
+
+class PreflightSourceRepository(Protocol):
+    def get_mapping_source_selection(
+        self, project_id: str
+    ) -> SourceSelection | None: ...
 
 
 class PreflightMappingRepository(Protocol):
@@ -185,11 +203,27 @@ class PreflightRepository(Protocol):
         staging_content_hash: str,
         quality_run_id: str,
         quality_content_hash: str,
+        normalization_run_id: str,
+        normalization_content_hash: str,
+        normalization_lifecycle_version: int,
+        eligible_dataset_hash: str,
     ) -> ReadinessReport | None: ...
     def save_readiness_report(
         self,
         project_id: str,
         report: ReadinessReport,
         *,
+        metadata_snapshot: MetadataSnapshot,
+        record_snapshot: RecordSnapshot,
         actor: Actor,
     ) -> None: ...
+    def get_readiness_rows(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        status: str = "",
+        dataset: str = "",
+        page: int = 1,
+        page_size: int = 100,
+    ) -> ReadinessRowPage: ...
