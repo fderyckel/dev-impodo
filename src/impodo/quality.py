@@ -974,13 +974,53 @@ def eligible_prepared_bundle(
 ) -> PreparedBundle:
     """Return the compatibility bundle allowed to enter read-only preflight."""
 
-    allowed_coordinates = {
-        (row.dataset, row.source_row)
+    def record_key(
+        dataset: str,
+        source_row: int,
+        target_model: str,
+        source_identity: tuple[Any, ...],
+    ) -> bytes:
+        return canonical_json_bytes(
+            {
+                "dataset": dataset,
+                "source_row": source_row,
+                "target_model": target_model,
+                "source_identity": portable_value(source_identity),
+            }
+        )
+
+    staged_by_key = {
+        record_key(
+            row.dataset,
+            row.source_row,
+            row.target_model,
+            row.source_identity,
+        ): row
         for row in staging.rows
-        if row.row_id in quality.eligible_row_ids
     }
+    if len(staged_by_key) != len(staging.rows):
+        raise QualityError(
+            "Prepared records cannot be matched safely to quality rows"
+        )
+    seen: set[bytes] = set()
+    eligible: list[PreparedRecord] = []
+    for record in prepared.records:
+        key = record_key(
+            record.dataset,
+            record.source_row,
+            record.target_model,
+            record.source_identity,
+        )
+        row = staged_by_key.get(key)
+        if row is None or key in seen:
+            raise QualityError("Prepared records no longer match the quality result")
+        seen.add(key)
+        if row.row_id in quality.eligible_row_ids:
+            eligible.append(record)
+    if seen != set(staged_by_key):
+        raise QualityError("Prepared records no longer match the quality result")
     return PreparedBundle(
-        records=tuple(record for record in prepared.records if (record.dataset, record.source_row) in allowed_coordinates),
+        records=tuple(eligible),
         issues=(),
         source_hashes=prepared.source_hashes,
     )

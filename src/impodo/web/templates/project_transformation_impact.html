@@ -23,10 +23,14 @@
       <p class="eyebrow">Bounded browser view</p>
       <h2>Prepare transformation impact</h2>
       <p>Impodo will evaluate every frozen row locally, store one hash-bound snapshot, and then show up to 100 matching values at a time. It will not contact or write to Odoo.</p>
-      <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact/prepare">
+      <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact/prepare" data-transformation-impact-prepare>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="button primary" type="submit">Prepare transformation impact</button>
+        <button class="button primary" type="submit" data-transformation-impact-button>Prepare transformation impact</button>
       </form>
+      <p class="impact-preparing-status" data-transformation-impact-status role="status" aria-live="polite" hidden>
+        <span class="activity-spinner" aria-hidden="true"></span>
+        <span><strong>Preparing transformation impact…</strong> Impodo is evaluating the frozen rows locally. Keep this page open; large sources can take a few minutes.</span>
+      </p>
     </section>
   {% endif %}
 

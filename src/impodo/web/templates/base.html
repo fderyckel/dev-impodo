@@ -23,7 +23,7 @@
     {% set nav_active = "schema" %}
   {% elif "/mapping" in current_path %}
     {% set nav_active = "mapping" %}
-  {% elif "/summary" in current_path %}
+  {% elif "/summary" in current_path or "/normalization" in current_path %}
     {% set nav_active = "summary" %}
   {% endif %}
   <head>
@@ -106,20 +106,20 @@
             <a
               class="sidebar-link{% if nav_active == 'schema' %} active{% endif %}"
               href="/projects/{{ project_id }}/schema"
-              title="Odoo fields"
+              title="Odoo data"
               {% if nav_active == "schema" %}aria-current="page"{% endif %}
             >
               {{ app_icon("diagram-3") }}
-              <span class="nav-label">Odoo fields</span>
+              <span class="nav-label">Odoo data</span>
             </a>
             <a
               class="sidebar-link{% if nav_active == 'mapping' %} active{% endif %}"
               href="/projects/{{ project_id }}/mapping"
-              title="Match fields"
+              title="Match data"
               {% if nav_active == "mapping" %}aria-current="page"{% endif %}
             >
               {{ app_icon("link-45deg") }}
-              <span class="nav-label">Match fields</span>
+              <span class="nav-label">Match data</span>
             </a>
             <a
               class="sidebar-link{% if nav_active == 'summary' %} active{% endif %}"
@@ -134,8 +134,8 @@
             {% for item in (
               ("database", "Source data"),
               ("grid-3x3-gap", "Select tables"),
-              ("diagram-3", "Odoo fields"),
-              ("link-45deg", "Match fields"),
+              ("diagram-3", "Odoo data"),
+              ("link-45deg", "Match data"),
               ("clipboard-check", "Review")
             ) %}
               <span
@@ -163,7 +163,16 @@
             <div class="notice success" role="status">{{ flash }}</div>
           {% endif %}
           {% if error %}
-            <div class="notice error" role="alert">{{ error }}</div>
+            <div class="notice error" role="alert">
+              <strong>We could not complete that action.</strong>
+              <span>{{ error }}</span>
+              {% if support_error and support_error != error %}
+                <details class="support-details">
+                  <summary>Support details</summary>
+                  <code>{{ support_error }}</code>
+                </details>
+              {% endif %}
+            </div>
           {% endif %}
           {% block content %}{% endblock %}
         </div>

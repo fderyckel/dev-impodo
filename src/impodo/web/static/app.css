@@ -509,7 +509,7 @@ h3 {
 .project-list-heading,
 .project-row {
   display: grid;
-  grid-template-columns: minmax(18rem, 2fr) minmax(7.5rem, .72fr) minmax(12rem, 1fr) minmax(5.5rem, .45fr) minmax(2.75rem, .2fr);
+  grid-template-columns: minmax(18rem, 2fr) minmax(10rem, .85fr) minmax(12rem, 1fr) minmax(2.75rem, .2fr);
   align-items: center;
   gap: 1.25rem;
 }
@@ -2392,6 +2392,44 @@ a.impact-card:focus-visible,
 
 .impact-page-status {
   margin: 0 0 .8rem;
+}
+
+.impact-preparing-status {
+  display: flex;
+  align-items: flex-start;
+  gap: .7rem;
+  margin: 1rem 0 0;
+  border-left: 4px solid var(--impodo-red);
+  background: var(--accent);
+  padding: .85rem 1rem;
+}
+
+.impact-preparing-status[hidden] {
+  display: none;
+}
+
+.activity-spinner {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin-top: .15rem;
+  border: 2px solid rgb(153 34 23 / 24%);
+  border-top-color: var(--impodo-red-dark);
+  border-radius: 50%;
+  animation: activity-spin .8s linear infinite;
+}
+
+@keyframes activity-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-spinner {
+    animation: none;
+    border-color: var(--impodo-red-dark);
+  }
 }
 
 .impact-pagination {

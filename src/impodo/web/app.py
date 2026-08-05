@@ -189,6 +189,7 @@ MAPPING_FIELD_PAGE_SIZES = (3, 10, 20, 50)
 VALUE_MATCH_MAX_SOURCE_CHOICES = 500
 VALUE_MATCH_MAX_TARGET_CHOICES = 2_000
 READINESS_ROWS_PER_PAGE = 100
+NORMALIZATION_GROUPS_PER_PAGE = 50
 _APPLICATION_MODULE_PREFIXES = {
     "Accounting": ("account", "analytic"),
     "Contacts": ("contacts",),
@@ -924,6 +925,36 @@ def create_local_app(
     async def check_project_data(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
+        try:
+            await run_in_threadpool(
+                context.readiness.prepare,
+                project_id,
+                actor=context.actor,
+            )
+        except (
+            ConnectorError,
+            ProjectError,
+            ReadinessError,
+            SecretStoreError,
+            WorkspaceError,
+        ) as error:
+            return _render_summary(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, "Prepared data is ready for your review.")
+        return RedirectResponse(
+            f"/projects/{project_id}/normalization",
+            status_code=303,
+        )
+
+    @app.post("/projects/{project_id}/summary/compare")
+    async def compare_project_data(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
         project = context.repository.get(project_id)
 
         def reader(metadata_requests, record_requests):
@@ -955,7 +986,118 @@ def create_local_app(
                 error=str(error),
                 status_code=422,
             )
-        _flash(request, "Prepared data saved and checked.")
+        _flash(request, "Prepared data compared with Odoo. Nothing was changed.")
+        return RedirectResponse(
+            f"/projects/{project_id}/summary",
+            status_code=303,
+        )
+
+    @app.get("/projects/{project_id}/normalization", response_class=HTMLResponse)
+    async def review_prepared_data(request: Request, project_id: str):
+        require_session(request)
+        return _render_normalization(request, context, project_id)
+
+    @app.post(
+        "/projects/{project_id}/normalization/groups/{group_id}/accept"
+    )
+    async def accept_prepared_change(
+        request: Request,
+        project_id: str,
+        group_id: str,
+    ):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "run_id", "lifecycle_version"},
+        )
+        try:
+            await run_in_threadpool(
+                context.readiness.decide_normalization_group,
+                project_id,
+                str(form["run_id"]),
+                group_id,
+                approve=True,
+                expected_version=int(str(form["lifecycle_version"])),
+                actor=context.actor,
+            )
+        except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
+            return _render_normalization(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, "Prepared change accepted.")
+        return RedirectResponse(
+            f"/projects/{project_id}/normalization",
+            status_code=303,
+        )
+
+    @app.post(
+        "/projects/{project_id}/normalization/groups/{group_id}/reject"
+    )
+    async def reject_prepared_change(
+        request: Request,
+        project_id: str,
+        group_id: str,
+    ):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "run_id", "lifecycle_version"},
+        )
+        try:
+            await run_in_threadpool(
+                context.readiness.decide_normalization_group,
+                project_id,
+                str(form["run_id"]),
+                group_id,
+                approve=False,
+                expected_version=int(str(form["lifecycle_version"])),
+                actor=context.actor,
+            )
+        except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
+            return _render_normalization(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, "Prepared change sent back for correction.")
+        return RedirectResponse(
+            f"/projects/{project_id}/normalization",
+            status_code=303,
+        )
+
+    @app.post("/projects/{project_id}/normalization/approve")
+    async def approve_prepared_data(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "run_id", "lifecycle_version"},
+        )
+        try:
+            await run_in_threadpool(
+                context.readiness.approve_normalization,
+                project_id,
+                str(form["run_id"]),
+                expected_version=int(str(form["lifecycle_version"])),
+                actor=context.actor,
+            )
+        except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
+            return _render_normalization(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, "Prepared data approved. You can now compare it with Odoo.")
         return RedirectResponse(
             f"/projects/{project_id}/summary",
             status_code=303,
@@ -3041,6 +3183,89 @@ def _render_target(
     )
 
 
+def _render_normalization(
+    request: Request,
+    context: WebContext,
+    project_id: str,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+):
+    project = context.repository.get(project_id)
+    review = context.readiness.current_normalization_group_review(project_id)
+    if review is None:
+        return _render_summary(
+            request,
+            context,
+            project_id,
+            error=(error or "Prepare the data before reviewing its changes."),
+            status_code=(status_code if error else 422),
+        )
+    summary, groups, dry_run, automatic_record_count = review
+    decisions = {item.key: item.decision.value for item in dry_run.group_decisions}
+    items = []
+    for group in groups:
+        decision = decisions.get(group.decision_key, "")
+        if group.eligible_count == 0:
+            item_status = "set_aside"
+        elif not group.requires_decision:
+            item_status = "automatic"
+        elif decision:
+            item_status = "reviewed"
+        else:
+            item_status = "pending"
+        items.append(
+            {
+                "group": group,
+                "status": item_status,
+                "decision": decision,
+            }
+        )
+    selected_status = request.query_params.get("status", "").strip()
+    if selected_status not in {"", "automatic", "pending", "reviewed", "set_aside"}:
+        selected_status = ""
+    matching = tuple(
+        item for item in items
+        if not selected_status or item["status"] == selected_status
+    )
+    page_count = max(
+        1,
+        (len(matching) + NORMALIZATION_GROUPS_PER_PAGE - 1)
+        // NORMALIZATION_GROUPS_PER_PAGE,
+    )
+    page = min(
+        _positive_query_int(request.query_params.get("page"), default=1),
+        page_count,
+    )
+    start = (page - 1) * NORMALIZATION_GROUPS_PER_PAGE
+    page_items = matching[start : start + NORMALIZATION_GROUPS_PER_PAGE]
+    return _render(
+        request,
+        "project_normalization.html",
+        project=project,
+        normalization=summary,
+        dry_run=dry_run,
+        review_items=page_items,
+        review_matching_count=len(matching),
+        review_status=selected_status,
+        review_page=page,
+        review_page_count=page_count,
+        review_previous_url=(
+            f"?{urlencode({'status': selected_status, 'page': page - 1})}"
+            if page > 1
+            else None
+        ),
+        review_next_url=(
+            f"?{urlencode({'status': selected_status, 'page': page + 1})}"
+            if page < page_count
+            else None
+        ),
+        automatic_record_count=automatic_record_count,
+        error=error,
+        status_code=status_code,
+    )
+
+
 def _render_summary(
     request: Request,
     context: WebContext,
@@ -3064,6 +3289,7 @@ def _render_summary(
     )
     staging = context.readiness.current_staging(project_id)
     quality = context.readiness.current_quality_summary(project_id)
+    normalization = context.readiness.current_normalization_summary(project_id)
     if (
         quality is not None
         and (staging is None or quality.staging_run_id != staging.run_id)
@@ -3132,6 +3358,7 @@ def _render_summary(
         submission=submission,
         staging=staging,
         quality=quality,
+        normalization=normalization,
         quality_review_page=quality_page,
         quality_status=quality_status,
         quality_dataset=quality_dataset,

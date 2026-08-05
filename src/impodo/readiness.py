@@ -61,6 +61,15 @@ from .models import (
     portable_value,
     target_identity_hash,
 )
+from .governance import DryRun
+from .normalization import (
+    NormalizationCandidate,
+    NormalizationEvaluation,
+    NormalizationError,
+    NormalizationReviewGroup,
+    NormalizationRunSummary,
+    evaluate_normalization,
+)
 from .planner import plan_metadata_requests, plan_record_requests
 from .profile import (
     DatasetSpec,
@@ -509,6 +518,62 @@ class ReadinessRepository(Protocol):
         run_id: str,
     ) -> QualityRun | None: ...
 
+    def publish_normalization_run(
+        self,
+        project_id: str,
+        evaluation: NormalizationEvaluation,
+        *,
+        staging_run_id: str,
+        quality_run_id: str,
+        source_hashes: dict[str, str],
+        actor: Actor,
+    ) -> NormalizationRunSummary: ...
+
+    def get_current_normalization_summary(
+        self,
+        project_id: str,
+    ) -> NormalizationRunSummary | None: ...
+
+    def get_normalization_evaluation(
+        self,
+        project_id: str,
+        run_id: str,
+    ) -> NormalizationEvaluation | None: ...
+
+    def get_normalization_dry_run(
+        self,
+        project_id: str,
+        run_id: str,
+    ) -> DryRun | None: ...
+
+    def get_normalization_review_groups(
+        self,
+        project_id: str,
+        run_id: str,
+    ) -> tuple[tuple[NormalizationReviewGroup, ...], int]: ...
+
+    def decide_normalization_group(
+        self,
+        project_id: str,
+        run_id: str,
+        group_id: str,
+        *,
+        approve: bool,
+        expected_version: int,
+        actor: Actor,
+        reason: str = "",
+    ) -> NormalizationRunSummary: ...
+
+    def approve_and_freeze_normalization(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        expected_version: int,
+        actor: Actor,
+        reason: str = "",
+    ) -> NormalizationRunSummary: ...
+
     def save_readiness_report(
         self,
         project_id: str,
@@ -537,6 +602,17 @@ class StagedBrowserMapping:
     transformation_impact: TransformationImpactReport | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedReadinessContext:
+    project: MigrationProject
+    revision: MappingRevision
+    staged: StagedBrowserMapping
+    staging: StagingRunSummary
+    quality_run: QualityRun
+    quality: QualityRunSummary
+    normalization: NormalizationRunSummary
+
+
 class BrowserReadinessService:
     """Run and persist one row-level check for the current submitted mapping."""
 
@@ -557,6 +633,16 @@ class BrowserReadinessService:
             return None
         quality = self.repository.get_current_quality_summary(project_id)
         if quality is None or quality.staging_run_id != staging.run_id:
+            return None
+        normalization = self.repository.get_current_normalization_summary(
+            project_id
+        )
+        if (
+            normalization is None
+            or not normalization.frozen
+            or normalization.staging_run_id != staging.run_id
+            or normalization.quality_run_id != quality.run_id
+        ):
             return None
         revision = self.repository.get_mapping_revision(project_id)
         if revision is None:
@@ -592,6 +678,122 @@ class BrowserReadinessService:
             return None
         return self.repository.get_quality_run(project_id, summary.run_id)
 
+    def current_normalization_summary(
+        self,
+        project_id: str,
+    ) -> NormalizationRunSummary | None:
+        return self.repository.get_current_normalization_summary(project_id)
+
+    def current_normalization_review(
+        self,
+        project_id: str,
+    ) -> tuple[NormalizationRunSummary, NormalizationEvaluation, DryRun] | None:
+        summary = self.repository.get_current_normalization_summary(project_id)
+        if summary is None:
+            return None
+        evaluation = self.repository.get_normalization_evaluation(
+            project_id,
+            summary.run_id,
+        )
+        dry_run = self.repository.get_normalization_dry_run(
+            project_id,
+            summary.run_id,
+        )
+        if evaluation is None or dry_run is None:
+            raise ReadinessError("Prepared review evidence is incomplete")
+        return summary, evaluation, dry_run
+
+    def current_normalization_group_review(
+        self,
+        project_id: str,
+    ) -> tuple[
+        NormalizationRunSummary,
+        tuple[NormalizationReviewGroup, ...],
+        DryRun,
+        int,
+    ] | None:
+        """Return browser-sized group evidence without loading every effect."""
+
+        summary = self.repository.get_current_normalization_summary(project_id)
+        if summary is None:
+            return None
+        groups, automatic_record_count = (
+            self.repository.get_normalization_review_groups(
+                project_id,
+                summary.run_id,
+            )
+        )
+        dry_run = self.repository.get_normalization_dry_run(
+            project_id,
+            summary.run_id,
+        )
+        if dry_run is None:
+            raise ReadinessError("Prepared review evidence is incomplete")
+        return summary, groups, dry_run, automatic_record_count
+
+    def decide_normalization_group(
+        self,
+        project_id: str,
+        run_id: str,
+        group_id: str,
+        *,
+        approve: bool,
+        expected_version: int,
+        actor: Actor,
+        reason: str = "",
+    ) -> NormalizationRunSummary:
+        self.authorization.require(
+            actor,
+            Capability.NORMALIZATION_DECIDE,
+            project_id=project_id,
+        )
+        return self.repository.decide_normalization_group(
+            project_id,
+            run_id,
+            group_id,
+            approve=approve,
+            expected_version=expected_version,
+            actor=actor,
+            reason=reason,
+        )
+
+    def approve_normalization(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        expected_version: int,
+        actor: Actor,
+        reason: str = "",
+    ) -> NormalizationRunSummary:
+        self.authorization.require(
+            actor,
+            Capability.NORMALIZATION_APPROVE,
+            project_id=project_id,
+        )
+        return self.repository.approve_and_freeze_normalization(
+            project_id,
+            run_id,
+            expected_version=expected_version,
+            actor=actor,
+            reason=reason,
+        )
+
+    def prepare(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+    ) -> NormalizationRunSummary:
+        """Prepare and persist review evidence without contacting Odoo."""
+
+        self.authorization.require(
+            actor,
+            Capability.MAPPING_SUBMIT,
+            project_id=project_id,
+        )
+        return self._prepare(project_id, actor=actor).normalization
+
     def run(
         self,
         project_id: str,
@@ -604,78 +806,18 @@ class BrowserReadinessService:
             Capability.MAPPING_SUBMIT,
             project_id=project_id,
         )
-        project = self.repository.get(project_id)
-        revision = self.repository.get_mapping_revision(project_id)
-        if revision is None:
-            raise ReadinessError("Submit the mapping before checking data")
-        submission = self.repository.get_mapping_submission(
-            project_id, revision.version
-        )
-        if (
-            submission is None
-            or submission.mapping_content_hash != revision.definition.content_hash
-        ):
-            raise ReadinessError("Submit the current mapping before checking data")
-        physical_selection = self.repository.get_source_selection(project_id)
-        effective_selection = self.repository.get_mapping_source_selection(project_id)
-        if physical_selection is None or effective_selection is None:
-            raise ReadinessError("Freeze the source datasets before checking data")
-
-        staged = stage_browser_mapping(
-            project,
-            revision.definition,
-            physical_selection,
-            effective_selection,
-            self.repository.get_derived_entity_plan(project_id),
-            self.repository.get_source_catalogs(project_id),
-            self.artifacts,
-        )
-        publication = self.repository.publish_canonical_staging(
-            project_id,
-            staged.canonical_run,
-            mapping_version=revision.version,
-            actor=actor,
-        )
-        ruleset = self.repository.get_current_quality_ruleset(project_id)
-        if (
-            ruleset is None
-            or ruleset.mapping_hash != revision.definition.content_hash
-            or ruleset.schema_hash != revision.definition.schema_hash
-        ):
-            ruleset = default_quality_ruleset(
-                project_id=project_id,
-                mapping_hash=revision.definition.content_hash,
-                schema_hash=revision.definition.schema_hash,
-                datasets=(item.name for item in effective_selection.datasets),
-                version=(ruleset.version + 1 if ruleset is not None else 1),
-                parent_version=(ruleset.version if ruleset is not None else None),
-            )
-            ruleset = self.repository.publish_quality_ruleset(
-                project_id,
-                ruleset,
-                actor=actor,
-            )
-        try:
-            quality_run = evaluate_quality(
-                project=project,
-                staging=staged.canonical_run,
-                prepared=staged.prepared,
-                physical_rows=staged.physical_rows,
-                ruleset=ruleset,
-            )
-        except QualityError as error:
-            raise ReadinessError(str(error)) from error
-        quality = self.repository.publish_quality_run(
-            project_id,
-            quality_run,
-            staging_run_id=publication.run_id,
-            actor=actor,
-        )
-        if not quality.can_compare:
+        context = self._prepare(project_id, actor=actor)
+        if not context.normalization.frozen:
             raise ReadinessError(
-                "Fix the data-check setup shown below, then check all rows again. "
+                "Approve the prepared data before comparing it with Odoo. "
                 "Odoo was not contacted."
             )
+        project = context.project
+        revision = context.revision
+        staged = context.staged
+        publication = context.staging
+        quality_run = context.quality_run
+        quality = context.quality
         eligible = eligible_prepared_bundle(
             staged.canonical_run,
             staged.prepared,
@@ -723,6 +865,145 @@ class BrowserReadinessService:
             actor=actor,
         )
         return report
+
+    def _prepare(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+    ) -> PreparedReadinessContext:
+        project = self.repository.get(project_id)
+        revision = self.repository.get_mapping_revision(project_id)
+        if revision is None:
+            raise ReadinessError("Submit the mapping before checking data")
+        submission = self.repository.get_mapping_submission(
+            project_id, revision.version
+        )
+        if (
+            submission is None
+            or submission.mapping_content_hash != revision.definition.content_hash
+        ):
+            raise ReadinessError("Submit the current mapping before checking data")
+        physical_selection = self.repository.get_source_selection(project_id)
+        effective_selection = self.repository.get_mapping_source_selection(project_id)
+        if physical_selection is None or effective_selection is None:
+            raise ReadinessError("Freeze the source datasets before checking data")
+
+        impact_rows: list[TransformationImpactRow] = []
+        staged = stage_browser_mapping(
+            project,
+            revision.definition,
+            physical_selection,
+            effective_selection,
+            self.repository.get_derived_entity_plan(project_id),
+            self.repository.get_source_catalogs(project_id),
+            self.artifacts,
+            collect_transformation_impact=True,
+            transformation_detail_limit=0,
+            transformation_impact_sink=impact_rows.append,
+        )
+        publication = self.repository.publish_canonical_staging(
+            project_id,
+            staged.canonical_run,
+            mapping_version=revision.version,
+            actor=actor,
+        )
+        ruleset = self.repository.get_current_quality_ruleset(project_id)
+        if (
+            ruleset is None
+            or ruleset.mapping_hash != revision.definition.content_hash
+            or ruleset.schema_hash != revision.definition.schema_hash
+        ):
+            ruleset = default_quality_ruleset(
+                project_id=project_id,
+                mapping_hash=revision.definition.content_hash,
+                schema_hash=revision.definition.schema_hash,
+                datasets=(item.name for item in effective_selection.datasets),
+                version=(ruleset.version + 1 if ruleset is not None else 1),
+                parent_version=(ruleset.version if ruleset is not None else None),
+            )
+            ruleset = self.repository.publish_quality_ruleset(
+                project_id,
+                ruleset,
+                actor=actor,
+            )
+        try:
+            quality_run = evaluate_quality(
+                project=project,
+                staging=staged.canonical_run,
+                prepared=staged.prepared,
+                physical_rows=staged.physical_rows,
+                ruleset=ruleset,
+            )
+        except QualityError as error:
+            raise ReadinessError(str(error)) from error
+        quality = self.repository.publish_quality_run(
+            project_id,
+            quality_run,
+            staging_run_id=publication.run_id,
+            actor=actor,
+        )
+        if not quality.can_compare:
+            raise ReadinessError(
+                "Fix the data-check setup shown below, then check all rows again. "
+                "Odoo was not contacted."
+            )
+        effective_by_id = {
+            item.dataset_id: item for item in effective_selection.datasets
+        }
+        mappings = {
+            effective_by_id[item.dataset_id].name: item
+            for item in revision.definition.datasets
+        }
+        candidates = tuple(
+            NormalizationCandidate(
+                dataset=item.dataset,
+                source_row=item.source_row,
+                source_label=item.source_column,
+                target_field=item.target_field,
+                raw_display=item.raw_value,
+                proposed_display=item.proposed_value,
+                rules=item.rules,
+                outcome=item.outcome,
+                message=item.message,
+            )
+            for item in impact_rows
+        )
+        try:
+            normalization_evaluation = evaluate_normalization(
+                project=project,
+                staging=staged.canonical_run,
+                quality=quality_run,
+                mappings=mappings,
+                candidates=candidates,
+            )
+        except NormalizationError as error:
+            raise ReadinessError(str(error)) from error
+        source_hashes = {
+            item.file_id: (
+                item.source_sha256
+                if item.source_sha256.startswith("sha256:")
+                else f"sha256:{item.source_sha256}"
+            )
+            for item in physical_selection.datasets
+        }
+        normalization = self.repository.publish_normalization_run(
+            project_id,
+            normalization_evaluation,
+            staging_run_id=publication.run_id,
+            quality_run_id=quality.run_id,
+            source_hashes=source_hashes,
+            actor=actor,
+        )
+        return PreparedReadinessContext(
+            project=project,
+            revision=revision,
+            staged=staged,
+            staging=publication,
+            quality_run=quality_run,
+            quality=quality,
+            normalization=normalization,
+        )
 
 
 def stage_browser_mapping(
@@ -1319,7 +1600,20 @@ def _stage_table(
                 source_row=row.number,
             )
         )
-        _apply_relationship_value_mappings(values, mapping)
+        _record_identity_preparation(
+            values,
+            effective,
+            mapping,
+            source_row=row.number,
+            impact_collector=impact_collector,
+        )
+        _apply_relationship_value_mappings(
+            values,
+            effective,
+            mapping,
+            source_row=row.number,
+            impact_collector=impact_collector,
+        )
         _apply_scalar_mappings(
             values,
             effective,
@@ -1423,7 +1717,20 @@ def _stage_derived_table(
             values[link.parent_key_column_key] = (
                 " / ".join(key_path[:-1]) if key_path[:-1] else None
             )
-        _apply_relationship_value_mappings(values, mapping)
+        _record_identity_preparation(
+            values,
+            effective,
+            mapping,
+            source_row=generated_row,
+            impact_collector=impact_collector,
+        )
+        _apply_relationship_value_mappings(
+            values,
+            effective,
+            mapping,
+            source_row=generated_row,
+            impact_collector=impact_collector,
+        )
         _apply_scalar_mappings(
             values,
             effective,
@@ -1614,9 +1921,61 @@ def _apply_scalar_mappings(
                 )
 
 
+def _record_identity_preparation(
+    values: Mapping[str, object],
+    effective: SourceDataset,
+    mapping: DatasetMapping,
+    *,
+    source_row: int,
+    impact_collector: _TransformationImpactCollector | None,
+) -> None:
+    """Expose identity whitespace cleanup as an explicit reviewable change."""
+
+    if impact_collector is None:
+        return
+    labels = {item.stable_key: item.source_name for item in effective.columns}
+    for component in (*mapping.target_identity, *mapping.target_scope):
+        raw_values = tuple(values.get(key) for key in component.source_column_keys)
+        proposed_values = tuple(
+            (
+                " ".join(str(value).strip().split())
+                if value is not None and " ".join(str(value).strip().split())
+                else None
+            )
+            for value in raw_values
+        )
+        if tuple(_display_value(item) for item in raw_values) == tuple(
+            _display_value(item) for item in proposed_values
+        ):
+            continue
+        raw_display = " | ".join(_display_value(item) for item in raw_values)
+        proposed_display = " | ".join(
+            _display_value(item) for item in proposed_values
+        )
+        source_label = " + ".join(
+            labels.get(key, "Identity field")
+            for key in component.source_column_keys
+        )
+        for target_field in component.target_fields:
+            impact_collector.record(
+                dataset=effective.name,
+                source_row=source_row,
+                source_column=source_label,
+                target_field=target_field,
+                raw_value=raw_display,
+                proposed_value=proposed_display,
+                rules="Identity preparation",
+                outcome="changed",
+            )
+
+
 def _apply_relationship_value_mappings(
     values: dict[str, object],
+    effective: SourceDataset,
     mapping: DatasetMapping,
+    *,
+    source_row: int,
+    impact_collector: _TransformationImpactCollector | None = None,
 ) -> None:
     """Replace authored source choices with confirmed Odoo business keys."""
 
@@ -1639,6 +1998,31 @@ def _apply_relationship_value_mappings(
         )
         if target_value is not None:
             values[source_column] = target_value
+            if impact_collector is not None:
+                source_label = next(
+                    (
+                        item.source_name
+                        for item in effective.columns
+                        if item.stable_key == source_column
+                    ),
+                    "Matched value",
+                )
+                impact_collector.record(
+                    dataset=effective.name,
+                    source_row=source_row,
+                    source_column=source_label,
+                    target_field=relationship.target_field,
+                    raw_value=raw_value,
+                    proposed_value=target_value,
+                    rules=(
+                        f"Reviewed value match ({len(matches)} confirmed choice(s))"
+                    ),
+                    outcome=(
+                        "changed"
+                        if _display_value(raw_value) != _display_value(target_value)
+                        else "unchanged"
+                    ),
+                )
 
 
 def _transformation_outcome(

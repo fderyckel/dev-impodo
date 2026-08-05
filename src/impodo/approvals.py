@@ -51,6 +51,32 @@ class ApprovalEvidence:
             reason=reason.strip(),
         )
 
+    def to_portable_dict(self) -> dict[str, object]:
+        return {
+            "approved_by": {
+                "issuer": self.approved_by.issuer,
+                "subject_id": self.approved_by.subject_id,
+                "display_name": self.approved_by.display_name,
+            },
+            "approved_at": self.approved_at.isoformat(),
+            "capability": self.capability.value,
+            "reason": self.reason,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "ApprovalEvidence":
+        actor_payload = dict(payload["approved_by"])
+        return cls(
+            approved_by=ActorIdentity(
+                issuer=str(actor_payload["issuer"]),
+                subject_id=str(actor_payload["subject_id"]),
+                display_name=str(actor_payload["display_name"]),
+            ),
+            approved_at=datetime.fromisoformat(str(payload["approved_at"])),
+            capability=Capability(str(payload["capability"])),
+            reason=str(payload.get("reason", "")),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class FrozenExportPlan:

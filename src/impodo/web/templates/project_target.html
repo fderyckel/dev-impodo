@@ -5,9 +5,8 @@
   {% include "_steps.html" %}
   <section class="form-card">
     <p class="eyebrow">Project setup · Connect Odoo</p>
-    <h1>Connect to Odoo safely</h1>
-    <p>Connect to an authorised Odoo 19 target on this computer or through
-      HTTPS. This connection can read information but cannot change Odoo.</p>
+    <h1>Where is your Odoo?</h1>
+    <p>Impodo uses a read-only connection to learn which Odoo records and fields are available. Nothing can be changed in Odoo.</p>
     <form
       method="post"
       action="/projects/{{ project.project_id }}/target"
@@ -17,24 +16,22 @@
       <input type="hidden" name="revision" value="{{ project.revision }}">
 
       <fieldset>
-        <legend>Connection mode</legend>
+        <legend>Choose where Odoo is running</legend>
         <div class="mode-grid">
           <label class="mode-card">
             <input type="radio" name="odoo_connection_mode" value="LOCAL"
               {% if not project.odoo_connection_mode or project.odoo_connection_mode.value == "LOCAL" %}checked{% endif %}>
             <span>
-              <strong>Local Odoo</strong>
-              <small>For this computer. HTTP is allowed only on the literal
-                loopback addresses <code>127.0.0.1</code> and <code>::1</code>.
-                Uses a selected <code>odoo.conf</code>; no Odoo API key is required.</small>
+              <strong>Odoo on this computer</strong>
+              <small>Choose this when Odoo is installed on the computer running Impodo.</small>
             </span>
           </label>
           <label class="mode-card">
             <input type="radio" name="odoo_connection_mode" value="REMOTE"
               {% if project.odoo_connection_mode and project.odoo_connection_mode.value == "REMOTE" %}checked{% endif %}>
             <span>
-              <strong>Remote / on-premises Odoo</strong>
-              <small>For an authorised server-hosted instance. HTTPS is mandatory.</small>
+              <strong>Odoo managed elsewhere</strong>
+              <small>Choose this for your organisation's hosted or server-based Odoo.</small>
             </span>
           </label>
         </div>
@@ -42,43 +39,40 @@
 
       <div class="form-grid">
         <label>
-          Odoo base URL
+          Odoo web address
           <input type="url" name="odoo_base_url" required
-            placeholder="Local: http://127.0.0.1:8069 · Remote: https://odoo.example.com"
+            placeholder="For example: https://odoo.example.com"
             value="{{ project.odoo_base_url or local_stack.base_url }}">
-          <small>Local mode cannot contact another machine. Remote mode cannot use HTTP.</small>
+          <small>Ask your Odoo administrator if you are unsure.</small>
         </label>
         <div class="local-stack-entry" data-local-stack-entry>
-          <strong>Need help with a local instance?</strong>
-          <span>Inspect an <code>odoo.conf</code> file and check PostgreSQL and Odoo readiness.</span>
+          <strong>Using Odoo on this computer?</strong>
+          <span>Impodo can find the local installation and check that it is ready.</span>
           <button class="link-button" type="button" data-open-local-stack>
-            Help me connect to local Odoo
+            Find local Odoo
           </button>
         </div>
         <label>
-          Database
+          Odoo database name
           <input name="odoo_database" maxlength="200" required
             placeholder="For example: odoo19_migration"
             value="{{ project.odoo_database or local_stack.database_hint }}">
         </label>
         <label data-api-key-entry>
-          Remote Odoo API key
+          Access key from your administrator
           <input type="password" name="api_key" autocomplete="off">
-          <small>Required only for Remote mode. Generate it for a
-            least-privilege Odoo user. It is never stored in the project
-            database or returned to the browser.</small>
+          <small>Required only when Odoo is managed elsewhere. Impodo does not place this key in the project data.</small>
         </label>
       </div>
       <label class="checkbox" data-api-key-entry>
         <input type="checkbox" name="remember_api_key">
-        Save the key in Windows Credential Manager.
+        Remember this key securely on this computer.
       </label>
 
       <fieldset>
-        <legend>Odoo apps in this project (optional)</legend>
+        <legend>Odoo areas included (optional)</legend>
         <p class="muted">
-          This keeps the next screen focused on relevant Odoo record types.
-          You will still choose exactly which record types the project may read.
+          Choose the business areas involved so the next screen can show the most relevant Odoo data first.
         </p>
         <div class="choice-grid">
           {% for application in applications %}
@@ -97,7 +91,7 @@
           name="action"
           value="test"
           data-test-connection-button
-        >Save and test connection</button>
+        >Check connection</button>
         <button class="button primary" type="submit" name="action" value="save">Save and continue</button>
       </div>
     </form>
@@ -110,12 +104,10 @@
     >
       <div class="dialog-heading">
         <div>
-          <p class="eyebrow">Local-only assistant</p>
-          <h2 id="local-stack-title">Local Odoo readiness</h2>
+          <p class="eyebrow">Odoo on this computer</p>
+          <h2 id="local-stack-title">Find and check local Odoo</h2>
           <p>
-            Choose the exact configuration for this computer. Impodo reads only
-            non-secret routing settings, checks each service, and can start a
-            confirmed local stack in PostgreSQL-then-Odoo order.
+            Choose the local Odoo setup. Impodo will check what is available and can start missing local services after you confirm.
           </p>
         </div>
         <form method="dialog">
@@ -129,7 +121,7 @@
 
       {% if local_stack.config_path %}
         <p class="selected-config">
-          Selected configuration:
+          Selected local setup:
           <code>{{ local_stack.config_path }}</code>
         </p>
       {% endif %}
@@ -149,7 +141,7 @@
 
       {% if local_stack.profile %}
         <details class="detected-profile">
-          <summary>Detected machine-local profile</summary>
+          <summary>Support details</summary>
           <dl>
             <div>
               <dt><code>pg_isready.exe</code></dt>
@@ -185,7 +177,7 @@
 
       {% if local_stack.has_managed_services %}
         <section class="stack-control-panel">
-          <h3>Control services started by Impodo</h3>
+          <h3>Control local services started by Impodo</h3>
           <p>
             Managed during this Impodo session:
             <strong>{{ local_stack.managed_services | join(", ") }}</strong>.
@@ -236,12 +228,9 @@
         </section>
       {% elif local_stack.startup_needed %}
         <section class="stack-start-panel">
-          <h3>Start the missing local services</h3>
+          <h3>Start local Odoo</h3>
           <p>
-            Impodo will reread the configuration, check the selected
-            PostgreSQL data directory, start PostgreSQL only when needed,
-            require <code>pg_isready</code> success, and then open Odoo in a
-            separate console window.
+            Impodo will check the selected local setup and start only the services Odoo needs on this computer.
           </p>
           {% if local_stack.missing_start_requirements %}
             <div class="notice error">
@@ -257,11 +246,10 @@
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <label class="checkbox stack-start-confirmation">
                 <input type="checkbox" name="confirm_start" value="1" required>
-                I confirm the detected paths above and want Impodo to start
-                the missing local PostgreSQL and Odoo processes.
+                I want Impodo to start the missing local Odoo services shown above.
               </label>
               <button class="button primary" type="submit" data-start-stack-button>
-                Start PostgreSQL and Odoo
+                Start local Odoo
               </button>
             </form>
           {% endif %}
@@ -282,7 +270,7 @@
         <form method="post" action="/projects/{{ project.project_id }}/local-stack/select-config">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button secondary" type="submit">
-            {% if local_stack.config_path %}Choose another odoo.conf{% else %}Choose odoo.conf{% endif %}
+            {% if local_stack.config_path %}Choose another local setup{% else %}Choose local Odoo setup{% endif %}
           </button>
         </form>
         <form method="post" action="/projects/{{ project.project_id }}/local-stack/refresh">

@@ -20,7 +20,7 @@
               <strong>{{ file.display_name }}</strong>
               <span>{{ file.size_bytes }} bytes</span>
             </div>
-            <code title="{{ file.sha256 }}">{{ file.sha256[:16] }}…</code>
+            <span>Added to this project</span>
           </div>
         {% endfor %}
       </div>
@@ -32,7 +32,7 @@
       <label>
         Select a file
         <input type="file" name="source_file" accept=".csv,.xlsx" required>
-        <small>Maximum accepted size: 100 MiB per file.</small>
+        <small>Maximum accepted size: 100 MB per file.</small>
       </label>
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/governance">Back</a>

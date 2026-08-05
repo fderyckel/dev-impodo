@@ -2,9 +2,9 @@
 
 ## Status and ownership
 
-**Status:** Active delivery plan. Slices 0 through 3 are implemented for the
-bounded browser workflow; normalization approval, package certification, and
-Odoo execution remain later slices.
+**Status:** Active delivery plan. Slices 0 through 4 are implemented for the
+bounded browser workflow; direct frozen-row preflight, package certification,
+and Odoo execution remain later slices.
 
 This plan owns the work that turns the implemented, transient all-row browser
 readiness path into durable canonical staging, governed normalization, and a
@@ -31,16 +31,16 @@ certifiable read-only preflight package. It does not redefine:
 | Target schema | Read-only Odoo 19 capture, permitted model scope, business keys, and manual-draft boundary are integrated |
 | Mapping | Immutable revisions, scalar providers, allowlisted transformations, relationships, validation, and exact-hash submission are integrated |
 | Derived entities | Lookup and parent/child preparation rules are authored in the browser, repeated over every frozen source row, and published as durable canonical datasets with complete physical-row pointers |
-| Normalization governance | Immutable dry-run decisions and freeze rules exist as standalone domain behavior, not as a browser or repository workflow |
+| Normalization governance | Deterministic prepared-value effects, grouped decisions, whole-run approval, exact eligible-dataset freeze, schema-v16 persistence, and invalidation are integrated |
 | Canonical evaluation | Exact submitted browser mappings use a reusable storage- and Odoo-independent full-row evaluator. Server previews and runtime share one scalar boundary; the integrated materializing path is explicitly limited to 25,000 physical rows |
-| Read-only preflight | Strict CLI profiles and exact submitted browser mapping revisions both feed the preflight engine. Browser readiness publishes canonical evidence, batches target reads, classifies results, and persists the report and technical manifest |
+| Read-only preflight | Strict CLI profiles and exact submitted browser mapping revisions both feed the preflight engine. Browser readiness batches target reads, classifies results, and persists the report and technical manifest only after current prepared data is frozen |
 | Export approval | Frozen-plan approval objects exist as standalone domain behavior, without an integrated staged package or executor |
 | Quality and quarantine | Versioned automatic and guided checks, dual source/canonical accounting, immutable quarantine evidence, bounded review paging, and eligible-row filtering before Odoo comparison are integrated |
-| Staging and certification | Durable atomic canonical staging, row controls, and opt-in named business totals are integrated. Normalization freeze and clean-package certification remain absent |
+| Staging and certification | Durable atomic canonical staging, row controls, opt-in named business totals, and normalization freeze are integrated. Clean-package certification remains absent |
 
-The next missing product seam is integrated normalization review and freeze
-over the current staged and quality evidence. Clean-package certification and
-direct reuse of frozen evidence by preflight follow that gate.
+The next missing product seam is Slice 5: run read-only preflight directly from
+durable frozen rows instead of recomputing a transient prepared bundle.
+Clean-package certification follows that adapter boundary.
 
 ## Target flow
 
@@ -178,6 +178,20 @@ hash. Any changed input creates a new run and invalidates approval eligibility.
 
 **Gate:** required correction groups and collisions cannot be bypassed, and a
 normalization approval grants no Odoo capability.
+
+The evidence contract, conservative review policy, invalidation matrix,
+data-manager journey, implementation sequence, and acceptance cases are
+defined in the
+[Slice 4 normalization review plan](slice-4-normalization-review-plan.md).
+
+**Checkpoint:** the local **Prepare and review data** action performs staging,
+quality, and normalization with zero Odoo calls. Review groups cover scalar
+rules, identity preparation, reviewed relationship choices, and current
+quality warnings. Decisions and final approval survive restart, use optimistic
+lifecycle versions, and freeze the exact eligible dataset. Only then does the
+separate batched **Compare with Odoo** action become available. The integrated
+25,000-row probe completed in 37.045 seconds with 309.9 MiB peak working set
+and a 48.5 MiB DuckDB. Slice 4 is closed for the materializing browser scope.
 
 ### Slice 5 — Run read-only preflight from durable staging
 

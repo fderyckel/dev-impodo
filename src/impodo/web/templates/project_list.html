@@ -22,7 +22,6 @@
         <span>Project name</span>
         <span>Status</span>
         <span>Last updated</span>
-        <span>Version</span>
         <span>Actions</span>
       </div>
       {% for project in projects %}
@@ -38,10 +37,9 @@
               </div>
             </div>
             <span class="status {{ project.status.value|lower }}">
-              {% if project.status.value == "REGISTERED" %}Setup complete{% else %}In setup{% endif %}
+              {% if project.status.value == "REGISTERED" %}Ready for source check{% else %}Continue setup{% endif %}
             </span>
-            <span class="project-updated">{{ project.updated_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
-            <span class="project-revision">v{{ project.revision }}</span>
+            <span class="project-updated">{{ project.updated_at.strftime("%d %b %Y, %H:%M") }}</span>
             <span class="project-action-spacer" aria-hidden="true"></span>
           </a>
           <form

@@ -7,6 +7,10 @@
       <h1>{{ project.name }}</h1>
       {% if readiness %}
         <p>Every source row is accounted for. Eligible records were checked against Odoo; unsafe records remain visible but set aside.</p>
+      {% elif normalization and normalization.frozen %}
+        <p>Your prepared data is approved. Compare it with Odoo when you are ready.</p>
+      {% elif normalization %}
+        <p>Your prepared data is ready for a business review before any Odoo comparison.</p>
       {% elif quality %}
         <p>Every source row was checked. Review the result below before trying the Odoo comparison again.</p>
       {% elif staging %}
@@ -20,6 +24,10 @@
     {% if readiness %}
       <span class="status {{ readiness.status|lower }}">
         {% if quality and quality.blocked_count %}Fix setup{% elif quality and quality.review_count %}Review needed{% elif staging and staging.failed_control_total_count %}Totals need attention{% elif readiness.status == 'READY' %}Data check complete{% elif readiness.status == 'NEEDS_REVIEW' %}Decisions needed{% else %}Fixes needed{% endif %}
+      </span>
+    {% elif normalization %}
+      <span class="status {% if normalization.frozen %}ready{% else %}review{% endif %}">
+        {% if normalization.frozen %}Prepared data approved{% else %}Review prepared data{% endif %}
       </span>
     {% elif quality %}
       <span class="status {% if quality.blocked_count %}blocked{% elif quality.review_count %}review{% else %}ready{% endif %}">
@@ -36,12 +44,38 @@
     <div class="alert error" role="alert">{{ error }}</div>
   {% endif %}
 
+  {% if normalization and not readiness %}
+    <section class="next-action-card {% if normalization.frozen %}ready{% else %}review{% endif %}" aria-labelledby="normalization-next-title">
+      <div>
+        <p class="eyebrow">Next action</p>
+        {% if normalization.frozen %}
+          <h2 id="normalization-next-title">Compare the approved data with Odoo</h2>
+          <p>The comparison is read-only. It does not create or update anything in Odoo.</p>
+        {% else %}
+          <h2 id="normalization-next-title">Review what Impodo prepared</h2>
+          <p>See the changes made by your field rules and approve the exact prepared records.</p>
+        {% endif %}
+      </div>
+      <div class="next-action-buttons">
+        {% if normalization.frozen %}
+          <form method="post" action="/projects/{{ project.project_id }}/summary/compare">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button primary" type="submit">Compare with Odoo</button>
+          </form>
+          <a class="button secondary" href="/projects/{{ project.project_id }}/normalization">View approved data</a>
+        {% else %}
+          <a class="button primary" href="/projects/{{ project.project_id }}/normalization">Review prepared data</a>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+
   {% if quality %}
     <section class="readiness-cards quality-cards" aria-label="Data quality overview">
       <a class="readiness-card ready{% if quality_status == 'ready' %} selected{% endif %}" href="?quality_status=ready#quality-rows">
-        <span>Ready for Odoo check</span>
+        <span>Included in preparation</span>
         <strong>{{ quality.ready_count }}</strong>
-        <small>Safe to compare</small>
+        <small>Ready for prepared-data review</small>
       </a>
       <a class="readiness-card review{% if quality_status == 'review' %} selected{% endif %}" href="?quality_status=review#quality-rows">
         <span>Review</span>
@@ -139,7 +173,7 @@
         {% if quality and quality.blocked_count %}
           <h2 id="next-action-title">Fix the data-check setup</h2>
           <p>Impodo stopped before contacting Odoo because the source evidence or recommended checks are incomplete.</p>
-        {% elif quality and quality.review_count %}
+        {% elif quality and quality.review_count and not (normalization and normalization.frozen) %}
           <h2 id="next-action-title">Review {{ quality.review_count }} quality finding{{ "s" if quality.review_count != 1 else "" }}</h2>
           <p>A warning cannot silently become a pass. Correct the source or guided check, then rerun.</p>
         {% elif readiness.blocked_count %}
@@ -162,7 +196,7 @@
       <div class="next-action-buttons">
         {% if quality and quality.blocked_count %}
           <a class="button primary" href="?quality_status=blocked#quality-rows">Review setup</a>
-        {% elif quality and quality.review_count %}
+        {% elif quality and quality.review_count and not (normalization and normalization.frozen) %}
           <a class="button primary" href="?quality_status=review#quality-rows">Review findings</a>
         {% elif readiness.blocked_count %}
           <a class="button primary" href="?status=blocked#readiness-rows">Show rows to fix</a>
@@ -178,9 +212,9 @@
             <button class="button primary" type="submit">Create review workbook</button>
           </form>
         {% endif %}
-        <form method="post" action="/projects/{{ project.project_id }}/summary/check">
+        <form method="post" action="/projects/{{ project.project_id }}/summary/compare">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button secondary" type="submit">Check all rows again</button>
+          <button class="button secondary" type="submit">Compare with Odoo again</button>
         </form>
       </div>
     </section>
@@ -287,13 +321,12 @@
       <div class="table-scroll">
         <table class="data-table">
           <thead>
-            <tr><th>Table</th><th>Odoo record type</th><th>Ready</th><th>Review</th><th>Fix</th></tr>
+            <tr><th>Table</th><th>Ready</th><th>Review</th><th>Fix</th></tr>
           </thead>
           <tbody>
             {% for item in readiness.datasets %}
               <tr>
                 <th>{{ item.label }}</th>
-                <td><code>{{ item.target_model }}</code></td>
                 <td><a href="?dataset={{ item.dataset }}&status=ready">{{ item.ready }}</a></td>
                 <td><a href="?dataset={{ item.dataset }}&status=needs_review">{{ item.needs_review }}</a></td>
                 <td><a href="?dataset={{ item.dataset }}&status=blocked">{{ item.blocked }}</a></td>
@@ -302,6 +335,10 @@
           </tbody>
         </table>
       </div>
+      <details class="technical-details">
+        <summary>Technical record types</summary>
+        {% for item in readiness.datasets %}<p>{{ item.label }}: <code>{{ item.target_model }}</code></p>{% endfor %}
+      </details>
     </section>
 
     <section class="form-card" id="readiness-rows">
@@ -375,6 +412,14 @@
       <a href="/projects/{{ project.project_id }}/summary/manifest">Technical evidence</a>
     </p>
 
+  {% elif normalization %}
+    <details class="technical-details form-card">
+      <summary>Prepared-data evidence</summary>
+      <p>The approved or reviewable package is saved locally and remains separate from Odoo.</p>
+      <p><code>{{ normalization.run_id }} - {{ normalization.content_hash }}</code></p>
+    </details>
+    <p class="muted">Nothing has been sent to Odoo.</p>
+
   {% elif staging %}
     <section class="next-action-card {% if quality and quality.blocked_count %}blocked{% else %}review{% endif %}" aria-labelledby="saved-next-action-title" data-staging-summary>
       <div>
@@ -396,7 +441,7 @@
         {% else %}
           <form method="post" action="/projects/{{ project.project_id }}/summary/check">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button primary" type="submit">Try Odoo comparison again</button>
+            <button class="button primary" type="submit">Prepare data for review</button>
           </form>
         {% endif %}
       </div>
@@ -417,11 +462,11 @@
           <a class="button primary" href="/projects/{{ project.project_id }}/sources">Review source tables</a>
           <small>No data was changed.</small>
         {% else %}
-          <h2>Check all source rows</h2>
-          <p>Impodo will check {% if evaluation_scale %}{{ "{:,}".format(evaluation_scale.physical_rows) }} {% endif %}values, linked records and possible matches in Odoo.</p>
+          <h2>Prepare all source rows for review</h2>
+          <p>Impodo will apply your confirmed field rules and data checks to {% if evaluation_scale %}{{ "{:,}".format(evaluation_scale.physical_rows) }} {% endif %}source rows.</p>
           <form method="post" action="/projects/{{ project.project_id }}/summary/check">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button primary" type="submit">Check all rows</button>
+            <button class="button primary" type="submit">Prepare and review data</button>
           </form>
           <small>Read-only · no changes are sent to Odoo</small>
         {% endif %}

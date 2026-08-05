@@ -23,8 +23,9 @@ from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
+import json
 from types import MappingProxyType
-from typing import Mapping
+from typing import Any, Mapping
 
 from .access import Actor, Capability
 from .approvals import ApprovalEvidence
@@ -97,6 +98,21 @@ class CorrectionGroupKey:
         _require_text(self.dataset, "dataset")
         _require_text(self.field, "field")
 
+    def to_portable_dict(self) -> dict[str, str]:
+        return {
+            "rule_id": self.rule_id,
+            "dataset": self.dataset,
+            "field": self.field,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "CorrectionGroupKey":
+        return cls(
+            rule_id=str(payload["rule_id"]),
+            dataset=str(payload["dataset"]),
+            field=str(payload["field"]),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class CorrectionImpact:
@@ -134,6 +150,23 @@ class CorrectionImpact:
 
         return self.collision_count > 0
 
+    def to_portable_dict(self) -> dict[str, Any]:
+        return {
+            "key": self.key.to_portable_dict(),
+            "approval_mode": self.approval_mode.value,
+            "affected_count": self.affected_count,
+            "collision_count": self.collision_count,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "CorrectionImpact":
+        return cls(
+            key=CorrectionGroupKey.from_dict(dict(payload["key"])),
+            approval_mode=ApprovalMode(str(payload["approval_mode"])),
+            affected_count=int(payload["affected_count"]),
+            collision_count=int(payload.get("collision_count", 0)),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class CorrectionDecision:
@@ -148,6 +181,21 @@ class CorrectionDecision:
             raise ValueError(
                 "correction decisions require normalization.decide evidence"
             )
+
+    def to_portable_dict(self) -> dict[str, Any]:
+        return {
+            "key": self.key.to_portable_dict(),
+            "decision": self.decision.value,
+            "evidence": self.evidence.to_portable_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "CorrectionDecision":
+        return cls(
+            key=CorrectionGroupKey.from_dict(dict(payload["key"])),
+            decision=CorrectionDecisionKind(str(payload["decision"])),
+            evidence=ApprovalEvidence.from_dict(dict(payload["evidence"])),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +272,24 @@ class DryRunSummary:
 
         return self.blocking_issue_count > 0 or any(
             correction.blocking for correction in self.corrections
+        )
+
+    def to_portable_dict(self) -> dict[str, Any]:
+        return {
+            "corrections": [
+                item.to_portable_dict() for item in self.corrections
+            ],
+            "blocking_issue_count": self.blocking_issue_count,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "DryRunSummary":
+        return cls(
+            corrections=tuple(
+                CorrectionImpact.from_dict(item)
+                for item in payload.get("corrections", ())
+            ),
+            blocking_issue_count=int(payload.get("blocking_issue_count", 0)),
         )
 
 
@@ -504,6 +570,73 @@ class DryRun:
         return tuple(
             sorted(self.group_decisions + (decision,), key=lambda item: item.key)
         )
+
+    def to_portable_dict(self) -> dict[str, Any]:
+        return {
+            "run_id": self.run_id,
+            "source_hashes": dict(self.source_hashes),
+            "ruleset_hash": self.ruleset_hash,
+            "status": self.status.value,
+            "summary": (
+                self.summary.to_portable_dict()
+                if self.summary is not None
+                else None
+            ),
+            "group_decisions": [
+                item.to_portable_dict() for item in self.group_decisions
+            ],
+            "approval": (
+                self.approval.to_portable_dict()
+                if self.approval is not None
+                else None
+            ),
+            "canonical_dataset_hash": self.canonical_dataset_hash,
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(
+            self.to_portable_dict(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "DryRun":
+        summary_payload = payload.get("summary")
+        approval_payload = payload.get("approval")
+        return cls(
+            run_id=str(payload["run_id"]),
+            source_hashes={
+                str(key): str(value)
+                for key, value in dict(payload["source_hashes"]).items()
+            },
+            ruleset_hash=str(payload["ruleset_hash"]),
+            status=DryRunStatus(str(payload.get("status", "RUNNING"))),
+            summary=(
+                DryRunSummary.from_dict(dict(summary_payload))
+                if summary_payload is not None
+                else None
+            ),
+            group_decisions=tuple(
+                CorrectionDecision.from_dict(item)
+                for item in payload.get("group_decisions", ())
+            ),
+            approval=(
+                ApprovalEvidence.from_dict(dict(approval_payload))
+                if approval_payload is not None
+                else None
+            ),
+            canonical_dataset_hash=(
+                str(payload["canonical_dataset_hash"])
+                if payload.get("canonical_dataset_hash")
+                else None
+            ),
+        )
+
+    @classmethod
+    def from_json(cls, value: str) -> "DryRun":
+        return cls.from_dict(json.loads(value))
 
 
 def _require_text(value: str | None, name: str) -> str:

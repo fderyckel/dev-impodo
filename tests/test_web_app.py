@@ -1848,7 +1848,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("data-impact-export", mapping_script.text)
 
         summary = self.client.get(f"/projects/{project_id}/summary")
-        self.assertIn("Check all rows", summary.text)
+        self.assertIn("Prepare and review data", summary.text)
         checked = self.client.post(
             f"/projects/{project_id}/summary/check",
             data={"csrf_token": self.csrf},
@@ -1856,8 +1856,55 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(checked.status_code, 303)
-        readiness_page = self.client.get(checked.headers["location"])
-        self.assertIn("Ready for Odoo check", readiness_page.text)
+        self.assertIn("/normalization", checked.headers["location"])
+        review_page = self.client.get(checked.headers["location"])
+        self.assertIn("Review what Impodo prepared", review_page.text)
+        self.assertIn("Nothing is sent to Odoo", review_page.text)
+        self.assertEqual(len(self.readiness_calls), 0)
+
+        readiness = self.app.state.context.readiness
+        review = readiness.current_normalization_review(project_id)
+        assert review is not None
+        normalization, evaluation, dry_run = review
+        for group in evaluation.groups:
+            if not group.requires_decision:
+                continue
+            accepted = self.client.post(
+                f"/projects/{project_id}/normalization/groups/{group.group_id}/accept",
+                data={
+                    "csrf_token": self.csrf,
+                    "run_id": normalization.run_id,
+                    "lifecycle_version": str(normalization.lifecycle_version),
+                },
+                headers=POST_HEADERS,
+                follow_redirects=False,
+            )
+            self.assertEqual(accepted.status_code, 303)
+            normalization = readiness.current_normalization_summary(project_id)
+            assert normalization is not None
+        approved = self.client.post(
+            f"/projects/{project_id}/normalization/approve",
+            data={
+                "csrf_token": self.csrf,
+                "run_id": normalization.run_id,
+                "lifecycle_version": str(normalization.lifecycle_version),
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(approved.status_code, 303)
+        normalization = readiness.current_normalization_summary(project_id)
+        assert normalization is not None
+        self.assertTrue(normalization.frozen)
+        compared = self.client.post(
+            f"/projects/{project_id}/summary/compare",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(compared.status_code, 303)
+        readiness_page = self.client.get(compared.headers["location"])
+        self.assertIn("Included in preparation", readiness_page.text)
         self.assertIn("Set aside", readiness_page.text)
         self.assertIn("Fix setup", readiness_page.text)
         self.assertIn('id="quality-rows"', readiness_page.text)
@@ -1872,7 +1919,6 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("data-staging-summary", readiness_page.text)
         self.assertIn("<summary>Technical details</summary>", readiness_page.text)
 
-        readiness = self.app.state.context.readiness
         report = readiness.current_report(project_id)
         assert report is not None
         staging = readiness.current_staging(project_id)
@@ -2853,7 +2899,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn("Your prepared data is safe", page.text)
         self.assertIn("12 prepared rows", page.text)
-        self.assertIn("Try Odoo comparison again", page.text)
+        self.assertIn("Prepare data for review", page.text)
         self.assertIn("Prepared data is stored locally", page.text)
         self.assertIn("<details", page.text)
         self.assertIn("<summary>Technical details</summary>", page.text)
@@ -3144,6 +3190,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         impact_url = f"/projects/{project_id}/mapping/transformation-impact"
         first_visit = self.client.get(impact_url)
         self.assertIn("Prepare transformation impact", first_visit.text)
+        self.assertIn("data-transformation-impact-prepare", first_visit.text)
+        self.assertIn("data-transformation-impact-status", first_visit.text)
+        self.assertIn('aria-live="polite"', first_visit.text)
+        impact_script = self.client.get("/static/app.js")
+        self.assertIn("[data-transformation-impact-prepare]", impact_script.text)
+        self.assertIn("Preparing transformation impact…", impact_script.text)
         with patch("impodo.web.app.stage_browser_mapping", side_effect=fake_stage) as staged:
             prepared = self.client.post(
                 f"{impact_url}/prepare",

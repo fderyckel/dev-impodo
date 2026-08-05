@@ -23,16 +23,16 @@
           </select>
         </label>
         <label>
-          Source export status
+          Have you received the final files?
           <select name="export_status" required>
-            <option value="PLANNED" {% if project.export_status.value == "PLANNED" %}selected{% endif %}>Source export planned</option>
-            <option value="RECEIVED" {% if project.export_status.value == "RECEIVED" %}selected{% endif %}>Source files received</option>
+            <option value="PLANNED" {% if project.export_status.value == "PLANNED" %}selected{% endif %}>Not yet</option>
+            <option value="RECEIVED" {% if project.export_status.value == "RECEIVED" %}selected{% endif %}>Yes, the files are final</option>
           </select>
         </label>
         <label>
-          Source export date
+          When were these files produced?
           <input type="date" name="export_date" value="{{ project.export_date.isoformat() if project.export_date else '' }}">
-          <small>Date the source system produced the files—not an Odoo import date. Required before registration.</small>
+          <small>Use the date the source system created the files. This is required before setup can be confirmed.</small>
         </label>
       </div>
       <label>

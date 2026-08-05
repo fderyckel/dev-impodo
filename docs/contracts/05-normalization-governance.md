@@ -2,22 +2,22 @@
 
 ## Status and boundary
 
-**Status:** Implemented standalone domain contract; not integrated into the
-browser workflow.
+**Status:** Integrated in the bounded browser workflow.
 
-`src/impodo/governance.py` implements and tests the immutable dry-run approval
-contract. The DuckDB project repository and mapping compiler do not call it.
+`src/impodo/governance.py` retains the immutable lifecycle authority.
+`src/impodo/normalization.py`, the readiness service, schema-v16 DuckDB
+adapter, and the browser's **Review prepared data** page now integrate that
+authority with exact staging and quality evidence.
 
-This contract must therefore not be presented as completed end-to-end
-normalization. It governs approval state only; it does not evaluate rules,
-rewrite source files, persist a dry run, create a clean package, or write to
-Odoo.
+The integration evaluates and persists prepared-value review evidence and
+freezes the exact eligible dataset. It does not rewrite registered source
+files, certify a clean package, grant export approval, or write to Odoo.
 
 ## Intended flow
 
 ```text
 immutable source evidence
--> rule evaluation (not implemented by this contract)
+-> canonical and quality evaluation
 -> DryRunSummary
 -> correction-group decisions
 -> whole-run approval
@@ -93,15 +93,22 @@ The contract rejects:
 Adapters must use these domain transitions rather than reproducing lifecycle
 rules in browser forms or database code.
 
-## Integration requirement
+## Integrated boundary
 
-Before this contract becomes part of the product workflow, an implementation
-must add a deterministic rule evaluator, persistence, row-level evidence,
-browser review, invalidation, and clean-package integration. The existing
-browser-authored scalar transformations in `mapping_semantics.py` are a
-separate capability and must not be described as this dry-run lifecycle.
+The browser-authored rules remain the only transformation language. Their
+full-row execution emits deterministic review effects; it does not create a
+second editable correction engine. Source, mapping, schema, staging, quality,
+ownership, classification, or retention changes invalidate the current
+normalization pointer while retaining history. The read-only Odoo comparison
+requires the exact current result in `FROZEN` state.
+
+The implementation boundary, evidence adapters, conservative review policy,
+data-manager UI, and freeze gate are specified in the
+[Slice 4 normalization review plan](../plans/slice-4-normalization-review-plan.md).
 
 ## Executable evidence
 
 - [`governance.py`](../../src/impodo/governance.py)
+- [`normalization.py`](../../src/impodo/normalization.py)
 - [`test_governance.py`](../../tests/test_governance.py)
+- [`test_normalization.py`](../../tests/test_normalization.py)

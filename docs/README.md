@@ -38,6 +38,9 @@ Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
   decisions for full-row staging through clean-package certification.
 - [Data-quality coverage ledger](plans/data-quality-coverage.md) — current
   status of 24 capability families and the authoritative clean-package gates.
+- [Slice 4 normalization review plan](plans/slice-4-normalization-review-plan.md)
+  — implemented grouped prepared-value review, immutable decisions, exact
+  eligible-dataset freeze, and the gate before read-only Odoo comparison.
 
 ## Contracts
 

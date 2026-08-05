@@ -364,6 +364,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             evidence[0],
             definition,
             *evidence[2:],
+            collect_transformation_impact=True,
         )
         references = [
             record.references["country_id"].key
@@ -371,6 +372,18 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         ]
 
         self.assertEqual(references, [("FR",), ("BE",)])
+        assert staged.transformation_impact is not None
+        self.assertEqual(staged.transformation_impact.changed_count, 2)
+        self.assertEqual(
+            {item.target_field for item in staged.transformation_impact.rows},
+            {"country_id"},
+        )
+        self.assertTrue(
+            all(
+                item.rules.startswith("Reviewed value match")
+                for item in staged.transformation_impact.rows
+            )
+        )
 
     def test_transformation_impact_compares_every_raw_and_proposed_value(self) -> None:
         evidence = self._evidence(

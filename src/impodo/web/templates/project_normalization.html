@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Review prepared data - {{ project.name }} - Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Step 5 - Review prepared data</p>
+      <h1>Review what Impodo prepared</h1>
+      <p>Check the changes made by your field rules before comparing this data with Odoo.</p>
+    </div>
+    <span class="status {% if normalization.frozen %}ready{% elif dry_run.status.value == 'BLOCKED' %}blocked{% else %}review{% endif %}">
+      {% if normalization.frozen %}Approved{% elif dry_run.status.value == 'BLOCKED' %}Needs correction{% elif normalization.decisions_left %}{{ normalization.decisions_left }} decision{{ "s" if normalization.decisions_left != 1 else "" }} left{% else %}Ready to approve{% endif %}
+    </span>
+  </div>
+
+  {% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
+
+  <section class="readiness-cards quality-cards" aria-label="Prepared data overview">
+    <a class="readiness-card ready" href="/projects/{{ project.project_id }}/normalization#review-groups">
+      <span>Records ready</span>
+      <strong>{{ normalization.eligible_record_count }}</strong>
+      <small>Included in this review</small>
+    </a>
+    <a class="readiness-card review{% if review_status == 'automatic' %} selected{% endif %}" href="?status=automatic#review-groups">
+      <span>Changed by your rules</span>
+      <strong>{{ normalization.changed_record_count }}</strong>
+      <small>{{ automatic_record_count }} only needed routine preparation</small>
+    </a>
+    <a class="readiness-card review{% if review_status == 'pending' %} selected{% endif %}" href="?status=pending#review-groups">
+      <span>Decisions left</span>
+      <strong>{{ normalization.decisions_left }}</strong>
+      <small>Review these before approval</small>
+    </a>
+    <a class="readiness-card blocked{% if review_status == 'set_aside' %} selected{% endif %}" href="?status=set_aside#review-groups">
+      <span>Set aside</span>
+      <strong>{{ normalization.set_aside_record_count }}</strong>
+      <small>Not included in the Odoo comparison</small>
+    </a>
+  </section>
+
+  <p class="muted">This review is local. Nothing is sent to Odoo.</p>
+
+  {% if normalization.frozen %}
+    <section class="next-action-card ready" aria-labelledby="prepared-next-title">
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2 id="prepared-next-title">Prepared data approved</h2>
+        <p>You can now compare these exact records with Odoo. This comparison is read-only.</p>
+      </div>
+      <div class="next-action-buttons">
+        <form method="post" action="/projects/{{ project.project_id }}/summary/compare">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button primary" type="submit">Compare with Odoo</button>
+        </form>
+        <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to project review</a>
+      </div>
+    </section>
+  {% elif dry_run.status.value == 'BLOCKED' %}
+    <section class="next-action-card blocked" aria-labelledby="prepared-next-title">
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2 id="prepared-next-title">Correct the source or field rule</h2>
+        <p>A change was sent back. Make the correction, confirm the field matches, then prepare the data again.</p>
+      </div>
+      <a class="button primary" href="/projects/{{ project.project_id }}/mapping">Return to field matching</a>
+    </section>
+  {% elif normalization.decisions_left == 0 %}
+    <section class="next-action-card ready" aria-labelledby="prepared-next-title">
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2 id="prepared-next-title">Approve the prepared data</h2>
+        <p>This confirms the exact records shown here. Nothing is sent to Odoo.</p>
+      </div>
+      <form method="post" action="/projects/{{ project.project_id }}/normalization/approve">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
+        <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
+        <button class="button primary" type="submit">Approve prepared data</button>
+      </form>
+    </section>
+  {% else %}
+    <section class="next-action-card review" aria-labelledby="prepared-next-title">
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2 id="prepared-next-title">Review {{ normalization.decisions_left }} change{{ "s" if normalization.decisions_left != 1 else "" }}</h2>
+        <p>Accept each group that reflects the intended business value, or send it back for correction.</p>
+      </div>
+      <a class="button primary" href="?status=pending#review-groups">Show decisions left</a>
+    </section>
+  {% endif %}
+
+  <section class="form-card" id="review-groups" aria-labelledby="review-groups-title">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Prepared changes</p>
+        <h2 id="review-groups-title">
+          {% if review_status == 'pending' %}Decisions left{% elif review_status == 'reviewed' %}Reviewed changes{% elif review_status == 'automatic' %}Routine preparation{% elif review_status == 'set_aside' %}Changes to set-aside records{% else %}All changes and findings{% endif %}
+        </h2>
+        <p>Similar changes are grouped so you can review them once.</p>
+      </div>
+      {% if review_status %}<a class="button secondary small" href="/projects/{{ project.project_id }}/normalization#review-groups">Clear filter</a>{% endif %}
+    </div>
+
+    {% if review_items %}
+      <div class="table-scroll">
+        <table class="data-table readiness-row-table">
+          <thead><tr><th>What Impodo prepared</th><th>Records</th><th>Examples</th><th>Decision</th></tr></thead>
+          <tbody>
+            {% for item in review_items %}
+              {% set group = item.group %}
+              <tr data-normalization-group>
+                <th>
+                  {{ group.name }}
+                  <small class="row-field">{{ group.explanation }}</small>
+                  <small class="row-field">{{ group.dataset_label }} - {{ group.field_label }}</small>
+                </th>
+                <td>
+                  {{ group.eligible_count }} included
+                  {% if group.set_aside_count %}<small class="row-field">{{ group.set_aside_count }} already set aside</small>{% endif %}
+                </td>
+                <td>
+                  {% if group.examples %}
+                    {% for example in group.examples[:3] %}
+                      <small class="row-field">Row {{ example.source_row }}: {{ example.before }} &rarr; {{ example.after }}</small>
+                    {% endfor %}
+                  {% elif group.kind.value == 'FINDING' %}
+                    Review the finding described here.
+                  {% else %}
+                    No included example is needed.
+                  {% endif %}
+                </td>
+                <td>
+                  {% if normalization.frozen %}
+                    <span class="status ready">Included in approval</span>
+                  {% elif item.decision == 'APPROVED' %}
+                    <span class="status ready">Accepted</span>
+                  {% elif item.decision == 'REJECTED' %}
+                    <span class="status blocked">Sent back</span>
+                  {% elif item.status == 'automatic' %}
+                    <span class="status ready">Routine rule</span>
+                    <small class="row-field">Covered by the final approval</small>
+                  {% elif item.status == 'set_aside' %}
+                    <span class="status blocked">Not included</span>
+                  {% else %}
+                    <div class="next-action-buttons">
+                      <form method="post" action="/projects/{{ project.project_id }}/normalization/groups/{{ group.group_id }}/accept">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
+                        <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
+                        <button class="button primary small" type="submit">{% if group.kind.value == 'FINDING' %}I reviewed this{% else %}Accept this change{% endif %}</button>
+                      </form>
+                      <form method="post" action="/projects/{{ project.project_id }}/normalization/groups/{{ group.group_id }}/reject">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
+                        <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
+                        <button class="button secondary small" type="submit">Send back to fix</button>
+                      </form>
+                    </div>
+                  {% endif %}
+                  <details class="technical-details">
+                    <summary>Technical details</summary>
+                    <code>{{ group.outcome.value }} - {{ group.group_id }}</code>
+                  </details>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if review_page_count > 1 %}
+        <nav class="readiness-pagination" aria-label="Prepared-change pages">
+          {% if review_previous_url %}<a class="button secondary" href="{{ review_previous_url }}#review-groups">Previous</a>{% endif %}
+          <span class="muted">Page {{ review_page }} of {{ review_page_count }}</span>
+          {% if review_next_url %}<a class="button secondary" href="{{ review_next_url }}#review-groups">Next</a>{% endif %}
+        </nav>
+      {% endif %}
+    {% else %}
+      <div class="empty-state compact">
+        <h3>No changes in this view</h3>
+        <p>Choose another summary card or clear the filter.</p>
+      </div>
+    {% endif %}
+
+    <details class="technical-details">
+      <summary>Technical evidence</summary>
+      <p><code>Review {{ normalization.run_id }} - {{ normalization.content_hash }}</code></p>
+      <p><code>Prepared dataset {{ normalization.eligible_dataset_hash }}</code></p>
+      <p>Lifecycle version {{ normalization.lifecycle_version }}. Odoo has not been changed.</p>
+    </details>
+  </section>
+
+  <div class="form-actions split-actions">
+    <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to project review</a>
+  </div>
+{% endblock %}

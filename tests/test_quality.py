@@ -273,6 +273,7 @@ class QualityEvaluationTests(unittest.TestCase):
                     target_identity=record.target_identity,
                     physical_dataset_id="dataset:products",
                 ),
+                target_model=record.target_model,
                 disposition=(
                     StagingDisposition.BLOCKED
                     if index == 0
@@ -311,6 +312,54 @@ class QualityEvaluationTests(unittest.TestCase):
 
         self.assertNotIn(str(partner_records[0].target_identity[0]), repr(requests))
         self.assertIn(str(partner_records[1].target_identity[0]), repr(requests))
+
+    def test_mixed_fan_out_filters_the_exact_set_aside_record(self) -> None:
+        required_issue = CanonicalIssue(
+            code="SOURCE_REQUIRED_VALUE_MISSING",
+            message="required name is empty",
+            severity="error",
+            dataset="contacts",
+            source_row=2,
+            field="name",
+        )
+        set_aside = replace(
+            _canonical_row(
+                "5",
+                2,
+                source_identity=("SET-ASIDE",),
+                target_identity=("SET-ASIDE",),
+            ),
+            disposition=StagingDisposition.BLOCKED,
+            issues=(required_issue,),
+        )
+        eligible_row = _canonical_row(
+            "6",
+            2,
+            source_identity=("ELIGIBLE",),
+            target_identity=("ELIGIBLE",),
+        )
+        staging = _staging(self.project.project_id, (set_aside, eligible_row))
+        prepared = _prepared((set_aside, eligible_row))
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts",),
+        )
+
+        run = evaluate_quality(
+            project=self.project,
+            staging=staging,
+            prepared=prepared,
+            physical_rows={"dataset:contacts": (2,)},
+            ruleset=ruleset,
+        )
+        filtered = eligible_prepared_bundle(staging, prepared, run)
+
+        self.assertEqual(
+            [record.source_identity for record in filtered.records],
+            [("ELIGIBLE",)],
+        )
 
 
 class QualityStoreTests(unittest.TestCase):
@@ -564,7 +613,7 @@ class QualityStoreTests(unittest.TestCase):
                     "PRAGMA table_info('readiness_run')"
                 ).fetchall()
             }
-        self.assertEqual(version, (15,))
+        self.assertEqual(version, (16,))
         self.assertIn("quality_run_id", columns)
         self.assertIn("quality_content_hash", columns)
 
