@@ -1,0 +1,379 @@
+"""Summary web helpers."""
+
+from __future__ import annotations
+from urllib.parse import urlencode
+from fastapi import Request
+from ...access import AuthorizationError, Capability
+from ...local_stack import LocalStackError
+from ...projects import MigrationProject, OdooConnectionMode
+from ...application.preparation_service import browser_evaluation_scale
+from ...reporting import WORKBOOK_NAME
+from ..constants import *
+from ..context import WebContext
+from .common import _render
+from ..forms import _positive_query_int
+
+
+def _render_target(
+    request: Request,
+    context: WebContext,
+    project: MigrationProject,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+    open_local_stack: bool = False,
+):
+    return _render(
+        request,
+        "project_target.html",
+        project=project,
+        applications=ODOO_APPLICATIONS,
+        local_stack=context.local_stack.get(project.project_id),
+        open_local_stack=open_local_stack,
+        error=error,
+        status_code=status_code,
+    )
+
+
+def _render_normalization(
+    request: Request,
+    context: WebContext,
+    project_id: str,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+):
+    project = context.queries.get(project_id)
+    review = context.normalization.current_group_review(project_id)
+    if review is None:
+        return _render_summary(
+            request,
+            context,
+            project_id,
+            error=(error or "Prepare the data before reviewing its changes."),
+            status_code=(status_code if error else 422),
+        )
+    summary, groups, dry_run, automatic_record_count = review
+    decisions = {item.key: item.decision.value for item in dry_run.group_decisions}
+    items = []
+    for group in groups:
+        decision = decisions.get(group.decision_key, "")
+        if group.eligible_count == 0:
+            item_status = "set_aside"
+        elif not group.requires_decision:
+            item_status = "automatic"
+        elif decision:
+            item_status = "reviewed"
+        else:
+            item_status = "pending"
+        items.append(
+            {
+                "group": group,
+                "status": item_status,
+                "decision": decision,
+            }
+        )
+    selected_status = request.query_params.get("status", "").strip()
+    if selected_status not in {"", "automatic", "pending", "reviewed", "set_aside"}:
+        selected_status = ""
+    matching = tuple(
+        item for item in items
+        if not selected_status or item["status"] == selected_status
+    )
+    page_count = max(
+        1,
+        (len(matching) + NORMALIZATION_GROUPS_PER_PAGE - 1)
+        // NORMALIZATION_GROUPS_PER_PAGE,
+    )
+    page = min(
+        _positive_query_int(request.query_params.get("page"), default=1),
+        page_count,
+    )
+    start = (page - 1) * NORMALIZATION_GROUPS_PER_PAGE
+    page_items = matching[start : start + NORMALIZATION_GROUPS_PER_PAGE]
+    return _render(
+        request,
+        "project_normalization.html",
+        project=project,
+        normalization=summary,
+        dry_run=dry_run,
+        review_items=page_items,
+        review_matching_count=len(matching),
+        review_status=selected_status,
+        review_page=page,
+        review_page_count=page_count,
+        review_previous_url=(
+            f"?{urlencode({'status': selected_status, 'page': page - 1})}"
+            if page > 1
+            else None
+        ),
+        review_next_url=(
+            f"?{urlencode({'status': selected_status, 'page': page + 1})}"
+            if page < page_count
+            else None
+        ),
+        automatic_record_count=automatic_record_count,
+        error=error,
+        status_code=status_code,
+    )
+
+
+def _render_summary(
+    request: Request,
+    context: WebContext,
+    project_id: str,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+):
+    session_error = request.session.pop("summary_error", None)
+    if error is None and isinstance(session_error, str):
+        error = session_error
+    project = context.queries.get(project_id)
+    source_selection = context.queries.get_source_selection(project_id)
+    evaluation_scale = (
+        browser_evaluation_scale(source_selection)
+        if source_selection is not None
+        else None
+    )
+    revision = context.queries.get_mapping_revision(project_id)
+    submission = (
+        context.queries.get_mapping_submission(project_id, revision.version)
+        if revision is not None
+        else None
+    )
+    staging = context.preflight.current_staging(project_id)
+    quality = context.quality.current_summary(project_id)
+    normalization = context.normalization.current_summary(project_id)
+    if (
+        quality is not None
+        and (staging is None or quality.staging_run_id != staging.run_id)
+    ):
+        quality = None
+    report = context.preflight.current_report(project_id)
+    quality_status = request.query_params.get("quality_status", "").strip()
+    if quality_status not in {"", "ready", "review", "quarantined", "blocked"}:
+        quality_status = ""
+    quality_dataset = request.query_params.get("quality_dataset", "").strip()
+    quality_datasets = {
+        item.dataset for item in (staging.datasets if staging else ())
+    }
+    if quality_dataset not in quality_datasets:
+        quality_dataset = ""
+    quality_page = None
+    if quality is not None:
+        quality_page = context.queries.get_quality_review_page(
+            project_id,
+            quality.run_id,
+            status=quality_status,
+            dataset=quality_dataset,
+            page=_positive_query_int(
+                request.query_params.get("quality_page"),
+                default=1,
+            ),
+            page_size=READINESS_ROWS_PER_PAGE,
+        )
+    status_filter = request.query_params.get("status", "").strip()
+    if status_filter not in {"", "ready", "needs_review", "blocked"}:
+        status_filter = ""
+    dataset_filter = request.query_params.get("dataset", "").strip()
+    available_datasets = {
+        item.dataset for item in (report.datasets if report else ())
+    }
+    if dataset_filter not in available_datasets:
+        dataset_filter = ""
+    matching_rows = tuple(
+        item
+        for item in (report.rows if report else ())
+        if (not status_filter or item.status == status_filter)
+        and (not dataset_filter or item.dataset == dataset_filter)
+    )
+    row_total = len(matching_rows)
+    row_page_count = max(
+        1,
+        (row_total + READINESS_ROWS_PER_PAGE - 1)
+        // READINESS_ROWS_PER_PAGE,
+    )
+    row_page = min(
+        _positive_query_int(
+            request.query_params.get("page"),
+            default=1,
+        ),
+        row_page_count,
+    )
+    row_start_index = (row_page - 1) * READINESS_ROWS_PER_PAGE
+    rows = matching_rows[
+        row_start_index : row_start_index + READINESS_ROWS_PER_PAGE
+    ]
+    return _render(
+        request,
+        "project_summary.html",
+        project=project,
+        revision=revision,
+        submission=submission,
+        staging=staging,
+        quality=quality,
+        normalization=normalization,
+        quality_review_page=quality_page,
+        quality_status=quality_status,
+        quality_dataset=quality_dataset,
+        quality_previous_url=(
+            _quality_summary_url(
+                project_id,
+                status=quality_status,
+                dataset=quality_dataset,
+                page=quality_page.page - 1,
+            )
+            if quality_page is not None and quality_page.page > 1
+            else None
+        ),
+        quality_next_url=(
+            _quality_summary_url(
+                project_id,
+                status=quality_status,
+                dataset=quality_dataset,
+                page=quality_page.page + 1,
+            )
+            if quality_page is not None
+            and quality_page.page < quality_page.page_count
+            else None
+        ),
+        readiness=report,
+        readiness_rows=rows,
+        readiness_row_total=row_total,
+        readiness_row_start=(row_start_index + 1 if row_total else 0),
+        readiness_row_end=min(
+            row_start_index + READINESS_ROWS_PER_PAGE,
+            row_total,
+        ),
+        readiness_row_page=row_page,
+        readiness_row_page_count=row_page_count,
+        readiness_row_previous_url=(
+            _summary_rows_url(
+                request,
+                project_id,
+                page=row_page - 1 if row_page > 2 else None,
+            )
+            if row_page > 1
+            else None
+        ),
+        readiness_row_next_url=(
+            _summary_rows_url(
+                request,
+                project_id,
+                page=row_page + 1,
+            )
+            if row_page < row_page_count
+            else None
+        ),
+        review_workbook_ready=(
+            report is not None
+            and context.artifacts.report_exists(
+                project_id, report.run_id, WORKBOOK_NAME
+            )
+        ),
+        status_filter=status_filter,
+        dataset_filter=dataset_filter,
+        evaluation_scale=evaluation_scale,
+        error=error,
+        status_code=status_code,
+    )
+
+
+def _summary_rows_url(
+    request: Request,
+    project_id: str,
+    *,
+    page: int | None,
+) -> str:
+    params = {
+        name: value
+        for name, value in request.query_params.items()
+        if name in {"status", "dataset"} and len(value) <= 256
+    }
+    if page is not None and page > 1:
+        params["page"] = str(page)
+    query = urlencode(params)
+    base = f"/projects/{project_id}/summary"
+    url = f"{base}?{query}" if query else base
+    return f"{url}#readiness-rows"
+
+
+def _quality_summary_url(
+    project_id: str,
+    *,
+    status: str = "",
+    dataset: str = "",
+    page: int | None = None,
+) -> str:
+    params = {}
+    if status:
+        params["quality_status"] = status
+    if dataset:
+        params["quality_dataset"] = dataset
+    if page is not None and page > 1:
+        params["quality_page"] = str(page)
+    query = urlencode(params)
+    base = f"/projects/{project_id}/summary"
+    url = f"{base}?{query}" if query else base
+    return f"{url}#quality-rows"
+
+
+def _require_local_stack_access(
+    context: WebContext,
+    project: MigrationProject,
+) -> None:
+    try:
+        context.authorization.require(
+            context.actor,
+            Capability.LOCAL_STACK_INSPECT,
+            project_id=project.project_id,
+        )
+    except AuthorizationError as error:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized to inspect the local Odoo stack",
+        ) from error
+    if (
+        project.odoo_connection_mode is not None
+        and project.odoo_connection_mode is not OdooConnectionMode.LOCAL
+    ):
+        raise LocalStackError(
+            "The local readiness assistant is available only in Local Odoo mode."
+        )
+
+
+def _require_local_stack_start(
+    context: WebContext,
+    project: MigrationProject,
+) -> None:
+    _require_local_stack_access(context, project)
+    try:
+        context.authorization.require(
+            context.actor,
+            Capability.LOCAL_STACK_START,
+            project_id=project.project_id,
+        )
+    except AuthorizationError as error:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized to start the local Odoo stack",
+        ) from error
+
+
+def _require_local_stack_stop(
+    context: WebContext,
+    project: MigrationProject,
+) -> None:
+    _require_local_stack_access(context, project)
+    try:
+        context.authorization.require(
+            context.actor,
+            Capability.LOCAL_STACK_STOP,
+            project_id=project.project_id,
+        )
+    except AuthorizationError as error:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized to stop the local Odoo stack",
+        ) from error

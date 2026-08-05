@@ -46,7 +46,7 @@ from impodo.workspace import (
     SourceSelection,
     WorkspaceError,
 )
-from impodo.web.app import _mapping_dataset_views
+from impodo.web.presenters.mapping_view import _mapping_dataset_views
 
 
 ROOT = Path(__file__).resolve().parents[1]

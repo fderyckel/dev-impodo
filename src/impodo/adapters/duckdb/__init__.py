@@ -1,0 +1,1 @@
+"""Hardened DuckDB persistence adapters."""

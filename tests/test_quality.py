@@ -492,7 +492,10 @@ class QualityStoreTests(unittest.TestCase):
         with patch.object(self.repository, "_insert_quality_evidence", side_effect=RuntimeError("injected quality failure")):
             with self.assertRaisesRegex(RuntimeError, "injected quality failure"):
                 # Keep validation legitimate while forcing a different content hash.
-                with patch("impodo.project_store.retention_context_hash", return_value=changed.retention_context_hash):
+                with patch(
+                    "impodo.adapters.duckdb.quality_repository.retention_context_hash",
+                    return_value=changed.retention_context_hash,
+                ):
                     self.repository.publish_quality_run(
                         self.project.project_id,
                         changed,

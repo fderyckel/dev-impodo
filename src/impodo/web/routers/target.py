@@ -1,0 +1,288 @@
+"""Target browser routes."""
+
+from __future__ import annotations
+from fastapi import Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
+from ...connectors import ConnectorError
+from ...local_stack import LocalStackError, ReadinessLevel
+from ...projects import OdooConnectionMode, ProjectError
+from ...secrets import SecretStoreError
+from ...workspace import WorkspaceError
+from ..security import require_session
+from fastapi import APIRouter
+from ..context import WebContext
+from ..legacy_support import _selected_local_profile, _target_credential_id, _render_target, _require_local_stack_access, _require_local_stack_start, _require_local_stack_stop, _secure_form, _revision, _text, _draft_or_redirect, _flash
+
+
+def build_target_router(context: WebContext) -> APIRouter:
+    router = APIRouter()
+
+    @router.get("/projects/{project_id}/target", response_class=HTMLResponse)
+    async def project_target_form(request: Request, project_id: str):
+        require_session(request)
+        project = _draft_or_redirect(context, project_id)
+        if isinstance(project, RedirectResponse):
+            return project
+        return _render_target(
+            request,
+            context,
+            project,
+            open_local_stack=request.query_params.get("local_stack") == "1",
+        )
+
+    @router.post("/projects/{project_id}/local-stack/select-config")
+    async def select_local_stack_config(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        project = _draft_or_redirect(context, project_id)
+        if isinstance(project, RedirectResponse):
+            return project
+        try:
+            _require_local_stack_access(context, project)
+            selected = context.local_stack.pick_config()
+            if selected is None:
+                _flash(request, "No local Odoo setup was selected.")
+            else:
+                await run_in_threadpool(
+                    context.local_stack.select_config,
+                    project_id,
+                    selected,
+                )
+        except LocalStackError as error:
+            return _render_target(
+                request,
+                context,
+                project,
+                error=str(error),
+                status_code=422,
+                open_local_stack=True,
+            )
+        return RedirectResponse(
+            f"/projects/{project_id}/target?local_stack=1",
+            status_code=303,
+        )
+
+    @router.post("/projects/{project_id}/local-stack/refresh")
+    async def refresh_local_stack(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        project = _draft_or_redirect(context, project_id)
+        if isinstance(project, RedirectResponse):
+            return project
+        _require_local_stack_access(context, project)
+        await run_in_threadpool(context.local_stack.refresh, project_id)
+        return RedirectResponse(
+            f"/projects/{project_id}/target?local_stack=1",
+            status_code=303,
+        )
+
+    @router.post("/projects/{project_id}/local-stack/start")
+    async def start_local_stack(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "confirm_start"})
+        project = _draft_or_redirect(context, project_id)
+        if isinstance(project, RedirectResponse):
+            return project
+        try:
+            _require_local_stack_start(context, project)
+            if _text(form, "confirm_start") != "1":
+                raise LocalStackError(
+                    "Confirm the detected paths before starting the local stack."
+                )
+            await run_in_threadpool(context.local_stack.start, project_id)
+        except LocalStackError as error:
+            return _render_target(
+                request,
+                context,
+                project,
+                error=str(error),
+                status_code=422,
+                open_local_stack=True,
+            )
+        _flash(request, "The local Odoo check is complete.")
+        return RedirectResponse(
+            f"/projects/{project_id}/target?local_stack=1",
+            status_code=303,
+        )
+
+    @router.post("/projects/{project_id}/local-stack/control")
+    async def control_local_stack(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "confirm_control", "action"},
+        )
+        project = _draft_or_redirect(context, project_id)
+        if isinstance(project, RedirectResponse):
+            return project
+        action = _text(form, "action")
+        try:
+            if _text(form, "confirm_control") != "1":
+                raise LocalStackError(
+                    "Confirm control of the Impodo-managed services first."
+                )
+            if action == "stop":
+                _require_local_stack_stop(context, project)
+                await run_in_threadpool(context.local_stack.stop, project_id)
+                message = "The local Odoo services started by Impodo were stopped."
+            elif action == "restart":
+                _require_local_stack_stop(context, project)
+                _require_local_stack_start(context, project)
+                await run_in_threadpool(context.local_stack.restart, project_id)
+                message = "The local Odoo services started by Impodo were restarted."
+            else:
+                raise LocalStackError("Choose Stop or Restart.")
+        except LocalStackError as error:
+            return _render_target(
+                request,
+                context,
+                project,
+                error=str(error),
+                status_code=422,
+                open_local_stack=True,
+            )
+        _flash(request, message)
+        return RedirectResponse(
+            f"/projects/{project_id}/target?local_stack=1",
+            status_code=303,
+        )
+
+    @router.post("/projects/{project_id}/target")
+    async def project_target(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {
+                "csrf_token",
+                "revision",
+                "odoo_connection_mode",
+                "odoo_base_url",
+                "odoo_database",
+                "intended_applications",
+                "api_key",
+                "remember_api_key",
+                "action",
+            },
+        )
+        local_test_requested = False
+        show_local_results = False
+        try:
+            project = context.projects.update_target(
+                project_id,
+                actor=context.actor,
+                expected_revision=_revision(form),
+                odoo_connection_mode=_text(form, "odoo_connection_mode"),
+                odoo_base_url=_text(form, "odoo_base_url"),
+                odoo_database=_text(form, "odoo_database"),
+                intended_applications=form.getlist("intended_applications"),
+            )
+            action = _text(form, "action")
+            local_test_requested = (
+                action == "test"
+                and project.odoo_connection_mode is OdooConnectionMode.LOCAL
+            )
+            submitted_key = _text(form, "api_key")
+            credential_id = _target_credential_id(project)
+            if submitted_key:
+                context.secret_store.set(
+                    credential_id,
+                    submitted_key,
+                    persistent="remember_api_key" in form,
+                )
+            if action == "test":
+                local_profile = _selected_local_profile(context, project)
+                if local_profile is not None:
+                    show_local_results = True
+                    status = await run_in_threadpool(
+                        context.local_stack.refresh,
+                        project_id,
+                    )
+                    local_profile = _selected_local_profile(context, project)
+                    if local_profile is None:
+                        raise LocalStackError(
+                            "Choose and validate odoo.conf before testing "
+                            "database access."
+                        )
+                    blocked_checks = tuple(
+                        check.label
+                        for check in status.checks
+                        if check.key != "api"
+                        and check.level is not ReadinessLevel.READY
+                    )
+                    if blocked_checks:
+                        raise LocalStackError(
+                            "Local connection checks failed: "
+                            f"{', '.join(blocked_checks)}."
+                        )
+                    fingerprint = await run_in_threadpool(
+                        context.local_odoo_reader.get_target_fingerprint,
+                        project,
+                        local_profile,
+                    )
+                    context.local_stack.mark_connection_ready(
+                        project_id,
+                        database=fingerprint.database,
+                        odoo_version=fingerprint.odoo_version,
+                    )
+                    result = (
+                        "Read-only local connection succeeded: "
+                        f"{fingerprint.database} / Odoo {fingerprint.odoo_version}"
+                    )
+                else:
+                    api_key = context.secret_store.get(credential_id)
+                    if not api_key:
+                        if (
+                            project.odoo_connection_mode
+                            is OdooConnectionMode.LOCAL
+                        ):
+                            raise SecretStoreError(
+                                "Local mode does not require an API key. "
+                                "Choose and validate odoo.conf with the local "
+                                "readiness assistant first."
+                            )
+                        raise SecretStoreError(
+                            "Enter an Odoo API key for this exact remote target "
+                            "to test"
+                        )
+                    result = await run_in_threadpool(
+                        context.connection_tester,
+                        project,
+                        api_key,
+                    )
+                _flash(request, "The Odoo connection is ready. Nothing was changed.")
+                target_url = f"/projects/{project_id}/target"
+                if show_local_results:
+                    target_url = f"{target_url}?local_stack=1"
+                return RedirectResponse(
+                    target_url,
+                    status_code=303,
+                )
+        except (
+            ProjectError,
+            SecretStoreError,
+            ConnectorError,
+            LocalStackError,
+            WorkspaceError,
+        ) as error:
+            if local_test_requested:
+                context.local_stack.mark_connection_error(
+                    project_id,
+                    detail=str(error),
+                )
+            return _render_target(
+                request,
+                context,
+                context.queries.get(project_id),
+                error=str(error),
+                status_code=422,
+                open_local_stack=local_test_requested,
+            )
+        return RedirectResponse(
+            f"/projects/{project.project_id}/review",
+            status_code=303,
+        )
+
+    return router

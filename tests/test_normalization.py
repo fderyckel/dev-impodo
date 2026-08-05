@@ -361,7 +361,7 @@ class NormalizationStoreTests(unittest.TestCase):
 
         with (
             patch(
-                "impodo.project_store.start_dry_run",
+                "impodo.adapters.duckdb.normalization_repository.start_dry_run",
                 side_effect=ValueError("invalid source hash"),
             ),
             self.assertRaisesRegex(

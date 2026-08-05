@@ -405,7 +405,7 @@ class MappingWorkingDraft:
         )
 
 
-class WorkspaceRepository(Protocol):
+class SourceWorkspaceRepository(Protocol):
     def get(self, project_id: str) -> MigrationProject: ...
     def get_source_catalogs(
         self, project_id: str
@@ -431,6 +431,11 @@ class WorkspaceRepository(Protocol):
         *,
         actor: Actor,
     ) -> None: ...
+
+
+class SchemaWorkspaceRepository(Protocol):
+    def get(self, project_id: str) -> MigrationProject: ...
+    def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
     def get_odoo_model_catalog(
         self, project_id: str
     ) -> OdooModelCatalog | None: ...
@@ -461,6 +466,18 @@ class WorkspaceRepository(Protocol):
         *,
         actor: Actor,
     ) -> None: ...
+
+
+class MappingWorkspaceRepository(Protocol):
+    def get_mapping_source_selection(
+        self, project_id: str
+    ) -> SourceSelection | None: ...
+    def get_odoo_schema_catalog(
+        self, project_id: str
+    ) -> OdooSchemaCatalog | None: ...
+    def get_schema_governance(
+        self, project_id: str
+    ) -> SchemaGovernance | None: ...
     def get_mapping_draft(self, project_id: str) -> MappingDraft | None: ...
     def save_mapping_draft(
         self,
@@ -524,10 +541,19 @@ class WorkspaceRepository(Protocol):
     ) -> None: ...
 
 
+class WorkspaceRepository(
+    SourceWorkspaceRepository,
+    SchemaWorkspaceRepository,
+    MappingWorkspaceRepository,
+    Protocol,
+):
+    """Backward-compatible aggregate of the three workspace ports."""
+
+
 class SourceWorkspaceService:
     def __init__(
         self,
-        repository: WorkspaceRepository,
+        repository: SourceWorkspaceRepository,
         authorization: AuthorizationPolicy,
     ) -> None:
         self.repository = repository
@@ -668,7 +694,7 @@ class SourceWorkspaceService:
 class SchemaWorkspaceService:
     def __init__(
         self,
-        repository: WorkspaceRepository,
+        repository: SchemaWorkspaceRepository,
         authorization: AuthorizationPolicy,
     ) -> None:
         self.repository = repository
@@ -1044,7 +1070,7 @@ class SchemaWorkspaceService:
 class MappingWorkspaceService:
     def __init__(
         self,
-        repository: WorkspaceRepository,
+        repository: MappingWorkspaceRepository,
         authorization: AuthorizationPolicy,
     ) -> None:
         self.repository = repository
@@ -1375,7 +1401,7 @@ class MappingWorkspaceService:
 
 
 def _catalog(
-    repository: WorkspaceRepository,
+    repository: SourceWorkspaceRepository,
     project_id: str,
     file_id: str,
 ) -> SourceFileCatalog:

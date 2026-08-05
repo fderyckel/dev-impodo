@@ -54,6 +54,35 @@ class ArtifactStore(Protocol):
 
     def delete_source(self, project_id: str, storage_key: str) -> None: ...
 
+    def write_report(
+        self,
+        project_id: str,
+        run_id: str,
+        filename: str,
+        content: bytes,
+    ) -> None: ...
+
+    def prepare_report(
+        self,
+        project_id: str,
+        run_id: str,
+        filename: str,
+    ) -> ContextManager[Path]: ...
+
+    def report_exists(
+        self,
+        project_id: str,
+        run_id: str,
+        filename: str,
+    ) -> bool: ...
+
+    def materialize_report(
+        self,
+        project_id: str,
+        run_id: str,
+        filename: str,
+    ) -> ContextManager[Path]: ...
+
 
 class LocalArtifactStore:
     """Store project artifacts below one validated local root."""
@@ -127,6 +156,54 @@ class LocalArtifactStore:
     def delete_source(self, project_id: str, storage_key: str) -> None:
         self._source_path(project_id, storage_key).unlink(missing_ok=True)
 
+    def write_report(
+        self,
+        project_id: str,
+        run_id: str,
+        filename: str,
+        content: bytes,
+    ) -> None:
+        with self.prepare_report(project_id, run_id, filename) as partial:
+            partial.write_bytes(content)
+
+    @contextmanager
+    def prepare_report(
+        self,
+        project_id: str,
+        run_id: str,
+        filename: str,
+    ) -> Iterator[Path]:
+        path = self._report_path(project_id, run_id, filename, create=True)
+        partial = path.with_name(f".{path.name}.partial")
+        try:
+            yield partial
+            if not partial.is_file():
+                raise ArtifactStoreError("Report writer did not create an artifact")
+            partial.replace(path)
+        finally:
+            partial.unlink(missing_ok=True)
+
+    def report_exists(
+        self,
+        project_id: str,
+        run_id: str,
+        filename: str,
+    ) -> bool:
+        path = self._report_path(project_id, run_id, filename, create=False)
+        return not path.is_symlink() and path.is_file()
+
+    @contextmanager
+    def materialize_report(
+        self,
+        project_id: str,
+        run_id: str,
+        filename: str,
+    ) -> Iterator[Path]:
+        path = self._report_path(project_id, run_id, filename, create=False)
+        if path.is_symlink() or not path.is_file():
+            raise ArtifactStoreError("Stored report artifact is missing")
+        yield path
+
     def _source_path(self, project_id: str, storage_key: str) -> Path:
         name = Path(storage_key)
         if name.name != storage_key or name.suffix.casefold() not in {".csv", ".xlsx"}:
@@ -160,3 +237,31 @@ class LocalArtifactStore:
         if inbox.parent != project:
             raise ArtifactStoreError("Project inbox escapes the artifact root")
         return inbox
+
+    def _report_path(
+        self,
+        project_id: str,
+        run_id: str,
+        filename: str,
+        *,
+        create: bool,
+    ) -> Path:
+        canonical_run_id = str(UUID(run_id))
+        name = Path(filename)
+        if name.name != filename or not filename or name.suffix not in {".json", ".xlsx"}:
+            raise ArtifactStoreError("Invalid report artifact name")
+        project = self._project_directory(project_id)
+        reports = project / "reports"
+        if reports.is_symlink():
+            raise ArtifactStoreError("Project reports must not be a symbolic link")
+        if create:
+            reports.mkdir(exist_ok=True)
+        run_directory = reports / canonical_run_id
+        if run_directory.is_symlink():
+            raise ArtifactStoreError("Report run must not be a symbolic link")
+        if create:
+            run_directory.mkdir(exist_ok=True)
+        target = (run_directory / filename).resolve()
+        if target.parent != run_directory.resolve():
+            raise ArtifactStoreError("Report artifact escapes the project root")
+        return target
