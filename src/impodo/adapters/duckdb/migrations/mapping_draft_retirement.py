@@ -7,13 +7,13 @@ import json
 
 import duckdb
 
-from ....mapping_semantics import (
+from ....domain.mapping.contracts import (
     DatasetMapping,
     MappingDefinition,
     ScalarFieldMapping,
 )
 from ....workspace_contracts import MappingWorkingDraft, SourceSelection
-from ....workspace_serialization import content_hash
+from ....domain.serialization import content_hash
 
 
 def retire_mapping_draft(connection: duckdb.DuckDBPyConnection) -> None:

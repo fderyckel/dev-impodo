@@ -21,7 +21,7 @@ from .governance import (
     DryRun,
     DryRunSummary,
 )
-from .mapping_semantics import DatasetMapping
+from .domain.mapping.contracts import DatasetMapping
 from .models import canonical_json_bytes
 from .projects import DataClassification, MigrationProject
 from .quality import (

@@ -15,7 +15,10 @@ from fastapi.testclient import TestClient
 
 from impodo.access import LOCAL_ACTOR
 from impodo.governance import DryRun, DryRunStatus
-from impodo.mapping_semantics import DatasetMapping, ScalarFieldMapping
+from impodo.domain.mapping.contracts import (
+    DatasetMapping,
+    ScalarFieldMapping,
+)
 from impodo.normalization import (
     NormalizationCandidate,
     NormalizationEvaluation,

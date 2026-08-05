@@ -22,13 +22,15 @@ from ...derived_entities import (
     _normalized_path,
     derived_dataset_links,
 )
-from ...mapping_semantics import (
+from ..mapping.contracts import (
     DatasetMapping,
     MappingDefinition,
     ResolverOrigin,
+    ScalarValueSource,
+)
+from ..mapping.scalar_values import (
     ScalarValueError,
     ScalarValueRuleError,
-    ScalarValueSource,
     evaluate_scalar_mapping_value,
 )
 from ...models import (

@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 from fastapi import HTTPException, Request
 
 from ...access import AuthorizationError, Capability
-from ...application.preparation_service import browser_evaluation_scale
+from ...domain.staging.scale import browser_evaluation_scale
 from ...local_stack import LocalStackError
 from ...projects import MigrationProject, OdooConnectionMode
 from ...reporting import WORKBOOK_NAME

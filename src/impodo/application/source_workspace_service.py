@@ -19,7 +19,7 @@ from ..workspace_contracts import (
     SourceSelection,
 )
 from ..workspace_errors import WorkspaceError
-from ..workspace_serialization import content_hash
+from ..domain.serialization import content_hash
 
 
 _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")

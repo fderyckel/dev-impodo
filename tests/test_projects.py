@@ -32,7 +32,7 @@ from impodo.workspace_contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
-from impodo.workspace_serialization import content_hash
+from impodo.domain.serialization import content_hash
 from impodo.domain.staging.transformation_impact import (
     TransformationImpactFilter,
     TransformationImpactIdentity,

@@ -9,11 +9,13 @@ from typing import Iterable
 from fastapi.responses import RedirectResponse
 from starlette.datastructures import FormData
 
-from ...mapping_semantics import (
-    MAX_CONTROL_TOTALS_PER_DATASET,
-    BusinessControlTotal,
+from ...domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
+)
+from ...domain.mapping.contracts import (
+    MAX_CONTROL_TOTALS_PER_DATASET,
+    BusinessControlTotal,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
@@ -23,9 +25,11 @@ from ...mapping_semantics import (
     RelationshipResolver,
     ResolverOrigin,
     ScalarFieldMapping,
+    ScalarValueSource,
+)
+from ...value_rules import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
-    ScalarValueSource,
 )
 from ...projects import MigrationProject, ProjectStatus
 from ...reference_keys import standard_reference_key

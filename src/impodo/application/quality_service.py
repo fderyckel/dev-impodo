@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from ..access import Actor
 from ..domain.staging.evaluator import StagedBrowserMapping
-from ..mapping_semantics import MappingRevision
+from ..domain.mapping.artifacts import MappingRevision
 from ..projects import MigrationProject
 from ..quality import (
     QualityError,

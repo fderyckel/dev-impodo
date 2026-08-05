@@ -1,0 +1,1 @@
+"""Governed target-schema domain."""

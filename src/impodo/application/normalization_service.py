@@ -6,7 +6,7 @@ from ..access import Actor, AuthorizationPolicy, Capability
 from ..domain.staging.evaluator import StagedBrowserMapping
 from ..domain.staging.transformation_impact import TransformationImpactRow
 from ..governance import DryRun
-from ..mapping_semantics import MappingRevision
+from ..domain.mapping.artifacts import MappingRevision
 from ..normalization import (
     NormalizationCandidate,
     NormalizationError,

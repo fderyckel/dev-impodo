@@ -11,12 +11,14 @@ from datetime import (
 from ...access import Actor
 from ...derived_entities import DerivedEntityPlan, mapping_source_selection
 from ...inspection import SourceFileCatalog
-from ...mapping_semantics import (
+from ...domain.schema.governance import SchemaGovernance
+from ...domain.mapping.artifacts import (
     MappingRevision,
     MappingSubmission,
+)
+from ...domain.mapping.validation.evidence import (
     MappingValidationResult,
     MappingValidationStatus,
-    SchemaGovernance,
     mapping_issue_fingerprint,
 )
 from ...projects import ProjectNotFoundError

@@ -25,7 +25,7 @@ from impodo.inspection import (
     SourceFileCatalog,
     SourceTableCatalog,
 )
-from impodo.mapping_semantics import (
+from impodo.domain.mapping.contracts import (
     BusinessControlTotal,
     DatasetMapping,
     IdentityComponentMapping,
@@ -36,10 +36,12 @@ from impodo.mapping_semantics import (
     RelationshipResolver,
     ResolverOrigin,
     ScalarFieldMapping,
+    ValueMapping,
+)
+from impodo.domain.mapping.scalar_values import evaluate_scalar_mapping_value
+from impodo.value_rules import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
-    ValueMapping,
-    evaluate_scalar_mapping_value,
 )
 from impodo.models import (
     Classification,

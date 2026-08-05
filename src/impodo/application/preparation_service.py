@@ -15,14 +15,12 @@ from ..domain.staging.evaluator import (
     evaluate_browser_mapping,
 )
 from ..domain.staging.scale import (
-    BROWSER_EVALUATION_ROW_LIMIT,
-    BrowserEvaluationScale,
-    browser_evaluation_scale,
     require_supported_browser_scale,
 )
 from ..domain.staging.transformation_impact import TransformationImpactRow
 from ..inspection import SourceFileCatalog
-from ..mapping_semantics import MappingDefinition, MappingRevision
+from ..domain.mapping.contracts import MappingDefinition
+from ..domain.mapping.artifacts import MappingRevision
 from ..normalization import NormalizationRunSummary
 from ..projects import MigrationProject
 from ..quality import QualityRun, QualityRunSummary

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-from ...mapping_semantics import (
+from ..mapping.contracts import (
     MappingDefinition,
     RelationshipResolver,
     ResolverOrigin,

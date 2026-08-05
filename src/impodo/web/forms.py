@@ -9,7 +9,7 @@ from urllib.parse import parse_qsl
 from fastapi import HTTPException, Request
 from starlette.datastructures import FormData
 
-from ..mapping_semantics import ValueMapping
+from ..domain.mapping.contracts import ValueMapping
 from ..projects import ProjectError
 from ..workspace_errors import WorkspaceError
 from .constants import (

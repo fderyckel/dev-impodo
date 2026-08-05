@@ -12,15 +12,17 @@ from ...derived_entities import (
     derived_mapping_samples,
     related_dataset_links,
 )
-from ...mapping_semantics import (
+from ...domain.schema.governance import BusinessKeyStatus
+from ...domain.mapping.contracts import (
     MAX_CONTROL_TOTALS_PER_DATASET,
-    BusinessKeyStatus,
     ScalarFieldMapping,
-    ScalarValueError,
     ScalarValueSource,
-    evaluate_scalar_mapping_value,
-    mapping_issue_fingerprint,
 )
+from ...domain.mapping.scalar_values import (
+    ScalarValueError,
+    evaluate_scalar_mapping_value,
+)
+from ...domain.mapping.validation.evidence import mapping_issue_fingerprint
 from ...quality import (
     MAX_MANAGER_RULES_PER_DATASET,
     QualityOutcomePolicy,

@@ -40,7 +40,7 @@ runtime is installed and that integration is part of the acceptance run.
 | Area | Current test modules |
 | --- | --- |
 | Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_web_app` |
-| Mapping, preparation, staging, and quality | `test_mapping_semantics`, `test_derived_entities`, `test_readiness`, `test_staging_store`, `test_quality` |
+| Mapping, preparation, staging, and quality | `test_mapping_validation`, `test_derived_entities`, `test_readiness`, `test_staging_store`, `test_quality` |
 | Profile-driven preflight | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_reporting_cli` |
 | Local Odoo lifecycle | `test_local_odoo_reader`, `test_local_stack` |
 | Security, governance, hosting, and release | `test_project_security`, `test_governance`, `test_hosting_contracts`, `test_internal_release` |

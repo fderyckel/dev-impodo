@@ -8,7 +8,10 @@ from ..access import Actor
 from ..derived_entities import DerivedEntityPlan
 from ..domain.preflight.reports import ReadinessReport
 from ..inspection import SourceFileCatalog
-from ..mapping_semantics import MappingRevision, MappingSubmission
+from ..domain.mapping.artifacts import (
+    MappingRevision,
+    MappingSubmission,
+)
 from ..normalization import (
     NormalizationEvaluation,
     NormalizationReviewGroup,

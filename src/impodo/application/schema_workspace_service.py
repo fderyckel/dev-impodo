@@ -10,7 +10,10 @@ from uuid import uuid4
 
 from ..access import Actor, AuthorizationPolicy, Capability
 from ..connectors import MetadataSnapshot, RecordSnapshot
-from ..mapping_semantics import BusinessKeyDefinition, SchemaGovernance
+from ..domain.schema.governance import (
+    BusinessKeyDefinition,
+    SchemaGovernance,
+)
 from ..models import target_identity_hash
 from ..projects import (
     MigrationProject,
@@ -27,7 +30,7 @@ from ..workspace_contracts import (
     SourceSelection,
 )
 from ..workspace_errors import WorkspaceError
-from ..workspace_serialization import content_hash
+from ..domain.serialization import content_hash
 
 
 _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")

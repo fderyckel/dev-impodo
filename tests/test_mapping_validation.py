@@ -5,31 +5,39 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import unittest
 
-from impodo.mapping_semantics import (
-    BusinessControlTotal,
+from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
+    SchemaGovernance,
+)
+from impodo.domain.mapping.contracts import (
+    BusinessControlTotal,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
-    MappingCompiler,
-    MappingSemanticValidator,
-    MappingValidationResult,
-    MappingValidationStatus,
     ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipResolver,
     ResolverOrigin,
     ScalarFieldMapping,
-    ScalarTransformPolicy,
-    ScalarValidationPolicy,
+    ScalarValueSource,
+    ValueMapping,
+)
+from impodo.domain.mapping.scalar_values import (
     ScalarValueError,
     ScalarValueRuleError,
-    ScalarValueSource,
-    SchemaGovernance,
-    ValueMapping,
     canonicalize_scalar_value,
     evaluate_scalar_mapping_value,
+)
+from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
+from impodo.domain.mapping.validation.evidence import (
+    MappingValidationResult,
+    MappingValidationStatus,
+)
+from impodo.domain.mapping.validation.validator import MappingSemanticValidator
+from impodo.value_rules import (
+    ScalarTransformPolicy,
+    ScalarValidationPolicy,
 )
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
@@ -72,6 +80,14 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(first.status, MappingValidationStatus.VALID)
         self.assertEqual(first.issues, ())
         self.assertEqual(first.validation_hash, second.validation_hash)
+        self.assertEqual(
+            definition.content_hash,
+            "sha256:487d9904813abc3956409e571ad019923a6cae51a38305e6ded689f12bdc5c71",
+        )
+        self.assertEqual(
+            first.validation_hash,
+            "sha256:f8c92f9dcc42d0540d49d71e17eb53790697da385e4d621cadf16eac4b1a9106",
+        )
         reversed_definition = replace(
             definition,
             datasets=tuple(reversed(definition.datasets)),
@@ -81,7 +97,7 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             reversed_definition.content_hash,
         )
         self.assertEqual(
-            MappingCompiler().compile(reversed_definition).definition.datasets,
+            canonicalize_mapping_definition(reversed_definition).datasets,
             definition.datasets,
         )
         self.assertEqual(

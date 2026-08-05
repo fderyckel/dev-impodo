@@ -6,7 +6,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 from ...connectors import ConnectorError
 from ...local_stack import LocalStackError
-from ...mapping_semantics import BusinessKeyDefinition, BusinessKeyStatus
+from ...domain.schema.governance import (
+    BusinessKeyDefinition,
+    BusinessKeyStatus,
+)
 from ...projects import ProjectError
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError

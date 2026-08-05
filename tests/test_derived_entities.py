@@ -29,7 +29,7 @@ from impodo.inspection import (
     SourceFileCatalog,
     SourceTableCatalog,
 )
-from impodo.mapping_semantics import (
+from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
     SchemaGovernance,

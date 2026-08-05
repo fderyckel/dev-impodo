@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from hashlib import sha256
 
-from ...mapping_semantics import MappingDefinition
+from ..mapping.contracts import MappingDefinition
 from ...models import canonical_json_bytes
 from ...source import PreparedBundle
 from ...staging_contracts import CanonicalControlTotal

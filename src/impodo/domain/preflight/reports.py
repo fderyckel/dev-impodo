@@ -11,7 +11,7 @@ import json
 from typing import Mapping
 
 from ...access import Actor
-from ...mapping_semantics import MappingRevision
+from ..mapping.artifacts import MappingRevision
 from ...models import (
     Classification,
     Decision,

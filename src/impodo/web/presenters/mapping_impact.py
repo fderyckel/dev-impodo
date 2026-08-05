@@ -12,7 +12,7 @@ from ...domain.staging.transformation_impact import (
     TransformationImpactFilter,
     TransformationImpactIdentity,
 )
-from ...mapping_semantics import ScalarValueSource
+from ...domain.mapping.contracts import ScalarValueSource
 from ..constants import (
     DEFAULT_MAPPING_FIELDS_PER_PAGE,
     MAPPING_FIELD_PAGE_SIZES,

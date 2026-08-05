@@ -75,7 +75,7 @@ governed business keys invalidates downstream mapping evidence.
 | --- | --- | --- |
 | Browser | Local route composition, workflow routers, presenters, templates, sessions, CSRF, and security headers | `web/app.py`, `web/routers/`, `web/presenters/` |
 | Application | Project commands, intake, inspection, source selection, schema governance, mapping, preparation, quality, normalization, and preflight orchestration | `projects.py`, `intake.py`, `inspection.py`, `application/source_workspace_service.py`, `application/schema_workspace_service.py`, `application/mapping_workspace_service.py`, `derived_entities.py` |
-| Domain | Authorization, project lifecycle, mapping meaning, staging evaluation, approvals, and deterministic values | `access.py`, `projects.py`, `mapping_semantics.py`, `domain/compiler/`, `domain/staging/`, `approvals.py`, `models.py` |
+| Domain | Authorization, project lifecycle, mapping meaning, staging evaluation, approvals, and deterministic values | `access.py`, `projects.py`, `domain/mapping/`, `domain/schema/`, `domain/compiler/`, `domain/staging/`, `approvals.py`, `models.py` |
 | Local adapters | Focused DuckDB repositories, artifacts, credentials, jobs, and resource-bounded workers | `adapters/duckdb/`, `artifacts.py`, `secrets.py`, `jobs.py`, `source_worker.py` |
 | Odoo reads | Remote JSON-2 reads, fixed local metadata reads, and local-stack readiness | `connectors.py`, `local_odoo_reader.py`, `local_stack.py` |
 | Preflight | Profile loading, preparation, planning, comparison, and reporting | `profile.py`, `source.py`, `planner.py`, `metadata.py`, `catalog.py`, `engine.py`, `reporting.py` |

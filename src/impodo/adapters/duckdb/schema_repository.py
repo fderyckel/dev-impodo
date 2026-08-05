@@ -5,7 +5,7 @@ from __future__ import annotations
 
 
 from ...access import Actor
-from ...mapping_semantics import SchemaGovernance
+from ...domain.schema.governance import SchemaGovernance
 from ...projects import ProjectNotFoundError
 from ...workspace_contracts import (
     OdooModelCatalog,

@@ -7,9 +7,9 @@ from datetime import datetime
 from enum import StrEnum
 import json
 
-from .mapping_semantics import MappingDefinition
+from .domain.mapping.contracts import MappingDefinition
 from .models import UniqueConstraintMetadata
-from .workspace_serialization import canonical_json
+from .domain.serialization import canonical_json
 
 
 @dataclass(frozen=True, slots=True)

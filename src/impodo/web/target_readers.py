@@ -14,7 +14,7 @@ from ..connectors import (
     RecordSnapshot,
 )
 from ..local_stack import LocalStackProfile
-from ..mapping_semantics import BusinessKeyDefinition
+from ..domain.schema.governance import BusinessKeyDefinition
 from ..models import target_identity_hash
 from ..projects import MigrationProject, OdooConnectionMode, ProjectError
 from ..reference_keys import standard_reference_key

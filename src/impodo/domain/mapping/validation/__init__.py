@@ -1,0 +1,1 @@
+"""Pure semantic mapping validation."""

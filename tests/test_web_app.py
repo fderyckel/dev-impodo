@@ -26,12 +26,14 @@ from impodo.local_stack import (
     LocalStackStatus,
     ReadinessLevel,
 )
-from impodo.mapping_semantics import (
+from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
+    SchemaGovernance,
+)
+from impodo.domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
-    MappingValidationStatus,
     MappingTargetMode,
     ReferenceKeyMapping,
     RelationshipMapping,
@@ -39,9 +41,9 @@ from impodo.mapping_semantics import (
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
-    SchemaGovernance,
     ValueMapping,
 )
+from impodo.domain.mapping.validation.evidence import MappingValidationStatus
 from impodo.models import (
     FieldMetadata,
     ModelMetadata,

@@ -15,8 +15,8 @@ from ..domain.staging.transformation_impact import (
     TransformationImpactSnapshot,
 )
 from ..inspection import SourceFileCatalog
-from ..mapping_semantics import (
-    MappingRevision,
+from ..domain.mapping.artifacts import MappingRevision
+from ..domain.mapping.validation.evidence import (
     MappingValidationResult,
     MappingValidationStatus,
 )

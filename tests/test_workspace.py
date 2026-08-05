@@ -24,14 +24,18 @@ from impodo.models import (
     TargetRecord,
     target_identity_hash,
 )
-from impodo.mapping_semantics import (
+from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
+)
+from impodo.domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
-    MappingSubmission,
-    MappingValidationStatus,
     ScalarFieldMapping,
+)
+from impodo.domain.mapping.artifacts import MappingSubmission
+from impodo.domain.mapping.validation.evidence import (
+    MappingValidationStatus,
     mapping_issue_fingerprint,
 )
 from impodo.adapters.duckdb import DuckDbRepositories

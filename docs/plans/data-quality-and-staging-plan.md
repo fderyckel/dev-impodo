@@ -66,7 +66,7 @@ drifting independently.
 
 ## Delivery principles
 
-- Reuse `mapping_semantics.py` and the derived-entity contract; do not create a
+- Reuse the `domain/mapping/` contracts and the derived-entity contract; do not create a
   second transformation language whose preview and runtime meanings can
   diverge.
 - Preserve registered source bytes. Corrections create governed proposed

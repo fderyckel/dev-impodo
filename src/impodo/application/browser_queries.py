@@ -14,12 +14,12 @@ from ..domain.staging.transformation_impact import (
     TransformationImpactSnapshot,
 )
 from ..inspection import SourceFileCatalog
-from ..mapping_semantics import (
+from ..domain.schema.governance import SchemaGovernance
+from ..domain.mapping.artifacts import (
     MappingRevision,
     MappingSubmission,
-    MappingValidationResult,
-    SchemaGovernance,
 )
+from ..domain.mapping.validation.evidence import MappingValidationResult
 from ..projects import MigrationProject, ProjectSummary
 from ..quality import QualityReviewPage, QualityRuleSet
 from ..workspace_contracts import (

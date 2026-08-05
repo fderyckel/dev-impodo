@@ -7,18 +7,22 @@ from typing import Iterable, Protocol
 from uuid import uuid4
 
 from ..access import Actor, AuthorizationPolicy, Capability
-from ..mapping_semantics import (
+from ..domain.schema.governance import SchemaGovernance
+from ..domain.mapping.contracts import (
     DatasetMapping,
-    MappingCompiler,
     MappingDefinition,
+)
+from ..domain.mapping.artifacts import (
     MappingRevision,
-    MappingSemanticValidator,
     MappingSubmission,
+)
+from ..domain.mapping.canonicalization import canonicalize_mapping_definition
+from ..domain.mapping.validation.evidence import (
     MappingValidationResult,
     MappingValidationStatus,
-    SchemaGovernance,
     mapping_issue_fingerprint,
 )
+from ..domain.mapping.validation.validator import MappingSemanticValidator
 from ..workspace_contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
@@ -105,7 +109,6 @@ class MappingWorkspaceService:
     ) -> None:
         self.repository = repository
         self.authorization = authorization
-        self.compiler = MappingCompiler()
         self.validator = MappingSemanticValidator()
 
     def save_working_draft(
@@ -235,14 +238,14 @@ class MappingWorkspaceService:
                 else str(uuid4())
             )
         )
-        definition = self.compiler.compile(
+        definition = canonicalize_mapping_definition(
             MappingDefinition(
                 mapping_id=mapping_id,
                 source_selection_hash=selection.content_hash,
                 schema_hash=expected_schema_hash,
                 datasets=tuple(datasets),
             )
-        ).definition
+        )
         validation = self.validator.validate(
             definition,
             selection,
