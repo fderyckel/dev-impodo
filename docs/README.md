@@ -41,6 +41,9 @@ Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
 - [Slice 4 normalization review plan](plans/slice-4-normalization-review-plan.md)
   — implemented grouped prepared-value review, immutable decisions, exact
   eligible-dataset freeze, and the gate before read-only Odoo comparison.
+- [Slice 5 durable preflight plan](plans/slice-5-durable-preflight-plan.md)
+  — proposed adapter from approved durable rows to bounded read-only Odoo
+  comparison, protected target evidence, and plain data-manager results.
 
 ## Contracts
 

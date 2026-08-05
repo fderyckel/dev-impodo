@@ -7,7 +7,7 @@
       <h1>Check your source files</h1>
       <p>Confirm the tables and columns Impodo found in {{ project.name }}.</p>
     </div>
-    <span class="status registered">{{ catalogs|length }}/{{ project.source_files|length }} cataloged</span>
+    <span class="status registered">{{ catalogs|length }}/{{ project.source_files|length }} checked</span>
   </div>
 
   <section class="form-card">
@@ -18,11 +18,11 @@
         <div class="file-row">
           <div>
             <strong>{{ file.display_name }}</strong>
-            <span>{{ file.size_bytes }} bytes · <code>{{ file.sha256[:16] }}…</code></span>
+            <span>{{ file.size_bytes }} bytes</span>
           </div>
           <span class="status">
             {% if catalogs|selectattr("file_id", "equalto", file.file_id)|list %}
-              Inspected
+              Checked
             {% else %}
               Pending
             {% endif %}
@@ -35,7 +35,7 @@
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to review</a>
         <button class="button primary" type="submit">
-          {% if catalogs %}Inspect again{% else %}Inspect source files{% endif %}
+          {% if catalogs %}Check files again{% else %}Check source files{% endif %}
         </button>
       </div>
     </form>
@@ -43,7 +43,7 @@
 
   {% if not catalogs %}
     <section class="empty-state workflow-empty">
-      <h2>No source catalog yet</h2>
+      <h2>Your files have not been checked yet</h2>
       <p>Check the files to see their tables, columns, sample values and possible data issues.</p>
     </section>
   {% endif %}
@@ -55,24 +55,21 @@
         <div>
           <p class="eyebrow">{{ catalog.format }} source</p>
           <h2>{{ catalog.display_name }}</h2>
-          <p class="muted">
-            {{ catalog.source_size_bytes }} bytes · inspected
-            {{ catalog.inspected_at.strftime("%Y-%m-%d %H:%M") }} UTC
-            {% if catalog.encoding %}· {{ catalog.encoding }}{% endif %}
-            {% if catalog.delimiter %}· delimiter <code>{{ catalog.delimiter|replace("\t", "TAB") }}</code>{% endif %}
-          </p>
+          <p class="muted">{{ catalog.source_size_bytes }} bytes · checked</p>
         </div>
         <span class="status registered">
-          {% if configuration %}Confirmed{% else %}Hash verified{% endif %}
+          {% if configuration %}Confirmed{% else %}Ready to review{% endif %}
         </span>
       </div>
 
       <form method="post" action="/projects/{{ project.project_id }}/sources/{{ catalog.file_id }}/configure">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         {% if catalog.format == "CSV" %}
-          <div class="form-grid compact-grid">
+          <details class="technical-details" {% if catalog.warnings %}open{% endif %}>
+            <summary>File-reading options{% if catalog.warnings %} · check these settings{% endif %}</summary>
+            <div class="form-grid compact-grid">
             <label>
-              <span>Encoding</span>
+              <span>Text format</span>
               <select name="encoding">
                 {% for value in ["utf-8-sig", "utf-8", "cp1252"] %}
                   <option value="{{ value }}" {% if catalog.encoding == value %}selected{% endif %}>{{ value }}</option>
@@ -80,14 +77,15 @@
               </select>
             </label>
             <label>
-              <span>Delimiter</span>
+              <span>Column separator</span>
               <select name="delimiter">
                 {% for value, label in [(",", "Comma"), (";", "Semicolon"), ("TAB", "Tab"), ("|", "Pipe")] %}
                   <option value="{{ value }}" {% if catalog.delimiter == value or (value == "TAB" and catalog.delimiter == "\t") %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
               </select>
             </label>
-          </div>
+            </div>
+          </details>
         {% else %}
           <input type="hidden" name="encoding" value="">
           <input type="hidden" name="delimiter" value="">
@@ -101,10 +99,9 @@
         <article class="source-table">
           <div class="table-heading">
             <div>
-              <h3>{{ table.name }}</h3>
+              <h3>{% if table.kind == "CSV" %}Data in {{ catalog.display_name }}{% else %}{{ table.name }}{% endif %}</h3>
               <p class="muted">
-                {{ table.kind|title }} ·
-                {% if table.header_row %}candidate header row {{ table.header_row }} ·{% endif %}
+                {% if table.header_row %}Column names on row {{ table.header_row }} ·{% endif %}
                 {{ table.row_count }} data row(s) · {{ table.column_count }} column(s)
                 {% if table.hidden %}· hidden{% endif %}
               </p>
@@ -115,11 +112,11 @@
                   value="1"
                   {% if (configuration and table.table_key in configuration.selected_table_keys) or not configuration %}checked{% endif %}
                 >
-                Use this table as a governed dataset
+                Include this table in the project
               </label>
               {% if table.kind in ["CSV", "WORKSHEET"] %}
                 <label class="header-row-control">
-                  <span>Header row</span>
+                  <span>Which row contains the column names?</span>
                   <input
                     type="number"
                     min="1"
@@ -148,7 +145,7 @@
           {% endfor %}
 
           {% if table.columns %}
-            <h4>Bounded preview</h4>
+            <h4>Preview</h4>
             <div class="table-scroll">
               <table class="data-table preview-table">
                 <thead>
@@ -172,26 +169,26 @@
               </table>
             </div>
 
-            <h4>Column profile</h4>
+            <h4>What Impodo found</h4>
             <div class="table-scroll">
               <table class="data-table">
                 <thead>
                   <tr>
                     <th>Column</th>
-                    <th>Candidate type</th>
-                    <th>Null</th>
-                    <th>Distinct</th>
-                    <th>Duplicates</th>
-                    <th>Minimum</th>
-                    <th>Maximum</th>
-                    <th>Length</th>
+                    <th>Likely content</th>
+                    <th>Empty rows</th>
+                    <th>Different values</th>
+                    <th>Repeated values</th>
+                    <th>Smallest</th>
+                    <th>Largest</th>
+                    <th>Value length</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for column in table.columns %}
                     <tr>
                       <th>{{ column.name }}</th>
-                      <td><span class="status">{{ column.candidate_type }}</span></td>
+                      <td><span class="status">{% if column.candidate_type == 'string' %}Text{% elif column.candidate_type == 'integer' %}Whole number{% elif column.candidate_type == 'decimal' %}Number{% elif column.candidate_type == 'boolean' %}Yes or no{% elif column.candidate_type == 'datetime' %}Date and time{% else %}{{ column.candidate_type|replace('_', ' ')|title }}{% endif %}</span></td>
                       <td>{{ column.null_count }}</td>
                       <td>{% if not column.distinct_count_is_exact %}≥{% endif %}{{ column.distinct_count }}</td>
                       <td>{{ column.duplicate_count if column.duplicate_count is not none else "Not exact" }}</td>
@@ -219,11 +216,11 @@
             value="1"
             {% if configuration and configuration.warnings_acknowledged %}checked{% endif %}
           >
-          I reviewed and acknowledge the warnings shown for the selected tables.
+          I reviewed the warnings shown for the selected tables.
         </label>
         <div class="actions">
-          <button class="button secondary" type="submit" name="action" value="preview">Apply settings and preview</button>
-          <button class="button primary" type="submit" name="action" value="confirm">Confirm source</button>
+          <button class="button secondary" type="submit" name="action" value="preview">Update preview</button>
+          <button class="button primary" type="submit" name="action" value="confirm">These tables look correct</button>
         </div>
       </form>
     </section>

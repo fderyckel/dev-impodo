@@ -1,39 +1,36 @@
 {% extends "base.html" %}
-{% block title %}Mapping · {{ project.name }} · Impodo{% endblock %}
+{% block title %}Match data · {{ project.name }} · Impodo{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Step 4 · Match fields</p>
+      <p class="eyebrow">Step 4 · Match data</p>
       <h1>Match your data to Odoo</h1>
       <p>Choose where each source value belongs and how existing records are found.</p>
     </div>
     {% if has_unvalidated_changes %}
-      <span class="status">Unsaved checks · v{{ working_draft.version }}</span>
+      <span class="status">Saved changes need checking</span>
     {% elif submission %}
-      <span class="status registered">Field matches confirmed · v{{ submission.version }}</span>
+      <span class="status registered">Matches confirmed</span>
     {% elif revision %}
-      <span class="status registered">Mapping checked · v{{ revision.version }}</span>
+      <span class="status registered">Matches checked</span>
     {% elif legacy_draft %}
-      <span class="status">Older unchecked draft · v{{ legacy_draft.version }}</span>
+      <span class="status">Saved work needs checking</span>
     {% endif %}
   </div>
 
   {% if schema and schema.origin.value == 'LOCAL_MANUAL' %}
     <div class="notice warning">
-      This mapping uses an unverified local schema draft. You can save a draft,
-      but live Odoo schema capture is required before submission.
+      These Odoo details have not yet been checked against Odoo. You can save your work, but you must refresh from Odoo before confirming it.
     </div>
   {% endif %}
 
   {% if working_draft_is_stale %}
     <div class="notice warning">
-      Saved mapping progress belongs to earlier source or schema evidence and
-      was not restored. Review the current evidence before replacing it.
+      Your source tables or Odoo choices changed, so older matching work was not loaded. Review the current choices before saving again.
     </div>
   {% elif has_unvalidated_changes %}
     <div class="notice success">
-      Your saved working draft is loaded. You can continue editing or validate
-      it when ready.
+      Your saved work is loaded. Continue editing or check the matches when ready.
     </div>
   {% endif %}
 
@@ -53,8 +50,7 @@
 
       <details class="technical-evidence">
         <summary>
-          Technical evidence
-          <small>For audit and support</small>
+          Support details
         </summary>
         <div class="definition-list">
           <div><dt>Frozen source</dt><dd><code title="{{ selection.content_hash }}">{{ selection.content_hash }}</code></dd></div>
@@ -87,7 +83,7 @@
                 <a class="button secondary" href="{{ view.edit_url }}">Edit this table</a>
               {% endif %}
               <details class="technical-details">
-                <summary>Technical ID</summary>
+                <summary>Support details</summary>
                 <code>{{ view.source.dataset_id }}</code>
               </details>
             </div>
@@ -100,21 +96,21 @@
                 value="{{ column.stable_key }}"
                 data-sample="{{ sample_values[0] if sample_values else '' }}"
                 data-sample-present="{{ 'true' if sample_values and sample_values[0] is not none else 'false' }}"
-              >{{ column.source_name }} ({{ column.candidate_type }})</option>
+              >{{ column.source_name }}</option>
             {% endfor %}
           </template>
 
           <div class="form-grid">
             <label>
-              Odoo record type
+              Send these rows to
               <select name="target_model_{{ dataset_index }}" data-target-model>
                 {% for model in view.models %}
                   <option value="{{ model.name }}" {% if model.name == view.selected_model %}selected{% endif %}>
-                    {{ model.label }} · {{ model.name }}
+                    {{ model.label }}
                   </option>
                 {% endfor %}
               </select>
-              <small>Changing the record type refreshes the available Odoo fields.</small>
+              <small>Changing this choice refreshes the available Odoo fields.</small>
             </label>
             <label>
               What should Impodo prepare?
@@ -124,11 +120,11 @@
                 <option value="create" {% if selected_mode == 'create' %}selected{% endif %}>Create new records only</option>
                 <option value="reference" {% if selected_mode == 'reference' %}selected{% endif %}>Use existing Odoo records only</option>
               </select>
-              <small>This affects the readiness result; it never changes Odoo on this screen.</small>
+              <small>This sets the intended result. Nothing is sent to Odoo on this screen.</small>
             </label>
           </div>
           <details class="technical-evidence advanced-matching-options">
-            <summary>Advanced matching option</summary>
+            <summary>When a record already exists</summary>
             <label>
               If a record already exists while using “Create new records only”
               {% set selected_existing = view.mapping.on_existing if view.mapping else 'block' %}
@@ -142,34 +138,33 @@
           <div class="identity-pair">
             <section class="identity-panel" aria-labelledby="source-identity-{{ dataset_index }}">
               <p class="eyebrow">Source</p>
-              <h3 id="source-identity-{{ dataset_index }}">How do we identify each source row?</h3>
-              <p class="muted">Choose the column or combination of columns that identifies a row in this dataset.</p>
+              <h3 id="source-identity-{{ dataset_index }}">Which column uniquely identifies each row?</h3>
+              <p class="muted">Choose one column, or a combination when one column is not enough.</p>
               <label>
-                Source identifier
+                Unique row identifier
                 <select name="source_identity_{{ dataset_index }}" multiple size="{{ [view.source.columns|length, 6]|min }}">
                   {% set selected_source_identity = view.mapping.source_identity_column_keys if view.mapping else view.recommended_source_identity %}
                   {% for column in view.source.columns %}
                     <option value="{{ column.stable_key }}" {% if column.stable_key in selected_source_identity %}selected{% endif %}>
-                      {{ column.source_name }} ({{ column.candidate_type }})
+                      {{ column.source_name }}
                     </option>
                   {% endfor %}
                 </select>
-                <small>Use Ctrl or Cmd to select more than one column.</small>
+                <small>Hold Ctrl while selecting if more than one column is needed.</small>
               </label>
             </section>
 
             <section class="identity-panel" aria-labelledby="target-identity-{{ dataset_index }}">
               <p class="eyebrow">Odoo</p>
-              <h3 id="target-identity-{{ dataset_index }}">How do we find the matching Odoo record?</h3>
-              <p class="muted">Choose the matching rule, then connect each Odoo identity field to your source.</p>
+              <h3 id="target-identity-{{ dataset_index }}">How should Impodo find the same record in Odoo?</h3>
+              <p class="muted">Choose the matching rule, then connect each Odoo matching field to your source.</p>
               {% if view.business_keys %}
                 <label>
-                  Odoo matching rule
+                  Matching rule
                   <select name="business_key_{{ dataset_index }}">
                     {% for key in view.business_keys %}
                       <option value="{{ key.key_id }}" {% if view.selected_key and key.key_id == view.selected_key.key_id %}selected{% endif %}>
-                        {{ key.description or key.key_id }} · {{ key.key_fields|join(' + ') }}
-                        {% if key.scope_fields %} / scope {{ key.scope_fields|join(' + ') }}{% endif %}
+                        {{ key.description or "Confirmed matching rule" }}
                       </option>
                     {% endfor %}
                   </select>
@@ -178,9 +173,8 @@
                   {% for row in view.identity_rows %}
                     <div class="identity-match-row">
                       <div class="identity-field-name">
-                        <span class="identity-role">{{ "Scope" if row.scope else "Identity" }}</span>
+                        <span class="identity-role">{{ "Company or site" if row.scope else "Record identifier" }}</span>
                         <strong>{{ row.metadata.label if row.metadata else row.target_field }}</strong>
-                        <code>{{ row.target_field }}</code>
                       </div>
                       <label>
                         Source column{% if row.relational %}(s){% endif %}
@@ -199,7 +193,7 @@
                             <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
                             {% for key in row.related_keys %}
                               <option value="{{ key.key_id }}" {% if row.selected_related_key and key.key_id == row.selected_related_key.key_id %}selected{% endif %}>
-                                {{ key.description or key.key_fields|join(' + ') }}{% if key.key_id == row.recommended_related_key_id %} — recommended{% endif %}
+                                {{ key.description or "Confirmed matching rule" }}{% if key.key_id == row.recommended_related_key_id %} — recommended{% endif %}
                               </option>
                             {% endfor %}
                           </select>
@@ -219,7 +213,7 @@
           </div>
 
           {% if view.active %}
-          <h3 id="scalar-fields-{{ dataset_index }}">Fields to fill in Odoo</h3>
+          <h3 id="scalar-fields-{{ dataset_index }}">Choose what goes into each Odoo field</h3>
           <p class="muted">Choose where each Odoo field gets its value. Start with the fields below or search for another one.</p>
           <div
             data-scalar-field-catalog
@@ -230,16 +224,16 @@
           >
             <div class="field-catalog-tools">
               <label>
-                Find an Odoo field
-                <input type="search" value="{{ view.field_query }}" data-scalar-field-search placeholder="Example: Sales Price, barcode, or list_price" autocomplete="off">
+                Find a field
+                <input type="search" value="{{ view.field_query }}" data-scalar-field-search placeholder="For example: Sales Price or Barcode" autocomplete="off">
               </label>
               <button class="button secondary" type="button" data-field-search-submit>Search</button>
               <label class="checkbox">
                 <input type="checkbox" data-show-mapped-scalars {% if view.mapped_only %}checked{% endif %}>
-                Show only fields already mapped
+                Show only matched fields
               </label>
               <p class="muted" data-scalar-field-count>
-                Showing {{ view.scalar_rows|length }} of {{ view.scalar_matching_total }} fields · {{ view.scalar_mapped_total }} mapped
+                Showing {{ view.scalar_rows|length }} of {{ view.scalar_matching_total }} fields · {{ view.scalar_mapped_total }} matched
               </p>
             </div>
             <div
@@ -255,7 +249,7 @@
             </div>
             <div class="table-scroll" id="scalar-table-scroll-{{ dataset_index }}" data-scalar-table-scroll>
               <table class="data-table mapping-table">
-              <thead><tr><th>Value comes from</th><th>Format and cleanup</th><th>Odoo field</th><th>Odoo details</th><th>Preview</th><th>Checks</th></tr></thead>
+              <thead><tr><th>Use value from</th><th>Clean up (optional)</th><th>Odoo field</th><th>Support details</th><th>Preview</th><th>Check values (optional)</th></tr></thead>
               <tbody>
                 {% for row in view.scalar_rows %}
                   {% set field_index = row.index %}
@@ -272,14 +266,14 @@
                     <td class="value-provider-cell">
                       <input type="hidden" name="visible_scalar_target_{{ dataset_index }}" value="{{ row.metadata.name }}">
                       <select name="scalar_value_source_{{ dataset_index }}_{{ field_index }}" data-value-source>
-                        <option value="" {% if not mapping and not recommended_source %}selected{% endif %}>Not mapped</option>
-                        <option value="source" {% if value_source == 'source' %}selected{% endif %}>Source column</option>
-                        <option value="constant" {% if value_source == 'constant' %}selected{% endif %}>Constant value</option>
-                        <option value="source_with_fallback" {% if value_source == 'source_with_fallback' %}selected{% endif %}>Source + fallback</option>
-                        <option value="odoo_default" {% if value_source == 'odoo_default' %}selected{% endif %}>Leave unset / Odoo default</option>
+                        <option value="" {% if not mapping and not recommended_source %}selected{% endif %}>Do not fill this field</option>
+                        <option value="source" {% if value_source == 'source' %}selected{% endif %}>Source value</option>
+                        <option value="constant" {% if value_source == 'constant' %}selected{% endif %}>Same value for every row</option>
+                        <option value="source_with_fallback" {% if value_source == 'source_with_fallback' %}selected{% endif %}>Source value, or backup when blank</option>
+                        <option value="odoo_default" {% if value_source == 'odoo_default' %}selected{% endif %}>Let Odoo choose</option>
                       </select>
                       <div class="provider-control" data-provider-source {% if value_source not in ('source', 'source_with_fallback') %}hidden{% endif %}>
-                        <label>Source column
+                        <label>Use value from
                           <select name="scalar_source_{{ dataset_index }}_{{ field_index }}" data-source-column data-lazy-source-column>
                             <option value="">Choose source column</option>
                             {% set selected_source_column = mapping.source_column_key if mapping and mapping.source_column_key else recommended_source %}
@@ -288,7 +282,7 @@
                               {% set sample_values = row.source_samples.get(selected_source_column, ()) %}
                               {% if selected_column %}
                                 <option value="{{ selected_column.stable_key }}" data-sample="{{ sample_values[0] if sample_values else '' }}" data-sample-present="{{ 'true' if sample_values and sample_values[0] is not none else 'false' }}" selected>
-                                  {{ selected_column.source_name }} ({{ selected_column.candidate_type }})
+                                  {{ selected_column.source_name }}
                                 </option>
                               {% endif %}
                             {% endif %}
@@ -296,7 +290,7 @@
                         </label>
                       </div>
                       <div class="provider-control" data-provider-literal {% if value_source not in ('constant', 'source_with_fallback') %}hidden{% endif %}>
-                        <label><span data-literal-label>{% if value_source == 'source_with_fallback' %}Fallback value{% else %}Constant value{% endif %}</span>
+                        <label><span data-literal-label>{% if value_source == 'source_with_fallback' %}Backup value{% else %}Value for every row{% endif %}</span>
                           <input
                             name="scalar_literal_{{ dataset_index }}_{{ field_index }}"
                             value="{{ mapping.literal_value if mapping and mapping.literal_value is not none else '' }}"
@@ -339,18 +333,20 @@
                     <td class="transform-cell">
                       {% set transform = mapping.transform if mapping else none %}
                       {% set validation_rule = mapping.validation if mapping else none %}
+                      <label class="compact-control">Value type
                       <select name="scalar_type_{{ dataset_index }}_{{ field_index }}" data-canonical-type>
                         {% set selected_type = mapping.value_type if mapping else row.canonical_type %}
-                        {% for value_type in ('string', 'integer', 'decimal', 'boolean', 'date', 'datetime') %}
-                          <option value="{{ value_type }}" {% if selected_type == value_type %}selected{% endif %}>{{ value_type }}</option>
+                        {% for value_type, value_label in (('string', 'Text'), ('integer', 'Whole number'), ('decimal', 'Decimal number'), ('boolean', 'Yes or no'), ('date', 'Date'), ('datetime', 'Date and time')) %}
+                          <option value="{{ value_type }}" {% if selected_type == value_type %}selected{% endif %}>{{ value_label }}</option>
                         {% endfor %}
                       </select>
+                      </label>
                       <div class="transform-options">
-                        <label><input type="checkbox" name="scalar_trim_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-trim {% if mapping and mapping.transform.trim %}checked{% endif %}> Trim</label>
-                        <label><input type="checkbox" name="scalar_collapse_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-collapse {% if mapping and mapping.transform.collapse_whitespace %}checked{% endif %}> Collapse spaces</label>
-                        <label><input type="checkbox" name="scalar_empty_null_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-empty-null {% if mapping and mapping.transform.empty_as_null %}checked{% endif %}> Empty → null</label>
+                        <label><input type="checkbox" name="scalar_trim_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-trim {% if mapping and mapping.transform.trim %}checked{% endif %}> Remove outer spaces</label>
+                        <label><input type="checkbox" name="scalar_collapse_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-collapse {% if mapping and mapping.transform.collapse_whitespace %}checked{% endif %}> Replace repeated spaces with one</label>
+                        <label><input type="checkbox" name="scalar_empty_null_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-empty-null {% if mapping and mapping.transform.empty_as_null %}checked{% endif %}> Treat blank values as empty</label>
                       </div>
-                      <label class="compact-control">Case
+                      <label class="compact-control">Capitalisation
                         <select name="scalar_case_{{ dataset_index }}_{{ field_index }}" data-transform-case>
                           {% set case_mode = mapping.transform.case_mode if mapping else 'preserve' %}
                           <option value="preserve" {% if case_mode == 'preserve' %}selected{% endif %}>Keep as-is</option>
@@ -361,11 +357,11 @@
                         </select>
                       </label>
                       <label class="compact-control" data-decimal-policy>
-                        Decimal locale
+                        Number format
                         <select name="scalar_decimal_locale_{{ dataset_index }}_{{ field_index }}">
                           {% set decimal_locale = mapping.transform.decimal_locale if mapping else 'invariant' %}
                           {% for locale in ('invariant', 'en_US', 'de_DE', 'fr_FR') %}
-                            <option value="{{ locale }}" {% if decimal_locale == locale %}selected{% endif %}>{{ locale }}</option>
+                            <option value="{{ locale }}" {% if decimal_locale == locale %}selected{% endif %}>{% if locale == 'invariant' %}Automatic{% elif locale == 'en_US' %}1,234.56{% else %}1.234,56{% endif %}</option>
                           {% endfor %}
                         </select>
                       </label>
@@ -424,12 +420,12 @@
                       ) %}
                       <details class="value-rule-builder" {% if value_rules_configured %}open{% endif %} data-value-rule-builder>
                         <summary>
-                          <span>Value rules</span>
+                          <span>Check values</span>
                           <small>{{ "Configured" if value_rules_configured else "Optional" }}</small>
                         </summary>
                         <div class="value-rule-content">
                           <p class="muted rule-type-warning" data-text-rule-type-warning hidden>
-                            Text changes and checks require the string type. Clear them here or change the canonical type back to string.
+                            Text changes and checks require the Text value type. Clear them here or change the value type back to Text.
                           </p>
                           <div data-text-rules>
                             <h4>Make the text consistent</h4>
@@ -573,12 +569,15 @@
                       </details>
                     </td>
                     <th data-target="{{ view.selected_model }}::{{ row.metadata.name }}">
-                      {{ row.metadata.label }}<br><code>{{ row.metadata.name }}</code>
+                      {{ row.metadata.label }}
                     </th>
-                    <td>
-                      {{ row.metadata.type }}
-                      {% if row.metadata.required %} · required{% endif %}
-                      {% if row.metadata.readonly %} · readonly{% endif %}
+                    <td class="support-cell">
+                      <details class="technical-details">
+                        <summary>Field details</summary>
+                        <code>{{ row.metadata.name }}</code> · {{ row.metadata.type }}
+                        {% if row.metadata.required %} · required{% endif %}
+                        {% if row.metadata.readonly %} · controlled by Odoo{% endif %}
+                      </details>
                     </td>
                     <td class="mapping-preview" data-scalar-preview>
                       {% if row.preview %}
@@ -591,16 +590,19 @@
                       {% endif %}
                     </td>
                     <td class="policy-cell">
-                      <label><input type="checkbox" name="scalar_compare_{{ dataset_index }}_{{ field_index }}" value="1" data-scalar-compare {% if not mapping or mapping.compare %}checked{% endif %}> Compare</label>
-                      <label><input type="checkbox" name="scalar_validate_only_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.validate_only %}checked{% endif %}> Validate only</label>
-                      <label><input type="checkbox" name="scalar_required_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required %}checked{% endif %}> Required</label>
-                      <label><input type="checkbox" name="scalar_required_create_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required_on_create %}checked{% endif %}> Required on create</label>
+                      <details class="technical-details">
+                      <summary>Support options</summary>
+                      <label><input type="checkbox" name="scalar_compare_{{ dataset_index }}_{{ field_index }}" value="1" data-scalar-compare {% if not mapping or mapping.compare %}checked{% endif %}> Compare with Odoo</label>
+                      <label><input type="checkbox" name="scalar_validate_only_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.validate_only %}checked{% endif %}> Check only; do not prepare</label>
+                      <label><input type="checkbox" name="scalar_required_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required %}checked{% endif %}> Must have a value</label>
+                      <label><input type="checkbox" name="scalar_required_create_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required_on_create %}checked{% endif %}> Required for new records</label>
                       <select name="scalar_null_{{ dataset_index }}_{{ field_index }}">
                         {% set scalar_null = mapping.null_policy if mapping else 'distinct' %}
                         {% for policy in ('distinct', 'equivalent', 'ignore_source_null') %}
-                          <option value="{{ policy }}" {% if scalar_null == policy %}selected{% endif %}>Null: {{ policy }}</option>
+                          <option value="{{ policy }}" {% if scalar_null == policy %}selected{% endif %}>{% if policy == 'distinct' %}Keep source and Odoo blanks separate{% elif policy == 'equivalent' %}Treat blank values as the same{% else %}Ignore blank source values{% endif %}</option>
                         {% endfor %}
                       </select>
+                      </details>
                     </td>
                   </tr>
                 {% endfor %}
@@ -609,7 +611,7 @@
             </div>
             <nav class="field-catalog-navigation" aria-label="Odoo field display options" data-scalar-pagination>
               <div class="field-page-size" aria-label="Number of fields shown per page">
-                <span>Fields shown:</span>
+                <span>Show fields:</span>
                 {% for option in view.scalar_page_size_options %}
                   <a
                     class="field-count-button{% if option.size == view.scalar_page_size %} active{% endif %}"
@@ -621,16 +623,16 @@
               <div class="field-pagination">
                 {% if view.scalar_previous_url %}<a class="button secondary" href="{{ view.scalar_previous_url }}">Previous</a>{% endif %}
                 <span class="muted">Page {{ view.scalar_page }} of {{ view.scalar_page_count }}</span>
-                {% if view.scalar_next_url %}<a class="button secondary" href="{{ view.scalar_next_url }}">Next</a>{% endif %}
+                {% if view.scalar_next_url %}<a class="button secondary" href="{{ view.scalar_next_url }}">Show more fields</a>{% endif %}
               </div>
             </nav>
           </div>
 
           <details class="related-records" {% if view.relation_mapped_total %}open{% endif %}>
           <summary id="relationships-{{ dataset_index }}">
-            <span class="related-records-heading">Links to other Odoo records</span>
+            <span class="related-records-heading">Connect values to existing Odoo lists</span>
             <span class="related-records-help">Use this when a field points to another record, such as a product category, unit of measure, company, or parent.</span>
-            <span class="related-records-count">{{ view.relation_mapped_total }} mapped</span>
+            <span class="related-records-count">{{ view.relation_mapped_total }} connected</span>
           </summary>
           <p class="related-records-example">
             Example: connect the <strong>Category</strong> value in a products file to the matching category in Odoo or in another incoming dataset.
@@ -644,12 +646,12 @@
           >
           <div class="field-catalog-tools relation-catalog-tools">
             <label>
-              Find a linked Odoo field
-              <input type="search" value="{{ view.relation_query }}" data-relation-field-search placeholder="Example: Category, categ_id, or product.category" autocomplete="off">
+              Find an Odoo list or linked field
+              <input type="search" value="{{ view.relation_query }}" data-relation-field-search placeholder="For example: Category or Company" autocomplete="off">
             </label>
             <button class="button secondary" type="button" data-relation-search-submit>Search</button>
             <p class="muted" data-relation-field-count role="status" aria-live="polite">
-              Showing {{ view.relation_rows|length }} of {{ view.relation_matching_total }} linked fields · {{ view.relation_mapped_total }} mapped
+              Showing {{ view.relation_rows|length }} of {{ view.relation_matching_total }} linked fields · {{ view.relation_mapped_total }} connected
             </p>
           </div>
           <div data-relation-field-results>
@@ -659,32 +661,31 @@
               {% set mapping = row.mapping %}
               <details class="relationship-card" data-relation-mapping-row data-relation-field-row data-target-field="{{ row.metadata.name }}" data-relation-search-text="{{ row.metadata.label|lower }} {{ row.metadata.name|lower }} {{ row.metadata.type|lower }} {{ (row.metadata.relation or '')|lower }}" {% if mapping or row.recommended_dataset_id %}open{% endif %}>
                 <summary>
-                  <span><strong>{{ row.metadata.label }}</strong> <code>{{ row.metadata.name }}</code></span>
-                  <span class="relationship-card-state">{{ "Mapped" if mapping else "Not mapped" }}</span>
+                  <span><strong>{{ row.metadata.label }}</strong></span>
+                  <span class="relationship-card-state">{{ "Connected" if mapping else "Not connected" }}</span>
                 </summary>
                 <input type="hidden" name="visible_relation_target_{{ dataset_index }}" value="{{ row.metadata.name }}">
-                <p>
-                  {{ row.metadata.type }} → {{ row.metadata.relation or "unknown model" }}
-                  {% if row.metadata.relation_field %} · inverse {{ row.metadata.relation_field }}{% endif %}
-                </p>
+                <details class="technical-details">
+                  <summary>Support details</summary>
+                  <p><code>{{ row.metadata.name }}</code> · {{ row.metadata.type }} → {{ row.metadata.relation or "unknown record type" }}{% if row.metadata.relation_field %} · inverse {{ row.metadata.relation_field }}{% endif %}</p>
+                </details>
                 {% if row.metadata.type == 'one2many' %}
                   <div class="notice warning">
-                    This list is filled from its child records. Map the child dataset's parent field instead.
-                    <span class="technical-details">Technical field: <code>{{ row.metadata.relation }}.{{ row.metadata.relation_field or "inverse many2one" }}</code></span>
+                    This list is filled from its line items. Match the line-item table's main-record field instead.
                   </div>
                 {% else %}
                   {% if row.recommended_dataset_id and not mapping %}
                     <div class="notice success">
                       {% if row.recommendation_kind == 'extracted_lookup' %}
-                        Suggested from the related records extracted from this source field. Review the fields below; Impodo will resolve each value against that incoming dataset.
+                        Suggested from the separate list created from this source field. Review the choices below; Impodo will match each value against that project table.
                       {% else %}
-                        Suggested from your related-dataset preparation. Review the fields below; Impodo will block missing or ambiguous parents.
+                        Suggested from the combined-information step. Review the choices below; Impodo will stop if a main record is missing or unclear.
                       {% endif %}
                     </div>
                   {% endif %}
                   <div class="form-grid">
                     <label>
-                      Source column(s) containing the related record
+                      Use value(s) from
                       <select name="relation_source_{{ dataset_index }}_{{ relation_index }}" multiple size="{{ [view.source.columns|length, 5]|min }}" data-lazy-source-column>
                         {% set selected_relation_sources = mapping.source_column_keys if mapping else (row.recommended_source_columns or ()) %}
                         {% for selected_source in selected_relation_sources %}
@@ -694,17 +695,17 @@
                       </select>
                     </label>
                     <label>
-                      Where should Impodo find the related record?
+                      Where should Impodo find the matching choice?
                       {% set selected_origin = mapping.resolver.origin.value if mapping else ('dataset' if row.recommended_dataset_id else 'target_catalog') %}
                       <select name="relation_origin_{{ dataset_index }}_{{ relation_index }}">
-                        <option value="target_catalog" {% if selected_origin == 'target_catalog' %}selected{% endif %}>Existing Odoo records</option>
-                        <option value="dataset" {% if selected_origin == 'dataset' %}selected{% endif %}>Another incoming dataset</option>
+                        <option value="target_catalog" {% if selected_origin == 'target_catalog' %}selected{% endif %}>Existing Odoo choices</option>
+                        <option value="dataset" {% if selected_origin == 'dataset' %}selected{% endif %}>Another table in this project</option>
                       </select>
                     </label>
                     <label>
-                      Which incoming dataset?
+                      Which project table?
                       <select name="relation_dataset_{{ dataset_index }}_{{ relation_index }}">
-                        <option value="">Not incoming</option>
+                        <option value="">Not from another table</option>
                         {% for candidate in view.other_datasets %}
                           {% set selected_dataset_id = mapping.resolver.dataset_id if mapping else row.recommended_dataset_id %}
                           <option value="{{ candidate.dataset_id }}" {% if selected_dataset_id == candidate.dataset_id %}selected{% endif %}>
@@ -714,28 +715,28 @@
                       </select>
                     </label>
                     <label>
-                      How is the related record identified?
+                      How is the matching choice identified?
                       <select name="relation_key_{{ dataset_index }}_{{ relation_index }}" {% if not row.related_keys %}disabled{% endif %}>
                         <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
                         {% for key in row.related_keys %}
                           <option value="{{ key.key_id }}" {% if row.selected_key and key.key_id == row.selected_key.key_id %}selected{% endif %}>
-                            {{ key.description or key.key_fields|join(' + ') }}{% if key.scope_fields %} / {{ key.scope_fields|join(' + ') }}{% endif %}{% if key.key_id == row.recommended_key_id %} — recommended{% endif %}
+                            {{ key.description or "Confirmed matching rule" }}{% if key.key_id == row.recommended_key_id %} — recommended{% endif %}
                           </option>
                         {% endfor %}
                       </select>
                       {% if not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model first.</small>{% endif %}
                     </label>
                     <label>
-                      Operation
+                      How should the list change?
                       {% set selected_operation = mapping.operation if mapping else 'replace' %}
                       <select name="relation_operation_{{ dataset_index }}_{{ relation_index }}">
                         {% for operation in ('replace', 'add', 'remove') %}
-                          <option value="{{ operation }}" {% if selected_operation == operation %}selected{% endif %}>{{ operation }}</option>
+                          <option value="{{ operation }}" {% if selected_operation == operation %}selected{% endif %}>{% if operation == 'replace' %}Replace the current list{% elif operation == 'add' %}Add to the current list{% else %}Remove from the current list{% endif %}</option>
                         {% endfor %}
                       </select>
                     </label>
                     <label>
-                      List separator
+                      Separator used in the source
                       <input name="relation_separator_{{ dataset_index }}_{{ relation_index }}" maxlength="1" value="{{ mapping.separator if mapping else ';' }}">
                     </label>
                   </div>
@@ -767,26 +768,29 @@
                         {% endif %}
                       </div>
                     {% endif %}
-                    <label><input type="checkbox" name="relation_compare_{{ dataset_index }}_{{ relation_index }}" value="1" {% if not mapping or mapping.compare %}checked{% endif %}> Compare</label>
-                    <label><input type="checkbox" name="relation_validate_only_{{ dataset_index }}_{{ relation_index }}" value="1" {% if mapping and mapping.validate_only %}checked{% endif %}> Validate only</label>
-                    <label><input type="checkbox" name="relation_required_{{ dataset_index }}_{{ relation_index }}" value="1" {% if mapping and mapping.required %}checked{% endif %}> Required</label>
-                    <label><input type="checkbox" name="relation_required_create_{{ dataset_index }}_{{ relation_index }}" value="1" {% if mapping and mapping.required_on_create %}checked{% endif %}> Required on create</label>
+                    <details class="technical-details">
+                    <summary>Support options</summary>
+                    <label><input type="checkbox" name="relation_compare_{{ dataset_index }}_{{ relation_index }}" value="1" {% if not mapping or mapping.compare %}checked{% endif %}> Compare with Odoo</label>
+                    <label><input type="checkbox" name="relation_validate_only_{{ dataset_index }}_{{ relation_index }}" value="1" {% if mapping and mapping.validate_only %}checked{% endif %}> Check only; do not prepare</label>
+                    <label><input type="checkbox" name="relation_required_{{ dataset_index }}_{{ relation_index }}" value="1" {% if mapping and mapping.required %}checked{% endif %}> Must have a value</label>
+                    <label><input type="checkbox" name="relation_required_create_{{ dataset_index }}_{{ relation_index }}" value="1" {% if mapping and mapping.required_on_create %}checked{% endif %}> Required for new records</label>
                     <select name="relation_missing_{{ dataset_index }}_{{ relation_index }}">
                       {% set selected_missing = mapping.on_missing if mapping else 'error' %}
-                      <option value="error" {% if selected_missing == 'error' %}selected{% endif %}>Missing: error</option>
-                      <option value="warning" {% if selected_missing == 'warning' %}selected{% endif %}>Missing: warning</option>
+                      <option value="error" {% if selected_missing == 'error' %}selected{% endif %}>If missing: stop and ask</option>
+                      <option value="warning" {% if selected_missing == 'warning' %}selected{% endif %}>If missing: ask me to review</option>
                     </select>
                     <select name="relation_ambiguous_{{ dataset_index }}_{{ relation_index }}">
                       {% set selected_ambiguous = mapping.on_ambiguous if mapping else 'error' %}
-                      <option value="error" {% if selected_ambiguous == 'error' %}selected{% endif %}>Ambiguous: error</option>
-                      <option value="warning" {% if selected_ambiguous == 'warning' %}selected{% endif %}>Ambiguous: warning</option>
+                      <option value="error" {% if selected_ambiguous == 'error' %}selected{% endif %}>If several match: stop and ask</option>
+                      <option value="warning" {% if selected_ambiguous == 'warning' %}selected{% endif %}>If several match: ask me to review</option>
                     </select>
                     <select name="relation_null_{{ dataset_index }}_{{ relation_index }}">
                       {% set selected_relation_null = mapping.null_policy if mapping else 'distinct' %}
                       {% for policy in ('distinct', 'equivalent', 'ignore_source_null') %}
-                        <option value="{{ policy }}" {% if selected_relation_null == policy %}selected{% endif %}>Null: {{ policy }}</option>
+                        <option value="{{ policy }}" {% if selected_relation_null == policy %}selected{% endif %}>{% if policy == 'distinct' %}Keep source and Odoo blanks separate{% elif policy == 'equivalent' %}Treat blank values as the same{% else %}Ignore blank source values{% endif %}</option>
                       {% endfor %}
                     </select>
+                    </details>
                   </div>
                 {% endif %}
               </details>
@@ -797,7 +801,7 @@
           </div>
           <nav class="field-catalog-navigation" aria-label="Linked Odoo field display options" data-relation-pagination>
             <div class="field-page-size" aria-label="Number of linked fields shown per page">
-              <span>Fields shown:</span>
+              <span>Show fields:</span>
               {% for option in view.relation_page_size_options %}
                 <a
                   class="field-count-button{% if option.size == view.relation_page_size %} active{% endif %}"
@@ -809,7 +813,7 @@
             <div class="field-pagination">
               {% if view.relation_previous_url %}<a class="button secondary" href="{{ view.relation_previous_url }}">Previous</a>{% endif %}
               <span class="muted">Page {{ view.relation_page }} of {{ view.relation_page_count }}</span>
-              {% if view.relation_next_url %}<a class="button secondary" href="{{ view.relation_next_url }}">Next</a>{% endif %}
+              {% if view.relation_next_url %}<a class="button secondary" href="{{ view.relation_next_url }}">Show more fields</a>{% endif %}
             </div>
           </nav>
           </div>
@@ -861,7 +865,7 @@
                   {% if control %}<small class="muted">Clear this row to remove the check.</small>{% endif %}
                 </section>
               {% endfor %}
-              <p class="muted">Only mapped numeric fields can be checked. Impodo always uses a sum in this first version.</p>
+              <p class="muted">Only matched number fields can be checked. Impodo adds their values for this check.</p>
             {% else %}
               <p class="empty-state compact">This Odoo record type has no numeric fields available for a totals check.</p>
             {% endif %}
@@ -869,9 +873,10 @@
           {% else %}
             <div class="empty-state compact">
               <p>
-                {{ view.scalar_mapped_total }} Odoo fields and {{ view.relation_mapped_total }} linked-record fields are mapped for this dataset.
+                {{ view.scalar_mapped_total }} Odoo field{{ "s" if view.scalar_mapped_total != 1 else "" }} and
+                {{ view.relation_mapped_total }} linked list{{ "s" if view.relation_mapped_total != 1 else "" }} matched for this table.
               </p>
-              <a class="button secondary" href="{{ view.edit_url }}">Open this dataset's field catalogue</a>
+              <a class="button secondary" href="{{ view.edit_url }}">Open this table's fields</a>
             </div>
           {% endif %}
         </section>
@@ -881,11 +886,11 @@
         <section class="form-card" id="semantic-validation">
           <div class="page-heading compact">
             <div>
-              <p class="eyebrow">Mapping check</p>
+              <p class="eyebrow">Match check</p>
               <h2>{% if validation.status.value == 'INVALID' %}Needs attention{% else %}Ready to confirm{% endif %}</h2>
             </div>
             <span class="status {% if validation.issues %}needs_review{% else %}ready{% endif %}">
-              {{ validation.issues|length }} item{{ "s" if validation.issues|length != 1 else "" }}
+              {% if validation.issues %}{{ validation.issues|length }} issue{{ "s" if validation.issues|length != 1 else "" }}{% else %}No issues{% endif %}
             </span>
           </div>
           {% if validation.issues %}
@@ -898,14 +903,14 @@
                       <th>
                         {{ issue.message }}
                         <details class="technical-details">
-                          <summary>Technical code</summary>
+                          <summary>Support details</summary>
                           <code>{{ issue.code }}</code> · {{ issue.severity }}
                         </details>
                       </th>
                       <td>
-                        {{ issue.path.replace('_', ' ').replace('.', ' · ') }}
+                        Matching choices
                         <details class="technical-details">
-                          <summary>Technical path</summary>
+                          <summary>Support details</summary>
                           <code>{{ issue.path }}</code>
                         </details>
                       </td>
@@ -916,25 +921,25 @@
               </table>
             </div>
           {% else %}
-            <p>Your field matches are consistent. The next step checks every source row and compares it with Odoo.</p>
+            <p>Your field matches are consistent. The next step prepares every source row for review.</p>
           {% endif %}
           {% if validation.status.value != 'INVALID' and revision and not has_unvalidated_changes %}
             <div class="actions">
-              <a class="button secondary" href="/projects/{{ project.project_id }}/mapping/transformation-impact">Review transformation impact</a>
+              <a class="button secondary" href="/projects/{{ project.project_id }}/mapping/transformation-impact">Review changed values</a>
             </div>
-            <p class="muted">Applies the exact validated mapping to every frozen source row. This does not contact or change Odoo.</p>
+            <p class="muted">Shows how the confirmed rules prepare every source row. This does not contact or change Odoo.</p>
           {% endif %}
           {% for item in warning_issues %}
             <label class="acknowledgement">
               <input type="checkbox" name="warning_acknowledgement" value="{{ item.fingerprint }}">
-              I acknowledge {{ item.issue.code }} at {{ item.issue.path }}.
+              I reviewed this warning: {{ item.issue.message }}
             </label>
           {% endfor %}
           <details>
             <summary>Checks Impodo will run on your data next</summary>
             <ul>
               {% for check in validation.deferred_runtime_checks %}
-                <li><code>{{ check.code }}</code> · {{ check.message }}</li>
+                <li>{{ check.message }}</li>
               {% endfor %}
             </ul>
           </details>
@@ -952,16 +957,16 @@
           {% if working_draft_is_current %}
             Saved progress is loaded.
           {% elif revision %}
-            Validated mapping version {{ revision.version }} is loaded.
+            Checked matches are loaded.
           {% else %}
             Changes are not saved yet.
           {% endif %}
         </p>
-        <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Back to Odoo fields</a>
+        <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Back to Odoo data</a>
         <button class="button secondary" name="action" value="save_progress" type="submit" data-save-mapping-progress>Save progress</button>
-        <button class="button secondary" name="action" value="draft" type="submit">Check mapping</button>
+        <button class="button secondary" name="action" value="draft" type="submit">Check matches</button>
         {% if submission %}
-          <a class="button primary" href="/projects/{{ project.project_id }}/summary">Check all rows</a>
+          <a class="button primary" href="/projects/{{ project.project_id }}/summary">Review prepared data</a>
         {% elif schema.origin.value != 'LOCAL_MANUAL' %}
           <button class="button primary" name="action" value="submit" type="submit">Confirm field matches</button>
         {% endif %}
@@ -1068,7 +1073,7 @@
                 <button class="button secondary" type="submit">Save data checks</button>
               </div>
             {% endif %}
-            <p class="muted">No JSON, formulas or Odoo technical names are required. Changes take effect the next time you choose Check all rows.</p>
+            <p class="muted">Changes take effect the next time you prepare the data for review.</p>
           </form>
         </details>
       </section>
@@ -1110,9 +1115,9 @@
   {% else %}
     <section class="form-card">
       <div class="empty-state">
-        <h2>Mapping prerequisites are incomplete</h2>
-        <p>Freeze the source selection, capture the permitted Odoo schema, and confirm governed business keys first.</p>
-        <a class="button primary" href="/projects/{{ project.project_id }}/schema">Open Odoo schema</a>
+        <h2>Finish choosing your source and Odoo data first</h2>
+        <p>Choose the source tables, select the Odoo data, and confirm how existing records should be found.</p>
+        <a class="button primary" href="/projects/{{ project.project_id }}/schema">Choose Odoo data</a>
       </div>
     </section>
   {% endif %}

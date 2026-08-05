@@ -12,8 +12,6 @@
     </span>
   </div>
 
-  {% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
-
   <section class="readiness-cards quality-cards" aria-label="Prepared data overview">
     <a class="readiness-card ready" href="/projects/{{ project.project_id }}/normalization#review-groups">
       <span>Records ready</span>
@@ -61,7 +59,7 @@
         <h2 id="prepared-next-title">Correct the source or field rule</h2>
         <p>A change was sent back. Make the correction, confirm the field matches, then prepare the data again.</p>
       </div>
-      <a class="button primary" href="/projects/{{ project.project_id }}/mapping">Return to field matching</a>
+      <a class="button primary" href="/projects/{{ project.project_id }}/mapping">Return to data matching</a>
     </section>
   {% elif normalization.decisions_left == 0 %}
     <section class="next-action-card ready" aria-labelledby="prepared-next-title">
@@ -157,7 +155,7 @@
                     </div>
                   {% endif %}
                   <details class="technical-details">
-                    <summary>Technical details</summary>
+                    <summary>Support details</summary>
                     <code>{{ group.outcome.value }} - {{ group.group_id }}</code>
                   </details>
                 </td>
@@ -181,7 +179,7 @@
     {% endif %}
 
     <details class="technical-details">
-      <summary>Technical evidence</summary>
+      <summary>Support details</summary>
       <p><code>Review {{ normalization.run_id }} - {{ normalization.content_hash }}</code></p>
       <p><code>Prepared dataset {{ normalization.eligible_dataset_hash }}</code></p>
       <p>Lifecycle version {{ normalization.lifecycle_version }}. Odoo has not been changed.</p>

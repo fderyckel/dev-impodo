@@ -31,18 +31,14 @@
       </span>
     {% elif quality %}
       <span class="status {% if quality.blocked_count %}blocked{% elif quality.review_count %}review{% else %}ready{% endif %}">
-        {% if quality.blocked_count %}Fix setup{% elif quality.review_count %}Review needed{% else %}Quality check saved{% endif %}
+        {% if quality.blocked_count %}Needs correction{% elif quality.review_count %}Needs a decision{% else %}Data check saved{% endif %}
       </span>
     {% elif staging %}
       <span class="status ready">Prepared data saved</span>
     {% else %}
-      <span class="status registered">{% if project.status.value == 'REGISTERED' %}Setup complete{% else %}In setup{% endif %}</span>
+      <span class="status registered">{% if project.status.value == 'REGISTERED' %}Ready for source check{% else %}Continue setup{% endif %}</span>
     {% endif %}
   </div>
-
-  {% if error %}
-    <div class="alert error" role="alert">{{ error }}</div>
-  {% endif %}
 
   {% if normalization and not readiness %}
     <section class="next-action-card {% if normalization.frozen %}ready{% else %}review{% endif %}" aria-labelledby="normalization-next-title">
@@ -78,7 +74,7 @@
         <small>Ready for prepared-data review</small>
       </a>
       <a class="readiness-card review{% if quality_status == 'review' %} selected{% endif %}" href="?quality_status=review#quality-rows">
-        <span>Review</span>
+        <span>Needs a decision</span>
         <strong>{{ quality.review_count }}</strong>
         <small>A business decision is needed</small>
       </a>
@@ -88,7 +84,7 @@
         <small>Kept out of the Odoo check</small>
       </a>
       <a class="readiness-card blocked{% if quality_status == 'blocked' %} selected{% endif %}" href="?quality_status=blocked#quality-rows">
-        <span>Fix setup</span>
+        <span>Needs correction</span>
         <strong>{{ quality.blocked_count }}</strong>
         <small>The project cannot continue yet</small>
       </a>
@@ -97,9 +93,9 @@
     <section class="form-card" id="quality-rows" aria-labelledby="quality-rows-title">
       <div class="page-heading compact">
         <div>
-          <p class="eyebrow">Data quality</p>
+          <p class="eyebrow">Prepared data review</p>
           <h2 id="quality-rows-title">
-            {% if quality_status == 'ready' %}Ready for Odoo check{% elif quality_status == 'review' %}Needs review{% elif quality_status == 'quarantined' %}Set aside{% elif quality_status == 'blocked' %}Fix setup{% else %}All prepared records{% endif %}
+            {% if quality_status == 'ready' %}Included in preparation{% elif quality_status == 'review' %}Needs a decision{% elif quality_status == 'quarantined' %}Set aside{% elif quality_status == 'blocked' %}Needs correction{% else %}All prepared records{% endif %}
           </h2>
         </div>
         {% if quality_status or quality_dataset %}
@@ -130,7 +126,7 @@
                       No action needed
                     {% endif %}
                     <details class="technical-details">
-                      <summary>Technical details</summary>
+                      <summary>Support details</summary>
                       <code>{{ row.effective_disposition.value }} Â· {{ row.row_id }}</code>
                       {% for detail in item.issues %}<small class="row-field"><code>{{ detail.reason_code }} Â· {{ detail.rule_id }}</code></small>{% endfor %}
                     </details>
@@ -159,7 +155,7 @@
         </div>
       {% endif %}
       <details class="technical-details">
-        <summary>Technical evidence</summary>
+        <summary>Support details</summary>
         <p><code>Quality run {{ quality.run_id }} Â· {{ quality.content_hash }}</code></p>
         <p>Prepared evidence <code>{{ quality.staging_content_hash }}</code> Â· rules <code>{{ quality.ruleset_hash }}</code></p>
       </details>
@@ -230,7 +226,7 @@
           <span class="status ready">Saved locally</span>
         </div>
         <details class="technical-details">
-          <summary>Technical details</summary>
+          <summary>Support details</summary>
           <p>This evidence is tied to field-match version {{ staging.mapping_version }} and has not changed Odoo.</p>
           <div class="table-scroll">
             <table class="data-table">
@@ -279,7 +275,7 @@
                     <td>
                       {% if total.passed %}Matches{% elif total.empty_rows %}{{ total.empty_rows }} empty value{{ "s" if total.empty_rows != 1 else "" }}{% else %}Difference {{ total.difference }} {{ total.unit }}{% endif %}
                       <details class="technical-details">
-                        <summary>Technical details</summary>
+                        <summary>Support details</summary>
                         <code>{{ total.target_field }}</code> · {{ total.included_rows }} value{{ "s" if total.included_rows != 1 else "" }} · tolerance {{ total.tolerance }}
                       </details>
                     </td>
@@ -299,12 +295,12 @@
         <small>No blocking problem found</small>
       </a>
       <a class="readiness-card review{% if status_filter == 'needs_review' %} selected{% endif %}" href="?status=needs_review">
-        <span>Review</span>
+        <span>Needs a decision</span>
         <strong>{{ readiness.needs_review_count }}</strong>
         <small>Your decision is needed</small>
       </a>
       <a class="readiness-card blocked{% if status_filter == 'blocked' %} selected{% endif %}" href="?status=blocked">
-        <span>Fix</span>
+        <span>Needs correction</span>
         <strong>{{ readiness.blocked_count }}</strong>
         <small>Must be corrected</small>
       </a>
@@ -321,7 +317,7 @@
       <div class="table-scroll">
         <table class="data-table">
           <thead>
-            <tr><th>Table</th><th>Ready</th><th>Review</th><th>Fix</th></tr>
+            <tr><th>Table</th><th>Ready</th><th>Needs a decision</th><th>Needs correction</th></tr>
           </thead>
           <tbody>
             {% for item in readiness.datasets %}
@@ -336,7 +332,7 @@
         </table>
       </div>
       <details class="technical-details">
-        <summary>Technical record types</summary>
+        <summary>Support details</summary>
         {% for item in readiness.datasets %}<p>{{ item.label }}: <code>{{ item.target_model }}</code></p>{% endfor %}
       </details>
     </section>
@@ -346,7 +342,7 @@
         <div>
           <p class="eyebrow">Checked rows</p>
           <h2>
-            {% if status_filter == 'ready' %}Ready{% elif status_filter == 'needs_review' %}Review{% elif status_filter == 'blocked' %}Fix{% else %}All results{% endif %}
+            {% if status_filter == 'ready' %}Ready{% elif status_filter == 'needs_review' %}Needs a decision{% elif status_filter == 'blocked' %}Needs correction{% else %}All results{% endif %}
             {% if dataset_filter %} · {{ dataset_filter.replace('_', ' ')|title }}{% endif %}
           </h2>
         </div>
@@ -374,12 +370,12 @@
                   <td>
                     {{ row.reason }}
                     {% if row.field %}<small class="row-field">Field: {{ row.field }}</small>{% endif %}
-                    {% if row.issue_count > 1 %}<small class="row-field">{{ row.issue_count - 1 }} more issue{{ "s" if row.issue_count > 2 else "" }} in the technical evidence</small>{% endif %}
+                    {% if row.issue_count > 1 %}<small class="row-field">{{ row.issue_count - 1 }} more issue{{ "s" if row.issue_count > 2 else "" }} in Support details</small>{% endif %}
                   </td>
                   <td>
                     {{ row.recommended_action }}
                     <details class="technical-details">
-                      <summary>Technical details</summary>
+                      <summary>Support details</summary>
                       <code>{{ row.classification }}{% if row.technical_code %} · {{ row.technical_code }}{% endif %}</code>
                     </details>
                   </td>
@@ -407,14 +403,14 @@
       {% endif %}
     </section>
 
-    <p class="muted">
-      This check is read-only. Odoo remains unchanged.
-      <a href="/projects/{{ project.project_id }}/summary/manifest">Technical evidence</a>
-    </p>
+    <details class="technical-details">
+      <summary>Support details</summary>
+      <p>This check is read-only. Odoo remains unchanged. <a href="/projects/{{ project.project_id }}/summary/manifest">Download the support file</a></p>
+    </details>
 
   {% elif normalization %}
     <details class="technical-details form-card">
-      <summary>Prepared-data evidence</summary>
+      <summary>Support details</summary>
       <p>The approved or reviewable package is saved locally and remains separate from Odoo.</p>
       <p><code>{{ normalization.run_id }} - {{ normalization.content_hash }}</code></p>
     </details>
@@ -447,7 +443,7 @@
       </div>
     </section>
     <details class="technical-details form-card">
-      <summary>Technical details</summary>
+      <summary>Support details</summary>
       <p>Field-match version {{ staging.mapping_version }} · Run <code>{{ staging.run_id }}</code></p>
       <p><code>{{ staging.content_hash }}</code></p>
     </details>
@@ -489,12 +485,12 @@
         <div><dt>Export date</dt><dd>{{ project.export_date or "—" }}</dd></div>
         <div><dt>Data manager</dt><dd>{{ project.data_manager }}</dd></div>
         <div><dt>Functional owner</dt><dd>{{ project.functional_owner }}</dd></div>
-        <div><dt>Target database</dt><dd>{{ project.odoo_database }}</dd></div>
+        <div><dt>Odoo location</dt><dd>{% if project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' %}On this computer{% elif project.odoo_connection_mode %}Managed elsewhere{% else %}Not set{% endif %}</dd></div>
         <div><dt>Files</dt><dd>{{ project.source_files|length }}</dd></div>
       </dl>
       <div class="actions">
         <a class="button secondary" href="/projects">All projects</a>
-        <a class="button primary" href="/projects/{{ project.project_id }}/sources">Inspect source data</a>
+        <a class="button primary" href="/projects/{{ project.project_id }}/sources">Check source data</a>
       </div>
     </section>
   {% endif %}

@@ -2382,11 +2382,16 @@ class DuckDbProjectRepository:
         database_path = self.project_directory(project_id) / "project.duckdb"
         published_at = datetime.now(timezone.utc)
         run_id = str(uuid4())
-        dry_run = start_dry_run(
-            evaluation,
-            run_id=run_id,
-            source_hashes=source_hashes,
-        )
+        try:
+            dry_run = start_dry_run(
+                evaluation,
+                run_id=run_id,
+                source_hashes=source_hashes,
+            )
+        except ValueError as error:
+            raise WorkspaceError(
+                "Prepared review source evidence is invalid"
+            ) from error
         with self._connect(database_path) as connection:
             self._migrate_project_database(connection)
             connection.begin()

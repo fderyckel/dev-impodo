@@ -885,8 +885,11 @@ class BrowserReadinessService:
         ):
             raise ReadinessError("Submit the current mapping before checking data")
         physical_selection = self.repository.get_source_selection(project_id)
+        if physical_selection is None:
+            raise ReadinessError("Freeze the source datasets before checking data")
+        source_hashes = _canonical_source_hashes(physical_selection)
         effective_selection = self.repository.get_mapping_source_selection(project_id)
-        if physical_selection is None or effective_selection is None:
+        if effective_selection is None:
             raise ReadinessError("Freeze the source datasets before checking data")
 
         impact_rows: list[TransformationImpactRow] = []
@@ -979,14 +982,6 @@ class BrowserReadinessService:
             )
         except NormalizationError as error:
             raise ReadinessError(str(error)) from error
-        source_hashes = {
-            item.file_id: (
-                item.source_sha256
-                if item.source_sha256.startswith("sha256:")
-                else f"sha256:{item.source_sha256}"
-            )
-            for item in physical_selection.datasets
-        }
         normalization = self.repository.publish_normalization_run(
             project_id,
             normalization_evaluation,
@@ -1004,6 +999,40 @@ class BrowserReadinessService:
             quality=quality,
             normalization=normalization,
         )
+
+
+def _canonical_source_hashes(selection: SourceSelection) -> dict[str, str]:
+    """Validate frozen source bindings before publishing derived evidence."""
+
+    invalid_message = (
+        "Impodo could not verify the registered source files. "
+        "Check the source files, then prepare the data again."
+    )
+    source_hashes: dict[str, str] = {}
+    for dataset in selection.datasets:
+        file_id = dataset.file_id
+        source_hash = dataset.source_sha256
+        if (
+            not isinstance(file_id, str)
+            or not file_id.strip()
+            or file_id != file_id.strip()
+            or not isinstance(source_hash, str)
+        ):
+            raise ReadinessError(invalid_message)
+        digest = source_hash.removeprefix("sha256:")
+        if len(digest) != 64:
+            raise ReadinessError(invalid_message)
+        try:
+            int(digest, 16)
+        except ValueError as error:
+            raise ReadinessError(invalid_message) from error
+        canonical_hash = f"sha256:{digest.casefold()}"
+        existing = source_hashes.setdefault(file_id, canonical_hash)
+        if existing != canonical_hash:
+            raise ReadinessError(invalid_message)
+    if not source_hashes:
+        raise ReadinessError(invalid_message)
+    return dict(sorted(source_hashes.items()))
 
 
 def stage_browser_mapping(

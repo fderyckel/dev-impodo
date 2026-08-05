@@ -1,14 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Prepare related records - {{ project.name }} - Impodo{% endblock %}
+{% block title %}Separate combined information - {{ project.name }} - Impodo{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Optional · Related records</p>
-      <h1>Prepare related records</h1>
-      <p>Separate linked records when one source table contains more than one type of Odoo record.</p>
+      <p class="eyebrow">Optional · Combined information</p>
+      <h1>Separate combined information</h1>
+      <p>Use this when one source table contains more than one kind of business record.</p>
     </div>
     {% if plan %}
-      <span class="status registered">Rules saved · v{{ plan.version }}</span>
+      <span class="status registered">Choices saved</span>
     {% endif %}
   </div>
 
@@ -19,13 +19,13 @@
 
   {% if not selection %}
     <section class="form-card empty-state">
-      <h2>No frozen datasets</h2>
-      <p>Freeze the physical source datasets before preparing related records.</p>
-      <a class="button primary" href="/projects/{{ project.project_id }}/datasets">Freeze datasets</a>
+      <h2>Choose your source tables first</h2>
+      <p>Save the source tables before separating combined information.</p>
+      <a class="button primary" href="/projects/{{ project.project_id }}/datasets">Choose tables</a>
     </section>
   {% else %}
     <details class="form-card technical-evidence evidence-card">
-      <summary>Technical evidence <small>For audit and support</small></summary>
+      <summary>Support details</summary>
       <div class="definition-list">
         <div><dt>Frozen source</dt><dd><code title="{{ selection.content_hash }}">{{ selection.content_hash }}</code></dd></div>
         {% if plan %}
@@ -38,8 +38,8 @@
     <section class="form-card">
       <h2>What does your source contain?</h2>
       <div class="actions">
-        <a class="button primary" href="#lookup-extraction">One field contains related records</a>
-        <a class="button secondary" href="#create-related-datasets">One table contains parents and lines</a>
+        <a class="button primary" href="#lookup-extraction">One field contains a separate list</a>
+        <a class="button secondary" href="#create-related-datasets">One table contains main records and line items</a>
       </div>
       <p class="muted">For a product category column, choose the first option.</p>
     </section>
@@ -58,22 +58,22 @@
         </div>
 
         <div class="notice success">
-          Impodo will create one <strong>{{ pending_rule.parent_dataset_name }}</strong> record for each governed parent key and keep every source row in <strong>{{ pending_rule.child_dataset_name }}</strong>.
+          Impodo will create one <strong>{{ pending_rule.parent_dataset_name }}</strong> main record for each unique identifier and keep every source row in <strong>{{ pending_rule.child_dataset_name }}</strong>.
         </div>
 
         <div class="metric-grid">
           <div><span>Source rows</span><strong>{{ pending_preview.source_rows }}</strong></div>
           <div>
-            <span>Parent candidates in profile</span>
+            <span>Main records found</span>
             <strong>{{ pending_preview.parent_candidate_count }}{% if not pending_preview.parent_candidate_count_is_exact %} estimate{% endif %}</strong>
           </div>
-          <div><span>Child rows retained</span><strong>{{ pending_preview.child_rows }}</strong></div>
-          <div><span>Sample groups checked</span><strong>{{ pending_preview.sampled_parent_groups }}</strong></div>
+          <div><span>Line items kept</span><strong>{{ pending_preview.child_rows }}</strong></div>
+          <div><span>Example groups checked</span><strong>{{ pending_preview.sampled_parent_groups }}</strong></div>
         </div>
 
         {% if pending_preview.blank_parent_sample_rows or pending_preview.blank_scope_sample_rows or pending_preview.blank_child_key_sample_rows %}
           <div class="notice warning">
-            The inspected sample contains missing identity values: {{ pending_preview.blank_parent_sample_rows }} parent, {{ pending_preview.blank_scope_sample_rows }} scope, and {{ pending_preview.blank_child_key_sample_rows }} line key. These rows will follow the <strong>{{ pending_rule.blank_policy }}</strong> policy.
+            Some example rows are missing information needed to group them. They will {% if pending_rule.blank_policy == 'quarantine' %}be set aside for review{% else %}stop and ask for a correction{% endif %}.
           </div>
         {% endif %}
         {% if pending_preview.duplicate_child_key_sample_rows %}
@@ -83,14 +83,14 @@
         {% endif %}
         {% if pending_preview.normalized_key_sample_rows %}
           <div class="notice warning">
-            {{ pending_preview.normalized_key_sample_rows }} sampled row(s) need whitespace or Unicode normalization. Impodo will preserve the raw evidence and use the governed normalized key for grouping.
+            {{ pending_preview.normalized_key_sample_rows }} example row(s) contain inconsistent spaces or characters. Impodo will keep the original value and use the cleaned value only for grouping.
           </div>
         {% endif %}
 
         {% if pending_preview.parent_samples %}
           <div class="table-scroll">
             <table class="data-table">
-              <thead><tr><th>Parent key</th><th>Scope</th><th>Sample lines</th><th>Example line keys</th></tr></thead>
+              <thead><tr><th>Main record</th><th>Company or site</th><th>Example lines</th><th>Line identifiers</th></tr></thead>
               <tbody>
                 {% for sample in pending_preview.parent_samples %}
                   <tr>
@@ -117,7 +117,7 @@
           <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
           <div class="actions">
             <a class="button secondary" href="/projects/{{ project.project_id }}/derived-entities">Change selections</a>
-            <button class="button primary" type="submit">Create these related datasets</button>
+            <button class="button primary" type="submit">Create these separate tables</button>
           </div>
         </form>
       </section>
@@ -129,7 +129,7 @@
       <section class="form-card related-rule-card">
         <div class="page-heading compact">
           <div>
-            <p class="eyebrow">Prepared parent and child</p>
+            <p class="eyebrow">Main records and line items prepared</p>
             <h2>{{ rule.parent_dataset_name }} + {{ rule.child_dataset_name }}</h2>
             <p>Generated from <strong>{{ preview.source_dataset_name if preview else rule.source_dataset_id }}</strong>.</p>
           </div>
@@ -141,22 +141,22 @@
         </div>
 
         <div class="relationship-summary">
-          <div><span>Parent dataset</span><strong>{{ rule.parent_dataset_name }}</strong><small>one row per parent key</small></div>
+          <div><span>Main records</span><strong>{{ rule.parent_dataset_name }}</strong><small>one row per main record</small></div>
           <div class="relationship-connector" aria-hidden="true">1 to many</div>
-          <div><span>Child dataset</span><strong>{{ rule.child_dataset_name }}</strong><small>every original source row</small></div>
+          <div><span>Line items</span><strong>{{ rule.child_dataset_name }}</strong><small>every original source row</small></div>
         </div>
 
         <div class="definition-list">
-          <div><dt>Parent key</dt><dd>{{ rule.parent_key_column_key }}</dd></div>
-          <div><dt>Scope</dt><dd>{{ rule.scope_column_key or "No separate scope" }}</dd></div>
-          <div><dt>Line key</dt><dd>{{ rule.child_key_column_key }}</dd></div>
-          <div><dt>Missing keys</dt><dd>{{ rule.blank_policy }}</dd></div>
+          <div><dt>Main record identifier</dt><dd>{{ rule.parent_key_column_key }}</dd></div>
+          <div><dt>Company or site</dt><dd>{{ rule.scope_column_key or "No separate company or site" }}</dd></div>
+          <div><dt>Line identifier</dt><dd>{{ rule.child_key_column_key }}</dd></div>
+          <div><dt>If information is missing</dt><dd>{% if rule.blank_policy == 'quarantine' %}Set rows aside{% else %}Stop and ask{% endif %}</dd></div>
         </div>
         {% if view.preview_error %}
           <div class="notice error">{{ view.preview_error }}</div>
         {% elif preview %}
           <p class="muted">
-            The current source profile shows {{ preview.parent_candidate_count }} parent candidate(s){% if not preview.parent_candidate_count_is_exact %}; the composite count is an estimate until full staging{% endif %}. Mapping retains {{ preview.child_rows }} child row(s) and suggests the child-to-parent relationship when the selected Odoo models match.
+            Impodo found {{ preview.parent_candidate_count }} possible main record(s){% if not preview.parent_candidate_count_is_exact %} in the available preview{% endif %} and kept {{ preview.child_rows }} line item(s). These tables will be suggested when you match data to Odoo.
           </p>
         {% endif %}
       </section>
@@ -164,8 +164,8 @@
 
     <section class="form-card" id="create-related-datasets">
       <p class="eyebrow">Recommended for BOMs and line-based files</p>
-      <h2>Split parent and line rows</h2>
-      <p class="lead-instruction">Choose the value repeated on every line, the optional company or site scope, and the field that distinguishes each line. Impodo handles grouping and generated identities.</p>
+      <h2>Separate main records and line items</h2>
+      <p class="lead-instruction">Choose the value repeated on every line, an optional company or site, and the field that distinguishes each line.</p>
 
       {% for source_view in related_source_views %}
         {% set dataset = source_view.dataset %}
@@ -185,16 +185,16 @@
               <div class="guided-step">
                 <span class="step-number">1</span>
                 <div>
-                  <h3>Name the two datasets</h3>
-                  <p class="muted">Use names that describe what one parent and one line represent.</p>
+                  <h3>Name the two tables</h3>
+                  <p class="muted">Use names that describe one main record and one line item.</p>
                   <div class="form-grid">
                     <label>
-                      Parent dataset
+                      Main records
                       <input name="parent_dataset_name" value="{{ source_view.parent_name_default }}" pattern="[a-z][a-z0-9_]{0,62}" required>
                       <small>Example: <code>boms</code> or <code>orders</code>.</small>
                     </label>
                     <label>
-                      Child dataset
+                      Line items
                       <input name="child_dataset_name" value="{{ source_view.child_name_default }}" pattern="[a-z][a-z0-9_]{0,62}" required>
                       <small>Example: <code>bom_components</code> or <code>order_lines</code>.</small>
                     </label>
@@ -208,34 +208,34 @@
                   <h3>Tell Impodo how rows belong together</h3>
                   <div class="form-grid">
                     <label>
-                      Which field identifies the parent?
+                      Which field identifies the main record?
                       <select name="parent_key_column_key" required>
-                        <option value="">Choose the repeated parent value</option>
-                        {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }} ({{ column.candidate_type }})</option>{% endfor %}
+                        <option value="">Choose the repeated main value</option>
+                        {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }}</option>{% endfor %}
                       </select>
                       <small>For the sample BOM file, choose <code>BOMId</code>.</small>
                     </label>
                     <label>
-                      Does that identity need company, site, or tenant scope?
+                      Should records be kept separate by company or site?
                       <select name="scope_column_key">
-                        <option value="">No separate scope</option>
+                        <option value="">No, keep them together</option>
                         {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }}</option>{% endfor %}
                       </select>
                       <small>For the sample BOM file, choose <code>dataAreaId</code>.</small>
                     </label>
                     <label>
-                      Which field distinguishes each line inside the parent?
+                      Which field distinguishes each line item?
                       <select name="child_key_column_key" required>
                         <option value="">Choose the line identity</option>
-                        {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }} ({{ column.candidate_type }})</option>{% endfor %}
+                        {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }}</option>{% endfor %}
                       </select>
                       <small>For the sample BOM file, choose <code>LineNum</code>.</small>
                     </label>
                     <label>
                       If a required key is missing
                       <select name="blank_policy">
-                        <option value="block">Block the affected records</option>
-                        <option value="quarantine">Quarantine the affected records</option>
+                        <option value="block">Stop and ask me to correct them</option>
+                        <option value="quarantine">Set those rows aside for review</option>
                       </select>
                     </label>
                   </div>
@@ -243,7 +243,7 @@
               </div>
 
               <div class="actions">
-                <button class="button primary" type="submit">Preview related datasets</button>
+                <button class="button primary" type="submit">Preview the separated tables</button>
               </div>
             </form>
           {% endif %}
@@ -264,23 +264,23 @@
             <div>
               <p class="eyebrow">Review before creating</p>
               <h2>{{ pending_rule.output_dataset_name }}</h2>
-              <p>Check the unique related records Impodo found before adding this dataset to Mapping.</p>
+              <p>Check the unique related records Impodo found before adding this table to data matching.</p>
             </div>
             <span class="status registered">PREVIEW</span>
           </div>
 
           <div class="notice success">
-            The original <strong>{{ pending_preview.source_dataset_name }}</strong> rows will stay available. Impodo will add one <strong>{{ pending_rule.target_model }}</strong> candidate per unique normalized value from <strong>{{ pending_preview.source_column_name }}</strong>.
+            The original <strong>{{ pending_preview.source_dataset_name }}</strong> rows will stay available. Impodo will add one related-record choice for each different cleaned value from <strong>{{ pending_preview.source_column_name }}</strong>.
           </div>
           <div class="metric-grid">
             <div><span>Rows sampled</span><strong>{{ pending_preview.sampled_source_rows }}</strong></div>
             <div><span>Related candidates shown</span><strong>{{ pending_preview.candidates|length }}</strong></div>
-            <div><span>Distinct source values</span><strong>{{ pending_preview.full_distinct_count }}{% if not pending_preview.full_distinct_count_is_exact %} estimate{% endif %}</strong></div>
-            <div><span>Blank sampled values</span><strong>{{ pending_preview.blank_sample_rows }}</strong></div>
+            <div><span>Different source values</span><strong>{{ pending_preview.full_distinct_count }}{% if not pending_preview.full_distinct_count_is_exact %} estimate{% endif %}</strong></div>
+            <div><span>Blank example values</span><strong>{{ pending_preview.blank_sample_rows }}</strong></div>
           </div>
           {% if pending_preview.blank_sample_rows %}
             <div class="notice warning">
-              {{ pending_preview.blank_sample_rows }} sampled row(s) cannot identify a related record and will follow the <strong>{{ pending_rule.blank_policy }}</strong> policy during readiness.
+              {{ pending_preview.blank_sample_rows }} example row(s) cannot identify a related record. They will {% if pending_rule.blank_policy == 'quarantine' %}be set aside for review{% else %}stop and ask for a correction{% endif %}.
             </div>
           {% endif %}
           {% if pending_preview.candidates %}
@@ -313,7 +313,7 @@
             <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
             <div class="actions">
               <a class="button secondary" href="/projects/{{ project.project_id }}/derived-entities">Change selections</a>
-              <button class="button primary" type="submit">Create this related dataset</button>
+              <button class="button primary" type="submit">Create this related table</button>
             </div>
           </form>
         </section>
@@ -327,7 +327,7 @@
             <div>
               <p class="eyebrow">Prepared related records</p>
               <h2>{{ rule.output_dataset_name }}</h2>
-              <p><code>{{ rule.target_model }}</code> - display field <code>{{ rule.target_name_field }}</code></p>
+              <p>This list is available when you match data to Odoo.</p>
             </div>
             <form method="post" action="/projects/{{ project.project_id }}/derived-entities/{{ rule.rule_id }}/delete">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -338,10 +338,10 @@
           {% if view.preview_error %}
             <div class="notice error">{{ view.preview_error }}</div>
           {% elif preview %}
-            <p>Impodo prepared {{ preview.candidates|length }} unique candidate(s) from the inspected rows of <strong>{{ preview.source_dataset_name }}.{{ preview.source_column_name }}</strong>. This dataset is now available in Mapping beside the original rows.</p>
+            <p>Impodo prepared {{ preview.candidates|length }} unique choice(s) from the checked rows of <strong>{{ preview.source_dataset_name }} · {{ preview.source_column_name }}</strong>. This table is now available when you match data beside the original rows.</p>
             {% if preview.candidates %}
               <details>
-                <summary>Technical identity evidence for {{ preview.candidates|length }} candidate(s)</summary>
+                <summary>Support details for {{ preview.candidates|length }} candidate(s)</summary>
                 <div class="table-scroll">
                   <table class="data-table">
                     <thead><tr><th>Canonical entity</th><th>Stable Impodo ID</th><th>Odoo External ID</th><th>Sample evidence</th></tr></thead>
@@ -364,50 +364,53 @@
       {% endfor %}
 
       <section class="nested-rule-card">
-        <h2>Create a related dataset</h2>
+        <h2>Create a related table</h2>
         <p>Choose the column that contains related records. Impodo will keep one row per unique value, keep the original product or line rows, and suggest the relationship in Mapping.</p>
         <form method="post" action="/projects/{{ project.project_id }}/derived-entities/lookup/preview">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
           <div class="form-grid">
             <label>
-              Source field
+              Use values from
               <select name="source_binding" required>
-                <option value="">Choose a frozen column</option>
+                <option value="">Choose a source column</option>
                 {% for choice in source_choices %}
-                  <option value="{{ choice.value }}">{{ choice.dataset_name }} - {{ choice.column_name }} ({{ choice.candidate_type }})</option>
+                  <option value="{{ choice.value }}">{{ choice.dataset_name }} - {{ choice.column_name }}</option>
                 {% endfor %}
               </select>
             </label>
             <label>
-              Related dataset name
+              Name shown in Impodo
               <input name="output_dataset_name" placeholder="product_categories" pattern="[a-z][a-z0-9_]{0,62}" required>
             </label>
             <label>
-              Odoo target model
+              Type of Odoo record
               <input name="target_model" list="derived-target-models" placeholder="product.category" required>
               <datalist id="derived-target-models">
                 {% for model in model_choices %}<option value="{{ model.name }}">{{ model.label }}</option>{% endfor %}
               </datalist>
             </label>
+            <details class="technical-details">
+              <summary>Support options</summary>
+              <label>
+                Odoo display field
+                <input name="target_name_field" value="name" pattern="[a-z_][a-z0-9_.]{0,127}" required>
+              </label>
+              <label>
+                Stable source-system namespace
+                <input name="external_id_namespace" value="{{ namespace_default }}" pattern="[a-z][a-z0-9_]{0,39}" required>
+              </label>
+              <label>
+                Optional parent separator
+                <input name="parent_separator" maxlength="10" placeholder="/">
+                <small>Leave empty for a flat list such as Article and Service.</small>
+              </label>
+            </details>
             <label>
-              Odoo display field
-              <input name="target_name_field" value="name" pattern="[a-z_][a-z0-9_.]{0,127}" required>
-            </label>
-            <label>
-              Stable source-system namespace
-              <input name="external_id_namespace" value="{{ namespace_default }}" pattern="[a-z][a-z0-9_]{0,39}" required>
-            </label>
-            <label>
-              Optional parent separator
-              <input name="parent_separator" maxlength="10" placeholder="/">
-              <small>Leave empty for a flat list such as Article and Service.</small>
-            </label>
-            <label>
-              Blank source values
+              If a source value is blank
               <select name="blank_policy">
-                <option value="block">Block full staging</option>
-                <option value="quarantine">Quarantine affected rows</option>
+                <option value="block">Stop and ask me to correct it</option>
+                <option value="quarantine">Set the affected rows aside</option>
               </select>
             </label>
           </div>
@@ -419,8 +422,8 @@
     </details>
 
     <div class="actions">
-      <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to datasets</a>
-      <a class="button primary" href="/projects/{{ project.project_id }}/schema">Continue to Odoo schema</a>
+      <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to tables</a>
+      <a class="button primary" href="/projects/{{ project.project_id }}/schema">Choose Odoo data</a>
     </div>
   {% endif %}
 {% endblock %}

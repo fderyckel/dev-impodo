@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 from time import perf_counter
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -25,7 +26,12 @@ from impodo.normalization import (
 from impodo.project_store import DuckDbProjectRepository
 from impodo.projects import DataClassification
 from impodo.quality import default_quality_ruleset, evaluate_quality
-from impodo.workspace import SourceDataset, SourceDatasetColumn, SourceSelection
+from impodo.workspace import (
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+    WorkspaceError,
+)
 from impodo.web.app import create_local_app
 
 from tests.test_quality import (
@@ -339,6 +345,49 @@ class NormalizationStoreTests(unittest.TestCase):
         self.assertEqual(version, (16,))
         self.assertEqual(restored, set(tables))
 
+    def test_invalid_dry_run_evidence_is_wrapped_at_repository_boundary(
+        self,
+    ) -> None:
+        row = _canonical_row("5", 2)
+        staging = _staging(self.project.project_id, (row,))
+        _ruleset, quality = _quality(self.project, staging, (row,))
+        evaluation = evaluate_normalization(
+            project=self.project,
+            staging=staging,
+            quality=quality,
+            mappings={"contacts": _mapping()},
+            candidates=(),
+        )
+
+        with (
+            patch(
+                "impodo.project_store.start_dry_run",
+                side_effect=ValueError("invalid source hash"),
+            ),
+            self.assertRaisesRegex(
+                WorkspaceError,
+                "Prepared review source evidence is invalid",
+            ),
+        ):
+            self.repository.publish_normalization_run(
+                self.project.project_id,
+                evaluation,
+                staging_run_id="staging-run",
+                quality_run_id="quality-run",
+                source_hashes={"source:file": SOURCE_HASH},
+                actor=LOCAL_ACTOR,
+            )
+
+        database_path = (
+            self.repository.project_directory(self.project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM normalization_run"
+            ).fetchone()
+        self.assertEqual(count, (0,))
+
     def test_review_decisions_survive_refresh_and_frozen_publish_is_idempotent(self) -> None:
         row = _canonical_row("5", 2)
         rows = (row,)
@@ -405,7 +454,7 @@ class NormalizationStoreTests(unittest.TestCase):
             self.assertIn("Review what Impodo prepared", page.text)
             self.assertIn("Accept this change", page.text)
             self.assertIn("Nothing is sent to Odoo", page.text)
-            self.assertIn("<summary>Technical evidence</summary>", page.text)
+            self.assertIn("<summary>Support details</summary>", page.text)
         decided = self.repository.decide_normalization_group(
             self.project.project_id,
             published.run_id,

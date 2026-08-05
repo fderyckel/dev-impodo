@@ -57,6 +57,7 @@ from impodo.projects import (
 from impodo.readiness import (
     BROWSER_EVALUATION_ROW_LIMIT,
     ReadinessError,
+    _canonical_source_hashes,
     browser_evaluation_scale,
     evaluate_browser_mapping,
     require_supported_browser_scale,
@@ -95,6 +96,33 @@ class BrowserReadinessStagingTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_source_hashes_are_canonicalized_before_governance_publication(
+        self,
+    ) -> None:
+        selection = self._evidence((("BOM-A", "1", "COMP-1"),))[2]
+        dataset = selection.datasets[0]
+
+        self.assertEqual(
+            _canonical_source_hashes(selection),
+            {dataset.file_id: f"sha256:{dataset.source_sha256}"},
+        )
+        prefixed = replace(
+            selection,
+            datasets=(
+                replace(dataset, source_sha256=f"sha256:{dataset.source_sha256}"),
+            ),
+        )
+        self.assertEqual(
+            _canonical_source_hashes(prefixed),
+            {dataset.file_id: f"sha256:{dataset.source_sha256}"},
+        )
+        malformed = replace(
+            selection,
+            datasets=(replace(dataset, source_sha256="sha256:not-a-digest"),),
+        )
+        with self.assertRaisesRegex(ReadinessError, "could not verify"):
+            _canonical_source_hashes(malformed)
 
     def test_bom_rows_become_unique_headers_and_related_lines(self) -> None:
         evidence = self._evidence(

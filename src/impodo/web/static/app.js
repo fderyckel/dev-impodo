@@ -614,12 +614,12 @@ document.addEventListener("DOMContentLoaded", () => {
           }
           throw new Error(
             payload.detail ||
-              `The mapping could not be saved (HTTP ${response.status}).`
+              "The matches could not be saved. Please try again."
           );
         }
         dirty = false;
         if (saveStatus) {
-          saveStatus.textContent = payload.message || "Mapping saved.";
+          saveStatus.textContent = payload.message || "Matches saved.";
         }
         window.location.assign(payload.redirect_url || window.location.pathname);
       } catch (error) {
@@ -631,7 +631,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ? "This browser tab can no longer reach its Impodo session. Reopen Impodo in the newly opened tab; keep this tab open while copying any unsaved choices."
             : error instanceof Error
             ? error.message
-            : "The mapping could not be saved.";
+            : "The matches could not be saved.";
         if (saveError) {
           saveError.textContent = `${message} Your unsaved changes are still on this page.`;
           saveError.hidden = false;
@@ -875,7 +875,7 @@ document.addEventListener("DOMContentLoaded", () => {
           sourceColumnKey =
             row.querySelector('[name^="scalar_source_"]')?.value || "";
           if (!["source", "source_with_fallback"].includes(provider)) {
-            showValueMatchError("Choose Source column as the value source first.");
+            showValueMatchError("Choose Source value first.");
             return;
           }
         } else {
@@ -944,7 +944,7 @@ document.addEventListener("DOMContentLoaded", () => {
           if (!response.ok) {
             throw new Error(
               payload.detail ||
-                `The choices could not be loaded (HTTP ${response.status}).`
+                "The Odoo choices could not be loaded. Check the connection and try again."
             );
           }
           renderValueMatchRows(payload);
@@ -1066,7 +1066,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (count) {
         count.textContent =
-          `${visibleCount} of ${choices.length} available models shown · ` +
+          `${visibleCount} of ${choices.length} Odoo data choices shown · ` +
           `${selectedCount} selected`;
       }
     };
@@ -1296,7 +1296,7 @@ document.addEventListener("DOMContentLoaded", () => {
     transformationImpactForm.setAttribute("aria-busy", "true");
     if (button) {
       button.disabled = true;
-      button.textContent = "Preparing transformation impact…";
+      button.textContent = "Preparing the comparison…";
     }
     if (status) {
       status.hidden = false;
@@ -1373,7 +1373,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (valueType === "integer") {
       if (!/^[+-]?\d+$/.test(value)) {
-        throw new Error("Invalid integer");
+        throw new Error("Enter a whole number");
       }
       return String(Number.parseInt(value, 10));
     }
@@ -1387,7 +1387,7 @@ document.addEventListener("DOMContentLoaded", () => {
         fr_FR: /^[+-]?(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:,\d+)?$/,
       };
       if (!localePatterns[locale]?.test(value)) {
-        throw new Error("Invalid decimal");
+        throw new Error("Enter a valid number");
       }
       let normalized = value;
       if (locale === "en_US") {
@@ -1411,7 +1411,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (["false", "0", "no", "n"].includes(token)) {
         return "false";
       }
-      throw new Error("Invalid boolean");
+      throw new Error("Choose a valid yes or no value");
     }
     const dateFormat =
       row.querySelector("[data-date-policy] select")?.value || "iso";
@@ -1424,7 +1424,7 @@ document.addEventListener("DOMContentLoaded", () => {
       };
       const match = value.match(patterns[dateFormat]);
       if (!match) {
-        throw new Error("Invalid date");
+        throw new Error("Enter a valid date");
       }
       if (dateFormat === "iso") {
         const parsed = new Date(`${value}T00:00:00Z`);
@@ -1432,7 +1432,7 @@ document.addEventListener("DOMContentLoaded", () => {
           Number.isNaN(parsed.getTime()) ||
           parsed.toISOString().slice(0, 10) !== value
         ) {
-          throw new Error("Invalid date");
+          throw new Error("Enter a valid date");
         }
         return value;
       }
@@ -1445,7 +1445,7 @@ document.addEventListener("DOMContentLoaded", () => {
         Number.isNaN(parsed.getTime()) ||
         parsed.toISOString().slice(0, 10) !== normalized
       ) {
-        throw new Error("Invalid date");
+        throw new Error("Enter a valid date");
       }
       return normalized;
     }
@@ -1457,7 +1457,7 @@ document.addEventListener("DOMContentLoaded", () => {
             : /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/
         );
         if (!match) {
-          throw new Error("Invalid datetime");
+          throw new Error("Enter a valid date and time");
         }
         const year = match[3];
         const month = dateFormat === "mdy_slash" ? match[1] : match[2];
@@ -1469,7 +1469,7 @@ document.addEventListener("DOMContentLoaded", () => {
           Number.isNaN(parsed.getTime()) ||
           parsed.toISOString().slice(0, 19) !== normalized
         ) {
-          throw new Error("Invalid datetime");
+          throw new Error("Enter a valid date and time");
         }
         return parsed.toISOString();
       }
@@ -1478,13 +1478,13 @@ document.addEventListener("DOMContentLoaded", () => {
           value
         )
       ) {
-        throw new Error("Invalid datetime");
+        throw new Error("Enter a valid date and time");
       }
       const parsed = new Date(
         /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : `${value}Z`
       );
       if (Number.isNaN(parsed.getTime())) {
-        throw new Error("Invalid datetime");
+        throw new Error("Enter a valid date and time");
       }
       return parsed.toISOString();
     }
@@ -1734,7 +1734,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const matchingTotal = catalog.dataset.scalarMatchingTotal || rows.length;
         const mappedTotal = catalog.dataset.scalarMappedTotal || mapped;
         count.textContent =
-          `Showing ${visible} of ${matchingTotal} fields · ${mappedTotal} mapped`;
+          `Showing ${visible} of ${matchingTotal} fields · ${mappedTotal} matched`;
       }
       window.requestAnimationFrame(updateScalarTableScroll);
     };
@@ -1791,7 +1791,7 @@ document.addEventListener("DOMContentLoaded", () => {
           signal: activeController.signal,
         });
         if (!response.ok) {
-          throw new Error(`Field search failed (HTTP ${response.status}).`);
+          throw new Error("The field list could not be updated. Please try again.");
         }
         const documentResult = new DOMParser().parseFromString(
           await response.text(),
@@ -1946,7 +1946,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         if (!response.ok) {
           throw new Error(
-            `Linked-field search failed (HTTP ${response.status}).`
+            "The linked-field list could not be updated. Please try again."
           );
         }
         const documentResult = new DOMParser().parseFromString(

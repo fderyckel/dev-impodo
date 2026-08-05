@@ -120,10 +120,10 @@
       {% endif %}
 
       {% if local_stack.config_path %}
-        <p class="selected-config">
-          Selected local setup:
-          <code>{{ local_stack.config_path }}</code>
-        </p>
+        <details class="technical-details selected-config">
+          <summary>Support details</summary>
+          <p>Selected local setup: <code>{{ local_stack.config_path }}</code></p>
+        </details>
       {% endif %}
 
       <ol class="readiness-list" aria-live="polite">
@@ -131,9 +131,19 @@
           <li class="readiness-item status-{{ check.level.value }}">
             <span class="status-dot" aria-hidden="true"></span>
             <div>
-              <strong>{{ check.label }}</strong>
-              <span>{{ check.message }}</span>
-              {% if check.detail %}<small>{{ check.detail }}</small>{% endif %}
+              <strong>{% if check.label == 'Configuration' %}Local setup{% elif check.label == 'PostgreSQL' %}Required local service{% elif check.label == 'Odoo server' %}Odoo{% elif check.label == 'Database access (read-only)' %}Odoo data access{% else %}{{ check.label }}{% endif %}</strong>
+              <span>
+                {% if check.level.value == 'ready' %}Ready.
+                {% elif check.level.value == 'error' %}Needs attention.
+                {% elif check.level.value == 'warning' %}Check this before continuing.
+                {% else %}Not checked yet.{% endif %}
+              </span>
+              {% if check.message or check.detail %}
+                <details class="technical-details">
+                  <summary>Support details</summary>
+                  <small>{{ check.message }}{% if check.detail %} · {{ check.detail }}{% endif %}</small>
+                </details>
+              {% endif %}
             </div>
           </li>
         {% endfor %}
@@ -179,9 +189,7 @@
         <section class="stack-control-panel">
           <h3>Control local services started by Impodo</h3>
           <p>
-            Managed during this Impodo session:
-            <strong>{{ local_stack.managed_services | join(", ") }}</strong>.
-            Existing external processes are never stopped.
+            Impodo can control only the local services it started during this session. Services started elsewhere are never stopped.
           </p>
           {% if "PostgreSQL" in local_stack.managed_services %}
             <div class="notice warning">
@@ -234,8 +242,11 @@
           </p>
           {% if local_stack.missing_start_requirements %}
             <div class="notice error">
-              Cannot start because these workspace paths were not found:
-              {{ local_stack.missing_start_requirements | join(", ") }}.
+              Local Odoo cannot start yet. Ask support to check this computer.
+              <details class="technical-details">
+                <summary>Support details</summary>
+                {{ local_stack.missing_start_requirements | join(", ") }}
+              </details>
             </div>
           {% else %}
             <form

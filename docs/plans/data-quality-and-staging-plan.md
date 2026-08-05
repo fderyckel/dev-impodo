@@ -202,6 +202,11 @@ model, merge record requirements, split large domains into bounded requests,
 and build indexed relationship lookups. Retain target fingerprints and
 snapshot hashes with the staged run.
 
+The durable-input contract, bounded Odoo-read policy, persistence design,
+data-manager journey, implementation sequence, and acceptance cases are
+defined in the
+[Slice 5 durable preflight plan](slice-5-durable-preflight-plan.md).
+
 **Gate:** no connector call occurs inside a row loop; equivalent browser and
 profile fixtures produce equivalent portable identities, resolutions, and
 classifications.

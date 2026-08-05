@@ -374,8 +374,8 @@ class LocalStackBrowserTests(unittest.TestCase):
 
     def test_selects_config_checks_status_and_keeps_profile_session_only(self) -> None:
         target = self.client.get(f"/projects/{self.project_id}/target")
-        self.assertIn("Help me connect to local Odoo", target.text)
-        self.assertIn("Choose a local odoo.conf file", target.text)
+        self.assertIn("Find local Odoo", target.text)
+        self.assertIn("Choose local Odoo setup", target.text)
 
         selected = self.client.post(
             f"/projects/{self.project_id}/local-stack/select-config",
@@ -399,7 +399,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertIn('value="odoo19_local"', refreshed.text)
         self.assertNotIn("postgres-secret", refreshed.text)
         self.assertNotIn("master-secret", refreshed.text)
-        self.assertIn("Start PostgreSQL and Odoo", refreshed.text)
+        self.assertIn("Start local Odoo", refreshed.text)
 
         project = self.app.state.context.repository.get(self.project_id)
         self.assertEqual(project.odoo_base_url, "")
@@ -440,7 +440,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(self.start_calls, 1)
         page = self.client.get(started.headers["location"])
         self.assertIn("Odoo 19.0 is responding", page.text)
-        self.assertIn("Control services started by Impodo", page.text)
+        self.assertIn("Control local services started by Impodo", page.text)
         self.assertIn("Stop managed services", page.text)
 
     def test_local_connection_test_opens_all_green_results(self) -> None:
@@ -468,7 +468,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         results = self.client.get(tested.headers["location"])
         self.assertIn('data-auto-open="true"', results.text)
         self.assertEqual(results.text.count("status-ready"), 4)
-        self.assertIn("Database access (read-only)", results.text)
+        self.assertIn("Odoo data access", results.text)
         self.assertIn("Read-only database access succeeded", results.text)
         self.local_odoo_reader.get_target_fingerprint.assert_called_once()
 
@@ -555,8 +555,8 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(stopped.status_code, 303)
         process.terminate.assert_called_once_with()
         page = self.client.get(stopped.headers["location"])
-        self.assertIn("Start the missing local services", page.text)
-        self.assertNotIn("Control services started by Impodo", page.text)
+        self.assertIn("Start local Odoo", page.text)
+        self.assertNotIn("Control local services started by Impodo", page.text)
 
     def test_restart_stops_the_owned_process_then_starts_a_new_one(self) -> None:
         self._select_and_start_stack()
@@ -578,7 +578,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(self.start_calls, 2)
         self.assertEqual(len(self.started_processes), 2)
         page = self.client.get(restarted.headers["location"])
-        self.assertIn("Control services started by Impodo", page.text)
+        self.assertIn("Control local services started by Impodo", page.text)
 
     def test_stop_requires_its_explicit_capability(self) -> None:
         self._select_and_start_stack()
@@ -858,6 +858,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         self.assertEqual(stale.status_code, 422)
+        self.assertIn("This page is out of date", stale.text)
+        self.assertIn("<summary>Support details</summary>", stale.text)
         self.assertTrue(project_dir.is_dir())
         self.assertEqual(len(self.secrets.values), 1)
 
@@ -941,7 +943,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIsNotNone(schema)
         self.assertEqual(schema.origin, SchemaOrigin.LOCAL_MANUAL)
         schema_page = self.client.get(drafted.headers["location"])
-        self.assertIn("Unverified local draft", schema_page.text)
+        self.assertIn("Needs Odoo check", schema_page.text)
         self.assertIn("name | Name | char", schema_page.text)
 
     def test_registered_local_schema_uses_selected_config_without_api_key(
@@ -989,7 +991,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"/projects/{registered.project_id}/schema"
         )
         self.assertIn(
-            "Choose the local Odoo configuration first",
+            "Find local Odoo first",
             unconfigured_page.text,
         )
         self.assertIn(
@@ -1043,9 +1045,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         page = self.client.get(f"/projects/{registered.project_id}/schema")
-        self.assertIn("Local Odoo configuration is ready", page.text)
-        self.assertIn("No Odoo API key is required", page.text)
-        self.assertIn("Load Odoo record types", page.text)
+        self.assertIn("Local Odoo is ready to check", page.text)
+        self.assertNotIn("Access key", page.text)
+        self.assertIn("Show available Odoo data", page.text)
         self.assertNotIn("Verify access and load models", page.text)
         refreshed = self._post(
             f"/projects/{registered.project_id}/schema/models/refresh",
@@ -1055,22 +1057,22 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.local_odoo_reader.get_model_catalog.assert_called_once()
         self.assertEqual(self.model_catalog_calls, [])
         verified_page = self.client.get(refreshed.headers["location"])
-        self.assertIn("Odoo record types are ready", verified_page.text)
+        self.assertIn("The Odoo list is ready", verified_page.text)
         self.assertIn(
-            "Live local metadata access was also verified",
+            "The connection to local Odoo was checked during this session",
             verified_page.text,
         )
-        self.assertIn("Refresh Odoo record types", verified_page.text)
+        self.assertIn("Refresh from Odoo", verified_page.text)
         context.local_stack = LocalStackService()
         cached_page = self.client.get(
             f"/projects/{registered.project_id}/schema"
         )
-        self.assertIn("Odoo record types are ready", cached_page.text)
+        self.assertIn("The Odoo list is ready", cached_page.text)
         self.assertIn(
-            "Technical evidence",
+            "Support details",
             cached_page.text,
         )
-        self.assertIn("Live connection not checked this session", cached_page.text)
+        self.assertIn("The saved Odoo list is still available", cached_page.text)
         self.assertIn("res.partner", cached_page.text)
         self.local_odoo_reader.get_model_catalog.assert_called_once()
 
@@ -1088,7 +1090,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         context.local_stack = configured_local_stack
         scoped_page = self.client.get(scoped.headers["location"])
         self.assertIn(
-            "Load fields for selected record types",
+            "Load selected Odoo details",
             scoped_page.text,
         )
         captured = self._post(
@@ -1107,7 +1109,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"/projects/{registered.project_id}/schema"
         )
         self.assertIn(
-            "Odoo fields are ready",
+            "Odoo details are ready",
             cached_schema_page.text,
         )
         self.assertIn(
@@ -1115,7 +1117,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             cached_schema_page.text,
         )
         self.assertIn(
-            "Refresh fields for selected record types",
+            "Refresh selected Odoo details",
             cached_schema_page.text,
         )
         self.local_odoo_reader.get_model_metadata.assert_called_once()
@@ -1218,7 +1220,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ],
         )
         target_page = self.client.get(target.headers["location"])
-        self.assertIn("Read-only local connection succeeded", target_page.text)
+        self.assertIn("The Odoo connection is ready", target_page.text)
         self.assertNotIn("super-secret-token", target_page.text)
 
         review = self.client.get(f"/projects/{project_id}/review")
@@ -1231,8 +1233,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(registered.status_code, 303)
         summary = self.client.get(registered.headers["location"])
-        self.assertIn("Setup complete", summary.text)
-        self.assertIn("Inspect source data", summary.text)
+        self.assertIn("Ready for source check", summary.text)
+        self.assertIn("Check source data", summary.text)
         self.assertIn(
             f'href="/projects/{project_id}/sources"',
             summary.text,
@@ -1262,7 +1264,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         source_discovery = self.client.get(f"/projects/{project_id}/sources")
         self.assertEqual(source_discovery.status_code, 200)
         self.assertIn("Step 1 · Source data", source_discovery.text)
-        self.assertIn("No source catalog yet", source_discovery.text)
+        self.assertIn("Your files have not been checked yet", source_discovery.text)
         inspected = self.client.post(
             f"/projects/{project_id}/sources/inspect",
             data={"csrf_token": self.csrf},
@@ -1271,15 +1273,20 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(inspected.status_code, 303)
         inspection_page = self.client.get(inspected.headers["location"])
-        self.assertIn("Inspected 2 source file", inspection_page.text)
+        self.assertIn("Checked 2 source file", inspection_page.text)
         self.assertIn("customers.csv", inspection_page.text)
         self.assertIn("C001", inspection_page.text)
         self.assertIn("products.xlsx", inspection_page.text)
         self.assertIn("ProductTable", inspection_page.text)
-        self.assertIn("Candidate type", inspection_page.text)
+        self.assertIn("Likely content", inspection_page.text)
         catalogs = self.app.state.context.repository.get_source_catalogs(project_id)
         self.assertEqual(len(catalogs), 2)
         self.assertEqual(catalogs[0].source_sha256, project.source_files[0].sha256)
+        self.assertIn("Data in customers.csv", inspection_page.text)
+        self.assertNotIn(
+            f"<h3>{catalogs[0].tables[0].name}</h3>",
+            inspection_page.text,
+        )
 
         configured = self.client.post(
             f"/projects/{project_id}/sources/{catalogs[0].file_id}/configure",
@@ -1321,6 +1328,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(datasets.status_code, 200)
         self.assertIn("Step 2 · Select tables", datasets.text)
         self.assertIn("Choose the tables to prepare", datasets.text)
+        self.assertNotIn(
+            f" · {catalogs[0].tables[0].name}</strong>",
+            datasets.text,
+        )
         frozen = self.client.post(
             f"/projects/{project_id}/datasets/freeze",
             data={
@@ -1337,7 +1348,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"/projects/{project_id}/derived-entities",
         )
         derived_page = self.client.get(frozen.headers["location"])
-        self.assertIn("Prepare related records", derived_page.text)
+        self.assertIn("Separate combined information", derived_page.text)
         self.assertIn(
             "Saved rules are repeated consistently for every row",
             derived_page.text,
@@ -1372,7 +1383,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(related_preview.status_code, 200)
         self.assertIn("Review before creating", related_preview.text)
-        self.assertIn("Create these related datasets", related_preview.text)
+        self.assertIn("Create these separate tables", related_preview.text)
         saved_related = self.client.post(
             f"/projects/{project_id}/derived-entities/related/save",
             data={
@@ -1392,7 +1403,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(saved_related.status_code, 303)
         related_page = self.client.get(saved_related.headers["location"])
         self.assertIn(
-            "Created related datasets product_groups and product_rows",
+            "Created the separate tables product_groups and product_rows",
             related_page.text,
         )
         related_plan = (
@@ -1432,7 +1443,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(lookup_preview.status_code, 200)
         self.assertIn("Review before creating", lookup_preview.text)
-        self.assertIn("Create this related dataset", lookup_preview.text)
+        self.assertIn("Create this related table", lookup_preview.text)
         saved_derived = self.client.post(
             f"/projects/{project_id}/derived-entities/save",
             data=derived_rule_data,
@@ -1441,11 +1452,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(saved_derived.status_code, 303)
         derived_preview = self.client.get(saved_derived.headers["location"])
-        self.assertIn("Saved derived dataset product_names", derived_preview.text)
+        self.assertIn("Created the related table product_names", derived_preview.text)
         self.assertIn("Example product", derived_preview.text)
         self.assertIn("impodo_dynamics_ax_2012.res_partner_", derived_preview.text)
         self.assertIn(
-            "available in Mapping beside the original rows",
+            "available when you match data beside the original rows",
             derived_preview.text,
         )
         self.assertNotIn("entity:P001", derived_preview.text)
@@ -1461,16 +1472,16 @@ class ProjectSetupWizardTests(unittest.TestCase):
             [(project_id, "super-secret-token")],
         )
         model_page = self.client.get(refreshed_models.headers["location"])
-        self.assertIn("Step 3 · Odoo fields", model_page.text)
-        self.assertIn("Choose Odoo record types", model_page.text)
+        self.assertIn("Step 3 · Odoo data", model_page.text)
+        self.assertIn("Choose the Odoo data you need", model_page.text)
         self.assertIn(
-            "Project application focus: <strong>Contacts</strong>",
+            "Odoo areas included: <strong>Contacts</strong>",
             model_page.text,
         )
         self.assertIn("Contact", model_page.text)
         self.assertIn("res.partner", model_page.text)
         self.assertIn(
-            "Show all record types",
+            "Show all available data",
             model_page.text,
         )
         self.assertIn(
@@ -1541,12 +1552,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(self.schema_calls, [(project_id, "super-secret-token")])
         schema_page = self.client.get(captured.headers["location"])
         self.assertIn("Tell Impodo how to find existing records", schema_page.text)
-        self.assertIn("<h2>Contact <code>res.partner</code></h2>", schema_page.text)
+        self.assertIn("How should Impodo find an existing Contact?", schema_page.text)
+        self.assertNotIn("Reference (ref)", schema_page.text)
         self.assertIn("Search fields", schema_page.text)
-        self.assertIn("Show readonly and system fields", schema_page.text)
+        self.assertIn("Show fields that Odoo controls", schema_page.text)
         self.assertIn("Impodo found no single safe recommendation", schema_page.text)
-        self.assertIn("Reference (ref)", schema_page.text)
-        self.assertIn("Combined key or technical entry", schema_page.text)
+        self.assertIn("Reference", schema_page.text)
+        self.assertIn("Support options for combined matching", schema_page.text)
         governed = self.client.post(
             f"/projects/{project_id}/schema/govern",
             data={
@@ -1562,28 +1574,28 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(governed.status_code, 303)
         mapping_page = self.client.get(governed.headers["location"])
-        self.assertIn("<p class=\"eyebrow\">Step 4 · Match fields</p>", mapping_page.text)
+        self.assertIn("<p class=\"eyebrow\">Step 4 · Match data</p>", mapping_page.text)
         self.assertIn("Match your data to Odoo", mapping_page.text)
         self.assertIn('<details class="technical-evidence">', mapping_page.text)
         self.assertNotIn("Evidence binding", mapping_page.text)
-        self.assertIn("How do we identify each source row?", mapping_page.text)
-        self.assertIn("How do we find the matching Odoo record?", mapping_page.text)
+        self.assertIn("Which column uniquely identifies each row?", mapping_page.text)
+        self.assertIn("How should Impodo find the same record in Odoo?", mapping_page.text)
         self.assertIn('class="identity-pair"', mapping_page.text)
-        self.assertIn("res.partner::name", mapping_page.text)
-        self.assertIn("Existing Odoo records", mapping_page.text)
-        self.assertIn("inverse parent_id", mapping_page.text)
-        self.assertIn("Source + fallback", mapping_page.text)
-        self.assertIn("Leave unset / Odoo default", mapping_page.text)
-        self.assertIn("Fields to fill in Odoo", mapping_page.text)
+        self.assertIn("Use existing Odoo records only", mapping_page.text)
+        self.assertIn("Source value, or backup when blank", mapping_page.text)
+        self.assertIn("Let Odoo choose", mapping_page.text)
+        self.assertIn("Choose what goes into each Odoo field", mapping_page.text)
         self.assertNotIn("Scalar target fields", mapping_page.text)
-        self.assertIn("Find an Odoo field", mapping_page.text)
+        self.assertIn("Find a field", mapping_page.text)
+        self.assertIn("For example: Sales Price or Barcode", mapping_page.text)
+        self.assertNotIn("list_price", mapping_page.text)
         self.assertIn(
             "Choose where each Odoo field gets its value",
             mapping_page.text,
         )
-        self.assertIn("Links to other Odoo records", mapping_page.text)
+        self.assertIn("Connect values to existing Odoo lists", mapping_page.text)
         self.assertIn("such as a product category", mapping_page.text)
-        self.assertIn("Find a linked Odoo field", mapping_page.text)
+        self.assertIn("Find an Odoo list or linked field", mapping_page.text)
         self.assertIn("data-relation-pagination", mapping_page.text)
         self.assertIn("data-scalar-pagination", mapping_page.text)
         self.assertIn("data-scalar-table-scroll-top", mapping_page.text)
@@ -1593,7 +1605,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn("data-scalar-table-scroll", mapping_page.text)
         self.assertIn("Preview", mapping_page.text)
-        self.assertIn("Value rules", mapping_page.text)
+        self.assertIn("Check values", mapping_page.text)
         self.assertIn("Must be exactly", mapping_page.text)
         self.assertIn("The first characters", mapping_page.text)
         self.assertIn("Plain text (recommended)", mapping_page.text)
@@ -1692,10 +1704,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         saved_progress_page = self.client.get(
             saved_progress.headers["location"]
         )
-        self.assertIn("Saved working draft version 1", saved_progress_page.text)
-        self.assertIn("No semantic validation was run", saved_progress_page.text)
-        self.assertIn("Unsaved checks", saved_progress_page.text)
-        self.assertIn("Your saved working draft is loaded", saved_progress_page.text)
+        self.assertIn(
+            "Saved your matching progress. The matches have not been checked yet.",
+            saved_progress_page.text,
+        )
+        self.assertIn("Saved changes need checking", saved_progress_page.text)
+        self.assertIn("Your saved work is loaded", saved_progress_page.text)
         working_draft = (
             self.app.state.context.repository.get_mapping_working_draft(
                 project_id
@@ -1772,7 +1786,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(submitted.status_code, 303)
         submitted_page = self.client.get(submitted.headers["location"])
-        self.assertIn("Mapping submitted as version 1", submitted_page.text)
+        self.assertIn("Field matches confirmed", submitted_page.text)
         self.assertIn("Field matches confirmed", submitted_page.text)
         self.assertIn("valid", submitted_page.text.casefold())
         revision = (
@@ -1814,11 +1828,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         impact_link = (
             f"/projects/{project_id}/mapping/transformation-impact"
         )
-        self.assertIn("Review transformation impact", submitted_page.text)
+        self.assertIn("Review changed values", submitted_page.text)
         impact_page = self.client.get(impact_link)
         self.assertEqual(impact_page.status_code, 200)
-        self.assertIn("Transformation impact", impact_page.text)
-        self.assertIn("Prepare transformation impact", impact_page.text)
+        self.assertIn("Review changed values", impact_page.text)
+        self.assertIn("Prepare the comparison", impact_page.text)
+        self.assertIn("your confirmed preparation choices", impact_page.text)
         self.assertNotIn("data-impact-row", impact_page.text)
         prepared = self.client.post(
             f"{impact_link}/prepare",
@@ -1828,8 +1843,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(prepared.status_code, 303)
         impact_page = self.client.get(prepared.headers["location"])
-        self.assertIn("Raw source", impact_page.text)
-        self.assertIn("Proposed value", impact_page.text)
+        self.assertIn("Original", impact_page.text)
+        self.assertIn("Prepared", impact_page.text)
+        self.assertIn("All Odoo fields", impact_page.text)
         self.assertIn("Download matching rows (.csv)", impact_page.text)
         self.assertIn("Download all affected rows (.csv)", impact_page.text)
         self.assertIn("Your registered Excel or CSV source remains unchanged", impact_page.text)
@@ -1906,18 +1922,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
         readiness_page = self.client.get(compared.headers["location"])
         self.assertIn("Included in preparation", readiness_page.text)
         self.assertIn("Set aside", readiness_page.text)
-        self.assertIn("Fix setup", readiness_page.text)
+        self.assertIn("Needs correction", readiness_page.text)
         self.assertIn('id="quality-rows"', readiness_page.text)
         self.assertIn("Ready", readiness_page.text)
-        self.assertIn("Review", readiness_page.text)
-        self.assertIn("Fix", readiness_page.text)
+        self.assertIn("Needs a decision", readiness_page.text)
+        self.assertIn("Needs correction", readiness_page.text)
         self.assertIn("Rows", readiness_page.text)
-        self.assertIn("Technical details", readiness_page.text)
+        self.assertIn("Support details", readiness_page.text)
         self.assertIn("Create review workbook", readiness_page.text)
         self.assertIn("Odoo remains unchanged", readiness_page.text)
         self.assertIn("prepared rows safely saved", readiness_page.text)
         self.assertIn("data-staging-summary", readiness_page.text)
-        self.assertIn("<summary>Technical details</summary>", readiness_page.text)
+        self.assertIn("<summary>Support details</summary>", readiness_page.text)
 
         report = readiness.current_report(project_id)
         assert report is not None
@@ -2120,7 +2136,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"/projects/{project_id}/mapping"
         )
         self.assertIn(
-            "Saved mapping progress belongs to earlier source or schema evidence",
+            "Your source tables or Odoo choices changed, so older matching work was not loaded",
             stale_mapping.text,
         )
 
@@ -2902,9 +2918,88 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Prepare data for review", page.text)
         self.assertIn("Prepared data is stored locally", page.text)
         self.assertIn("<details", page.text)
-        self.assertIn("<summary>Technical details</summary>", page.text)
+        self.assertIn("<summary>Support details</summary>", page.text)
         self.assertNotIn("<details open", page.text)
         self.assertNotIn("canonical_staging", page.text)
+
+    def test_prepare_rejects_bad_source_hash_before_publication_and_redirects(
+        self,
+    ) -> None:
+        project_id, dataset, business_key = self._mapping_ready_project(
+            scalar_field_count=0,
+        )
+        context = self.app.state.context
+        source_identity = dataset.columns[0]
+        _revision, validation, submission = (
+            context.mapping_workspace.save_definition(
+                project_id,
+                datasets=(
+                    DatasetMapping(
+                        dataset_id=dataset.dataset_id,
+                        target_model="res.partner",
+                        mode=MappingTargetMode.UPSERT,
+                        source_identity_column_keys=(source_identity.stable_key,),
+                        target_identity=(
+                            IdentityComponentMapping(
+                                source_column_keys=(source_identity.stable_key,),
+                                target_fields=business_key.key_fields,
+                            ),
+                        ),
+                    ),
+                ),
+                expected_parent_version=None,
+                submit=True,
+                actor=context.actor,
+            )
+        )
+        self.assertNotEqual(validation.status, MappingValidationStatus.INVALID)
+        self.assertIsNotNone(submission)
+        selection = context.repository.get_source_selection(project_id)
+        assert selection is not None
+        corrupted = replace(
+            selection,
+            datasets=(
+                replace(
+                    selection.datasets[0],
+                    source_sha256="sha256:not-a-digest",
+                ),
+            ),
+        )
+        database_path = (
+            context.repository.project_directory(project_id) / "project.duckdb"
+        )
+        with context.repository._connect(database_path) as connection:
+            connection.execute(
+                "UPDATE source_selection SET selection_json = ? "
+                "WHERE singleton_id = 1",
+                [corrupted.to_json()],
+            )
+
+        failed = self.client.post(
+            f"/projects/{project_id}/summary/check",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(failed.status_code, 303)
+        self.assertEqual(
+            failed.headers["location"],
+            f"/projects/{project_id}/summary",
+        )
+        self.assertIsNone(context.readiness.current_staging(project_id))
+        self.assertIsNone(context.readiness.current_quality_summary(project_id))
+        self.assertIsNone(
+            context.readiness.current_normalization_summary(project_id)
+        )
+        self.assertEqual(self.readiness_calls, [])
+
+        recovery = self.client.get(failed.headers["location"])
+        self.assertEqual(recovery.status_code, 200)
+        self.assertIn(
+            "Impodo could not verify the registered source files",
+            recovery.text,
+        )
 
     def test_data_manager_can_save_an_optional_named_total(self) -> None:
         project_id, dataset, business_key = self._mapping_ready_project(
@@ -3107,7 +3202,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Some totals need attention", page.text)
         self.assertIn("Opening balance", page.text)
         self.assertIn("Difference -100 EUR", page.text)
-        self.assertIn("<summary>Technical details</summary>", page.text)
+        self.assertIn("<summary>Support details</summary>", page.text)
         self.assertEqual(package.status_code, 422)
         self.assertIn("Resolve the named totals", package.text)
 
@@ -3189,13 +3284,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         impact_url = f"/projects/{project_id}/mapping/transformation-impact"
         first_visit = self.client.get(impact_url)
-        self.assertIn("Prepare transformation impact", first_visit.text)
+        self.assertIn("Prepare the comparison", first_visit.text)
         self.assertIn("data-transformation-impact-prepare", first_visit.text)
         self.assertIn("data-transformation-impact-status", first_visit.text)
         self.assertIn('aria-live="polite"', first_visit.text)
         impact_script = self.client.get("/static/app.js")
         self.assertIn("[data-transformation-impact-prepare]", impact_script.text)
-        self.assertIn("Preparing transformation impact…", impact_script.text)
+        self.assertIn("Preparing the comparison…", impact_script.text)
         with patch("impodo.web.app.stage_browser_mapping", side_effect=fake_stage) as staged:
             prepared = self.client.post(
                 f"{impact_url}/prepare",

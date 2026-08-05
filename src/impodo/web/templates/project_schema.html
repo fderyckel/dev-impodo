@@ -1,18 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Odoo fields · {{ project.name }} · Impodo{% endblock %}
+{% block title %}Odoo data · {{ project.name }} · Impodo{% endblock %}
 {% block content %}
   {% set local_mode = project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' %}
   {% set local_reader_ready = not local_mode or local_stack.profile %}
   {% set local_access_verified = not local_mode or local_stack.metadata_ready %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Step 3 · Odoo fields</p>
+      <p class="eyebrow">Step 3 · Odoo data</p>
       <h1>Choose the Odoo records to prepare</h1>
-      <p>Select the record types and fields this project may read from Odoo.</p>
+      <p>Choose the kinds of Odoo information needed for this project.</p>
     </div>
     {% if schema %}
       <span class="status {% if schema.origin.value == 'LOCAL_MANUAL' %}warning{% else %}registered{% endif %}">
-        {% if schema.origin.value == 'LOCAL_MANUAL' %}Unverified local draft{% else %}Captured{% endif %}
+        {% if schema.origin.value == 'LOCAL_MANUAL' %}Needs Odoo check{% else %}Ready{% endif %}
       </span>
     {% endif %}
   </div>
@@ -21,19 +21,16 @@
     <div class="page-heading compact">
       <div>
         <p class="eyebrow">Available in Odoo</p>
-        <h2>Choose Odoo record types</h2>
-        <p>
-          Target: {{ project.odoo_connection_mode.value|title }} /
-          <code>{{ project.odoo_database }}</code>
-        </p>
+        <h2>Choose the Odoo data you need</h2>
+        <p>Start with the business records included in this migration.</p>
       </div>
       <form method="post" action="/projects/{{ project.project_id }}/schema/models/refresh">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
           {% if model_catalog %}
-            Refresh Odoo record types
+            Refresh from Odoo
           {% else %}
-            Load Odoo record types
+            Show available Odoo data
           {% endif %}
         </button>
       </form>
@@ -43,22 +40,17 @@
       {% if local_stack.profile %}
         {% if not local_access_verified %}
           <div class="notice warning">
-            <strong>Local Odoo configuration is ready.</strong>
-            Impodo will use the selected <code>{{ local_stack.config_path }}</code>
-            in an isolated read-only Odoo process. No Odoo API key is required.
-            Select <strong>Load Odoo record types</strong> to read the available
-            record types. A successful read also confirms access to this database.
+            <strong>Local Odoo is ready to check.</strong>
+            Select <strong>Show available Odoo data</strong>. Impodo will only read the list of available business records.
           </div>
         {% endif %}
       {% else %}
         <div class="notice warning">
-          <strong>Choose the local Odoo configuration first.</strong>
-          Local mode does not use an Odoo API key. Selecting
-          <code>odoo.conf</code> tells Impodo which local Odoo installation,
-          URL, and database connection to use.
+          <strong>Find local Odoo first.</strong>
+          Impodo needs to know which Odoo installation on this computer to use.
           <form method="post" action="/projects/{{ project.project_id }}/schema/local-config">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button secondary" type="submit">Choose local odoo.conf</button>
+            <button class="button secondary" type="submit">Find local Odoo</button>
           </form>
         </div>
       {% endif %}
@@ -66,39 +58,35 @@
 
     {% if project.intended_applications %}
       <p>
-        Project application focus: <strong>{{ project.intended_applications|join(", ") }}</strong>.
-        Matching models are shown first; this filter does not add them to the read boundary.
+        Odoo areas included: <strong>{{ project.intended_applications|join(", ") }}</strong>.
+        Related business records are shown first.
       </p>
     {% else %}
-      <p>No project application filter was selected, so all discovered persistent models are shown.</p>
+      <p>No Odoo area was selected, so all available business records are shown.</p>
     {% endif %}
 
     {% if model_catalog %}
       <div class="notice stack-ready" role="status">
-        <strong>Odoo record types are ready.</strong>
-        Choose the record types needed for this project. Impodo will contact
-        Odoo again only when you explicitly refresh this list or load fields.
+        <strong>The Odoo list is ready.</strong>
+        Choose what this project needs. Impodo reuses this saved list until you select <strong>Refresh from Odoo</strong>.
       </div>
       {% if local_mode %}
         {% if local_access_verified %}
           <p class="muted">
-            Live local metadata access was also verified during this Impodo session.
+            The connection to local Odoo was checked during this session.
           </p>
         {% elif local_stack.profile %}
           <div class="notice">
-            <strong>Live connection not checked this session.</strong>
-            The stored snapshot remains usable. Odoo is contacted only if you
-            explicitly refresh models or fetch the selected models' fields.
+            <strong>The saved Odoo list is being used.</strong>
+            Refresh only if Odoo has changed since this list was saved.
           </div>
         {% else %}
           <div class="notice">
-            <strong>Live connection not checked this session.</strong>
-            This is not a blocker for the stored model or field snapshots.
-            Choose <code>odoo.conf</code> only when you want to refresh from
-            Odoo or fetch fields for a changed model scope.
+            <strong>The saved Odoo list is still available.</strong>
+            Find local Odoo only if you need to refresh the list.
             <form method="post" action="/projects/{{ project.project_id }}/schema/local-config">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button class="button secondary" type="submit">Choose local odoo.conf for a live read</button>
+              <button class="button secondary" type="submit">Find local Odoo to refresh</button>
             </form>
           </div>
         {% endif %}
@@ -108,11 +96,11 @@
         <input type="hidden" name="revision" value="{{ project.revision }}">
         <div class="model-picker-tools">
           <label>
-            Search available models
+            Search available Odoo data
             <input
               type="search"
               data-model-search
-              placeholder="Product or product.template"
+              placeholder="For example: Products or Contacts"
               autocomplete="off"
               aria-controls="model-picker-list"
               aria-describedby="model-picker-count"
@@ -121,7 +109,7 @@
           {% if focus_model_count < model_choices|length %}
             <label class="checkbox">
               <input type="checkbox" data-show-all-models>
-              Show all record types
+              Show all available data
             </label>
           {% endif %}
           <p
@@ -133,7 +121,7 @@
           ></p>
         </div>
         <fieldset class="model-picker-list" id="model-picker-list">
-          <legend>Odoo record types available to this project</legend>
+          <legend>Odoo data available to this project</legend>
           {% for choice in model_choices %}
             <label
               class="model-choice"
@@ -149,47 +137,38 @@
               >
               <span>
                 <strong>{{ choice.label }}</strong>
-                <code>{{ choice.name }}</code>
-                {% if choice.modules %}
-                  <small>{{ choice.modules|join(", ") }}</small>
-                {% endif %}
               </span>
             </label>
           {% endfor %}
         </fieldset>
         <small>
-          Changing this selection clears saved Odoo fields, matching rules and
-          field matches so that they cannot point to the wrong record type.
+          Changing these choices clears later matching work that no longer applies.
         </small>
         <div class="actions">
-          <button class="button secondary" type="submit">Save record types</button>
+          <button class="button secondary" type="submit">Save Odoo choices</button>
         </div>
       </form>
     {% else %}
       <div class="notice">
-        Load the list of record types from this Odoo connection. Impodo will
-        not load their fields until you choose and save the record types needed.
+        Show the available business records from this Odoo connection. Detailed fields are loaded only after you save your choices.
       </div>
       {% if project.intended_models %}
         <p>
-          Existing technical scope:
-          <code>{{ project.intended_models|join(", ") }}</code>.
-          Refresh the catalogue to review or change it.
+          Saved Odoo choices are available. Refresh from Odoo to review or change them.
         </p>
       {% endif %}
     {% endif %}
 
-    <p>Selected record types: <strong>{{ project.intended_models|join(", ") or "None yet" }}</strong></p>
+    <p>Odoo choices selected: <strong>{{ project.intended_models|length if project.intended_models else 0 }}</strong></p>
     {% if schema and schema.origin.value != 'LOCAL_MANUAL' %}
       <div class="notice stack-ready" role="status">
-        <strong>Odoo fields are ready.</strong>
-        {{ schema_field_count }} fields are available across
-        {{ schema.models|length }} selected record type(s).
+        <strong>Odoo details are ready.</strong>
+        {{ schema_field_count }} fields are available across {{ schema.models|length }} choice(s).
       </div>
     {% endif %}
     {% if model_catalog or schema %}
       <details class="technical-evidence">
-        <summary>Technical evidence <small>For audit and support</small></summary>
+        <summary>Support details</summary>
         {% if model_catalog %}
           <p>
             {{ model_catalog.models|length }} persistent models captured from
@@ -209,15 +188,14 @@
     <form method="post" action="/projects/{{ project.project_id }}/schema/capture">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
-        <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to datasets</a>
+        <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to tables</a>
         <button class="button primary" type="submit" {% if not selection or not project.intended_models or not local_reader_ready %}disabled{% endif %}>
-          {% if schema %}Refresh fields for selected record types{% else %}Load fields for selected record types{% endif %}
+          {% if schema %}Refresh selected Odoo details{% else %}Load selected Odoo details{% endif %}
         </button>
       </div>
       {% if local_mode and project.intended_models and not local_stack.profile %}
         <small>
-          The stored snapshot remains available. Select <code>odoo.conf</code>
-          only if you explicitly want to fetch or refresh fields.
+          The saved Odoo list remains available. Find local Odoo only if you need to refresh it.
         </small>
       {% endif %}
     </form>
@@ -225,7 +203,7 @@
 
   {% if project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' %}
     <details class="form-card advanced-schema-draft">
-      <summary>Advanced: create an offline manual schema draft</summary>
+      <summary>Support options</summary>
       <p class="eyebrow">Local fallback</p>
       <h2>Enter an unverified field contract manually</h2>
       <div class="notice warning">
@@ -281,12 +259,9 @@
             </p>
           </div>
           {% if governance %}
-            <span class="status registered">VERSION {{ governance.version }}</span>
+            <span class="status registered">Rules confirmed</span>
           {% endif %}
         </div>
-        {% if governance %}
-          <p>Governed schema: <code>{{ governance.content_hash }}</code></p>
-        {% endif %}
         <div class="notice warning">
           Suggestions are starting points. You confirm the matching rule;
           Impodo checks the actual source and target data later.
@@ -304,22 +279,29 @@
         >
           <div class="page-heading compact">
             <div>
-              <h2>{{ model.label }} <code>{{ model.name }}</code></h2>
-              <p>{{ model.fields|length }} fields · Odoo {{ schema.odoo_version }}</p>
+              <h2>How should Impodo find an existing {{ model.label }}?</h2>
+              <p>{{ model.fields|length }} available fields</p>
             </div>
-            {% if existing %}<span class="status registered">KEY CONFIRMED</span>{% endif %}
+            {% if existing %}<span class="status registered">Rule confirmed</span>{% endif %}
           </div>
 
           <div class="key-decision-summary">
             {% if existing %}
               <p class="eyebrow">Confirmed matching rule</p>
-              <p class="key-rule-title">{{ view.existing_summary }}</p>
+              <p class="key-rule-title">
+                {% for field_name in existing.key_fields %}{{ view.field_labels.get(field_name, "Selected field") }}{% if not loop.last %} + {% endif %}{% endfor %}
+                {% if existing.scope_fields %}
+                  within {% for field_name in existing.scope_fields %}{{ view.field_labels.get(field_name, "selected area") }}{% if not loop.last %} + {% endif %}{% endfor %}
+                {% endif %}
+              </p>
               {% if existing.description %}<p>{{ existing.description }}</p>{% endif %}
             {% elif recommendation %}
               <p class="eyebrow">Suggested matching rule</p>
-              <p class="key-rule-title">{{ recommendation.technical_summary }}</p>
               <p>{{ recommendation.reason }}</p>
-              <p class="key-evidence">{{ recommendation.evidence }}</p>
+              <details class="technical-details">
+                <summary>Why Impodo suggested this</summary>
+                <p>{{ recommendation.evidence }}</p>
+              </details>
               {% if recommendation.warning %}
                 <p class="key-warning">{{ recommendation.warning }}</p>
               {% endif %}
@@ -365,7 +347,7 @@
                     <option
                       value="{{ field.name }}"
                       {% if existing and existing.key_fields|length == 1 and existing.key_fields[0] == field.name %}selected{% endif %}
-                    >{{ field.label }} ({{ field.name }})</option>
+                    >{{ field.label }}</option>
                   {% endfor %}
                 </select>
                 <small>The stable value used to find one Odoo record.</small>
@@ -378,7 +360,7 @@
                     <option
                       value="{{ field.name }}"
                       {% if existing and existing.scope_fields|length == 1 and existing.scope_fields[0] == field.name %}selected{% endif %}
-                    >{{ field.label }} ({{ field.name }})</option>
+                    >{{ field.label }}</option>
                   {% endfor %}
                 </select>
                 <small>Use when the same value may exist in different companies or organizations.</small>
@@ -386,7 +368,7 @@
             </div>
 
             <details class="key-technical-fields">
-              <summary>Combined key or technical entry</summary>
+              <summary>Support options for combined matching</summary>
               <div class="form-grid">
                 <label>
                   Matching field(s)
@@ -421,26 +403,26 @@
           </details>
 
           <details data-field-catalog>
-            <summary>Review {{ model.fields|length }} captured fields</summary>
+            <summary>Review {{ model.fields|length }} available fields</summary>
             <div class="field-catalog-tools">
               <label>
                 Search fields
                 <input
                   type="search"
                   data-field-search
-                  placeholder="Search label, technical name, type, or relation"
+                  placeholder="Search field names"
                   autocomplete="off"
                 >
               </label>
               <label class="checkbox">
                 <input type="checkbox" data-show-readonly-fields>
-                Show readonly and system fields
+                Show fields that Odoo controls
               </label>
               <p class="muted" data-field-count></p>
             </div>
             <div class="table-scroll">
               <table class="data-table">
-                <thead><tr><th>Label</th><th>Technical field</th><th>Type</th><th>Required</th><th>Writable</th><th>Relation</th></tr></thead>
+                <thead><tr><th>Field</th><th>Required by Odoo</th><th>Can be filled</th></tr></thead>
                 <tbody>
                   {% for field in model.fields %}
                     <tr
@@ -449,14 +431,8 @@
                       data-field-search-text="{{ field.label|lower }} {{ field.name|lower }} {{ field.type|lower }} {{ field.relation|default('', true)|lower }}"
                     >
                       <th>{{ field.label }}</th>
-                      <td><code>{{ field.name }}</code></td>
-                      <td>{{ field.type }}</td>
                       <td>{{ "Yes" if field.required else "No" }}</td>
                       <td>{{ "No" if field.readonly else "Yes" }}</td>
-                      <td>
-                        {{ field.relation or "—" }}
-                        {% if field.relation_field %} via {{ field.relation_field }}{% endif %}
-                      </td>
                     </tr>
                   {% endfor %}
                 </tbody>
@@ -469,7 +445,7 @@
       <div class="actions">
         <button class="button primary" type="submit">Confirm matching rules</button>
         {% if governance %}
-          <a class="button secondary" href="/projects/{{ project.project_id }}/mapping">Continue to field matching</a>
+          <a class="button secondary" href="/projects/{{ project.project_id }}/mapping">Continue to match data</a>
         {% endif %}
       </div>
     </form>

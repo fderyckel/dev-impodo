@@ -1,35 +1,31 @@
 {% extends "base.html" %}
-{% block title %}Transformation impact &middot; {{ project.name }} &middot; Impodo{% endblock %}
+{% block title %}Review changed values &middot; {{ project.name }} &middot; Impodo{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Governed mapping</p>
-      <h1>Transformation impact</h1>
+      <p class="eyebrow">Preview only</p>
+      <h1>Review changed values</h1>
       {% if report %}
-        <p>Raw source values compared with the proposed values from mapping version {{ revision.version }}. For a derived dataset, the raw value is the prepared input to that dataset.</p>
+        <p>Compare original source values with the values Impodo will prepare.</p>
       {% else %}
-        <p>Prepare a local, filterable comparison for mapping version {{ revision.version }}.</p>
+        <p>Preview how your confirmed preparation choices affect the source values.</p>
       {% endif %}
     </div>
     <span class="status registered">Read only</span>
   </div>
 
-  {% if error %}
-    <div class="alert error" role="alert">{{ error }}</div>
-  {% endif %}
-
   {% if not report %}
     <section class="form-card">
-      <p class="eyebrow">Bounded browser view</p>
-      <h2>Prepare transformation impact</h2>
-      <p>Impodo will evaluate every frozen row locally, store one hash-bound snapshot, and then show up to 100 matching values at a time. It will not contact or write to Odoo.</p>
+      <p class="eyebrow">Local preview</p>
+      <h2>Prepare the comparison</h2>
+      <p>Impodo will apply your confirmed preparation choices locally and show changed values in groups of up to 100. It will not contact or change Odoo.</p>
       <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact/prepare" data-transformation-impact-prepare>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="button primary" type="submit" data-transformation-impact-button>Prepare transformation impact</button>
+        <button class="button primary" type="submit" data-transformation-impact-button>Review changed values</button>
       </form>
       <p class="impact-preparing-status" data-transformation-impact-status role="status" aria-live="polite" hidden>
         <span class="activity-spinner" aria-hidden="true"></span>
-        <span><strong>Preparing transformation impact…</strong> Impodo is evaluating the frozen rows locally. Keep this page open; large sources can take a few minutes.</span>
+        <span><strong>Preparing the comparison…</strong> Impodo is checking the source rows locally. Keep this page open; large files can take a few minutes.</span>
       </p>
     </section>
   {% endif %}
@@ -37,15 +33,15 @@
   {% if report %}
     <div class="notice success">
       <strong>Your registered Excel or CSV source remains unchanged.</strong>
-      This report applies the validated rules locally and shows their proposed result. It does not contact or write to Odoo.
+      Impodo applies your confirmed preparation choices here. It does not contact or change Odoo.
     </div>
 
     <section class="impact-cards" aria-label="Transformation impact overview">
       <a class="impact-card changed{% if filters.outcome == 'changed' %} selected{% endif %}" href="{{ outcome_urls.changed }}" {% if filters.outcome == 'changed' %}aria-current="true"{% endif %}><span>Changed</span><strong>{{ report.changed_count }}</strong></a>
-      <a class="impact-card fallback{% if filters.outcome == 'fallback' %} selected{% endif %}" href="{{ outcome_urls.fallback }}" {% if filters.outcome == 'fallback' %}aria-current="true"{% endif %}><span>Fallback used</span><strong>{{ report.fallback_count }}</strong></a>
-      <a class="impact-card null{% if filters.outcome == 'null' %} selected{% endif %}" href="{{ outcome_urls.null }}" {% if filters.outcome == 'null' %}aria-current="true"{% endif %}><span>Became null</span><strong>{{ report.null_count }}</strong></a>
-      <a class="impact-card invalid{% if filters.outcome == 'invalid' %} selected{% endif %}" href="{{ outcome_urls.invalid }}" {% if filters.outcome == 'invalid' %}aria-current="true"{% endif %}><span>Invalid</span><strong>{{ report.invalid_count }}</strong></a>
-      <a class="impact-card provided{% if filters.outcome == 'provided' %} selected{% endif %}" href="{{ outcome_urls.provided }}" {% if filters.outcome == 'provided' %}aria-current="true"{% endif %}><span>Constant provided</span><strong>{{ report.provided_count }}</strong></a>
+      <a class="impact-card fallback{% if filters.outcome == 'fallback' %} selected{% endif %}" href="{{ outcome_urls.fallback }}" {% if filters.outcome == 'fallback' %}aria-current="true"{% endif %}><span>Backup value used</span><strong>{{ report.fallback_count }}</strong></a>
+      <a class="impact-card null{% if filters.outcome == 'null' %} selected{% endif %}" href="{{ outcome_urls.null }}" {% if filters.outcome == 'null' %}aria-current="true"{% endif %}><span>Cleared</span><strong>{{ report.null_count }}</strong></a>
+      <a class="impact-card invalid{% if filters.outcome == 'invalid' %} selected{% endif %}" href="{{ outcome_urls.invalid }}" {% if filters.outcome == 'invalid' %}aria-current="true"{% endif %}><span>Needs attention</span><strong>{{ report.invalid_count }}</strong></a>
+      <a class="impact-card provided{% if filters.outcome == 'provided' %} selected{% endif %}" href="{{ outcome_urls.provided }}" {% if filters.outcome == 'provided' %}aria-current="true"{% endif %}><span>Fixed value used</span><strong>{{ report.provided_count }}</strong></a>
       <article class="impact-card unchanged"><span>Unchanged</span><strong>{{ report.unchanged_count }}</strong></article>
     </section>
 
@@ -54,7 +50,7 @@
         <div>
           <p class="eyebrow">Affected values</p>
           <h2>{{ report.impact_count }} value{{ "s" if report.impact_count != 1 else "" }} affected</h2>
-          <p class="muted">Across {{ snapshot.affected_row_count }} dataset row{{ "s" if snapshot.affected_row_count != 1 else "" }}. {{ report.evaluated_count }} mapped values were evaluated across every frozen row.</p>
+          <p class="muted">Across {{ snapshot.affected_row_count }} source row{{ "s" if snapshot.affected_row_count != 1 else "" }}.</p>
         </div>
         <div class="actions">
           <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact.csv">
@@ -74,9 +70,9 @@
 
       <form class="impact-tools" method="get" action="/projects/{{ project.project_id }}/mapping/transformation-impact">
         <label>
-          Dataset
+          Table
           <select name="dataset">
-            <option value="">All datasets</option>
+            <option value="">All tables</option>
             {% for dataset_name, dataset_label in datasets %}
               <option value="{{ dataset_name }}" {% if filters.dataset == dataset_name %}selected{% endif %}>{{ dataset_label }}</option>
             {% endfor %}
@@ -87,24 +83,24 @@
           <select name="outcome">
             <option value="">All affected values</option>
             <option value="changed" {% if filters.outcome == 'changed' %}selected{% endif %}>Changed</option>
-            <option value="fallback" {% if filters.outcome == 'fallback' %}selected{% endif %}>Fallback used</option>
-            <option value="null" {% if filters.outcome == 'null' %}selected{% endif %}>Became null</option>
-            <option value="invalid" {% if filters.outcome == 'invalid' %}selected{% endif %}>Invalid</option>
-            <option value="provided" {% if filters.outcome == 'provided' %}selected{% endif %}>Constant provided</option>
+            <option value="fallback" {% if filters.outcome == 'fallback' %}selected{% endif %}>Backup value used</option>
+            <option value="null" {% if filters.outcome == 'null' %}selected{% endif %}>Cleared</option>
+            <option value="invalid" {% if filters.outcome == 'invalid' %}selected{% endif %}>Needs attention</option>
+            <option value="provided" {% if filters.outcome == 'provided' %}selected{% endif %}>Fixed value used</option>
           </select>
         </label>
         <label>
-          Odoo target field
+          Odoo field
           <select name="field">
-            <option value="">All target fields</option>
+            <option value="">All Odoo fields</option>
             {% for field_name, field_label in field_choices %}
-              <option value="{{ field_name }}" {% if filters.target_field == field_name %}selected{% endif %}>{{ field_label }} ({{ field_name }})</option>
+              <option value="{{ field_name }}" {% if filters.target_field == field_name %}selected{% endif %}>{{ field_label }}</option>
             {% endfor %}
           </select>
         </label>
         <label>
           Search
-          <input type="search" name="q" value="{{ filters.query }}" maxlength="128" placeholder="Column, value, rule, or message">
+          <input type="search" name="q" value="{{ filters.query }}" maxlength="128" placeholder="Search values or rules">
         </label>
         <div class="actions impact-filter-actions">
           <button class="button primary" type="submit">Apply filters</button>
@@ -125,13 +121,13 @@
           <table class="data-table impact-table">
             <thead>
               <tr>
-                <th>Dataset</th>
-                <th>Excel row</th>
+                <th>Table</th>
+                <th>Source row</th>
                 <th>Source column</th>
-                <th>Odoo target field</th>
-                <th>Raw source</th>
-                <th>Proposed value</th>
-                <th>Rules applied</th>
+                <th>Odoo field</th>
+                <th>Original</th>
+                <th>Prepared</th>
+                <th>Field rules</th>
                 <th>Result</th>
               </tr>
             </thead>
@@ -143,7 +139,6 @@
                   <td>{{ row.source_column }}</td>
                   <td>
                     <strong>{{ field_labels.get((row.dataset, row.target_field), row.target_field) }}</strong>
-                    <small class="row-field"><code>{{ row.target_field }}</code></small>
                   </td>
                   <td class="impact-value raw">{{ row.raw_value }}</td>
                   <td class="impact-value proposed">
@@ -164,7 +159,7 @@
             <p>Clear a filter or search for another value.</p>
           {% else %}
             <h3>No values changed</h3>
-            <p>The validated scalar rules produced the same value as the source for every evaluated field.</p>
+            <p>Your field rules keep every reviewed value unchanged.</p>
           {% endif %}
         </div>
       {% endif %}
@@ -180,7 +175,7 @@
   {% endif %}
 
   <div class="actions">
-    <a class="button secondary" href="/projects/{{ project.project_id }}/mapping">Back to mapping</a>
-    {% if report %}<a class="button primary" href="/projects/{{ project.project_id }}/mapping">Continue mapping review</a>{% endif %}
+    <a class="button secondary" href="/projects/{{ project.project_id }}/mapping">Back to matches</a>
+    {% if report %}<a class="button primary" href="/projects/{{ project.project_id }}/mapping">Continue matching review</a>{% endif %}
   </div>
 {% endblock %}

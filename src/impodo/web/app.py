@@ -624,7 +624,7 @@ def create_local_app(
             _require_local_stack_access(context, project)
             selected = context.local_stack.pick_config()
             if selected is None:
-                _flash(request, "No Odoo configuration was selected.")
+                _flash(request, "No local Odoo setup was selected.")
             else:
                 await run_in_threadpool(
                     context.local_stack.select_config,
@@ -682,7 +682,7 @@ def create_local_app(
                 status_code=422,
                 open_local_stack=True,
             )
-        _flash(request, "Local stack startup check completed.")
+        _flash(request, "The local Odoo check is complete.")
         return RedirectResponse(
             f"/projects/{project_id}/target?local_stack=1",
             status_code=303,
@@ -708,12 +708,12 @@ def create_local_app(
             if action == "stop":
                 _require_local_stack_stop(context, project)
                 await run_in_threadpool(context.local_stack.stop, project_id)
-                message = "Impodo-managed local services stopped."
+                message = "The local Odoo services started by Impodo were stopped."
             elif action == "restart":
                 _require_local_stack_stop(context, project)
                 _require_local_stack_start(context, project)
                 await run_in_threadpool(context.local_stack.restart, project_id)
-                message = "Impodo-managed local services restarted."
+                message = "The local Odoo services started by Impodo were restarted."
             else:
                 raise LocalStackError("Choose Stop or Restart.")
         except LocalStackError as error:
@@ -834,7 +834,7 @@ def create_local_app(
                         project,
                         api_key,
                     )
-                _flash(request, result)
+                _flash(request, "The Odoo connection is ready. Nothing was changed.")
                 target_url = f"/projects/{project_id}/target"
                 if show_local_results:
                     target_url = f"{target_url}?local_stack=1"
@@ -938,13 +938,12 @@ def create_local_app(
             SecretStoreError,
             WorkspaceError,
         ) as error:
-            return _render_summary(
-                request,
-                context,
-                project_id,
-                error=str(error),
-                status_code=422,
+            request.session["summary_error"] = str(error)
+            return RedirectResponse(
+                f"/projects/{project_id}/summary",
+                status_code=303,
             )
+        request.session.pop("summary_error", None)
         _flash(request, "Prepared data is ready for your review.")
         return RedirectResponse(
             f"/projects/{project_id}/normalization",
@@ -1272,8 +1271,7 @@ def create_local_app(
             )
         _flash(
             request,
-            f"Inspected {len(catalogs)} source file(s) against their "
-            "registered hashes.",
+            f"Checked {len(catalogs)} source file(s).",
         )
         return RedirectResponse(
             f"/projects/{project_id}/sources",
@@ -1405,7 +1403,7 @@ def create_local_app(
             )
         _flash(
             request,
-            f"Frozen source selection version {selection.version}.",
+            "Saved the table choices.",
         )
         return RedirectResponse(
             f"/projects/{project_id}/derived-entities",
@@ -1426,7 +1424,7 @@ def create_local_app(
             _require_local_stack_access(context, project)
             selected = await run_in_threadpool(context.local_stack.pick_config)
             if selected is None:
-                _flash(request, "No Odoo configuration was selected.")
+                _flash(request, "No local Odoo setup was selected.")
             else:
                 await run_in_threadpool(
                     context.local_stack.select_config,
@@ -1440,8 +1438,7 @@ def create_local_app(
                     )
                 _flash(
                     request,
-                    "Selected the local odoo.conf for keyless read-only "
-                    "model discovery.",
+                    "Selected the local Odoo setup for read-only access.",
                 )
         except (LocalStackError, WorkspaceError) as error:
             return _render_schema(
@@ -1518,8 +1515,7 @@ def create_local_app(
             )
         _flash(
             request,
-            f"Saved derived dataset {rule.output_dataset_name} in plan "
-            f"version {plan.version}.",
+            f"Created the related table {rule.output_dataset_name}.",
         )
         return RedirectResponse(
             f"/projects/{project_id}/derived-entities",
@@ -1669,8 +1665,8 @@ def create_local_app(
         _flash(
             request,
             (
-                f"Created related datasets {rule.parent_dataset_name} and "
-                f"{rule.child_dataset_name} in plan version {plan.version}."
+                f"Created the separate tables {rule.parent_dataset_name} and "
+                f"{rule.child_dataset_name}."
             ),
         )
         return RedirectResponse(
@@ -1711,7 +1707,7 @@ def create_local_app(
             )
         _flash(
             request,
-            f"Removed the derived-entity rule; plan version {plan.version} is current.",
+            "Removed the saved separation rule.",
         )
         return RedirectResponse(
             f"/projects/{project_id}/derived-entities",
@@ -1771,7 +1767,7 @@ def create_local_app(
             )
         _flash(
             request,
-            f"Loaded {len(catalog.models)} persistent models from Odoo.",
+            f"Loaded {len(catalog.models)} available record type(s) from Odoo.",
         )
         return RedirectResponse(
             f"/projects/{project_id}/schema",
@@ -1830,7 +1826,7 @@ def create_local_app(
             )
         _flash(
             request,
-            "Saved the permitted model scope. Capture the schema again before mapping.",
+            "Saved the Odoo choices. Load their details before matching data.",
         )
         return RedirectResponse(
             f"/projects/{project_id}/schema",
@@ -1894,7 +1890,7 @@ def create_local_app(
                 error=str(error),
                 status_code=422,
             )
-        _flash(request, f"Captured {len(schema.models)} permitted Odoo model(s).")
+        _flash(request, f"Loaded details for {len(schema.models)} Odoo choice(s).")
         return RedirectResponse(
             f"/projects/{project_id}/schema",
             status_code=303,
@@ -1934,8 +1930,8 @@ def create_local_app(
         _flash(
             request,
             (
-                f"Created an unverified local schema draft for "
-                f"{len(schema.models)} permitted Odoo model(s)."
+                f"Created an unchecked local draft for "
+                f"{len(schema.models)} Odoo choice(s)."
             ),
         )
         return RedirectResponse(
@@ -2006,8 +2002,7 @@ def create_local_app(
         _flash(
             request,
             (
-                f"Confirmed schema governance version {governance.version} "
-                f"with {len(governance.business_keys)} business key(s)."
+                f"Confirmed {len(governance.business_keys)} Odoo matching rule(s)."
             ),
         )
         return RedirectResponse(
@@ -2436,7 +2431,7 @@ def create_local_app(
                 error=str(error),
                 status_code=422,
             )
-        _flash(request, "Transformation impact prepared from the current mapping.")
+        _flash(request, "The changed-value comparison is ready.")
         return RedirectResponse(
             f"/projects/{project_id}/mapping/transformation-impact",
             status_code=303,
@@ -2631,8 +2626,7 @@ def create_local_app(
                 _flash(
                     request,
                     (
-                        f"Saved working draft version {working_draft.version}. "
-                        "No semantic validation was run."
+                        "Saved your matching progress. The matches have not been checked yet."
                     ),
                 )
                 if json_request:
@@ -2698,14 +2692,13 @@ def create_local_app(
         if submission is not None:
             _flash(
                 request,
-                f"Mapping submitted as version {revision.version}.",
+                "Field matches confirmed.",
             )
         else:
             _flash(
                 request,
                 (
-                    f"Saved mapping version {revision.version}: "
-                    f"{validation.status.value.replace('_', ' ').casefold()}."
+                    "Saved and checked the field matches."
                 ),
             )
         if json_request:
@@ -3149,6 +3142,11 @@ def _render(
     status_code: int = 200,
     **context,
 ):
+    raw_error = context.get("error")
+    if raw_error:
+        plain_error, support_error = _plain_ui_error(str(raw_error))
+        context["error"] = plain_error
+        context.setdefault("support_error", support_error)
     values = {
         "csrf_token": request.session.get("csrf_token", ""),
         "flash": request.session.pop("flash", None),
@@ -3160,6 +3158,60 @@ def _render(
         context=values,
         status_code=status_code,
     )
+
+
+def _plain_ui_error(message: str) -> tuple[str, str | None]:
+    """Keep implementation details out of the default data-manager message."""
+    raw = message.strip()
+    if not raw:
+        return "Please review the page and try again.", None
+
+    lowered = raw.lower()
+    technical_markers = (
+        "sha256",
+        "hash",
+        "uuid",
+        "run_id",
+        "lifecycle_version",
+        "dataset_id",
+        "catalog",
+        "schema",
+        "snapshot",
+        "traceback",
+        "valueerror",
+        "keyerror",
+        "http ",
+        "odoo.conf",
+        "127.0.0.1",
+        "postgres",
+    )
+    has_technical_code = bool(re.search(r"\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+){1,}\b", raw))
+    concurrency_message = any(
+        item in lowered
+        for item in ("changed in another request", "reload before", "out of date")
+    )
+    if (
+        not has_technical_code
+        and not concurrency_message
+        and not any(item in lowered for item in technical_markers)
+    ):
+        return raw, None
+
+    if "csrf" in lowered:
+        plain = "This page has expired. Refresh it, review your choices, and try again."
+    elif concurrency_message or any(
+        item in lowered for item in ("revision", "version", "stale", "changed since")
+    ):
+        plain = "This page is out of date. Reload it, review the latest information, and try again."
+    elif any(item in lowered for item in ("odoo", "connection", "database", "postgres")):
+        plain = "Impodo could not check Odoo. Confirm that Odoo is available and review the connection details before trying again."
+    elif any(item in lowered for item in ("mapping", "field", "business key")):
+        plain = "Impodo could not check these data matches. Review the selected fields and try again."
+    elif any(item in lowered for item in ("source", "file", "table", "dataset", "catalog")):
+        plain = "The saved source information no longer matches this project. Check the source files again before continuing."
+    else:
+        plain = "Impodo could not complete this action. Your saved project information is unchanged; review the page and try again."
+    return plain, raw
 
 
 def _render_target(
@@ -3274,6 +3326,9 @@ def _render_summary(
     error: str | None = None,
     status_code: int = 200,
 ):
+    session_error = request.session.pop("summary_error", None)
+    if error is None and isinstance(session_error, str):
+        error = session_error
     project = context.repository.get(project_id)
     source_selection = context.repository.get_source_selection(project_id)
     evaluation_scale = (
@@ -4104,6 +4159,7 @@ def _dataset_choices(
                     "file_name": catalog.display_name,
                     "table_key": table.table_key,
                     "table_name": table.name,
+                    "table_label": "" if table.kind == "CSV" else table.name,
                     "default_name": default_name,
                     "row_count": str(table.row_count),
                     "column_count": str(table.column_count),

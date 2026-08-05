@@ -600,6 +600,13 @@ small {
   color: var(--muted);
 }
 
+.form-card small,
+label small,
+.row-field {
+  font-size: .86rem;
+  line-height: 1.45;
+}
+
 .project-updated,
 .project-revision {
   color: var(--muted);
@@ -2292,6 +2299,15 @@ label.model-choice input {
 
 .technical-details summary {
   cursor: pointer;
+}
+
+.notice > strong,
+.notice > span {
+  display: block;
+}
+
+.notice > strong + span {
+  margin-top: .25rem;
 }
 
 .readiness-actions {
