@@ -13,6 +13,7 @@ from impodo.project_store import DuckDbProjectRepository
 from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
 from impodo.staging import StagingRunStatus
 from impodo.staging_contracts import (
+    CanonicalControlTotal,
     CanonicalLineage,
     CanonicalRow,
     CanonicalStagingRun,
@@ -213,6 +214,85 @@ class CanonicalStagingStoreTests(unittest.TestCase):
                 self.project.project_id,
                 first.run_id,
             )
+        )
+
+    def test_declared_control_totals_round_trip_with_summary(self) -> None:
+        control = CanonicalControlTotal(
+            control_id="sha256:" + "c" * 64,
+            name="Opening balance",
+            dataset="contacts",
+            target_field="credit_limit",
+            expected_total="1000.00",
+            actual_total="1000.00",
+            tolerance="0.01",
+            unit="EUR",
+            included_rows=1,
+            empty_rows=0,
+        )
+        run = replace(
+            _run(self.project.project_id, value="Alice", row_token="5"),
+            control_totals=(control,),
+        )
+
+        published = self.repository.publish_canonical_staging(
+            self.project.project_id,
+            run,
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+        restored = self.repository.get_canonical_staging_run(
+            self.project.project_id,
+            published.run_id,
+        )
+
+        self.assertEqual(published.control_totals, (control,))
+        self.assertTrue(published.control_totals_passed)
+        self.assertEqual(restored.control_totals, (control,))
+
+    def test_schema_upgrade_invalidates_current_but_keeps_history_readable(
+        self,
+    ) -> None:
+        published = self.repository.publish_canonical_staging(
+            self.project.project_id,
+            _run(self.project.project_id, value="Alice", row_token="5"),
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+        database_path = (
+            self.repository.project_directory(self.project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            connection.execute(
+                "ALTER TABLE canonical_staging_run DROP COLUMN control_totals_json"
+            )
+            connection.execute("UPDATE schema_version SET version = 12")
+
+        current = self.repository.get_current_staging_summary(
+            self.project.project_id
+        )
+        historical = self.repository.get_canonical_staging_run(
+            self.project.project_id,
+            published.run_id,
+        )
+        with self.repository._connect(database_path) as connection:
+            lifecycle = connection.execute(
+                """
+                SELECT status, retired_reason
+                  FROM canonical_staging_run
+                 WHERE run_id = ?
+                """,
+                [published.run_id],
+            ).fetchone()
+
+        self.assertIsNone(current)
+        self.assertIsNotNone(historical)
+        self.assertEqual(
+            lifecycle,
+            (
+                StagingRunStatus.INVALIDATED.value,
+                "STAGING_CONTRACT_UPGRADED",
+            ),
         )
 
     def test_failed_batch_publication_rolls_back_and_keeps_current(self) -> None:

@@ -6,6 +6,7 @@ from decimal import Decimal
 import unittest
 
 from impodo.mapping_semantics import (
+    BusinessControlTotal,
     BusinessKeyDefinition,
     BusinessKeyStatus,
     DatasetMapping,
@@ -28,6 +29,7 @@ from impodo.mapping_semantics import (
     SchemaGovernance,
     ValueMapping,
     canonicalize_scalar_value,
+    evaluate_scalar_mapping_value,
 )
 from impodo.workspace import (
     OdooSchemaCatalog,
@@ -536,6 +538,72 @@ class MappingSemanticValidatorTests(unittest.TestCase):
                 formula_context={"column_1": "2", "column_2": "1.235"},
             ),
             Decimal("2.47"),
+        )
+
+    def test_declared_control_total_is_portable_and_requires_numeric_mapping(
+        self,
+    ) -> None:
+        definition = _valid_definition(self.selection, self.governance)
+        company, partner = definition.datasets
+        control = BusinessControlTotal(
+            name="Opening balance",
+            target_field="x_amount",
+            expected_total="1234.50",
+            unit="EUR",
+            tolerance="0.01",
+        )
+        partner_model = next(
+            item for item in self.schema.models if item.name == "res.partner"
+        )
+        schema = replace(
+            self.schema,
+            models=tuple(
+                replace(
+                    item,
+                    fields=(*item.fields, _field("x_amount", "monetary")),
+                )
+                if item is partner_model
+                else item
+                for item in self.schema.models
+            ),
+        )
+        amount = ScalarFieldMapping(
+            target_field="x_amount",
+            source_column_key="partner.name",
+            value_type="decimal",
+        )
+        changed = replace(
+            definition,
+            datasets=(
+                company,
+                replace(
+                    partner,
+                    fields=(*partner.fields, amount),
+                    control_totals=(control,),
+                ),
+            ),
+        )
+
+        result = self.validator.validate(
+            changed,
+            self.selection,
+            schema,
+            self.governance,
+        )
+        restored = MappingDefinition.from_json(changed.to_json())
+
+        self.assertNotIn(
+            "MAPPING_CONTROL_TOTAL_FIELD_UNMAPPED",
+            {item.code for item in result.issues},
+        )
+        self.assertEqual(restored.datasets[1].control_totals, (control,))
+        self.assertEqual(
+            evaluate_scalar_mapping_value(
+                amount,
+                "2",
+                source_values_by_ordinal={1: "2", 2: "1.235"},
+            ),
+            Decimal("2"),
         )
 
     def test_unsafe_custom_pattern_and_formula_block_mapping_validation(

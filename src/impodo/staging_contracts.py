@@ -9,6 +9,7 @@ from every portable payload.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
 import json
@@ -27,8 +28,10 @@ from .profile import ProfileDocument
 from .source import PreparedBundle
 
 
-STAGING_CONTRACT_VERSION = 2
-BROWSER_EVALUATOR_VERSION = 1
+STAGING_CONTRACT_VERSION = 3
+BROWSER_EVALUATOR_VERSION = 2
+_SUPPORTED_STAGING_CONTRACT_VERSIONS = frozenset({2, STAGING_CONTRACT_VERSION})
+_SUPPORTED_BROWSER_EVALUATOR_VERSIONS = frozenset({1, BROWSER_EVALUATOR_VERSION})
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -49,6 +52,89 @@ class StagingDatasetRole(StrEnum):
     PARENT = "PARENT"
     CHILD = "CHILD"
     LOOKUP = "LOOKUP"
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalControlTotal:
+    """Deterministic result of one explicitly declared expected sum."""
+
+    control_id: str
+    name: str
+    dataset: str
+    target_field: str
+    expected_total: str
+    actual_total: str
+    tolerance: str
+    unit: str
+    included_rows: int
+    empty_rows: int
+
+    def __post_init__(self) -> None:
+        _require_hash(self.control_id, "control_id")
+        if not self.name or not self.dataset or not self.target_field:
+            raise ValueError("Control-total evidence is incomplete")
+        if self.included_rows < 0 or self.empty_rows < 0:
+            raise ValueError("Control-total row counts cannot be negative")
+        try:
+            expected = Decimal(self.expected_total)
+            actual = Decimal(self.actual_total)
+            tolerance = Decimal(self.tolerance)
+        except InvalidOperation as error:
+            raise ValueError("Control-total evidence must be numeric") from error
+        if not expected.is_finite() or not actual.is_finite() or not tolerance.is_finite():
+            raise ValueError("Control-total evidence must be finite")
+        if tolerance < 0:
+            raise ValueError("Control-total tolerance cannot be negative")
+
+    @property
+    def difference(self) -> str:
+        return format(
+            Decimal(self.actual_total) - Decimal(self.expected_total),
+            "f",
+        )
+
+    @property
+    def passed(self) -> bool:
+        return (
+            self.empty_rows == 0
+            and abs(Decimal(self.difference)) <= Decimal(self.tolerance)
+        )
+
+    def to_portable_dict(self) -> dict[str, Any]:
+        return {
+            "control_id": self.control_id,
+            "name": self.name,
+            "dataset": self.dataset,
+            "target_field": self.target_field,
+            "expected_total": self.expected_total,
+            "actual_total": self.actual_total,
+            "difference": self.difference,
+            "tolerance": self.tolerance,
+            "unit": self.unit,
+            "included_rows": self.included_rows,
+            "empty_rows": self.empty_rows,
+            "passed": self.passed,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "CanonicalControlTotal":
+        result = cls(
+            control_id=str(payload["control_id"]),
+            name=str(payload["name"]),
+            dataset=str(payload["dataset"]),
+            target_field=str(payload["target_field"]),
+            expected_total=str(payload["expected_total"]),
+            actual_total=str(payload["actual_total"]),
+            tolerance=str(payload.get("tolerance", "0")),
+            unit=str(payload.get("unit", "")),
+            included_rows=int(payload.get("included_rows", 0)),
+            empty_rows=int(payload.get("empty_rows", 0)),
+        )
+        if "difference" in payload and str(payload["difference"]) != result.difference:
+            raise ValueError("Control-total difference is invalid")
+        if "passed" in payload and bool(payload["passed"]) != result.passed:
+            raise ValueError("Control-total status is invalid")
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -475,6 +561,7 @@ class CanonicalStagingRun:
     rows: tuple[CanonicalRow, ...]
     issues: tuple[CanonicalIssue, ...]
     reconciliation: StagingReconciliation
+    control_totals: tuple[CanonicalControlTotal, ...] = ()
     evaluator_version: int = BROWSER_EVALUATOR_VERSION
     contract_version: int = STAGING_CONTRACT_VERSION
 
@@ -488,10 +575,14 @@ class CanonicalStagingRun:
             _require_hash(value, label)
         if self.derived_plan_hash is not None:
             _require_hash(self.derived_plan_hash, "derived_plan_hash")
-        if self.contract_version != STAGING_CONTRACT_VERSION:
+        if self.contract_version not in _SUPPORTED_STAGING_CONTRACT_VERSIONS:
             raise ValueError("Staging contract version is unsupported")
-        if self.evaluator_version != BROWSER_EVALUATOR_VERSION:
+        if self.evaluator_version not in _SUPPORTED_BROWSER_EVALUATOR_VERSIONS:
             raise ValueError("Browser evaluator version is unsupported")
+        if (self.contract_version, self.evaluator_version) not in {(2, 1), (3, 2)}:
+            raise ValueError("Staging and evaluator versions are incompatible")
+        if self.contract_version < 3 and self.control_totals:
+            raise ValueError("Legacy staging evidence cannot contain control totals")
         if not self.project_id or not self.mapping_id:
             raise ValueError("Staging run must identify its project and mapping")
         expected_order = tuple(sorted(self.rows, key=_row_order))
@@ -503,6 +594,15 @@ class CanonicalStagingRun:
             raise ValueError("Dataset reconciliation must use deterministic ordering")
         if len({item.dataset for item in self.datasets}) != len(self.datasets):
             raise ValueError("Dataset reconciliation names must be unique")
+        expected_controls = tuple(
+            sorted(self.control_totals, key=lambda item: item.control_id)
+        )
+        if self.control_totals != expected_controls:
+            raise ValueError("Control totals must use deterministic ordering")
+        if len({item.control_id for item in self.control_totals}) != len(
+            self.control_totals
+        ):
+            raise ValueError("Control-total identifiers must be unique")
         if self.reconciliation != StagingReconciliation.from_rows(self.rows):
             raise ValueError("Staging reconciliation does not match canonical rows")
         for row in self.rows:
@@ -552,6 +652,10 @@ class CanonicalStagingRun:
             "issues": [item.to_portable_dict() for item in self.issues],
             "reconciliation": self.reconciliation.to_portable_dict(),
         }
+        if self.contract_version >= 3:
+            payload["control_totals"] = [
+                item.to_portable_dict() for item in self.control_totals
+            ]
         if include_hash:
             payload["content_hash"] = self.content_hash
         return payload
@@ -589,6 +693,10 @@ class CanonicalStagingRun:
             reconciliation=StagingReconciliation.from_dict(
                 dict(payload["reconciliation"])
             ),
+            control_totals=tuple(
+                CanonicalControlTotal.from_dict(item)
+                for item in payload.get("control_totals", ())
+            ),
         )
         if payload.get("content_hash") != run.content_hash:
             raise ValueError("Canonical staging content hash is invalid")
@@ -618,6 +726,7 @@ class CanonicalStagingRun:
         dataset_evidence: Mapping[
             str, tuple[str, StagingDatasetRole, int]
         ],
+        control_totals: tuple[CanonicalControlTotal, ...] = (),
     ) -> "CanonicalStagingRun":
         mode_by_dataset = {
             dataset.name: dataset.target.mode for dataset in profile.datasets
@@ -694,6 +803,9 @@ class CanonicalStagingRun:
             rows=rows,
             issues=tuple(CanonicalIssue.from_issue(item) for item in prepared.issues),
             reconciliation=StagingReconciliation.from_rows(rows),
+            control_totals=tuple(
+                sorted(control_totals, key=lambda item: item.control_id)
+            ),
         )
 
 

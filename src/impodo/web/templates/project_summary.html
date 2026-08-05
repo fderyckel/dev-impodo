@@ -17,7 +17,7 @@
     </div>
     {% if readiness %}
       <span class="status {{ readiness.status|lower }}">
-        {% if readiness.status == 'READY' %}Data check complete{% elif readiness.status == 'NEEDS_REVIEW' %}Decisions needed{% else %}Fixes needed{% endif %}
+        {% if staging and staging.failed_control_total_count %}Totals need attention{% elif readiness.status == 'READY' %}Data check complete{% elif readiness.status == 'NEEDS_REVIEW' %}Decisions needed{% else %}Fixes needed{% endif %}
       </span>
     {% elif staging %}
       <span class="status ready">Prepared data saved</span>
@@ -37,6 +37,9 @@
         {% if readiness.blocked_count %}
           <h2 id="next-action-title">Fix {{ readiness.blocked_count }} row{{ "s" if readiness.blocked_count != 1 else "" }} first</h2>
           <p>These rows cannot continue until their data or field matches are corrected.</p>
+        {% elif staging and staging.failed_control_total_count %}
+          <h2 id="next-action-title">Review {{ staging.failed_control_total_count }} total{{ "s" if staging.failed_control_total_count != 1 else "" }}</h2>
+          <p>The prepared values do not yet match the known totals you entered.</p>
         {% elif readiness.needs_review_count %}
           <h2 id="next-action-title">Review {{ readiness.needs_review_count }} decision{{ "s" if readiness.needs_review_count != 1 else "" }}</h2>
           <p>Impodo needs your choice before it can mark the data check complete.</p>
@@ -51,6 +54,8 @@
       <div class="next-action-buttons">
         {% if readiness.blocked_count %}
           <a class="button primary" href="?status=blocked#readiness-rows">Show rows to fix</a>
+        {% elif staging and staging.failed_control_total_count %}
+          <a class="button primary" href="#control-totals">Review totals</a>
         {% elif readiness.needs_review_count %}
           <a class="button primary" href="?status=needs_review#readiness-rows">Review decisions</a>
         {% elif review_workbook_ready %}
@@ -102,6 +107,43 @@
           <p><code>Run {{ staging.run_id }} · Evidence {{ staging.content_hash }}</code></p>
         </details>
       </section>
+
+      {% if staging.control_totals %}
+        <section class="form-card" id="control-totals" aria-labelledby="control-totals-title">
+          <div class="page-heading compact">
+            <div>
+              <p class="eyebrow">Known totals</p>
+              <h2 id="control-totals-title">{% if staging.control_totals_passed %}All declared totals match{% else %}Some totals need attention{% endif %}</h2>
+              <p>These checks use only the names, fields and expected values entered in Field matching.</p>
+            </div>
+            <span class="status {% if staging.control_totals_passed %}ready{% else %}blocked{% endif %}">{% if staging.control_totals_passed %}Matched{% else %}Review{% endif %}</span>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Check</th><th>Expected</th><th>Prepared</th><th>Result</th></tr></thead>
+              <tbody>
+                {% for total in staging.control_totals %}
+                  <tr>
+                    <th>
+                      {{ total.name }}
+                      <small class="row-field">{{ total.dataset.replace('_', ' ')|title }}</small>
+                    </th>
+                    <td>{{ total.expected_total }} {{ total.unit }}</td>
+                    <td>{{ total.actual_total }} {{ total.unit }}</td>
+                    <td>
+                      {% if total.passed %}Matches{% elif total.empty_rows %}{{ total.empty_rows }} empty value{{ "s" if total.empty_rows != 1 else "" }}{% else %}Difference {{ total.difference }} {{ total.unit }}{% endif %}
+                      <details class="technical-details">
+                        <summary>Technical details</summary>
+                        <code>{{ total.target_field }}</code> · {{ total.included_rows }} value{{ "s" if total.included_rows != 1 else "" }} · tolerance {{ total.tolerance }}
+                      </details>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      {% endif %}
     {% endif %}
 
     <section class="readiness-cards" aria-label="Readiness overview">
@@ -245,13 +287,20 @@
   {% elif submission %}
     <section class="form-card readiness-start">
       <div class="empty-state">
-        <h2>Check all source rows</h2>
-        <p>Impodo will check values, linked records and possible matches in Odoo.</p>
-        <form method="post" action="/projects/{{ project.project_id }}/summary/check">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button primary" type="submit">Check all rows</button>
-        </form>
-        <small>Read-only · no changes are sent to Odoo</small>
+        {% if evaluation_scale and not evaluation_scale.supported %}
+          <h2>Split this source before checking</h2>
+          <p>This project has {{ "{:,}".format(evaluation_scale.physical_rows) }} source rows. This version can safely check up to {{ "{:,}".format(evaluation_scale.supported_limit) }} rows in one project.</p>
+          <a class="button primary" href="/projects/{{ project.project_id }}/sources">Review source tables</a>
+          <small>No data was changed.</small>
+        {% else %}
+          <h2>Check all source rows</h2>
+          <p>Impodo will check {% if evaluation_scale %}{{ "{:,}".format(evaluation_scale.physical_rows) }} {% endif %}values, linked records and possible matches in Odoo.</p>
+          <form method="post" action="/projects/{{ project.project_id }}/summary/check">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button primary" type="submit">Check all rows</button>
+          </form>
+          <small>Read-only · no changes are sent to Odoo</small>
+        {% endif %}
       </div>
     </section>
 

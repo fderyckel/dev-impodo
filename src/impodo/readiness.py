@@ -11,6 +11,8 @@ from __future__ import annotations
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
+from decimal import Decimal
+from hashlib import sha256
 import json
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Protocol
@@ -46,7 +48,7 @@ from .mapping_semantics import (
     ScalarValueError,
     ScalarValueRuleError,
     ScalarValueSource,
-    canonicalize_scalar_value,
+    evaluate_scalar_mapping_value,
 )
 from .models import (
     Classification,
@@ -83,17 +85,56 @@ from .source import (
     prepare_source_tables,
 )
 from .staging import StagingRunSummary
-from .staging_contracts import CanonicalStagingRun, StagingDatasetRole
+from .staging_contracts import (
+    BROWSER_EVALUATOR_VERSION,
+    CanonicalControlTotal,
+    CanonicalStagingRun,
+    StagingDatasetRole,
+)
 from .workspace import SourceDataset, SourceSelection, WorkspaceError
 
 
 READINESS_CONTRACT_VERSION = 2
 MANIFEST_NAME = "impodo_preflight_manifest.json"
 TRANSFORMATION_IMPACT_DETAIL_LIMIT = 5_000
+TRANSFORMATION_IMPACT_CONTRACT_VERSION = 1
+BROWSER_EVALUATION_ROW_LIMIT = 100_000
 
 
 class ReadinessError(WorkspaceError):
     """Raised when the current browser evidence cannot be checked safely."""
+
+
+@dataclass(frozen=True, slots=True)
+class BrowserEvaluationScale:
+    """Plain-language supported-size decision for the in-memory evaluator."""
+
+    physical_rows: int
+    supported_limit: int = BROWSER_EVALUATION_ROW_LIMIT
+
+    @property
+    def supported(self) -> bool:
+        return self.physical_rows <= self.supported_limit
+
+
+def browser_evaluation_scale(selection: SourceSelection) -> BrowserEvaluationScale:
+    """Count frozen physical rows once, before any derived datasets expand them."""
+
+    return BrowserEvaluationScale(
+        physical_rows=sum(item.row_count for item in selection.datasets)
+    )
+
+
+def require_supported_browser_scale(selection: SourceSelection) -> None:
+    scale = browser_evaluation_scale(selection)
+    if scale.supported:
+        return
+    raise ReadinessError(
+        f"This project contains {scale.physical_rows:,} source rows. "
+        f"This version of Impodo can safely check up to "
+        f"{scale.supported_limit:,} rows in one project. Split the source into "
+        "smaller projects before checking; no data was changed."
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +180,68 @@ class TransformationImpactReport:
     @property
     def truncated(self) -> bool:
         return self.impact_count > len(self.rows)
+
+
+@dataclass(frozen=True, slots=True)
+class TransformationImpactIdentity:
+    """Hash-bound identity for one reusable transformation-impact snapshot."""
+
+    physical_selection_hash: str
+    source_selection_hash: str
+    mapping_content_hash: str
+    schema_hash: str
+    derived_plan_hash: str | None
+    contract_version: int = TRANSFORMATION_IMPACT_CONTRACT_VERSION
+    evaluator_version: int = BROWSER_EVALUATOR_VERSION
+
+    @property
+    def content_hash(self) -> str:
+        return "sha256:" + sha256(
+            canonical_json_bytes(
+                {
+                    "physical_selection_hash": self.physical_selection_hash,
+                    "source_selection_hash": self.source_selection_hash,
+                    "mapping_content_hash": self.mapping_content_hash,
+                    "schema_hash": self.schema_hash,
+                    "derived_plan_hash": self.derived_plan_hash,
+                    "contract_version": self.contract_version,
+                    "evaluator_version": self.evaluator_version,
+                }
+            )
+        ).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class TransformationImpactSnapshot:
+    """Complete counts for one persisted, filterable impact projection."""
+
+    identity: TransformationImpactIdentity
+    created_at: datetime
+    created_by: str
+    affected_row_count: int
+    report: TransformationImpactReport
+
+
+@dataclass(frozen=True, slots=True)
+class TransformationImpactFilter:
+    """Server-side filters shared by the browser table and CSV export."""
+
+    dataset: str = ""
+    outcome: str = ""
+    target_field: str = ""
+    query: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class TransformationImpactPage:
+    """One bounded, deterministically ordered impact-result page."""
+
+    rows: tuple[TransformationImpactRow, ...]
+    matching_count: int
+    start_position: int
+    end_position: int
+    previous_before: int | None
+    next_after: int | None
 
 
 @dataclass(slots=True)
@@ -526,6 +629,7 @@ def stage_browser_mapping(
 ) -> StagedBrowserMapping:
     """Load frozen artifacts, then delegate to the reusable evaluator."""
 
+    require_supported_browser_scale(physical_selection)
     loaded = _load_browser_source_tables(
         project,
         physical_selection,
@@ -566,6 +670,7 @@ def evaluate_browser_mapping(
     reconciliation.
     """
 
+    require_supported_browser_scale(physical_selection)
     if (
         physical_selection.project_id != project_id
         or effective_selection.project_id != project_id
@@ -755,6 +860,11 @@ def evaluate_browser_mapping(
         field_sources=_canonical_field_sources(definition, effective_selection),
         source_lineage=source_lineage,
         dataset_evidence=dataset_evidence,
+        control_totals=_evaluate_control_totals(
+            definition,
+            effective_selection,
+            prepared,
+        ),
     )
     return StagedBrowserMapping(
         profile=profile,
@@ -769,6 +879,69 @@ def evaluate_browser_mapping(
             impact_collector.report() if impact_collector is not None else None
         ),
     )
+
+
+def _evaluate_control_totals(
+    definition: MappingDefinition,
+    selection: SourceSelection,
+    prepared: PreparedBundle,
+) -> tuple[CanonicalControlTotal, ...]:
+    """Evaluate only explicitly declared sums over canonical numeric values."""
+
+    dataset_name_by_id = {
+        item.dataset_id: item.name for item in selection.datasets
+    }
+    records_by_dataset = prepared.by_dataset()
+    results: list[CanonicalControlTotal] = []
+    for dataset in definition.datasets:
+        dataset_name = dataset_name_by_id[dataset.dataset_id]
+        records = records_by_dataset.get(dataset_name, ())
+        for control in dataset.control_totals:
+            actual = Decimal("0")
+            included_rows = 0
+            empty_rows = 0
+            for record in records:
+                value = record.scalar_values.get(control.target_field)
+                if value is None:
+                    empty_rows += 1
+                    continue
+                if isinstance(value, bool) or not isinstance(
+                    value, (int, Decimal)
+                ):
+                    raise ReadinessError(
+                        f"The named total {control.name!r} did not produce "
+                        "numeric prepared values"
+                    )
+                actual += Decimal(value)
+                included_rows += 1
+            control_id = "sha256:" + sha256(
+                canonical_json_bytes(
+                    {
+                        "mapping_hash": definition.content_hash,
+                        "dataset": dataset_name,
+                        "name": control.name,
+                        "target_field": control.target_field,
+                        "expected_total": control.expected_total,
+                        "unit": control.unit,
+                        "tolerance": control.tolerance,
+                    }
+                )
+            ).hexdigest()
+            results.append(
+                CanonicalControlTotal(
+                    control_id=control_id,
+                    name=control.name,
+                    dataset=dataset_name,
+                    target_field=control.target_field,
+                    expected_total=control.expected_total,
+                    actual_total=format(actual, "f"),
+                    tolerance=control.tolerance,
+                    unit=control.unit,
+                    included_rows=included_rows,
+                    empty_rows=empty_rows,
+                )
+            )
+    return tuple(sorted(results, key=lambda item: item.control_id))
 
 
 def _load_browser_source_tables(
@@ -1258,17 +1431,12 @@ def _apply_scalar_mappings(
             else None
         )
         try:
-            proposed = canonicalize_scalar_value(
+            proposed = evaluate_scalar_mapping_value(
                 field,
                 raw,
-                formula_context={
-                    "value": raw,
-                    **{
-                        f"column_{column.ordinal}": values.get(
-                            column.stable_key
-                        )
-                        for column in effective.columns
-                    },
+                source_values_by_ordinal={
+                    column.ordinal: values.get(column.stable_key)
+                    for column in effective.columns
                 },
             )
             values[_synthetic_field(index)] = proposed

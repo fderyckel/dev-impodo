@@ -9,6 +9,7 @@ from typing import Protocol
 
 from .access import Actor
 from .staging_contracts import (
+    CanonicalControlTotal,
     CanonicalStagingRun,
     StagingDatasetReconciliation,
     StagingReconciliation,
@@ -39,6 +40,7 @@ class StagingRunSummary:
     published_by: str
     reconciliation: StagingReconciliation
     datasets: tuple[StagingDatasetReconciliation, ...]
+    control_totals: tuple[CanonicalControlTotal, ...] = ()
 
     @property
     def total_rows(self) -> int:
@@ -50,6 +52,14 @@ class StagingRunSummary:
             self.reconciliation.blocked_rows
             + self.reconciliation.quarantined_rows
         )
+
+    @property
+    def failed_control_total_count(self) -> int:
+        return sum(not item.passed for item in self.control_totals)
+
+    @property
+    def control_totals_passed(self) -> bool:
+        return self.failed_control_total_count == 0
 
 
 class CanonicalStagingRepository(Protocol):

@@ -814,6 +814,58 @@
           </nav>
           </div>
           </details>
+
+          <details class="technical-evidence" {% if view.mapping and view.mapping.control_totals %}open{% endif %}>
+            <summary>
+              Check a known total (optional)
+              <small>For amounts or quantities you already know</small>
+            </summary>
+            <p class="muted">
+              Impodo will add the prepared values and compare them with the total you enter. It never chooses a field, currency, or unit for you.
+            </p>
+            {% if view.numeric_fields %}
+              {% for slot in view.control_total_slots %}
+                {% set control = slot.control %}
+                <section class="nested-rule-card">
+                  <div class="form-grid">
+                    <label>
+                      Check name
+                      <input name="control_name_{{ dataset_index }}_{{ slot.index }}" value="{{ control.name if control else '' }}" maxlength="120" placeholder="Example: Invoice amount">
+                    </label>
+                    <label>
+                      Prepared field to add
+                      <select name="control_target_{{ dataset_index }}_{{ slot.index }}">
+                        <option value="">Choose a numeric field</option>
+                        {% for field in view.numeric_fields %}
+                          <option value="{{ field.name }}" {% if control and control.target_field == field.name %}selected{% endif %}>{{ field.label }}</option>
+                        {% endfor %}
+                      </select>
+                    </label>
+                    <label>
+                      Expected total
+                      <input type="number" step="any" name="control_expected_{{ dataset_index }}_{{ slot.index }}" value="{{ control.expected_total if control else '' }}" placeholder="0.00">
+                    </label>
+                    <label>
+                      Currency or unit
+                      <input name="control_unit_{{ dataset_index }}_{{ slot.index }}" value="{{ control.unit if control else '' }}" maxlength="40" placeholder="Example: EUR or units">
+                    </label>
+                  </div>
+                  <details class="technical-details">
+                    <summary>Allowed difference</summary>
+                    <label>
+                      Tolerance
+                      <input type="number" step="any" min="0" name="control_tolerance_{{ dataset_index }}_{{ slot.index }}" value="{{ control.tolerance if control else '0' }}">
+                      <small>Keep zero for an exact match. Use a small value only when rounding is expected.</small>
+                    </label>
+                  </details>
+                  {% if control %}<small class="muted">Clear this row to remove the check.</small>{% endif %}
+                </section>
+              {% endfor %}
+              <p class="muted">Only mapped numeric fields can be checked. Impodo always uses a sum in this first version.</p>
+            {% else %}
+              <p class="empty-state compact">This Odoo record type has no numeric fields available for a totals check.</p>
+            {% endif %}
+          </details>
           {% else %}
             <div class="empty-state compact">
               <p>

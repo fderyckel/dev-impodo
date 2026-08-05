@@ -77,8 +77,9 @@ must not silently classify a required family as inapplicable.
 
 A package may be labelled **clean for Odoo target rehearsal** only when:
 
-- every source row has exactly one reconciled disposition: import candidate,
-  reference, quarantine, or governed exclusion;
+- every physical source row has exactly one accounting entry and every
+  canonical row has exactly one reconciled disposition: import candidate,
+  reference, blocked, quarantine, or governed exclusion;
 - no blocking issue, identity collision, required relationship ambiguity, or
   unknown required lookup remains;
 - every fuzzy candidate, survivor choice, correction, warning, and exception

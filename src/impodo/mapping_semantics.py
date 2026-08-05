@@ -41,10 +41,11 @@ from .value_rules import (
 )
 
 
-MAPPING_CONTRACT_VERSION = 5
-MAPPING_VALIDATOR_VERSION = "5.1.0"
+MAPPING_CONTRACT_VERSION = 6
+MAPPING_VALIDATOR_VERSION = "6.0.0"
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
+MAX_CONTROL_TOTALS_PER_DATASET = 3
 _RELATION_TYPES = frozenset({"many2one", "many2many", "one2many"})
 _VALUE_TYPES = frozenset(TYPE_COMPATIBILITY)
 _NULL_POLICIES = frozenset(
@@ -322,6 +323,29 @@ class ScalarValueRuleError(ScalarValueError):
         self.code = code
 
 
+def evaluate_scalar_mapping_value(
+    mapping: ScalarFieldMapping,
+    raw_source_value: Any,
+    *,
+    source_values_by_ordinal: Mapping[int, Any] | None = None,
+) -> str | int | Decimal | bool | date | datetime | None:
+    """Evaluate one scalar through the shared preview/runtime boundary."""
+
+    return canonicalize_scalar_value(
+        mapping,
+        raw_source_value,
+        formula_context={
+            "value": raw_source_value,
+            **{
+                f"column_{ordinal}": value
+                for ordinal, value in sorted(
+                    (source_values_by_ordinal or {}).items()
+                )
+            },
+        },
+    )
+
+
 def canonicalize_scalar_value(
     mapping: ScalarFieldMapping,
     raw_source_value: Any,
@@ -520,9 +544,50 @@ class DatasetMapping:
     target_scope: tuple[IdentityComponentMapping, ...] = ()
     fields: tuple[ScalarFieldMapping, ...] = ()
     relationships: tuple[RelationshipMapping, ...] = ()
+    control_totals: tuple["BusinessControlTotal", ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", MappingTargetMode(self.mode))
+        if len(self.control_totals) > MAX_CONTROL_TOTALS_PER_DATASET:
+            raise ValueError(
+                "A dataset has too many declared business control totals"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class BusinessControlTotal:
+    """One explicitly named expected sum over a prepared numeric field."""
+
+    name: str
+    target_field: str
+    expected_total: str
+    unit: str = ""
+    tolerance: str = "0"
+
+    def __post_init__(self) -> None:
+        name = self.name.strip()
+        target_field = self.target_field.strip()
+        unit = self.unit.strip()
+        if not name or len(name) > 120:
+            raise ValueError("Control-total name is required and must be concise")
+        if not target_field or len(target_field) > 200:
+            raise ValueError("Control-total field is invalid")
+        if len(unit) > 40:
+            raise ValueError("Control-total unit is too long")
+        try:
+            expected = Decimal(self.expected_total.strip())
+            tolerance = Decimal(self.tolerance.strip() or "0")
+        except (InvalidOperation, AttributeError) as error:
+            raise ValueError("Control totals require plain numeric values") from error
+        if not expected.is_finite() or not tolerance.is_finite():
+            raise ValueError("Control totals require finite numeric values")
+        if tolerance < 0:
+            raise ValueError("Control-total tolerance cannot be negative")
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "target_field", target_field)
+        object.__setattr__(self, "expected_total", format(expected, "f"))
+        object.__setattr__(self, "unit", unit)
+        object.__setattr__(self, "tolerance", format(tolerance, "f"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -561,6 +626,15 @@ class MappingDefinition:
                                 sorted(
                                     item.relationships,
                                     key=lambda relation: relation.target_field,
+                                )
+                            ),
+                            control_totals=tuple(
+                                sorted(
+                                    item.control_totals,
+                                    key=lambda control: (
+                                        control.target_field,
+                                        control.name.casefold(),
+                                    ),
                                 )
                             ),
                         )
@@ -1018,6 +1092,64 @@ class MappingSemanticValidator:
                     issues,
                 )
                 provided.add(field_mapping.target_field)
+
+            seen_control_fields: set[str] = set()
+            scalar_by_target = {
+                item.target_field: item for item in dataset.fields
+            }
+            for control_index, control in enumerate(dataset.control_totals):
+                path = f"{base}/control_totals/{control_index}"
+                scalar = scalar_by_target.get(control.target_field)
+                metadata = fields.get(control.target_field)
+                if scalar is None:
+                    issues.append(
+                        _issue(
+                            "MAPPING_CONTROL_TOTAL_FIELD_UNMAPPED",
+                            f"{path}/target_field",
+                            "The totals check uses an Odoo field that is not mapped.",
+                            "Map that numeric field or remove the totals check.",
+                            dataset=dataset,
+                            target_field=control.target_field,
+                        )
+                    )
+                elif scalar.value_type not in {"integer", "decimal"}:
+                    issues.append(
+                        _issue(
+                            "MAPPING_CONTROL_TOTAL_FIELD_NOT_NUMERIC",
+                            f"{path}/target_field",
+                            "The totals check requires a mapped number or amount field.",
+                            "Choose a mapped numeric Odoo field.",
+                            dataset=dataset,
+                            target_field=control.target_field,
+                        )
+                    )
+                elif metadata is None or metadata.type not in {
+                    "integer",
+                    "float",
+                    "monetary",
+                }:
+                    issues.append(
+                        _issue(
+                            "MAPPING_CONTROL_TOTAL_TARGET_NOT_NUMERIC",
+                            f"{path}/target_field",
+                            "The Odoo field selected for this total is not numeric.",
+                            "Choose a number, quantity, or amount field.",
+                            dataset=dataset,
+                            target_field=control.target_field,
+                        )
+                    )
+                if control.target_field in seen_control_fields:
+                    issues.append(
+                        _issue(
+                            "MAPPING_CONTROL_TOTAL_DUPLICATE",
+                            f"{path}/target_field",
+                            "The same field has more than one totals check.",
+                            "Keep one named expected total for this field.",
+                            dataset=dataset,
+                            target_field=control.target_field,
+                        )
+                    )
+                seen_control_fields.add(control.target_field)
 
             for relation_index, relation in enumerate(
                 dataset.relationships
@@ -2451,6 +2583,16 @@ def _dataset_mapping_from_dict(payload: Mapping[str, Any]) -> DatasetMapping:
             _relationship_from_dict(item)
             for item in payload.get("relationships", ())
         ),
+        control_totals=tuple(
+            BusinessControlTotal(
+                name=str(item["name"]),
+                target_field=str(item["target_field"]),
+                expected_total=str(item["expected_total"]),
+                unit=str(item.get("unit", "")),
+                tolerance=str(item.get("tolerance", "0")),
+            )
+            for item in payload.get("control_totals", ())
+        ),
     )
 
 
@@ -2490,6 +2632,8 @@ def _dataset_mapping_to_dict(
                 resolver.pop("value_mappings", None)
         for relation in payload.get("relationships", ()):
             relation.get("resolver", {}).pop("value_mappings", None)
+    if contract_version < 6:
+        payload.pop("control_totals", None)
     return payload
 
 

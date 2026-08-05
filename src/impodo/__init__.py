@@ -16,6 +16,7 @@ from .models import (
     PreflightResult,
 )
 from .staging_contracts import (
+    CanonicalControlTotal,
     CanonicalIssue,
     CanonicalLineage,
     CanonicalRow,
@@ -29,6 +30,7 @@ from .staging_contracts import (
 __all__ = [
     "ApprovalMode",
     "BusinessReference",
+    "CanonicalControlTotal",
     "CanonicalIssue",
     "CanonicalLineage",
     "CanonicalRow",

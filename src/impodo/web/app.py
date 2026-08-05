@@ -75,6 +75,8 @@ from ..local_stack import (
     ReadinessLevel,
 )
 from ..mapping_semantics import (
+    MAX_CONTROL_TOTALS_PER_DATASET,
+    BusinessControlTotal,
     BusinessKeyDefinition,
     BusinessKeyStatus,
     DatasetMapping,
@@ -92,7 +94,7 @@ from ..mapping_semantics import (
     ScalarValueError,
     ScalarValueSource,
     ValueMapping,
-    canonicalize_scalar_value,
+    evaluate_scalar_mapping_value,
     mapping_issue_fingerprint,
 )
 from ..models import target_identity_hash
@@ -113,6 +115,9 @@ from ..readiness import (
     BrowserReadinessService,
     MANIFEST_NAME,
     ReadinessError,
+    TransformationImpactFilter,
+    TransformationImpactIdentity,
+    browser_evaluation_scale,
     stage_browser_mapping,
 )
 from ..reporting import (
@@ -153,6 +158,14 @@ ODOO_APPLICATIONS = (
     "Sales",
     "Custom applications",
 )
+TRANSFORMATION_IMPACT_PAGE_SIZE = 100
+TRANSFORMATION_IMPACT_OUTCOMES = {
+    "changed",
+    "fallback",
+    "null",
+    "invalid",
+    "provided",
+}
 _MANUAL_FIELD_NAME = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
 _MANUAL_FIELD_TYPE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 MAPPING_MAX_REQUEST_BYTES = 5 * 1024 * 1024
@@ -964,6 +977,18 @@ def create_local_app(
         report = context.readiness.current_report(project_id)
         if report is None:
             raise HTTPException(status_code=404, detail="Readiness report not found")
+        staging = context.readiness.current_staging(project_id)
+        if staging is None or not staging.control_totals_passed:
+            return _render_summary(
+                request,
+                context,
+                project_id,
+                error=(
+                    "Resolve the named totals that need attention before "
+                    "creating the package."
+                ),
+                status_code=422,
+            )
         if report.status != "READY":
             return _render_summary(
                 request,
@@ -1957,153 +1982,235 @@ def create_local_app(
         response_class=HTMLResponse,
     )
     async def project_transformation_impact(request: Request, project_id: str):
-        """Render full-row transformation evidence without contacting Odoo."""
+        """Render one bounded page from prepared transformation evidence."""
 
         require_session(request)
-        project = context.repository.get(project_id)
-        revision = context.repository.get_mapping_revision(project_id)
-        if revision is None:
-            return _render_mapping(
-                request,
-                context,
-                project_id,
-                error="Validate the mapping before reviewing transformations.",
-                status_code=422,
-            )
-        validation = context.repository.get_mapping_validation(
-            project_id,
-            revision.version,
-        )
-        if validation is None or validation.status is MappingValidationStatus.INVALID:
-            return _render_mapping(
-                request,
-                context,
-                project_id,
-                error=(
-                    "Resolve the mapping validation findings before reviewing "
-                    "all transformed values."
-                ),
-                status_code=422,
-            )
-        physical_selection = context.repository.get_source_selection(project_id)
-        effective_selection = context.repository.get_mapping_source_selection(
-            project_id
-        )
-        if physical_selection is None or effective_selection is None:
-            return _render_mapping(
-                request,
-                context,
-                project_id,
-                error="Freeze the source datasets before reviewing transformations.",
-                status_code=422,
-            )
-        working_draft = context.repository.get_mapping_working_draft(project_id)
-        if (
-            working_draft is not None
-            and working_draft.definition.source_selection_hash
-            == effective_selection.content_hash
-            and working_draft.content_hash != revision.definition.content_hash
-        ):
-            return _render_mapping(
-                request,
-                context,
-                project_id,
-                error=(
-                    "Validate the current saved changes before reviewing their "
-                    "transformation impact."
-                ),
-                status_code=422,
-            )
         try:
-            staged = await run_in_threadpool(
-                stage_browser_mapping,
-                project,
-                revision.definition,
-                physical_selection,
-                effective_selection,
-                context.repository.get_derived_entity_plan(project_id),
-                context.repository.get_source_catalogs(project_id),
-                context.artifacts,
-                collect_transformation_impact=True,
-            )
-        except (OSError, ReadinessError, WorkspaceError) as error:
-            return _render(
+            evidence = _transformation_impact_evidence(context, project_id)
+        except WorkspaceError as error:
+            return _render_mapping(
                 request,
-                "project_transformation_impact.html",
-                project=project,
-                revision=revision,
-                report=None,
-                rows=(),
-                datasets=(),
-                field_labels={},
+                context,
+                project_id,
                 error=str(error),
                 status_code=422,
             )
-        report = staged.transformation_impact
-        assert report is not None
-        schema = context.repository.get_odoo_schema_catalog(project_id)
-        model_by_name = {
-            model.name: model for model in (schema.models if schema else ())
+        project, revision, physical_selection, effective_selection, plan = evidence
+        identity = _transformation_impact_identity(
+            revision,
+            physical_selection,
+            effective_selection,
+            plan,
+        )
+        snapshot = context.repository.get_transformation_impact_snapshot(
+            project_id,
+            identity,
+        )
+        datasets, field_labels, field_choices = _transformation_impact_labels(
+            context,
+            project_id,
+            revision,
+            effective_selection,
+        )
+        filters = _transformation_impact_filters(
+            dataset=request.query_params.get("dataset", ""),
+            outcome=request.query_params.get("outcome", ""),
+            target_field=request.query_params.get("field", ""),
+            query=request.query_params.get("q", ""),
+            allowed_datasets={item[0] for item in datasets},
+            allowed_fields={item[0] for item in field_choices},
+        )
+        page = None
+        previous_url = None
+        next_url = None
+        rows = ()
+        outcome_urls = {
+            outcome: _transformation_impact_url(
+                project_id,
+                replace(filters, outcome=outcome),
+            )
+            for outcome in TRANSFORMATION_IMPACT_OUTCOMES
         }
-        dataset_by_id = {
-            dataset.dataset_id: dataset for dataset in effective_selection.datasets
-        }
-        field_labels = {}
-        for mapping in revision.definition.datasets:
-            dataset = dataset_by_id.get(mapping.dataset_id)
-            model = model_by_name.get(mapping.target_model)
-            if dataset is None or model is None:
-                continue
-            for field in model.fields:
-                field_labels[(dataset.name, field.name)] = field.label
+        if snapshot is not None:
+            after = _optional_nonnegative_query_int(
+                request.query_params.get("after")
+            )
+            before = (
+                None
+                if after is not None
+                else _optional_nonnegative_query_int(
+                    request.query_params.get("before")
+                )
+            )
+            page = context.repository.get_transformation_impact_page(
+                project_id,
+                identity,
+                filters,
+                page_size=TRANSFORMATION_IMPACT_PAGE_SIZE,
+                after=after,
+                before=before,
+            )
+            rows = page.rows
+            if page.previous_before is not None:
+                previous_url = _transformation_impact_url(
+                    project_id,
+                    filters,
+                    before=page.previous_before,
+                )
+            if page.next_after is not None:
+                next_url = _transformation_impact_url(
+                    project_id,
+                    filters,
+                    after=page.next_after,
+                )
         return _render(
             request,
             "project_transformation_impact.html",
             project=project,
             revision=revision,
-            report=report,
-            rows=report.rows,
-            datasets=tuple(staged.dataset_labels.items()),
+            snapshot=snapshot,
+            report=snapshot.report if snapshot is not None else None,
+            rows=rows,
+            datasets=datasets,
             field_labels=field_labels,
+            field_choices=field_choices,
+            filters=filters,
+            impact_page=page,
+            outcome_urls=outcome_urls,
+            previous_url=previous_url,
+            next_url=next_url,
             error=None,
         )
 
-    @app.post("/projects/{project_id}/mapping/transformation-impact.csv")
-    async def download_transformation_impact(request: Request, project_id: str):
-        """Download every affected raw-to-proposed value without Node.js."""
+    @app.post(
+        "/projects/{project_id}/mapping/transformation-impact/prepare"
+    )
+    async def prepare_transformation_impact(request: Request, project_id: str):
+        """Prepare one hash-bound local snapshot without contacting Odoo."""
 
         require_session(request)
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
-        project = context.repository.get(project_id)
-        revision = context.repository.get_mapping_revision(project_id)
-        if revision is None:
-            raise HTTPException(status_code=422, detail="Validate the mapping first")
-        validation = context.repository.get_mapping_validation(
-            project_id,
-            revision.version,
-        )
-        if validation is None or validation.status is MappingValidationStatus.INVALID:
-            raise HTTPException(
+        try:
+            evidence = _transformation_impact_evidence(context, project_id)
+        except WorkspaceError as error:
+            return _render_mapping(
+                request,
+                context,
+                project_id,
+                error=str(error),
                 status_code=422,
-                detail="Resolve mapping validation findings first",
             )
-        physical_selection = context.repository.get_source_selection(project_id)
-        effective_selection = context.repository.get_mapping_source_selection(
-            project_id
+        project, revision, physical_selection, effective_selection, plan = evidence
+        identity = _transformation_impact_identity(
+            revision,
+            physical_selection,
+            effective_selection,
+            plan,
         )
-        if physical_selection is None or effective_selection is None:
-            raise HTTPException(status_code=422, detail="Freeze the source datasets first")
-        working_draft = context.repository.get_mapping_working_draft(project_id)
-        if (
-            working_draft is not None
-            and working_draft.definition.source_selection_hash
-            == effective_selection.content_hash
-            and working_draft.content_hash != revision.definition.content_hash
-        ):
+
+        def build_snapshot():
+            def evaluate(write_impact):
+                staged = stage_browser_mapping(
+                    project,
+                    revision.definition,
+                    physical_selection,
+                    effective_selection,
+                    plan,
+                    context.repository.get_source_catalogs(project_id),
+                    context.artifacts,
+                    collect_transformation_impact=True,
+                    transformation_detail_limit=0,
+                    transformation_impact_sink=write_impact,
+                )
+                report = staged.transformation_impact
+                assert report is not None
+                return report
+
+            return context.repository.replace_transformation_impact_snapshot(
+                project_id,
+                identity,
+                evaluate,
+                actor=context.actor,
+            )
+
+        try:
+            await run_in_threadpool(build_snapshot)
+        except (OSError, ReadinessError, WorkspaceError) as error:
+            datasets, field_labels, field_choices = _transformation_impact_labels(
+                context,
+                project_id,
+                revision,
+                effective_selection,
+            )
+            return _render(
+                request,
+                "project_transformation_impact.html",
+                project=project,
+                revision=revision,
+                snapshot=None,
+                report=None,
+                rows=(),
+                datasets=datasets,
+                field_labels=field_labels,
+                field_choices=field_choices,
+                filters=TransformationImpactFilter(),
+                impact_page=None,
+                outcome_urls={},
+                previous_url=None,
+                next_url=None,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, "Transformation impact prepared from the current mapping.")
+        return RedirectResponse(
+            f"/projects/{project_id}/mapping/transformation-impact",
+            status_code=303,
+        )
+
+    @app.post("/projects/{project_id}/mapping/transformation-impact.csv")
+    async def download_transformation_impact(request: Request, project_id: str):
+        """Download matching persisted impact rows without recomputing them."""
+
+        require_session(request)
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "dataset", "outcome", "field", "q"},
+        )
+        try:
+            evidence = _transformation_impact_evidence(context, project_id)
+        except WorkspaceError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        _project, revision, physical_selection, effective_selection, plan = evidence
+        identity = _transformation_impact_identity(
+            revision,
+            physical_selection,
+            effective_selection,
+            plan,
+        )
+        datasets, _field_labels, field_choices = _transformation_impact_labels(
+            context,
+            project_id,
+            revision,
+            effective_selection,
+        )
+        filters = _transformation_impact_filters(
+            dataset=_text(form, "dataset"),
+            outcome=_text(form, "outcome"),
+            target_field=_text(form, "field"),
+            query=_text(form, "q"),
+            allowed_datasets={item[0] for item in datasets},
+            allowed_fields={item[0] for item in field_choices},
+        )
+        if context.repository.get_transformation_impact_snapshot(
+            project_id,
+            identity,
+        ) is None:
             raise HTTPException(
                 status_code=422,
-                detail="Validate the current saved mapping changes first",
+                detail="Prepare the current transformation impact first",
             )
 
         report_directory = (
@@ -2113,7 +2220,30 @@ def create_local_app(
         ).resolve()
         report_directory.mkdir(parents=True, exist_ok=True)
         hash_token = revision.definition.content_hash.removeprefix("sha256:")[:16]
-        filename = f"transformation-impact-v{revision.version}-{hash_token}.csv"
+        filter_token = hashlib.sha256(
+            json.dumps(
+                {
+                    "dataset": filters.dataset,
+                    "outcome": filters.outcome,
+                    "field": filters.target_field,
+                    "q": filters.query,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()[:12]
+        scope = "filtered" if any(
+            (
+                filters.dataset,
+                filters.outcome,
+                filters.target_field,
+                filters.query,
+            )
+        ) else "all"
+        filename = (
+            f"transformation-impact-{scope}-v{revision.version}-"
+            f"{hash_token}-{filter_token}.csv"
+        )
         target = (report_directory / filename).resolve()
         if target.parent != report_directory:
             raise HTTPException(status_code=404, detail="Report file not found")
@@ -2137,7 +2267,11 @@ def create_local_app(
                         )
                     )
 
-                    def write_impact(row) -> None:
+                    for row in context.repository.iter_transformation_impact_rows(
+                        project_id,
+                        identity,
+                        filters,
+                    ):
                         writer.writerow(
                             tuple(
                                 _safe_spreadsheet_text(value)
@@ -2154,19 +2288,6 @@ def create_local_app(
                                 )
                             )
                         )
-
-                    stage_browser_mapping(
-                        project,
-                        revision.definition,
-                        physical_selection,
-                        effective_selection,
-                        context.repository.get_derived_entity_plan(project_id),
-                        context.repository.get_source_catalogs(project_id),
-                        context.artifacts,
-                        collect_transformation_impact=True,
-                        transformation_detail_limit=0,
-                        transformation_impact_sink=write_impact,
-                    )
                 partial.replace(target)
             finally:
                 partial.unlink(missing_ok=True)
@@ -2801,6 +2922,12 @@ def _render_summary(
     status_code: int = 200,
 ):
     project = context.repository.get(project_id)
+    source_selection = context.repository.get_source_selection(project_id)
+    evaluation_scale = (
+        browser_evaluation_scale(source_selection)
+        if source_selection is not None
+        else None
+    )
     revision = context.repository.get_mapping_revision(project_id)
     submission = (
         context.repository.get_mapping_submission(project_id, revision.version)
@@ -2887,6 +3014,7 @@ def _render_summary(
         ),
         status_filter=status_filter,
         dataset_filter=dataset_filter,
+        evaluation_scale=evaluation_scale,
         error=error,
         status_code=status_code,
     )
@@ -3157,6 +3285,167 @@ def _mapping_save_error_response(
             status_code=303,
         )
     return JSONResponse({"detail": detail}, status_code=error.status_code)
+
+
+def _transformation_impact_evidence(context: WebContext, project_id: str):
+    project = context.repository.get(project_id)
+    revision = context.repository.get_mapping_revision(project_id)
+    if revision is None:
+        raise WorkspaceError(
+            "Validate the mapping before reviewing transformations."
+        )
+    validation = context.repository.get_mapping_validation(
+        project_id,
+        revision.version,
+    )
+    if validation is None or validation.status is MappingValidationStatus.INVALID:
+        raise WorkspaceError(
+            "Resolve the mapping validation findings before reviewing all "
+            "transformed values."
+        )
+    physical_selection = context.repository.get_source_selection(project_id)
+    effective_selection = context.repository.get_mapping_source_selection(
+        project_id
+    )
+    if physical_selection is None or effective_selection is None:
+        raise WorkspaceError(
+            "Freeze the source datasets before reviewing transformations."
+        )
+    working_draft = context.repository.get_mapping_working_draft(project_id)
+    if (
+        working_draft is not None
+        and working_draft.definition.source_selection_hash
+        == effective_selection.content_hash
+        and working_draft.content_hash != revision.definition.content_hash
+    ):
+        raise WorkspaceError(
+            "Validate the current saved changes before reviewing their "
+            "transformation impact."
+        )
+    return (
+        project,
+        revision,
+        physical_selection,
+        effective_selection,
+        context.repository.get_derived_entity_plan(project_id),
+    )
+
+
+def _transformation_impact_identity(
+    revision,
+    physical_selection,
+    effective_selection,
+    plan,
+) -> TransformationImpactIdentity:
+    return TransformationImpactIdentity(
+        physical_selection_hash=physical_selection.content_hash,
+        source_selection_hash=effective_selection.content_hash,
+        mapping_content_hash=revision.definition.content_hash,
+        schema_hash=revision.definition.schema_hash,
+        derived_plan_hash=plan.content_hash if plan is not None else None,
+    )
+
+
+def _transformation_impact_labels(
+    context: WebContext,
+    project_id: str,
+    revision,
+    effective_selection,
+):
+    schema = context.repository.get_odoo_schema_catalog(project_id)
+    model_by_name = {
+        model.name: model for model in (schema.models if schema else ())
+    }
+    dataset_by_id = {
+        dataset.dataset_id: dataset for dataset in effective_selection.datasets
+    }
+    field_labels: dict[tuple[str, str], str] = {}
+    field_choices: dict[str, str] = {}
+    for mapping in revision.definition.datasets:
+        dataset = dataset_by_id.get(mapping.dataset_id)
+        model = model_by_name.get(mapping.target_model)
+        if dataset is None:
+            continue
+        if model is not None:
+            for field in model.fields:
+                field_labels[(dataset.name, field.name)] = field.label
+        for field in mapping.fields:
+            if field.value_source is ScalarValueSource.ODOO_DEFAULT:
+                continue
+            field_choices.setdefault(
+                field.target_field,
+                field_labels.get(
+                    (dataset.name, field.target_field),
+                    field.target_field,
+                ),
+            )
+    datasets = tuple(
+        (dataset.name, dataset.name.replace("_", " ").title())
+        for dataset in effective_selection.datasets
+    )
+    return (
+        datasets,
+        field_labels,
+        tuple(sorted(field_choices.items(), key=lambda item: item[1].casefold())),
+    )
+
+
+def _transformation_impact_filters(
+    *,
+    dataset: str,
+    outcome: str,
+    target_field: str,
+    query: str,
+    allowed_datasets: set[str],
+    allowed_fields: set[str],
+) -> TransformationImpactFilter:
+    selected_dataset = dataset.strip()[:128]
+    selected_outcome = outcome.strip()[:32]
+    selected_field = target_field.strip()[:128]
+    return TransformationImpactFilter(
+        dataset=(
+            selected_dataset if selected_dataset in allowed_datasets else ""
+        ),
+        outcome=(
+            selected_outcome
+            if selected_outcome in TRANSFORMATION_IMPACT_OUTCOMES
+            else ""
+        ),
+        target_field=(
+            selected_field if selected_field in allowed_fields else ""
+        ),
+        query=query.strip()[:128],
+    )
+
+
+def _transformation_impact_url(
+    project_id: str,
+    filters: TransformationImpactFilter,
+    *,
+    after: int | None = None,
+    before: int | None = None,
+) -> str:
+    parameters = {
+        "dataset": filters.dataset,
+        "outcome": filters.outcome,
+        "field": filters.target_field,
+        "q": filters.query,
+        "after": str(after) if after is not None else "",
+        "before": str(before) if before is not None else "",
+    }
+    query = urlencode(
+        {name: value for name, value in parameters.items() if value}
+    )
+    base = f"/projects/{project_id}/mapping/transformation-impact"
+    return f"{base}?{query}" if query else base
+
+
+def _optional_nonnegative_query_int(value: str | None) -> int | None:
+    try:
+        parsed = int(value or "")
+    except ValueError:
+        return None
+    return parsed if 0 <= parsed <= 9_223_372_036_854_775_807 else None
 
 
 def _mapping_return_url(
@@ -4086,6 +4375,23 @@ def _mapping_dataset_views(
             for field in (model.fields if model else ())
             if field.type not in {"many2one", "many2many", "one2many"}
         )
+        numeric_fields = tuple(
+            field
+            for field in all_scalar_fields
+            if field.type in {"integer", "float", "monetary"}
+        )
+        existing_controls = existing.control_totals if existing else ()
+        control_total_slots = tuple(
+            {
+                "index": index,
+                "control": (
+                    existing_controls[index]
+                    if index < len(existing_controls)
+                    else None
+                ),
+            }
+            for index in range(MAX_CONTROL_TOTALS_PER_DATASET)
+        )
         scalar_candidates = tuple(
             (field_index, field)
             for field_index, field in enumerate(all_scalar_fields)
@@ -4288,6 +4594,8 @@ def _mapping_dataset_views(
                 "selected_key": selected_key,
                 "identity_rows": tuple(identity_rows),
                 "scalar_rows": scalar_rows,
+                "numeric_fields": numeric_fields,
+                "control_total_slots": control_total_slots,
                 "scalar_catalog_total": len(scalar_candidates),
                 "scalar_matching_total": len(matching_scalars),
                 "scalar_mapped_total": len(scalar_by_target),
@@ -4415,19 +4723,16 @@ def _scalar_mapping_preview(
         samples = source_samples.get(mapping.source_column_key, ())
         raw = samples[0] if samples else None
     try:
-        proposed = canonicalize_scalar_value(
+        proposed = evaluate_scalar_mapping_value(
             mapping,
             raw,
-            formula_context={
-                "value": raw,
-                **{
-                    f"column_{column.ordinal}": (
-                        source_samples.get(column.stable_key, (None,))[0]
-                        if source_samples.get(column.stable_key)
-                        else None
-                    )
-                    for column in source_columns
-                },
+            source_values_by_ordinal={
+                column.ordinal: (
+                    source_samples.get(column.stable_key, (None,))[0]
+                    if source_samples.get(column.stable_key)
+                    else None
+                )
+                for column in source_columns
             },
         )
     except ScalarValueError as error:
@@ -4534,6 +4839,16 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"scalar_required_{dataset_index}_{field_index}",
                     f"scalar_required_create_{dataset_index}_{field_index}",
                     f"scalar_null_{dataset_index}_{field_index}",
+                }
+            )
+        for control_index in range(MAX_CONTROL_TOTALS_PER_DATASET):
+            allowed.update(
+                {
+                    f"control_name_{dataset_index}_{control_index}",
+                    f"control_target_{dataset_index}_{control_index}",
+                    f"control_expected_{dataset_index}_{control_index}",
+                    f"control_unit_{dataset_index}_{control_index}",
+                    f"control_tolerance_{dataset_index}_{control_index}",
                 }
             )
         relation_fields = [
@@ -4976,6 +5291,48 @@ def _mapping_datasets_from_form(
         mode = MappingTargetMode(
             _text(form, f"mode_{dataset_index}") or "upsert"
         )
+        control_totals: list[BusinessControlTotal] = []
+        numeric_targets = {
+            item.name
+            for item in scalar_fields
+            if item.type in {"integer", "float", "monetary"}
+        }
+        for control_index in range(MAX_CONTROL_TOTALS_PER_DATASET):
+            name = _text(
+                form, f"control_name_{dataset_index}_{control_index}"
+            )
+            target_field = _text(
+                form, f"control_target_{dataset_index}_{control_index}"
+            )
+            expected = _text(
+                form, f"control_expected_{dataset_index}_{control_index}"
+            )
+            unit = _text(
+                form, f"control_unit_{dataset_index}_{control_index}"
+            )
+            tolerance = _text(
+                form, f"control_tolerance_{dataset_index}_{control_index}"
+            )
+            if not any((name, target_field, expected, unit)):
+                continue
+            if not name or not target_field or not expected:
+                raise WorkspaceError(
+                    "Complete the name, numeric field and expected value for "
+                    "each totals check"
+                )
+            if target_field not in numeric_targets:
+                raise WorkspaceError(
+                    "Choose a number, quantity or amount field for the totals check"
+                )
+            control_totals.append(
+                BusinessControlTotal(
+                    name=name,
+                    target_field=target_field,
+                    expected_total=expected,
+                    unit=unit,
+                    tolerance=tolerance or "0",
+                )
+            )
         datasets.append(
             DatasetMapping(
                 dataset_id=source_dataset.dataset_id,
@@ -5007,6 +5364,7 @@ def _mapping_datasets_from_form(
                         key=lambda item: item.target_field,
                     )
                 ),
+                control_totals=tuple(control_totals),
             )
         )
     return tuple(datasets)
@@ -5073,7 +5431,7 @@ def _merge_partial_mapping_datasets(
             else None
         )
         if source_dataset.dataset_id != editable_dataset_id:
-            if parsed.fields or parsed.relationships:
+            if parsed.fields or parsed.relationships or parsed.control_totals:
                 raise WorkspaceError(
                     "Mapping request changed a dataset that is not being edited"
                 )
@@ -5083,6 +5441,11 @@ def _merge_partial_mapping_datasets(
                     fields=(compatible_existing.fields if compatible_existing else ()),
                     relationships=(
                         compatible_existing.relationships
+                        if compatible_existing
+                        else ()
+                    ),
+                    control_totals=(
+                        compatible_existing.control_totals
                         if compatible_existing
                         else ()
                     ),

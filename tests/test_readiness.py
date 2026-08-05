@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
+from decimal import Decimal
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -25,6 +26,7 @@ from impodo.inspection import (
     SourceTableCatalog,
 )
 from impodo.mapping_semantics import (
+    BusinessControlTotal,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
@@ -37,6 +39,7 @@ from impodo.mapping_semantics import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
     ValueMapping,
+    evaluate_scalar_mapping_value,
 )
 from impodo.models import (
     Classification,
@@ -51,7 +54,14 @@ from impodo.projects import (
     ProjectStatus,
     SourceFile,
 )
-from impodo.readiness import evaluate_browser_mapping, stage_browser_mapping
+from impodo.readiness import (
+    BROWSER_EVALUATION_ROW_LIMIT,
+    ReadinessError,
+    browser_evaluation_scale,
+    evaluate_browser_mapping,
+    require_supported_browser_scale,
+    stage_browser_mapping,
+)
 from impodo.source import load_selected_source_table
 from impodo.staging_contracts import (
     CanonicalStagingRun,
@@ -206,6 +216,16 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         restored = CanonicalStagingRun.from_json(direct.canonical_run.to_json())
         self.assertEqual(restored.content_hash, direct.canonical_run.content_hash)
         self.assertEqual(restored.to_json(), direct.canonical_run.to_json())
+
+        legacy = replace(
+            direct.canonical_run,
+            contract_version=2,
+            evaluator_version=1,
+            control_totals=(),
+        )
+        restored_legacy = CanonicalStagingRun.from_json(legacy.to_json())
+        self.assertEqual(restored_legacy.content_hash, legacy.content_hash)
+        self.assertNotIn("control_totals", legacy.to_portable_dict())
 
         changed_definition = replace(
             definition,
@@ -389,6 +409,112 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         self.assertEqual(report.rows[0].proposed_value, "COMP-1")
         self.assertIn("Trim", report.rows[0].rules)
         self.assertIn("Case: uppercase", report.rows[0].rules)
+
+    def test_browser_preview_and_full_row_runtime_share_scalar_semantics(self) -> None:
+        evidence = self._evidence(
+            (("BOM-A", "1", " comp-1 "), ("BOM-A", "2", "COMP-2"))
+        )
+        definition = evidence[1]
+        parent, child = definition.datasets
+        amount = ScalarFieldMapping(
+            target_field="amount_total",
+            source_column_key="column:line_id",
+            value_type="decimal",
+            transform=ScalarTransformPolicy(
+                formula="column_2 * 1.25",
+                decimal_places=2,
+                rounding_mode="half_up",
+            ),
+        )
+        definition = replace(
+            definition,
+            datasets=(parent, replace(child, fields=(*child.fields, amount))),
+        )
+
+        preview = evaluate_scalar_mapping_value(
+            amount,
+            "1",
+            source_values_by_ordinal={
+                1: "BOM-A",
+                2: "1",
+                3: " comp-1 ",
+            },
+        )
+        staged = stage_browser_mapping(
+            evidence[0],
+            definition,
+            *evidence[2:],
+        )
+        runtime = staged.prepared.by_dataset()["bom_components"][0]
+
+        self.assertEqual(preview, Decimal("1.25"))
+        self.assertEqual(runtime.scalar_values["amount_total"], preview)
+
+    def test_declared_business_total_uses_prepared_values_without_guessing(self) -> None:
+        evidence = self._evidence(
+            (("BOM-A", "1", "COMP-1"), ("BOM-A", "2", "COMP-2"))
+        )
+        definition = evidence[1]
+        parent, child = definition.datasets
+        quantity = ScalarFieldMapping(
+            target_field="product_qty",
+            source_column_key="column:line_id",
+            value_type="decimal",
+        )
+        definition = replace(
+            definition,
+            datasets=(
+                parent,
+                replace(
+                    child,
+                    fields=(*child.fields, quantity),
+                    control_totals=(
+                        BusinessControlTotal(
+                            name="Component quantity",
+                            target_field="product_qty",
+                            expected_total="3",
+                            unit="units",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        staged = stage_browser_mapping(
+            evidence[0],
+            definition,
+            *evidence[2:],
+        )
+        total = staged.canonical_run.control_totals[0]
+
+        self.assertTrue(total.passed)
+        self.assertEqual(total.actual_total, "3")
+        self.assertEqual(total.expected_total, "3")
+        self.assertEqual(total.included_rows, 2)
+        self.assertEqual(total.empty_rows, 0)
+        self.assertEqual(total.unit, "units")
+
+    def test_in_memory_scale_limit_blocks_before_loading_source(self) -> None:
+        evidence = self._evidence((("BOM-A", "1", "COMP-1"),))
+        physical = evidence[2]
+        oversized = replace(
+            physical,
+            datasets=(
+                replace(
+                    physical.datasets[0],
+                    row_count=BROWSER_EVALUATION_ROW_LIMIT + 1,
+                ),
+            ),
+        )
+
+        scale = browser_evaluation_scale(oversized)
+
+        self.assertFalse(scale.supported)
+        with self.assertRaisesRegex(
+            ReadinessError,
+            "Split the source into smaller projects",
+        ):
+            require_supported_browser_scale(oversized)
 
     def test_product_category_column_stages_categories_and_product_links(
         self,

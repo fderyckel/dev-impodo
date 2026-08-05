@@ -12,7 +12,7 @@ plan to every frozen source row. It produces deterministic canonical evidence
 without reading or changing Odoo:
 
 ```text
-materialized frozen source tables
+frozen source tables within the supported browser limit
 -> storage-independent full-row evaluator
 -> typed prepared records
 -> versioned canonical staging run
@@ -24,6 +24,11 @@ Artifact materialization remains an adapter responsibility. The evaluator
 accepts already loaded physical tables and has no repository, connector,
 credential, or Odoo dependency.
 
+The current browser path accepts at most **100,000 physical source rows per
+project**. It checks that limit before materializing an artifact and gives the
+data manager a plain instruction to split a larger source. This is an explicit
+interim boundary, not a claim that source evaluation is streaming.
+
 ## Bound inputs
 
 Every `CanonicalStagingRun` binds:
@@ -33,6 +38,7 @@ Every `CanonicalStagingRun` binds:
 - submitted mapping and governed schema hashes;
 - the derived-entity plan hash when one exists;
 - staging-contract and evaluator versions;
+- any explicitly declared business totals through the mapping hash;
 - exact source-content hashes through each row's lineage.
 
 Changed bound inputs produce different canonical row and run hashes. Publishing
@@ -96,6 +102,27 @@ browser. It materializes frozen artifacts and delegates evaluation to
 engine continue to consume the same `ProfileDocument` and `PreparedBundle`.
 Readiness reports bind the exact published staging run and content hash.
 
+Server-rendered mapping previews and full-row evaluation both call
+`evaluate_scalar_mapping_value()`. The browser preview is therefore a bounded
+projection of the same provider, formula-context, transformation, parsing, and
+validation semantics used for every row. Client-side instant feedback remains
+advisory until the mapping is saved and checked by the server.
+
+## Explicit business control totals
+
+Business totals are opt-in mapping evidence. For each configured check the
+data manager must provide a plain name, choose a mapped numeric Odoo field,
+enter the expected total, and state the currency or unit when relevant. The
+only supported aggregation is `SUM`; Impodo never guesses an amount field,
+quantity field, currency, unit, or expected value.
+
+Evaluation adds the typed canonical values, counts included and empty rows,
+compares the result with the declared tolerance, and persists the deterministic
+result with the canonical run. Empty values prevent a total from passing. A
+failed total prevents review-package creation but does not modify source data
+or grant any Odoo capability. The Review page shows the business result openly
+and keeps field identifiers and tolerance details collapsed.
+
 ## Publication lifecycle
 
 Canonical evidence is immutable. Publication time, operator, and lifecycle
@@ -110,13 +137,19 @@ The Review page exposes only a plain-language saved status and row total.
 Dataset controls, run identifiers, versions, and hashes remain inside collapsed
 technical details. Odoo is not contacted by the staging repository.
 
-## Next integration slice
+## Current scale evidence and next integration slice
 
-Slice 3 adds governed quality rules and quarantine. Historical-scale
-source-side streaming and explicitly declared business amount or quantity
-totals also remain closure work; the current evaluator still materializes its
-validated source tables in memory even though DuckDB writes are batched.
-Durable staging is not a clean package or Odoo write authorization.
+On 2026-08-05, the real browser evaluator processed a synthetic 100,000-row,
+three-column parent/child fixture into 100,001 canonical rows in 79.363 seconds
+with 437.4 MiB peak additional Python-traced memory on the development Windows
+workstation. This is non-production evidence for the interim limit. Wider
+sources and future quality overlays still require measurement, and streaming
+beyond the limit remains scale-closure work.
+
+Slice 3 adds governed quality rules, physical-source accounting, and
+quarantine as detailed in the
+[Slice 3 plan](../plans/slice-3-quality-and-quarantine-plan.md). Durable staging
+is not a clean package or Odoo write authorization.
 
 ## Executable evidence
 

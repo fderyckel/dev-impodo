@@ -96,6 +96,8 @@ runtime is installed and that integration is part of the acceptance run.
 
 - the artifact adapter and storage-independent evaluator produce the same
   prepared bundle and canonical content hash;
+- server-rendered scalar previews and full-row runtime call the same provider,
+  formula-context, transformation, parsing, and validation boundary;
 - repeated evaluation of unchanged inputs produces identical canonical JSON;
 - every canonical row has stable source, mapping, schema, and derived-plan
   lineage;
@@ -117,11 +119,15 @@ runtime is installed and that integration is part of the acceptance run.
 - target and bound-input changes invalidate the current pointer without
   deleting historical rows;
 - readiness reports bind the exact staging run and content hash;
-- the browser uses a plain saved/retry state and collapses technical evidence.
+- the browser uses a plain saved/retry state and collapses technical evidence;
+- projects above 100,000 physical rows block before artifact materialization
+  with a plain split-the-source instruction;
+- explicitly named expected sums use only user-selected mapped numeric fields,
+  retain unit/tolerance evidence, persist atomically, and block package creation
+  when they differ or contain empty values.
 
-Historical-scale source-side streaming, explicitly declared business amount or
-quantity totals, quarantine, normalization approval, and clean-package
-certification remain pending.
+Source-side streaming beyond the bounded browser limit, quarantine,
+normalization approval, and clean-package certification remain pending.
 
 ### Verified
 
@@ -320,6 +326,21 @@ synthetic data:
 - catalog/resolution/comparison time;
 - manifest and workbook generation time;
 - total peak memory.
+
+Current bounded-browser evidence, recorded on the development Windows
+workstation on 2026-08-05:
+
+- fixture: 100,000 physical rows, three columns, one grouped parent plus 100,000
+  child rows;
+- output: 100,001 canonical rows;
+- evaluator time: 79.363 seconds;
+- peak additional Python-traced memory: 437.4 MiB;
+- policy: accept at most 100,000 physical rows in the materializing browser
+  adapter and fail before loading larger inputs.
+
+This is interim workstation evidence, not a production sizing guarantee. Wide
+sources, quality overlays, saved snapshots, workbooks, and Odoo transport still
+require representative measurement.
 
 Structural requirements already apply:
 

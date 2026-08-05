@@ -13,7 +13,7 @@ certifiable read-only preflight package. It does not redefine:
   [browser workspace contract](../contracts/workspace.md);
 - the expert CLI matcher and classifier in the
   [preflight contract](../contracts/preflight.md);
-- the in-memory canonical evaluation foundation in the
+- the durable canonical evaluation foundation in the
   [canonical staging contract](../contracts/canonical-staging.md);
 - the standalone approval lifecycle in the
   [normalization governance contract](../contracts/normalization-governance.md);
@@ -29,18 +29,18 @@ certifiable read-only preflight package. It does not redefine:
 | Source evidence | Browser registration, inspection, confirmation, and frozen dataset selections are integrated and hash-bound |
 | Target schema | Read-only Odoo 19 capture, permitted model scope, business keys, and manual-draft boundary are integrated |
 | Mapping | Immutable revisions, scalar providers, allowlisted transformations, relationships, validation, and exact-hash submission are integrated |
-| Derived entities | Lookup and parent/child preparation rules can be authored and previewed, and browser readiness repeats them over every frozen source row; they do not yet produce durable canonical datasets |
+| Derived entities | Lookup and parent/child preparation rules are authored in the browser, repeated over every frozen source row, and published as durable canonical datasets with complete physical-row pointers |
 | Normalization governance | Immutable dry-run decisions and freeze rules exist as standalone domain behavior, not as a browser or repository workflow |
-| Canonical evaluation | Exact submitted browser mappings now use a reusable storage- and Odoo-independent full-row evaluator. It emits a versioned in-memory canonical run with typed proposed values, symbolic references, lineage, issues, deterministic row IDs, and complete row reconciliation |
-| Read-only preflight | Strict CLI profiles and exact submitted browser mapping revisions both feed the preflight engine. Browser readiness consumes the reusable evaluator result, batches target reads, classifies results, and persists the report and technical manifest; canonical rows remain transient rather than durably published |
+| Canonical evaluation | Exact submitted browser mappings use a reusable storage- and Odoo-independent full-row evaluator. Server previews and runtime share one scalar boundary; the current in-memory path is explicitly limited to 100,000 physical rows |
+| Read-only preflight | Strict CLI profiles and exact submitted browser mapping revisions both feed the preflight engine. Browser readiness publishes canonical evidence, batches target reads, classifies results, and persists the report and technical manifest |
 | Export approval | Frozen-plan approval objects exist as standalone domain behavior, without an integrated staged package or executor |
-| Staging and certification | Durable canonical rows, quarantine, integrated full-row quality execution, and clean-package certification are absent |
+| Staging and certification | Durable atomic canonical staging, row controls, and opt-in named business totals are integrated. Quarantine, integrated quality execution, and clean-package certification remain absent |
 
-The missing product seam is therefore not another mapping editor or another
-rule language, or another browser-to-preflight adapter. It is durable,
-deterministic publication of the existing full-row evaluation, followed by
-quarantine, normalization review, clean-package certification, and reuse of
-that frozen evidence by preflight.
+The next missing product seam is therefore not another mapping editor,
+transformation language, or browser-to-preflight adapter. It is governed
+full-row quality evaluation and quarantine over durable staging, followed by
+normalization review, clean-package certification, and direct reuse of frozen
+evidence by preflight.
 
 ## Target flow
 
@@ -68,8 +68,8 @@ drifting independently.
   values and evidence, never silent source-file edits.
 - Bind every run to exact source-selection, derived-plan, mapping, schema,
   evaluator, ruleset, and target-evidence hashes.
-- Give every source row a stable trace identity and one terminal accounting
-  disposition.
+- Give every physical source row one traceable accounting entry and every
+  canonical row one terminal disposition; retain explicit fan-out links.
 - Keep portable evidence free of numeric Odoo record IDs. Resolve and report
   through governed business keys and scope.
 - Stream or batch full-row work with bounded memory. Odoo metadata and records
@@ -111,11 +111,14 @@ added in Slice 2.
 **Gate:** preview and runtime produce the same result for the same value, and
 unsupported semantics block rather than fall back silently.
 
-**Checkpoint:** browser readiness now delegates to a storage- and
-Odoo-independent evaluator while preserving the existing prepared bundle and
-preflight path. Determinism, adapter parity, lineage, row reconciliation, and
-blocking issue behavior are executable. Historical-scale bounded execution and
-complete browser-preview parity remain acceptance work before Slice 1 closes.
+**Checkpoint:** browser readiness delegates to a storage- and Odoo-independent
+evaluator while preserving the prepared bundle and preflight path. Determinism,
+adapter parity, lineage, row reconciliation, and blocking issue behavior are
+executable. Server-rendered previews and runtime reuse the same scalar
+evaluation function. The current materializing adapter fails before loading
+when a project exceeds the recorded 100,000-physical-row browser limit. Slice 1
+is closed for that bounded browser scope; streaming beyond it remains a later
+scale extension.
 
 ### Slice 2 — Persist canonical staging and reconciliation
 
@@ -127,17 +130,20 @@ and record row-count equations and business control totals.
 **Gate:** unchanged inputs produce identical portable evidence; every
 transformation explains any created, combined, excluded, or quarantined row.
 
-**Checkpoint:** canonical runs and typed rows are now published atomically in
+**Checkpoint:** canonical runs and typed rows are published atomically in
 the project DuckDB, retrieved with hash validation, and bound to the readiness
 report. Identical current evidence is idempotent; changed evidence supersedes
 the current run; bound-input changes invalidate the current pointer while
 retaining history. Direct, lookup, parent, and child datasets retain complete
 contributing source-row pointers and dataset-level row controls. The Review UI
 shows a plain saved confirmation and keeps identifiers, hashes, versions, and
-control details collapsed. Persistence writes are bounded and batched. The
-existing source evaluator still materializes full validated tables in memory,
-and explicitly declared business amount or quantity totals remain closure work
-before Slice 2's historical-scale gate is complete.
+technical controls collapsed. Persistence writes are bounded and batched.
+Data managers may optionally declare up to three named expected sums per
+dataset by choosing a mapped numeric field and entering its expected value,
+unit, and optional tolerance. Results are deterministic, durable, visible in
+plain language, and package-blocking when they do not reconcile. Impodo never
+guesses business fields or context. Slice 2 is closed for the bounded browser
+scope; the evaluator still materializes validated tables in memory.
 
 ### Slice 3 — Add quality rules and quarantine
 
@@ -147,8 +153,13 @@ collisions, required values, bounded formats, lookups, cross-field rules, and
 relationship readiness. Add immutable quarantine reasons, ownership, expiry,
 correction evidence, and rerun behavior.
 
-**Gate:** every source row reaches exactly one reconciled disposition, with no
-silent drops, guessed lookups, or unresolved required relationships.
+**Gate:** every physical source row has one accounting entry, every canonical
+row reaches exactly one reconciled disposition, and there are no silent drops,
+guessed lookups, or unresolved required relationships.
+
+The implementation sequence, dual physical/canonical accounting model,
+data-manager UI, persistence design, and acceptance cases are defined in the
+[Slice 3 quality and quarantine plan](slice-3-quality-and-quarantine-plan.md).
 
 ### Slice 4 — Integrate normalization review
 

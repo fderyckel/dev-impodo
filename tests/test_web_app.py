@@ -50,6 +50,7 @@ from impodo.models import (
 )
 from impodo.projects import OdooConnectionMode, ProjectStatus
 from impodo.secrets import MemorySecretStore
+from impodo.staging_contracts import CanonicalControlTotal
 from impodo.web import create_app
 from impodo.web.app import _source_value_choices
 from impodo.workspace import (
@@ -2838,6 +2839,125 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("<details open", page.text)
         self.assertNotIn("canonical_staging", page.text)
 
+    def test_data_manager_can_save_an_optional_named_total(self) -> None:
+        project_id, dataset, business_key = self._mapping_ready_project(
+            scalar_field_count=1,
+            numeric_field=True,
+        )
+        source_identity, source_value = dataset.columns
+
+        page = self.client.get(f"/projects/{project_id}/mapping")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Check a known total (optional)", page.text)
+        self.assertIn("Allowed difference", page.text)
+        self.assertNotIn("control_totals_json", page.text)
+
+        saved = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            data={
+                "csrf_token": self.csrf,
+                "action": "save_progress",
+                "expected_parent_version": "",
+                "expected_working_draft_version": "",
+                "target_model_0": "res.partner",
+                "mode_0": "upsert",
+                "source_identity_0": source_identity.stable_key,
+                "business_key_0": business_key.key_id,
+                "identity_source_0_0": source_identity.stable_key,
+                "scalar_value_source_0_1": "source",
+                "scalar_source_0_1": source_value.stable_key,
+                "scalar_type_0_1": "decimal",
+                "scalar_compare_0_1": "1",
+                "scalar_null_0_1": "distinct",
+                "control_name_0_0": "Opening balance",
+                "control_target_0_0": "field_0000",
+                "control_expected_0_0": "1234.50",
+                "control_unit_0_0": "EUR",
+                "control_tolerance_0_0": "0.01",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(saved.status_code, 303)
+        working = (
+            self.app.state.context.repository.get_mapping_working_draft(
+                project_id
+            )
+        )
+        control = working.definition.datasets[0].control_totals[0]
+        self.assertEqual(control.name, "Opening balance")
+        self.assertEqual(control.target_field, "field_0000")
+        self.assertEqual(control.expected_total, "1234.50")
+        self.assertEqual(control.unit, "EUR")
+        self.assertEqual(control.tolerance, "0.01")
+
+    def test_failed_named_total_has_plain_review_ui_and_blocks_package(self) -> None:
+        project_id, _dataset, _business_key = self._mapping_ready_project(
+            scalar_field_count=0,
+        )
+        context = self.app.state.context
+        total = CanonicalControlTotal(
+            control_id="sha256:" + "d" * 64,
+            name="Opening balance",
+            dataset="contacts",
+            target_field="credit_limit",
+            expected_total="1000",
+            actual_total="900",
+            tolerance="0",
+            unit="EUR",
+            included_rows=12,
+            empty_rows=0,
+        )
+        staging = MagicMock(
+            total_rows=12,
+            mapping_version=3,
+            run_id="f0cd6d32-80d9-4e31-9bcb-d316d83cf0b8",
+            content_hash="sha256:" + "7" * 64,
+            datasets=(),
+            control_totals=(total,),
+            failed_control_total_count=1,
+            control_totals_passed=False,
+        )
+        report = MagicMock(
+            status="READY",
+            blocked_count=0,
+            needs_review_count=0,
+            ready_count=0,
+            total_count=0,
+            datasets=(),
+            rows=(),
+            checked_at=datetime.now(timezone.utc),
+            run_id=str(uuid4()),
+        )
+
+        with (
+            patch.object(
+                context.readiness,
+                "current_staging",
+                return_value=staging,
+            ),
+            patch.object(
+                context.readiness,
+                "current_report",
+                return_value=report,
+            ),
+        ):
+            page = self.client.get(f"/projects/{project_id}/summary")
+            package = self.client.post(
+                f"/projects/{project_id}/summary/package",
+                data={"csrf_token": self.csrf},
+                headers=POST_HEADERS,
+            )
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Some totals need attention", page.text)
+        self.assertIn("Opening balance", page.text)
+        self.assertIn("Difference -100 EUR", page.text)
+        self.assertIn("<summary>Technical details</summary>", page.text)
+        self.assertEqual(package.status_code, 422)
+        self.assertIn("Resolve the named totals", package.text)
+
     def _mapping_ready_project(
         self,
         *,
@@ -2845,6 +2965,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         relationship_field_count: int = 0,
         relationship_model: str = "res.partner",
         selection_field: bool = False,
+        numeric_field: bool = False,
     ):
         context = self.app.state.context
         created = context.projects.create_project(
@@ -2919,7 +3040,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     type=(
                         "selection"
                         if selection_field and index == 0
-                        else "char"
+                        else (
+                            "monetary"
+                            if numeric_field and index == 0
+                            else "char"
+                        )
                     ),
                     required=False,
                     readonly=False,
