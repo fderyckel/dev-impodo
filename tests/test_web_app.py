@@ -1035,8 +1035,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         page = self.client.get(f"/projects/{registered.project_id}/schema")
-        self.assertIn("Local route configured", page.text)
+        self.assertIn("Local Odoo configuration is ready", page.text)
         self.assertIn("No Odoo API key is required", page.text)
+        self.assertIn("Load Odoo record types", page.text)
+        self.assertNotIn("Verify access and load models", page.text)
         refreshed = self._post(
             f"/projects/{registered.project_id}/schema/models/refresh",
             {"csrf_token": self.csrf},
@@ -1050,6 +1052,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "Live local metadata access was also verified",
             verified_page.text,
         )
+        self.assertIn("Refresh Odoo record types", verified_page.text)
         context.local_stack = LocalStackService()
         cached_page = self.client.get(
             f"/projects/{registered.project_id}/schema"
@@ -1075,6 +1078,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(scoped.status_code, 303)
         self.local_odoo_reader.get_model_catalog.assert_called_once()
         context.local_stack = configured_local_stack
+        scoped_page = self.client.get(scoped.headers["location"])
+        self.assertIn(
+            "Load fields for selected record types",
+            scoped_page.text,
+        )
         captured = self._post(
             f"/projects/{registered.project_id}/schema/capture",
             {"csrf_token": self.csrf},
@@ -1096,6 +1104,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn(
             "The snapshot includes inherited fields and is used without another Odoo call",
+            cached_schema_page.text,
+        )
+        self.assertIn(
+            "Refresh fields for selected record types",
             cached_schema_page.text,
         )
         self.local_odoo_reader.get_model_metadata.assert_called_once()

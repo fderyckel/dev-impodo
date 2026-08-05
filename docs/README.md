@@ -11,11 +11,11 @@ or **MAY** rule, the normative rule wins.
 
 ## Terminology
 
-The browser uses named workflow steps: **Project setup**, **Source discovery**,
-**Target schema**, and **Governed mapping**. The product vision uses **Stages
-A–K** for the end-to-end business lifecycle. Numeric **Phases** describe
-delivery increments only: Phase 1, Phase 2A, Phase 2B, Phase 2C.1, and later
-roadmap phases. Do not use Phase A or Phase B.
+The browser uses named workflow steps: **Project setup**, **Source data**,
+**Select tables**, **Odoo fields**, **Match fields**, and **Review**. The
+product vision uses **Stages A–K** for the end-to-end business lifecycle.
+Numeric **Phases** describe delivery increments only: Phase 1, Phase 2A,
+Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
 
 ## Architecture
 
@@ -50,6 +50,9 @@ roadmap phases. Do not use Phase A or Phase B.
 - [Profile-driven preflight contract](contracts/preflight.md) — strict profile,
   typed preparation, closed Odoo reads, snapshots, classification, and
   portable review evidence.
+- [Canonical staging evaluation contract](contracts/canonical-staging.md) —
+  in-memory full-row canonical evidence, lineage, reconciliation, deterministic
+  hashing, and the boundary before durable staging.
 - [Normalization dry-run governance contract](contracts/normalization-governance.md)
   — implemented standalone approval lifecycle, explicit integration status,
   and the boundary between source approval and Odoo authorization.

@@ -15,10 +15,22 @@ from .models import (
     PreparedRecord,
     PreflightResult,
 )
+from .staging_contracts import (
+    CanonicalIssue,
+    CanonicalLineage,
+    CanonicalRow,
+    CanonicalStagingRun,
+    StagingDisposition,
+    StagingReconciliation,
+)
 
 __all__ = [
     "ApprovalMode",
     "BusinessReference",
+    "CanonicalIssue",
+    "CanonicalLineage",
+    "CanonicalRow",
+    "CanonicalStagingRun",
     "Classification",
     "CorrectionGroupKey",
     "CorrectionImpact",
@@ -28,4 +40,6 @@ __all__ = [
     "FieldDifference",
     "PreparedRecord",
     "PreflightResult",
+    "StagingDisposition",
+    "StagingReconciliation",
 ]

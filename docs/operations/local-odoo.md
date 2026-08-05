@@ -18,8 +18,8 @@ ownership remain in memory for the current Impodo session.
    details.
 5. Select **Check again** after correcting an external problem.
 6. When the stack is ready, select **Save and test connection**.
-7. Select **Verify access and load models** when a model snapshot must be
-   created or refreshed.
+7. Select **Load Odoo record types** to create the model snapshot. Use
+   **Refresh Odoo record types** only when that stored snapshot needs updating.
 
 Local mode does not require an Odoo API key. Impodo reads only allowlisted
 non-secret routing values; it does not retain `db_password` or `admin_passwd`.
@@ -97,4 +97,3 @@ business records.
 | Database access failed | Verify database name, addons/configuration, and local process permissions |
 | Stop/Restart unavailable | The service is external or belongs to an earlier session; use the workspace procedure |
 | PostgreSQL remains after Stop | Resolve the reported listener/PID mismatch before any manual stop |
-

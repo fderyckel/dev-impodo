@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from hashlib import sha256
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -50,7 +51,12 @@ from impodo.projects import (
     ProjectStatus,
     SourceFile,
 )
-from impodo.readiness import stage_browser_mapping
+from impodo.readiness import evaluate_browser_mapping, stage_browser_mapping
+from impodo.source import load_selected_source_table
+from impodo.staging_contracts import (
+    CanonicalStagingRun,
+    StagingDisposition,
+)
 from impodo.workspace import (
     SourceDataset,
     SourceDatasetColumn,
@@ -107,6 +113,106 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         )
         self.assertEqual(result.counts[Classification.CREATE.value], 5)
         self.assertEqual(result.counts[Classification.BLOCKED.value], 0)
+
+    def test_canonical_evaluator_is_deterministic_and_storage_independent(
+        self,
+    ) -> None:
+        evidence = self._evidence(
+            (
+                (" BOM-A ", "1", "COMP-1"),
+                ("BOM-A", "2", "COMP-2"),
+                ("BOM-B", "1", "COMP-3"),
+            )
+        )
+        (
+            project,
+            definition,
+            physical,
+            effective,
+            plan,
+            _catalogs,
+            artifact_store,
+        ) = evidence
+        physical_dataset = physical.datasets[0]
+        loaded = load_selected_source_table(
+            artifact_store.path,
+            dataset=physical_dataset.name,
+            table_key=physical_dataset.table_key,
+            encoding=physical_dataset.encoding,
+            delimiter=physical_dataset.delimiter,
+            header_row=physical_dataset.header_row,
+        )
+
+        direct = evaluate_browser_mapping(
+            project_id=project.project_id,
+            definition=definition,
+            physical_selection=physical,
+            effective_selection=effective,
+            plan=plan,
+            loaded_tables={physical_dataset.dataset_id: loaded},
+        )
+        compatibility = stage_browser_mapping(*evidence)
+        repeated = evaluate_browser_mapping(
+            project_id=project.project_id,
+            definition=definition,
+            physical_selection=physical,
+            effective_selection=effective,
+            plan=plan,
+            loaded_tables={physical_dataset.dataset_id: loaded},
+        )
+
+        self.assertEqual(direct.prepared, compatibility.prepared)
+        self.assertEqual(
+            direct.canonical_run.content_hash,
+            compatibility.canonical_run.content_hash,
+        )
+        self.assertEqual(
+            direct.canonical_run.to_json(),
+            repeated.canonical_run.to_json(),
+        )
+        self.assertEqual(direct.canonical_run.reconciliation.total_rows, 5)
+        self.assertEqual(direct.canonical_run.reconciliation.candidate_rows, 5)
+        self.assertEqual(direct.canonical_run.reconciliation.blocked_rows, 0)
+        self.assertTrue(
+            all(
+                row.lineage.mapping_hash == definition.content_hash
+                for row in direct.canonical_run.rows
+            )
+        )
+        self.assertTrue(
+            all(
+                row.lineage.source_hash
+                == f"sha256:{physical_dataset.source_sha256}"
+                for row in direct.canonical_run.rows
+            )
+        )
+        self.assertNotIn("odoo_id", direct.canonical_run.to_json())
+
+        restored = CanonicalStagingRun.from_json(direct.canonical_run.to_json())
+        self.assertEqual(restored.content_hash, direct.canonical_run.content_hash)
+        self.assertEqual(restored.to_json(), direct.canonical_run.to_json())
+
+        changed_definition = replace(
+            definition,
+            schema_hash="sha256:" + "9" * 64,
+        )
+        changed = evaluate_browser_mapping(
+            project_id=project.project_id,
+            definition=changed_definition,
+            physical_selection=physical,
+            effective_selection=effective,
+            plan=plan,
+            loaded_tables={physical_dataset.dataset_id: loaded},
+        )
+        self.assertNotEqual(
+            changed.canonical_run.content_hash,
+            direct.canonical_run.content_hash,
+        )
+
+        tampered = json.loads(direct.canonical_run.to_json())
+        tampered["rows"][0]["proposed_values"]["component_code"] = "TAMPERED"
+        with self.assertRaisesRegex(ValueError, "content hash is invalid"):
+            CanonicalStagingRun.from_dict(tampered)
 
     def test_duplicate_bom_line_keys_are_blocked_at_row_level(self) -> None:
         evidence = self._evidence(
@@ -176,6 +282,16 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         )
         self.assertEqual(
             {issue.code for issue in child_decisions[1].issues},
+            {"SOURCE_TEXT_LENGTH_INVALID"},
+        )
+        canonical_row = next(
+            item
+            for item in staged.canonical_run.rows
+            if item.dataset == "bom_components" and item.source_row == 3
+        )
+        self.assertEqual(canonical_row.disposition, StagingDisposition.BLOCKED)
+        self.assertEqual(
+            {item.code for item in canonical_row.issues},
             {"SOURCE_TEXT_LENGTH_INVALID"},
         )
 

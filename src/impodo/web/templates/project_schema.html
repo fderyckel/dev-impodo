@@ -31,11 +31,9 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
           {% if model_catalog %}
-            Refresh models from Odoo
-          {% elif local_mode %}
-            Verify access and load models
+            Refresh Odoo record types
           {% else %}
-            Load models from Odoo
+            Load Odoo record types
           {% endif %}
         </button>
       </form>
@@ -45,11 +43,11 @@
       {% if local_stack.profile %}
         {% if not local_access_verified %}
           <div class="notice warning">
-            <strong>Local route configured; Odoo read access is not yet verified.</strong>
+            <strong>Local Odoo configuration is ready.</strong>
             Impodo will use the selected <code>{{ local_stack.config_path }}</code>
             in an isolated read-only Odoo process. No Odoo API key is required.
-            Select <strong>Verify access and load models</strong> to prove
-            that Impodo can read this database.
+            Select <strong>Load Odoo record types</strong> to read the available
+            record types. A successful read also confirms access to this database.
           </div>
         {% endif %}
       {% else %}
@@ -213,7 +211,7 @@
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to datasets</a>
         <button class="button primary" type="submit" {% if not selection or not project.intended_models or not local_reader_ready %}disabled{% endif %}>
-          {% if schema %}Refresh fields from Odoo{% else %}Load fields from Odoo{% endif %}
+          {% if schema %}Refresh fields for selected record types{% else %}Load fields for selected record types{% endif %}
         </button>
       </div>
       {% if local_mode and project.intended_models and not local_stack.profile %}

@@ -82,6 +82,7 @@ from .source import (
     load_selected_source_table,
     prepare_source_tables,
 )
+from .staging_contracts import CanonicalStagingRun
 from .workspace import SourceDataset, SourceSelection, WorkspaceError
 
 
@@ -357,6 +358,7 @@ ReadinessReader = Callable[
 class StagedBrowserMapping:
     profile: ProfileDocument
     prepared: PreparedBundle
+    canonical_run: CanonicalStagingRun
     dataset_labels: Mapping[str, str]
     source_field_labels: Mapping[tuple[str, str], str]
     transformation_impact: TransformationImpactReport | None = None
@@ -486,17 +488,76 @@ def stage_browser_mapping(
     transformation_impact_sink: Callable[[TransformationImpactRow], None]
     | None = None,
 ) -> StagedBrowserMapping:
-    """Compile browser mapping meaning and apply it to every selected row."""
+    """Load frozen artifacts, then delegate to the reusable evaluator."""
 
+    loaded = _load_browser_source_tables(
+        project,
+        physical_selection,
+        catalogs,
+        artifacts,
+    )
+    return evaluate_browser_mapping(
+        project_id=project.project_id,
+        definition=definition,
+        physical_selection=physical_selection,
+        effective_selection=effective_selection,
+        plan=plan,
+        loaded_tables=loaded,
+        collect_transformation_impact=collect_transformation_impact,
+        transformation_detail_limit=transformation_detail_limit,
+        transformation_impact_sink=transformation_impact_sink,
+    )
+
+
+def evaluate_browser_mapping(
+    *,
+    project_id: str,
+    definition: MappingDefinition,
+    physical_selection: SourceSelection,
+    effective_selection: SourceSelection,
+    plan: DerivedEntityPlan | None,
+    loaded_tables: Mapping[str, SourceTable],
+    collect_transformation_impact: bool = False,
+    transformation_detail_limit: int = TRANSFORMATION_IMPACT_DETAIL_LIMIT,
+    transformation_impact_sink: Callable[[TransformationImpactRow], None]
+    | None = None,
+) -> StagedBrowserMapping:
+    """Evaluate every frozen row without storage access or Odoo access.
+
+    ``loaded_tables`` is keyed by physical dataset identifier.  The caller owns
+    artifact materialization; this function owns mapping compilation,
+    target-independent normalization, issue collection, lineage, and row
+    reconciliation.
+    """
+
+    if (
+        physical_selection.project_id != project_id
+        or effective_selection.project_id != project_id
+        or (plan is not None and plan.project_id != project_id)
+    ):
+        raise ReadinessError("Canonical evaluation evidence belongs to another project")
+    if (
+        plan is not None
+        and plan.source_selection_hash != physical_selection.content_hash
+    ):
+        raise ReadinessError(
+            "The related-record plan no longer matches its source data"
+        )
     if definition.source_selection_hash != effective_selection.content_hash:
         raise ReadinessError("The submitted mapping no longer matches its source data")
     effective_by_id = {item.dataset_id: item for item in effective_selection.datasets}
     mapping_by_id = {item.dataset_id: item for item in definition.datasets}
+    if len(effective_by_id) != len(effective_selection.datasets):
+        raise ReadinessError("The frozen source contains duplicate dataset identifiers")
+    if len(mapping_by_id) != len(definition.datasets):
+        raise ReadinessError("The submitted mapping contains duplicate datasets")
     if set(mapping_by_id) != set(effective_by_id):
         raise ReadinessError("The submitted mapping does not cover every dataset")
     physical_by_id = {item.dataset_id: item for item in physical_selection.datasets}
-    catalog_by_file = {item.file_id: item for item in catalogs}
-    source_file_by_id = {item.file_id: item for item in project.source_files}
+    if len(physical_by_id) != len(physical_selection.datasets):
+        raise ReadinessError(
+            "The physical source contains duplicate dataset identifiers"
+        )
     split_by_name = {
         name: (rule, role)
         for rule in (plan.rules if plan else ())
@@ -534,6 +595,129 @@ def stage_browser_mapping(
             (rule, link)
         )
 
+    if set(loaded_tables) != set(physical_by_id):
+        raise ReadinessError("Loaded source tables do not match the frozen selection")
+    for dataset_id, table in loaded_tables.items():
+        physical = physical_by_id[dataset_id]
+        if table.dataset != physical.name:
+            raise ReadinessError("A loaded source table has the wrong dataset name")
+        expected_hash = physical.source_sha256.removeprefix("sha256:")
+        if table.content_hash != f"sha256:{expected_hash}":
+            raise ReadinessError("Stored source content changed after selection")
+
+    profile = _compile_profile(definition, effective_selection)
+    staged_tables: list[SourceTable] = []
+    preparation_issues: list[Issue] = []
+    source_labels: dict[tuple[str, str], str] = {}
+    for dataset_spec in profile.datasets:
+        effective = next(
+            item
+            for item in effective_selection.datasets
+            if item.name == dataset_spec.name
+        )
+        mapping = mapping_by_id[effective.dataset_id]
+        lookup = lookup_by_dataset_id.get(effective.dataset_id)
+        split = split_by_name.get(effective.name)
+        if lookup is not None:
+            lookup_rule, lookup_link = lookup
+            physical = physical_by_id.get(lookup_rule.source_dataset_id)
+            role = "lookup"
+            rule = None
+        elif split is None:
+            physical = physical_by_id.get(effective.dataset_id)
+            role = "source"
+            rule = None
+        else:
+            rule, role = split
+            physical = physical_by_id.get(rule.source_dataset_id)
+        if physical is None:
+            raise ReadinessError("Prepared dataset no longer has a source")
+        if lookup is not None:
+            staged, issues = _stage_derived_table(
+                effective,
+                physical,
+                mapping,
+                loaded_tables[physical.dataset_id],
+                lookup_rule,
+                lookup_link,
+                impact_collector=impact_collector,
+            )
+        else:
+            staged, issues = _stage_table(
+                effective,
+                physical,
+                mapping,
+                loaded_tables[physical.dataset_id],
+                rule,
+                role,
+                tuple(lookup_by_consumer.get(effective.dataset_id, ())),
+                impact_collector=impact_collector,
+            )
+        staged_tables.append(staged)
+        preparation_issues.extend(issues)
+        for column in effective.columns:
+            source_labels[(effective.name, column.stable_key)] = column.source_name
+        column_name_by_key = {
+            column.stable_key: column.source_name for column in effective.columns
+        }
+        for index, field in enumerate(mapping.fields):
+            if field.value_source is ScalarValueSource.ODOO_DEFAULT:
+                continue
+            source_labels[(effective.name, _synthetic_field(index))] = (
+                column_name_by_key.get(field.source_column_key or "")
+                or field.target_field
+            )
+
+    prepared = prepare_source_tables(
+        profile,
+        staged_tables,
+        source_hashes={
+            item.name: f"sha256:{item.source_sha256.removeprefix('sha256:')}"
+            for item in effective_selection.datasets
+        },
+    )
+    if preparation_issues:
+        prepared = _attach_preparation_issues(
+            prepared,
+            preparation_issues,
+        )
+    canonical_run = CanonicalStagingRun.from_prepared(
+        project_id=project_id,
+        mapping_id=definition.mapping_id,
+        physical_selection_hash=physical_selection.content_hash,
+        source_selection_hash=effective_selection.content_hash,
+        mapping_hash=definition.content_hash,
+        schema_hash=definition.schema_hash,
+        derived_plan_hash=plan.content_hash if plan is not None else None,
+        profile=profile,
+        prepared=prepared,
+        field_sources=_canonical_field_sources(definition, effective_selection),
+    )
+    return StagedBrowserMapping(
+        profile=profile,
+        prepared=prepared,
+        canonical_run=canonical_run,
+        dataset_labels={
+            item.name: item.name.replace("_", " ").title()
+            for item in effective_selection.datasets
+        },
+        source_field_labels=source_labels,
+        transformation_impact=(
+            impact_collector.report() if impact_collector is not None else None
+        ),
+    )
+
+
+def _load_browser_source_tables(
+    project: MigrationProject,
+    physical_selection: SourceSelection,
+    catalogs: Iterable[SourceFileCatalog],
+    artifacts: ArtifactStore,
+) -> dict[str, SourceTable]:
+    """Materialize and validate physical tables before pure evaluation."""
+
+    catalog_by_file = {item.file_id: item for item in catalogs}
+    source_file_by_id = {item.file_id: item for item in project.source_files}
     loaded: dict[str, SourceTable] = {}
     with ExitStack() as stack:
         for physical in physical_selection.datasets:
@@ -550,7 +734,10 @@ def stage_browser_mapping(
             if source_file is None or catalog is None or table_catalog is None:
                 raise ReadinessError("Frozen source evidence is incomplete")
             path = stack.enter_context(
-                artifacts.materialize_source(project.project_id, source_file.stored_name)
+                artifacts.materialize_source(
+                    project.project_id,
+                    source_file.stored_name,
+                )
             )
             named_range = (
                 table_catalog.named_tables[0].cell_range
@@ -558,7 +745,7 @@ def stage_browser_mapping(
                 and table_catalog.named_tables
                 else None
             )
-            table = load_selected_source_table(
+            loaded[physical.dataset_id] = load_selected_source_table(
                 path,
                 dataset=physical.name,
                 table_key=physical.table_key,
@@ -567,97 +754,35 @@ def stage_browser_mapping(
                 header_row=physical.header_row,
                 named_table_range=named_range,
             )
-            expected_hash = physical.source_sha256.removeprefix("sha256:")
-            if table.content_hash != f"sha256:{expected_hash}":
-                raise ReadinessError("Stored source content changed after selection")
-            loaded[physical.dataset_id] = table
+    return loaded
 
-        profile = _compile_profile(definition, effective_selection)
-        staged_tables: list[SourceTable] = []
-        preparation_issues: list[Issue] = []
-        source_labels: dict[tuple[str, str], str] = {}
-        for dataset_spec in profile.datasets:
-            effective = next(
-                item
-                for item in effective_selection.datasets
-                if item.name == dataset_spec.name
-            )
-            mapping = mapping_by_id[effective.dataset_id]
-            lookup = lookup_by_dataset_id.get(effective.dataset_id)
-            split = split_by_name.get(effective.name)
-            if lookup is not None:
-                lookup_rule, lookup_link = lookup
-                physical = physical_by_id.get(lookup_rule.source_dataset_id)
-                role = "lookup"
-                rule = None
-            elif split is None:
-                physical = physical_by_id.get(effective.dataset_id)
-                role = "source"
-                rule = None
-            else:
-                rule, role = split
-                physical = physical_by_id.get(rule.source_dataset_id)
-            if physical is None:
-                raise ReadinessError("Prepared dataset no longer has a source")
-            if lookup is not None:
-                staged, issues = _stage_derived_table(
-                    effective,
-                    physical,
-                    mapping,
-                    loaded[physical.dataset_id],
-                    lookup_rule,
-                    lookup_link,
-                    impact_collector=impact_collector,
-                )
-            else:
-                staged, issues = _stage_table(
-                    effective,
-                    physical,
-                    mapping,
-                    loaded[physical.dataset_id],
-                    rule,
-                    role,
-                    tuple(lookup_by_consumer.get(effective.dataset_id, ())),
-                    impact_collector=impact_collector,
-                )
-            staged_tables.append(staged)
-            preparation_issues.extend(issues)
-            for column in effective.columns:
-                source_labels[(effective.name, column.stable_key)] = column.source_name
-            column_name_by_key = {
-                column.stable_key: column.source_name
-                for column in effective.columns
-            }
-            for index, field in enumerate(mapping.fields):
-                if field.value_source is ScalarValueSource.ODOO_DEFAULT:
-                    continue
-                source_labels[(effective.name, _synthetic_field(index))] = (
-                    column_name_by_key.get(field.source_column_key or "")
-                    or field.target_field
-                )
 
-        prepared = prepare_source_tables(
-            profile,
-            staged_tables,
-            source_hashes={
-                item.name: f"sha256:{item.source_sha256.removeprefix('sha256:')}"
-                for item in effective_selection.datasets
-            },
-        )
-        if preparation_issues:
-            prepared = _attach_preparation_issues(
-                prepared,
-                preparation_issues,
+def _canonical_field_sources(
+    definition: MappingDefinition,
+    selection: SourceSelection,
+) -> dict[str, dict[str, tuple[str, ...]]]:
+    """Describe which source columns govern each proposed target value."""
+
+    dataset_by_id = {item.dataset_id: item for item in selection.datasets}
+    result: dict[str, dict[str, tuple[str, ...]]] = {}
+    for mapping in definition.datasets:
+        dataset = dataset_by_id[mapping.dataset_id]
+        fields: dict[str, tuple[str, ...]] = {
+            "$source_identity": mapping.source_identity_column_keys,
+        }
+        for component in (*mapping.target_identity, *mapping.target_scope):
+            for target_field in component.target_fields:
+                fields[target_field] = component.source_column_keys
+        for field in mapping.fields:
+            if field.value_source is ScalarValueSource.ODOO_DEFAULT:
+                continue
+            fields[field.target_field] = (
+                (field.source_column_key,) if field.source_column_key else ()
             )
-    return StagedBrowserMapping(
-        profile=profile,
-        prepared=prepared,
-        dataset_labels={item.name: item.name.replace("_", " ").title() for item in effective_selection.datasets},
-        source_field_labels=source_labels,
-        transformation_impact=(
-            impact_collector.report() if impact_collector is not None else None
-        ),
-    )
+        for relationship in mapping.relationships:
+            fields[relationship.target_field] = relationship.source_column_keys
+        result[dataset.name] = dict(sorted(fields.items()))
+    return result
 
 
 def _compile_profile(

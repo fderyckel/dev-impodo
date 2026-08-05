@@ -40,7 +40,7 @@ runtime is installed and that integration is part of the acceptance run.
 | Area | Current test modules |
 | --- | --- |
 | Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_web_app` |
-| Mapping and preparation authoring | `test_mapping_semantics`, `test_derived_entities` |
+| Mapping, preparation, and canonical evaluation | `test_mapping_semantics`, `test_derived_entities`, `test_readiness` |
 | Profile-driven preflight | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_reporting_cli` |
 | Local Odoo lifecycle | `test_local_odoo_reader`, `test_local_stack` |
 | Security, governance, hosting, and release | `test_project_security`, `test_governance`, `test_hosting_contracts`, `test_internal_release` |
@@ -91,6 +91,23 @@ runtime is installed and that integration is part of the acceptance run.
 - null-to-relation and relation-to-null for every relation null policy.
 
 ## Canonical-value requirements
+
+### In-memory staging foundation verified
+
+- the artifact adapter and storage-independent evaluator produce the same
+  prepared bundle and canonical content hash;
+- repeated evaluation of unchanged inputs produces identical canonical JSON;
+- every canonical row has stable source, mapping, schema, and derived-plan
+  lineage;
+- candidate, reference, blocked, quarantined, and excluded counts must
+  reconcile exactly to the total row count;
+- a blocking source-side issue produces a blocked canonical disposition;
+- changed bound evidence changes the canonical run hash;
+- changed canonical payload with an old content hash is rejected;
+- portable canonical evidence rejects numeric Odoo identifier fields.
+
+Durable DuckDB publication, historical-scale bounded execution, quarantine,
+normalization approval, and clean-package certification remain pending.
 
 ### Verified
 

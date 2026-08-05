@@ -13,6 +13,8 @@ certifiable read-only preflight package. It does not redefine:
   [browser workspace contract](../contracts/workspace.md);
 - the expert CLI matcher and classifier in the
   [preflight contract](../contracts/preflight.md);
+- the in-memory canonical evaluation foundation in the
+  [canonical staging contract](../contracts/canonical-staging.md);
 - the standalone approval lifecycle in the
   [normalization governance contract](../contracts/normalization-governance.md);
 - product stages or later Odoo execution in the
@@ -29,7 +31,8 @@ certifiable read-only preflight package. It does not redefine:
 | Mapping | Immutable revisions, scalar providers, allowlisted transformations, relationships, validation, and exact-hash submission are integrated |
 | Derived entities | Lookup and parent/child preparation rules can be authored and previewed, and browser readiness repeats them over every frozen source row; they do not yet produce durable canonical datasets |
 | Normalization governance | Immutable dry-run decisions and freeze rules exist as standalone domain behavior, not as a browser or repository workflow |
-| Read-only preflight | Strict CLI profiles and exact submitted browser mapping revisions both feed the preflight engine. Browser readiness compiles the mapping, evaluates every frozen row, batches target reads, classifies results, and persists the report and technical manifest; its prepared bundle remains transient rather than durable canonical staging |
+| Canonical evaluation | Exact submitted browser mappings now use a reusable storage- and Odoo-independent full-row evaluator. It emits a versioned in-memory canonical run with typed proposed values, symbolic references, lineage, issues, deterministic row IDs, and complete row reconciliation |
+| Read-only preflight | Strict CLI profiles and exact submitted browser mapping revisions both feed the preflight engine. Browser readiness consumes the reusable evaluator result, batches target reads, classifies results, and persists the report and technical manifest; canonical rows remain transient rather than durably published |
 | Export approval | Frozen-plan approval objects exist as standalone domain behavior, without an integrated staged package or executor |
 | Staging and certification | Durable canonical rows, quarantine, integrated full-row quality execution, and clean-package certification are absent |
 
@@ -88,6 +91,12 @@ lower into shared semantics.
 **Gate:** the contracts identify one authority for every value, status, hash,
 and transition; no preview-only behavior is described as full-row execution.
 
+**Checkpoint:** the versioned in-memory staging run, canonical row, lineage,
+issue, source-side disposition, reconciliation, and deterministic content-hash
+contracts are implemented. Slice 0 remains open for durable publication and
+invalidation transitions, quarantine ownership/evidence, and the complete
+package-manifest boundary.
+
 ### Slice 1 — Extract and reuse the current all-row evaluation
 
 Refactor the implemented browser-readiness preparation into a reusable,
@@ -101,6 +110,12 @@ added in Slice 2.
 
 **Gate:** preview and runtime produce the same result for the same value, and
 unsupported semantics block rather than fall back silently.
+
+**Checkpoint:** browser readiness now delegates to a storage- and
+Odoo-independent evaluator while preserving the existing prepared bundle and
+preflight path. Determinism, adapter parity, lineage, row reconciliation, and
+blocking issue behavior are executable. Historical-scale bounded execution and
+complete browser-preview parity remain acceptance work before Slice 1 closes.
 
 ### Slice 2 — Persist canonical staging and reconciliation
 
