@@ -1099,4 +1099,13 @@ def _column_profile(ordinal: int, name: str, distinct: int) -> SourceColumnProfi
         non_null_count=1,
         distinct_count=distinct,
         distinct_count_is_exact=True,
-      
+        duplicate_count=0,
+        minimum=None,
+        maximum=None,
+        minimum_length=1,
+        maximum_length=20,
+    )
+
+
+if __name__ == "__main__":
+    unittest.main()
