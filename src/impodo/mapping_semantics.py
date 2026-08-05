@@ -19,6 +19,10 @@ import re
 from typing import Any, Iterable, Mapping
 
 from .metadata import TYPE_COMPATIBILITY
+from .reference_keys import (
+    matches_standard_reference_key,
+    standard_reference_key,
+)
 from .value_rules import (
     CASE_MODES,
     CHARACTER_CLASSES,
@@ -38,7 +42,7 @@ from .value_rules import (
 
 
 MAPPING_CONTRACT_VERSION = 5
-MAPPING_VALIDATOR_VERSION = "5.0.0"
+MAPPING_VALIDATOR_VERSION = "5.1.0"
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 _RELATION_TYPES = frozenset({"many2one", "many2many", "one2many"})
@@ -2228,7 +2232,8 @@ class MappingSemanticValidator:
             )
             return
         model = schema_models.get(resolver.model)
-        if model is None:
+        standard_key = standard_reference_key(resolver.model)
+        if model is None and standard_key is None:
             issues.append(
                 _issue(
                     "MAPPING_TARGET_MODEL_UNKNOWN",
@@ -2239,7 +2244,10 @@ class MappingSemanticValidator:
                 )
             )
             return
-        model_fields = {item.name for item in model.fields}
+        model_fields = {item.name for item in model.fields} if model else set()
+        if standard_key is not None:
+            model_fields.update(standard_key.key_fields)
+            model_fields.add(standard_key.display_field)
         if not resolver.key_mappings:
             issues.append(
                 _issue(
@@ -2313,7 +2321,11 @@ class MappingSemanticValidator:
         elif resolver.value_mappings:
             key_field = resolver.key_mappings[0].target_field
             key_metadata = next(
-                (item for item in model.fields if item.name == key_field),
+                (
+                    item
+                    for item in (model.fields if model else ())
+                    if item.name == key_field
+                ),
                 None,
             )
             if key_metadata is not None and key_metadata.type not in {
@@ -2330,11 +2342,24 @@ class MappingSemanticValidator:
                         dataset=dataset,
                     )
                 )
-        if require_governed_key and not _matches_business_key(
-            governed_keys,
-            resolver.model,
-            tuple(item.target_field for item in resolver.key_mappings),
-            tuple(item.target_field for item in resolver.scope_mappings),
+        resolver_key_fields = tuple(
+            item.target_field for item in resolver.key_mappings
+        )
+        resolver_scope_fields = tuple(
+            item.target_field for item in resolver.scope_mappings
+        )
+        if require_governed_key and not (
+            _matches_business_key(
+                governed_keys,
+                resolver.model,
+                resolver_key_fields,
+                resolver_scope_fields,
+            )
+            or matches_standard_reference_key(
+                resolver.model,
+                resolver_key_fields,
+                resolver_scope_fields,
+            )
         ):
             issues.append(
                 _issue(

@@ -103,6 +103,21 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             [record.source_identity for record in by_dataset["boms"]],
             [("BOM-A",), ("BOM-B",)],
         )
+        reconciliation = {
+            item.dataset: item for item in staged.canonical_run.datasets
+        }
+        self.assertEqual(reconciliation["boms"].role.value, "PARENT")
+        self.assertEqual(reconciliation["boms"].input_rows, 3)
+        self.assertEqual(reconciliation["boms"].output_rows, 2)
+        self.assertEqual(reconciliation["boms"].combined_rows, 1)
+        self.assertEqual(reconciliation["bom_components"].role.value, "CHILD")
+        self.assertEqual(reconciliation["bom_components"].output_rows, 3)
+        bom_a = next(
+            item
+            for item in staged.canonical_run.rows
+            if item.dataset == "boms" and item.source_identity == ("BOM-A",)
+        )
+        self.assertEqual(bom_a.lineage.physical_source_rows, (2, 3))
 
         metadata, records = self._snapshots(evidence[0])
         result = PreflightEngine().run(
@@ -400,6 +415,13 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             evidence[3].datasets[0].dataset_id,
             link.derived_dataset_id,
         )
+        reconciliation = {
+            item.dataset: item for item in staged.canonical_run.datasets
+        }["product_categories"]
+        self.assertEqual(reconciliation.role.value, "LOOKUP")
+        self.assertEqual(reconciliation.input_rows, 3)
+        self.assertEqual(reconciliation.output_rows, 2)
+        self.assertEqual(reconciliation.combined_rows, 1)
 
         metadata, records = self._product_snapshots(evidence[0])
         result = PreflightEngine().run(
@@ -425,6 +447,12 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             {item.code for item in products[1].issues},
             {"DERIVED_REFERENCE_MISSING"},
         )
+        lookup = {
+            item.dataset: item for item in staged.canonical_run.datasets
+        }["product_categories"]
+        self.assertEqual(lookup.input_rows, 2)
+        self.assertEqual(lookup.input_rows_used, 1)
+        self.assertEqual(lookup.unrepresented_rows, 1)
 
     def test_conflicting_lookup_spelling_requires_review(self) -> None:
         evidence, _link = self._lookup_evidence(

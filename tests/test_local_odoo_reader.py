@@ -263,6 +263,57 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         self.assertIn("while True:", script)
         self.assertIn("env.cr.rollback()", script)
 
+    def test_preflight_allows_only_explicit_linked_models_outside_target_scope(
+        self,
+    ) -> None:
+        payload = {
+            "database": "odoo19_local",
+            "version": "19.0",
+            "models": {},
+            "records": {
+                "res.country": [
+                    {"id": 1, "code": "FR", "name": "France"},
+                ]
+            },
+        }
+        reader = LocalOdooMetadataReader(
+            runner=lambda *_args: _result(payload)
+        )
+
+        _metadata, records = reader.get_preflight_snapshots(
+            self.project,
+            self.profile,
+            (),
+            (
+                RecordRequest(
+                    model="res.country",
+                    fields=("code", "name"),
+                ),
+            ),
+            related_models=("res.country",),
+        )
+
+        self.assertEqual(
+            records.records["res.country"][0].values["code"],
+            "FR",
+        )
+        with self.assertRaisesRegex(
+            LocalOdooReaderError,
+            "linked-model scope",
+        ):
+            reader.get_preflight_snapshots(
+                self.project,
+                self.profile,
+                (),
+                (
+                    RecordRequest(
+                        model="res.currency",
+                        fields=("name",),
+                    ),
+                ),
+                related_models=("res.country",),
+            )
+
     def test_reader_exposes_no_generic_shell_or_write_surface(self) -> None:
         public = {
             name

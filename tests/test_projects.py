@@ -378,6 +378,66 @@ class ProjectLifecycleTests(unittest.TestCase):
             ("mapping_working_draft",),
         )
 
+    def test_version_eleven_database_adds_durable_staging(self) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Version eleven project",
+            source_system="CSV",
+        )
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            connection.execute("DROP TABLE canonical_staging_current")
+            connection.execute("DROP TABLE canonical_staging_row")
+            connection.execute("DROP TABLE canonical_staging_run")
+            connection.execute(
+                "ALTER TABLE readiness_run DROP COLUMN staging_run_id"
+            )
+            connection.execute(
+                "ALTER TABLE readiness_run DROP COLUMN staging_content_hash"
+            )
+            connection.execute("UPDATE schema_version SET version = 11")
+
+        self.repository.get(project.project_id)
+
+        with self.repository._connect(database_path) as connection:
+            version = connection.execute(
+                "SELECT version FROM schema_version"
+            ).fetchone()
+            tables = {
+                str(item[0])
+                for item in connection.execute(
+                    """
+                    SELECT table_name
+                      FROM information_schema.tables
+                     WHERE table_name LIKE 'canonical_staging_%'
+                    """
+                ).fetchall()
+            }
+            readiness_columns = {
+                str(item[0])
+                for item in connection.execute(
+                    """
+                    SELECT column_name
+                      FROM information_schema.columns
+                     WHERE table_name = 'readiness_run'
+                    """
+                ).fetchall()
+            }
+        self.assertEqual(version, (SCHEMA_VERSION,))
+        self.assertEqual(
+            tables,
+            {
+                "canonical_staging_current",
+                "canonical_staging_row",
+                "canonical_staging_run",
+            },
+        )
+        self.assertIn("staging_run_id", readiness_columns)
+        self.assertIn("staging_content_hash", readiness_columns)
+
     def test_complete_project_can_be_registered(self) -> None:
         project = self.service.create_project(
             actor=LOCAL_ACTOR,

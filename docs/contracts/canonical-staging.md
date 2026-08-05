@@ -2,9 +2,10 @@
 
 ## Status and boundary
 
-**Status:** Implemented as an in-memory, target-independent foundation. Durable
-DuckDB publication, quarantine workflow, normalization approval, package
-certification, and Odoo execution are not implemented by this contract.
+**Status:** Implemented as a durable, target-independent foundation. Canonical
+runs and typed rows are atomically published in each project's DuckDB database.
+Quarantine workflow, normalization approval, package certification, and Odoo
+execution are not implemented by this contract.
 
 The browser evaluator applies one exact submitted mapping and derived-entity
 plan to every frozen source row. It produces deterministic canonical evidence
@@ -15,6 +16,7 @@ materialized frozen source tables
 -> storage-independent full-row evaluator
 -> typed prepared records
 -> versioned canonical staging run
+-> atomic project-scoped DuckDB publication
 -> existing read-only preflight compatibility path
 ```
 
@@ -33,9 +35,10 @@ Every `CanonicalStagingRun` binds:
 - staging-contract and evaluator versions;
 - exact source-content hashes through each row's lineage.
 
-Changed bound inputs produce different canonical row and run hashes. This
-contract does not decide approval invalidation or repository publication; those
-rules belong to the durable staging slice.
+Changed bound inputs produce different canonical row and run hashes. Publishing
+rechecks those inputs inside the database transaction. Source, related-entity,
+schema, mapping, or target changes retire the current pointer without deleting
+historical canonical evidence.
 
 ## Canonical rows and lineage
 
@@ -43,7 +46,7 @@ Every evaluated row produces one `CanonicalRow`, including rows with blocking
 issues. It retains:
 
 - a deterministic row identifier;
-- dataset and physical source-row coordinates;
+- dataset coordinates plus every contributing physical source-row pointer;
 - source identity, target model, target identity, and scope;
 - typed proposed scalar values;
 - unresolved symbolic relationships expressed through business keys;
@@ -68,8 +71,12 @@ Each canonical row has exactly one source-side disposition:
 
 `StagingReconciliation` requires the candidate, reference, blocked,
 quarantined, and excluded counts to equal the total canonical row count.
-Current evaluation never labels a row quarantined or excluded because those
-governed workflows are not yet integrated.
+Per-dataset controls also record physical rows read and used, canonical rows
+produced, lineage links, grouped source rows, additional derived rows, and
+source rows that did not create a derived entity. Direct, lookup, parent, and
+child transformations therefore remain distinguishable. Current evaluation
+never labels a row quarantined or excluded because those governed workflows
+are not yet integrated.
 
 These dispositions are not Odoo preflight classifications. Target-dependent
 `CREATE`, `UPDATE`, `UNCHANGED`, `AMBIGUOUS`, and `BLOCKED` remain the output of
@@ -87,16 +94,35 @@ or a changed content hash.
 browser. It materializes frozen artifacts and delegates evaluation to
 `evaluate_browser_mapping()`. The existing readiness planner and preflight
 engine continue to consume the same `ProfileDocument` and `PreparedBundle`.
+Readiness reports bind the exact published staging run and content hash.
+
+## Publication lifecycle
+
+Canonical evidence is immutable. Publication time, operator, and lifecycle
+status are stored separately from its deterministic content hash. A successful
+publication inserts the run header and rows in bounded batches, verifies the
+stored row count, supersedes the previous current run, updates the current
+pointer, and writes one audit event in the same transaction. Failure rolls the
+whole publication back. Re-publishing identical current evidence is
+idempotent.
+
+The Review page exposes only a plain-language saved status and row total.
+Dataset controls, run identifiers, versions, and hashes remain inside collapsed
+technical details. Odoo is not contacted by the staging repository.
 
 ## Next integration slice
 
-Durable staging must atomically publish the canonical run and typed rows in the
-project DuckDB, record invalidation and supersession, preserve bounded batch
-behavior, and expose reconciliation evidence without turning it into a clean
-package or Odoo write authorization.
+Slice 3 adds governed quality rules and quarantine. Historical-scale
+source-side streaming and explicitly declared business amount or quantity
+totals also remain closure work; the current evaluator still materializes its
+validated source tables in memory even though DuckDB writes are batched.
+Durable staging is not a clean package or Odoo write authorization.
 
 ## Executable evidence
 
 - [`staging_contracts.py`](../../src/impodo/staging_contracts.py)
+- [`staging.py`](../../src/impodo/staging.py)
+- [`project_store.py`](../../src/impodo/project_store.py)
 - [`readiness.py`](../../src/impodo/readiness.py)
 - [`test_readiness.py`](../../tests/test_readiness.py)
+- [`test_staging_store.py`](../../tests/test_staging_store.py)

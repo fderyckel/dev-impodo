@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 import re
 import secrets
-from typing import Callable
+from typing import Callable, Iterable
 from urllib.parse import parse_qsl, urlencode
 from uuid import UUID
 
@@ -107,6 +107,7 @@ from ..projects import (
     ProjectStatus,
     registration_problems,
 )
+from ..reference_keys import standard_reference_key
 from ..readiness import (
     BrowserReadinessService,
     MANIFEST_NAME,
@@ -929,7 +930,7 @@ def create_local_app(
                 error=str(error),
                 status_code=422,
             )
-        _flash(request, "Data readiness check completed.")
+        _flash(request, "Prepared data saved and checked.")
         return RedirectResponse(
             f"/projects/{project_id}/summary",
             status_code=303,
@@ -1912,16 +1913,17 @@ def create_local_app(
                 key = next(
                     (
                         item
-                        for item in governance.business_keys
+                        for item in _related_business_keys(
+                            governance.business_keys,
+                            field.relation,
+                        )
                         if item.key_id == _text(form, "business_key_id")
-                        and item.model == field.relation
-                        and item.status is BusinessKeyStatus.CONFIRMED
                     ),
                     None,
                 )
                 if key is None:
                     raise WorkspaceError(
-                        "Choose one confirmed key for the related Odoo records"
+                        "Choose how the related Odoo record is identified first"
                     )
                 project = context.repository.get(project_id)
                 target_choices, ambiguous_values = await run_in_threadpool(
@@ -2491,11 +2493,23 @@ def _read_readiness_snapshots(
                 "Choose and validate the matching local odoo.conf before "
                 "checking data."
             )
+        schema = context.repository.get_odoo_schema_catalog(project.project_id)
+        related_models = tuple(
+            sorted(
+                {
+                    field.relation
+                    for model in (schema.models if schema is not None else ())
+                    for field in model.fields
+                    if field.relation
+                }
+            )
+        )
         return context.local_odoo_reader.get_preflight_snapshots(
             project,
             local_profile,
             metadata_requests,
             record_requests,
+            related_models=related_models,
         )
     api_key = context.secret_store.get(_target_credential_id(project))
     if not api_key:
@@ -2632,18 +2646,35 @@ def _relationship_value_choices(
         (item for item in schema.models if item.name == field.relation),
         None,
     )
-    if related_model is None:
+    standard_key = standard_reference_key(field.relation or "")
+    uses_standard_key = bool(
+        standard_key is not None
+        and standard_key.key_fields == key.key_fields
+        and standard_key.scope_fields == key.scope_fields
+    )
+    if related_model is None and not uses_standard_key:
         raise WorkspaceError("Capture the related Odoo model before matching")
     key_field = key.key_fields[0]
-    field_by_name = {item.name: item for item in related_model.fields}
-    if key_field not in field_by_name:
+    field_by_name = (
+        {item.name: item for item in related_model.fields}
+        if related_model is not None
+        else {}
+    )
+    if key_field not in field_by_name and not uses_standard_key:
         raise WorkspaceError("The confirmed Odoo key is no longer available")
-    if field_by_name[key_field].type not in {"char", "text", "selection"}:
+    if (
+        key_field in field_by_name
+        and field_by_name[key_field].type not in {"char", "text", "selection"}
+    ):
         raise WorkspaceError(
             "Quick matching currently supports text-based Odoo keys"
         )
     available_fields = set(field_by_name)
-    display_field = "name" if "name" in available_fields else key_field
+    display_field = (
+        standard_key.display_field
+        if uses_standard_key and standard_key is not None
+        else ("name" if "name" in available_fields else key_field)
+    )
     requested_fields = tuple(dict.fromkeys((key_field, display_field)))
     _metadata, snapshot = _read_readiness_snapshots(
         context,
@@ -2766,6 +2797,7 @@ def _render_summary(
         if revision is not None
         else None
     )
+    staging = context.readiness.current_staging(project_id)
     report = context.readiness.current_report(project_id)
     status_filter = request.query_params.get("status", "").strip()
     if status_filter not in {"", "ready", "needs_review", "blocked"}:
@@ -2805,6 +2837,7 @@ def _render_summary(
         project=project,
         revision=revision,
         submission=submission,
+        staging=staging,
         readiness=report,
         readiness_rows=rows,
         readiness_row_total=row_total,
@@ -3989,11 +4022,12 @@ def _mapping_dataset_views(
             ):
                 metadata = field_by_name.get(target_field)
                 component = existing_components.get(target_field)
-                related_keys = tuple(
-                    item
-                    for item in confirmed
-                    if metadata is not None
-                    and item.model == metadata.relation
+                related_keys = _related_business_keys(
+                    confirmed,
+                    metadata.relation if metadata is not None else None,
+                )
+                standard_related_key = _standard_reference_business_key(
+                    metadata.relation if metadata is not None else None
                 )
                 selected_related_key = _resolver_business_key(
                     component.resolver if component else None,
@@ -4021,6 +4055,12 @@ def _mapping_dataset_views(
                         ),
                         "related_keys": related_keys,
                         "selected_related_key": selected_related_key,
+                        "recommended_related_key_id": (
+                            standard_related_key.key_id
+                            if standard_related_key is not None
+                            and standard_related_key in related_keys
+                            else ""
+                        ),
                     }
                 )
         identity_targets = {
@@ -4184,8 +4224,12 @@ def _mapping_dataset_views(
         for relation_index, field in visible_relations:
             mapping = relation_by_target.get(field.name)
             recommendation = relation_recommendations.get(field.name)
-            related_keys = tuple(
-                item for item in confirmed if item.model == field.relation
+            related_keys = _related_business_keys(
+                confirmed,
+                field.relation,
+            )
+            standard_related_key = _standard_reference_business_key(
+                field.relation
             )
             row: dict[str, object] = {
                 "index": relation_index,
@@ -4195,6 +4239,12 @@ def _mapping_dataset_views(
                 "selected_key": _resolver_business_key(
                     mapping.resolver if mapping else None,
                     related_keys,
+                ),
+                "recommended_key_id": (
+                    standard_related_key.key_id
+                    if standard_related_key is not None
+                    and standard_related_key in related_keys
+                    else ""
                 ),
                 "value_mappings_json": _value_mappings_json(
                     mapping.resolver.value_mappings if mapping else ()
@@ -4510,13 +4560,7 @@ def _mapping_datasets_from_form(
     governance,
 ) -> tuple[DatasetMapping, ...]:
     models = {item.name: item for item in schema.models}
-    keys = {
-        item.key_id: item
-        for item in (
-            governance.business_keys if governance is not None else ()
-        )
-        if item.status is BusinessKeyStatus.CONFIRMED
-    }
+    keys = _available_mapping_business_keys(schema, governance)
     datasets: list[DatasetMapping] = []
     for dataset_index, source_dataset in enumerate(selection.datasets):
         target_model = _text(form, f"target_model_{dataset_index}")
@@ -5104,6 +5148,68 @@ def _merge_partial_mapping_datasets(
             )
         )
     return tuple(merged)
+
+
+def _standard_reference_business_key(
+    model: str | None,
+) -> BusinessKeyDefinition | None:
+    rule = standard_reference_key(model or "")
+    if rule is None:
+        return None
+    return BusinessKeyDefinition(
+        key_id=(
+            f"odoo-standard:{rule.model}:"
+            f"{'+'.join((*rule.key_fields, *rule.scope_fields))}"
+        ),
+        model=rule.model,
+        key_fields=rule.key_fields,
+        scope_fields=rule.scope_fields,
+        description=rule.description,
+        status=BusinessKeyStatus.CONFIRMED,
+    )
+
+
+def _related_business_keys(
+    definitions: Iterable[BusinessKeyDefinition],
+    model: str | None,
+) -> tuple[BusinessKeyDefinition, ...]:
+    confirmed = tuple(
+        item
+        for item in definitions
+        if item.model == model and item.status is BusinessKeyStatus.CONFIRMED
+    )
+    standard = _standard_reference_business_key(model)
+    if standard is None or any(
+        item.key_fields == standard.key_fields
+        and item.scope_fields == standard.scope_fields
+        for item in confirmed
+    ):
+        return confirmed
+    return (*confirmed, standard)
+
+
+def _available_mapping_business_keys(
+    schema,
+    governance,
+) -> dict[str, BusinessKeyDefinition]:
+    confirmed = tuple(
+        item
+        for item in (
+            governance.business_keys if governance is not None else ()
+        )
+        if item.status is BusinessKeyStatus.CONFIRMED
+    )
+    keys = {item.key_id: item for item in confirmed}
+    related_models = {
+        field.relation
+        for model in schema.models
+        for field in model.fields
+        if field.relation
+    }
+    for related_model in related_models:
+        for key in _related_business_keys(confirmed, related_model):
+            keys.setdefault(key.key_id, key)
+    return keys
 
 
 def _target_catalog_resolver(

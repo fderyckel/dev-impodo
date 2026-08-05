@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 import json
 from pathlib import Path
 import shutil
-from typing import Iterable, Iterator
+from typing import Iterable, Iterator, Sequence
 from uuid import UUID, uuid4
 
 import duckdb
@@ -37,6 +37,8 @@ from .projects import (
     SourceFile,
 )
 from .readiness import ReadinessReport
+from .staging import StagingRunStatus, StagingRunSummary
+from .staging_contracts import CanonicalRow, CanonicalStagingRun
 from .workspace import (
     MappingDraft,
     MappingWorkingDraft,
@@ -48,7 +50,8 @@ from .workspace import (
 )
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
+STAGING_ROW_BATCH_SIZE = 1_000
 
 
 class DuckDbProjectRepository:
@@ -263,6 +266,10 @@ class DuckDbProjectRepository:
                 connection.execute("DELETE FROM derived_entity_plan_current")
                 connection.execute("DELETE FROM mapping_draft")
                 connection.execute("DELETE FROM mapping_current")
+                self._invalidate_canonical_staging(
+                    connection,
+                    reason="SOURCE_FILES_REINSPECTED",
+                )
                 for catalog in catalog_set:
                     connection.execute(
                         """
@@ -345,6 +352,10 @@ class DuckDbProjectRepository:
                 connection.execute("DELETE FROM source_selection")
                 connection.execute("DELETE FROM mapping_draft")
                 connection.execute("DELETE FROM mapping_current")
+                self._invalidate_canonical_staging(
+                    connection,
+                    reason="SOURCE_FILE_REINSPECTED",
+                )
                 self._insert_workspace_audit(
                     connection,
                     revision=revision,
@@ -421,6 +432,10 @@ class DuckDbProjectRepository:
                 connection.execute("DELETE FROM source_selection")
                 connection.execute("DELETE FROM mapping_draft")
                 connection.execute("DELETE FROM mapping_current")
+                self._invalidate_canonical_staging(
+                    connection,
+                    reason="SOURCE_CONFIGURATION_CHANGED",
+                )
                 self._insert_workspace_audit(
                     connection,
                     revision=revision,
@@ -566,6 +581,10 @@ class DuckDbProjectRepository:
                 )
                 connection.execute("DELETE FROM mapping_current")
                 connection.execute("DELETE FROM mapping_draft")
+                self._invalidate_canonical_staging(
+                    connection,
+                    reason="DERIVED_ENTITY_PLAN_CHANGED",
+                )
                 self._insert_workspace_audit(
                     connection,
                     revision=revision,
@@ -744,6 +763,10 @@ class DuckDbProjectRepository:
                 )
                 connection.execute("DELETE FROM mapping_current")
                 connection.execute("DELETE FROM mapping_draft")
+                self._invalidate_canonical_staging(
+                    connection,
+                    reason="SCHEMA_GOVERNANCE_CHANGED",
+                )
                 self._insert_workspace_audit(
                     connection,
                     revision=revision,
@@ -1083,6 +1106,10 @@ class DuckDbProjectRepository:
                     ],
                 )
                 connection.execute("DELETE FROM mapping_draft")
+                self._invalidate_canonical_staging(
+                    connection,
+                    reason="MAPPING_REVISION_CHANGED",
+                )
                 self._insert_workspace_audit(
                     connection,
                     revision=revision_number,
@@ -1286,7 +1313,12 @@ class DuckDbProjectRepository:
             connection.begin()
             try:
                 current = connection.execute(
-                    "SELECT revision FROM project"
+                    """
+                    SELECT revision, odoo_connection_mode, odoo_base_url,
+                           odoo_database, intended_applications,
+                           intended_models
+                      FROM project
+                    """
                 ).fetchone()
                 if current is None:
                     raise ProjectNotFoundError("Project not found")
@@ -1294,7 +1326,30 @@ class DuckDbProjectRepository:
                     raise ProjectConflictError(
                         "The project was modified by another request"
                     )
+                target_changed = event_type == "PROJECT_TARGET_UPDATED" and (
+                    str(current[1] or "")
+                    != (
+                        project.odoo_connection_mode.value
+                        if project.odoo_connection_mode
+                        else ""
+                    )
+                    or str(current[2]) != project.odoo_base_url
+                    or str(current[3]) != project.odoo_database
+                    or tuple(json.loads(str(current[4])))
+                    != project.intended_applications
+                    or tuple(json.loads(str(current[5])))
+                    != project.intended_models
+                )
                 self._update_project(connection, project)
+                if target_changed:
+                    connection.execute("DELETE FROM odoo_schema_catalog")
+                    connection.execute("DELETE FROM schema_governance_current")
+                    connection.execute("DELETE FROM mapping_draft")
+                    connection.execute("DELETE FROM mapping_current")
+                    self._invalidate_canonical_staging(
+                        connection,
+                        reason="PROJECT_TARGET_CHANGED",
+                    )
                 self._insert_audit(
                     connection,
                     project,
@@ -1337,6 +1392,10 @@ class DuckDbProjectRepository:
                         "The project was modified by another request"
                     )
                 self._update_project(connection, project)
+                self._invalidate_canonical_staging(
+                    connection,
+                    reason="SOURCE_FILE_ADDED",
+                )
                 connection.execute(
                     """
                     INSERT INTO source_file VALUES (?, ?, ?, ?, ?, ?)
@@ -1393,6 +1452,10 @@ class DuckDbProjectRepository:
                 connection.execute("DELETE FROM schema_governance_current")
                 connection.execute("DELETE FROM mapping_draft")
                 connection.execute("DELETE FROM mapping_current")
+                self._invalidate_canonical_staging(
+                    connection,
+                    reason="SCHEMA_SCOPE_CHANGED",
+                )
                 self._insert_audit(
                     connection,
                     project,
@@ -1414,6 +1477,8 @@ class DuckDbProjectRepository:
         mapping_id: str,
         mapping_version: int,
         mapping_content_hash: str,
+        staging_run_id: str,
+        staging_content_hash: str,
     ) -> ReadinessReport | None:
         values = self._read_json_rows(
             project_id,
@@ -1423,11 +1488,384 @@ class DuckDbProjectRepository:
              WHERE mapping_id = ?
                AND mapping_version = ?
                AND mapping_content_hash = ?
+               AND staging_run_id = ?
+               AND staging_content_hash = ?
              ORDER BY checked_at DESC, run_id
             """,
-            [mapping_id, mapping_version, mapping_content_hash],
+            [
+                mapping_id,
+                mapping_version,
+                mapping_content_hash,
+                staging_run_id,
+                staging_content_hash,
+            ],
         )
         return ReadinessReport.from_json(values[0]) if values else None
+
+    def publish_canonical_staging(
+        self,
+        project_id: str,
+        run: CanonicalStagingRun,
+        *,
+        mapping_version: int,
+        actor: Actor,
+    ) -> StagingRunSummary:
+        """Atomically publish immutable canonical rows for one submitted mapping."""
+
+        if run.project_id != project_id:
+            raise WorkspaceError("Prepared data belongs to another project")
+        try:
+            CanonicalStagingRun.from_json(run.to_json())
+        except (TypeError, ValueError) as error:
+            raise WorkspaceError("Prepared data evidence is invalid") from error
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        published_at = datetime.now(timezone.utc)
+        run_id = str(uuid4())
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            connection.begin()
+            try:
+                mapping = connection.execute(
+                    """
+                    SELECT revision.mapping_id, revision.version,
+                           revision.content_hash,
+                           revision.source_selection_hash,
+                           revision.schema_hash
+                      FROM mapping_current AS current
+                      JOIN mapping_revision AS revision
+                        ON revision.mapping_id = current.mapping_id
+                       AND revision.version = current.version
+                     WHERE current.singleton_id = 1
+                       AND EXISTS (
+                           SELECT 1
+                             FROM mapping_submission AS submission
+                            WHERE submission.mapping_id = revision.mapping_id
+                              AND submission.version = revision.version
+                              AND submission.content_hash = revision.content_hash
+                       )
+                    """
+                ).fetchone()
+                if mapping is None:
+                    raise WorkspaceError(
+                        "Submit the current field matches before saving prepared data"
+                    )
+                if (
+                    str(mapping[0]) != run.mapping_id
+                    or int(mapping[1]) != mapping_version
+                    or str(mapping[2]) != run.mapping_hash
+                    or str(mapping[3]) != run.source_selection_hash
+                    or str(mapping[4]) != run.schema_hash
+                ):
+                    raise WorkspaceError(
+                        "Prepared data no longer matches the submitted field matches"
+                    )
+                selection = connection.execute(
+                    """
+                    SELECT selection_json
+                      FROM source_selection
+                     WHERE singleton_id = 1
+                    """
+                ).fetchone()
+                if selection is None:
+                    raise WorkspaceError(
+                        "Freeze the source datasets before saving prepared data"
+                    )
+                physical = SourceSelection.from_json(str(selection[0]))
+                if physical.content_hash != run.physical_selection_hash:
+                    raise WorkspaceError(
+                        "Prepared data no longer matches the frozen source datasets"
+                    )
+                plan = connection.execute(
+                    """
+                    SELECT revision.content_hash
+                      FROM derived_entity_plan_current AS current
+                      JOIN derived_entity_plan_revision AS revision
+                        ON revision.plan_id = current.plan_id
+                       AND revision.version = current.version
+                     WHERE current.singleton_id = 1
+                    """
+                ).fetchone()
+                current_plan_hash = str(plan[0]) if plan else None
+                if current_plan_hash != run.derived_plan_hash:
+                    raise WorkspaceError(
+                        "Prepared data no longer matches its related-record plan"
+                    )
+
+                current = connection.execute(
+                    """
+                    SELECT run.run_id, run.content_hash, run.mapping_id,
+                           run.mapping_version, run.contract_version,
+                           run.evaluator_version, run.status, run.published_at,
+                           run.published_by, run.reconciliation_json,
+                           run.dataset_reconciliation_json
+                      FROM canonical_staging_current AS active
+                      JOIN canonical_staging_run AS run
+                        ON run.run_id = active.run_id
+                     WHERE active.singleton_id = 1
+                    """
+                ).fetchone()
+                if (
+                    current is not None
+                    and str(current[1]) == run.content_hash
+                    and str(current[2]) == run.mapping_id
+                    and int(current[3]) == mapping_version
+                ):
+                    connection.rollback()
+                    return self._staging_summary(project_id, current)
+
+                connection.execute(
+                    """
+                    INSERT INTO canonical_staging_run (
+                        run_id, content_hash, mapping_id, mapping_version,
+                        physical_selection_hash, source_selection_hash,
+                        mapping_hash, schema_hash, derived_plan_hash,
+                        contract_version, evaluator_version, status,
+                        published_at, published_by, row_count,
+                        run_issues_json, reconciliation_json,
+                        dataset_reconciliation_json, retired_at,
+                        retired_reason, successor_run_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                              NULL, NULL, NULL)
+                    """,
+                    [
+                        run_id,
+                        run.content_hash,
+                        run.mapping_id,
+                        mapping_version,
+                        run.physical_selection_hash,
+                        run.source_selection_hash,
+                        run.mapping_hash,
+                        run.schema_hash,
+                        run.derived_plan_hash,
+                        run.contract_version,
+                        run.evaluator_version,
+                        StagingRunStatus.PUBLISHED.value,
+                        published_at.isoformat(),
+                        actor.identity.display_name,
+                        len(run.rows),
+                        _canonical_json(
+                            [item.to_portable_dict() for item in run.issues]
+                        ),
+                        _canonical_json(run.reconciliation.to_portable_dict()),
+                        _canonical_json(
+                            [item.to_portable_dict() for item in run.datasets]
+                        ),
+                    ],
+                )
+                self._insert_canonical_rows(connection, run_id, run.rows)
+                stored_count = connection.execute(
+                    """
+                    SELECT COUNT(*)
+                      FROM canonical_staging_row
+                     WHERE run_id = ?
+                    """,
+                    [run_id],
+                ).fetchone()
+                if stored_count is None or int(stored_count[0]) != len(run.rows):
+                    raise WorkspaceError("Prepared rows were not stored completely")
+                if current is not None:
+                    connection.execute(
+                        """
+                        UPDATE canonical_staging_run
+                           SET status = ?, retired_at = ?, retired_reason = ?,
+                               successor_run_id = ?
+                         WHERE run_id = ?
+                        """,
+                        [
+                            StagingRunStatus.SUPERSEDED.value,
+                            published_at.isoformat(),
+                            "NEW_CANONICAL_RUN",
+                            run_id,
+                            str(current[0]),
+                        ],
+                    )
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO canonical_staging_current
+                    VALUES (1, ?)
+                    """,
+                    [run_id],
+                )
+                connection.execute(
+                    """
+                    UPDATE project
+                       SET current_run_id = NULL,
+                           approval_status = 'INVALIDATED'
+                    """
+                )
+                self._insert_workspace_audit(
+                    connection,
+                    revision=self._project_revision(connection),
+                    event_type="CANONICAL_STAGING_PUBLISHED",
+                    detail=(
+                        f"run {run_id}: {len(run.rows)} prepared row(s); "
+                        f"{run.content_hash}"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return StagingRunSummary(
+            run_id=run_id,
+            project_id=project_id,
+            content_hash=run.content_hash,
+            mapping_id=run.mapping_id,
+            mapping_version=mapping_version,
+            contract_version=run.contract_version,
+            evaluator_version=run.evaluator_version,
+            status=StagingRunStatus.PUBLISHED,
+            published_at=published_at,
+            published_by=actor.identity.display_name,
+            reconciliation=run.reconciliation,
+            datasets=run.datasets,
+        )
+
+    def get_current_staging_summary(
+        self,
+        project_id: str,
+    ) -> StagingRunSummary | None:
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            row = connection.execute(
+                """
+                SELECT run.run_id, run.content_hash, run.mapping_id,
+                       run.mapping_version, run.contract_version,
+                       run.evaluator_version, run.status, run.published_at,
+                       run.published_by, run.reconciliation_json,
+                       run.dataset_reconciliation_json
+                  FROM canonical_staging_current AS active
+                  JOIN canonical_staging_run AS run
+                    ON run.run_id = active.run_id
+                 WHERE active.singleton_id = 1
+                   AND run.status = 'PUBLISHED'
+                """
+            ).fetchone()
+        return self._staging_summary(project_id, row) if row else None
+
+    def get_canonical_staging_run(
+        self,
+        project_id: str,
+        run_id: str,
+    ) -> CanonicalStagingRun | None:
+        try:
+            canonical_run_id = str(UUID(run_id))
+        except (ValueError, AttributeError) as error:
+            raise WorkspaceError("Prepared-data run identifier is invalid") from error
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            header = connection.execute(
+                """
+                SELECT content_hash, mapping_id, physical_selection_hash,
+                       source_selection_hash, mapping_hash, schema_hash,
+                       derived_plan_hash, contract_version, evaluator_version,
+                       run_issues_json, reconciliation_json,
+                       dataset_reconciliation_json
+                  FROM canonical_staging_run
+                 WHERE run_id = ?
+                """,
+                [canonical_run_id],
+            ).fetchone()
+            if header is None:
+                return None
+            rows = connection.execute(
+                """
+                SELECT row_json
+                  FROM canonical_staging_row
+                 WHERE run_id = ?
+                 ORDER BY ordinal
+                """,
+                [canonical_run_id],
+            ).fetchall()
+        payload = {
+            "content_hash": str(header[0]),
+            "mapping_id": str(header[1]),
+            "project_id": project_id,
+            "physical_selection_hash": str(header[2]),
+            "source_selection_hash": str(header[3]),
+            "mapping_hash": str(header[4]),
+            "schema_hash": str(header[5]),
+            "derived_plan_hash": str(header[6]) if header[6] else None,
+            "contract_version": int(header[7]),
+            "evaluator_version": int(header[8]),
+            "issues": json.loads(str(header[9])),
+            "reconciliation": json.loads(str(header[10])),
+            "datasets": json.loads(str(header[11])),
+            "rows": [json.loads(str(item[0])) for item in rows],
+        }
+        try:
+            return CanonicalStagingRun.from_dict(payload)
+        except (TypeError, ValueError) as error:
+            raise WorkspaceError("Stored prepared-data evidence is invalid") from error
+
+    @staticmethod
+    def _insert_canonical_rows(
+        connection: duckdb.DuckDBPyConnection,
+        run_id: str,
+        rows: Sequence[CanonicalRow],
+    ) -> None:
+        for start in range(0, len(rows), STAGING_ROW_BATCH_SIZE):
+            batch = rows[start : start + STAGING_ROW_BATCH_SIZE]
+            connection.executemany(
+                """
+                INSERT INTO canonical_staging_row (
+                    run_id, ordinal, row_id, dataset, source_row,
+                    target_model, disposition, row_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    [
+                        run_id,
+                        start + offset,
+                        row.row_id,
+                        row.dataset,
+                        row.source_row,
+                        row.target_model,
+                        row.disposition.value,
+                        _canonical_json(row.to_portable_dict()),
+                    ]
+                    for offset, row in enumerate(batch)
+                ],
+            )
+
+    @staticmethod
+    def _staging_summary(
+        project_id: str,
+        row: Sequence[object],
+    ) -> StagingRunSummary:
+        from .staging_contracts import (
+            StagingDatasetReconciliation,
+            StagingReconciliation,
+        )
+
+        return StagingRunSummary(
+            run_id=str(row[0]),
+            project_id=project_id,
+            content_hash=str(row[1]),
+            mapping_id=str(row[2]),
+            mapping_version=int(row[3]),
+            contract_version=int(row[4]),
+            evaluator_version=int(row[5]),
+            status=StagingRunStatus(str(row[6])),
+            published_at=datetime.fromisoformat(str(row[7])),
+            published_by=str(row[8]),
+            reconciliation=StagingReconciliation.from_dict(
+                json.loads(str(row[9]))
+            ),
+            datasets=tuple(
+                StagingDatasetReconciliation.from_dict(item)
+                for item in json.loads(str(row[10]))
+            ),
+        )
 
     def save_readiness_report(
         self,
@@ -1438,6 +1876,7 @@ class DuckDbProjectRepository:
     ) -> None:
         try:
             canonical_run_id = str(UUID(report.run_id))
+            canonical_staging_run_id = str(UUID(report.staging_run_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Readiness run identifier is invalid") from error
         if report.project_id != project_id:
@@ -1447,33 +1886,60 @@ class DuckDbProjectRepository:
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
             self._migrate_project_database(connection)
-            submission = connection.execute(
-                """
-                SELECT submission_id
-                  FROM mapping_submission
-                 WHERE mapping_id = ?
-                   AND version = ?
-                   AND content_hash = ?
-                 ORDER BY submitted_at DESC
-                 LIMIT 1
-                """,
-                [
-                    report.mapping_id,
-                    report.mapping_version,
-                    report.mapping_content_hash,
-                ],
-            ).fetchone()
-            if submission is None:
-                raise WorkspaceError(
-                    "Readiness report does not match a submitted mapping"
-                )
-            revision = self._project_revision(connection)
             connection.begin()
             try:
+                submission = connection.execute(
+                    """
+                    SELECT submission_id
+                      FROM mapping_submission
+                     WHERE mapping_id = ?
+                       AND version = ?
+                       AND content_hash = ?
+                     ORDER BY submitted_at DESC
+                     LIMIT 1
+                    """,
+                    [
+                        report.mapping_id,
+                        report.mapping_version,
+                        report.mapping_content_hash,
+                    ],
+                ).fetchone()
+                if submission is None:
+                    raise WorkspaceError(
+                        "Readiness report does not match a submitted mapping"
+                    )
+                staging = connection.execute(
+                    """
+                    SELECT run.content_hash, run.mapping_id,
+                           run.mapping_version, run.mapping_hash
+                      FROM canonical_staging_current AS current
+                      JOIN canonical_staging_run AS run
+                        ON run.run_id = current.run_id
+                     WHERE current.singleton_id = 1
+                       AND run.run_id = ?
+                       AND run.status = 'PUBLISHED'
+                    """,
+                    [canonical_staging_run_id],
+                ).fetchone()
+                if (
+                    staging is None
+                    or str(staging[0]) != report.staging_content_hash
+                    or str(staging[1]) != report.mapping_id
+                    or int(staging[2]) != report.mapping_version
+                    or str(staging[3]) != report.mapping_content_hash
+                ):
+                    raise WorkspaceError(
+                        "Readiness report does not match the current prepared data"
+                    )
+                revision = self._project_revision(connection)
                 connection.execute(
                     """
-                    INSERT INTO readiness_run
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO readiness_run (
+                        run_id, mapping_id, mapping_version,
+                        mapping_content_hash, target_hash, staging_run_id,
+                        staging_content_hash, checked_at, checked_by,
+                        report_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         canonical_run_id,
@@ -1481,6 +1947,8 @@ class DuckDbProjectRepository:
                         report.mapping_version,
                         report.mapping_content_hash,
                         report.target_hash,
+                        canonical_staging_run_id,
+                        report.staging_content_hash,
                         report.checked_at.isoformat(),
                         report.checked_by,
                         report.to_json(),
@@ -1606,6 +2074,15 @@ class DuckDbProjectRepository:
                     }:
                         raise ValueError("Unsupported invalidation table")
                     connection.execute(f"DELETE FROM {target}")
+                if table in {"source_selection", "odoo_schema_catalog"}:
+                    self._invalidate_canonical_staging(
+                        connection,
+                        reason=(
+                            "SOURCE_SELECTION_CHANGED"
+                            if table == "source_selection"
+                            else "ODOO_SCHEMA_CHANGED"
+                        ),
+                    )
                 self._insert_workspace_audit(
                     connection,
                     revision=revision,
@@ -1624,6 +2101,45 @@ class DuckDbProjectRepository:
         if row is None:
             raise ProjectNotFoundError("Project not found")
         return int(row[0])
+
+    @staticmethod
+    def _invalidate_canonical_staging(
+        connection: duckdb.DuckDBPyConnection,
+        *,
+        reason: str,
+    ) -> None:
+        """Retire the current staging pointer without deleting audit evidence."""
+
+        current = connection.execute(
+            """
+            SELECT run_id
+              FROM canonical_staging_current
+             WHERE singleton_id = 1
+            """
+        ).fetchone()
+        if current is None:
+            return
+        connection.execute(
+            """
+            UPDATE canonical_staging_run
+               SET status = ?, retired_at = ?, retired_reason = ?
+             WHERE run_id = ?
+            """,
+            [
+                StagingRunStatus.INVALIDATED.value,
+                datetime.now(timezone.utc).isoformat(),
+                reason,
+                str(current[0]),
+            ],
+        )
+        connection.execute("DELETE FROM canonical_staging_current")
+        connection.execute(
+            """
+            UPDATE project
+               SET current_run_id = NULL,
+                   approval_status = 'INVALIDATED'
+            """
+        )
 
     @staticmethod
     def _insert_workspace_audit(
@@ -1834,12 +2350,59 @@ class DuckDbProjectRepository:
                 submission_json VARCHAR NOT NULL
             );
 
+            CREATE TABLE canonical_staging_run (
+                run_id VARCHAR PRIMARY KEY,
+                content_hash VARCHAR NOT NULL,
+                mapping_id VARCHAR NOT NULL,
+                mapping_version INTEGER NOT NULL,
+                physical_selection_hash VARCHAR NOT NULL,
+                source_selection_hash VARCHAR NOT NULL,
+                mapping_hash VARCHAR NOT NULL,
+                schema_hash VARCHAR NOT NULL,
+                derived_plan_hash VARCHAR,
+                contract_version INTEGER NOT NULL,
+                evaluator_version INTEGER NOT NULL,
+                status VARCHAR NOT NULL,
+                published_at VARCHAR NOT NULL,
+                published_by VARCHAR NOT NULL,
+                row_count BIGINT NOT NULL,
+                run_issues_json VARCHAR NOT NULL,
+                reconciliation_json VARCHAR NOT NULL,
+                dataset_reconciliation_json VARCHAR NOT NULL,
+                retired_at VARCHAR,
+                retired_reason VARCHAR,
+                successor_run_id VARCHAR
+            );
+
+            CREATE TABLE canonical_staging_row (
+                run_id VARCHAR NOT NULL,
+                ordinal BIGINT NOT NULL,
+                row_id VARCHAR NOT NULL,
+                dataset VARCHAR NOT NULL,
+                source_row BIGINT NOT NULL,
+                target_model VARCHAR NOT NULL,
+                disposition VARCHAR NOT NULL,
+                row_json VARCHAR NOT NULL,
+                PRIMARY KEY (run_id, ordinal),
+                UNIQUE (run_id, row_id)
+            );
+
+            CREATE INDEX canonical_staging_row_lookup
+                ON canonical_staging_row (run_id, dataset, disposition);
+
+            CREATE TABLE canonical_staging_current (
+                singleton_id INTEGER PRIMARY KEY,
+                run_id VARCHAR NOT NULL
+            );
+
             CREATE TABLE readiness_run (
                 run_id VARCHAR PRIMARY KEY,
                 mapping_id VARCHAR NOT NULL,
                 mapping_version INTEGER NOT NULL,
                 mapping_content_hash VARCHAR NOT NULL,
                 target_hash VARCHAR NOT NULL,
+                staging_run_id VARCHAR NOT NULL,
+                staging_content_hash VARCHAR NOT NULL,
                 checked_at VARCHAR NOT NULL,
                 checked_by VARCHAR NOT NULL,
                 report_json VARCHAR NOT NULL
@@ -2186,6 +2749,81 @@ class DuckDbProjectRepository:
                         """
                     )
                     version = 11
+                if version == 11:
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS canonical_staging_run (
+                            run_id VARCHAR PRIMARY KEY,
+                            content_hash VARCHAR NOT NULL,
+                            mapping_id VARCHAR NOT NULL,
+                            mapping_version INTEGER NOT NULL,
+                            physical_selection_hash VARCHAR NOT NULL,
+                            source_selection_hash VARCHAR NOT NULL,
+                            mapping_hash VARCHAR NOT NULL,
+                            schema_hash VARCHAR NOT NULL,
+                            derived_plan_hash VARCHAR,
+                            contract_version INTEGER NOT NULL,
+                            evaluator_version INTEGER NOT NULL,
+                            status VARCHAR NOT NULL,
+                            published_at VARCHAR NOT NULL,
+                            published_by VARCHAR NOT NULL,
+                            row_count BIGINT NOT NULL,
+                            run_issues_json VARCHAR NOT NULL,
+                            reconciliation_json VARCHAR NOT NULL,
+                            dataset_reconciliation_json VARCHAR NOT NULL,
+                            retired_at VARCHAR,
+                            retired_reason VARCHAR,
+                            successor_run_id VARCHAR
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS canonical_staging_row (
+                            run_id VARCHAR NOT NULL,
+                            ordinal BIGINT NOT NULL,
+                            row_id VARCHAR NOT NULL,
+                            dataset VARCHAR NOT NULL,
+                            source_row BIGINT NOT NULL,
+                            target_model VARCHAR NOT NULL,
+                            disposition VARCHAR NOT NULL,
+                            row_json VARCHAR NOT NULL,
+                            PRIMARY KEY (run_id, ordinal),
+                            UNIQUE (run_id, row_id)
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS canonical_staging_row_lookup
+                            ON canonical_staging_row (
+                                run_id, dataset, disposition
+                            )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS canonical_staging_current (
+                            singleton_id INTEGER PRIMARY KEY,
+                            run_id VARCHAR NOT NULL
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        ALTER TABLE readiness_run
+                        ADD COLUMN IF NOT EXISTS staging_run_id
+                        VARCHAR DEFAULT ''
+                        """
+                    )
+                    connection.execute(
+                        """
+                        ALTER TABLE readiness_run
+                        ADD COLUMN IF NOT EXISTS staging_content_hash
+                        VARCHAR DEFAULT ''
+                        """
+                    )
+                    version = 12
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],
@@ -2384,4 +3022,13 @@ def _project_from_rows(
             str(data["current_run_id"]) if data["current_run_id"] else None
         ),
         approval_status=ApprovalStatus(str(data["approval_status"])),
+    )
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
     )

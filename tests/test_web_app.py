@@ -1846,10 +1846,28 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Technical details", readiness_page.text)
         self.assertIn("Create review workbook", readiness_page.text)
         self.assertIn("Odoo remains unchanged", readiness_page.text)
+        self.assertIn("prepared rows safely saved", readiness_page.text)
+        self.assertIn("data-staging-summary", readiness_page.text)
+        self.assertIn("<summary>Technical details</summary>", readiness_page.text)
 
         readiness = self.app.state.context.readiness
         report = readiness.current_report(project_id)
         assert report is not None
+        staging = readiness.current_staging(project_id)
+        assert staging is not None
+        self.assertEqual(report.staging_run_id, staging.run_id)
+        self.assertEqual(report.staging_content_hash, staging.content_hash)
+        restored_staging = (
+            self.app.state.context.repository.get_canonical_staging_run(
+                project_id,
+                staging.run_id,
+            )
+        )
+        self.assertIsNotNone(restored_staging)
+        self.assertEqual(
+            restored_staging.content_hash,
+            staging.content_hash,
+        )
         sample_row = report.rows[0]
         paged_rows = tuple(
             replace(
@@ -2017,6 +2035,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIsNone(
             self.app.state.context.repository.get_mapping_revision(project_id)
+        )
+        self.assertIsNone(readiness.current_staging(project_id))
+        self.assertIsNotNone(
+            self.app.state.context.repository.get_canonical_staging_run(
+                project_id,
+                staging.run_id,
+            )
         )
         self.assertIsNotNone(
             self.app.state.context.repository.get_mapping_working_draft(
@@ -2299,6 +2324,166 @@ class ProjectSetupWizardTests(unittest.TestCase):
             .resolver.value_mappings,
             (ValueMapping("FRA", "FR"),),
         )
+
+    def test_country_matching_uses_reviewed_code_without_schema_recapture(
+        self,
+    ) -> None:
+        project_id, dataset, business_key = self._mapping_ready_project(
+            scalar_field_count=0,
+            relationship_field_count=1,
+            relationship_model="res.country",
+        )
+        source_identity, source_country = dataset.columns
+        context = self.app.state.context
+        calls = []
+
+        def readiness_reader(project, metadata_requests, record_requests):
+            calls.append((metadata_requests, record_requests))
+            metadata = _browser_schema(project)
+            return metadata, RecordSnapshot(
+                fingerprint=metadata.fingerprint,
+                records={
+                    "res.country": (
+                        TargetRecord(
+                            "res.country",
+                            1,
+                            {"code": "FR", "name": "France"},
+                        ),
+                        TargetRecord(
+                            "res.country",
+                            2,
+                            {"code": "BE", "name": "Belgium"},
+                        ),
+                    )
+                },
+                requested_fields={"res.country": ("code", "name")},
+            )
+
+        context.readiness_reader = readiness_reader
+        page = self.client.get(f"/projects/{project_id}/mapping")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Country code — recommended", page.text)
+        self.assertIn(
+            'value="odoo-standard:res.country:code" selected',
+            page.text,
+        )
+        with patch(
+            "impodo.web.app._source_value_choices",
+            return_value=({"value": "FRA", "count": 3},),
+        ):
+            choices = self.client.post(
+                f"/projects/{project_id}/mapping/value-choices",
+                data={
+                    "csrf_token": self.csrf,
+                    "kind": "relationship",
+                    "dataset_id": dataset.dataset_id,
+                    "source_column_key": source_country.stable_key,
+                    "target_model": "res.partner",
+                    "target_field": "relation_0000",
+                    "business_key_id": "odoo-standard:res.country:code",
+                },
+                headers=POST_HEADERS,
+            )
+
+        self.assertEqual(choices.status_code, 200)
+        self.assertEqual(
+            choices.json()["target_choices"],
+            [
+                {"value": "BE", "label": "Belgium (BE)"},
+                {"value": "FR", "label": "France (FR)"},
+            ],
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1][0].model, "res.country")
+        self.assertEqual(calls[0][1][0].fields, ("code", "name"))
+        self.assertNotIn("odoo_id", choices.text)
+
+        saved = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            json={
+                "entries": [
+                    ["csrf_token", self.csrf],
+                    ["action", "save_progress"],
+                    ["expected_parent_version", ""],
+                    ["expected_working_draft_version", ""],
+                    ["editable_dataset_id", dataset.dataset_id],
+                    ["target_model_0", "res.partner"],
+                    ["mode_0", "upsert"],
+                    ["on_existing_0", "block"],
+                    ["source_identity_0", source_identity.stable_key],
+                    ["business_key_0", business_key.key_id],
+                    ["identity_source_0_0", source_identity.stable_key],
+                    ["visible_relation_target_0", "relation_0000"],
+                    ["relation_source_0_0", source_country.stable_key],
+                    ["relation_origin_0_0", "target_catalog"],
+                    [
+                        "relation_key_0_0",
+                        "odoo-standard:res.country:code",
+                    ],
+                    ["relation_operation_0_0", "replace"],
+                    ["relation_compare_0_0", "1"],
+                    ["relation_missing_0_0", "error"],
+                    ["relation_ambiguous_0_0", "error"],
+                    ["relation_null_0_0", "distinct"],
+                    ["relation_separator_0_0", ";"],
+                    [
+                        "relation_value_matches_0_0",
+                        '[{"source_value":"FRA","target_value":"FR"}]',
+                    ],
+                ]
+            },
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+
+        self.assertEqual(saved.status_code, 200)
+        working = context.repository.get_mapping_working_draft(project_id)
+        resolver = working.definition.datasets[0].relationships[0].resolver
+        self.assertEqual(
+            resolver.key_mappings,
+            (ReferenceKeyMapping(source_country.stable_key, "code"),),
+        )
+        self.assertEqual(
+            resolver.value_mappings,
+            (ValueMapping("FRA", "FR"),),
+        )
+
+    def test_reviewed_reference_matching_is_not_country_specific(self) -> None:
+        for related_model, label in (
+            ("res.lang", "Language code — recommended"),
+            ("res.currency", "Currency code — recommended"),
+        ):
+            with self.subTest(related_model=related_model):
+                project_id, _dataset, _business_key = self._mapping_ready_project(
+                    scalar_field_count=0,
+                    relationship_field_count=1,
+                    relationship_model=related_model,
+                )
+
+                page = self.client.get(f"/projects/{project_id}/mapping")
+
+                self.assertEqual(page.status_code, 200)
+                self.assertIn(label, page.text)
+                self.assertNotIn("No matching rule available", page.text)
+
+    def test_relationship_without_matching_rule_has_clear_disabled_state(
+        self,
+    ) -> None:
+        project_id, _dataset, _business_key = self._mapping_ready_project(
+            scalar_field_count=0,
+            relationship_field_count=1,
+            relationship_model="res.company",
+        )
+
+        page = self.client.get(f"/projects/{project_id}/mapping")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("No matching rule available", page.text)
+        self.assertIn(
+            "Choose a matching rule before matching values.",
+            page.text,
+        )
+        self.assertIn('name="relation_key_0_0" disabled', page.text)
 
     def test_relationship_catalog_is_searchable_and_progressively_disclosed(
         self,
@@ -2607,11 +2792,49 @@ class ProjectSetupWizardTests(unittest.TestCase):
         recovery_page = self.client.get(recovered.headers["location"])
         self.assertIn("No mapping change was saved", recovery_page.text)
 
+    def test_saved_prepared_data_has_plain_recovery_ui(self) -> None:
+        project_id, _dataset, _business_key = self._mapping_ready_project(
+            scalar_field_count=0,
+        )
+        context = self.app.state.context
+        staging = MagicMock(
+            total_rows=12,
+            mapping_version=3,
+            run_id="f0cd6d32-80d9-4e31-9bcb-d316d83cf0b8",
+            content_hash="sha256:" + "7" * 64,
+            datasets=(),
+        )
+
+        with (
+            patch.object(
+                context.readiness,
+                "current_staging",
+                return_value=staging,
+            ),
+            patch.object(
+                context.readiness,
+                "current_report",
+                return_value=None,
+            ),
+        ):
+            page = self.client.get(f"/projects/{project_id}/summary")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Your prepared data is safe", page.text)
+        self.assertIn("12 prepared rows", page.text)
+        self.assertIn("Try Odoo comparison again", page.text)
+        self.assertIn("Prepared data is stored locally", page.text)
+        self.assertIn("<details", page.text)
+        self.assertIn("<summary>Technical details</summary>", page.text)
+        self.assertNotIn("<details open", page.text)
+        self.assertNotIn("canonical_staging", page.text)
+
     def _mapping_ready_project(
         self,
         *,
         scalar_field_count: int,
         relationship_field_count: int = 0,
+        relationship_model: str = "res.partner",
         selection_field: bool = False,
     ):
         context = self.app.state.context
@@ -2711,7 +2934,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     type="many2one",
                     required=False,
                     readonly=False,
-                    relation="res.partner",
+                    relation=relationship_model,
                     relation_field=None,
                     selection=(),
                 )

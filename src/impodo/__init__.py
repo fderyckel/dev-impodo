@@ -20,6 +20,8 @@ from .staging_contracts import (
     CanonicalLineage,
     CanonicalRow,
     CanonicalStagingRun,
+    StagingDatasetReconciliation,
+    StagingDatasetRole,
     StagingDisposition,
     StagingReconciliation,
 )
@@ -40,6 +42,8 @@ __all__ = [
     "FieldDifference",
     "PreparedRecord",
     "PreflightResult",
+    "StagingDatasetReconciliation",
+    "StagingDatasetRole",
     "StagingDisposition",
     "StagingReconciliation",
 ]

@@ -487,9 +487,13 @@ These links use confirmed matching rules:
 
 For a many2one link to existing records, **Match values** provides the same
 simple source-choice-to-Odoo-choice dialog. Choose one source column and one
-confirmed Odoo business key first. For example, match source country `FRA` to
-the existing Odoo country key `FR`. Impodo stores `FRA -> FR`, resolves `FR`
-during the readiness check, and never stores the Odoo numeric record ID.
+matching rule first. Standard Odoo reference lists use reviewed portable rules
+when available, even when the related model is not a target record type in the
+project. Current examples are **Country code**, **Language code**, and
+**Currency code**. Other linked models use the same dialog after their business
+key is confirmed. For example, match source country `FRA` to the existing Odoo
+country key `FR`. Impodo stores `FRA -> FR`, resolves `FR` during the readiness
+check, and never stores the Odoo numeric record ID.
 Duplicate Odoo key values are omitted and reported instead of guessed. The
 dialog is read-only: it does not create or change Odoo records.
 

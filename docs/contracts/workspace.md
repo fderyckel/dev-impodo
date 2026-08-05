@@ -102,7 +102,12 @@ produce a guess. The recommendation remains outside governed state until the
 user explicitly selects and confirms it.
 
 Relationships and target matching use governed business keys, not remembered
-numeric Odoo IDs.
+numeric Odoo IDs. A narrow code-controlled allowlist may provide an exact key
+for a standard Odoo reference model that is not itself a migration target.
+Reviewed rules currently cover country, language, and currency codes. The same
+data-driven rule contract can support further stable Odoo reference models;
+each rule is explicitly selected in the mapping UI and is never inferred from
+a field name.
 
 ## Governed mapping
 
@@ -121,8 +126,8 @@ Each frozen dataset declares:
 - many2one/many2many relationships resolved through another dataset or an
   existing-target business key;
 - exact source-choice-to-Odoo-choice mappings for captured scalar selections
-  and single-column many2one relationships using one unscoped, confirmed
-  text-based target business key.
+  and single-column many2one relationships using one unscoped, confirmed or
+  reviewed standard text-based target business key.
 
 One2many is represented through the child dataset's owning many2one. One
 source column may feed several explicitly governed target mappings.

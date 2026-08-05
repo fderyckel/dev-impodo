@@ -40,7 +40,7 @@ runtime is installed and that integration is part of the acceptance run.
 | Area | Current test modules |
 | --- | --- |
 | Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_web_app` |
-| Mapping, preparation, and canonical evaluation | `test_mapping_semantics`, `test_derived_entities`, `test_readiness` |
+| Mapping, preparation, and canonical staging | `test_mapping_semantics`, `test_derived_entities`, `test_readiness`, `test_staging_store` |
 | Profile-driven preflight | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_reporting_cli` |
 | Local Odoo lifecycle | `test_local_odoo_reader`, `test_local_stack` |
 | Security, governance, hosting, and release | `test_project_security`, `test_governance`, `test_hosting_contracts`, `test_internal_release` |
@@ -92,22 +92,36 @@ runtime is installed and that integration is part of the acceptance run.
 
 ## Canonical-value requirements
 
-### In-memory staging foundation verified
+### Durable staging foundation verified
 
 - the artifact adapter and storage-independent evaluator produce the same
   prepared bundle and canonical content hash;
 - repeated evaluation of unchanged inputs produces identical canonical JSON;
 - every canonical row has stable source, mapping, schema, and derived-plan
   lineage;
+- grouped parent and lookup entities retain every contributing physical
+  source-row pointer;
 - candidate, reference, blocked, quarantined, and excluded counts must
   reconcile exactly to the total row count;
+- direct, lookup, parent, and child datasets record input, used, output,
+  combined, additional, and unrepresented row controls;
 - a blocking source-side issue produces a blocked canonical disposition;
 - changed bound evidence changes the canonical run hash;
 - changed canonical payload with an old content hash is rejected;
-- portable canonical evidence rejects numeric Odoo identifier fields.
+- portable canonical evidence rejects numeric Odoo identifier fields;
+- project databases migrate to the durable staging schema;
+- canonical headers and rows publish atomically in bounded database batches;
+- failed publication retains the previous current run without partial rows;
+- identical current evidence is idempotent and changed evidence preserves
+  superseded history;
+- target and bound-input changes invalidate the current pointer without
+  deleting historical rows;
+- readiness reports bind the exact staging run and content hash;
+- the browser uses a plain saved/retry state and collapses technical evidence.
 
-Durable DuckDB publication, historical-scale bounded execution, quarantine,
-normalization approval, and clean-package certification remain pending.
+Historical-scale source-side streaming, explicitly declared business amount or
+quantity totals, quarantine, normalization approval, and clean-package
+certification remain pending.
 
 ### Verified
 

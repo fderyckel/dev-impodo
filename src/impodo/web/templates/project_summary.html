@@ -7,6 +7,8 @@
       <h1>{{ project.name }}</h1>
       {% if readiness %}
         <p>Every source row has been checked against your confirmed field matches.</p>
+      {% elif staging %}
+        <p>Your prepared data is safely saved. Complete the Odoo comparison next.</p>
       {% elif submission %}
         <p>Your field matches are confirmed. Check every source row next.</p>
       {% else %}
@@ -17,6 +19,8 @@
       <span class="status {{ readiness.status|lower }}">
         {% if readiness.status == 'READY' %}Data check complete{% elif readiness.status == 'NEEDS_REVIEW' %}Decisions needed{% else %}Fixes needed{% endif %}
       </span>
+    {% elif staging %}
+      <span class="status ready">Prepared data saved</span>
     {% else %}
       <span class="status registered">{% if project.status.value == 'REGISTERED' %}Setup complete{% else %}In setup{% endif %}</span>
     {% endif %}
@@ -63,6 +67,42 @@
         </form>
       </div>
     </section>
+
+    {% if staging %}
+      <section class="form-card" aria-labelledby="prepared-data-title" data-staging-summary>
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Prepared data</p>
+            <h2 id="prepared-data-title">{{ staging.total_rows }} prepared row{{ "s" if staging.total_rows != 1 else "" }} safely saved</h2>
+            <p>Impodo saved the exact rows used for this check. You can close the project and return later.</p>
+          </div>
+          <span class="status ready">Saved locally</span>
+        </div>
+        <details class="technical-details">
+          <summary>Technical details</summary>
+          <p>This evidence is tied to field-match version {{ staging.mapping_version }} and has not changed Odoo.</p>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr><th>Table</th><th>Source rows</th><th>Prepared rows</th><th>Combined</th><th>Additional</th></tr>
+              </thead>
+              <tbody>
+                {% for item in staging.datasets %}
+                  <tr>
+                    <th>{{ item.dataset.replace('_', ' ')|title }}</th>
+                    <td>{{ item.input_rows }}</td>
+                    <td>{{ item.output_rows }}</td>
+                    <td>{{ item.combined_rows }}</td>
+                    <td>{{ item.created_rows }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <p><code>Run {{ staging.run_id }} · Evidence {{ staging.content_hash }}</code></p>
+        </details>
+      </section>
+    {% endif %}
 
     <section class="readiness-cards" aria-label="Readiness overview">
       <a class="readiness-card ready{% if status_filter == 'ready' %} selected{% endif %}" href="?status=ready">
@@ -180,6 +220,27 @@
       This check is read-only. Odoo remains unchanged.
       <a href="/projects/{{ project.project_id }}/summary/manifest">Technical evidence</a>
     </p>
+
+  {% elif staging %}
+    <section class="next-action-card review" aria-labelledby="saved-next-action-title" data-staging-summary>
+      <div>
+        <p class="eyebrow">Prepared data</p>
+        <h2 id="saved-next-action-title">Your prepared data is safe</h2>
+        <p>Impodo saved {{ staging.total_rows }} prepared row{{ "s" if staging.total_rows != 1 else "" }}. The Odoo comparison still needs to finish.</p>
+      </div>
+      <div class="next-action-buttons">
+        <form method="post" action="/projects/{{ project.project_id }}/summary/check">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button primary" type="submit">Try Odoo comparison again</button>
+        </form>
+      </div>
+    </section>
+    <details class="technical-details form-card">
+      <summary>Technical details</summary>
+      <p>Field-match version {{ staging.mapping_version }} · Run <code>{{ staging.run_id }}</code></p>
+      <p><code>{{ staging.content_hash }}</code></p>
+    </details>
+    <p class="muted">Prepared data is stored locally. Odoo remains unchanged.</p>
 
   {% elif submission %}
     <section class="form-card readiness-start">

@@ -1,0 +1,391 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import datetime, timezone
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import MagicMock, patch
+from uuid import uuid4
+
+from impodo.access import LOCAL_ACTOR
+from impodo.project_store import DuckDbProjectRepository
+from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
+from impodo.staging import StagingRunStatus
+from impodo.staging_contracts import (
+    CanonicalLineage,
+    CanonicalRow,
+    CanonicalStagingRun,
+    StagingDatasetReconciliation,
+    StagingDatasetRole,
+    StagingDisposition,
+    StagingReconciliation,
+)
+from impodo.workspace import SourceDataset, SourceDatasetColumn, SourceSelection
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PHYSICAL_HASH = "sha256:" + "1" * 64
+MAPPING_HASH = "sha256:" + "2" * 64
+SCHEMA_HASH = "sha256:" + "3" * 64
+SOURCE_HASH = "sha256:" + "4" * 64
+
+
+class CanonicalStagingStoreTests(unittest.TestCase):
+    def setUp(self) -> None:
+        (ROOT / ".tmp").mkdir(exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.repository = DuckDbProjectRepository(self.temporary.name)
+        now = datetime.now(timezone.utc)
+        self.project = MigrationProject(
+            project_id=str(uuid4()),
+            name="Prepared contacts",
+            source_system="CSV",
+            data_manager="Data Manager",
+            functional_owner="Functional Owner",
+            business_unit="Operations",
+            odoo_connection_mode=OdooConnectionMode.LOCAL,
+            odoo_base_url="http://127.0.0.1:8069",
+            odoo_database="odoo19_local",
+            intended_models=("res.partner",),
+            status=ProjectStatus.REGISTERED,
+            registered_at=now,
+        )
+        self.repository.create(self.project, actor=LOCAL_ACTOR)
+        selection = SourceSelection(
+            selection_id=str(uuid4()),
+            version=1,
+            project_id=self.project.project_id,
+            created_at=now,
+            created_by=LOCAL_ACTOR.identity.display_name,
+            datasets=(
+                SourceDataset(
+                    dataset_id="dataset:contacts",
+                    name="contacts",
+                    file_id=str(uuid4()),
+                    table_key="csv",
+                    source_sha256=SOURCE_HASH,
+                    catalog_hash="sha256:" + "a" * 64,
+                    encoding="utf-8",
+                    delimiter=",",
+                    header_row=1,
+                    row_count=1,
+                    columns=(
+                        SourceDatasetColumn(
+                            1,
+                            "Reference",
+                            "column:reference",
+                            "string",
+                        ),
+                    ),
+                ),
+            ),
+            content_hash=PHYSICAL_HASH,
+        )
+        database_path = (
+            self.repository.project_directory(self.project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            connection.execute(
+                "INSERT INTO source_selection VALUES (1, ?)",
+                [selection.to_json()],
+            )
+            connection.execute(
+                """
+                INSERT INTO mapping_revision
+                VALUES ('mapping:contacts', 1, NULL, ?, ?, ?, ?, '{}')
+                """,
+                [MAPPING_HASH, PHYSICAL_HASH, SCHEMA_HASH, now.isoformat()],
+            )
+            connection.execute(
+                "INSERT INTO mapping_current VALUES (1, 'mapping:contacts', 1)"
+            )
+            connection.execute(
+                """
+                INSERT INTO mapping_submission
+                VALUES (?, 'mapping:contacts', 1, ?, ?, ?, '{}')
+                """,
+                [
+                    str(uuid4()),
+                    MAPPING_HASH,
+                    "sha256:" + "b" * 64,
+                    now.isoformat(),
+                ],
+            )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_publish_round_trips_and_same_current_evidence_is_idempotent(
+        self,
+    ) -> None:
+        run = _run(self.project.project_id, value="Alice", row_token="5")
+
+        first = self.repository.publish_canonical_staging(
+            self.project.project_id,
+            run,
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+        repeated = self.repository.publish_canonical_staging(
+            self.project.project_id,
+            run,
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(repeated.run_id, first.run_id)
+        self.assertEqual(repeated.content_hash, run.content_hash)
+        restored = self.repository.get_canonical_staging_run(
+            self.project.project_id,
+            first.run_id,
+        )
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.to_json(), run.to_json())
+        database_path = (
+            self.repository.project_directory(self.project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            run_count = connection.execute(
+                "SELECT COUNT(*) FROM canonical_staging_run"
+            ).fetchone()
+            row_count = connection.execute(
+                "SELECT COUNT(*) FROM canonical_staging_row"
+            ).fetchone()
+            audit_count = connection.execute(
+                """
+                SELECT COUNT(*) FROM audit_event
+                 WHERE event_type = 'CANONICAL_STAGING_PUBLISHED'
+                """
+            ).fetchone()
+        self.assertEqual(run_count, (1,))
+        self.assertEqual(row_count, (1,))
+        self.assertEqual(audit_count, (1,))
+
+    def test_new_evidence_supersedes_current_but_preserves_history(self) -> None:
+        first = self.repository.publish_canonical_staging(
+            self.project.project_id,
+            _run(self.project.project_id, value="Alice", row_token="5"),
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+        second_run = _run(
+            self.project.project_id,
+            value="Alice Smith",
+            row_token="6",
+        )
+
+        second = self.repository.publish_canonical_staging(
+            self.project.project_id,
+            second_run,
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertNotEqual(second.run_id, first.run_id)
+        self.assertEqual(
+            self.repository.get_current_staging_summary(
+                self.project.project_id
+            ).run_id,
+            second.run_id,
+        )
+        database_path = (
+            self.repository.project_directory(self.project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            retired = connection.execute(
+                """
+                SELECT status, successor_run_id
+                  FROM canonical_staging_run
+                 WHERE run_id = ?
+                """,
+                [first.run_id],
+            ).fetchone()
+        self.assertEqual(
+            retired,
+            (StagingRunStatus.SUPERSEDED.value, second.run_id),
+        )
+        self.assertIsNotNone(
+            self.repository.get_canonical_staging_run(
+                self.project.project_id,
+                first.run_id,
+            )
+        )
+
+    def test_failed_batch_publication_rolls_back_and_keeps_current(self) -> None:
+        first = self.repository.publish_canonical_staging(
+            self.project.project_id,
+            _run(self.project.project_id, value="Alice", row_token="5"),
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+
+        with patch.object(
+            self.repository,
+            "_insert_canonical_rows",
+            side_effect=RuntimeError("injected batch failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "injected batch failure"):
+                self.repository.publish_canonical_staging(
+                    self.project.project_id,
+                    _run(
+                        self.project.project_id,
+                        value="Alice Smith",
+                        row_token="6",
+                    ),
+                    mapping_version=1,
+                    actor=LOCAL_ACTOR,
+                )
+
+        current = self.repository.get_current_staging_summary(
+            self.project.project_id
+        )
+        self.assertEqual(current.run_id, first.run_id)
+        database_path = (
+            self.repository.project_directory(self.project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            run_count = connection.execute(
+                "SELECT COUNT(*) FROM canonical_staging_run"
+            ).fetchone()
+        self.assertEqual(run_count, (1,))
+
+    def test_target_change_invalidates_current_without_deleting_rows(self) -> None:
+        published = self.repository.publish_canonical_staging(
+            self.project.project_id,
+            _run(self.project.project_id, value="Alice", row_token="5"),
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+        current_project = self.repository.get(self.project.project_id)
+        changed = replace(
+            current_project,
+            odoo_database="odoo19_replacement",
+            revision=current_project.revision + 1,
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        self.repository.save(
+            changed,
+            expected_revision=current_project.revision,
+            event_type="PROJECT_TARGET_UPDATED",
+            event_detail="",
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertIsNone(
+            self.repository.get_current_staging_summary(self.project.project_id)
+        )
+        self.assertIsNotNone(
+            self.repository.get_canonical_staging_run(
+                self.project.project_id,
+                published.run_id,
+            )
+        )
+        database_path = (
+            self.repository.project_directory(self.project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            status = connection.execute(
+                """
+                SELECT status, retired_reason
+                  FROM canonical_staging_run
+                 WHERE run_id = ?
+                """,
+                [published.run_id],
+            ).fetchone()
+        self.assertEqual(
+            status,
+            (StagingRunStatus.INVALIDATED.value, "PROJECT_TARGET_CHANGED"),
+        )
+
+    def test_row_writer_uses_bounded_bulk_batches(self) -> None:
+        template = _run(
+            self.project.project_id,
+            value="Alice",
+            row_token="5",
+        ).rows[0]
+        rows = tuple(
+            replace(
+                template,
+                row_id=f"sha256:{index:064x}",
+                source_row=index + 2,
+                lineage=replace(
+                    template.lineage,
+                    source_row=index + 2,
+                    physical_source_rows=(index + 2,),
+                ),
+            )
+            for index in range(2_001)
+        )
+        connection = MagicMock()
+
+        self.repository._insert_canonical_rows(
+            connection,
+            str(uuid4()),
+            rows,
+        )
+
+        self.assertEqual(connection.executemany.call_count, 3)
+        self.assertEqual(
+            [len(item.args[1]) for item in connection.executemany.call_args_list],
+            [1_000, 1_000, 1],
+        )
+        connection.execute.assert_not_called()
+
+
+def _run(project_id: str, *, value: str, row_token: str) -> CanonicalStagingRun:
+    lineage = CanonicalLineage(
+        source_selection_hash=PHYSICAL_HASH,
+        source_hash=SOURCE_HASH,
+        mapping_hash=MAPPING_HASH,
+        schema_hash=SCHEMA_HASH,
+        derived_plan_hash=None,
+        dataset="contacts",
+        source_row=2,
+        physical_dataset_id="dataset:contacts",
+        physical_source_rows=(2,),
+        field_sources={"name": ("column:reference",)},
+    )
+    row = CanonicalRow(
+        row_id="sha256:" + row_token * 64,
+        dataset="contacts",
+        source_row=2,
+        target_model="res.partner",
+        disposition=StagingDisposition.CANDIDATE,
+        source_identity=("C001",),
+        target_identity=("C001",),
+        target_scope=(),
+        proposed_values={"name": value},
+        references={},
+        issues=(),
+        lineage=lineage,
+    )
+    dataset = StagingDatasetReconciliation.from_rows(
+        dataset="contacts",
+        target_model="res.partner",
+        physical_dataset_id="dataset:contacts",
+        role=StagingDatasetRole.DIRECT,
+        input_rows=1,
+        source_rows=(2,),
+        lineage_links=1,
+        rows=(row,),
+    )
+    return CanonicalStagingRun(
+        project_id=project_id,
+        mapping_id="mapping:contacts",
+        physical_selection_hash=PHYSICAL_HASH,
+        source_selection_hash=PHYSICAL_HASH,
+        mapping_hash=MAPPING_HASH,
+        schema_hash=SCHEMA_HASH,
+        derived_plan_hash=None,
+        datasets=(dataset,),
+        rows=(row,),
+        issues=(),
+        reconciliation=StagingReconciliation.from_rows((row,)),
+    )

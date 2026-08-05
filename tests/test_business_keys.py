@@ -4,10 +4,27 @@ import unittest
 
 from impodo.business_keys import recommend_business_key
 from impodo.models import UniqueConstraintMetadata
+from impodo.reference_keys import standard_reference_key
 from impodo.workspace import SchemaField, SchemaModel
 
 
 class BusinessKeyRecommendationTests(unittest.TestCase):
+    def test_only_reviewed_standard_reference_keys_are_available_without_capture(
+        self,
+    ) -> None:
+        country = standard_reference_key("res.country")
+
+        self.assertIsNotNone(country)
+        self.assertEqual(country.key_fields, ("code",))
+        self.assertEqual(country.display_field, "name")
+        language = standard_reference_key("res.lang")
+        currency = standard_reference_key("res.currency")
+        self.assertIsNotNone(language)
+        self.assertIsNotNone(currency)
+        self.assertEqual(language.key_fields, ("code",))
+        self.assertEqual(currency.key_fields, ("name",))
+        self.assertIsNone(standard_reference_key("product.product"))
+
     def test_custom_unique_constraint_becomes_simple_labelled_recommendation(self) -> None:
         model = _model(
             "x.asset",

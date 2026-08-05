@@ -127,6 +127,18 @@ and record row-count equations and business control totals.
 **Gate:** unchanged inputs produce identical portable evidence; every
 transformation explains any created, combined, excluded, or quarantined row.
 
+**Checkpoint:** canonical runs and typed rows are now published atomically in
+the project DuckDB, retrieved with hash validation, and bound to the readiness
+report. Identical current evidence is idempotent; changed evidence supersedes
+the current run; bound-input changes invalidate the current pointer while
+retaining history. Direct, lookup, parent, and child datasets retain complete
+contributing source-row pointers and dataset-level row controls. The Review UI
+shows a plain saved confirmation and keeps identifiers, hashes, versions, and
+control details collapsed. Persistence writes are bounded and batched. The
+existing source evaluator still materializes full validated tables in memory,
+and explicitly declared business amount or quantity totals remain closure work
+before Slice 2's historical-scale gate is complete.
+
 ### Slice 3 — Add quality rules and quarantine
 
 Execute the first applicable families from the

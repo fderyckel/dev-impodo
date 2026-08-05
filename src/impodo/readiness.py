@@ -82,11 +82,12 @@ from .source import (
     load_selected_source_table,
     prepare_source_tables,
 )
-from .staging_contracts import CanonicalStagingRun
+from .staging import StagingRunSummary
+from .staging_contracts import CanonicalStagingRun, StagingDatasetRole
 from .workspace import SourceDataset, SourceSelection, WorkspaceError
 
 
-READINESS_CONTRACT_VERSION = 1
+READINESS_CONTRACT_VERSION = 2
 MANIFEST_NAME = "impodo_preflight_manifest.json"
 TRANSFORMATION_IMPACT_DETAIL_LIMIT = 5_000
 
@@ -242,6 +243,8 @@ class ReadinessReport:
     mapping_id: str
     mapping_version: int
     mapping_content_hash: str
+    staging_run_id: str
+    staging_content_hash: str
     target_hash: str
     checked_at: datetime
     checked_by: str
@@ -294,6 +297,8 @@ class ReadinessReport:
             mapping_id=str(payload["mapping_id"]),
             mapping_version=int(payload["mapping_version"]),
             mapping_content_hash=str(payload["mapping_content_hash"]),
+            staging_run_id=str(payload["staging_run_id"]),
+            staging_content_hash=str(payload["staging_content_hash"]),
             target_hash=str(payload["target_hash"]),
             checked_at=datetime.fromisoformat(str(payload["checked_at"])),
             checked_by=str(payload["checked_by"]),
@@ -335,7 +340,23 @@ class ReadinessRepository(Protocol):
         mapping_id: str,
         mapping_version: int,
         mapping_content_hash: str,
+        staging_run_id: str,
+        staging_content_hash: str,
     ) -> ReadinessReport | None: ...
+
+    def publish_canonical_staging(
+        self,
+        project_id: str,
+        run: CanonicalStagingRun,
+        *,
+        mapping_version: int,
+        actor: Actor,
+    ) -> StagingRunSummary: ...
+
+    def get_current_staging_summary(
+        self,
+        project_id: str,
+    ) -> StagingRunSummary | None: ...
 
     def save_readiness_report(
         self,
@@ -379,6 +400,9 @@ class BrowserReadinessService:
         self.engine = PreflightEngine()
 
     def current_report(self, project_id: str) -> ReadinessReport | None:
+        staging = self.repository.get_current_staging_summary(project_id)
+        if staging is None:
+            return None
         revision = self.repository.get_mapping_revision(project_id)
         if revision is None:
             return None
@@ -392,7 +416,12 @@ class BrowserReadinessService:
             revision.mapping_id,
             revision.version,
             revision.definition.content_hash,
+            staging.run_id,
+            staging.content_hash,
         )
+
+    def current_staging(self, project_id: str) -> StagingRunSummary | None:
+        return self.repository.get_current_staging_summary(project_id)
 
     def run(
         self,
@@ -432,6 +461,12 @@ class BrowserReadinessService:
             self.repository.get_source_catalogs(project_id),
             self.artifacts,
         )
+        publication = self.repository.publish_canonical_staging(
+            project_id,
+            staged.canonical_run,
+            mapping_version=revision.version,
+            actor=actor,
+        )
         metadata_requests = plan_metadata_requests(staged.profile)
         record_requests = plan_record_requests(
             staged.profile,
@@ -464,6 +499,7 @@ class BrowserReadinessService:
             staged.dataset_labels,
             staged.source_field_labels,
             actor,
+            publication,
         )
         _write_manifest(self.repository, project_id, run_id, result)
         self.repository.save_readiness_report(
@@ -609,6 +645,12 @@ def evaluate_browser_mapping(
     staged_tables: list[SourceTable] = []
     preparation_issues: list[Issue] = []
     source_labels: dict[tuple[str, str], str] = {}
+    source_lineage: dict[
+        tuple[str, int], tuple[str, tuple[int, ...]]
+    ] = {}
+    dataset_evidence: dict[
+        str, tuple[str, StagingDatasetRole, int]
+    ] = {}
     for dataset_spec in profile.datasets:
         effective = next(
             item
@@ -633,7 +675,7 @@ def evaluate_browser_mapping(
         if physical is None:
             raise ReadinessError("Prepared dataset no longer has a source")
         if lookup is not None:
-            staged, issues = _stage_derived_table(
+            staged, issues, row_lineage = _stage_derived_table(
                 effective,
                 physical,
                 mapping,
@@ -643,7 +685,7 @@ def evaluate_browser_mapping(
                 impact_collector=impact_collector,
             )
         else:
-            staged, issues = _stage_table(
+            staged, issues, row_lineage = _stage_table(
                 effective,
                 physical,
                 mapping,
@@ -655,6 +697,25 @@ def evaluate_browser_mapping(
             )
         staged_tables.append(staged)
         preparation_issues.extend(issues)
+        source_lineage.update(
+            {
+                (effective.name, source_row): (
+                    physical.dataset_id,
+                    physical_rows,
+                )
+                for source_row, physical_rows in row_lineage.items()
+            }
+        )
+        dataset_evidence[effective.name] = (
+            physical.dataset_id,
+            {
+                "source": StagingDatasetRole.DIRECT,
+                "parent": StagingDatasetRole.PARENT,
+                "child": StagingDatasetRole.CHILD,
+                "lookup": StagingDatasetRole.LOOKUP,
+            }[role],
+            len(loaded_tables[physical.dataset_id].rows),
+        )
         for column in effective.columns:
             source_labels[(effective.name, column.stable_key)] = column.source_name
         column_name_by_key = {
@@ -692,6 +753,8 @@ def evaluate_browser_mapping(
         profile=profile,
         prepared=prepared,
         field_sources=_canonical_field_sources(definition, effective_selection),
+        source_lineage=source_lineage,
+        dataset_evidence=dataset_evidence,
     )
     return StagedBrowserMapping(
         profile=profile,
@@ -917,13 +980,18 @@ def _stage_table(
     ] = (),
     *,
     impact_collector: _TransformationImpactCollector | None = None,
-) -> tuple[SourceTable, tuple[Issue, ...]]:
+) -> tuple[
+    SourceTable,
+    tuple[Issue, ...],
+    dict[int, tuple[int, ...]],
+]:
     source_name_by_key = {
         column.stable_key: column.source_name for column in physical.columns
     }
     staged_rows: list[SourceRow] = []
     issues: list[Issue] = []
-    seen_parent_keys: set[tuple[str, ...]] = set()
+    parent_row_by_key: dict[tuple[str, ...], int] = {}
+    source_rows_by_output: dict[int, list[int]] = {}
     for row in table.rows:
         values = {
             column.stable_key: row.values.get(source_name_by_key[column.stable_key])
@@ -948,9 +1016,11 @@ def _stage_table(
             )
             if all(value is not None for value in keys):
                 canonical = tuple(str(value) for value in keys)
-                if canonical in seen_parent_keys:
+                existing_row = parent_row_by_key.get(canonical)
+                if existing_row is not None:
+                    source_rows_by_output[existing_row].append(row.number)
                     continue
-                seen_parent_keys.add(canonical)
+                parent_row_by_key[canonical] = row.number
         issues.extend(
             _normalize_derived_references(
                 values,
@@ -969,6 +1039,7 @@ def _stage_table(
             impact_collector=impact_collector,
         )
         staged_rows.append(SourceRow(number=row.number, values=values))
+        source_rows_by_output[row.number] = [row.number]
     headers = (
         *(column.stable_key for column in effective.columns),
         *(
@@ -986,6 +1057,10 @@ def _stage_table(
             content_hash=table.content_hash,
         ),
         tuple(issues),
+        {
+            output_row: tuple(source_rows)
+            for output_row, source_rows in source_rows_by_output.items()
+        },
     )
 
 
@@ -998,7 +1073,11 @@ def _stage_derived_table(
     link: DerivedDatasetLink,
     *,
     impact_collector: _TransformationImpactCollector | None = None,
-) -> tuple[SourceTable, tuple[Issue, ...]]:
+) -> tuple[
+    SourceTable,
+    tuple[Issue, ...],
+    dict[int, tuple[int, ...]],
+]:
     """Materialize every unique related record from the full source table."""
 
     source_column = next(
@@ -1026,14 +1105,19 @@ def _stage_derived_table(
                     "name": display_path[-1],
                     "aliases": set(),
                     "source_row": row.number,
+                    "source_rows": set(),
                 },
             )
             aliases = entry["aliases"]
             assert isinstance(aliases, set)
             aliases.add(_display_path(display_path, rule.parent_separator))
+            source_rows = entry["source_rows"]
+            assert isinstance(source_rows, set)
+            source_rows.add(row.number)
 
     rows: list[SourceRow] = []
     issues: list[Issue] = []
+    source_rows_by_output: dict[int, tuple[int, ...]] = {}
     ordered_candidates = sorted(
         accumulated.items(),
         key=lambda item: (len(item[0]), item[0]),
@@ -1077,6 +1161,9 @@ def _stage_derived_table(
                 )
             )
         rows.append(SourceRow(number=generated_row, values=values))
+        source_rows = entry["source_rows"]
+        assert isinstance(source_rows, set)
+        source_rows_by_output[generated_row] = tuple(sorted(source_rows))
 
     headers = (
         *(column.stable_key for column in effective.columns),
@@ -1095,6 +1182,7 @@ def _stage_derived_table(
             content_hash=table.content_hash,
         ),
         tuple(issues),
+        source_rows_by_output,
     )
 
 
@@ -1375,6 +1463,7 @@ def _readiness_report(
     dataset_labels: Mapping[str, str],
     source_labels: Mapping[tuple[str, str], str],
     actor: Actor,
+    staging: StagingRunSummary,
 ) -> ReadinessReport:
     rows = tuple(
         _readiness_row(decision, dataset_labels, source_labels)
@@ -1411,6 +1500,8 @@ def _readiness_report(
         mapping_id=revision.mapping_id,
         mapping_version=revision.version,
         mapping_content_hash=revision.definition.content_hash,
+        staging_run_id=staging.run_id,
+        staging_content_hash=staging.content_hash,
         target_hash=result.fingerprint.target_hash,
         checked_at=datetime.now(timezone.utc),
         checked_by=actor.identity.display_name,

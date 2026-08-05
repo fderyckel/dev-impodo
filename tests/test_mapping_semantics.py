@@ -100,6 +100,124 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             },
         )
 
+    def test_reviewed_country_code_resolves_without_capturing_country_as_target(
+        self,
+    ) -> None:
+        partner_source = self.selection.datasets[1]
+        selection = replace(
+            self.selection,
+            datasets=(
+                self.selection.datasets[0],
+                replace(
+                    partner_source,
+                    columns=(
+                        *partner_source.columns,
+                        SourceDatasetColumn(
+                            7,
+                            "country",
+                            "partner.country",
+                            "string",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        partner_model = next(
+            item for item in self.schema.models if item.name == "res.partner"
+        )
+        schema = replace(
+            self.schema,
+            models=tuple(
+                replace(
+                    item,
+                    fields=(
+                        *item.fields,
+                        _field(
+                            "country_id",
+                            "many2one",
+                            relation="res.country",
+                        ),
+                    ),
+                )
+                if item is partner_model
+                else item
+                for item in self.schema.models
+            ),
+        )
+        definition = _valid_definition(selection, self.governance)
+        company, partner = definition.datasets
+        country = RelationshipMapping(
+            target_field="country_id",
+            kind="many2one",
+            source_column_keys=("partner.country",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.TARGET_CATALOG,
+                model="res.country",
+                key_mappings=(
+                    ReferenceKeyMapping("partner.country", "code"),
+                ),
+                value_mappings=(ValueMapping("FRA", "FR"),),
+            ),
+        )
+
+        valid = self.validator.validate(
+            replace(
+                definition,
+                datasets=(
+                    company,
+                    replace(
+                        partner,
+                        relationships=(*partner.relationships, country),
+                    ),
+                ),
+            ),
+            selection,
+            schema,
+            self.governance,
+        )
+        wrong_key = self.validator.validate(
+            replace(
+                definition,
+                datasets=(
+                    company,
+                    replace(
+                        partner,
+                        relationships=(
+                            *partner.relationships,
+                            replace(
+                                country,
+                                resolver=replace(
+                                    country.resolver,
+                                    key_mappings=(
+                                        ReferenceKeyMapping(
+                                            "partner.country",
+                                            "name",
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            selection,
+            schema,
+            self.governance,
+        )
+
+        self.assertNotIn(
+            "MAPPING_TARGET_MODEL_UNKNOWN",
+            {item.code for item in valid.issues},
+        )
+        self.assertNotIn(
+            "MAPPING_BUSINESS_KEY_NOT_GOVERNED",
+            {item.code for item in valid.issues},
+        )
+        self.assertIn(
+            "MAPPING_BUSINESS_KEY_NOT_GOVERNED",
+            {item.code for item in wrong_key.issues},
+        )
+
     def test_unsafe_relationships_and_dependency_cycles_are_blocking(
         self,
     ) -> None:

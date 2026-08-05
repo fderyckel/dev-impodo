@@ -51,8 +51,8 @@ Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
   typed preparation, closed Odoo reads, snapshots, classification, and
   portable review evidence.
 - [Canonical staging evaluation contract](contracts/canonical-staging.md) —
-  in-memory full-row canonical evidence, lineage, reconciliation, deterministic
-  hashing, and the boundary before durable staging.
+  full-row canonical evidence, complete grouped-row lineage, reconciliation,
+  deterministic hashing, and atomic project-scoped DuckDB publication.
 - [Normalization dry-run governance contract](contracts/normalization-governance.md)
   — implemented standalone approval lifecycle, explicit integration status,
   and the boundary between source approval and Odoo authorization.

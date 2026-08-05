@@ -195,14 +195,15 @@
                       {% if row.relational %}
                         <label>
                           Related record matching rule
-                          <select name="identity_resolver_key_{{ dataset_index }}_{{ loop.index0 }}">
-                            <option value="">Choose a matching rule</option>
+                          <select name="identity_resolver_key_{{ dataset_index }}_{{ loop.index0 }}" {% if not row.related_keys %}disabled{% endif %}>
+                            <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
                             {% for key in row.related_keys %}
                               <option value="{{ key.key_id }}" {% if row.selected_related_key and key.key_id == row.selected_related_key.key_id %}selected{% endif %}>
-                                {{ key.model }} · {{ key.key_fields|join(' + ') }}
+                                {{ key.description or key.key_fields|join(' + ') }}{% if key.key_id == row.recommended_related_key_id %} — recommended{% endif %}
                               </option>
                             {% endfor %}
                           </select>
+                          {% if not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model first.</small>{% endif %}
                         </label>
                       {% endif %}
                     </div>
@@ -714,14 +715,15 @@
                     </label>
                     <label>
                       How is the related record identified?
-                      <select name="relation_key_{{ dataset_index }}_{{ relation_index }}">
-                        <option value="">Choose related key</option>
+                      <select name="relation_key_{{ dataset_index }}_{{ relation_index }}" {% if not row.related_keys %}disabled{% endif %}>
+                        <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
                         {% for key in row.related_keys %}
                           <option value="{{ key.key_id }}" {% if row.selected_key and key.key_id == row.selected_key.key_id %}selected{% endif %}>
-                            {{ key.key_fields|join(' + ') }}{% if key.scope_fields %} / {{ key.scope_fields|join(' + ') }}{% endif %}
+                            {{ key.description or key.key_fields|join(' + ') }}{% if key.scope_fields %} / {{ key.scope_fields|join(' + ') }}{% endif %}{% if key.key_id == row.recommended_key_id %} — recommended{% endif %}
                           </option>
                         {% endfor %}
                       </select>
+                      {% if not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model first.</small>{% endif %}
                     </label>
                     <label>
                       Operation
@@ -746,6 +748,7 @@
                         data-value-match-storage
                       >
                       <div class="value-match-entry relationship-value-match-entry">
+                        {% if row.related_keys %}
                         <button
                           class="button secondary compact"
                           type="button"
@@ -759,6 +762,9 @@
                         <small data-value-match-summary>
                           {% if row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Use when source and Odoo choices differ{% endif %}
                         </small>
+                        {% else %}
+                          <small data-value-match-summary>Choose a matching rule before matching values.</small>
+                        {% endif %}
                       </div>
                     {% endif %}
                     <label><input type="checkbox" name="relation_compare_{{ dataset_index }}_{{ relation_index }}" value="1" {% if not mapping or mapping.compare %}checked{% endif %}> Compare</label>

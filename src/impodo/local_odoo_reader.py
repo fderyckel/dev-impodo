@@ -235,6 +235,8 @@ class LocalOdooMetadataReader:
         profile: LocalStackProfile,
         metadata_requests: Sequence[MetadataRequest],
         record_requests: Sequence[RecordRequest],
+        *,
+        related_models: Sequence[str] = (),
     ) -> tuple[MetadataSnapshot, RecordSnapshot]:
         """Capture one consistent, read-only metadata and record snapshot.
 
@@ -245,14 +247,26 @@ class LocalOdooMetadataReader:
 
         metadata = tuple(metadata_requests)
         records = tuple(record_requests)
-        permitted_models = set(project.intended_models)
+        permitted_related_models = set(related_models)
+        if any(
+            _MODEL_NAME.fullmatch(model) is None
+            for model in permitted_related_models
+        ):
+            raise LocalOdooReaderError(
+                "The local related-model allowlist is invalid."
+            )
+        permitted_models = {
+            *project.intended_models,
+            *permitted_related_models,
+        }
         requested_models = {
             *(item.model for item in metadata),
             *(item.model for item in records),
         }
         if not requested_models or not requested_models.issubset(permitted_models):
             raise LocalOdooReaderError(
-                "Local readiness requests must stay inside the project model scope."
+                "Local readiness requests must stay inside the project or "
+                "linked-model scope."
             )
         for request in metadata:
             if (

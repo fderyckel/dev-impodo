@@ -27,7 +27,7 @@ from .profile import ProfileDocument
 from .source import PreparedBundle
 
 
-STAGING_CONTRACT_VERSION = 1
+STAGING_CONTRACT_VERSION = 2
 BROWSER_EVALUATOR_VERSION = 1
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
@@ -40,6 +40,15 @@ class StagingDisposition(StrEnum):
     BLOCKED = "BLOCKED"
     QUARANTINED = "QUARANTINED"
     EXCLUDED = "EXCLUDED"
+
+
+class StagingDatasetRole(StrEnum):
+    """How one effective dataset was produced from frozen source rows."""
+
+    DIRECT = "DIRECT"
+    PARENT = "PARENT"
+    CHILD = "CHILD"
+    LOOKUP = "LOOKUP"
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +129,23 @@ class CanonicalLineage:
     derived_plan_hash: str | None
     dataset: str
     source_row: int
+    physical_dataset_id: str
+    physical_source_rows: tuple[int, ...]
     field_sources: Mapping[str, tuple[str, ...]]
+
+    def __post_init__(self) -> None:
+        if not self.physical_dataset_id:
+            raise ValueError("Canonical lineage requires a physical dataset")
+        if not self.physical_source_rows:
+            raise ValueError("Canonical lineage requires a physical source row")
+        if any(item < 1 for item in self.physical_source_rows):
+            raise ValueError("Canonical physical source rows must be positive")
+        if self.physical_source_rows != tuple(
+            sorted(set(self.physical_source_rows))
+        ):
+            raise ValueError(
+                "Canonical physical source rows must be unique and ordered"
+            )
 
     def to_portable_dict(self) -> dict[str, Any]:
         return {
@@ -131,6 +156,8 @@ class CanonicalLineage:
             "derived_plan_hash": self.derived_plan_hash,
             "dataset": self.dataset,
             "source_row": self.source_row,
+            "physical_dataset_id": self.physical_dataset_id,
+            "physical_source_rows": list(self.physical_source_rows),
             "field_sources": {
                 field: list(sources)
                 for field, sources in sorted(self.field_sources.items())
@@ -151,6 +178,10 @@ class CanonicalLineage:
             ),
             dataset=str(payload["dataset"]),
             source_row=int(payload["source_row"]),
+            physical_dataset_id=str(payload["physical_dataset_id"]),
+            physical_source_rows=tuple(
+                int(item) for item in payload.get("physical_source_rows", ())
+            ),
             field_sources={
                 str(field): tuple(str(item) for item in sources)
                 for field, sources in dict(payload.get("field_sources", {})).items()
@@ -280,6 +311,156 @@ class StagingReconciliation:
 
 
 @dataclass(frozen=True, slots=True)
+class StagingDatasetReconciliation:
+    """Explain how one effective dataset accounts for physical source rows."""
+
+    dataset: str
+    target_model: str
+    physical_dataset_id: str
+    role: StagingDatasetRole
+    input_rows: int
+    input_rows_used: int
+    output_rows: int
+    lineage_links: int
+    created_rows: int
+    combined_rows: int
+    unrepresented_rows: int
+    candidate_rows: int
+    reference_rows: int
+    blocked_rows: int
+    quarantined_rows: int = 0
+    excluded_rows: int = 0
+
+    def __post_init__(self) -> None:
+        if not self.dataset or not self.target_model or not self.physical_dataset_id:
+            raise ValueError("Dataset reconciliation identifiers are required")
+        counts = (
+            self.input_rows,
+            self.input_rows_used,
+            self.output_rows,
+            self.lineage_links,
+            self.created_rows,
+            self.combined_rows,
+            self.unrepresented_rows,
+            self.candidate_rows,
+            self.reference_rows,
+            self.blocked_rows,
+            self.quarantined_rows,
+            self.excluded_rows,
+        )
+        if any(item < 0 for item in counts):
+            raise ValueError("Dataset reconciliation counts cannot be negative")
+        if self.input_rows_used > self.input_rows:
+            raise ValueError("Used source rows cannot exceed input rows")
+        if self.unrepresented_rows != self.input_rows - self.input_rows_used:
+            raise ValueError("Dataset reconciliation has unexplained source rows")
+        if self.output_rows and self.lineage_links < self.output_rows:
+            raise ValueError("Every output row requires source lineage")
+        if self.created_rows != max(self.output_rows - self.input_rows_used, 0):
+            raise ValueError("Dataset created-row count is inconsistent")
+        if self.combined_rows != max(self.lineage_links - self.output_rows, 0):
+            raise ValueError("Dataset combined-row count is inconsistent")
+        if self.output_rows != sum(
+            (
+                self.candidate_rows,
+                self.reference_rows,
+                self.blocked_rows,
+                self.quarantined_rows,
+                self.excluded_rows,
+            )
+        ):
+            raise ValueError("Dataset reconciliation does not account for outputs")
+
+    def to_portable_dict(self) -> dict[str, Any]:
+        return {
+            "dataset": self.dataset,
+            "target_model": self.target_model,
+            "physical_dataset_id": self.physical_dataset_id,
+            "role": self.role.value,
+            "input_rows": self.input_rows,
+            "input_rows_used": self.input_rows_used,
+            "output_rows": self.output_rows,
+            "lineage_links": self.lineage_links,
+            "created_rows": self.created_rows,
+            "combined_rows": self.combined_rows,
+            "unrepresented_rows": self.unrepresented_rows,
+            "candidate_rows": self.candidate_rows,
+            "reference_rows": self.reference_rows,
+            "blocked_rows": self.blocked_rows,
+            "quarantined_rows": self.quarantined_rows,
+            "excluded_rows": self.excluded_rows,
+        }
+
+    @classmethod
+    def from_rows(
+        cls,
+        *,
+        dataset: str,
+        target_model: str,
+        physical_dataset_id: str,
+        role: StagingDatasetRole,
+        input_rows: int,
+        source_rows: Iterable[int],
+        lineage_links: int,
+        rows: Iterable[CanonicalRow],
+    ) -> "StagingDatasetReconciliation":
+        items = tuple(rows)
+        used = tuple(sorted(set(source_rows)))
+        return cls(
+            dataset=dataset,
+            target_model=target_model,
+            physical_dataset_id=physical_dataset_id,
+            role=role,
+            input_rows=input_rows,
+            input_rows_used=len(used),
+            output_rows=len(items),
+            lineage_links=lineage_links,
+            created_rows=max(len(items) - len(used), 0),
+            combined_rows=max(lineage_links - len(items), 0),
+            unrepresented_rows=input_rows - len(used),
+            candidate_rows=sum(
+                item.disposition is StagingDisposition.CANDIDATE for item in items
+            ),
+            reference_rows=sum(
+                item.disposition is StagingDisposition.REFERENCE for item in items
+            ),
+            blocked_rows=sum(
+                item.disposition is StagingDisposition.BLOCKED for item in items
+            ),
+            quarantined_rows=sum(
+                item.disposition is StagingDisposition.QUARANTINED for item in items
+            ),
+            excluded_rows=sum(
+                item.disposition is StagingDisposition.EXCLUDED for item in items
+            ),
+        )
+
+    @classmethod
+    def from_dict(
+        cls,
+        payload: Mapping[str, Any],
+    ) -> "StagingDatasetReconciliation":
+        return cls(
+            dataset=str(payload["dataset"]),
+            target_model=str(payload["target_model"]),
+            physical_dataset_id=str(payload["physical_dataset_id"]),
+            role=StagingDatasetRole(str(payload["role"])),
+            input_rows=int(payload["input_rows"]),
+            input_rows_used=int(payload["input_rows_used"]),
+            output_rows=int(payload["output_rows"]),
+            lineage_links=int(payload["lineage_links"]),
+            created_rows=int(payload["created_rows"]),
+            combined_rows=int(payload["combined_rows"]),
+            unrepresented_rows=int(payload["unrepresented_rows"]),
+            candidate_rows=int(payload["candidate_rows"]),
+            reference_rows=int(payload["reference_rows"]),
+            blocked_rows=int(payload["blocked_rows"]),
+            quarantined_rows=int(payload.get("quarantined_rows", 0)),
+            excluded_rows=int(payload.get("excluded_rows", 0)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CanonicalStagingRun:
     """Deterministic, versioned result of one full-row source evaluation."""
 
@@ -290,6 +471,7 @@ class CanonicalStagingRun:
     mapping_hash: str
     schema_hash: str
     derived_plan_hash: str | None
+    datasets: tuple[StagingDatasetReconciliation, ...]
     rows: tuple[CanonicalRow, ...]
     issues: tuple[CanonicalIssue, ...]
     reconciliation: StagingReconciliation
@@ -317,10 +499,35 @@ class CanonicalStagingRun:
             raise ValueError("Canonical rows must use deterministic ordering")
         if len({item.row_id for item in self.rows}) != len(self.rows):
             raise ValueError("Canonical row identifiers must be unique")
+        if self.datasets != tuple(sorted(self.datasets, key=lambda item: item.dataset)):
+            raise ValueError("Dataset reconciliation must use deterministic ordering")
+        if len({item.dataset for item in self.datasets}) != len(self.datasets):
+            raise ValueError("Dataset reconciliation names must be unique")
         if self.reconciliation != StagingReconciliation.from_rows(self.rows):
             raise ValueError("Staging reconciliation does not match canonical rows")
         for row in self.rows:
             _validate_row(row, self)
+        rows_by_dataset = {
+            item.dataset: tuple(row for row in self.rows if row.dataset == item.dataset)
+            for item in self.datasets
+        }
+        if set(row.dataset for row in self.rows) - set(rows_by_dataset):
+            raise ValueError("Canonical rows are missing dataset reconciliation")
+        for item in self.datasets:
+            rows = rows_by_dataset[item.dataset]
+            if item.output_rows != len(rows):
+                raise ValueError("Dataset reconciliation has the wrong output count")
+            dispositions = StagingReconciliation.from_rows(rows)
+            if (
+                item.candidate_rows != dispositions.candidate_rows
+                or item.reference_rows != dispositions.reference_rows
+                or item.blocked_rows != dispositions.blocked_rows
+                or item.quarantined_rows != dispositions.quarantined_rows
+                or item.excluded_rows != dispositions.excluded_rows
+            ):
+                raise ValueError("Dataset dispositions do not match canonical rows")
+        if sum(item.output_rows for item in self.datasets) != len(self.rows):
+            raise ValueError("Dataset reconciliation does not match the run")
         assert_no_numeric_odoo_ids(self.to_portable_dict(include_hash=False))
 
     @property
@@ -340,6 +547,7 @@ class CanonicalStagingRun:
             "mapping_hash": self.mapping_hash,
             "schema_hash": self.schema_hash,
             "derived_plan_hash": self.derived_plan_hash,
+            "datasets": [item.to_portable_dict() for item in self.datasets],
             "rows": [item.to_portable_dict() for item in self.rows],
             "issues": [item.to_portable_dict() for item in self.issues],
             "reconciliation": self.reconciliation.to_portable_dict(),
@@ -366,6 +574,10 @@ class CanonicalStagingRun:
                 str(payload["derived_plan_hash"])
                 if payload.get("derived_plan_hash")
                 else None
+            ),
+            datasets=tuple(
+                StagingDatasetReconciliation.from_dict(item)
+                for item in payload.get("datasets", ())
             ),
             rows=tuple(
                 CanonicalRow.from_dict(item)
@@ -400,6 +612,12 @@ class CanonicalStagingRun:
         profile: ProfileDocument,
         prepared: PreparedBundle,
         field_sources: Mapping[str, Mapping[str, tuple[str, ...]]],
+        source_lineage: Mapping[
+            tuple[str, int], tuple[str, tuple[int, ...]]
+        ],
+        dataset_evidence: Mapping[
+            str, tuple[str, StagingDatasetRole, int]
+        ],
     ) -> "CanonicalStagingRun":
         mode_by_dataset = {
             dataset.name: dataset.target.mode for dataset in profile.datasets
@@ -416,10 +634,52 @@ class CanonicalStagingRun:
                         schema_hash=schema_hash,
                         derived_plan_hash=derived_plan_hash,
                         field_sources=field_sources.get(record.dataset, {}),
+                        physical_dataset_id=source_lineage[
+                            (record.dataset, record.source_row)
+                        ][0],
+                        physical_source_rows=source_lineage[
+                            (record.dataset, record.source_row)
+                        ][1],
                     )
                     for record in prepared.records
                 ),
                 key=_row_order,
+            )
+        )
+        rows_by_dataset = {
+            dataset: tuple(item for item in rows if item.dataset == dataset)
+            for dataset in dataset_evidence
+        }
+        datasets = tuple(
+            sorted(
+                (
+                    StagingDatasetReconciliation.from_rows(
+                        dataset=dataset,
+                        target_model=(items[0].target_model if items else next(
+                            item.target.model
+                            for item in profile.datasets
+                            if item.name == dataset
+                        )),
+                        physical_dataset_id=evidence[0],
+                        role=evidence[1],
+                        input_rows=evidence[2],
+                        source_rows=(
+                            source_row
+                            for (name, _), (_, source_rows) in source_lineage.items()
+                            if name == dataset
+                            for source_row in source_rows
+                        ),
+                        lineage_links=sum(
+                            len(source_rows)
+                            for (name, _), (_, source_rows) in source_lineage.items()
+                            if name == dataset
+                        ),
+                        rows=items,
+                    )
+                    for dataset, evidence in dataset_evidence.items()
+                    for items in (rows_by_dataset[dataset],)
+                ),
+                key=lambda item: item.dataset,
             )
         )
         return cls(
@@ -430,6 +690,7 @@ class CanonicalStagingRun:
             mapping_hash=mapping_hash,
             schema_hash=schema_hash,
             derived_plan_hash=derived_plan_hash,
+            datasets=datasets,
             rows=rows,
             issues=tuple(CanonicalIssue.from_issue(item) for item in prepared.issues),
             reconciliation=StagingReconciliation.from_rows(rows),
@@ -446,6 +707,8 @@ def _canonical_row(
     schema_hash: str,
     derived_plan_hash: str | None,
     field_sources: Mapping[str, tuple[str, ...]],
+    physical_dataset_id: str,
+    physical_source_rows: tuple[int, ...],
 ) -> CanonicalRow:
     disposition = (
         StagingDisposition.BLOCKED
@@ -464,6 +727,8 @@ def _canonical_row(
         derived_plan_hash=derived_plan_hash,
         dataset=record.dataset,
         source_row=record.source_row,
+        physical_dataset_id=physical_dataset_id,
+        physical_source_rows=physical_source_rows,
         field_sources=dict(sorted(field_sources.items())),
     )
     row_id = "sha256:" + sha256(

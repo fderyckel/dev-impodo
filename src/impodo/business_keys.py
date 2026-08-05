@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from .reference_keys import (
+    COUNTRY_REFERENCE_KEY,
+    CURRENCY_REFERENCE_KEY,
+    LANGUAGE_REFERENCE_KEY,
+)
 from .workspace import SchemaField, SchemaModel
 
 
@@ -57,10 +62,22 @@ class _CuratedRule:
 # Generic standard and custom models are handled through captured UNIQUE rules.
 _CURATED_RULES = {
     "res.country": _CuratedRule(
-        key_fields=("code",),
-        scope_fields=(),
-        reason="Odoo uses the two-character country code as a stable identity.",
+        key_fields=COUNTRY_REFERENCE_KEY.key_fields,
+        scope_fields=COUNTRY_REFERENCE_KEY.scope_fields,
+        reason=COUNTRY_REFERENCE_KEY.reason,
         description="Unique country code",
+    ),
+    "res.lang": _CuratedRule(
+        key_fields=LANGUAGE_REFERENCE_KEY.key_fields,
+        scope_fields=LANGUAGE_REFERENCE_KEY.scope_fields,
+        reason=LANGUAGE_REFERENCE_KEY.reason,
+        description="Unique language code",
+    ),
+    "res.currency": _CuratedRule(
+        key_fields=CURRENCY_REFERENCE_KEY.key_fields,
+        scope_fields=CURRENCY_REFERENCE_KEY.scope_fields,
+        reason=CURRENCY_REFERENCE_KEY.reason,
+        description="Unique currency code",
     ),
     "product.template": _CuratedRule(
         key_fields=("default_code",),
