@@ -20,6 +20,7 @@ from ...projects import (
     ProjectSummary,
     SourceFile,
 )
+from .repository import DuckDbRepository
 
 
 
@@ -31,7 +32,7 @@ from .serialization import (
 )
 
 
-class ProjectRepositoryMixin:
+class ProjectRepository(DuckDbRepository):
     """Persistence operations for project repository."""
 
     def create(self, project: MigrationProject, *, actor: Actor) -> None:
@@ -343,6 +344,15 @@ class ProjectRepositoryMixin:
             except Exception:
                 connection.rollback()
                 raise
+
+    def synchronize_registration_artifacts(self, project_id: str) -> None:
+        """Refresh registry and manifest after another repository updates status."""
+
+        project = self.get(project_id)
+        self._update_registry(project)
+        if project.status is ProjectStatus.REGISTERED:
+            self._write_registration_manifest(project)
+
     def _update_registry(self, project: MigrationProject) -> None:
         with self._connect(self.registry_path) as connection:
             connection.execute(

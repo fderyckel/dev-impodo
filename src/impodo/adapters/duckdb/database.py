@@ -35,10 +35,10 @@ from .unit_of_work import (
 )
 
 
-class DuckDbDatabaseMixin(
+class DuckDbDatabase(
     ProjectMigrationsMixin, EvidenceInvalidationMixin, AuditMixin
 ):
-    """Persistence operations for database."""
+    """Shared DuckDB connection, migration, and transaction boundary."""
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).resolve()

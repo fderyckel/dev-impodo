@@ -6,18 +6,15 @@ from typing import Protocol
 
 from ..access import Actor
 from ..derived_entities import DerivedEntityPlan
+from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
 from ..domain.preflight.reports import ReadinessReport
+from ..governance import DryRun
 from ..inspection import SourceFileCatalog
-from ..domain.mapping.artifacts import (
-    MappingRevision,
-    MappingSubmission,
-)
 from ..normalization import (
     NormalizationEvaluation,
     NormalizationReviewGroup,
     NormalizationRunSummary,
 )
-from ..governance import DryRun
 from ..projects import MigrationProject
 from ..quality import QualityRuleSet, QualityRun, QualityRunSummary
 from ..staging import StagingRunSummary
@@ -25,8 +22,11 @@ from ..staging_contracts import CanonicalStagingRun
 from ..workspace_contracts import MappingWorkingDraft, SourceSelection
 
 
-class PreparationRepository(Protocol):
+class PreparationProjectRepository(Protocol):
     def get(self, project_id: str) -> MigrationProject: ...
+
+
+class PreparationSourceRepository(Protocol):
     def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
     def get_mapping_source_selection(
         self, project_id: str
@@ -34,15 +34,24 @@ class PreparationRepository(Protocol):
     def get_source_catalogs(
         self, project_id: str
     ) -> tuple[SourceFileCatalog, ...]: ...
+
+
+class PreparationDerivedRepository(Protocol):
     def get_derived_entity_plan(
         self, project_id: str
     ) -> DerivedEntityPlan | None: ...
+
+
+class PreparationMappingRepository(Protocol):
     def get_mapping_revision(
         self, project_id: str, version: int | None = None
     ) -> MappingRevision | None: ...
     def get_mapping_submission(
         self, project_id: str, version: int | None = None
     ) -> MappingSubmission | None: ...
+
+
+class PreparationStagingRepository(Protocol):
     def publish_canonical_staging(
         self,
         project_id: str,
@@ -53,16 +62,22 @@ class PreparationRepository(Protocol):
     ) -> StagingRunSummary: ...
 
 
-class QualityRepository(Protocol):
+class QualityMappingRepository(Protocol):
     def get_mapping_revision(
         self, project_id: str, version: int | None = None
     ) -> MappingRevision | None: ...
-    def get_mapping_source_selection(
-        self, project_id: str
-    ) -> SourceSelection | None: ...
     def get_mapping_working_draft(
         self, project_id: str
     ) -> MappingWorkingDraft | None: ...
+
+
+class QualitySourceRepository(Protocol):
+    def get_mapping_source_selection(
+        self, project_id: str
+    ) -> SourceSelection | None: ...
+
+
+class QualityRepository(Protocol):
     def get_current_quality_ruleset(
         self, project_id: str
     ) -> QualityRuleSet | None: ...
@@ -132,22 +147,34 @@ class NormalizationRepository(Protocol):
     ) -> NormalizationRunSummary: ...
 
 
-class PreflightRepository(Protocol):
+class PreflightStagingRepository(Protocol):
     def get_current_staging_summary(
         self, project_id: str
     ) -> StagingRunSummary | None: ...
+
+
+class PreflightQualityRepository(Protocol):
     def get_current_quality_summary(
         self, project_id: str
     ) -> QualityRunSummary | None: ...
+
+
+class PreflightNormalizationRepository(Protocol):
     def get_current_normalization_summary(
         self, project_id: str
     ) -> NormalizationRunSummary | None: ...
+
+
+class PreflightMappingRepository(Protocol):
     def get_mapping_revision(
         self, project_id: str, version: int | None = None
     ) -> MappingRevision | None: ...
     def get_mapping_submission(
         self, project_id: str, version: int | None = None
     ) -> MappingSubmission | None: ...
+
+
+class PreflightRepository(Protocol):
     def get_readiness_report(
         self,
         project_id: str,

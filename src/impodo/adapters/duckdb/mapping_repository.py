@@ -28,6 +28,7 @@ from ...workspace_contracts import (
     SourceSelection,
 )
 from ...workspace_errors import WorkspaceError
+from .repository import DuckDbRepository
 
 
 
@@ -35,7 +36,7 @@ from ...workspace_errors import WorkspaceError
 
 
 
-class MappingRepositoryMixin:
+class MappingRepository(DuckDbRepository):
     """Persistence operations for mapping repository."""
 
     def get_mapping_working_draft(

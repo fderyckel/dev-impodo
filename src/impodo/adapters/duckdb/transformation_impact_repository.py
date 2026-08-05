@@ -26,6 +26,7 @@ from ...domain.staging.transformation_impact import (
     TransformationImpactSnapshot,
 )
 from ...workspace_errors import WorkspaceError
+from .repository import DuckDbRepository
 
 
 
@@ -33,7 +34,7 @@ from ...workspace_errors import WorkspaceError
 
 
 
-class TransformationImpactRepositoryMixin:
+class TransformationImpactRepository(DuckDbRepository):
     """Persistence operations for transformation impact repository."""
 
     def get_transformation_impact_snapshot(

@@ -63,7 +63,7 @@ from impodo.domain.staging.transformation_impact import (
 )
 from impodo.secrets import MemorySecretStore
 from impodo.staging_contracts import CanonicalControlTotal
-from impodo.web import create_local_app
+from impodo.web.app import create_local_app
 from impodo.web.target_readers import _source_value_choices
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
@@ -917,7 +917,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             event_detail="",
             actor=context.actor,
         )
-        context.projects.repository.save_source_selection(
+        context.sources.sources.save_source_selection(
             registered.project_id,
             SourceSelection(
                 selection_id=str(uuid4()),
@@ -942,7 +942,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(drafted.status_code, 303)
         self.assertEqual(self.schema_calls, [])
-        schema = context.projects.repository.get_odoo_schema_catalog(
+        schema = context.schema_workspace.schemas.get_odoo_schema_catalog(
             registered.project_id
         )
         self.assertIsNotNone(schema)
@@ -979,7 +979,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             event_detail="",
             actor=context.actor,
         )
-        context.projects.repository.save_source_selection(
+        context.sources.sources.save_source_selection(
             registered.project_id,
             SourceSelection(
                 selection_id=str(uuid4()),
@@ -1284,7 +1284,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("products.xlsx", inspection_page.text)
         self.assertIn("ProductTable", inspection_page.text)
         self.assertIn("Likely content", inspection_page.text)
-        catalogs = self.app.state.context.projects.repository.get_source_catalogs(project_id)
+        catalogs = self.app.state.context.sources.sources.get_source_catalogs(project_id)
         self.assertEqual(len(catalogs), 2)
         self.assertEqual(catalogs[0].source_sha256, project.source_files[0].sha256)
         self.assertIn("Data in customers.csv", inspection_page.text)
@@ -1359,7 +1359,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             derived_page.text,
         )
         selection = (
-            self.app.state.context.projects.repository.get_source_selection(project_id)
+            self.app.state.context.sources.sources.get_source_selection(project_id)
         )
         self.assertIsNotNone(selection)
         source_choices = _source_value_choices(
@@ -1412,7 +1412,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             related_page.text,
         )
         related_plan = (
-            self.app.state.context.projects.repository.get_derived_entity_plan(project_id)
+            self.app.state.context.derived_entities.derived_entities.get_derived_entity_plan(project_id)
         )
         self.assertIsNotNone(related_plan)
         removed_related = self.client.post(
@@ -1649,10 +1649,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn(".mapping-save-state.unsaved", mapping_styles.text)
 
         selection = (
-            self.app.state.context.projects.repository.get_source_selection(project_id)
+            self.app.state.context.sources.sources.get_source_selection(project_id)
         )
         schema_governance = (
-            self.app.state.context.projects.repository.get_schema_governance(project_id)
+            self.app.state.context.schema_workspace.schemas.get_schema_governance(project_id)
         )
         self.assertIsNotNone(selection)
         self.assertIsNotNone(schema_governance)
@@ -1660,7 +1660,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         customer_code, customer_name = customer.columns
         product_code, product_name = product.columns
         mapping_selection = (
-            self.app.state.context.projects.repository.get_mapping_source_selection(
+            self.app.state.context.sources.sources.get_mapping_source_selection(
                 project_id
             )
         )
@@ -1706,7 +1706,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Saved changes need checking", saved_progress_page.text)
         self.assertIn("Your saved work is loaded", saved_progress_page.text)
         working_draft = (
-            self.app.state.context.projects.repository.get_mapping_working_draft(
+            self.app.state.context.mapping_workspace.mappings.get_mapping_working_draft(
                 project_id
             )
         )
@@ -1720,7 +1720,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "",
         )
         self.assertIsNone(
-            self.app.state.context.projects.repository.get_mapping_revision(project_id)
+            self.app.state.context.mapping_workspace.mappings.get_mapping_revision(project_id)
         )
         submitted = self.client.post(
             f"/projects/{project_id}/mapping/save",
@@ -1785,7 +1785,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Field matches confirmed", submitted_page.text)
         self.assertIn("valid", submitted_page.text.casefold())
         revision = (
-            self.app.state.context.projects.repository.get_mapping_revision(project_id)
+            self.app.state.context.mapping_workspace.mappings.get_mapping_revision(project_id)
         )
         revision_by_dataset = {
             item.dataset_id: item for item in revision.definition.datasets
@@ -1937,7 +1937,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(report.staging_run_id, staging.run_id)
         self.assertEqual(report.staging_content_hash, staging.content_hash)
         restored_staging = (
-            self.app.state.context.projects.repository.get_canonical_staging_run(
+            self.app.state.context.preflight.staging.get_canonical_staging_run(
                 project_id,
                 staging.run_id,
             )
@@ -2107,25 +2107,25 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIsNone(project.mapping_version)
         self.assertEqual(project.approval_status.value, "INVALIDATED")
         self.assertIsNone(
-            self.app.state.context.projects.repository.get_odoo_schema_catalog(project_id)
+            self.app.state.context.schema_workspace.schemas.get_odoo_schema_catalog(project_id)
         )
         self.assertIsNone(
-            self.app.state.context.projects.repository.get_schema_governance(project_id)
+            self.app.state.context.schema_workspace.schemas.get_schema_governance(project_id)
         )
         self.assertIsNone(
-            self.app.state.context.projects.repository.get_mapping_revision(project_id)
+            self.app.state.context.mapping_workspace.mappings.get_mapping_revision(project_id)
         )
         self.assertIsNone(
             self.app.state.context.preflight.current_staging(project_id)
         )
         self.assertIsNotNone(
-            self.app.state.context.projects.repository.get_canonical_staging_run(
+            self.app.state.context.preflight.staging.get_canonical_staging_run(
                 project_id,
                 staging.run_id,
             )
         )
         self.assertIsNotNone(
-            self.app.state.context.projects.repository.get_mapping_working_draft(
+            self.app.state.context.mapping_workspace.mappings.get_mapping_working_draft(
                 project_id
             )
         )
@@ -2216,14 +2216,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(saved.json()["message"], "Saved working draft version 1.")
-        working = context.projects.repository.get_mapping_working_draft(project_id)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(project_id)
         self.assertIsNotNone(working)
         self.assertEqual(working.version, 1)
         self.assertEqual(
             working.definition.datasets[0].target_identity[0].source_column_keys,
             (source_identity.stable_key,),
         )
-        self.assertIsNone(context.projects.repository.get_mapping_revision(project_id))
+        self.assertIsNone(context.mapping_workspace.mappings.get_mapping_revision(project_id))
 
     def test_selection_choices_load_and_save_from_the_mapping_dialog(self) -> None:
         project_id, dataset, business_key = self._mapping_ready_project(
@@ -2296,7 +2296,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         self.assertEqual(saved.status_code, 200)
-        working = self.app.state.context.projects.repository.get_mapping_working_draft(
+        working = self.app.state.context.mapping_workspace.mappings.get_mapping_working_draft(
             project_id
         )
         self.assertEqual(
@@ -2398,7 +2398,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         self.assertEqual(saved.status_code, 200)
-        working = context.projects.repository.get_mapping_working_draft(project_id)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(project_id)
         self.assertEqual(
             working.definition.datasets[0]
             .relationships[0]
@@ -2444,7 +2444,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         page = self.client.get(f"/projects/{project_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
-        schema = context.projects.repository.get_odoo_schema_catalog(project_id)
+        schema = context.schema_workspace.schemas.get_odoo_schema_catalog(project_id)
         self.assertNotEqual(
             schema.target_hash,
             target_identity_hash(
@@ -2527,7 +2527,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         self.assertEqual(saved.status_code, 200)
-        working = context.projects.repository.get_mapping_working_draft(project_id)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(project_id)
         resolver = working.definition.datasets[0].relationships[0].resolver
         self.assertEqual(
             resolver.key_mappings,
@@ -2778,7 +2778,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(saved.status_code, 200)
         self.assertIn("redirect_url", saved.json())
-        working = context.projects.repository.get_mapping_working_draft(project_id)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(project_id)
         self.assertEqual(working.version, 2)
         self.assertEqual(len(working.definition.datasets[0].fields), 1500)
         updated = {
@@ -2801,7 +2801,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(denied.status_code, 403)
         self.assertEqual(
-            context.projects.repository.get_mapping_working_draft(project_id).version,
+            context.mapping_workspace.mappings.get_mapping_working_draft(project_id).version,
             2,
         )
 
@@ -2843,7 +2843,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(retried.status_code, 200)
         self.assertEqual(
-            context.projects.repository.get_mapping_working_draft(project_id).version,
+            context.mapping_workspace.mappings.get_mapping_working_draft(project_id).version,
             4,
         )
 
@@ -2861,7 +2861,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(rejected.status_code, 413)
         self.assertEqual(
-            context.projects.repository.get_mapping_working_draft(project_id).version,
+            context.mapping_workspace.mappings.get_mapping_working_draft(project_id).version,
             4,
         )
 
@@ -2951,7 +2951,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertNotEqual(validation.status, MappingValidationStatus.INVALID)
         self.assertIsNotNone(submission)
-        selection = context.projects.repository.get_source_selection(project_id)
+        selection = context.sources.sources.get_source_selection(project_id)
         assert selection is not None
         corrupted = replace(
             selection,
@@ -3040,7 +3040,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.assertEqual(saved.status_code, 303)
         working = (
-            self.app.state.context.projects.repository.get_mapping_working_draft(
+            self.app.state.context.mapping_workspace.mappings.get_mapping_working_draft(
                 project_id
             )
         )
@@ -3125,7 +3125,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         self.assertEqual(saved.status_code, 303)
-        ruleset = context.projects.repository.get_current_quality_ruleset(project_id)
+        ruleset = context.quality.quality.get_current_quality_ruleset(project_id)
         self.assertIsNotNone(ruleset)
         self.assertEqual(len(ruleset.manager_rules), 1)
         rule = ruleset.manager_rules[0]
@@ -3385,7 +3385,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             datasets=(dataset,),
             content_hash="sha256:" + "3" * 64,
         )
-        context.projects.repository.save_source_selection(
+        context.sources.sources.save_source_selection(
             registered.project_id,
             selection,
             actor=context.actor,
@@ -3456,7 +3456,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             models=(SchemaModel("res.partner", "Contact", fields),),
             content_hash="sha256:" + "4" * 64,
         )
-        context.projects.repository.save_odoo_schema_catalog(
+        context.schema_workspace.schemas.save_odoo_schema_catalog(
             registered.project_id,
             schema,
             actor=context.actor,
@@ -3478,7 +3478,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             recorded_at=now,
             recorded_by=context.actor.identity.display_name,
         )
-        context.projects.repository.save_schema_governance(
+        context.schema_workspace.schemas.save_schema_governance(
             registered.project_id,
             governance,
             actor=context.actor,

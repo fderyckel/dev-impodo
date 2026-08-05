@@ -25,6 +25,7 @@ from ...staging_contracts import (
 )
 from ...workspace_contracts import SourceSelection
 from ...workspace_errors import WorkspaceError
+from .repository import DuckDbRepository
 
 
 
@@ -33,7 +34,7 @@ from ...workspace_errors import WorkspaceError
 from .serialization import _canonical_json
 
 
-class StagingRepositoryMixin:
+class StagingRepository(DuckDbRepository):
     """Persistence operations for staging repository."""
 
     def publish_canonical_staging(

@@ -34,7 +34,10 @@ from impodo.domain.schema.governance import (
     BusinessKeyStatus,
     SchemaGovernance,
 )
-from impodo.adapters.duckdb import DuckDbRepositories
+from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
+from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.projects import MigrationProject, ProjectStatus
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
@@ -466,7 +469,10 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbRepositories(self.temporary.name)
+        database = DuckDbDatabase(self.temporary.name)
+        self.projects = ProjectRepository(database)
+        self.derived_entities = DerivedEntityRepository(database)
+        self.sources = SourceRepository(database, self.derived_entities)
         now = datetime.now(timezone.utc)
         self.project = MigrationProject(
             project_id=str(uuid4()),
@@ -478,17 +484,18 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
             status=ProjectStatus.REGISTERED,
             registered_at=now,
         )
-        self.repository.create(self.project, actor=LOCAL_ACTOR)
+        self.projects.create(self.project, actor=LOCAL_ACTOR)
         self.selection, self.catalog = _source_evidence(
             project_id=self.project.project_id
         )
-        self.repository.save_source_selection(
+        self.sources.save_source_selection(
             self.project.project_id,
             self.selection,
             actor=LOCAL_ACTOR,
         )
         self.service = DerivedEntityWorkspaceService(
-            self.repository,
+            self.sources,
+            self.derived_entities,
             CapabilityAuthorizationPolicy(),
         )
 
@@ -516,7 +523,7 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
 
         self.assertEqual(plan.version, 1)
         self.assertEqual(
-            self.repository.get_derived_entity_plan(self.project.project_id),
+            self.derived_entities.get_derived_entity_plan(self.project.project_id),
             plan,
         )
         self.assertEqual(rule.source_column_key, category.stable_key)
@@ -544,13 +551,13 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
             version=2,
             content_hash="sha256:" + "f" * 64,
         )
-        self.repository.save_source_selection(
+        self.sources.save_source_selection(
             self.project.project_id,
             replacement,
             actor=LOCAL_ACTOR,
         )
         self.assertIsNone(
-            self.repository.get_derived_entity_plan(self.project.project_id)
+            self.derived_entities.get_derived_entity_plan(self.project.project_id)
         )
 
     def test_related_split_replaces_physical_source_for_mapping(self) -> None:

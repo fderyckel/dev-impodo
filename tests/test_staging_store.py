@@ -10,7 +10,9 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from impodo.access import LOCAL_ACTOR
-from impodo.adapters.duckdb import DuckDbRepositories
+from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
 from impodo.staging import StagingRunStatus
 from impodo.staging_contracts import (
@@ -41,7 +43,9 @@ class CanonicalStagingStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbRepositories(self.temporary.name)
+        database = DuckDbDatabase(self.temporary.name)
+        self.projects = ProjectRepository(database)
+        self.repository = StagingRepository(database)
         now = datetime.now(timezone.utc)
         self.project = MigrationProject(
             project_id=str(uuid4()),
@@ -57,7 +61,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
             status=ProjectStatus.REGISTERED,
             registered_at=now,
         )
-        self.repository.create(self.project, actor=LOCAL_ACTOR)
+        self.projects.create(self.project, actor=LOCAL_ACTOR)
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,
@@ -346,7 +350,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
-        current_project = self.repository.get(self.project.project_id)
+        current_project = self.projects.get(self.project.project_id)
         changed = replace(
             current_project,
             odoo_database="odoo19_replacement",
@@ -354,7 +358,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
             updated_at=datetime.now(timezone.utc),
         )
 
-        self.repository.save(
+        self.projects.save(
             changed,
             expected_revision=current_project.revision,
             event_type="PROJECT_TARGET_UPDATED",

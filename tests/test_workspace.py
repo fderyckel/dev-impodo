@@ -38,7 +38,12 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationStatus,
     mapping_issue_fingerprint,
 )
-from impodo.adapters.duckdb import DuckDbRepositories
+from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
+from impodo.adapters.duckdb.mapping_repository import MappingRepository
+from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.schema_repository import SchemaRepository
+from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.projects import (
     MigrationProject,
     OdooConnectionMode,
@@ -63,7 +68,15 @@ class WorkspaceLifecycleTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbRepositories(self.temporary.name)
+        database = DuckDbDatabase(self.temporary.name)
+        self.project_repository = ProjectRepository(database)
+        derived_entity_repository = DerivedEntityRepository(database)
+        self.source_repository = SourceRepository(
+            database,
+            derived_entity_repository,
+        )
+        self.schema_repository = SchemaRepository(database)
+        self.mapping_repository = MappingRepository(database)
         now = datetime.now(timezone.utc)
         self.source = SourceFile(
             file_id=str(uuid4()),
@@ -88,14 +101,14 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             status=ProjectStatus.REGISTERED,
             registered_at=now,
         )
-        self.repository.create(self.project, actor=LOCAL_ACTOR)
+        self.project_repository.create(self.project, actor=LOCAL_ACTOR)
         self.project = replace(
             self.project,
             source_files=(self.source,),
             revision=2,
             updated_at=now,
         )
-        self.repository.add_source_file(
+        self.project_repository.add_source_file(
             self.project,
             self.source,
             expected_revision=1,
@@ -103,19 +116,24 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         self.authorization = CapabilityAuthorizationPolicy()
         self.sources = SourceWorkspaceService(
-            self.repository,
+            self.project_repository,
+            self.source_repository,
             self.authorization,
         )
         self.schemas = SchemaWorkspaceService(
-            self.repository,
+            self.project_repository,
+            self.source_repository,
+            self.schema_repository,
             self.authorization,
         )
         self.mappings = MappingWorkspaceService(
-            self.repository,
+            self.source_repository,
+            self.schema_repository,
+            self.mapping_repository,
             self.authorization,
         )
         self.catalog = _catalog(self.source, now)
-        self.repository.save_source_catalogs(
+        self.source_repository.save_source_catalogs(
             self.project.project_id,
             (self.catalog,),
             actor=LOCAL_ACTOR,
@@ -140,7 +158,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertEqual(catalog.models[0].label, "Contact")
         self.assertEqual(catalog.models[0].modules, ("base", "contacts"))
         self.assertEqual(
-            self.repository.get_odoo_model_catalog(self.project.project_id),
+            self.schema_repository.get_odoo_model_catalog(self.project.project_id),
             catalog,
         )
 
@@ -164,7 +182,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertEqual(selection.version, 1)
         self.assertEqual(selection.datasets[0].name, "customers")
         self.assertEqual(
-            self.repository.get_source_selection(self.project.project_id),
+            self.source_repository.get_source_selection(self.project.project_id),
             selection,
         )
 
@@ -198,7 +216,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(draft.version, 1)
         self.assertEqual(
-            self.repository.get_mapping_working_draft(
+            self.mapping_repository.get_mapping_working_draft(
                 self.project.project_id
             ),
             draft,
@@ -209,20 +227,20 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             datetime.now(timezone.utc),
             warning="Catalog regenerated",
         )
-        self.repository.save_source_catalog(
+        self.source_repository.save_source_catalog(
             self.project.project_id,
             replacement,
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(
-            self.repository.get_source_configurations(self.project.project_id),
+            self.source_repository.get_source_configurations(self.project.project_id),
             (),
         )
         self.assertIsNone(
-            self.repository.get_source_selection(self.project.project_id)
+            self.source_repository.get_source_selection(self.project.project_id)
         )
         self.assertEqual(
-            self.repository.get_mapping_working_draft(
+            self.mapping_repository.get_mapping_working_draft(
                 self.project.project_id
             ),
             draft,
@@ -270,7 +288,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             "unverified local draft (expected Odoo 19)",
         )
         self.assertEqual(
-            self.repository.get_odoo_schema_catalog(self.project.project_id),
+            self.schema_repository.get_odoo_schema_catalog(self.project.project_id),
             schema,
         )
 
@@ -377,11 +395,11 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(submission.validation_hash, validation.validation_hash)
         self.assertEqual(
-            self.repository.get(self.project.project_id).mapping_version,
+            self.project_repository.get(self.project.project_id).mapping_version,
             "2",
         )
         self.assertEqual(
-            [item.version for item in self.repository.list_mapping_revisions(
+            [item.version for item in self.mapping_repository.list_mapping_revisions(
                 self.project.project_id
             )],
             [1, 2],
@@ -403,7 +421,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         )
         self.assertNotEqual(recaptured.captured_at, schema.captured_at)
         self.assertIsNone(
-            self.repository.get_mapping_revision(self.project.project_id)
+            self.mapping_repository.get_mapping_revision(self.project.project_id)
         )
         next_governance = self.schemas.govern(
             self.project.project_id,
@@ -439,10 +457,10 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                 submit=True,
                 actor=LOCAL_ACTOR,
             )
-        warning_revision = self.repository.get_mapping_revision(
+        warning_revision = self.mapping_repository.get_mapping_revision(
             self.project.project_id
         )
-        warning_validation = self.repository.get_mapping_validation(
+        warning_validation = self.mapping_repository.get_mapping_validation(
             self.project.project_id,
             warning_revision.version,
         )
@@ -480,29 +498,29 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                 submit=True,
                 actor=LOCAL_ACTOR,
             )
-        failed_revision = self.repository.get_mapping_revision(
+        failed_revision = self.mapping_repository.get_mapping_revision(
             self.project.project_id
         )
         self.assertEqual(failed_revision.version, 6)
         self.assertEqual(
-            self.repository.get_mapping_validation(
+            self.mapping_repository.get_mapping_validation(
                 self.project.project_id,
                 failed_revision.version,
             ).status,
             MappingValidationStatus.INVALID,
         )
         self.assertIsNone(
-            self.repository.get_mapping_submission(
+            self.mapping_repository.get_mapping_submission(
                 self.project.project_id,
                 failed_revision.version,
             )
         )
-        invalid_validation = self.repository.get_mapping_validation(
+        invalid_validation = self.mapping_repository.get_mapping_validation(
             self.project.project_id,
             failed_revision.version,
         )
         with self.assertRaisesRegex(WorkspaceError, "validation gate"):
-            self.repository.save_mapping_submission(
+            self.mapping_repository.save_mapping_submission(
                 self.project.project_id,
                 MappingSubmission(
                     submission_id=str(uuid4()),
@@ -579,10 +597,10 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             "",
         )
         self.assertIsNone(
-            self.repository.get_mapping_revision(self.project.project_id)
+            self.mapping_repository.get_mapping_revision(self.project.project_id)
         )
         self.assertEqual(
-            self.repository.get_mapping_working_draft(
+            self.mapping_repository.get_mapping_working_draft(
                 self.project.project_id
             ),
             first,
@@ -609,7 +627,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(
-            self.repository.get_mapping_working_draft(
+            self.mapping_repository.get_mapping_working_draft(
                 self.project.project_id
             ),
             second,

@@ -32,6 +32,9 @@ from ...quality import (
     retention_context_hash,
 )
 from ...workspace_errors import WorkspaceError
+from .database import DuckDbDatabase
+from .project_repository import ProjectRepository
+from .repository import DuckDbRepository
 
 
 
@@ -40,8 +43,16 @@ from ...workspace_errors import WorkspaceError
 from .serialization import _canonical_json
 
 
-class QualityRepositoryMixin:
+class QualityRepository(DuckDbRepository):
     """Persistence operations for quality repository."""
+
+    def __init__(
+        self,
+        database: DuckDbDatabase,
+        projects: ProjectRepository,
+    ) -> None:
+        super().__init__(database)
+        self._projects = projects
 
     def get_current_quality_ruleset(
         self,
@@ -81,7 +92,7 @@ class QualityRepositoryMixin:
             QualityRuleSet.from_json(ruleset.to_json())
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Data-check rules are invalid") from error
-        project = self.get(project_id)
+        project = self._projects.get(project_id)
         if any(
             item.review_by_days is not None
             and item.review_by_days > project.retention_days
@@ -212,7 +223,7 @@ class QualityRepositoryMixin:
             QualityRun.from_json(run.to_json())
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Quality evidence is invalid") from error
-        project = self.get(project_id)
+        project = self._projects.get(project_id)
         if run.retention_context_hash != retention_context_hash(project):
             raise WorkspaceError(
                 "Quality evidence no longer matches project ownership and retention"

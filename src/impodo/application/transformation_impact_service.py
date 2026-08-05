@@ -26,27 +26,39 @@ from ..workspace_errors import WorkspaceError
 from .preparation_service import stage_browser_mapping
 
 
-class TransformationImpactRepository(Protocol):
+class TransformationImpactProjectRepository(Protocol):
     def get(self, project_id: str) -> MigrationProject: ...
+
+
+class TransformationImpactMappingRepository(Protocol):
     def get_mapping_revision(
         self, project_id: str, version: int | None = None
     ) -> MappingRevision | None: ...
     def get_mapping_validation(
         self, project_id: str, version: int
     ) -> MappingValidationResult | None: ...
+    def get_mapping_working_draft(
+        self, project_id: str
+    ) -> MappingWorkingDraft | None: ...
+
+
+class TransformationImpactSourceRepository(Protocol):
     def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
     def get_mapping_source_selection(
         self, project_id: str
     ) -> SourceSelection | None: ...
-    def get_mapping_working_draft(
-        self, project_id: str
-    ) -> MappingWorkingDraft | None: ...
-    def get_derived_entity_plan(
-        self, project_id: str
-    ) -> DerivedEntityPlan | None: ...
     def get_source_catalogs(
         self, project_id: str
     ) -> tuple[SourceFileCatalog, ...]: ...
+
+
+class TransformationImpactDerivedRepository(Protocol):
+    def get_derived_entity_plan(
+        self, project_id: str
+    ) -> DerivedEntityPlan | None: ...
+
+
+class TransformationImpactRepository(Protocol):
     def replace_transformation_impact_snapshot(
         self,
         project_id: str,
@@ -84,20 +96,28 @@ class TransformationImpactService:
 
     def __init__(
         self,
-        repository: TransformationImpactRepository,
+        projects: TransformationImpactProjectRepository,
+        mappings: TransformationImpactMappingRepository,
+        sources: TransformationImpactSourceRepository,
+        derived_entities: TransformationImpactDerivedRepository,
+        impacts: TransformationImpactRepository,
         artifacts: ArtifactStore,
     ) -> None:
-        self.repository = repository
+        self.projects = projects
+        self.mappings = mappings
+        self.sources = sources
+        self.derived_entities = derived_entities
+        self.impacts = impacts
         self.artifacts = artifacts
 
     def context(self, project_id: str) -> TransformationImpactContext:
-        project = self.repository.get(project_id)
-        revision = self.repository.get_mapping_revision(project_id)
+        project = self.projects.get(project_id)
+        revision = self.mappings.get_mapping_revision(project_id)
         if revision is None:
             raise WorkspaceError(
                 "Validate the mapping before reviewing transformations."
             )
-        validation = self.repository.get_mapping_validation(
+        validation = self.mappings.get_mapping_validation(
             project_id, revision.version
         )
         if validation is None or validation.status is MappingValidationStatus.INVALID:
@@ -105,13 +125,13 @@ class TransformationImpactService:
                 "Resolve the mapping validation findings before reviewing all "
                 "transformed values."
             )
-        physical = self.repository.get_source_selection(project_id)
-        effective = self.repository.get_mapping_source_selection(project_id)
+        physical = self.sources.get_source_selection(project_id)
+        effective = self.sources.get_mapping_source_selection(project_id)
         if physical is None or effective is None:
             raise WorkspaceError(
                 "Freeze the source datasets before reviewing transformations."
             )
-        working = self.repository.get_mapping_working_draft(project_id)
+        working = self.mappings.get_mapping_working_draft(project_id)
         if (
             working is not None
             and working.definition.source_selection_hash == effective.content_hash
@@ -126,7 +146,7 @@ class TransformationImpactService:
             revision=revision,
             physical_selection=physical,
             effective_selection=effective,
-            plan=self.repository.get_derived_entity_plan(project_id),
+            plan=self.derived_entities.get_derived_entity_plan(project_id),
         )
 
     def prepare_snapshot(
@@ -136,7 +156,7 @@ class TransformationImpactService:
         actor: Actor,
     ) -> TransformationImpactSnapshot:
         context = self.context(project_id)
-        catalogs = self.repository.get_source_catalogs(project_id)
+        catalogs = self.sources.get_source_catalogs(project_id)
 
         def evaluate(
             write_impact: Callable[[TransformationImpactRow], None],
@@ -175,7 +195,7 @@ class TransformationImpactService:
         *,
         actor: Actor,
     ) -> TransformationImpactSnapshot:
-        return self.repository.replace_transformation_impact_snapshot(
+        return self.impacts.replace_transformation_impact_snapshot(
             project_id,
             identity,
             build,

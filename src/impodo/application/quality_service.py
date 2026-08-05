@@ -21,7 +21,11 @@ from ..staging import StagingRunSummary
 from ..workspace_contracts import SourceSelection
 from ..workspace_errors import WorkspaceError
 from ..domain.errors import ReadinessError
-from .readiness_ports import QualityRepository
+from .readiness_ports import (
+    QualityMappingRepository,
+    QualityRepository,
+    QualitySourceRepository,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,20 +41,27 @@ class QualityConfigurationContext:
 class QualityService:
     """Manage the quality contract independently of staging and HTTP."""
 
-    def __init__(self, repository: QualityRepository) -> None:
-        self.repository = repository
+    def __init__(
+        self,
+        mappings: QualityMappingRepository,
+        sources: QualitySourceRepository,
+        quality: QualityRepository,
+    ) -> None:
+        self.mappings = mappings
+        self.sources = sources
+        self.quality = quality
 
     def current_ruleset(self, project_id: str) -> QualityRuleSet | None:
-        return self.repository.get_current_quality_ruleset(project_id)
+        return self.quality.get_current_quality_ruleset(project_id)
 
     def current_summary(self, project_id: str) -> QualityRunSummary | None:
-        return self.repository.get_current_quality_summary(project_id)
+        return self.quality.get_current_quality_summary(project_id)
 
     def current_run(self, project_id: str) -> QualityRun | None:
         summary = self.current_summary(project_id)
         if summary is None:
             return None
-        return self.repository.get_quality_run(project_id, summary.run_id)
+        return self.quality.get_quality_run(project_id, summary.run_id)
 
     def publish_ruleset(
         self,
@@ -59,7 +70,7 @@ class QualityService:
         *,
         actor: Actor,
     ) -> QualityRuleSet:
-        return self.repository.publish_quality_ruleset(
+        return self.quality.publish_quality_ruleset(
             project_id,
             ruleset,
             actor=actor,
@@ -70,13 +81,13 @@ class QualityService:
         project_id: str,
         dataset_id: str,
     ) -> QualityConfigurationContext:
-        revision = self.repository.get_mapping_revision(project_id)
-        selection = self.repository.get_mapping_source_selection(project_id)
+        revision = self.mappings.get_mapping_revision(project_id)
+        selection = self.sources.get_mapping_source_selection(project_id)
         if revision is None or selection is None:
             raise WorkspaceError(
                 "Check and save the field matches before adding data checks"
             )
-        working = self.repository.get_mapping_working_draft(project_id)
+        working = self.mappings.get_mapping_working_draft(project_id)
         if (
             working is not None
             and working.content_hash != revision.definition.content_hash
@@ -114,7 +125,7 @@ class QualityService:
         *,
         actor: Actor,
     ) -> QualityRuleSet:
-        current = self.repository.get_current_quality_ruleset(context.project_id)
+        current = self.quality.get_current_quality_ruleset(context.project_id)
         combined = list(manager_rules)
         if (
             current is not None
@@ -147,7 +158,7 @@ class QualityService:
         *,
         actor: Actor,
     ) -> tuple[QualityRun, QualityRunSummary]:
-        ruleset = self.repository.get_current_quality_ruleset(project.project_id)
+        ruleset = self.quality.get_current_quality_ruleset(project.project_id)
         if (
             ruleset is None
             or ruleset.mapping_hash != revision.definition.content_hash
@@ -161,7 +172,7 @@ class QualityService:
                 version=(ruleset.version + 1 if ruleset is not None else 1),
                 parent_version=(ruleset.version if ruleset is not None else None),
             )
-            ruleset = self.repository.publish_quality_ruleset(
+            ruleset = self.quality.publish_quality_ruleset(
                 project.project_id,
                 ruleset,
                 actor=actor,
@@ -176,7 +187,7 @@ class QualityService:
             )
         except QualityError as error:
             raise ReadinessError(str(error)) from error
-        summary = self.repository.publish_quality_run(
+        summary = self.quality.publish_quality_run(
             project.project_id,
             quality_run,
             staging_run_id=staging.run_id,

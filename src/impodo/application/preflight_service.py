@@ -16,7 +16,13 @@ from ..quality import eligible_prepared_bundle
 from ..staging import StagingRunSummary
 from ..domain.errors import ReadinessError
 from .preparation_service import PreparedReadinessContext
-from .readiness_ports import PreflightRepository
+from .readiness_ports import (
+    PreflightMappingRepository,
+    PreflightNormalizationRepository,
+    PreflightQualityRepository,
+    PreflightRepository,
+    PreflightStagingRepository,
+)
 
 
 MANIFEST_NAME = "impodo_preflight_manifest.json"
@@ -32,23 +38,31 @@ class PreflightService:
 
     def __init__(
         self,
-        repository: PreflightRepository,
+        staging: PreflightStagingRepository,
+        quality: PreflightQualityRepository,
+        normalization: PreflightNormalizationRepository,
+        mappings: PreflightMappingRepository,
+        preflight: PreflightRepository,
         artifacts: ArtifactStore,
         authorization: AuthorizationPolicy,
     ) -> None:
-        self.repository = repository
+        self.staging = staging
+        self.quality = quality
+        self.normalization = normalization
+        self.mappings = mappings
+        self.preflight = preflight
         self.artifacts = artifacts
         self.authorization = authorization
         self.engine = PreflightEngine()
 
     def current_report(self, project_id: str) -> ReadinessReport | None:
-        staging = self.repository.get_current_staging_summary(project_id)
+        staging = self.staging.get_current_staging_summary(project_id)
         if staging is None:
             return None
-        quality = self.repository.get_current_quality_summary(project_id)
+        quality = self.quality.get_current_quality_summary(project_id)
         if quality is None or quality.staging_run_id != staging.run_id:
             return None
-        normalization = self.repository.get_current_normalization_summary(project_id)
+        normalization = self.normalization.get_current_normalization_summary(project_id)
         if (
             normalization is None
             or not normalization.frozen
@@ -56,15 +70,15 @@ class PreflightService:
             or normalization.quality_run_id != quality.run_id
         ):
             return None
-        revision = self.repository.get_mapping_revision(project_id)
+        revision = self.mappings.get_mapping_revision(project_id)
         if revision is None:
             return None
-        submission = self.repository.get_mapping_submission(
+        submission = self.mappings.get_mapping_submission(
             project_id, revision.version
         )
         if submission is None:
             return None
-        return self.repository.get_readiness_report(
+        return self.preflight.get_readiness_report(
             project_id,
             revision.mapping_id,
             revision.version,
@@ -76,7 +90,7 @@ class PreflightService:
         )
 
     def current_staging(self, project_id: str) -> StagingRunSummary | None:
-        return self.repository.get_current_staging_summary(project_id)
+        return self.staging.get_current_staging_summary(project_id)
 
     def compare(
         self,
@@ -145,7 +159,7 @@ class PreflightService:
             MANIFEST_NAME,
             canonical_json_bytes(result.to_portable_dict()) + b"\n",
         )
-        self.repository.save_readiness_report(
+        self.preflight.save_readiness_report(
             project_id,
             report,
             actor=actor,

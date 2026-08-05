@@ -26,7 +26,11 @@ from impodo.normalization import (
     evaluate_normalization,
     start_dry_run,
 )
-from impodo.adapters.duckdb import DuckDbRepositories
+from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.normalization_repository import NormalizationRepository
+from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.quality_repository import QualityRepository
+from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.projects import DataClassification
 from impodo.quality import default_quality_ruleset, evaluate_quality
 from impodo.workspace_contracts import (
@@ -251,9 +255,13 @@ class NormalizationStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbRepositories(self.temporary.name)
+        database = DuckDbDatabase(self.temporary.name)
+        self.projects = ProjectRepository(database)
+        self.staging = StagingRepository(database)
+        self.quality = QualityRepository(database, self.projects)
+        self.repository = NormalizationRepository(database, self.projects)
         self.project = _project()
-        self.repository.create(self.project, actor=LOCAL_ACTOR)
+        self.projects.create(self.project, actor=LOCAL_ACTOR)
         now = datetime.now(timezone.utc)
         selection = SourceSelection(
             selection_id=str(uuid4()),
@@ -395,19 +403,19 @@ class NormalizationStoreTests(unittest.TestCase):
         row = _canonical_row("5", 2)
         rows = (row,)
         staging_run = _staging(self.project.project_id, rows)
-        staging = self.repository.publish_canonical_staging(
+        staging = self.staging.publish_canonical_staging(
             self.project.project_id,
             staging_run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
         ruleset, quality_run = _quality(self.project, staging_run, rows)
-        self.repository.publish_quality_ruleset(
+        self.quality.publish_quality_ruleset(
             self.project.project_id,
             ruleset,
             actor=LOCAL_ACTOR,
         )
-        quality = self.repository.publish_quality_run(
+        quality = self.quality.publish_quality_run(
             self.project.project_id,
             quality_run,
             staging_run_id=staging.run_id,
@@ -498,14 +506,14 @@ class NormalizationStoreTests(unittest.TestCase):
             ).status,
             DryRunStatus.FROZEN,
         )
-        current_project = self.repository.get(self.project.project_id)
+        current_project = self.projects.get(self.project.project_id)
         changed_project = replace(
             current_project,
             data_manager="New Data Manager",
             revision=current_project.revision + 1,
             updated_at=datetime.now(timezone.utc),
         )
-        self.repository.save(
+        self.projects.save(
             changed_project,
             expected_revision=current_project.revision,
             event_type="PROJECT_GOVERNANCE_UPDATED",
@@ -557,19 +565,19 @@ class NormalizationStoreTests(unittest.TestCase):
             for index in range(2, 25_002)
         )
         staging_run = _staging(self.project.project_id, rows)
-        staging = self.repository.publish_canonical_staging(
+        staging = self.staging.publish_canonical_staging(
             self.project.project_id,
             staging_run,
             mapping_version=1,
             actor=LOCAL_ACTOR,
         )
         ruleset, quality_run = _quality(self.project, staging_run, rows)
-        self.repository.publish_quality_ruleset(
+        self.quality.publish_quality_ruleset(
             self.project.project_id,
             ruleset,
             actor=LOCAL_ACTOR,
         )
-        quality = self.repository.publish_quality_run(
+        quality = self.quality.publish_quality_run(
             self.project.project_id,
             quality_run,
             staging_run_id=staging.run_id,

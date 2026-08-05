@@ -9,6 +9,9 @@ from ...access import Actor
 from ...projects import ProjectNotFoundError
 from ...domain.preflight.reports import ReadinessReport
 from ...workspace_errors import WorkspaceError
+from .database import DuckDbDatabase
+from .project_repository import ProjectRepository
+from .repository import DuckDbRepository
 
 
 
@@ -16,8 +19,16 @@ from ...workspace_errors import WorkspaceError
 
 
 
-class PreflightRepositoryMixin:
+class PreflightRepository(DuckDbRepository):
     """Persistence operations for preflight repository."""
+
+    def __init__(
+        self,
+        database: DuckDbDatabase,
+        projects: ProjectRepository,
+    ) -> None:
+        super().__init__(database)
+        self._projects = projects
 
     def get_readiness_report(
         self,
@@ -204,6 +215,4 @@ class PreflightRepositoryMixin:
             except Exception:
                 connection.rollback()
                 raise
-        updated_project = self.get(project_id)
-        self._update_registry(updated_project)
-        self._write_registration_manifest(updated_project)
+        self._projects.synchronize_registration_artifacts(project_id)

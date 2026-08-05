@@ -25,8 +25,11 @@ from ..domain.serialization import content_hash
 _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
 
-class SourceWorkspaceRepository(Protocol):
+class ProjectReader(Protocol):
     def get(self, project_id: str) -> MigrationProject: ...
+
+
+class SourceWorkspaceRepository(Protocol):
 
     def get_source_catalogs(
         self,
@@ -60,10 +63,12 @@ class SourceWorkspaceRepository(Protocol):
 class SourceWorkspaceService:
     def __init__(
         self,
-        repository: SourceWorkspaceRepository,
+        projects: ProjectReader,
+        sources: SourceWorkspaceRepository,
         authorization: AuthorizationPolicy,
     ) -> None:
-        self.repository = repository
+        self.projects = projects
+        self.sources = sources
         self.authorization = authorization
 
     def confirm_source(
@@ -80,7 +85,7 @@ class SourceWorkspaceService:
             Capability.SOURCE_CONFIGURE,
             project_id=project_id,
         )
-        catalog = _catalog(self.repository, project_id, file_id)
+        catalog = _catalog(self.sources, project_id, file_id)
         selected = tuple(dict.fromkeys(selected_table_keys))
         available = {table.table_key: table for table in catalog.tables}
         if not selected or any(key not in available for key in selected):
@@ -118,7 +123,7 @@ class SourceWorkspaceService:
             confirmed_at=datetime.now(timezone.utc),
             confirmed_by=actor.identity.display_name,
         )
-        self.repository.save_source_configuration(
+        self.sources.save_source_configuration(
             project_id,
             configuration,
             actor=actor,
@@ -137,16 +142,16 @@ class SourceWorkspaceService:
             Capability.SOURCE_SELECT,
             project_id=project_id,
         )
-        project = self.repository.get(project_id)
+        project = self.projects.get(project_id)
         if project.status is not ProjectStatus.REGISTERED:
             raise WorkspaceError(
                 "Register the project before selecting datasets"
             )
         catalogs = {
             catalog.file_id: catalog
-            for catalog in self.repository.get_source_catalogs(project_id)
+            for catalog in self.sources.get_source_catalogs(project_id)
         }
-        configurations = self.repository.get_source_configurations(project_id)
+        configurations = self.sources.get_source_configurations(project_id)
         if len(configurations) != len(project.source_files):
             raise WorkspaceError(
                 "Confirm every source file before freezing datasets"
@@ -208,7 +213,7 @@ class SourceWorkspaceService:
                 )
         if not datasets:
             raise WorkspaceError("Select at least one source dataset")
-        previous = self.repository.get_source_selection(project_id)
+        previous = self.sources.get_source_selection(project_id)
         version = previous.version + 1 if previous else 1
         content = {
             "project_id": project_id,
@@ -224,7 +229,7 @@ class SourceWorkspaceService:
             datasets=tuple(datasets),
             content_hash=content_hash(content),
         )
-        self.repository.save_source_selection(
+        self.sources.save_source_selection(
             project_id,
             selection,
             actor=actor,

@@ -12,6 +12,7 @@ from ...workspace_contracts import (
     OdooSchemaCatalog,
 )
 from ...workspace_errors import WorkspaceError
+from .repository import DuckDbRepository
 
 
 
@@ -19,7 +20,7 @@ from ...workspace_errors import WorkspaceError
 
 
 
-class SchemaRepositoryMixin:
+class SchemaRepository(DuckDbRepository):
     """Persistence operations for schema repository."""
 
     def get_odoo_schema_catalog(

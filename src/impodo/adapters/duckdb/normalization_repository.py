@@ -28,6 +28,9 @@ from ...normalization import (
 )
 from ...quality import retention_context_hash
 from ...workspace_errors import WorkspaceError
+from .database import DuckDbDatabase
+from .project_repository import ProjectRepository
+from .repository import DuckDbRepository
 
 
 
@@ -36,8 +39,16 @@ from ...workspace_errors import WorkspaceError
 from .serialization import _canonical_json
 
 
-class NormalizationRepositoryMixin:
+class NormalizationRepository(DuckDbRepository):
     """Persistence operations for normalization repository."""
+
+    def __init__(
+        self,
+        database: DuckDbDatabase,
+        projects: ProjectRepository,
+    ) -> None:
+        super().__init__(database)
+        self._projects = projects
 
     def publish_normalization_run(
         self,
@@ -62,7 +73,7 @@ class NormalizationRepositoryMixin:
             NormalizationEvaluation.from_json(evaluation.to_json())
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Prepared review evidence is invalid") from error
-        project = self.get(project_id)
+        project = self._projects.get(project_id)
         if evaluation.retention_context_hash != retention_context_hash(project):
             raise WorkspaceError(
                 "Prepared review no longer matches project ownership and retention"

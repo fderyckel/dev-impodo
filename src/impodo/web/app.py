@@ -34,7 +34,19 @@ from ..inspection import SourceInspectionService
 from ..jobs import InlineJobDispatcher, JobDispatcher
 from ..local_odoo_reader import LocalOdooMetadataReader
 from ..local_stack import LocalStackService
-from ..adapters.duckdb import DuckDbRepositories
+from ..adapters.duckdb.database import DuckDbDatabase
+from ..adapters.duckdb.derived_entity_repository import DerivedEntityRepository
+from ..adapters.duckdb.mapping_repository import MappingRepository
+from ..adapters.duckdb.normalization_repository import NormalizationRepository
+from ..adapters.duckdb.preflight_repository import PreflightRepository
+from ..adapters.duckdb.project_repository import ProjectRepository
+from ..adapters.duckdb.quality_repository import QualityRepository
+from ..adapters.duckdb.schema_repository import SchemaRepository
+from ..adapters.duckdb.source_repository import SourceRepository
+from ..adapters.duckdb.staging_repository import StagingRepository
+from ..adapters.duckdb.transformation_impact_repository import (
+    TransformationImpactRepository,
+)
 from ..projects import ProjectNotFoundError, ProjectService
 from ..secrets import CredentialVault, SecretStore
 from .context import (
@@ -84,42 +96,90 @@ def create_local_app(
 ) -> FastAPI:
     """Construct the local application with injectable security/test boundaries."""
 
-    repository = DuckDbRepositories(project_root)
+    database = DuckDbDatabase(project_root)
+    project_repository = ProjectRepository(database)
+    derived_entity_repository = DerivedEntityRepository(database)
+    source_repository = SourceRepository(database, derived_entity_repository)
+    schema_repository = SchemaRepository(database)
+    mapping_repository = MappingRepository(database)
+    staging_repository = StagingRepository(database)
+    quality_repository = QualityRepository(database, project_repository)
+    normalization_repository = NormalizationRepository(
+        database,
+        project_repository,
+    )
+    preflight_repository = PreflightRepository(database, project_repository)
+    transformation_impact_repository = TransformationImpactRepository(database)
     resolved_authorization = authorization or CapabilityAuthorizationPolicy()
     resolved_artifacts = artifact_store or LocalArtifactStore(project_root)
-    projects = ProjectService(repository, resolved_authorization)
-    quality = QualityService(repository)
-    normalization = NormalizationService(repository, resolved_authorization)
+    projects = ProjectService(project_repository, resolved_authorization)
+    quality = QualityService(
+        mapping_repository,
+        source_repository,
+        quality_repository,
+    )
+    normalization = NormalizationService(
+        normalization_repository,
+        resolved_authorization,
+    )
     preparation = PreparationService(
-        repository,
+        project_repository,
+        source_repository,
+        derived_entity_repository,
+        mapping_repository,
+        staging_repository,
         resolved_artifacts,
         resolved_authorization,
         quality,
         normalization,
     )
     preflight = PreflightService(
-        repository, resolved_artifacts, resolved_authorization
+        staging_repository,
+        quality_repository,
+        normalization_repository,
+        mapping_repository,
+        preflight_repository,
+        resolved_artifacts,
+        resolved_authorization,
     )
     context = WebContext(
-        queries=BrowserQueryService(repository),
+        queries=BrowserQueryService(
+            project_repository,
+            source_repository,
+            derived_entity_repository,
+            schema_repository,
+            mapping_repository,
+            quality_repository,
+            transformation_impact_repository,
+        ),
         projects=projects,
         intake=SourceIntakeService(projects, resolved_artifacts),
         inspections=SourceInspectionService(
-            repository,
+            project_repository,
+            source_repository,
             resolved_artifacts,
             resolved_authorization,
         ),
-        sources=SourceWorkspaceService(repository, resolved_authorization),
+        sources=SourceWorkspaceService(
+            project_repository,
+            source_repository,
+            resolved_authorization,
+        ),
         derived_entities=DerivedEntityWorkspaceService(
-            repository,
+            source_repository,
+            derived_entity_repository,
             resolved_authorization,
         ),
         schema_workspace=SchemaWorkspaceService(
-            repository,
+            project_repository,
+            source_repository,
+            schema_repository,
             resolved_authorization,
         ),
         mapping_workspace=MappingWorkspaceService(
-            repository,
+            source_repository,
+            schema_repository,
+            mapping_repository,
             resolved_authorization,
         ),
         preparation=preparation,
@@ -128,7 +188,11 @@ def create_local_app(
         normalization=normalization,
         preflight=preflight,
         transformation_impacts=TransformationImpactService(
-            repository,
+            project_repository,
+            mapping_repository,
+            source_repository,
+            derived_entity_repository,
+            transformation_impact_repository,
             resolved_artifacts,
         ),
         artifacts=resolved_artifacts,

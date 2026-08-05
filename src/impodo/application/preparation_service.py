@@ -30,7 +30,13 @@ from ..workspace_contracts import SourceSelection
 from ..domain.errors import ReadinessError
 from .normalization_service import NormalizationService
 from .quality_service import QualityService
-from .readiness_ports import PreparationRepository
+from .readiness_ports import (
+    PreparationDerivedRepository,
+    PreparationMappingRepository,
+    PreparationProjectRepository,
+    PreparationSourceRepository,
+    PreparationStagingRepository,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,13 +55,21 @@ class PreparationService:
 
     def __init__(
         self,
-        repository: PreparationRepository,
+        projects: PreparationProjectRepository,
+        sources: PreparationSourceRepository,
+        derived_entities: PreparationDerivedRepository,
+        mappings: PreparationMappingRepository,
+        staging: PreparationStagingRepository,
         artifacts: ArtifactStore,
         authorization: AuthorizationPolicy,
         quality: QualityService,
         normalization: NormalizationService,
     ) -> None:
-        self.repository = repository
+        self.projects = projects
+        self.sources = sources
+        self.derived_entities = derived_entities
+        self.mappings = mappings
+        self.staging = staging
         self.artifacts = artifacts
         self.authorization = authorization
         self.quality = quality
@@ -80,11 +94,11 @@ class PreparationService:
             Capability.MAPPING_SUBMIT,
             project_id=project_id,
         )
-        project = self.repository.get(project_id)
-        revision = self.repository.get_mapping_revision(project_id)
+        project = self.projects.get(project_id)
+        revision = self.mappings.get_mapping_revision(project_id)
         if revision is None:
             raise ReadinessError("Submit the mapping before checking data")
-        submission = self.repository.get_mapping_submission(
+        submission = self.mappings.get_mapping_submission(
             project_id, revision.version
         )
         if (
@@ -92,11 +106,11 @@ class PreparationService:
             or submission.mapping_content_hash != revision.definition.content_hash
         ):
             raise ReadinessError("Submit the current mapping before checking data")
-        physical_selection = self.repository.get_source_selection(project_id)
+        physical_selection = self.sources.get_source_selection(project_id)
         if physical_selection is None:
             raise ReadinessError("Freeze the source datasets before checking data")
         source_hashes = canonical_source_hashes(physical_selection)
-        effective_selection = self.repository.get_mapping_source_selection(project_id)
+        effective_selection = self.sources.get_mapping_source_selection(project_id)
         if effective_selection is None:
             raise ReadinessError("Freeze the source datasets before checking data")
 
@@ -106,14 +120,14 @@ class PreparationService:
             revision.definition,
             physical_selection,
             effective_selection,
-            self.repository.get_derived_entity_plan(project_id),
-            self.repository.get_source_catalogs(project_id),
+            self.derived_entities.get_derived_entity_plan(project_id),
+            self.sources.get_source_catalogs(project_id),
             self.artifacts,
             collect_transformation_impact=True,
             transformation_detail_limit=0,
             transformation_impact_sink=impact_rows.append,
         )
-        staging = self.repository.publish_canonical_staging(
+        staging = self.staging.publish_canonical_staging(
             project_id,
             staged.canonical_run,
             mapping_version=revision.version,

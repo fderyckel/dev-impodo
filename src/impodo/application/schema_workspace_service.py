@@ -36,10 +36,15 @@ from ..domain.serialization import content_hash
 _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 
 
-class SchemaWorkspaceRepository(Protocol):
+class SchemaProjectReader(Protocol):
     def get(self, project_id: str) -> MigrationProject: ...
 
+
+class SourceSelectionReader(Protocol):
     def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
+
+
+class SchemaWorkspaceRepository(Protocol):
 
     def get_odoo_model_catalog(
         self,
@@ -84,10 +89,14 @@ class SchemaWorkspaceRepository(Protocol):
 class SchemaWorkspaceService:
     def __init__(
         self,
-        repository: SchemaWorkspaceRepository,
+        projects: SchemaProjectReader,
+        sources: SourceSelectionReader,
+        schemas: SchemaWorkspaceRepository,
         authorization: AuthorizationPolicy,
     ) -> None:
-        self.repository = repository
+        self.projects = projects
+        self.sources = sources
+        self.schemas = schemas
         self.authorization = authorization
 
     def discover_models(
@@ -104,7 +113,7 @@ class SchemaWorkspaceService:
             Capability.SCHEMA_DISCOVER,
             project_id=project_id,
         )
-        project = self.repository.get(project_id)
+        project = self.projects.get(project_id)
         if project.status is not ProjectStatus.REGISTERED:
             raise WorkspaceError(
                 "Register the project before discovering Odoo models"
@@ -187,7 +196,7 @@ class SchemaWorkspaceService:
             models=ordered,
             content_hash=content_hash(content),
         )
-        self.repository.save_odoo_model_catalog(
+        self.schemas.save_odoo_model_catalog(
             project_id,
             catalog,
             actor=actor,
@@ -225,7 +234,7 @@ class SchemaWorkspaceService:
             )
         if not snapshot.fingerprint.odoo_version.startswith("19."):
             raise WorkspaceError("Odoo schema capture requires Odoo 19")
-        discovered = self.repository.get_odoo_model_catalog(project_id)
+        discovered = self.schemas.get_odoo_model_catalog(project_id)
         discovered_labels = (
             {model.name: model.label for model in discovered.models}
             if discovered
@@ -317,8 +326,8 @@ class SchemaWorkspaceService:
             Capability.SCHEMA_DISCOVER,
             project_id=project_id,
         )
-        project = self.repository.get(project_id)
-        if self.repository.get_source_selection(project_id) is None:
+        project = self.projects.get(project_id)
+        if self.sources.get_source_selection(project_id) is None:
             raise WorkspaceError(
                 "Freeze source datasets before capturing Odoo schema"
             )
@@ -404,7 +413,7 @@ class SchemaWorkspaceService:
             content_hash=content_hash(content),
             origin=origin,
         )
-        self.repository.save_odoo_schema_catalog(
+        self.schemas.save_odoo_schema_catalog(
             project.project_id,
             catalog,
             actor=actor,
@@ -425,7 +434,7 @@ class SchemaWorkspaceService:
             Capability.SCHEMA_GOVERN,
             project_id=project_id,
         )
-        schema = self.repository.get_odoo_schema_catalog(project_id)
+        schema = self.schemas.get_odoo_schema_catalog(project_id)
         if schema is None:
             raise WorkspaceError(
                 "Capture the Odoo schema before confirming keys"
@@ -483,7 +492,7 @@ class SchemaWorkspaceService:
                     f"Business-key field {definition.model}.{missing[0]} "
                     "is not captured"
                 )
-        previous = self.repository.get_schema_governance(project_id)
+        previous = self.schemas.get_schema_governance(project_id)
         governance = SchemaGovernance(
             governance_id=(
                 previous.governance_id if previous else str(uuid4())
@@ -496,7 +505,7 @@ class SchemaWorkspaceService:
             recorded_at=datetime.now(timezone.utc),
             recorded_by=actor.identity.display_name,
         )
-        self.repository.save_schema_governance(
+        self.schemas.save_schema_governance(
             project_id,
             governance,
             actor=actor,

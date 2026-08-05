@@ -321,14 +321,15 @@ class DerivedDatasetLink:
     target_name_field: str
 
 
-class DerivedEntityRepository(Protocol):
-    def get(self, project_id: str) -> MigrationProject: ...
-
+class DerivedSourceRepository(Protocol):
     def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
 
     def get_source_catalogs(
         self, project_id: str
     ) -> tuple[SourceFileCatalog, ...]: ...
+
+
+class DerivedEntityRepository(Protocol):
 
     def get_derived_entity_plan(
         self, project_id: str
@@ -349,10 +350,12 @@ class DerivedEntityWorkspaceService:
 
     def __init__(
         self,
-        repository: DerivedEntityRepository,
+        sources: DerivedSourceRepository,
+        derived_entities: DerivedEntityRepository,
         authorization: AuthorizationPolicy,
     ) -> None:
-        self.repository = repository
+        self.sources = sources
+        self.derived_entities = derived_entities
         self.authorization = authorization
 
     def save_rule(
@@ -375,10 +378,10 @@ class DerivedEntityWorkspaceService:
             Capability.NORMALIZATION_DECIDE,
             project_id=project_id,
         )
-        selection = self.repository.get_source_selection(project_id)
+        selection = self.sources.get_source_selection(project_id)
         if selection is None:
             raise WorkspaceError("Freeze source datasets before deriving entities")
-        current = self.repository.get_derived_entity_plan(project_id)
+        current = self.derived_entities.get_derived_entity_plan(project_id)
         actual_parent = current.version if current else None
         if expected_parent_version != actual_parent:
             raise WorkspaceError(
@@ -412,7 +415,7 @@ class DerivedEntityWorkspaceService:
             updated_at=now,
             updated_by=actor.identity.display_name,
         )
-        self.repository.save_derived_entity_plan(
+        self.derived_entities.save_derived_entity_plan(
             project_id,
             plan,
             expected_parent_version=actual_parent,
@@ -435,10 +438,10 @@ class DerivedEntityWorkspaceService:
     ) -> tuple[DerivedEntityRule, DerivedEntityPreview]:
         """Validate and preview related-record extraction without saving it."""
 
-        selection = self.repository.get_source_selection(project_id)
+        selection = self.sources.get_source_selection(project_id)
         if selection is None:
             raise WorkspaceError("Freeze source datasets before deriving entities")
-        current = self.repository.get_derived_entity_plan(project_id)
+        current = self.derived_entities.get_derived_entity_plan(project_id)
         rule = self._lookup_rule(
             selection,
             output_dataset_name=output_dataset_name,
@@ -456,7 +459,7 @@ class DerivedEntityWorkspaceService:
             preview_derived_entities(
                 rule,
                 selection,
-                self.repository.get_source_catalogs(project_id),
+                self.sources.get_source_catalogs(project_id),
             ),
         )
 
@@ -515,7 +518,7 @@ class DerivedEntityWorkspaceService:
     ) -> tuple[RelatedDatasetRule, RelatedDatasetPreview]:
         """Validate and preview a split without changing the project plan."""
 
-        selection = self.repository.get_source_selection(project_id)
+        selection = self.sources.get_source_selection(project_id)
         if selection is None:
             raise WorkspaceError("Freeze source datasets before preparing related data")
         rule = self._related_rule(
@@ -531,14 +534,14 @@ class DerivedEntityWorkspaceService:
         self._validate_related_rule_availability(
             rule,
             selection,
-            self.repository.get_derived_entity_plan(project_id),
+            self.derived_entities.get_derived_entity_plan(project_id),
         )
         return (
             rule,
             preview_related_datasets(
                 rule,
                 selection,
-                self.repository.get_source_catalogs(project_id),
+                self.sources.get_source_catalogs(project_id),
             ),
         )
 
@@ -563,10 +566,10 @@ class DerivedEntityWorkspaceService:
             Capability.NORMALIZATION_DECIDE,
             project_id=project_id,
         )
-        selection = self.repository.get_source_selection(project_id)
+        selection = self.sources.get_source_selection(project_id)
         if selection is None:
             raise WorkspaceError("Freeze source datasets before preparing related data")
-        current = self.repository.get_derived_entity_plan(project_id)
+        current = self.derived_entities.get_derived_entity_plan(project_id)
         actual_parent = current.version if current else None
         if expected_parent_version != actual_parent:
             raise WorkspaceError(
@@ -598,7 +601,7 @@ class DerivedEntityWorkspaceService:
             updated_at=datetime.now(timezone.utc),
             updated_by=actor.identity.display_name,
         )
-        self.repository.save_derived_entity_plan(
+        self.derived_entities.save_derived_entity_plan(
             project_id,
             plan,
             expected_parent_version=actual_parent,
@@ -665,7 +668,7 @@ class DerivedEntityWorkspaceService:
             Capability.NORMALIZATION_DECIDE,
             project_id=project_id,
         )
-        current = self.repository.get_derived_entity_plan(project_id)
+        current = self.derived_entities.get_derived_entity_plan(project_id)
         if current is None:
             raise WorkspaceError("No derived-entity plan exists")
         if expected_parent_version != current.version:
@@ -684,7 +687,7 @@ class DerivedEntityWorkspaceService:
             updated_at=datetime.now(timezone.utc),
             updated_by=actor.identity.display_name,
         )
-        self.repository.save_derived_entity_plan(
+        self.derived_entities.save_derived_entity_plan(
             project_id,
             plan,
             expected_parent_version=current.version,
@@ -697,13 +700,13 @@ class DerivedEntityWorkspaceService:
         project_id: str,
         rule: DerivedEntityRule,
     ) -> DerivedEntityPreview:
-        selection = self.repository.get_source_selection(project_id)
+        selection = self.sources.get_source_selection(project_id)
         if selection is None:
             raise WorkspaceError("Freeze source datasets before deriving entities")
         return preview_derived_entities(
             rule,
             selection,
-            self.repository.get_source_catalogs(project_id),
+            self.sources.get_source_catalogs(project_id),
         )
 
     def preview_related(
@@ -711,13 +714,13 @@ class DerivedEntityWorkspaceService:
         project_id: str,
         rule: RelatedDatasetRule,
     ) -> RelatedDatasetPreview:
-        selection = self.repository.get_source_selection(project_id)
+        selection = self.sources.get_source_selection(project_id)
         if selection is None:
             raise WorkspaceError("Freeze source datasets before preparing related data")
         return preview_related_datasets(
             rule,
             selection,
-            self.repository.get_source_catalogs(project_id),
+            self.sources.get_source_catalogs(project_id),
         )
 
 

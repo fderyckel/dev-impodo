@@ -9,6 +9,7 @@ from ...derived_entities import DerivedEntityPlan
 from ...projects import ProjectNotFoundError
 from ...workspace_contracts import SourceSelection
 from ...workspace_errors import WorkspaceError
+from .repository import DuckDbRepository
 
 
 
@@ -16,7 +17,7 @@ from ...workspace_errors import WorkspaceError
 
 
 
-class DerivedEntityRepositoryMixin:
+class DerivedEntityRepository(DuckDbRepository):
     """Persistence operations for derived entity repository."""
 
     def get_derived_entity_plan(

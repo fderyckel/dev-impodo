@@ -186,10 +186,12 @@ class SourceFileCatalog:
             raise SourceInspectionError("Stored source catalog is invalid") from error
 
 
+class ProjectCatalogReader(Protocol):
+    def get(self, project_id: str): ...
+
+
 class SourceCatalogRepository(Protocol):
     """Structural protocol implemented by the local DuckDB repository."""
-
-    def get(self, project_id: str): ...
 
     def get_source_catalogs(
         self,
@@ -218,11 +220,13 @@ class SourceInspectionService:
 
     def __init__(
         self,
-        repository: SourceCatalogRepository,
+        projects: ProjectCatalogReader,
+        sources: SourceCatalogRepository,
         artifacts: ArtifactStore,
         authorization: AuthorizationPolicy,
     ) -> None:
-        self.repository = repository
+        self.projects = projects
+        self.sources = sources
         self.artifacts = artifacts
         self.authorization = authorization
 
@@ -237,7 +241,7 @@ class SourceInspectionService:
             Capability.SOURCE_INSPECT,
             project_id=project_id,
         )
-        project = self.repository.get(project_id)
+        project = self.projects.get(project_id)
         if project.status is not ProjectStatus.REGISTERED:
             raise SourceInspectionError(
                 "Register the migration project before inspecting its sources"
@@ -263,7 +267,7 @@ class SourceInspectionService:
                     )
             except ArtifactStoreError as error:
                 raise SourceInspectionError(str(error)) from error
-        self.repository.save_source_catalogs(
+        self.sources.save_source_catalogs(
             project_id,
             catalogs,
             actor=actor,
@@ -285,7 +289,7 @@ class SourceInspectionService:
             Capability.SOURCE_INSPECT,
             project_id=project_id,
         )
-        project = self.repository.get(project_id)
+        project = self.projects.get(project_id)
         if project.status is not ProjectStatus.REGISTERED:
             raise SourceInspectionError(
                 "Register the migration project before configuring its sources"
@@ -311,7 +315,7 @@ class SourceInspectionService:
                 )
         except ArtifactStoreError as error:
             raise SourceInspectionError(str(error)) from error
-        self.repository.save_source_catalog(
+        self.sources.save_source_catalog(
             project_id,
             catalog,
             actor=actor,

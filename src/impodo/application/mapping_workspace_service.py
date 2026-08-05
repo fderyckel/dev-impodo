@@ -32,11 +32,14 @@ from ..workspace_contracts import (
 from ..workspace_errors import WorkspaceError
 
 
-class MappingWorkspaceRepository(Protocol):
+class MappingSourceRepository(Protocol):
     def get_mapping_source_selection(
         self,
         project_id: str,
     ) -> SourceSelection | None: ...
+
+
+class MappingSchemaRepository(Protocol):
 
     def get_odoo_schema_catalog(
         self,
@@ -47,6 +50,9 @@ class MappingWorkspaceRepository(Protocol):
         self,
         project_id: str,
     ) -> SchemaGovernance | None: ...
+
+
+class MappingWorkspaceRepository(Protocol):
 
     def get_mapping_working_draft(
         self,
@@ -104,10 +110,14 @@ class MappingWorkspaceRepository(Protocol):
 class MappingWorkspaceService:
     def __init__(
         self,
-        repository: MappingWorkspaceRepository,
+        sources: MappingSourceRepository,
+        schemas: MappingSchemaRepository,
+        mappings: MappingWorkspaceRepository,
         authorization: AuthorizationPolicy,
     ) -> None:
-        self.repository = repository
+        self.sources = sources
+        self.schemas = schemas
+        self.mappings = mappings
         self.authorization = authorization
         self.validator = MappingSemanticValidator()
 
@@ -126,15 +136,15 @@ class MappingWorkspaceService:
             Capability.MAPPING_EDIT,
             project_id=project_id,
         )
-        selection = self.repository.get_mapping_source_selection(project_id)
-        schema = self.repository.get_odoo_schema_catalog(project_id)
-        governance = self.repository.get_schema_governance(project_id)
+        selection = self.sources.get_mapping_source_selection(project_id)
+        schema = self.schemas.get_odoo_schema_catalog(project_id)
+        governance = self.schemas.get_schema_governance(project_id)
         if selection is None or schema is None:
             raise WorkspaceError(
                 "Freeze datasets and capture Odoo schema first"
             )
-        current = self.repository.get_mapping_revision(project_id)
-        existing = self.repository.get_mapping_working_draft(project_id)
+        current = self.mappings.get_mapping_revision(project_id)
+        existing = self.mappings.get_mapping_working_draft(project_id)
         actual_version = existing.version if existing else None
         if expected_version != actual_version:
             raise WorkspaceError(
@@ -165,7 +175,7 @@ class MappingWorkspaceService:
             updated_at=datetime.now(timezone.utc),
             updated_by=actor.identity.display_name,
         )
-        self.repository.save_mapping_working_draft(
+        self.mappings.save_mapping_working_draft(
             project_id,
             draft,
             expected_version=expected_version,
@@ -197,9 +207,9 @@ class MappingWorkspaceService:
             capability,
             project_id=project_id,
         )
-        selection = self.repository.get_mapping_source_selection(project_id)
-        schema = self.repository.get_odoo_schema_catalog(project_id)
-        governance = self.repository.get_schema_governance(project_id)
+        selection = self.sources.get_mapping_source_selection(project_id)
+        schema = self.schemas.get_odoo_schema_catalog(project_id)
+        governance = self.schemas.get_schema_governance(project_id)
         if selection is None or schema is None:
             raise WorkspaceError(
                 "Freeze datasets and capture Odoo schema first"
@@ -209,13 +219,13 @@ class MappingWorkspaceService:
                 "Capture the live Odoo schema before submitting a mapping; "
                 "the current local schema is unverified"
             )
-        current = self.repository.get_mapping_revision(project_id)
+        current = self.mappings.get_mapping_revision(project_id)
         actual_parent = current.version if current else None
         if expected_parent_version != actual_parent:
             raise WorkspaceError(
                 "The mapping was modified by another request; reload it"
             )
-        working_draft = self.repository.get_mapping_working_draft(project_id)
+        working_draft = self.mappings.get_mapping_working_draft(project_id)
         expected_schema_hash = (
             governance.content_hash
             if governance is not None
@@ -258,7 +268,7 @@ class MappingWorkspaceService:
             if item.severity == "warning"
         }
         acknowledgements = frozenset(warning_acknowledgements)
-        historical_versions = self.repository.list_mapping_revisions(project_id)
+        historical_versions = self.mappings.list_mapping_revisions(project_id)
         revision = MappingRevision(
             mapping_id=mapping_id,
             version=(
@@ -270,7 +280,7 @@ class MappingWorkspaceService:
             created_at=datetime.now(timezone.utc),
             created_by=actor.identity.display_name,
         )
-        self.repository.save_mapping_revision(
+        self.mappings.save_mapping_revision(
             project_id,
             revision,
             validation=validation,
@@ -307,7 +317,7 @@ class MappingWorkspaceService:
                 submitted_at=datetime.now(timezone.utc),
                 submitted_by=actor.identity.display_name,
             )
-            self.repository.save_mapping_submission(
+            self.mappings.save_mapping_submission(
                 project_id,
                 submission,
                 actor=actor,
@@ -327,10 +337,10 @@ class MappingWorkspaceService:
             Capability.MAPPING_EDIT,
             project_id=project_id,
         )
-        revision = self.repository.get_mapping_revision(project_id)
-        selection = self.repository.get_mapping_source_selection(project_id)
-        schema = self.repository.get_odoo_schema_catalog(project_id)
-        governance = self.repository.get_schema_governance(project_id)
+        revision = self.mappings.get_mapping_revision(project_id)
+        selection = self.sources.get_mapping_source_selection(project_id)
+        schema = self.schemas.get_odoo_schema_catalog(project_id)
+        governance = self.schemas.get_schema_governance(project_id)
         if revision is None or selection is None or schema is None:
             raise WorkspaceError(
                 "Save a mapping revision before validating"
@@ -341,7 +351,7 @@ class MappingWorkspaceService:
             schema,
             governance,
         )
-        self.repository.save_mapping_validation(
+        self.mappings.save_mapping_validation(
             project_id,
             revision.version,
             validation,

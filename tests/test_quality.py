@@ -10,7 +10,10 @@ from uuid import uuid4
 
 from impodo.access import LOCAL_ACTOR
 from impodo.models import Issue, LogicalReference, PreparedRecord
-from impodo.adapters.duckdb import DuckDbRepositories
+from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.quality_repository import QualityRepository
+from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.planner import plan_record_requests
 from impodo.profile import load_profile
 from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
@@ -370,9 +373,12 @@ class QualityStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbRepositories(self.temporary.name)
+        database = DuckDbDatabase(self.temporary.name)
+        self.projects = ProjectRepository(database)
+        self.staging = StagingRepository(database)
+        self.quality = QualityRepository(database, self.projects)
         self.project = _project()
-        self.repository.create(self.project, actor=LOCAL_ACTOR)
+        self.projects.create(self.project, actor=LOCAL_ACTOR)
         now = datetime.now(timezone.utc)
         selection = SourceSelection(
             selection_id=str(uuid4()),
@@ -397,8 +403,8 @@ class QualityStoreTests(unittest.TestCase):
             ),
             content_hash=PHYSICAL_HASH,
         )
-        database_path = self.repository.project_directory(self.project.project_id) / "project.duckdb"
-        with self.repository._connect(database_path) as connection:
+        database_path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
+        with self.projects._connect(database_path) as connection:
             connection.execute("INSERT INTO source_selection VALUES (1, ?)", [selection.to_json()])
             connection.execute(
                 "INSERT INTO mapping_revision VALUES ('mapping:contacts', 1, NULL, ?, ?, ?, ?, '{}')",
@@ -416,7 +422,7 @@ class QualityStoreTests(unittest.TestCase):
     def test_quality_rules_and_run_round_trip_idempotently(self) -> None:
         row = _canonical_row("5", 2)
         staging_run = _staging(self.project.project_id, (row,))
-        staging = self.repository.publish_canonical_staging(
+        staging = self.staging.publish_canonical_staging(
             self.project.project_id,
             staging_run,
             mapping_version=1,
@@ -428,7 +434,7 @@ class QualityStoreTests(unittest.TestCase):
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
         )
-        self.repository.publish_quality_ruleset(
+        self.quality.publish_quality_ruleset(
             self.project.project_id,
             ruleset,
             actor=LOCAL_ACTOR,
@@ -441,19 +447,19 @@ class QualityStoreTests(unittest.TestCase):
             ruleset=ruleset,
         )
 
-        first = self.repository.publish_quality_run(
+        first = self.quality.publish_quality_run(
             self.project.project_id,
             run,
             staging_run_id=staging.run_id,
             actor=LOCAL_ACTOR,
         )
-        repeated = self.repository.publish_quality_run(
+        repeated = self.quality.publish_quality_run(
             self.project.project_id,
             run,
             staging_run_id=staging.run_id,
             actor=LOCAL_ACTOR,
         )
-        restored = self.repository.get_quality_run(
+        restored = self.quality.get_quality_run(
             self.project.project_id,
             first.run_id,
         )
@@ -465,7 +471,7 @@ class QualityStoreTests(unittest.TestCase):
     def test_failed_quality_batch_preserves_previous_current_run(self) -> None:
         row = _canonical_row("5", 2)
         staging_run = _staging(self.project.project_id, (row,))
-        staging = self.repository.publish_canonical_staging(
+        staging = self.staging.publish_canonical_staging(
             self.project.project_id,
             staging_run,
             mapping_version=1,
@@ -477,7 +483,7 @@ class QualityStoreTests(unittest.TestCase):
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
         )
-        self.repository.publish_quality_ruleset(self.project.project_id, ruleset, actor=LOCAL_ACTOR)
+        self.quality.publish_quality_ruleset(self.project.project_id, ruleset, actor=LOCAL_ACTOR)
         run = evaluate_quality(
             project=self.project,
             staging=staging_run,
@@ -485,7 +491,7 @@ class QualityStoreTests(unittest.TestCase):
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
-        first = self.repository.publish_quality_run(
+        first = self.quality.publish_quality_run(
             self.project.project_id,
             run,
             staging_run_id=staging.run_id,
@@ -493,14 +499,14 @@ class QualityStoreTests(unittest.TestCase):
         )
         changed = replace(run, retention_context_hash="sha256:" + "9" * 64)
 
-        with patch.object(self.repository, "_insert_quality_evidence", side_effect=RuntimeError("injected quality failure")):
+        with patch.object(self.quality, "_insert_quality_evidence", side_effect=RuntimeError("injected quality failure")):
             with self.assertRaisesRegex(RuntimeError, "injected quality failure"):
                 # Keep validation legitimate while forcing a different content hash.
                 with patch(
                     "impodo.adapters.duckdb.quality_repository.retention_context_hash",
                     return_value=changed.retention_context_hash,
                 ):
-                    self.repository.publish_quality_run(
+                    self.quality.publish_quality_run(
                         self.project.project_id,
                         changed,
                         staging_run_id=staging.run_id,
@@ -508,14 +514,14 @@ class QualityStoreTests(unittest.TestCase):
                     )
 
         self.assertEqual(
-            self.repository.get_current_quality_summary(self.project.project_id).run_id,
+            self.quality.get_current_quality_summary(self.project.project_id).run_id,
             first.run_id,
         )
 
     def test_owner_or_retention_change_invalidates_quality_not_staging(self) -> None:
         row = _canonical_row("5", 2)
         staging_run = _staging(self.project.project_id, (row,))
-        staging = self.repository.publish_canonical_staging(
+        staging = self.staging.publish_canonical_staging(
             self.project.project_id,
             staging_run,
             mapping_version=1,
@@ -527,7 +533,7 @@ class QualityStoreTests(unittest.TestCase):
             schema_hash=SCHEMA_HASH,
             datasets=("contacts",),
         )
-        self.repository.publish_quality_ruleset(
+        self.quality.publish_quality_ruleset(
             self.project.project_id,
             ruleset,
             actor=LOCAL_ACTOR,
@@ -539,13 +545,13 @@ class QualityStoreTests(unittest.TestCase):
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
-        published = self.repository.publish_quality_run(
+        published = self.quality.publish_quality_run(
             self.project.project_id,
             run,
             staging_run_id=staging.run_id,
             actor=LOCAL_ACTOR,
         )
-        current = self.repository.get(self.project.project_id)
+        current = self.projects.get(self.project.project_id)
         changed = replace(
             current,
             data_manager="New Data Manager",
@@ -554,7 +560,7 @@ class QualityStoreTests(unittest.TestCase):
             updated_at=datetime.now(timezone.utc),
         )
 
-        self.repository.save(
+        self.projects.save(
             changed,
             expected_revision=current.revision,
             event_type="PROJECT_GOVERNANCE_UPDATED",
@@ -563,14 +569,14 @@ class QualityStoreTests(unittest.TestCase):
         )
 
         self.assertIsNone(
-            self.repository.get_current_quality_summary(self.project.project_id)
+            self.quality.get_current_quality_summary(self.project.project_id)
         )
         self.assertEqual(
-            self.repository.get_current_staging_summary(self.project.project_id).run_id,
+            self.staging.get_current_staging_summary(self.project.project_id).run_id,
             staging.run_id,
         )
-        database_path = self.repository.project_directory(self.project.project_id) / "project.duckdb"
-        with self.repository._connect(database_path) as connection:
+        database_path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
+        with self.projects._connect(database_path) as connection:
             lifecycle = connection.execute(
                 "SELECT status, retired_reason FROM quality_run WHERE run_id = ?",
                 [published.run_id],
@@ -584,7 +590,7 @@ class QualityStoreTests(unittest.TestCase):
         )
 
     def test_schema_14_project_migrates_without_showing_stale_quality(self) -> None:
-        database_path = self.repository.project_directory(self.project.project_id) / "project.duckdb"
+        database_path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
         quality_tables = (
             "quality_current",
             "quality_quarantine_entry",
@@ -596,7 +602,7 @@ class QualityStoreTests(unittest.TestCase):
             "quality_ruleset_current",
             "quality_ruleset_revision",
         )
-        with self.repository._connect(database_path) as connection:
+        with self.projects._connect(database_path) as connection:
             for table in quality_tables:
                 connection.execute(f"DROP TABLE {table}")
             connection.execute(
@@ -608,9 +614,9 @@ class QualityStoreTests(unittest.TestCase):
             connection.execute("UPDATE schema_version SET version = 14")
 
         self.assertIsNone(
-            self.repository.get_current_quality_summary(self.project.project_id)
+            self.quality.get_current_quality_summary(self.project.project_id)
         )
-        with self.repository._connect(database_path) as connection:
+        with self.projects._connect(database_path) as connection:
             version = connection.execute(
                 "SELECT version FROM schema_version"
             ).fetchone()

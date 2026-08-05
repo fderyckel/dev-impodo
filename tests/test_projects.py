@@ -14,7 +14,12 @@ from impodo.access import (
 )
 from impodo.artifacts import LocalArtifactStore
 from impodo.intake import SourceIntakeError, SourceIntakeService
-from impodo.adapters.duckdb import DuckDbRepositories
+from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.schema_repository import SchemaRepository
+from impodo.adapters.duckdb.transformation_impact_repository import (
+    TransformationImpactRepository,
+)
 from impodo.adapters.duckdb.constants import SCHEMA_VERSION
 from impodo.projects import (
     OdooConnectionMode,
@@ -48,7 +53,10 @@ class ProjectLifecycleTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbRepositories(self.temporary.name)
+        database = DuckDbDatabase(self.temporary.name)
+        self.repository = ProjectRepository(database)
+        self.schemas = SchemaRepository(database)
+        self.transformation_impacts = TransformationImpactRepository(database)
         self.service = ProjectService(
             self.repository,
             CapabilityAuthorizationPolicy(),
@@ -287,7 +295,7 @@ class ProjectLifecycleTests(unittest.TestCase):
 
         self.assertEqual(migrated.approval_status.value, "INVALIDATED")
         self.assertIsNone(
-            self.repository.get_odoo_schema_catalog(project.project_id)
+            self.schemas.get_odoo_schema_catalog(project.project_id)
         )
         with self.repository._connect(database_path) as connection:
             legacy_column_row = connection.execute(
@@ -354,26 +362,26 @@ class ProjectLifecycleTests(unittest.TestCase):
                 detail_limit=0,
             )
 
-        snapshot = self.repository.replace_transformation_impact_snapshot(
+        snapshot = self.transformation_impacts.replace_transformation_impact_snapshot(
             project.project_id,
             identity,
             build,
             actor=LOCAL_ACTOR,
         )
-        first = self.repository.get_transformation_impact_page(
+        first = self.transformation_impacts.get_transformation_impact_page(
             project.project_id,
             identity,
             TransformationImpactFilter(),
             page_size=100,
         )
-        second = self.repository.get_transformation_impact_page(
+        second = self.transformation_impacts.get_transformation_impact_page(
             project.project_id,
             identity,
             TransformationImpactFilter(),
             page_size=100,
             after=first.next_after,
         )
-        invalid = self.repository.get_transformation_impact_page(
+        invalid = self.transformation_impacts.get_transformation_impact_page(
             project.project_id,
             identity,
             TransformationImpactFilter(outcome="invalid", query="review"),
@@ -392,7 +400,7 @@ class ProjectLifecycleTests(unittest.TestCase):
         self.assertEqual(
             len(
                 tuple(
-                    self.repository.iter_transformation_impact_rows(
+                    self.transformation_impacts.iter_transformation_impact_rows(
                         project.project_id,
                         identity,
                         TransformationImpactFilter(target_field="name"),
@@ -402,7 +410,7 @@ class ProjectLifecycleTests(unittest.TestCase):
             136,
         )
 
-        reused = self.repository.replace_transformation_impact_snapshot(
+        reused = self.transformation_impacts.replace_transformation_impact_snapshot(
             project.project_id,
             identity,
             lambda _write: self.fail("matching snapshots must be reused"),
@@ -420,14 +428,14 @@ class ProjectLifecycleTests(unittest.TestCase):
             raise RuntimeError("simulated preparation failure")
 
         with self.assertRaisesRegex(RuntimeError, "simulated preparation failure"):
-            self.repository.replace_transformation_impact_snapshot(
+            self.transformation_impacts.replace_transformation_impact_snapshot(
                 project.project_id,
                 replacement_identity,
                 fail_after_one_row,
                 actor=LOCAL_ACTOR,
             )
         self.assertIsNotNone(
-            self.repository.get_transformation_impact_snapshot(
+            self.transformation_impacts.get_transformation_impact_snapshot(
                 project.project_id,
                 identity,
             )
@@ -780,7 +788,7 @@ class SourceIntakeTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbRepositories(self.temporary.name)
+        self.repository = ProjectRepository(DuckDbDatabase(self.temporary.name))
         self.projects = ProjectService(
             self.repository,
             CapabilityAuthorizationPolicy(),

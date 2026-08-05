@@ -18,6 +18,9 @@ from ...workspace_contracts import (
     SourceSelection,
 )
 from ...workspace_errors import WorkspaceError
+from .database import DuckDbDatabase
+from .derived_entity_repository import DerivedEntityRepository
+from .repository import DuckDbRepository
 
 
 
@@ -25,8 +28,16 @@ from ...workspace_errors import WorkspaceError
 
 
 
-class SourceRepositoryMixin:
+class SourceRepository(DuckDbRepository):
     """Persistence operations for source repository."""
+
+    def __init__(
+        self,
+        database: DuckDbDatabase,
+        derived_entities: DerivedEntityRepository,
+    ) -> None:
+        super().__init__(database)
+        self._derived_entities = derived_entities
 
     def get_source_catalogs(
         self,
@@ -282,7 +293,7 @@ class SourceRepositoryMixin:
             return None
         return mapping_source_selection(
             selection,
-            self.get_derived_entity_plan(project_id),
+            self._derived_entities.get_derived_entity_plan(project_id),
             self.get_source_catalogs(project_id),
         )
     def save_source_selection(
