@@ -967,6 +967,112 @@
         {% endif %}
       </div>
     </form>
+    {% if quality_view %}
+      <section class="form-card" aria-labelledby="data-checks-title">
+        <details class="quality-checks">
+          <summary>
+            <span>
+              <strong id="data-checks-title">Data checks</strong>
+              <small>Recommended checks are already on. Add a business rule only when you know it is required.</small>
+            </span>
+          </summary>
+          <div class="notice success">
+            <strong>Impodo will automatically check:</strong>
+            <ul>
+              {% for label in quality_view.automatic_checks %}<li>{{ label }}</li>{% endfor %}
+            </ul>
+            <small>These recommended checks protect every row and cannot be switched off.</small>
+          </div>
+          <form method="post" action="/projects/{{ project.project_id }}/mapping/quality">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="quality_dataset_id" value="{{ quality_view.dataset_id }}">
+            <div class="page-heading compact">
+              <div>
+                <p class="eyebrow">Optional business checks</p>
+                <h3>{{ quality_view.dataset_name.replace('_', ' ')|title }}</h3>
+                <p>Use guided choices only. Leave every slot empty when the recommended checks are enough.</p>
+              </div>
+              {% if quality_view.rules_current %}<span class="status ready">Saved</span>{% endif %}
+            </div>
+            {% if quality_view.field_choices|length < 2 %}
+              <p class="muted">Map at least two regular Odoo fields before adding a cross-field business check.</p>
+            {% else %}
+              {% for slot in quality_view.slots %}
+                {% set rule = slot.rule %}
+                <details class="technical-evidence" {% if rule %}open{% endif %}>
+                  <summary>{% if rule %}{{ rule.name }}{% else %}Add business check {{ loop.index }}{% endif %}</summary>
+                  <div class="form-grid">
+                    <label>
+                      Check name
+                      <input name="quality_name_{{ slot.index }}" maxlength="80" value="{{ rule.name if rule else '' }}" placeholder="Example: Start date before end date">
+                    </label>
+                    <label>
+                      What should Impodo check?
+                      <select name="quality_family_{{ slot.index }}">
+                        <option value="">Choose a check</option>
+                        <option value="REQUIRED_IF" {% if rule and rule.family.value == 'REQUIRED_IF' %}selected{% endif %}>Require one field when another has a chosen value</option>
+                        <option value="EXACTLY_ONE_OF" {% if rule and rule.family.value == 'EXACTLY_ONE_OF' %}selected{% endif %}>Require exactly one of two fields</option>
+                        <option value="ORDERED_COMPARISON" {% if rule and rule.family.value == 'ORDERED_COMPARISON' %}selected{% endif %}>First value must not be greater than second</option>
+                        <option value="EQUALITY" {% if rule and rule.family.value == 'EQUALITY' %}selected{% endif %}>Two fields must match</option>
+                        <option value="INEQUALITY" {% if rule and rule.family.value == 'INEQUALITY' %}selected{% endif %}>Two fields must be different</option>
+                      </select>
+                    </label>
+                    <label>
+                      First field
+                      <select name="quality_field_a_{{ slot.index }}">
+                        <option value="">Choose a field</option>
+                        {% for field in quality_view.field_choices %}
+                          <option value="{{ field.name }}" {% if rule and rule.input_fields and rule.input_fields[0] == field.name %}selected{% endif %}>{{ field.label }}</option>
+                        {% endfor %}
+                      </select>
+                    </label>
+                    <label>
+                      Second field
+                      <select name="quality_field_b_{{ slot.index }}">
+                        <option value="">Choose a field</option>
+                        {% for field in quality_view.field_choices %}
+                          <option value="{{ field.name }}" {% if rule and rule.input_fields|length > 1 and rule.input_fields[1] == field.name %}selected{% endif %}>{{ field.label }}</option>
+                        {% endfor %}
+                      </select>
+                    </label>
+                    <label>
+                      Condition value <small>(only for “Require one field”)</small>
+                      <input name="quality_equals_{{ slot.index }}" maxlength="200" value="{{ rule.parameters.get('equals', '') if rule else '' }}" placeholder="Example: confirmed">
+                    </label>
+                  </div>
+                  <details class="technical-details">
+                    <summary>Who reviews it and what happens?</summary>
+                    <div class="form-grid">
+                      <label>
+                        When the check fails
+                        <select name="quality_outcome_{{ slot.index }}">
+                          {% set selected_outcome = rule.outcome.value if rule else 'QUARANTINE' %}
+                          <option value="WARNING" {% if selected_outcome == 'WARNING' %}selected{% endif %}>Ask me to review</option>
+                          <option value="QUARANTINE" {% if selected_outcome == 'QUARANTINE' %}selected{% endif %}>Set affected records aside</option>
+                          <option value="BLOCK" {% if selected_outcome == 'BLOCK' %}selected{% endif %}>Stop this project</option>
+                        </select>
+                      </label>
+                      <label>
+                        Review owner
+                        {% set selected_owner = rule.owner_role.value if rule else 'DATA_MANAGER' %}
+                        <select name="quality_owner_{{ slot.index }}">
+                          <option value="DATA_MANAGER" {% if selected_owner == 'DATA_MANAGER' %}selected{% endif %}>Data manager{% if project.data_manager %} Â· {{ project.data_manager }}{% endif %}</option>
+                          <option value="FUNCTIONAL_OWNER" {% if selected_owner == 'FUNCTIONAL_OWNER' %}selected{% endif %}>Functional owner{% if project.functional_owner %} Â· {{ project.functional_owner }}{% endif %}</option>
+                        </select>
+                      </label>
+                    </div>
+                  </details>
+                </details>
+              {% endfor %}
+              <div class="actions">
+                <button class="button secondary" type="submit">Save data checks</button>
+              </div>
+            {% endif %}
+            <p class="muted">No JSON, formulas or Odoo technical names are required. Changes take effect the next time you choose Check all rows.</p>
+          </form>
+        </details>
+      </section>
+    {% endif %}
     <dialog
       class="value-match-dialog"
       data-value-match-dialog

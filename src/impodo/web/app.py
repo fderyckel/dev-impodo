@@ -112,6 +112,15 @@ from ..projects import (
     ProjectStatus,
     registration_problems,
 )
+from ..quality import (
+    MAX_MANAGER_RULES_PER_DATASET,
+    QualityOutcomePolicy,
+    QualityOwnerRole,
+    QualityRuleFamily,
+    QualityRuleSource,
+    default_quality_ruleset,
+    manager_quality_rule,
+)
 from ..reference_keys import standard_reference_key
 from ..readiness import (
     BrowserReadinessService,
@@ -991,6 +1000,27 @@ def create_local_app(
                 ),
                 status_code=422,
             )
+        quality = context.readiness.current_quality_summary(project_id)
+        if quality is None or quality.run_id != report.quality_run_id:
+            return _render_summary(
+                request,
+                context,
+                project_id,
+                error="Check all rows again before creating the package.",
+                status_code=422,
+            )
+        if not quality.ready_for_package:
+            return _render_summary(
+                request,
+                context,
+                project_id,
+                error=(
+                    "Resolve the data checks that need review or setup before "
+                    "creating the package. Records already set aside may remain "
+                    "outside the package."
+                ),
+                status_code=422,
+            )
         if report.status != "READY":
             return _render_summary(
                 request,
@@ -1847,6 +1877,105 @@ def create_local_app(
     async def project_mapping(request: Request, project_id: str):
         require_session(request)
         return _render_mapping(request, context, project_id)
+
+    @app.post("/projects/{project_id}/mapping/quality")
+    async def save_project_quality_checks(request: Request, project_id: str):
+        """Save guided business checks without exposing the rule contract."""
+
+        require_session(request)
+        form = await request.form()
+        allowed = {"csrf_token", "quality_dataset_id"} | {
+            f"quality_{field}_{index}"
+            for index in range(MAX_MANAGER_RULES_PER_DATASET)
+            for field in (
+                "name",
+                "family",
+                "field_a",
+                "field_b",
+                "equals",
+                "outcome",
+                "owner",
+            )
+        }
+        _secure_form(request, form, allowed)
+        try:
+            revision = context.repository.get_mapping_revision(project_id)
+            selection = context.repository.get_mapping_source_selection(project_id)
+            if revision is None or selection is None:
+                raise WorkspaceError(
+                    "Check and save the field matches before adding data checks"
+                )
+            working = context.repository.get_mapping_working_draft(project_id)
+            if working is not None and working.content_hash != revision.definition.content_hash:
+                raise WorkspaceError(
+                    "Check the latest field-match changes before saving data checks"
+                )
+            dataset_id = _text(form, "quality_dataset_id")
+            dataset = next(
+                (
+                    item
+                    for item in revision.definition.datasets
+                    if item.dataset_id == dataset_id
+                ),
+                None,
+            )
+            source_dataset = next(
+                (item for item in selection.datasets if item.dataset_id == dataset_id),
+                None,
+            )
+            if dataset is None or source_dataset is None:
+                raise WorkspaceError("Choose a current source table")
+            allowed_fields = {item.target_field for item in dataset.fields}
+            manager_rules = list(
+                _manager_quality_rules_from_form(
+                    form,
+                    project_id=project_id,
+                    dataset=source_dataset.name,
+                    allowed_fields=allowed_fields,
+                )
+            )
+            current = context.repository.get_current_quality_ruleset(project_id)
+            if (
+                current is not None
+                and current.mapping_hash == revision.definition.content_hash
+                and current.schema_hash == revision.definition.schema_hash
+            ):
+                manager_rules.extend(
+                    item
+                    for item in current.manager_rules
+                    if item.dataset != source_dataset.name
+                )
+            ruleset = default_quality_ruleset(
+                project_id=project_id,
+                mapping_hash=revision.definition.content_hash,
+                schema_hash=revision.definition.schema_hash,
+                datasets=(item.name for item in selection.datasets),
+                version=(current.version + 1 if current is not None else 1),
+                parent_version=(current.version if current is not None else None),
+                manager_rules=manager_rules,
+            )
+            context.repository.publish_quality_ruleset(
+                project_id,
+                ruleset,
+                actor=context.actor,
+            )
+        except (ValueError, WorkspaceError) as error:
+            request.session["mapping_error"] = str(error)
+            return RedirectResponse(
+                _mapping_return_url(request, project_id),
+                status_code=303,
+            )
+        _flash(
+            request,
+            (
+                f"Saved {len(tuple(item for item in manager_rules if item.dataset == source_dataset.name))} "
+                "optional business data check(s). Recommended checks remain on."
+            ),
+        )
+        return RedirectResponse(
+            _mapping_return_url(request, project_id),
+            status_code=303,
+        )
 
     @app.post("/projects/{project_id}/mapping/value-choices")
     async def project_mapping_value_choices(
@@ -2934,7 +3063,35 @@ def _render_summary(
         else None
     )
     staging = context.readiness.current_staging(project_id)
+    quality = context.readiness.current_quality_summary(project_id)
+    if (
+        quality is not None
+        and (staging is None or quality.staging_run_id != staging.run_id)
+    ):
+        quality = None
     report = context.readiness.current_report(project_id)
+    quality_status = request.query_params.get("quality_status", "").strip()
+    if quality_status not in {"", "ready", "review", "quarantined", "blocked"}:
+        quality_status = ""
+    quality_dataset = request.query_params.get("quality_dataset", "").strip()
+    quality_datasets = {
+        item.dataset for item in (staging.datasets if staging else ())
+    }
+    if quality_dataset not in quality_datasets:
+        quality_dataset = ""
+    quality_page = None
+    if quality is not None:
+        quality_page = context.repository.get_quality_review_page(
+            project_id,
+            quality.run_id,
+            status=quality_status,
+            dataset=quality_dataset,
+            page=_positive_query_int(
+                request.query_params.get("quality_page"),
+                default=1,
+            ),
+            page_size=READINESS_ROWS_PER_PAGE,
+        )
     status_filter = request.query_params.get("status", "").strip()
     if status_filter not in {"", "ready", "needs_review", "blocked"}:
         status_filter = ""
@@ -2974,6 +3131,31 @@ def _render_summary(
         revision=revision,
         submission=submission,
         staging=staging,
+        quality=quality,
+        quality_review_page=quality_page,
+        quality_status=quality_status,
+        quality_dataset=quality_dataset,
+        quality_previous_url=(
+            _quality_summary_url(
+                project_id,
+                status=quality_status,
+                dataset=quality_dataset,
+                page=quality_page.page - 1,
+            )
+            if quality_page is not None and quality_page.page > 1
+            else None
+        ),
+        quality_next_url=(
+            _quality_summary_url(
+                project_id,
+                status=quality_status,
+                dataset=quality_dataset,
+                page=quality_page.page + 1,
+            )
+            if quality_page is not None
+            and quality_page.page < quality_page.page_count
+            else None
+        ),
         readiness=report,
         readiness_rows=rows,
         readiness_row_total=row_total,
@@ -3036,6 +3218,26 @@ def _summary_rows_url(
     base = f"/projects/{project_id}/summary"
     url = f"{base}?{query}" if query else base
     return f"{url}#readiness-rows"
+
+
+def _quality_summary_url(
+    project_id: str,
+    *,
+    status: str = "",
+    dataset: str = "",
+    page: int | None = None,
+) -> str:
+    params = {}
+    if status:
+        params["quality_status"] = status
+    if dataset:
+        params["quality_dataset"] = dataset
+    if page is not None and page > 1:
+        params["quality_page"] = str(page)
+    query = urlencode(params)
+    base = f"/projects/{project_id}/summary"
+    url = f"{base}?{query}" if query else base
+    return f"{url}#quality-rows"
 
 
 def _readiness_report_path(
@@ -4167,6 +4369,21 @@ def _render_mapping(
         for item in (validation.issues if validation else ())
         if item.severity == "warning"
     )
+    quality_view = None
+    if (
+        revision is not None
+        and not has_unvalidated_changes
+        and selection is not None
+        and schema is not None
+        and selection.datasets
+    ):
+        quality_view = _quality_check_view(
+            revision.definition,
+            selection,
+            schema,
+            active_dataset_index,
+            context.repository.get_current_quality_ruleset(project_id),
+        )
     return _render(
         request,
         "project_mapping.html",
@@ -4186,6 +4403,7 @@ def _render_mapping(
         legacy_draft=legacy_draft,
         dataset_views=dataset_views,
         warning_issues=warning_issues,
+        quality_view=quality_view,
         error=error,
         status_code=status_code,
     )
@@ -4649,6 +4867,171 @@ def _mapping_dataset_views(
             }
         )
     return tuple(result)
+
+
+def _quality_check_view(
+    definition,
+    selection,
+    schema,
+    dataset_index,
+    current_ruleset,
+) -> dict[str, object] | None:
+    source = selection.datasets[dataset_index]
+    mapping = next(
+        (
+            item
+            for item in definition.datasets
+            if item.dataset_id == source.dataset_id
+        ),
+        None,
+    )
+    if mapping is None:
+        return None
+    model = next(
+        (item for item in schema.models if item.name == mapping.target_model),
+        None,
+    )
+    if model is None:
+        return None
+    mapped = {item.target_field for item in mapping.fields}
+    field_choices = tuple(
+        {"name": field.name, "label": field.label or field.name}
+        for field in model.fields
+        if field.name in mapped
+        and field.type not in {"many2one", "many2many", "one2many"}
+    )
+    rules_current = bool(
+        current_ruleset is not None
+        and current_ruleset.mapping_hash == definition.content_hash
+        and current_ruleset.schema_hash == definition.schema_hash
+    )
+    existing = (
+        tuple(
+            item
+            for item in current_ruleset.manager_rules
+            if item.dataset == source.name
+        )
+        if rules_current
+        else ()
+    )
+    return {
+        "dataset_id": source.dataset_id,
+        "dataset_name": source.name,
+        "field_choices": field_choices,
+        "slots": tuple(
+            {
+                "index": index,
+                "rule": existing[index] if index < len(existing) else None,
+            }
+            for index in range(MAX_MANAGER_RULES_PER_DATASET)
+        ),
+        "automatic_checks": (
+            "Required values",
+            "Valid types, formats and choices",
+            "Known lookup values",
+            "Ready linked records",
+            "Duplicate Odoo matches after preparation",
+        ),
+        "rules_current": rules_current,
+    }
+
+
+def _manager_quality_rules_from_form(
+    form,
+    *,
+    project_id: str,
+    dataset: str,
+    allowed_fields: set[str],
+):
+    rules = []
+    allowed_families = {
+        QualityRuleFamily.REQUIRED_IF,
+        QualityRuleFamily.EXACTLY_ONE_OF,
+        QualityRuleFamily.ORDERED_COMPARISON,
+        QualityRuleFamily.EQUALITY,
+        QualityRuleFamily.INEQUALITY,
+    }
+    for index in range(MAX_MANAGER_RULES_PER_DATASET):
+        name = _text(form, f"quality_name_{index}")
+        family_value = _text(form, f"quality_family_{index}")
+        field_a = _text(form, f"quality_field_a_{index}")
+        field_b = _text(form, f"quality_field_b_{index}")
+        equals = _text(form, f"quality_equals_{index}")
+        outcome_value = _text(form, f"quality_outcome_{index}")
+        owner_value = _text(form, f"quality_owner_{index}")
+        if not any(
+            (
+                name,
+                family_value,
+                field_a,
+                field_b,
+                equals,
+                outcome_value,
+                owner_value,
+            )
+        ):
+            continue
+        if not name or len(name) > 80:
+            raise WorkspaceError("Give each optional data check a short name")
+        try:
+            family = QualityRuleFamily(family_value)
+        except ValueError as error:
+            raise WorkspaceError(
+                "Choose a supported business data check"
+            ) from error
+        if family not in allowed_families:
+            raise WorkspaceError("Choose a supported business data check")
+        if field_a not in allowed_fields or field_b not in allowed_fields:
+            raise WorkspaceError("Choose two currently mapped Odoo fields")
+        if field_a == field_b:
+            raise WorkspaceError(
+                "Choose two different fields for a business check"
+            )
+        if family is QualityRuleFamily.REQUIRED_IF and not equals:
+            raise WorkspaceError(
+                "Enter the condition value for the required-field check"
+            )
+        try:
+            outcome = QualityOutcomePolicy(outcome_value)
+        except ValueError as error:
+            raise WorkspaceError(
+                "Choose what should happen when a check fails"
+            ) from error
+        if outcome not in {
+            QualityOutcomePolicy.WARNING,
+            QualityOutcomePolicy.QUARANTINE,
+            QualityOutcomePolicy.BLOCK,
+        }:
+            raise WorkspaceError(
+                "Choose a supported outcome for the data check"
+            )
+        try:
+            owner = QualityOwnerRole(owner_value)
+        except ValueError as error:
+            raise WorkspaceError(
+                "Choose who should review the data check"
+            ) from error
+        rules.append(
+            manager_quality_rule(
+                project_id=project_id,
+                dataset=dataset,
+                family=family,
+                name=name,
+                input_fields=(field_a, field_b),
+                parameters=(
+                    {"equals": equals}
+                    if family is QualityRuleFamily.REQUIRED_IF
+                    else {}
+                ),
+                outcome=outcome,
+                owner_role=owner,
+            )
+        )
+    if len({item.rule_id for item in rules}) != len(rules):
+        raise WorkspaceError(
+            "Optional data checks must have unique names and choices"
+        )
+    return tuple(rules)
 
 
 def _value_mappings_json(mappings) -> str:

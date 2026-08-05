@@ -43,6 +43,8 @@ from .quality import (
     QUALITY_RULESET_CONTRACT_VERSION,
     QualityIssue,
     QualityRuleSet,
+    QualityReviewItem,
+    QualityReviewPage,
     QualityRowResult,
     QualityRun,
     QualityRunStatus,
@@ -1347,7 +1349,9 @@ class DuckDbProjectRepository:
                     """
                     SELECT revision, odoo_connection_mode, odoo_base_url,
                            odoo_database, intended_applications,
-                           intended_models
+                           intended_models, data_manager,
+                           functional_owner, retention_days,
+                           data_classification
                       FROM project
                     """
                 ).fetchone()
@@ -1371,6 +1375,12 @@ class DuckDbProjectRepository:
                     or tuple(json.loads(str(current[5])))
                     != project.intended_models
                 )
+                governance_changed = (
+                    str(current[6]) != project.data_manager
+                    or str(current[7]) != project.functional_owner
+                    or int(current[8]) != project.retention_days
+                    or str(current[9]) != project.data_classification.value
+                )
                 self._update_project(connection, project)
                 if target_changed:
                     connection.execute("DELETE FROM odoo_schema_catalog")
@@ -1380,6 +1390,11 @@ class DuckDbProjectRepository:
                     self._invalidate_canonical_staging(
                         connection,
                         reason="PROJECT_TARGET_CHANGED",
+                    )
+                elif governance_changed:
+                    self._invalidate_quality(
+                        connection,
+                        reason="PROJECT_GOVERNANCE_CHANGED",
                     )
                 self._insert_audit(
                     connection,
@@ -1906,6 +1921,15 @@ class DuckDbProjectRepository:
             QualityRuleSet.from_json(ruleset.to_json())
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Data-check rules are invalid") from error
+        project = self.get(project_id)
+        if any(
+            item.review_by_days is not None
+            and item.review_by_days > project.retention_days
+            for item in ruleset.rules
+        ):
+            raise WorkspaceError(
+                "A data-check review date exceeds the project retention period"
+            )
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -2011,6 +2035,7 @@ class DuckDbProjectRepository:
         project_id: str,
         run: QualityRun,
         *,
+        staging_run_id: str,
         actor: Actor,
     ) -> QualityRunSummary:
         """Atomically publish a complete quality overlay and quarantine set."""
@@ -2052,7 +2077,7 @@ class DuckDbProjectRepository:
                     """
                 ).fetchone()
                 if staging is None or (
-                    str(staging[0]) != run.staging_run_id
+                    str(staging[0]) != staging_run_id
                     or str(staging[1]) != run.staging_content_hash
                     or str(staging[2]) != run.mapping_hash
                     or str(staging[3]) != run.schema_hash
@@ -2105,7 +2130,7 @@ class DuckDbProjectRepository:
                     [
                         run_id,
                         run.content_hash,
-                        run.staging_run_id,
+                        staging_run_id,
                         run.staging_content_hash,
                         run.ruleset_hash,
                         run.mapping_hash,
@@ -2146,7 +2171,7 @@ class DuckDbProjectRepository:
                             AND staging.row_id = quality.row_id
                           WHERE quality.run_id = ?)
                     """,
-                    [run_id, run_id, run_id, run_id, run.staging_run_id, run_id],
+                    [run_id, run_id, run_id, run_id, staging_run_id, run_id],
                 ).fetchone()
                 expected = (
                     len(run.row_results),
@@ -2212,7 +2237,7 @@ class DuckDbProjectRepository:
             run_id=run_id,
             project_id=project_id,
             content_hash=run.content_hash,
-            staging_run_id=run.staging_run_id,
+            staging_run_id=staging_run_id,
             staging_content_hash=run.staging_content_hash,
             ruleset_hash=run.ruleset_hash,
             status=QualityRunStatus.PUBLISHED,
@@ -2311,6 +2336,125 @@ class DuckDbProjectRepository:
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Stored quality evidence is invalid") from error
 
+    def get_quality_review_page(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        status: str = "",
+        dataset: str = "",
+        page: int = 1,
+        page_size: int = 100,
+    ) -> QualityReviewPage:
+        """Read one bounded quality-review page with three grouped queries."""
+
+        try:
+            canonical_run_id = str(UUID(run_id))
+        except (ValueError, AttributeError) as error:
+            raise WorkspaceError("Quality run identifier is invalid") from error
+        if status not in {"", "ready", "review", "quarantined", "blocked"}:
+            raise WorkspaceError("Quality review filter is invalid")
+        if page < 1 or page_size < 1 or page_size > 250:
+            raise WorkspaceError("Quality review page is invalid")
+        conditions = ["run_id = ?"]
+        parameters: list[object] = [canonical_run_id]
+        if dataset:
+            conditions.append("dataset = ?")
+            parameters.append(dataset)
+        if status == "ready":
+            conditions.append(
+                "effective_disposition IN ('CANDIDATE', 'REFERENCE')"
+            )
+            conditions.append("requires_review = FALSE")
+        elif status == "review":
+            conditions.append("requires_review = TRUE")
+        elif status == "quarantined":
+            conditions.append(
+                "effective_disposition IN ('QUARANTINED', 'EXCLUDED')"
+            )
+        elif status == "blocked":
+            conditions.append("effective_disposition = 'BLOCKED'")
+        predicate = " AND ".join(conditions)
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            current = connection.execute(
+                """
+                SELECT 1 FROM quality_run
+                 WHERE run_id = ?
+                """,
+                [canonical_run_id],
+            ).fetchone()
+            if current is None:
+                raise WorkspaceError("Quality run was not found")
+            count_row = connection.execute(
+                f"SELECT COUNT(*) FROM quality_row_result WHERE {predicate}",
+                parameters,
+            ).fetchone()
+            matching_count = int(count_row[0]) if count_row else 0
+            page_count = max(1, (matching_count + page_size - 1) // page_size)
+            current_page = min(page, page_count)
+            offset = (current_page - 1) * page_size
+            rows = connection.execute(
+                f"""
+                SELECT row_json
+                  FROM quality_row_result
+                 WHERE {predicate}
+                 ORDER BY dataset, source_row, row_id
+                 LIMIT ? OFFSET ?
+                """,
+                [*parameters, page_size, offset],
+            ).fetchall()
+            results = tuple(
+                QualityRowResult.from_dict(json.loads(str(item[0])))
+                for item in rows
+            )
+            row_ids = tuple(item.row_id for item in results)
+            issues_by_row: dict[str, list[QualityIssue]] = {
+                row_id: [] for row_id in row_ids
+            }
+            route_by_row: dict[str, str] = {}
+            if row_ids:
+                placeholders = ", ".join("?" for _ in row_ids)
+                issue_rows = connection.execute(
+                    f"""
+                    SELECT issue_json FROM quality_issue
+                     WHERE run_id = ? AND row_id IN ({placeholders})
+                     ORDER BY issue_id
+                    """,
+                    [canonical_run_id, *row_ids],
+                ).fetchall()
+                for item in issue_rows:
+                    issue = QualityIssue.from_dict(json.loads(str(item[0])))
+                    if issue.row_id is not None:
+                        issues_by_row[issue.row_id].append(issue)
+                quarantine_rows = connection.execute(
+                    f"""
+                    SELECT entry_json FROM quality_quarantine_entry
+                     WHERE run_id = ? AND row_id IN ({placeholders})
+                     ORDER BY entry_id
+                    """,
+                    [canonical_run_id, *row_ids],
+                ).fetchall()
+                for item in quarantine_rows:
+                    entry = QuarantineEntry.from_dict(json.loads(str(item[0])))
+                    route_by_row.setdefault(entry.row_id, entry.correction_route)
+        return QualityReviewPage(
+            items=tuple(
+                QualityReviewItem(
+                    row=item,
+                    issues=tuple(issues_by_row[item.row_id]),
+                    correction_route=route_by_row.get(item.row_id, ""),
+                )
+                for item in results
+            ),
+            matching_count=matching_count,
+            page=current_page,
+            page_count=page_count,
+        )
+
     @staticmethod
     def _insert_quality_evidence(
         connection: duckdb.DuckDBPyConnection,
@@ -2319,51 +2463,82 @@ class DuckDbProjectRepository:
     ) -> None:
         for start in range(0, len(run.row_results), QUALITY_ROW_BATCH_SIZE):
             batch = run.row_results[start : start + QUALITY_ROW_BATCH_SIZE]
-            connection.executemany(
+            values = [
+                [run_id, start + offset, item.row_id, item.dataset,
+                 item.source_row, item.effective_disposition.value,
+                 item.requires_review, _canonical_json(item.to_portable_dict())]
+                for offset, item in enumerate(batch)
+            ]
+            connection.execute(
                 """
                 INSERT INTO quality_row_result (
                     run_id, ordinal, row_id, dataset, source_row,
                     effective_disposition, requires_review, row_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                )
+                SELECT
+                    json_extract_string(value, '$[0]'),
+                    CAST(json_extract(value, '$[1]') AS BIGINT),
+                    json_extract_string(value, '$[2]'),
+                    json_extract_string(value, '$[3]'),
+                    CAST(json_extract(value, '$[4]') AS BIGINT),
+                    json_extract_string(value, '$[5]'),
+                    CAST(json_extract(value, '$[6]') AS BOOLEAN),
+                    json_extract_string(value, '$[7]')
+                  FROM json_each(?)
                 """,
-                [
-                    [run_id, start + offset, item.row_id, item.dataset,
-                     item.source_row, item.effective_disposition.value,
-                     item.requires_review, _canonical_json(item.to_portable_dict())]
-                    for offset, item in enumerate(batch)
-                ],
+                [_canonical_json(values)],
             )
         for start in range(0, len(run.issues), QUALITY_ROW_BATCH_SIZE):
             batch = run.issues[start : start + QUALITY_ROW_BATCH_SIZE]
-            connection.executemany(
+            values = [
+                [run_id, start + offset, item.issue_id, item.rule_id,
+                 item.dataset, item.row_id, item.policy.value,
+                 _canonical_json(item.to_portable_dict())]
+                for offset, item in enumerate(batch)
+            ]
+            connection.execute(
                 """
                 INSERT INTO quality_issue (
                     run_id, ordinal, issue_id, rule_id, dataset, row_id,
                     policy, issue_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                )
+                SELECT
+                    json_extract_string(value, '$[0]'),
+                    CAST(json_extract(value, '$[1]') AS BIGINT),
+                    json_extract_string(value, '$[2]'),
+                    json_extract_string(value, '$[3]'),
+                    json_extract_string(value, '$[4]'),
+                    json_extract_string(value, '$[5]'),
+                    json_extract_string(value, '$[6]'),
+                    json_extract_string(value, '$[7]')
+                  FROM json_each(?)
                 """,
-                [
-                    [run_id, start + offset, item.issue_id, item.rule_id,
-                     item.dataset, item.row_id, item.policy.value,
-                     _canonical_json(item.to_portable_dict())]
-                    for offset, item in enumerate(batch)
-                ],
+                [_canonical_json(values)],
             )
         for start in range(0, len(run.source_accounting), QUALITY_ROW_BATCH_SIZE):
             batch = run.source_accounting[start : start + QUALITY_ROW_BATCH_SIZE]
-            connection.executemany(
+            values = [
+                [run_id, start + offset, item.physical_dataset_id,
+                 item.source_row, item.state.value,
+                 _canonical_json(item.to_portable_dict())]
+                for offset, item in enumerate(batch)
+            ]
+            connection.execute(
                 """
                 INSERT INTO source_accounting_entry (
                     run_id, ordinal, physical_dataset_id, source_row,
                     state, entry_json
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                )
+                SELECT
+                    json_extract_string(value, '$[0]'),
+                    CAST(json_extract(value, '$[1]') AS BIGINT),
+                    json_extract_string(value, '$[2]'),
+                    CAST(json_extract(value, '$[3]') AS BIGINT),
+                    json_extract_string(value, '$[4]'),
+                    json_extract_string(value, '$[5]')
+                  FROM json_each(?)
                 """,
-                [
-                    [run_id, start + offset, item.physical_dataset_id,
-                     item.source_row, item.state.value,
-                     _canonical_json(item.to_portable_dict())]
-                    for offset, item in enumerate(batch)
-                ],
+                [_canonical_json(values)],
             )
             links = [
                 [run_id, start + offset, row_id]
@@ -2371,28 +2546,43 @@ class DuckDbProjectRepository:
                 for row_id in item.canonical_row_ids
             ]
             if links:
-                connection.executemany(
+                connection.execute(
                     """
                     INSERT INTO source_accounting_link (
                         run_id, accounting_ordinal, row_id
-                    ) VALUES (?, ?, ?)
+                    )
+                    SELECT
+                        json_extract_string(value, '$[0]'),
+                        CAST(json_extract(value, '$[1]') AS BIGINT),
+                        json_extract_string(value, '$[2]')
+                      FROM json_each(?)
                     """,
-                    links,
+                    [_canonical_json(links)],
                 )
         for start in range(0, len(run.quarantine), QUALITY_ROW_BATCH_SIZE):
             batch = run.quarantine[start : start + QUALITY_ROW_BATCH_SIZE]
-            connection.executemany(
+            values = [
+                [run_id, start + offset, item.entry_id, item.row_id,
+                 item.rule_id, _canonical_json(item.to_portable_dict()), None]
+                for offset, item in enumerate(batch)
+            ]
+            connection.execute(
                 """
                 INSERT INTO quality_quarantine_entry (
                     run_id, ordinal, entry_id, row_id, rule_id, entry_json,
                     superseded_by_run_id
-                ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+                )
+                SELECT
+                    json_extract_string(value, '$[0]'),
+                    CAST(json_extract(value, '$[1]') AS BIGINT),
+                    json_extract_string(value, '$[2]'),
+                    json_extract_string(value, '$[3]'),
+                    json_extract_string(value, '$[4]'),
+                    json_extract_string(value, '$[5]'),
+                    json_extract_string(value, '$[6]')
+                  FROM json_each(?)
                 """,
-                [
-                    [run_id, start + offset, item.entry_id, item.row_id,
-                     item.rule_id, _canonical_json(item.to_portable_dict())]
-                    for offset, item in enumerate(batch)
-                ],
+                [_canonical_json(values)],
             )
 
     @staticmethod
@@ -2426,26 +2616,37 @@ class DuckDbProjectRepository:
     ) -> None:
         for start in range(0, len(rows), STAGING_ROW_BATCH_SIZE):
             batch = rows[start : start + STAGING_ROW_BATCH_SIZE]
-            connection.executemany(
+            values = [
+                [
+                    run_id,
+                    start + offset,
+                    row.row_id,
+                    row.dataset,
+                    row.source_row,
+                    row.target_model,
+                    row.disposition.value,
+                    _canonical_json(row.to_portable_dict()),
+                ]
+                for offset, row in enumerate(batch)
+            ]
+            connection.execute(
                 """
                 INSERT INTO canonical_staging_row (
                     run_id, ordinal, row_id, dataset, source_row,
                     target_model, disposition, row_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                )
+                SELECT
+                    json_extract_string(value, '$[0]'),
+                    CAST(json_extract(value, '$[1]') AS BIGINT),
+                    json_extract_string(value, '$[2]'),
+                    json_extract_string(value, '$[3]'),
+                    CAST(json_extract(value, '$[4]') AS BIGINT),
+                    json_extract_string(value, '$[5]'),
+                    json_extract_string(value, '$[6]'),
+                    json_extract_string(value, '$[7]')
+                  FROM json_each(?)
                 """,
-                [
-                    [
-                        run_id,
-                        start + offset,
-                        row.row_id,
-                        row.dataset,
-                        row.source_row,
-                        row.target_model,
-                        row.disposition.value,
-                        _canonical_json(row.to_portable_dict()),
-                    ]
-                    for offset, row in enumerate(batch)
-                ],
+                [_canonical_json(values)],
             )
 
     @staticmethod

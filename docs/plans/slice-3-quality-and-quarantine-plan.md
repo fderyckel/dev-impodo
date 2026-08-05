@@ -2,7 +2,8 @@
 
 ## Status and outcome
 
-**Status:** Ready for implementation after bounded Slice 2 closure.
+**Status:** Implemented and verified for projects within the 25,000-physical-row
+browser limit on 2026-08-05.
 
 Slice 3 turns durable prepared data into a governed quality result before any
 row is allowed into the Odoo comparison. The data manager should be able to
@@ -23,6 +24,14 @@ Check all rows
 Technical rule definitions, hashes, field identifiers, and trace evidence stay
 inside progressive disclosure. The primary UI uses business labels and the
 terms **Ready**, **Review**, **Set aside**, and **Fix setup**.
+
+The implementation publishes immutable quality overlays and dual accounting
+ledgers in DuckDB, applies automatic and guided checks, propagates unsafe
+incoming relationships, and filters ineligible rows before Odoo request
+planning. The normal UI adds a collapsed **Data checks** section and one Review
+page with four plain states. See the
+[quality and quarantine contract](../contracts/06-quality-and-quarantine.md)
+for the current executable boundary.
 
 ## Decisions locked for this slice
 
@@ -144,9 +153,12 @@ batches; quality evaluation must not reconstruct the full canonical run merely
 to process row-local checks. Cross-row identity checks use one grouped DuckDB
 operation or a bounded index, never a query per row. Slice 3 makes no Odoo call.
 
-The existing 100,000-physical-row browser limit remains in force. The scale
-probe is rerun after the quality overlay is integrated and the lower proven
-limit wins. Memory, runtime, issue count, and database size are recorded.
+The supported materializing browser limit is **25,000 physical rows**. The
+integrated fixture completed at that bound in 45.392 seconds with 348.0 MiB
+peak RSS and a 66.3 MiB project database. A 10,000-row fixture completed in
+19.464 seconds with 179.7 MiB peak RSS. The earlier 100,000-row evaluator-only
+measurement did not include durable quality persistence and is not the product
+limit. Memory, runtime, row count, and database size are recorded.
 
 ## Data-manager UI
 
@@ -192,6 +204,8 @@ rule codes.
 
 ### 3A - Contracts and storage
 
+**Completed.**
+
 Implement `QualityRuleSet`, `QualityRun`, `QualityIssue`, `QualityRowResult`,
 `SourceAccountingEntry`, and quarantine evidence. Add schema migration,
 atomic/idempotent publication, retrieval, invalidation, and history tests.
@@ -200,6 +214,8 @@ atomic/idempotent publication, retrieval, invalidation, and history tests.
 rejected; older current evidence is retained after failure.
 
 ### 3B - Mandatory automatic checks
+
+**Completed.**
 
 Lower existing mapping/schema/preparation findings into the rule vocabulary.
 Add post-transformation collision grouping and physical/canonical accounting.
@@ -210,6 +226,8 @@ effective disposition, and no existing error disappears during translation.
 
 ### 3C - Quarantine and rerun
 
+**Completed.**
+
 Apply outcome policies, persist immutable quarantine evidence, assign project
 roles, and invalidate/supersede on changed evidence. Adapt the current in-memory
 preflight compatibility path to exclude quarantined and governed-excluded rows.
@@ -219,6 +237,8 @@ present in reconciliation and visible evidence.
 
 ### 3D - Data-manager UI
 
+**Completed.**
+
 Add the Review cards, filters, owner/action wording, guided Data checks section,
 and collapsed technical evidence. Keep **Check all rows** as the primary action.
 
@@ -227,10 +247,12 @@ always presents one obvious next action.
 
 ### 3E - Acceptance and scale closure
 
+**Completed.**
+
 Run deterministic reruns, restart retrieval, rollback injection, pagination,
 masking, collision, relationship, empty/malformed, and mixed fan-out fixtures.
-Repeat the 100,000-row measurement with the quality overlay and run the full
-suite.
+Run the integrated overlay measurement, set the supported bound to the highest
+completed acceptable probe, and run the full suite.
 
 **Gate:** recorded bounds hold, database and Odoo access are batched, and no
 N+1 query or connector pattern is introduced.
@@ -267,7 +289,7 @@ N+1 query or connector pattern is introduced.
 
 ## Definition of done
 
-Slice 3 is complete when the data manager can check a supported project from
+Slice 3 is complete: the data manager can check a supported project from
 the browser, understand and rerun its quality result, set unsafe records aside
 without losing them, and send only fully accounted eligible records into the
 existing read-only Odoo comparison. The result must survive restart, reconcile

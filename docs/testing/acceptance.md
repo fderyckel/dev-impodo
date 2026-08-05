@@ -40,7 +40,7 @@ runtime is installed and that integration is part of the acceptance run.
 | Area | Current test modules |
 | --- | --- |
 | Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_web_app` |
-| Mapping, preparation, and canonical staging | `test_mapping_semantics`, `test_derived_entities`, `test_readiness`, `test_staging_store` |
+| Mapping, preparation, staging, and quality | `test_mapping_semantics`, `test_derived_entities`, `test_readiness`, `test_staging_store`, `test_quality` |
 | Profile-driven preflight | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_reporting_cli` |
 | Local Odoo lifecycle | `test_local_odoo_reader`, `test_local_stack` |
 | Security, governance, hosting, and release | `test_project_security`, `test_governance`, `test_hosting_contracts`, `test_internal_release` |
@@ -120,14 +120,33 @@ runtime is installed and that integration is part of the acceptance run.
   deleting historical rows;
 - readiness reports bind the exact staging run and content hash;
 - the browser uses a plain saved/retry state and collapses technical evidence;
-- projects above 100,000 physical rows block before artifact materialization
+- projects above 25,000 physical rows block before artifact materialization
   with a plain split-the-source instruction;
 - explicitly named expected sums use only user-selected mapped numeric fields,
   retain unit/tolerance evidence, persist atomically, and block package creation
   when they differ or contain empty values.
 
-Source-side streaming beyond the bounded browser limit, quarantine,
-normalization approval, and clean-package certification remain pending.
+Source-side streaming beyond the bounded browser limit, normalization
+approval, and clean-package certification remain pending.
+
+### Quality and quarantine verified
+
+- unchanged inputs and rules produce deterministic quality JSON and hashes;
+- every physical row has one accounting entry and all canonical fan-out links
+  are retained;
+- every canonical row has one effective disposition;
+- required, bounded value, lookup, relationship, and guided cross-field
+  findings reuse the full-row canonical result;
+- complete post-transformation identity collision groups are set aside;
+- a relationship to a set-aside incoming row propagates to the dependent row;
+- failed atomic publication preserves the previous current quality run;
+- ownership or retention changes invalidate quality without deleting staging;
+- existing projects migrate without presenting stale quality as current;
+- set-aside rows do not enter Odoo record-request planning;
+- the browser shows Ready, Review, Set aside, and Fix setup with technical
+  identifiers collapsed;
+- automatic checks cannot be switched off and optional checks use guided
+  business-language fields and outcomes.
 
 ### Verified
 
@@ -327,26 +346,33 @@ synthetic data:
 - manifest and workbook generation time;
 - total peak memory.
 
-Current bounded-browser evidence, recorded on the development Windows
+Current integrated browser evidence, recorded on the development Windows
 workstation on 2026-08-05:
 
-- fixture: 100,000 physical rows, three columns, one grouped parent plus 100,000
-  child rows;
-- output: 100,001 canonical rows;
-- evaluator time: 79.363 seconds;
-- peak additional Python-traced memory: 437.4 MiB;
-- policy: accept at most 100,000 physical rows in the materializing browser
-  adapter and fail before loading larger inputs.
+| Physical rows | Canonical and quality rows | End-to-end time | Peak RSS | Project DB |
+| ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 1,001 | 1.646 s | 95.9 MiB | 15.0 MiB |
+| 10,000 | 10,001 | 19.464 s | 179.7 MiB | 34.0 MiB |
+| 25,000 | 25,001 | 45.392 s | 348.0 MiB | 66.3 MiB |
 
-This is interim workstation evidence, not a production sizing guarantee. Wide
-sources, quality overlays, saved snapshots, workbooks, and Odoo transport still
-require representative measurement.
+The fixture has three columns, one grouped parent, and one child per physical
+row. Timings include preparation, atomic canonical publication, quality
+evaluation, dual accounting, and atomic quality publication. The policy accepts
+at most 25,000 physical rows in the materializing browser adapter and fails
+before loading larger inputs. The earlier 100,000-row evaluator-only probe did
+not include the integrated quality overlay and no longer defines the product
+limit.
+
+This is workstation evidence, not a production sizing guarantee. Wide sources,
+saved snapshots, workbooks, and Odoo transport still require representative
+measurement.
 
 Structural requirements already apply:
 
 - no connector call inside the row loop;
 - requests grouped by model;
 - match and reference lookup use indexes;
+- DuckDB row evidence is inserted in bounded bulk relations;
 - pagination is deterministic.
 
 ## Acceptance traceability

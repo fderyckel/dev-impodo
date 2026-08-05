@@ -2,18 +2,19 @@
 
 ## Status and purpose
 
-**Status:** Active planning and acceptance ledger. It does not claim that
-Impodo currently produces a clean migration package.
+**Status:** Active planning and acceptance ledger. Durable staging, integrated
+quality checks, and quarantine are implemented; Impodo does not yet claim to
+produce a certified clean migration package.
 
 This document is the single authority for data-quality capability breadth and
 clean-package gates. Delivery order belongs in the
 [data-quality and staging plan](data-quality-and-staging-plan.md); the product
 workflow belongs in the [product vision](../product-vision.md).
 
-The current browser and expert CLI provide useful but separate foundations.
-There is no integrated full-row staging, quarantine, certification, or Odoo
-execution workflow, so Impodo makes no product-wide clean-package readiness
-claim today.
+The browser now integrates full-row staging, quality, quarantine, and eligible
+row filtering before the existing read-only Odoo comparison. Normalization
+approval, clean-package certification, and Odoo execution are still separate
+or absent, so Impodo makes no product-wide clean-package readiness claim today.
 
 ## Status meanings
 
@@ -47,7 +48,7 @@ unaccounted, ambiguous, or unapproved row.
 | --- | --- | :---: | --- | --- |
 | `TC-01` | Source integrity and profiling | Yes | `FOUNDATION` | Execute against every staged row and retain package evidence |
 | `TC-02` | Column and schema operations | Scope | `PARTIAL` | Full-row structural compiler and reconciliation |
-| `TC-03` | Row selection and quarantine | Yes | `DESIGNED` | Durable dispositions, ownership, correction, and rerun |
+| `TC-03` | Row selection and quarantine | Yes | `VERIFIED` | Broader inline correction UX belongs to normalization review |
 | `TC-04` | Text and Unicode normalization | Yes | `PARTIAL` | Runtime parity across all rows and multilingual evidence |
 | `TC-05` | Null, boolean, and type semantics | Yes | `PARTIAL` | Integrated staging execution and edge-case acceptance |
 | `TC-06` | Numbers, money, percentages, and units | Yes | `PARTIAL` | Currency, unit, locale, precision, and rounding context |
@@ -57,18 +58,18 @@ unaccounted, ambiguous, or unapproved row.
 | `TC-10` | Constants, defaults, fallbacks, and conditions | Yes | `PARTIAL` | Full-row execution and Odoo-default rehearsal evidence |
 | `TC-11` | Split, extract, concatenate, and calculate | Scope | `PARTIAL` | Compile bounded authoring plans into canonical rows |
 | `TC-12` | Multi-table and shape transformations | Scope | `PARTIAL` | Joins, unions, grouping, cardinality, and control totals |
-| `TC-13` | Exact duplicates and correction collisions | Yes | `FOUNDATION` | Detect after every identity-changing transformation |
+| `TC-13` | Exact duplicates and correction collisions | Yes | `VERIFIED` | Extend fixtures when new identity-changing transforms are added |
 | `TC-14` | Fuzzy entity resolution | Yes | `GAP` | Bounded candidates, review decisions, and false-match evidence |
 | `TC-15` | Survivorship and consolidation | Yes | `GAP` | Field-level provenance and approved survivor decisions |
 | `TC-16` | Domain-specific validation | Scope | `GAP` | Versioned validators with explicit proof boundaries |
-| `TC-17` | Relationships and hierarchy | Yes | `FOUNDATION` | Integrated full-row resolution and target evidence |
+| `TC-17` | Relationships and hierarchy | Yes | `PARTIAL` | Incoming dependency quarantine is integrated; broader hierarchy cases remain |
 | `TC-18` | Odoo target semantics | Yes | `PARTIAL` | Company, currency, UoM, defaults, constraints, and rehearsal |
-| `TC-19` | Cross-field and cross-row business rules | Yes | `DESIGNED` | Deterministic evaluator and reconciled evidence |
+| `TC-19` | Cross-field and cross-row business rules | Yes | `PARTIAL` | Guided allowlist and collisions are integrated; joins and aggregations remain |
 | `TC-20` | Distribution and anomaly controls | Scope | `PARTIAL` | Governed thresholds and full-package review evidence |
-| `TC-21` | Evidence, privacy, and governance | Yes | `FOUNDATION` | Integrated masking, retention, approval, and package lineage |
-| `TC-22` | Exception correction and reprocessing | Yes | `DESIGNED` | Immutable corrections, expiry, ownership, and rerun lifecycle |
-| `TC-23` | Repeatability, bounded scale, and batched access | Yes | `PARTIAL` | Historical-scale runtime, memory, and transport evidence |
-| `TC-24` | Reconciliation and clean-package certification | Yes | `GAP` | Integrated row accounting, certificate, and target rehearsal |
+| `TC-21` | Evidence, privacy, and governance | Yes | `PARTIAL` | Quality retention and hidden technical evidence are integrated; package approval remains |
+| `TC-22` | Exception correction and reprocessing | Yes | `PARTIAL` | Immutable reruns and correction routes are integrated; governed value editing remains |
+| `TC-23` | Repeatability, bounded scale, and batched access | Yes | `PARTIAL` | 25,000-row browser bound is measured; production and Odoo transport sizing remain |
+| `TC-24` | Reconciliation and clean-package certification | Yes | `PARTIAL` | Dual row accounting is integrated; certificate and target rehearsal remain |
 
 `Scope` means mandatory when the project uses that capability. The project
 must not silently classify a required family as inapplicable.

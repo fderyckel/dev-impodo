@@ -24,6 +24,7 @@ from .staging_contracts import CanonicalIssue, CanonicalRow, CanonicalStagingRun
 QUALITY_CONTRACT_VERSION = 1
 QUALITY_EVALUATOR_VERSION = 1
 QUALITY_RULESET_CONTRACT_VERSION = 1
+MAX_MANAGER_RULES_PER_DATASET = 3
 MANDATORY_QUALITY_FAMILIES = (
     "REQUIRED_VALUES",
     "BOUNDED_VALUES",
@@ -127,6 +128,20 @@ class QualityRule:
             raise ValueError("Derived quality rules must use an automatic family")
         if self.outcome is QualityOutcomePolicy.EXCLUDE and self.source is not QualityRuleSource.MANAGER_AUTHORED:
             raise ValueError("Only an explicit manager rule may exclude records")
+        if self.source is QualityRuleSource.MANAGER_AUTHORED:
+            if self.family.value in MANDATORY_QUALITY_FAMILIES:
+                raise ValueError("Manager rules must use a guided business family")
+            if len(self.input_fields) != 2:
+                raise ValueError("Guided business checks require two fields")
+            allowed_parameters = (
+                {"equals"}
+                if self.family is QualityRuleFamily.REQUIRED_IF
+                else set()
+            )
+            if set(self.parameters) != allowed_parameters:
+                raise ValueError("Guided business-check parameters are invalid")
+            if self.family is QualityRuleFamily.REQUIRED_IF and not self.parameters.get("equals"):
+                raise ValueError("Required-if checks need a condition value")
 
     def to_portable_dict(self) -> dict[str, Any]:
         return {
@@ -185,10 +200,31 @@ class QualityRuleSet:
         expected = tuple(sorted(self.rules, key=lambda item: item.rule_id))
         if self.rules != expected or len({item.rule_id for item in self.rules}) != len(self.rules):
             raise ValueError("Quality rules must be unique and deterministically ordered")
+        automatic = [
+            (item.dataset, item.family)
+            for item in self.rules
+            if item.source is not QualityRuleSource.MANAGER_AUTHORED
+        ]
+        if len(set(automatic)) != len(automatic):
+            raise ValueError("Automatic quality families must be unique per table")
+        manager_counts: dict[str, int] = {}
+        for item in self.rules:
+            if item.source is QualityRuleSource.MANAGER_AUTHORED:
+                manager_counts[item.dataset] = manager_counts.get(item.dataset, 0) + 1
+        if any(item > MAX_MANAGER_RULES_PER_DATASET for item in manager_counts.values()):
+            raise ValueError("Too many optional business checks were configured")
 
     @property
     def content_hash(self) -> str:
-        return _hash(self.to_portable_dict(include_hash=False))
+        return _hash(
+            {
+                "contract_version": self.contract_version,
+                "project_id": self.project_id,
+                "mapping_hash": self.mapping_hash,
+                "schema_hash": self.schema_hash,
+                "rules": [item.to_portable_dict() for item in self.rules],
+            }
+        )
 
     @property
     def manager_rules(self) -> tuple[QualityRule, ...]:
@@ -442,7 +478,6 @@ class QuarantineEntry:
 @dataclass(frozen=True, slots=True)
 class QualityRun:
     project_id: str
-    staging_run_id: str
     staging_content_hash: str
     ruleset_hash: str
     mapping_hash: str
@@ -458,7 +493,7 @@ class QualityRun:
     def __post_init__(self) -> None:
         if self.contract_version != QUALITY_CONTRACT_VERSION or self.evaluator_version != QUALITY_EVALUATOR_VERSION:
             raise ValueError("Quality evidence version is unsupported")
-        if not self.project_id or not self.staging_run_id:
+        if not self.project_id:
             raise ValueError("Quality evidence identity is incomplete")
         for value, label in ((self.staging_content_hash, "quality staging hash"), (self.ruleset_hash, "quality ruleset hash"), (self.mapping_hash, "quality mapping hash"), (self.schema_hash, "quality schema hash"), (self.retention_context_hash, "quality retention hash")):
             _require_hash(value, label)
@@ -528,7 +563,6 @@ class QualityRun:
             "contract_version": self.contract_version,
             "evaluator_version": self.evaluator_version,
             "project_id": self.project_id,
-            "staging_run_id": self.staging_run_id,
             "staging_content_hash": self.staging_content_hash,
             "ruleset_hash": self.ruleset_hash,
             "mapping_hash": self.mapping_hash,
@@ -552,7 +586,6 @@ class QualityRun:
             contract_version=int(payload.get("contract_version", 0)),
             evaluator_version=int(payload.get("evaluator_version", 0)),
             project_id=str(payload["project_id"]),
-            staging_run_id=str(payload["staging_run_id"]),
             staging_content_hash=str(payload["staging_content_hash"]),
             ruleset_hash=str(payload["ruleset_hash"]),
             mapping_hash=str(payload["mapping_hash"]),
@@ -596,6 +629,21 @@ class QualityRunSummary:
     @property
     def ready_for_package(self) -> bool:
         return self.can_compare and self.review_count == 0
+
+
+@dataclass(frozen=True, slots=True)
+class QualityReviewItem:
+    row: QualityRowResult
+    issues: tuple[QualityIssue, ...]
+    correction_route: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class QualityReviewPage:
+    items: tuple[QualityReviewItem, ...]
+    matching_count: int
+    page: int
+    page_count: int
 
 
 def default_quality_ruleset(
@@ -693,7 +741,6 @@ def retention_context_hash(project: MigrationProject) -> str:
 def evaluate_quality(
     *,
     project: MigrationProject,
-    staging_run_id: str,
     staging: CanonicalStagingRun,
     prepared: PreparedBundle,
     physical_rows: Mapping[str, tuple[int, ...]],
@@ -724,6 +771,28 @@ def evaluate_quality(
     ]
     for dataset, family in missing:
         issue = _setup_issue(project, dataset, family, "QUALITY_RULE_MISSING", "An automatic data check is missing. Restore the recommended checks before continuing.")
+        issue_map[issue.issue_id] = issue
+    available_fields: dict[str, set[str]] = {}
+    for row in staging.rows:
+        available_fields.setdefault(row.dataset, set()).update(
+            row.proposed_values
+        )
+    invalid_manager_rules = {
+        rule.rule_id
+        for rule in ruleset.manager_rules
+        if set(rule.input_fields) - available_fields.get(rule.dataset, set())
+    }
+    for rule in ruleset.manager_rules:
+        if rule.rule_id not in invalid_manager_rules:
+            continue
+        issue = _setup_issue(
+            project,
+            rule.dataset,
+            rule.family,
+            "QUALITY_RULE_FIELD_MISSING",
+            f"The optional check {rule.name!r} uses a field that is no longer prepared. Update or remove the check.",
+            rule_id=rule.rule_id,
+        )
         issue_map[issue.issue_id] = issue
 
     for row in staging.rows:
@@ -770,7 +839,12 @@ def evaluate_quality(
             issue_map[issue.issue_id] = issue
             row_issue_ids[row.row_id].add(issue.issue_id)
 
-    for rule in (item for item in ruleset.rules if item.source is QualityRuleSource.MANAGER_AUTHORED):
+    for rule in (
+        item
+        for item in ruleset.rules
+        if item.source is QualityRuleSource.MANAGER_AUTHORED
+        and item.rule_id not in invalid_manager_rules
+    ):
         for row in (item for item in staging.rows if item.dataset == rule.dataset):
             failed, reason = _business_rule_failed(rule, row)
             if not failed:
@@ -881,7 +955,6 @@ def evaluate_quality(
 
     return QualityRun(
         project_id=project.project_id,
-        staging_run_id=staging_run_id,
         staging_content_hash=staging.content_hash,
         ruleset_hash=ruleset.content_hash,
         mapping_hash=staging.mapping_hash,
@@ -942,8 +1015,21 @@ def _quality_issue(
     )
 
 
-def _setup_issue(project: MigrationProject, dataset: str, family: QualityRuleFamily, reason_code: str, message: str) -> QualityIssue:
-    rule_id = _rule_id(project.project_id, dataset, family, "Missing automatic check")
+def _setup_issue(
+    project: MigrationProject,
+    dataset: str,
+    family: QualityRuleFamily,
+    reason_code: str,
+    message: str,
+    *,
+    rule_id: str | None = None,
+) -> QualityIssue:
+    rule_id = rule_id or _rule_id(
+        project.project_id,
+        dataset,
+        family,
+        "Missing automatic check",
+    )
     return QualityIssue(
         issue_id=_hash({"rule_id": rule_id, "reason_code": reason_code, "dataset": dataset, "message": message}),
         rule_id=rule_id,

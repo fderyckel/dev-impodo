@@ -58,6 +58,9 @@ The numbered contracts form the recommended conceptual reading order.
 - [Normalization dry-run governance contract](contracts/05-normalization-governance.md)
   — implemented standalone approval lifecycle, explicit integration status,
   and the boundary between source approval and Odoo authorization.
+- [Quality and quarantine contract](contracts/06-quality-and-quarantine.md) —
+  integrated data checks, complete source/canonical accounting, immutable
+  quarantine evidence, and the eligible-row boundary before Odoo comparison.
 
 ## Operations and quality
 

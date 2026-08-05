@@ -107,7 +107,7 @@ READINESS_CONTRACT_VERSION = 3
 MANIFEST_NAME = "impodo_preflight_manifest.json"
 TRANSFORMATION_IMPACT_DETAIL_LIMIT = 5_000
 TRANSFORMATION_IMPACT_CONTRACT_VERSION = 1
-BROWSER_EVALUATION_ROW_LIMIT = 100_000
+BROWSER_EVALUATION_ROW_LIMIT = 25_000
 
 
 class ReadinessError(WorkspaceError):
@@ -494,6 +494,7 @@ class ReadinessRepository(Protocol):
         project_id: str,
         run: QualityRun,
         *,
+        staging_run_id: str,
         actor: Actor,
     ) -> QualityRunSummary: ...
 
@@ -657,7 +658,6 @@ class BrowserReadinessService:
         try:
             quality_run = evaluate_quality(
                 project=project,
-                staging_run_id=publication.run_id,
                 staging=staged.canonical_run,
                 prepared=staged.prepared,
                 physical_rows=staged.physical_rows,
@@ -668,6 +668,7 @@ class BrowserReadinessService:
         quality = self.repository.publish_quality_run(
             project_id,
             quality_run,
+            staging_run_id=publication.run_id,
             actor=actor,
         )
         if not quality.can_compare:

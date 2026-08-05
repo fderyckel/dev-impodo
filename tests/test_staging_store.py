@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -411,12 +412,15 @@ class CanonicalStagingStoreTests(unittest.TestCase):
             rows,
         )
 
-        self.assertEqual(connection.executemany.call_count, 3)
+        self.assertEqual(connection.execute.call_count, 3)
         self.assertEqual(
-            [len(item.args[1]) for item in connection.executemany.call_args_list],
+            [
+                len(json.loads(item.args[1][0]))
+                for item in connection.execute.call_args_list
+            ],
             [1_000, 1_000, 1],
         )
-        connection.execute.assert_not_called()
+        connection.executemany.assert_not_called()
 
 
 def _run(project_id: str, *, value: str, row_token: str) -> CanonicalStagingRun:

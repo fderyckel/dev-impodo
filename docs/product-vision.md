@@ -24,9 +24,11 @@ mapping, normalization, validation, staging, target preflight, approval,
 controlled loading, and reconciliation. 
 
 The current product provides local-browser project setup, CSV/XLSX source
-discovery and frozen datasets, read-only target-schema capture, and governed
-mapping authoring. It does not yet provide durable canonical staging,
-functional approval, or Odoo writes.
+discovery and frozen datasets, read-only target-schema capture, governed
+mapping authoring, durable canonical staging, and integrated quality and
+quarantine before read-only Odoo comparison. It does not yet provide the
+integrated normalization approval, clean-package certification, controlled
+Odoo loading, or reconciliation workflow.
 
 ## 2. User workflow
 

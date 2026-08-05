@@ -4,8 +4,8 @@
 
 **Status:** Implemented as a durable, target-independent foundation. Canonical
 runs and typed rows are atomically published in each project's DuckDB database.
-Quarantine workflow, normalization approval, package certification, and Odoo
-execution are not implemented by this contract.
+The separate quality overlay now implements quarantine; normalization approval,
+package certification, and Odoo execution are not implemented by this contract.
 
 The browser evaluator applies one exact submitted mapping and derived-entity
 plan to every frozen source row. It produces deterministic canonical evidence
@@ -24,7 +24,7 @@ Artifact materialization remains an adapter responsibility. The evaluator
 accepts already loaded physical tables and has no repository, connector,
 credential, or Odoo dependency.
 
-The current browser path accepts at most **100,000 physical source rows per
+The current browser path accepts at most **25,000 physical source rows per
 project**. It checks that limit before materializing an artifact and gives the
 data manager a plain instruction to split a larger source. This is an explicit
 interim boundary, not a claim that source evaluation is streaming.
@@ -80,9 +80,10 @@ quarantined, and excluded counts to equal the total canonical row count.
 Per-dataset controls also record physical rows read and used, canonical rows
 produced, lineage links, grouped source rows, additional derived rows, and
 source rows that did not create a derived entity. Direct, lookup, parent, and
-child transformations therefore remain distinguishable. Current evaluation
-never labels a row quarantined or excluded because those governed workflows
-are not yet integrated.
+child transformations therefore remain distinguishable. Canonical evaluation
+does not rewrite these base dispositions. The separate quality overlay computes
+the effective quarantined or excluded state and filters ineligible rows before
+Odoo request planning.
 
 These dispositions are not Odoo preflight classifications. Target-dependent
 `CREATE`, `UPDATE`, `UNCHANGED`, `AMBIGUOUS`, and `BLOCKED` remain the output of
@@ -137,19 +138,20 @@ The Review page exposes only a plain-language saved status and row total.
 Dataset controls, run identifiers, versions, and hashes remain inside collapsed
 technical details. Odoo is not contacted by the staging repository.
 
-## Current scale evidence and next integration slice
+## Current scale evidence and quality integration
 
-On 2026-08-05, the real browser evaluator processed a synthetic 100,000-row,
-three-column parent/child fixture into 100,001 canonical rows in 79.363 seconds
-with 437.4 MiB peak additional Python-traced memory on the development Windows
-workstation. This is non-production evidence for the interim limit. Wider
-sources and future quality overlays still require measurement, and streaming
-beyond the limit remains scale-closure work.
+On 2026-08-05, the earlier evaluator-only probe processed a synthetic
+100,000-row fixture, but it excluded the durable quality overlay and therefore
+does not define the product limit. The completed integrated probe processed
+25,000 physical rows into 25,001 canonical and quality rows in 45.392 seconds,
+with 348.0 MiB peak RSS and a 66.3 MiB project database on the development
+Windows workstation. The lower completed integrated bound wins. Wider sources
+and streaming beyond it remain later scale work.
 
-Slice 3 adds governed quality rules, physical-source accounting, and
-quarantine as detailed in the
-[Slice 3 plan](../plans/slice-3-quality-and-quarantine-plan.md). Durable staging
-is not a clean package or Odoo write authorization.
+Governed quality rules, physical-source accounting, and quarantine are defined
+in the [quality and quarantine contract](06-quality-and-quarantine.md). Durable
+staging and quality evidence are not a clean package or Odoo write
+authorization.
 
 ## Executable evidence
 

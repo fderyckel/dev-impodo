@@ -6,7 +6,9 @@
       <p class="eyebrow">Step 5 · Review</p>
       <h1>{{ project.name }}</h1>
       {% if readiness %}
-        <p>Every source row has been checked against your confirmed field matches.</p>
+        <p>Every source row is accounted for. Eligible records were checked against Odoo; unsafe records remain visible but set aside.</p>
+      {% elif quality %}
+        <p>Every source row was checked. Review the result below before trying the Odoo comparison again.</p>
       {% elif staging %}
         <p>Your prepared data is safely saved. Complete the Odoo comparison next.</p>
       {% elif submission %}
@@ -17,7 +19,11 @@
     </div>
     {% if readiness %}
       <span class="status {{ readiness.status|lower }}">
-        {% if staging and staging.failed_control_total_count %}Totals need attention{% elif readiness.status == 'READY' %}Data check complete{% elif readiness.status == 'NEEDS_REVIEW' %}Decisions needed{% else %}Fixes needed{% endif %}
+        {% if quality and quality.blocked_count %}Fix setup{% elif quality and quality.review_count %}Review needed{% elif staging and staging.failed_control_total_count %}Totals need attention{% elif readiness.status == 'READY' %}Data check complete{% elif readiness.status == 'NEEDS_REVIEW' %}Decisions needed{% else %}Fixes needed{% endif %}
+      </span>
+    {% elif quality %}
+      <span class="status {% if quality.blocked_count %}blocked{% elif quality.review_count %}review{% else %}ready{% endif %}">
+        {% if quality.blocked_count %}Fix setup{% elif quality.review_count %}Review needed{% else %}Quality check saved{% endif %}
       </span>
     {% elif staging %}
       <span class="status ready">Prepared data saved</span>
@@ -30,11 +36,113 @@
     <div class="alert error" role="alert">{{ error }}</div>
   {% endif %}
 
+  {% if quality %}
+    <section class="readiness-cards quality-cards" aria-label="Data quality overview">
+      <a class="readiness-card ready{% if quality_status == 'ready' %} selected{% endif %}" href="?quality_status=ready#quality-rows">
+        <span>Ready for Odoo check</span>
+        <strong>{{ quality.ready_count }}</strong>
+        <small>Safe to compare</small>
+      </a>
+      <a class="readiness-card review{% if quality_status == 'review' %} selected{% endif %}" href="?quality_status=review#quality-rows">
+        <span>Review</span>
+        <strong>{{ quality.review_count }}</strong>
+        <small>A business decision is needed</small>
+      </a>
+      <a class="readiness-card blocked{% if quality_status == 'quarantined' %} selected{% endif %}" href="?quality_status=quarantined#quality-rows">
+        <span>Set aside</span>
+        <strong>{{ quality.quarantined_count + quality.excluded_count }}</strong>
+        <small>Kept out of the Odoo check</small>
+      </a>
+      <a class="readiness-card blocked{% if quality_status == 'blocked' %} selected{% endif %}" href="?quality_status=blocked#quality-rows">
+        <span>Fix setup</span>
+        <strong>{{ quality.blocked_count }}</strong>
+        <small>The project cannot continue yet</small>
+      </a>
+    </section>
+
+    <section class="form-card" id="quality-rows" aria-labelledby="quality-rows-title">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Data quality</p>
+          <h2 id="quality-rows-title">
+            {% if quality_status == 'ready' %}Ready for Odoo check{% elif quality_status == 'review' %}Needs review{% elif quality_status == 'quarantined' %}Set aside{% elif quality_status == 'blocked' %}Fix setup{% else %}All prepared records{% endif %}
+          </h2>
+        </div>
+        {% if quality_status or quality_dataset %}
+          <a class="button secondary small" href="/projects/{{ project.project_id }}/summary#quality-rows">Clear filter</a>
+        {% endif %}
+      </div>
+      {% if quality_review_page and quality_review_page.items %}
+        <div class="table-scroll">
+          <table class="data-table readiness-row-table">
+            <thead><tr><th>Table</th><th>Source row</th><th>Record</th><th>What Impodo found</th><th>Owner and next step</th></tr></thead>
+            <tbody>
+              {% for item in quality_review_page.items %}
+                {% set row = item.row %}
+                {% set issue = item.issues[0] if item.issues else none %}
+                <tr data-quality-row>
+                  <td>{{ row.dataset.replace('_', ' ')|title }}</td>
+                  <td>{{ row.source_row }}</td>
+                  <th>{{ row.record_label }}</th>
+                  <td>
+                    {% if issue %}{{ issue.message }}{% else %}No target-independent problem was found.{% endif %}
+                    {% if item.issues|length > 1 %}<small class="row-field">{{ item.issues|length - 1 }} additional finding{{ "s" if item.issues|length > 2 else "" }}</small>{% endif %}
+                  </td>
+                  <td>
+                    {% if issue %}
+                      <strong>{{ issue.owner_label }}</strong>
+                      <small class="row-field">{{ item.correction_route or "Review the source or guided data check, then check all rows again." }}</small>
+                    {% else %}
+                      No action needed
+                    {% endif %}
+                    <details class="technical-details">
+                      <summary>Technical details</summary>
+                      <code>{{ row.effective_disposition.value }} Â· {{ row.row_id }}</code>
+                      {% for detail in item.issues %}<small class="row-field"><code>{{ detail.reason_code }} Â· {{ detail.rule_id }}</code></small>{% endfor %}
+                    </details>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if quality_review_page.page_count > 1 %}
+          <nav class="readiness-pagination" aria-label="Data-quality pages">
+            {% if quality_previous_url %}<a class="button secondary" href="{{ quality_previous_url }}">Previous</a>{% endif %}
+            <span class="muted">Page {{ quality_review_page.page }} of {{ quality_review_page.page_count }}</span>
+            {% if quality_next_url %}<a class="button secondary" href="{{ quality_next_url }}">Next</a>{% endif %}
+          </nav>
+        {% endif %}
+      {% else %}
+        <div class="empty-state compact">
+          {% if quality_status == 'blocked' and quality.blocked_count %}
+            <h3>Project setup needs attention</h3>
+            <p>Restore the recommended checks or correct unreconciled source evidence, then check all rows again.</p>
+          {% else %}
+            <h3>No records in this view</h3>
+            <p>Choose another quality card or clear the filter.</p>
+          {% endif %}
+        </div>
+      {% endif %}
+      <details class="technical-details">
+        <summary>Technical evidence</summary>
+        <p><code>Quality run {{ quality.run_id }} Â· {{ quality.content_hash }}</code></p>
+        <p>Prepared evidence <code>{{ quality.staging_content_hash }}</code> Â· rules <code>{{ quality.ruleset_hash }}</code></p>
+      </details>
+    </section>
+  {% endif %}
+
   {% if readiness %}
     <section class="next-action-card {% if readiness.blocked_count %}blocked{% elif readiness.needs_review_count %}review{% else %}ready{% endif %}" aria-labelledby="next-action-title">
       <div>
         <p class="eyebrow">Next action</p>
-        {% if readiness.blocked_count %}
+        {% if quality and quality.blocked_count %}
+          <h2 id="next-action-title">Fix the data-check setup</h2>
+          <p>Impodo stopped before contacting Odoo because the source evidence or recommended checks are incomplete.</p>
+        {% elif quality and quality.review_count %}
+          <h2 id="next-action-title">Review {{ quality.review_count }} quality finding{{ "s" if quality.review_count != 1 else "" }}</h2>
+          <p>A warning cannot silently become a pass. Correct the source or guided check, then rerun.</p>
+        {% elif readiness.blocked_count %}
           <h2 id="next-action-title">Fix {{ readiness.blocked_count }} row{{ "s" if readiness.blocked_count != 1 else "" }} first</h2>
           <p>These rows cannot continue until their data or field matches are corrected.</p>
         {% elif staging and staging.failed_control_total_count %}
@@ -52,7 +160,11 @@
         {% endif %}
       </div>
       <div class="next-action-buttons">
-        {% if readiness.blocked_count %}
+        {% if quality and quality.blocked_count %}
+          <a class="button primary" href="?quality_status=blocked#quality-rows">Review setup</a>
+        {% elif quality and quality.review_count %}
+          <a class="button primary" href="?quality_status=review#quality-rows">Review findings</a>
+        {% elif readiness.blocked_count %}
           <a class="button primary" href="?status=blocked#readiness-rows">Show rows to fix</a>
         {% elif staging and staging.failed_control_total_count %}
           <a class="button primary" href="#control-totals">Review totals</a>
@@ -264,17 +376,29 @@
     </p>
 
   {% elif staging %}
-    <section class="next-action-card review" aria-labelledby="saved-next-action-title" data-staging-summary>
+    <section class="next-action-card {% if quality and quality.blocked_count %}blocked{% else %}review{% endif %}" aria-labelledby="saved-next-action-title" data-staging-summary>
       <div>
-        <p class="eyebrow">Prepared data</p>
-        <h2 id="saved-next-action-title">Your prepared data is safe</h2>
-        <p>Impodo saved {{ staging.total_rows }} prepared row{{ "s" if staging.total_rows != 1 else "" }}. The Odoo comparison still needs to finish.</p>
+        <p class="eyebrow">Next action</p>
+        {% if quality and quality.blocked_count %}
+          <h2 id="saved-next-action-title">Fix the data-check setup</h2>
+          <p>Impodo saved and reconciled the available evidence, then stopped before contacting Odoo.</p>
+        {% elif not quality %}
+          <h2 id="saved-next-action-title">Your prepared data is safe</h2>
+          <p>Impodo saved {{ staging.total_rows }} prepared row{{ "s" if staging.total_rows != 1 else "" }}. The Odoo comparison still needs to finish.</p>
+        {% else %}
+          <h2 id="saved-next-action-title">Try the Odoo comparison again</h2>
+          <p>Impodo saved {{ staging.total_rows }} prepared row{{ "s" if staging.total_rows != 1 else "" }} and kept unsafe records out of the comparison.</p>
+        {% endif %}
       </div>
       <div class="next-action-buttons">
-        <form method="post" action="/projects/{{ project.project_id }}/summary/check">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button primary" type="submit">Try Odoo comparison again</button>
-        </form>
+        {% if quality and quality.blocked_count %}
+          <a class="button primary" href="/projects/{{ project.project_id }}/mapping">Review data checks</a>
+        {% else %}
+          <form method="post" action="/projects/{{ project.project_id }}/summary/check">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button primary" type="submit">Try Odoo comparison again</button>
+          </form>
+        {% endif %}
       </div>
     </section>
     <details class="technical-details form-card">

@@ -11,6 +11,8 @@ from uuid import uuid4
 from impodo.access import LOCAL_ACTOR
 from impodo.models import Issue, LogicalReference, PreparedRecord
 from impodo.project_store import DuckDbProjectRepository
+from impodo.planner import plan_record_requests
+from impodo.profile import load_profile
 from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
 from impodo.quality import (
     QualityDisposition,
@@ -24,7 +26,7 @@ from impodo.quality import (
     evaluate_quality,
     manager_quality_rule,
 )
-from impodo.source import PreparedBundle
+from impodo.source import PreparedBundle, prepare_sources
 from impodo.staging_contracts import (
     CanonicalIssue,
     CanonicalLineage,
@@ -66,7 +68,6 @@ class QualityEvaluationTests(unittest.TestCase):
 
         first = evaluate_quality(
             project=self.project,
-            staging_run_id=str(uuid4()),
             staging=staging,
             prepared=prepared,
             physical_rows={"dataset:contacts": (2, 3, 4)},
@@ -74,7 +75,6 @@ class QualityEvaluationTests(unittest.TestCase):
         )
         repeated = evaluate_quality(
             project=self.project,
-            staging_run_id=first.staging_run_id,
             staging=staging,
             prepared=prepared,
             physical_rows={"dataset:contacts": (2, 3, 4)},
@@ -117,7 +117,6 @@ class QualityEvaluationTests(unittest.TestCase):
 
         run = evaluate_quality(
             project=self.project,
-            staging_run_id=str(uuid4()),
             staging=staging,
             prepared=prepared,
             physical_rows={"dataset:contacts": (2,)},
@@ -190,7 +189,6 @@ class QualityEvaluationTests(unittest.TestCase):
 
         run = evaluate_quality(
             project=self.project,
-            staging_run_id=str(uuid4()),
             staging=staging,
             prepared=prepared,
             physical_rows={
@@ -235,7 +233,6 @@ class QualityEvaluationTests(unittest.TestCase):
 
         run = evaluate_quality(
             project=self.project,
-            staging_run_id=str(uuid4()),
             staging=staging,
             prepared=_prepared((row,)),
             physical_rows={"dataset:contacts": (2,)},
@@ -250,6 +247,70 @@ class QualityEvaluationTests(unittest.TestCase):
         )
         self.assertEqual(run.issues[0].owner_label, "Functional Owner")
         self.assertEqual(len(eligible_prepared_bundle(staging, _prepared((row,)), run).records), 1)
+
+    def test_set_aside_row_never_enters_odoo_record_request_plan(self) -> None:
+        profile = load_profile(ROOT / "profiles/examples/golden_slice.yaml")
+        prepared_all = prepare_sources(profile, ROOT / "examples/golden")
+        partner_records = tuple(
+            item for item in prepared_all.records if item.dataset == "products"
+        )[:2]
+        self.assertEqual(len(partner_records), 2)
+        required_issue = CanonicalIssue(
+            code="SOURCE_REQUIRED_VALUE_MISSING",
+            message="required name is empty",
+            severity="error",
+            dataset="products",
+            source_row=partner_records[0].source_row,
+            field="name",
+        )
+        rows = tuple(
+            replace(
+                _canonical_row(
+                    str(index + 5),
+                    record.source_row,
+                    dataset="products",
+                    source_identity=record.source_identity,
+                    target_identity=record.target_identity,
+                    physical_dataset_id="dataset:products",
+                ),
+                disposition=(
+                    StagingDisposition.BLOCKED
+                    if index == 0
+                    else StagingDisposition.CANDIDATE
+                ),
+                issues=(required_issue,) if index == 0 else (),
+            )
+            for index, record in enumerate(partner_records)
+        )
+        staging = _staging(self.project.project_id, rows)
+        prepared = PreparedBundle(
+            records=partner_records,
+            issues=(),
+            source_hashes={"products": SOURCE_HASH},
+        )
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("products",),
+        )
+        run = evaluate_quality(
+            project=self.project,
+            staging=staging,
+            prepared=prepared,
+            physical_rows={
+                "dataset:products": tuple(
+                    item.source_row for item in partner_records
+                )
+            },
+            ruleset=ruleset,
+        )
+
+        eligible = eligible_prepared_bundle(staging, prepared, run)
+        requests = plan_record_requests(profile, eligible.records)
+
+        self.assertNotIn(str(partner_records[0].target_identity[0]), repr(requests))
+        self.assertIn(str(partner_records[1].target_identity[0]), repr(requests))
 
 
 class QualityStoreTests(unittest.TestCase):
@@ -321,7 +382,6 @@ class QualityStoreTests(unittest.TestCase):
         )
         run = evaluate_quality(
             project=self.project,
-            staging_run_id=staging.run_id,
             staging=staging_run,
             prepared=_prepared((row,)),
             physical_rows={"dataset:contacts": (2,)},
@@ -331,11 +391,13 @@ class QualityStoreTests(unittest.TestCase):
         first = self.repository.publish_quality_run(
             self.project.project_id,
             run,
+            staging_run_id=staging.run_id,
             actor=LOCAL_ACTOR,
         )
         repeated = self.repository.publish_quality_run(
             self.project.project_id,
             run,
+            staging_run_id=staging.run_id,
             actor=LOCAL_ACTOR,
         )
         restored = self.repository.get_quality_run(
@@ -365,25 +427,146 @@ class QualityStoreTests(unittest.TestCase):
         self.repository.publish_quality_ruleset(self.project.project_id, ruleset, actor=LOCAL_ACTOR)
         run = evaluate_quality(
             project=self.project,
-            staging_run_id=staging.run_id,
             staging=staging_run,
             prepared=_prepared((row,)),
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
-        first = self.repository.publish_quality_run(self.project.project_id, run, actor=LOCAL_ACTOR)
+        first = self.repository.publish_quality_run(
+            self.project.project_id,
+            run,
+            staging_run_id=staging.run_id,
+            actor=LOCAL_ACTOR,
+        )
         changed = replace(run, retention_context_hash="sha256:" + "9" * 64)
 
         with patch.object(self.repository, "_insert_quality_evidence", side_effect=RuntimeError("injected quality failure")):
             with self.assertRaisesRegex(RuntimeError, "injected quality failure"):
                 # Keep validation legitimate while forcing a different content hash.
                 with patch("impodo.project_store.retention_context_hash", return_value=changed.retention_context_hash):
-                    self.repository.publish_quality_run(self.project.project_id, changed, actor=LOCAL_ACTOR)
+                    self.repository.publish_quality_run(
+                        self.project.project_id,
+                        changed,
+                        staging_run_id=staging.run_id,
+                        actor=LOCAL_ACTOR,
+                    )
 
         self.assertEqual(
             self.repository.get_current_quality_summary(self.project.project_id).run_id,
             first.run_id,
         )
+
+    def test_owner_or_retention_change_invalidates_quality_not_staging(self) -> None:
+        row = _canonical_row("5", 2)
+        staging_run = _staging(self.project.project_id, (row,))
+        staging = self.repository.publish_canonical_staging(
+            self.project.project_id,
+            staging_run,
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts",),
+        )
+        self.repository.publish_quality_ruleset(
+            self.project.project_id,
+            ruleset,
+            actor=LOCAL_ACTOR,
+        )
+        run = evaluate_quality(
+            project=self.project,
+            staging=staging_run,
+            prepared=_prepared((row,)),
+            physical_rows={"dataset:contacts": (2,)},
+            ruleset=ruleset,
+        )
+        published = self.repository.publish_quality_run(
+            self.project.project_id,
+            run,
+            staging_run_id=staging.run_id,
+            actor=LOCAL_ACTOR,
+        )
+        current = self.repository.get(self.project.project_id)
+        changed = replace(
+            current,
+            data_manager="New Data Manager",
+            retention_days=60,
+            revision=current.revision + 1,
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        self.repository.save(
+            changed,
+            expected_revision=current.revision,
+            event_type="PROJECT_GOVERNANCE_UPDATED",
+            event_detail="",
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertIsNone(
+            self.repository.get_current_quality_summary(self.project.project_id)
+        )
+        self.assertEqual(
+            self.repository.get_current_staging_summary(self.project.project_id).run_id,
+            staging.run_id,
+        )
+        database_path = self.repository.project_directory(self.project.project_id) / "project.duckdb"
+        with self.repository._connect(database_path) as connection:
+            lifecycle = connection.execute(
+                "SELECT status, retired_reason FROM quality_run WHERE run_id = ?",
+                [published.run_id],
+            ).fetchone()
+        self.assertEqual(
+            lifecycle,
+            (
+                QualityRunStatus.INVALIDATED.value,
+                "PROJECT_GOVERNANCE_CHANGED",
+            ),
+        )
+
+    def test_schema_14_project_migrates_without_showing_stale_quality(self) -> None:
+        database_path = self.repository.project_directory(self.project.project_id) / "project.duckdb"
+        quality_tables = (
+            "quality_current",
+            "quality_quarantine_entry",
+            "source_accounting_link",
+            "source_accounting_entry",
+            "quality_issue",
+            "quality_row_result",
+            "quality_run",
+            "quality_ruleset_current",
+            "quality_ruleset_revision",
+        )
+        with self.repository._connect(database_path) as connection:
+            for table in quality_tables:
+                connection.execute(f"DROP TABLE {table}")
+            connection.execute(
+                "ALTER TABLE readiness_run DROP COLUMN quality_run_id"
+            )
+            connection.execute(
+                "ALTER TABLE readiness_run DROP COLUMN quality_content_hash"
+            )
+            connection.execute("UPDATE schema_version SET version = 14")
+
+        self.assertIsNone(
+            self.repository.get_current_quality_summary(self.project.project_id)
+        )
+        with self.repository._connect(database_path) as connection:
+            version = connection.execute(
+                "SELECT version FROM schema_version"
+            ).fetchone()
+            columns = {
+                str(item[1])
+                for item in connection.execute(
+                    "PRAGMA table_info('readiness_run')"
+                ).fetchall()
+            }
+        self.assertEqual(version, (15,))
+        self.assertIn("quality_run_id", columns)
+        self.assertIn("quality_content_hash", columns)
 
 
 def _project() -> MigrationProject:

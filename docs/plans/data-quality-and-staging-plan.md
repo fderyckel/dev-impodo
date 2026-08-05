@@ -2,8 +2,9 @@
 
 ## Status and ownership
 
-**Status:** Active plan for the next integrated delivery. The complete flow is
-not implemented.
+**Status:** Active delivery plan. Slices 0 through 3 are implemented for the
+bounded browser workflow; normalization approval, package certification, and
+Odoo execution remain later slices.
 
 This plan owns the work that turns the implemented, transient all-row browser
 readiness path into durable canonical staging, governed normalization, and a
@@ -31,16 +32,15 @@ certifiable read-only preflight package. It does not redefine:
 | Mapping | Immutable revisions, scalar providers, allowlisted transformations, relationships, validation, and exact-hash submission are integrated |
 | Derived entities | Lookup and parent/child preparation rules are authored in the browser, repeated over every frozen source row, and published as durable canonical datasets with complete physical-row pointers |
 | Normalization governance | Immutable dry-run decisions and freeze rules exist as standalone domain behavior, not as a browser or repository workflow |
-| Canonical evaluation | Exact submitted browser mappings use a reusable storage- and Odoo-independent full-row evaluator. Server previews and runtime share one scalar boundary; the current in-memory path is explicitly limited to 100,000 physical rows |
+| Canonical evaluation | Exact submitted browser mappings use a reusable storage- and Odoo-independent full-row evaluator. Server previews and runtime share one scalar boundary; the integrated materializing path is explicitly limited to 25,000 physical rows |
 | Read-only preflight | Strict CLI profiles and exact submitted browser mapping revisions both feed the preflight engine. Browser readiness publishes canonical evidence, batches target reads, classifies results, and persists the report and technical manifest |
 | Export approval | Frozen-plan approval objects exist as standalone domain behavior, without an integrated staged package or executor |
-| Staging and certification | Durable atomic canonical staging, row controls, and opt-in named business totals are integrated. Quarantine, integrated quality execution, and clean-package certification remain absent |
+| Quality and quarantine | Versioned automatic and guided checks, dual source/canonical accounting, immutable quarantine evidence, bounded review paging, and eligible-row filtering before Odoo comparison are integrated |
+| Staging and certification | Durable atomic canonical staging, row controls, and opt-in named business totals are integrated. Normalization freeze and clean-package certification remain absent |
 
-The next missing product seam is therefore not another mapping editor,
-transformation language, or browser-to-preflight adapter. It is governed
-full-row quality evaluation and quarantine over durable staging, followed by
-normalization review, clean-package certification, and direct reuse of frozen
-evidence by preflight.
+The next missing product seam is integrated normalization review and freeze
+over the current staged and quality evidence. Clean-package certification and
+direct reuse of frozen evidence by preflight follow that gate.
 
 ## Target flow
 
@@ -91,11 +91,11 @@ lower into shared semantics.
 **Gate:** the contracts identify one authority for every value, status, hash,
 and transition; no preview-only behavior is described as full-row execution.
 
-**Checkpoint:** the versioned in-memory staging run, canonical row, lineage,
-issue, source-side disposition, reconciliation, and deterministic content-hash
-contracts are implemented. Slice 0 remains open for durable publication and
-invalidation transitions, quarantine ownership/evidence, and the complete
-package-manifest boundary.
+**Checkpoint:** the versioned staging run, canonical row, lineage, issue,
+source-side disposition, reconciliation, deterministic content hash,
+invalidation, and quality/quarantine contracts are implemented. The final
+clean-package manifest remains intentionally owned by Slice 7 rather than this
+foundation slice.
 
 ### Slice 1 — Extract and reuse the current all-row evaluation
 
@@ -116,7 +116,7 @@ evaluator while preserving the prepared bundle and preflight path. Determinism,
 adapter parity, lineage, row reconciliation, and blocking issue behavior are
 executable. Server-rendered previews and runtime reuse the same scalar
 evaluation function. The current materializing adapter fails before loading
-when a project exceeds the recorded 100,000-physical-row browser limit. Slice 1
+when a project exceeds the recorded 25,000-physical-row browser limit. Slice 1
 is closed for that bounded browser scope; streaming beyond it remains a later
 scale extension.
 
@@ -160,6 +160,15 @@ guessed lookups, or unresolved required relationships.
 The implementation sequence, dual physical/canonical accounting model,
 data-manager UI, persistence design, and acceptance cases are defined in the
 [Slice 3 quality and quarantine plan](slice-3-quality-and-quarantine-plan.md).
+
+**Checkpoint:** quality rules and deterministic runs are durable and bound to
+the exact staging, mapping, schema, and ownership/retention context. Every
+physical row and canonical row is accounted for; unsafe rows are retained as
+immutable set-aside evidence and cannot reach Odoo request planning. The Review
+UI exposes four business states and hides identifiers and hashes by default.
+The integrated 25,000-row probe completed within the recorded workstation
+runtime and memory bound. Slice 3 is closed for the materializing browser
+scope; streaming and clean-package certification remain later work.
 
 ### Slice 4 — Integrate normalization review
 

@@ -50,6 +50,11 @@ from impodo.models import (
     target_identity_hash,
 )
 from impodo.projects import OdooConnectionMode, ProjectStatus
+from impodo.quality import (
+    QualityOutcomePolicy,
+    QualityOwnerRole,
+    QualityRuleFamily,
+)
 from impodo.readiness import TransformationImpactReport, TransformationImpactRow
 from impodo.secrets import MemorySecretStore
 from impodo.staging_contracts import CanonicalControlTotal
@@ -1852,6 +1857,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(checked.status_code, 303)
         readiness_page = self.client.get(checked.headers["location"])
+        self.assertIn("Ready for Odoo check", readiness_page.text)
+        self.assertIn("Set aside", readiness_page.text)
+        self.assertIn("Fix setup", readiness_page.text)
+        self.assertIn('id="quality-rows"', readiness_page.text)
         self.assertIn("Ready", readiness_page.text)
         self.assertIn("Review", readiness_page.text)
         self.assertIn("Fix", readiness_page.text)
@@ -2903,6 +2912,92 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(control.expected_total, "1234.50")
         self.assertEqual(control.unit, "EUR")
         self.assertEqual(control.tolerance, "0.01")
+
+    def test_data_manager_can_save_a_guided_business_data_check(self) -> None:
+        project_id, dataset, business_key = self._mapping_ready_project(
+            scalar_field_count=2,
+        )
+        source_identity, source_value = dataset.columns
+        context = self.app.state.context
+        _revision, validation, _submission = (
+            context.mapping_workspace.save_definition(
+                project_id,
+                datasets=(
+                    DatasetMapping(
+                        dataset_id=dataset.dataset_id,
+                        target_model="res.partner",
+                        mode=MappingTargetMode.UPSERT,
+                        source_identity_column_keys=(
+                            source_identity.stable_key,
+                        ),
+                        target_identity=(
+                            IdentityComponentMapping(
+                                source_column_keys=(
+                                    source_identity.stable_key,
+                                ),
+                                target_fields=business_key.key_fields,
+                            ),
+                        ),
+                        fields=(
+                            ScalarFieldMapping(
+                                target_field="field_0000",
+                                source_column_key=source_value.stable_key,
+                                value_source=ScalarValueSource.SOURCE,
+                            ),
+                            ScalarFieldMapping(
+                                target_field="field_0001",
+                                source_column_key=source_value.stable_key,
+                                value_source=ScalarValueSource.SOURCE,
+                            ),
+                        ),
+                    ),
+                ),
+                expected_parent_version=None,
+                submit=False,
+                actor=context.actor,
+            )
+        )
+        self.assertNotEqual(
+            validation.status,
+            MappingValidationStatus.INVALID,
+        )
+
+        page = self.client.get(f"/projects/{project_id}/mapping")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Data checks", page.text)
+        self.assertIn("Recommended checks are already on", page.text)
+        self.assertIn("Add business check 1", page.text)
+        self.assertNotIn("ruleset_json", page.text)
+
+        saved = self.client.post(
+            f"/projects/{project_id}/mapping/quality",
+            data={
+                "csrf_token": self.csrf,
+                "quality_dataset_id": dataset.dataset_id,
+                "quality_name_0": "Opening before closing",
+                "quality_family_0": "ORDERED_COMPARISON",
+                "quality_field_a_0": "field_0000",
+                "quality_field_b_0": "field_0001",
+                "quality_equals_0": "",
+                "quality_outcome_0": "QUARANTINE",
+                "quality_owner_0": "FUNCTIONAL_OWNER",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(saved.status_code, 303)
+        ruleset = context.repository.get_current_quality_ruleset(project_id)
+        self.assertIsNotNone(ruleset)
+        self.assertEqual(len(ruleset.manager_rules), 1)
+        rule = ruleset.manager_rules[0]
+        self.assertEqual(rule.name, "Opening before closing")
+        self.assertEqual(rule.family, QualityRuleFamily.ORDERED_COMPARISON)
+        self.assertEqual(rule.outcome, QualityOutcomePolicy.QUARANTINE)
+        self.assertEqual(rule.owner_role, QualityOwnerRole.FUNCTIONAL_OWNER)
+        restored = self.client.get(saved.headers["location"])
+        self.assertIn("Opening before closing", restored.text)
+        self.assertIn("Functional owner", restored.text)
 
     def test_failed_named_total_has_plain_review_ui_and_blocks_package(self) -> None:
         project_id, _dataset, _business_key = self._mapping_ready_project(
