@@ -95,6 +95,7 @@ from ..mapping_semantics import (
     canonicalize_scalar_value,
     mapping_issue_fingerprint,
 )
+from ..models import target_identity_hash
 from ..project_store import DuckDbProjectRepository
 from ..projects import (
     MigrationProject,
@@ -2687,7 +2688,16 @@ def _relationship_value_choices(
             ),
         ),
     )
-    if snapshot.fingerprint.target_hash != schema.target_hash:
+    expected_target_hash = target_identity_hash(
+        connection_mode=(
+            project.odoo_connection_mode.value
+            if project.odoo_connection_mode is not None
+            else ""
+        ),
+        base_url=project.odoo_base_url,
+        database=project.odoo_database,
+    )
+    if snapshot.fingerprint.target_hash != expected_target_hash:
         raise WorkspaceError("Odoo choices came from a different target")
     records = snapshot.records.get(field.relation, ())
     if len(records) > VALUE_MATCH_MAX_TARGET_CHOICES:

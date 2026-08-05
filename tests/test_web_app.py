@@ -2363,6 +2363,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
         page = self.client.get(f"/projects/{project_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
+        schema = context.repository.get_odoo_schema_catalog(project_id)
+        self.assertNotEqual(
+            schema.target_hash,
+            target_identity_hash(
+                connection_mode="LOCAL",
+                base_url="http://127.0.0.1:8069",
+                database="odoo19_local",
+            ),
+        )
         self.assertIn("Country code — recommended", page.text)
         self.assertIn(
             'value="odoo-standard:res.country:code" selected',
@@ -2943,11 +2952,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         schema = OdooSchemaCatalog(
             project_id=registered.project_id,
-            target_hash=target_identity_hash(
-                connection_mode=registered.odoo_connection_mode.value,
-                base_url=registered.odoo_base_url,
-                database=registered.odoo_database,
-            ),
+            # A schema bundle hash includes its selected model scope and is
+            # intentionally different from the live target fingerprint.
+            target_hash="sha256:" + "5" * 64,
             captured_at=now,
             captured_by=context.actor.identity.display_name,
             connection_mode=registered.odoo_connection_mode.value,
