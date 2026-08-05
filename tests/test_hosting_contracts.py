@@ -29,7 +29,7 @@ from impodo.jobs import (
     JobRequest,
     JobStatus,
 )
-from impodo.project_store import DuckDbProjectRepository
+from impodo.adapters.duckdb import DuckDbRepositories
 from impodo.projects import ProjectService
 
 
@@ -58,7 +58,7 @@ class AuthorizationContractTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbProjectRepository(self.temporary.name)
+        self.repository = DuckDbRepositories(self.temporary.name)
         self.service = ProjectService(
             self.repository,
             CapabilityAuthorizationPolicy(),

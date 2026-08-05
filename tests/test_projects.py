@@ -13,10 +13,8 @@ from impodo.access import (
 )
 from impodo.artifacts import LocalArtifactStore
 from impodo.intake import SourceIntakeError, SourceIntakeService
-from impodo.project_store import (
-    SCHEMA_VERSION,
-    DuckDbProjectRepository,
-)
+from impodo.adapters.duckdb import DuckDbRepositories
+from impodo.adapters.duckdb.constants import SCHEMA_VERSION
 from impodo.projects import (
     OdooConnectionMode,
     ProjectConflictError,
@@ -27,7 +25,7 @@ from impodo.projects import (
     ProjectStatus,
     SourceFile,
 )
-from impodo.readiness import (
+from impodo.domain.staging.transformation_impact import (
     TransformationImpactFilter,
     TransformationImpactIdentity,
     TransformationImpactReport,
@@ -42,7 +40,7 @@ class ProjectLifecycleTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbProjectRepository(self.temporary.name)
+        self.repository = DuckDbRepositories(self.temporary.name)
         self.service = ProjectService(
             self.repository,
             CapabilityAuthorizationPolicy(),
@@ -643,7 +641,7 @@ class SourceIntakeTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbProjectRepository(self.temporary.name)
+        self.repository = DuckDbRepositories(self.temporary.name)
         self.projects = ProjectService(
             self.repository,
             CapabilityAuthorizationPolicy(),

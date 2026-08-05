@@ -19,7 +19,7 @@ from ..projects import MigrationProject
 from ..quality import QualityRun, QualityRunSummary
 from ..staging import StagingRunSummary
 from ..workspace import SourceSelection
-from .errors import ReadinessError
+from ..domain.errors import ReadinessError
 from .readiness_ports import NormalizationRepository
 
 

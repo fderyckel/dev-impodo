@@ -541,15 +541,6 @@ class MappingWorkspaceRepository(Protocol):
     ) -> None: ...
 
 
-class WorkspaceRepository(
-    SourceWorkspaceRepository,
-    SchemaWorkspaceRepository,
-    MappingWorkspaceRepository,
-    Protocol,
-):
-    """Backward-compatible aggregate of the three workspace ports."""
-
-
 class SourceWorkspaceService:
     def __init__(
         self,

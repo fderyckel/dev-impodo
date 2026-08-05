@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Protocol
 
 from ..access import Actor
@@ -164,4 +163,3 @@ class PreflightRepository(Protocol):
         *,
         actor: Actor,
     ) -> None: ...
-    def project_directory(self, project_id: str) -> Path: ...

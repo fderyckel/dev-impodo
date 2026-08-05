@@ -10,7 +10,9 @@ from ...workspace import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
-from ..legacy_support import _render, _secure_form, _text, _decode_delimiter, _dataset_choices, _flash
+from ..forms import _secure_form, _text
+from ..presenters.common import _flash, _render
+from ..presenters.schema import _dataset_choices, _decode_delimiter
 
 
 def build_sources_router(context: WebContext) -> APIRouter:

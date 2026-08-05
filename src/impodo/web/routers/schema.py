@@ -13,7 +13,22 @@ from ...workspace import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
-from ..legacy_support import _selected_local_profile, _missing_schema_reader_message, _target_credential_id, _require_local_stack_access, _secure_form, _revision, _text, _submitted_model_scope, _manual_schema_models, _render_schema, _comma_values, _business_key_id, _checked, _flash
+from ..forms import (
+    _checked,
+    _revision,
+    _secure_form,
+    _submitted_model_scope,
+    _text,
+)
+from ..presenters.common import _flash
+from ..presenters.mapping_forms import _business_key_id, _comma_values
+from ..presenters.schema import _manual_schema_models, _render_schema
+from ..presenters.summary import _require_local_stack_access
+from ..target_readers import (
+    _missing_schema_reader_message,
+    _selected_local_profile,
+    _target_credential_id,
+)
 
 
 def build_schema_router(context: WebContext) -> APIRouter:

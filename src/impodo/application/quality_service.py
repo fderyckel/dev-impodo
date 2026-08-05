@@ -20,7 +20,7 @@ from ..quality import (
 from ..staging import StagingRunSummary
 from ..workspace import SourceSelection
 from ..workspace import WorkspaceError
-from .errors import ReadinessError
+from ..domain.errors import ReadinessError
 from .readiness_ports import QualityRepository
 
 

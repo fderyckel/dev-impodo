@@ -5,12 +5,14 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 from ...projects import ProjectError
-from ...application.errors import ReadinessError
+from ...domain.errors import ReadinessError
 from ...workspace import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
-from ..legacy_support import _render_normalization, _secure_form, _flash
+from ..forms import _secure_form
+from ..presenters.common import _flash
+from ..presenters.summary import _render_normalization
 
 
 def build_normalization_router(context: WebContext) -> APIRouter:

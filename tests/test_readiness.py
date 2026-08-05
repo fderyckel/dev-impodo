@@ -54,14 +54,16 @@ from impodo.projects import (
     ProjectStatus,
     SourceFile,
 )
-from impodo.readiness import (
-    BROWSER_EVALUATION_ROW_LIMIT,
-    ReadinessError,
-    _canonical_source_hashes,
-    browser_evaluation_scale,
-    evaluate_browser_mapping,
-    require_supported_browser_scale,
+from impodo.application.preparation_service import (
+    canonical_source_hashes,
     stage_browser_mapping,
+)
+from impodo.domain.errors import ReadinessError
+from impodo.domain.staging.evaluator import evaluate_browser_mapping
+from impodo.domain.staging.scale import (
+    BROWSER_EVALUATION_ROW_LIMIT,
+    browser_evaluation_scale,
+    require_supported_browser_scale,
 )
 from impodo.source import load_selected_source_table
 from impodo.staging_contracts import (
@@ -104,7 +106,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         dataset = selection.datasets[0]
 
         self.assertEqual(
-            _canonical_source_hashes(selection),
+            canonical_source_hashes(selection),
             {dataset.file_id: f"sha256:{dataset.source_sha256}"},
         )
         prefixed = replace(
@@ -114,7 +116,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             ),
         )
         self.assertEqual(
-            _canonical_source_hashes(prefixed),
+            canonical_source_hashes(prefixed),
             {dataset.file_id: f"sha256:{dataset.source_sha256}"},
         )
         malformed = replace(
@@ -122,7 +124,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             datasets=(replace(dataset, source_sha256="sha256:not-a-digest"),),
         )
         with self.assertRaisesRegex(ReadinessError, "could not verify"):
-            _canonical_source_hashes(malformed)
+            canonical_source_hashes(malformed)
 
     def test_bom_rows_become_unique_headers_and_related_lines(self) -> None:
         evidence = self._evidence(

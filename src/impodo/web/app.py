@@ -18,6 +18,11 @@ from ..access import (
     LOCAL_ACTOR,
 )
 from ..application.browser_queries import BrowserQueryService
+from ..application.normalization_service import NormalizationService
+from ..application.preflight_service import PreflightService
+from ..application.preparation_service import PreparationService
+from ..application.quality_service import QualityService
+from ..application.readiness_workflow_service import ReadinessWorkflowService
 from ..application.transformation_impact_service import TransformationImpactService
 from ..artifacts import ArtifactStore, LocalArtifactStore
 from ..derived_entities import DerivedEntityWorkspaceService
@@ -26,9 +31,8 @@ from ..inspection import SourceInspectionService
 from ..jobs import InlineJobDispatcher, JobDispatcher
 from ..local_odoo_reader import LocalOdooMetadataReader
 from ..local_stack import LocalStackService
-from ..project_store import DuckDbProjectRepository
+from ..adapters.duckdb import DuckDbRepositories
 from ..projects import ProjectNotFoundError, ProjectService
-from ..readiness import BrowserReadinessService
 from ..secrets import CredentialVault, SecretStore
 from ..workspace import (
     MappingWorkspaceService,
@@ -42,7 +46,7 @@ from .context import (
     SchemaReader,
     WebContext,
 )
-from .legacy_support import (
+from .target_readers import (
     _read_model_catalog,
     _read_schema,
     _test_connection,
@@ -82,14 +86,21 @@ def create_local_app(
 ) -> FastAPI:
     """Construct the local application with injectable security/test boundaries."""
 
-    repository = DuckDbProjectRepository(project_root)
+    repository = DuckDbRepositories(project_root)
     resolved_authorization = authorization or CapabilityAuthorizationPolicy()
     resolved_artifacts = artifact_store or LocalArtifactStore(project_root)
     projects = ProjectService(repository, resolved_authorization)
-    readiness = BrowserReadinessService(
+    quality = QualityService(repository)
+    normalization = NormalizationService(repository, resolved_authorization)
+    preparation = PreparationService(
         repository,
         resolved_artifacts,
         resolved_authorization,
+        quality,
+        normalization,
+    )
+    preflight = PreflightService(
+        repository, resolved_artifacts, resolved_authorization
     )
     context = WebContext(
         queries=BrowserQueryService(repository),
@@ -113,11 +124,11 @@ def create_local_app(
             repository,
             resolved_authorization,
         ),
-        preparation=readiness.preparation,
-        readiness=readiness,
-        quality=readiness.quality,
-        normalization=readiness.normalization,
-        preflight=readiness.preflight,
+        preparation=preparation,
+        readiness_workflow=ReadinessWorkflowService(preparation, preflight),
+        quality=quality,
+        normalization=normalization,
+        preflight=preflight,
         transformation_impacts=TransformationImpactService(
             repository,
             resolved_artifacts,
@@ -186,7 +197,3 @@ def create_local_app(
         app.include_router(router)
 
     return app
-
-
-# Backward-compatible public name for the accepted local-only deployment.
-create_app = create_local_app

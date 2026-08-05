@@ -15,7 +15,6 @@ from ..local_odoo_reader import (
 )
 from ..local_stack import LocalStackService
 from ..projects import MigrationProject, ProjectService
-from ..readiness import BrowserReadinessService
 from ..secrets import SecretStore
 from ..workspace import MappingWorkspaceService, SchemaWorkspaceService, SourceWorkspaceService
 from ..application.browser_queries import BrowserQueryService
@@ -24,6 +23,7 @@ from ..application.preflight_service import PreflightService
 from ..application.preparation_service import PreparationService
 from ..application.quality_service import QualityService
 from ..application.transformation_impact_service import TransformationImpactService
+from ..application.readiness_workflow_service import ReadinessWorkflowService
 
 ConnectionTester = Callable[[MigrationProject, str], str]
 
@@ -51,7 +51,7 @@ class WebContext:
     schema_workspace: SchemaWorkspaceService
     mapping_workspace: MappingWorkspaceService
     preparation: PreparationService
-    readiness: BrowserReadinessService
+    readiness_workflow: ReadinessWorkflowService
     quality: QualityService
     normalization: NormalizationService
     preflight: PreflightService

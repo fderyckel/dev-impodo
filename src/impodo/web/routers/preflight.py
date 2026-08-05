@@ -8,7 +8,7 @@ from starlette.concurrency import run_in_threadpool
 from ...artifacts import ArtifactStoreError
 from ...connectors import ConnectorError
 from ...projects import ProjectError
-from ...application.errors import ReadinessError
+from ...domain.errors import ReadinessError
 from ...application.preflight_service import MANIFEST_NAME
 from ...reporting import (
     ReportGenerationError,
@@ -20,7 +20,10 @@ from ...workspace import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
-from ..legacy_support import _read_readiness_snapshots, _render_summary, _secure_form, _flash
+from ..forms import _secure_form
+from ..presenters.common import _flash
+from ..presenters.summary import _render_summary
+from ..target_readers import _read_readiness_snapshots
 
 
 def _report_chunks(
@@ -56,7 +59,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
 
         try:
             await run_in_threadpool(
-                context.readiness.run,
+                context.readiness_workflow.compare,
                 project_id,
                 reader=reader,
                 actor=context.actor,

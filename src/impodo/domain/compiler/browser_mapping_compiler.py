@@ -24,6 +24,8 @@ from ...profile import (
     TargetSpec,
 )
 from ...workspace import SourceSelection
+from ..errors import ReadinessError
+from ..staging.fields import synthetic_field
 
 
 
@@ -61,7 +63,7 @@ def _compile_profile(
             if field.value_source is ScalarValueSource.ODOO_DEFAULT:
                 continue
             scalar_fields[field.target_field] = FieldSpec(
-                source=_synthetic_field(index),
+                source=synthetic_field(index),
                 type=field.value_type,
                 required=field.required,
                 required_on_create=field.required_on_create,

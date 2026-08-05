@@ -23,7 +23,7 @@ from impodo.normalization import (
     evaluate_normalization,
     start_dry_run,
 )
-from impodo.project_store import DuckDbProjectRepository
+from impodo.adapters.duckdb import DuckDbRepositories
 from impodo.projects import DataClassification
 from impodo.quality import default_quality_ruleset, evaluate_quality
 from impodo.workspace import (
@@ -248,7 +248,7 @@ class NormalizationStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbProjectRepository(self.temporary.name)
+        self.repository = DuckDbRepositories(self.temporary.name)
         self.project = _project()
         self.repository.create(self.project, actor=LOCAL_ACTOR)
         now = datetime.now(timezone.utc)

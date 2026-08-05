@@ -7,7 +7,9 @@ from ...workspace import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
-from ..legacy_support import _secure_form, _text, _render_derived_entities, _optional_int, _flash
+from ..forms import _optional_int, _secure_form, _text
+from ..presenters.common import _flash
+from ..presenters.schema import _render_derived_entities
 
 
 def build_derived_entities_router(context: WebContext) -> APIRouter:

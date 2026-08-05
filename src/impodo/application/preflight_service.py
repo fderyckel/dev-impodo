@@ -14,7 +14,7 @@ from ..models import canonical_json_bytes, target_identity_hash
 from ..planner import plan_metadata_requests, plan_record_requests
 from ..quality import eligible_prepared_bundle
 from ..staging import StagingRunSummary
-from .errors import ReadinessError
+from ..domain.errors import ReadinessError
 from .preparation_service import PreparedReadinessContext
 from .readiness_ports import PreflightRepository
 

@@ -34,7 +34,7 @@ from impodo.mapping_semantics import (
     ScalarFieldMapping,
     mapping_issue_fingerprint,
 )
-from impodo.project_store import DuckDbProjectRepository
+from impodo.adapters.duckdb import DuckDbRepositories
 from impodo.projects import (
     MigrationProject,
     OdooConnectionMode,
@@ -61,7 +61,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbProjectRepository(self.temporary.name)
+        self.repository = DuckDbRepositories(self.temporary.name)
         now = datetime.now(timezone.utc)
         self.source = SourceFile(
             file_id=str(uuid4()),

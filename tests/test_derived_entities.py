@@ -34,7 +34,7 @@ from impodo.mapping_semantics import (
     BusinessKeyStatus,
     SchemaGovernance,
 )
-from impodo.project_store import DuckDbProjectRepository
+from impodo.adapters.duckdb import DuckDbRepositories
 from impodo.projects import MigrationProject, ProjectStatus
 from impodo.workspace import (
     OdooSchemaCatalog,
@@ -466,7 +466,7 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbProjectRepository(self.temporary.name)
+        self.repository = DuckDbRepositories(self.temporary.name)
         now = datetime.now(timezone.utc)
         self.project = MigrationProject(
             project_id=str(uuid4()),

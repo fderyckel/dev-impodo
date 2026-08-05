@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
-from ..legacy_support import _render_summary
+from ..presenters.summary import _render_summary
 
 
 def build_summary_router(context: WebContext) -> APIRouter:

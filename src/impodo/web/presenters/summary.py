@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from urllib.parse import urlencode
-from fastapi import Request
+from fastapi import HTTPException, Request
 from ...access import AuthorizationError, Capability
 from ...local_stack import LocalStackError
 from ...projects import MigrationProject, OdooConnectionMode

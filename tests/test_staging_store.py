@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from impodo.access import LOCAL_ACTOR
-from impodo.project_store import DuckDbProjectRepository
+from impodo.adapters.duckdb import DuckDbRepositories
 from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
 from impodo.staging import StagingRunStatus
 from impodo.staging_contracts import (
@@ -37,7 +37,7 @@ class CanonicalStagingStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbProjectRepository(self.temporary.name)
+        self.repository = DuckDbRepositories(self.temporary.name)
         now = datetime.now(timezone.utc)
         self.project = MigrationProject(
             project_id=str(uuid4()),

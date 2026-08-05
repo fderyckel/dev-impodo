@@ -12,7 +12,16 @@ from ...workspace import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
-from ..legacy_support import _selected_local_profile, _target_credential_id, _render_target, _require_local_stack_access, _require_local_stack_start, _require_local_stack_stop, _secure_form, _revision, _text, _draft_or_redirect, _flash
+from ..forms import _revision, _secure_form, _text
+from ..presenters.common import _flash
+from ..presenters.mapping_forms import _draft_or_redirect
+from ..presenters.summary import (
+    _render_target,
+    _require_local_stack_access,
+    _require_local_stack_start,
+    _require_local_stack_stop,
+)
+from ..target_readers import _selected_local_profile, _target_credential_id
 
 
 def build_target_router(context: WebContext) -> APIRouter:

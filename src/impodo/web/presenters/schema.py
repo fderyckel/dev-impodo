@@ -15,6 +15,7 @@ from ...projects import MigrationProject
 from ...workspace import OdooModelCatalog, OdooModelSummary, SchemaField, SchemaModel, SchemaOrigin, WorkspaceError
 from ..constants import *
 from ..context import WebContext
+from ..forms import _text
 from .common import _render
 
 

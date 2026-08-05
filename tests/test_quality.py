@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from impodo.access import LOCAL_ACTOR
 from impodo.models import Issue, LogicalReference, PreparedRecord
-from impodo.project_store import DuckDbProjectRepository
+from impodo.adapters.duckdb import DuckDbRepositories
 from impodo.planner import plan_record_requests
 from impodo.profile import load_profile
 from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
@@ -366,7 +366,7 @@ class QualityStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = DuckDbProjectRepository(self.temporary.name)
+        self.repository = DuckDbRepositories(self.temporary.name)
         self.project = _project()
         self.repository.create(self.project, actor=LOCAL_ACTOR)
         now = datetime.now(timezone.utc)

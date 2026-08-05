@@ -55,10 +55,13 @@ from impodo.quality import (
     QualityOwnerRole,
     QualityRuleFamily,
 )
-from impodo.readiness import TransformationImpactReport, TransformationImpactRow
+from impodo.domain.staging.transformation_impact import (
+    TransformationImpactReport,
+    TransformationImpactRow,
+)
 from impodo.secrets import MemorySecretStore
 from impodo.staging_contracts import CanonicalControlTotal
-from impodo.web import create_app
+from impodo.web import create_local_app
 from impodo.web.target_readers import _source_value_choices
 from impodo.workspace import (
     OdooSchemaCatalog,
@@ -82,7 +85,7 @@ class LocalBrowserSecurityTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.app = create_app(
+        self.app = create_local_app(
             self.temporary.name,
             launch_token="launch-secret",
             session_secret="session-secret",
@@ -340,7 +343,7 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.local_odoo_reader.get_target_fingerprint.side_effect = (
             lambda project, _profile: _browser_schema(project).fingerprint
         )
-        self.app = create_app(
+        self.app = create_local_app(
             self.temporary.name,
             launch_token="launch-secret",
             session_secret="session-secret",
@@ -776,7 +779,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
             return metadata, records
 
-        self.app = create_app(
+        self.app = create_local_app(
             self.temporary.name,
             launch_token="launch-secret",
             session_secret="session-secret",
@@ -1878,8 +1881,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Nothing is sent to Odoo", review_page.text)
         self.assertEqual(len(self.readiness_calls), 0)
 
-        readiness = self.app.state.context.readiness
-        review = readiness.current_normalization_review(project_id)
+        normalization_service = self.app.state.context.normalization
+        review = normalization_service.current_review(project_id)
         assert review is not None
         normalization, evaluation, dry_run = review
         for group in evaluation.groups:
@@ -1896,7 +1899,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 follow_redirects=False,
             )
             self.assertEqual(accepted.status_code, 303)
-            normalization = readiness.current_normalization_summary(project_id)
+            normalization = normalization_service.current_summary(project_id)
             assert normalization is not None
         approved = self.client.post(
             f"/projects/{project_id}/normalization/approve",
@@ -1909,7 +1912,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(approved.status_code, 303)
-        normalization = readiness.current_normalization_summary(project_id)
+        normalization = normalization_service.current_summary(project_id)
         assert normalization is not None
         self.assertTrue(normalization.frozen)
         compared = self.client.post(
@@ -1935,9 +1938,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("data-staging-summary", readiness_page.text)
         self.assertIn("<summary>Support details</summary>", readiness_page.text)
 
-        report = readiness.current_report(project_id)
+        report = self.app.state.context.preflight.current_report(project_id)
         assert report is not None
-        staging = readiness.current_staging(project_id)
+        staging = self.app.state.context.preflight.current_staging(project_id)
         assert staging is not None
         self.assertEqual(report.staging_run_id, staging.run_id)
         self.assertEqual(report.staging_content_hash, staging.content_hash)
@@ -1980,7 +1983,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             rows=paged_rows,
         )
         with patch.object(
-            readiness,
+            self.app.state.context.preflight,
             "current_report",
             return_value=paged_report,
         ):
@@ -2120,7 +2123,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIsNone(
             self.app.state.context.projects.repository.get_mapping_revision(project_id)
         )
-        self.assertIsNone(readiness.current_staging(project_id))
+        self.assertIsNone(
+            self.app.state.context.preflight.current_staging(project_id)
+        )
         self.assertIsNotNone(
             self.app.state.context.projects.repository.get_canonical_staging_run(
                 project_id,
@@ -2240,7 +2245,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("data-value-match-dialog", page.text)
         self.assertIn("Match values", page.text)
         with patch(
-            "impodo.web.target_readers._source_value_choices",
+            "impodo.web.routers.mapping._source_value_choices",
             return_value=(
                 {"value": "French", "count": 12},
                 {"value": "German", "count": 4},
@@ -2336,7 +2341,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         context.readiness_reader = readiness_reader
         with patch(
-            "impodo.web.target_readers._source_value_choices",
+            "impodo.web.routers.mapping._source_value_choices",
             return_value=({"value": "FRA", "count": 3},),
         ):
             response = self.client.post(
@@ -2462,7 +2467,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             page.text,
         )
         with patch(
-            "impodo.web.target_readers._source_value_choices",
+            "impodo.web.routers.mapping._source_value_choices",
             return_value=({"value": "FRA", "count": 3},),
         ):
             choices = self.client.post(
@@ -2900,12 +2905,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         with (
             patch.object(
-                context.readiness,
+                context.preflight,
                 "current_staging",
                 return_value=staging,
             ),
             patch.object(
-                context.readiness,
+                context.preflight,
                 "current_report",
                 return_value=None,
             ),
@@ -2987,10 +2992,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             failed.headers["location"],
             f"/projects/{project_id}/summary",
         )
-        self.assertIsNone(context.readiness.current_staging(project_id))
-        self.assertIsNone(context.readiness.current_quality_summary(project_id))
+        self.assertIsNone(context.preflight.current_staging(project_id))
+        self.assertIsNone(context.quality.current_summary(project_id))
         self.assertIsNone(
-            context.readiness.current_normalization_summary(project_id)
+            context.normalization.current_summary(project_id)
         )
         self.assertEqual(self.readiness_calls, [])
 
@@ -3181,12 +3186,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         with (
             patch.object(
-                context.readiness,
+                context.preflight,
                 "current_staging",
                 return_value=staging,
             ),
             patch.object(
-                context.readiness,
+                context.preflight,
                 "current_report",
                 return_value=report,
             ),

@@ -8,7 +8,10 @@ from ...workspace import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
-from ..legacy_support import _secure_form, _mapping_return_url, _text, _manager_quality_rules_from_form, _flash
+from ..forms import _secure_form, _text
+from ..presenters.common import _flash
+from ..presenters.mapping_impact import _mapping_return_url
+from ..presenters.mapping_view import _manager_quality_rules_from_form
 
 
 def build_quality_router(context: WebContext) -> APIRouter:

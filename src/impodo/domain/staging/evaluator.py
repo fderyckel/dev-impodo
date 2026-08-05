@@ -52,12 +52,15 @@ from ...workspace import (
     SourceSelection,
 )
 from ..contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
+from ..errors import ReadinessError
 
 
 
 
 from ..compiler.browser_mapping_compiler import _compile_profile
 from .control_totals import _evaluate_control_totals
+from .fields import synthetic_field
+from .scale import require_supported_browser_scale
 from .transformation_impact import (
     TransformationImpactReport,
     _TransformationImpactCollector,
@@ -256,7 +259,7 @@ def evaluate_browser_mapping(
         for index, field in enumerate(mapping.fields):
             if field.value_source is ScalarValueSource.ODOO_DEFAULT:
                 continue
-            source_labels[(effective.name, _synthetic_field(index))] = (
+            source_labels[(effective.name, synthetic_field(index))] = (
                 column_name_by_key.get(field.source_column_key or "")
                 or field.target_field
             )
@@ -428,7 +431,7 @@ def _stage_table(
     headers = (
         *(column.stable_key for column in effective.columns),
         *(
-            _synthetic_field(index)
+            synthetic_field(index)
             for index, field in enumerate(mapping.fields)
             if field.value_source is not ScalarValueSource.ODOO_DEFAULT
         ),
@@ -566,7 +569,7 @@ def _stage_derived_table(
     headers = (
         *(column.stable_key for column in effective.columns),
         *(
-            _synthetic_field(index)
+            synthetic_field(index)
             for index, field in enumerate(mapping.fields)
             if field.value_source is not ScalarValueSource.ODOO_DEFAULT
         ),
@@ -664,7 +667,7 @@ def _apply_scalar_mappings(
                     for column in effective.columns
                 },
             )
-            values[_synthetic_field(index)] = proposed
+            values[synthetic_field(index)] = proposed
             if impact_collector is not None:
                 outcome = _transformation_outcome(field, raw, proposed)
                 impact_collector.record(
@@ -681,7 +684,7 @@ def _apply_scalar_mappings(
                     outcome=outcome,
                 )
         except ScalarValueRuleError as error:
-            values[_synthetic_field(index)] = InvalidPreparedValue(
+            values[synthetic_field(index)] = InvalidPreparedValue(
                 code=error.code,
                 message=str(error),
             )
@@ -701,7 +704,7 @@ def _apply_scalar_mappings(
                     message=str(error),
                 )
         except ScalarValueError as error:
-            values[_synthetic_field(index)] = (
+            values[synthetic_field(index)] = (
                 None
                 if "required value" in str(error).casefold()
                 else "__impodo_invalid_value__"
@@ -912,10 +915,6 @@ def _attach_preparation_issues(
         issues=prepared.issues,
         source_hashes=prepared.source_hashes,
     )
-
-
-def _synthetic_field(index: int) -> str:
-    return f"__impodo_scalar_{index}"
 
 
 def _normalized_key(value: object) -> str | None:

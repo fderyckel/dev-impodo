@@ -408,7 +408,7 @@ class StagingRepositoryMixin:
         project_id: str,
         row: Sequence[object],
     ) -> StagingRunSummary:
-        from .staging_contracts import (
+        from ...staging_contracts import (
             CanonicalControlTotal,
             StagingDatasetReconciliation,
             StagingReconciliation,

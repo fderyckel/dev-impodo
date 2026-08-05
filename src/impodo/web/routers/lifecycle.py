@@ -7,7 +7,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
-from ..legacy_support import _render, _secure_form
+from ..forms import _secure_form
+from ..presenters.common import _render
 
 
 def build_lifecycle_router(context: WebContext) -> APIRouter:

@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from ...artifacts import ArtifactStoreError
 from ...connectors import ConnectorError
 from ...projects import ProjectError
-from ...application.errors import ReadinessError
+from ...domain.errors import ReadinessError
 from ...domain.staging.transformation_impact import TransformationImpactFilter
 from ...secrets import SecretStoreError
 from ...source import SourceLoadError
@@ -21,7 +21,34 @@ from ..security import require_csrf, require_session
 from fastapi import APIRouter
 from ..constants import TRANSFORMATION_IMPACT_PAGE_SIZE, TRANSFORMATION_IMPACT_OUTCOMES
 from ..context import WebContext
-from ..legacy_support import _source_value_choices, _relationship_value_choices, _render, _secure_form, _is_json_request, _mapping_request_form, _mapping_save_error_response, _transformation_impact_evidence, _transformation_impact_identity, _transformation_impact_labels, _transformation_impact_filters, _transformation_impact_url, _optional_nonnegative_query_int, _mapping_return_url, _text, _render_mapping, _safe_spreadsheet_text, _mapping_allowed_fields, _mapping_datasets_from_form, _active_mapping_definition, _merge_partial_mapping_datasets, _related_business_keys, _texts, _optional_int, _flash
+from ..forms import (
+    _is_json_request,
+    _mapping_request_form,
+    _optional_int,
+    _optional_nonnegative_query_int,
+    _secure_form,
+    _text,
+    _texts,
+)
+from ..presenters.common import _flash, _render
+from ..presenters.mapping_forms import (
+    _active_mapping_definition,
+    _mapping_allowed_fields,
+    _mapping_datasets_from_form,
+    _merge_partial_mapping_datasets,
+    _related_business_keys,
+)
+from ..presenters.mapping_impact import (
+    _mapping_return_url,
+    _mapping_save_error_response,
+    _transformation_impact_evidence,
+    _transformation_impact_filters,
+    _transformation_impact_identity,
+    _transformation_impact_labels,
+    _transformation_impact_url,
+)
+from ..presenters.mapping_view import _render_mapping, _safe_spreadsheet_text
+from ..target_readers import _relationship_value_choices, _source_value_choices
 
 
 def build_mapping_router(context: WebContext) -> APIRouter:

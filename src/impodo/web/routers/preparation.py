@@ -6,12 +6,13 @@ from fastapi.responses import RedirectResponse
 from starlette.concurrency import run_in_threadpool
 from ...connectors import ConnectorError
 from ...projects import ProjectError
-from ...application.errors import ReadinessError
+from ...domain.errors import ReadinessError
 from ...secrets import SecretStoreError
 from ...workspace import WorkspaceError
 from fastapi import APIRouter
 from ..context import WebContext
-from ..legacy_support import _secure_form, _flash
+from ..forms import _secure_form
+from ..presenters.common import _flash
 
 
 def build_preparation_router(context: WebContext) -> APIRouter:

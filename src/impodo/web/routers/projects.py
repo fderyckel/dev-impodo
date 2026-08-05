@@ -14,7 +14,10 @@ from ..security import require_session
 from fastapi import APIRouter
 from ..constants import SOURCE_SYSTEMS
 from ..context import WebContext
-from ..legacy_support import _target_credential_id, _render, _secure_form, _revision, _text, _form_values, _draft_or_redirect, _project_error, _flash
+from ..forms import _form_values, _revision, _secure_form, _text
+from ..presenters.common import _flash, _project_error, _render
+from ..presenters.mapping_forms import _draft_or_redirect
+from ..target_readers import _target_credential_id
 
 
 def build_projects_router(context: WebContext) -> APIRouter:
