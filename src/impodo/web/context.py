@@ -7,11 +7,14 @@ from typing import Callable
 
 from ..access import Actor, AuthorizationPolicy
 from ..application.browser_queries import BrowserQueryService
+from ..application.mapping_workspace_service import MappingWorkspaceService
 from ..application.normalization_service import NormalizationService
 from ..application.preflight_service import PreflightService
 from ..application.preparation_service import PreparationService
 from ..application.quality_service import QualityService
 from ..application.readiness_workflow_service import ReadinessWorkflowService
+from ..application.schema_workspace_service import SchemaWorkspaceService
+from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.transformation_impact_service import TransformationImpactService
 from ..artifacts import ArtifactStore
 from ..connectors import (
@@ -30,11 +33,6 @@ from ..local_odoo_reader import (
 from ..local_stack import LocalStackService
 from ..projects import MigrationProject, ProjectService
 from ..secrets import SecretStore
-from ..workspace import (
-    MappingWorkspaceService,
-    SchemaWorkspaceService,
-    SourceWorkspaceService,
-)
 
 ConnectionTester = Callable[[MigrationProject, str], str]
 

@@ -28,7 +28,7 @@ from ...quality import (
     QualityRuleFamily,
     manager_quality_rule,
 )
-from ...workspace import WorkspaceError
+from ...workspace_errors import WorkspaceError
 from ..constants import DEFAULT_MAPPING_FIELDS_PER_PAGE, MAPPING_FIELD_PAGE_SIZES
 from ..context import WebContext
 from ..forms import (
@@ -109,7 +109,6 @@ def _render_mapping(
     )
     validation = None if has_unvalidated_changes else stored_validation
     submission = None if has_unvalidated_changes else stored_submission
-    previous_mapping_draft = context.queries.get_mapping_draft(project_id)
     source_catalogs = (
         context.queries.get_source_catalogs(project_id)
         if selection is not None
@@ -302,7 +301,6 @@ def _render_mapping(
             working_draft is not None and not working_draft_is_current
         ),
         has_unvalidated_changes=has_unvalidated_changes,
-        has_previous_mapping_draft=previous_mapping_draft is not None,
         dataset_views=dataset_views,
         warning_issues=warning_issues,
         quality_view=quality_view,

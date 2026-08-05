@@ -9,7 +9,7 @@ from ...local_stack import LocalStackError
 from ...mapping_semantics import BusinessKeyDefinition, BusinessKeyStatus
 from ...projects import ProjectError
 from ...secrets import SecretStoreError
-from ...workspace import WorkspaceError
+from ...workspace_errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext

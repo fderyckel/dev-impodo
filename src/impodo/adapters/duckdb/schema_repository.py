@@ -7,11 +7,11 @@ from __future__ import annotations
 from ...access import Actor
 from ...mapping_semantics import SchemaGovernance
 from ...projects import ProjectNotFoundError
-from ...workspace import (
+from ...workspace_contracts import (
     OdooModelCatalog,
     OdooSchemaCatalog,
-    WorkspaceError,
 )
+from ...workspace_errors import WorkspaceError
 
 
 
@@ -90,7 +90,6 @@ class SchemaRepositoryMixin:
             detail=f"{len(catalog.models)} permitted model(s); {source}",
             actor=actor,
             invalidate=(
-                "mapping_draft",
                 "mapping_current",
                 "schema_governance_current",
             ),
@@ -182,7 +181,6 @@ class SchemaRepositoryMixin:
                     [governance.governance_id, governance.version],
                 )
                 connection.execute("DELETE FROM mapping_current")
-                connection.execute("DELETE FROM mapping_draft")
                 self._invalidate_canonical_staging(
                     connection,
                     reason="SCHEMA_GOVERNANCE_CHANGED",

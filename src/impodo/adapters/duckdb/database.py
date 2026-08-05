@@ -108,7 +108,6 @@ class DuckDbDatabaseMixin(
             ("source_selection", "selection_json"),
             ("odoo_model_catalog", "catalog_json"),
             ("odoo_schema_catalog", "catalog_json"),
-            ("mapping_draft", "draft_json"),
         }
         if (table, value_column) not in permitted:
             raise ValueError("Unsupported workspace table")
@@ -130,7 +129,6 @@ class DuckDbDatabaseMixin(
                 for target in invalidate:
                     if target not in {
                         "derived_entity_plan_current",
-                        "mapping_draft",
                         "mapping_current",
                         "schema_governance_current",
                     }:

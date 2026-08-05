@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from ..constants import SCHEMA_VERSION
-
 from datetime import (
     datetime,
     timezone,
@@ -11,14 +9,8 @@ from datetime import (
 
 import duckdb
 
-
-
-
-
-
-
-
-
+from ..constants import SCHEMA_VERSION
+from .mapping_draft_retirement import retire_mapping_draft
 
 class ProjectMigrationsMixin:
     """Keep new databases and upgrades on one versioned schema path."""
@@ -116,11 +108,6 @@ class ProjectMigrationsMixin:
                 catalog_json VARCHAR NOT NULL
             );
 
-            CREATE TABLE mapping_draft (
-                singleton_id INTEGER PRIMARY KEY,
-                draft_json VARCHAR NOT NULL
-            );
-
             CREATE TABLE mapping_working_draft (
                 singleton_id INTEGER PRIMARY KEY,
                 mapping_id VARCHAR NOT NULL,
@@ -130,6 +117,15 @@ class ProjectMigrationsMixin:
                 content_hash VARCHAR NOT NULL,
                 updated_at VARCHAR NOT NULL,
                 draft_json VARCHAR NOT NULL
+            );
+
+            CREATE TABLE retired_evidence (
+                evidence_type VARCHAR NOT NULL,
+                evidence_key VARCHAR NOT NULL,
+                retired_at VARCHAR NOT NULL,
+                retirement_reason VARCHAR NOT NULL,
+                payload_json VARCHAR NOT NULL,
+                PRIMARY KEY (evidence_type, evidence_key)
             );
 
             CREATE TABLE schema_governance_revision (
@@ -689,6 +685,10 @@ class ProjectMigrationsMixin:
                         f'"{legacy_target_column}"'
                     )
                     connection.execute(drop_legacy_column)
+                    available_tables = {
+                        str(row[0])
+                        for row in connection.execute("SHOW TABLES").fetchall()
+                    }
                     for table in (
                         "odoo_model_catalog",
                         "odoo_schema_catalog",
@@ -700,7 +700,8 @@ class ProjectMigrationsMixin:
                         "mapping_validation",
                         "mapping_submission",
                     ):
-                        connection.execute(f"DELETE FROM {table}")
+                        if table in available_tables:
+                            connection.execute(f"DELETE FROM {table}")
                     connection.execute(
                         """
                         UPDATE project
@@ -1117,6 +1118,9 @@ class ProjectMigrationsMixin:
                 if version == 15:
                     self._create_normalization_tables(connection)
                     version = 16
+                if version == 16:
+                    retire_mapping_draft(connection)
+                    version = 17
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

@@ -9,7 +9,7 @@ from ...mapping_semantics import MappingDefinition
 from ...models import canonical_json_bytes
 from ...source import PreparedBundle
 from ...staging_contracts import CanonicalControlTotal
-from ...workspace import SourceSelection
+from ...workspace_contracts import SourceSelection
 from ..errors import ReadinessError
 
 

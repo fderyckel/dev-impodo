@@ -47,7 +47,7 @@ from ...staging_contracts import (
     CanonicalStagingRun,
     StagingDatasetRole,
 )
-from ...workspace import (
+from ...workspace_contracts import (
     SourceDataset,
     SourceSelection,
 )

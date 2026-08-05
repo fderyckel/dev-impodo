@@ -18,7 +18,7 @@ from ..normalization import (
 from ..projects import MigrationProject
 from ..quality import QualityRun, QualityRunSummary
 from ..staging import StagingRunSummary
-from ..workspace import SourceSelection
+from ..workspace_contracts import SourceSelection
 from ..domain.errors import ReadinessError
 from .readiness_ports import NormalizationRepository
 

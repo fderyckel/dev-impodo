@@ -23,7 +23,11 @@ from impodo.staging_contracts import (
     StagingDisposition,
     StagingReconciliation,
 )
-from impodo.workspace import SourceDataset, SourceDatasetColumn, SourceSelection
+from impodo.workspace_contracts import (
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]

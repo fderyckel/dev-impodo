@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import Request
 from fastapi.responses import RedirectResponse
 from ...quality import MAX_MANAGER_RULES_PER_DATASET
-from ...workspace import WorkspaceError
+from ...workspace_errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext

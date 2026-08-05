@@ -18,11 +18,14 @@ from ..access import (
     LOCAL_ACTOR,
 )
 from ..application.browser_queries import BrowserQueryService
+from ..application.mapping_workspace_service import MappingWorkspaceService
 from ..application.normalization_service import NormalizationService
 from ..application.preflight_service import PreflightService
 from ..application.preparation_service import PreparationService
 from ..application.quality_service import QualityService
 from ..application.readiness_workflow_service import ReadinessWorkflowService
+from ..application.schema_workspace_service import SchemaWorkspaceService
+from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.transformation_impact_service import TransformationImpactService
 from ..artifacts import ArtifactStore, LocalArtifactStore
 from ..derived_entities import DerivedEntityWorkspaceService
@@ -34,11 +37,6 @@ from ..local_stack import LocalStackService
 from ..adapters.duckdb import DuckDbRepositories
 from ..projects import ProjectNotFoundError, ProjectService
 from ..secrets import CredentialVault, SecretStore
-from ..workspace import (
-    MappingWorkspaceService,
-    SchemaWorkspaceService,
-    SourceWorkspaceService,
-)
 from .context import (
     BrowserReadinessReader,
     ConnectionTester,

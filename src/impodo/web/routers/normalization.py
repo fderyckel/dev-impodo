@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 from ...projects import ProjectError
 from ...domain.errors import ReadinessError
-from ...workspace import WorkspaceError
+from ...workspace_errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext

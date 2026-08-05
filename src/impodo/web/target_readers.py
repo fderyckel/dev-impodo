@@ -20,7 +20,8 @@ from ..projects import MigrationProject, OdooConnectionMode, ProjectError
 from ..reference_keys import standard_reference_key
 from ..secrets import SecretStoreError
 from ..source import load_selected_source_table
-from ..workspace import SchemaField, SchemaOrigin, WorkspaceError
+from ..workspace_contracts import SchemaField, SchemaOrigin
+from ..workspace_errors import WorkspaceError
 from .constants import (
     VALUE_MATCH_MAX_SOURCE_CHOICES,
     VALUE_MATCH_MAX_TARGET_CHOICES,

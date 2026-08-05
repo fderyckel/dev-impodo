@@ -23,7 +23,7 @@ from ...profile import (
     TargetIdentitySpec,
     TargetSpec,
 )
-from ...workspace import SourceSelection
+from ...workspace_contracts import SourceSelection
 from ..errors import ReadinessError
 from ..staging.fields import synthetic_field
 

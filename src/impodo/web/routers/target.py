@@ -8,7 +8,7 @@ from ...connectors import ConnectorError
 from ...local_stack import LocalStackError, ReadinessLevel
 from ...projects import OdooConnectionMode, ProjectError
 from ...secrets import SecretStoreError
-from ...workspace import WorkspaceError
+from ...workspace_errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext

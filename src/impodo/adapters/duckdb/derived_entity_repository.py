@@ -7,10 +7,8 @@ from __future__ import annotations
 from ...access import Actor
 from ...derived_entities import DerivedEntityPlan
 from ...projects import ProjectNotFoundError
-from ...workspace import (
-    SourceSelection,
-    WorkspaceError,
-)
+from ...workspace_contracts import SourceSelection
+from ...workspace_errors import WorkspaceError
 
 
 
@@ -108,7 +106,6 @@ class DerivedEntityRepositoryMixin:
                     [plan.plan_id, plan.version],
                 )
                 connection.execute("DELETE FROM mapping_current")
-                connection.execute("DELETE FROM mapping_draft")
                 self._invalidate_canonical_staging(
                     connection,
                     reason="DERIVED_ENTITY_PLAN_CHANGED",

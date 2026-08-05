@@ -19,7 +19,7 @@ from ..projects import MigrationProject
 from ..quality import QualityRuleSet, QualityRun, QualityRunSummary
 from ..staging import StagingRunSummary
 from ..staging_contracts import CanonicalStagingRun
-from ..workspace import MappingWorkingDraft, SourceSelection
+from ..workspace_contracts import MappingWorkingDraft, SourceSelection
 
 
 class PreparationRepository(Protocol):

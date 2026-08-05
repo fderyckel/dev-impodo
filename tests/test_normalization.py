@@ -26,12 +26,12 @@ from impodo.normalization import (
 from impodo.adapters.duckdb import DuckDbRepositories
 from impodo.projects import DataClassification
 from impodo.quality import default_quality_ruleset, evaluate_quality
-from impodo.workspace import (
+from impodo.workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
-    WorkspaceError,
 )
+from impodo.workspace_errors import WorkspaceError
 from impodo.web.app import create_local_app
 
 from tests.test_quality import (
@@ -342,7 +342,7 @@ class NormalizationStoreTests(unittest.TestCase):
                 for item in connection.execute("SHOW TABLES").fetchall()
                 if str(item[0]).startswith("normalization_")
             }
-        self.assertEqual(version, (16,))
+            self.assertEqual(version, (17,))
         self.assertEqual(restored, set(tables))
 
     def test_invalid_dry_run_evidence_is_wrapped_at_repository_boundary(

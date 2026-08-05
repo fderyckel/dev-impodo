@@ -11,7 +11,7 @@ from starlette.datastructures import FormData
 
 from ..mapping_semantics import ValueMapping
 from ..projects import ProjectError
-from ..workspace import WorkspaceError
+from ..workspace_errors import WorkspaceError
 from .constants import (
     MAPPING_MAX_FORM_FIELDS,
     MAPPING_MAX_FORM_NAME_LENGTH,

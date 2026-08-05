@@ -41,17 +41,15 @@ from impodo.projects import (
     ProjectStatus,
     SourceFile,
 )
-from impodo.workspace import (
-    FieldMapping,
-    MappingStatus,
-    MappingWorkspaceService,
+from impodo.application.mapping_workspace_service import MappingWorkspaceService
+from impodo.application.schema_workspace_service import SchemaWorkspaceService
+from impodo.application.source_workspace_service import SourceWorkspaceService
+from impodo.workspace_contracts import (
     SchemaField,
     SchemaModel,
     SchemaOrigin,
-    SchemaWorkspaceService,
-    SourceWorkspaceService,
-    WorkspaceError,
 )
+from impodo.workspace_errors import WorkspaceError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -177,23 +175,28 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             "Name",
         )
 
-        draft = self.mappings.save(
-            self.project.project_id,
-            proposals=(
-                FieldMapping(
-                    dataset_name="customers",
-                    source_column="name",
-                    target_model="res.partner",
+        dataset = selection.datasets[0]
+        dataset_mapping = DatasetMapping(
+            dataset_id=dataset.dataset_id,
+            target_model="res.partner",
+            fields=(
+                ScalarFieldMapping(
                     target_field="name",
+                    source_column_key=dataset.columns[0].stable_key,
                 ),
             ),
-            submit=True,
+        )
+        draft = self.mappings.save_working_draft(
+            self.project.project_id,
+            datasets=(dataset_mapping,),
+            expected_version=None,
             actor=LOCAL_ACTOR,
         )
-        self.assertEqual(draft.status, MappingStatus.SUBMITTED)
         self.assertEqual(draft.version, 1)
         self.assertEqual(
-            self.repository.get_mapping_draft(self.project.project_id),
+            self.repository.get_mapping_working_draft(
+                self.project.project_id
+            ),
             draft,
         )
 
@@ -214,42 +217,12 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertIsNone(
             self.repository.get_source_selection(self.project.project_id)
         )
-        self.assertIsNone(
-            self.repository.get_mapping_draft(self.project.project_id)
+        self.assertEqual(
+            self.repository.get_mapping_working_draft(
+                self.project.project_id
+            ),
+            draft,
         )
-
-    def test_readonly_target_field_is_rejected(self) -> None:
-        self.sources.confirm_source(
-            self.project.project_id,
-            self.source.file_id,
-            selected_table_keys=("csv",),
-            warnings_acknowledged=False,
-            actor=LOCAL_ACTOR,
-        )
-        self.sources.freeze_selection(
-            self.project.project_id,
-            dataset_names={(self.source.file_id, "csv"): "customers"},
-            actor=LOCAL_ACTOR,
-        )
-        self.schemas.capture(
-            self.project.project_id,
-            _metadata_snapshot(),
-            actor=LOCAL_ACTOR,
-        )
-        with self.assertRaisesRegex(WorkspaceError, "readonly"):
-            self.mappings.save(
-                self.project.project_id,
-                proposals=(
-                    FieldMapping(
-                        dataset_name="customers",
-                        source_column="code",
-                        target_model="res.partner",
-                        target_field="display_name",
-                    ),
-                ),
-                submit=False,
-                actor=LOCAL_ACTOR,
-            )
 
     def test_local_manual_schema_draft_needs_no_odoo_credential(self) -> None:
         self.sources.confirm_source(
@@ -259,7 +232,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             warnings_acknowledged=False,
             actor=LOCAL_ACTOR,
         )
-        self.sources.freeze_selection(
+        selection = self.sources.freeze_selection(
             self.project.project_id,
             dataset_names={(self.source.file_id, "csv"): "customers"},
             actor=LOCAL_ACTOR,
@@ -297,31 +270,29 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             schema,
         )
 
-        draft = self.mappings.save(
-            self.project.project_id,
-            proposals=(
-                FieldMapping(
-                    dataset_name="customers",
-                    source_column="name",
-                    target_model="res.partner",
+        dataset = selection.datasets[0]
+        dataset_mapping = DatasetMapping(
+            dataset_id=dataset.dataset_id,
+            target_model="res.partner",
+            fields=(
+                ScalarFieldMapping(
                     target_field="name",
+                    source_column_key=dataset.columns[0].stable_key,
                 ),
             ),
-            submit=False,
+        )
+        draft = self.mappings.save_working_draft(
+            self.project.project_id,
+            datasets=(dataset_mapping,),
+            expected_version=None,
             actor=LOCAL_ACTOR,
         )
-        self.assertEqual(draft.status, MappingStatus.DRAFT)
+        self.assertEqual(draft.version, 1)
         with self.assertRaisesRegex(WorkspaceError, "live Odoo schema"):
-            self.mappings.save(
+            self.mappings.save_definition(
                 self.project.project_id,
-                proposals=(
-                    FieldMapping(
-                        dataset_name="customers",
-                        source_column="name",
-                        target_model="res.partner",
-                        target_field="name",
-                    ),
-                ),
+                datasets=(dataset_mapping,),
+                expected_parent_version=None,
                 submit=True,
                 actor=LOCAL_ACTOR,
             )

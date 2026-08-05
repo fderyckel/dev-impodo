@@ -22,8 +22,7 @@ from ..mapping_semantics import (
 )
 from ..projects import MigrationProject, ProjectSummary
 from ..quality import QualityReviewPage, QualityRuleSet
-from ..workspace import (
-    MappingDraft,
+from ..workspace_contracts import (
     MappingWorkingDraft,
     OdooModelCatalog,
     OdooSchemaCatalog,
@@ -57,7 +56,6 @@ class BrowserQueryRepository(Protocol):
     def get_schema_governance(
         self, project_id: str
     ) -> SchemaGovernance | None: ...
-    def get_mapping_draft(self, project_id: str) -> MappingDraft | None: ...
     def get_mapping_working_draft(
         self, project_id: str
     ) -> MappingWorkingDraft | None: ...
@@ -155,9 +153,6 @@ class BrowserQueryService:
         self, project_id: str
     ) -> SchemaGovernance | None:
         return self._repository.get_schema_governance(project_id)
-
-    def get_mapping_draft(self, project_id: str) -> MappingDraft | None:
-        return self._repository.get_mapping_draft(project_id)
 
     def get_mapping_working_draft(
         self, project_id: str

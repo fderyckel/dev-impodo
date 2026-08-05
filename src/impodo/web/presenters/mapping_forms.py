@@ -29,7 +29,7 @@ from ...mapping_semantics import (
 )
 from ...projects import MigrationProject, ProjectStatus
 from ...reference_keys import standard_reference_key
-from ...workspace import WorkspaceError
+from ...workspace_errors import WorkspaceError
 from ..context import WebContext
 from ..forms import (
     _checked,

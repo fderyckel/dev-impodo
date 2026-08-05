@@ -13,11 +13,11 @@ from ...access import Actor
 from ...derived_entities import mapping_source_selection
 from ...inspection import SourceFileCatalog, SourceInspectionError
 from ...projects import ProjectNotFoundError
-from ...workspace import (
+from ...workspace_contracts import (
     SourceConfiguration,
     SourceSelection,
-    WorkspaceError,
 )
+from ...workspace_errors import WorkspaceError
 
 
 
@@ -88,7 +88,6 @@ class SourceRepositoryMixin:
                 connection.execute("DELETE FROM source_configuration")
                 connection.execute("DELETE FROM source_selection")
                 connection.execute("DELETE FROM derived_entity_plan_current")
-                connection.execute("DELETE FROM mapping_draft")
                 connection.execute("DELETE FROM mapping_current")
                 self._invalidate_canonical_staging(
                     connection,
@@ -173,7 +172,6 @@ class SourceRepositoryMixin:
                     [catalog.file_id],
                 )
                 connection.execute("DELETE FROM source_selection")
-                connection.execute("DELETE FROM mapping_draft")
                 connection.execute("DELETE FROM mapping_current")
                 self._invalidate_canonical_staging(
                     connection,
@@ -251,7 +249,6 @@ class SourceRepositoryMixin:
                     ],
                 )
                 connection.execute("DELETE FROM source_selection")
-                connection.execute("DELETE FROM mapping_draft")
                 connection.execute("DELETE FROM mapping_current")
                 self._invalidate_canonical_staging(
                     connection,
@@ -305,7 +302,6 @@ class SourceRepositoryMixin:
             actor=actor,
             invalidate=(
                 "derived_entity_plan_current",
-                "mapping_draft",
                 "mapping_current",
             ),
         )

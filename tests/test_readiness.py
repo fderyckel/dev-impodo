@@ -70,7 +70,7 @@ from impodo.staging_contracts import (
     CanonicalStagingRun,
     StagingDisposition,
 )
-from impodo.workspace import (
+from impodo.workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,

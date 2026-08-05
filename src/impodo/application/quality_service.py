@@ -18,8 +18,8 @@ from ..quality import (
     evaluate_quality,
 )
 from ..staging import StagingRunSummary
-from ..workspace import SourceSelection
-from ..workspace import WorkspaceError
+from ..workspace_contracts import SourceSelection
+from ..workspace_errors import WorkspaceError
 from ..domain.errors import ReadinessError
 from .readiness_ports import QualityRepository
 

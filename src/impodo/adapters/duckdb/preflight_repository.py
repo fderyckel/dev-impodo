@@ -8,7 +8,7 @@ from uuid import UUID
 from ...access import Actor
 from ...projects import ProjectNotFoundError
 from ...domain.preflight.reports import ReadinessReport
-from ...workspace import WorkspaceError
+from ...workspace_errors import WorkspaceError
 
 
 

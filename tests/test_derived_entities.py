@@ -36,7 +36,7 @@ from impodo.mapping_semantics import (
 )
 from impodo.adapters.duckdb import DuckDbRepositories
 from impodo.projects import MigrationProject, ProjectStatus
-from impodo.workspace import (
+from impodo.workspace_contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,
@@ -44,8 +44,8 @@ from impodo.workspace import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
-    WorkspaceError,
 )
+from impodo.workspace_errors import WorkspaceError
 from impodo.web.presenters.mapping_view import _mapping_dataset_views
 
 

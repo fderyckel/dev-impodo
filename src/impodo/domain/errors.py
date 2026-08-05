@@ -1,6 +1,6 @@
 """Domain errors shared by preparation and preflight workflows."""
 
-from ..workspace import WorkspaceError
+from ..workspace_errors import WorkspaceError
 
 
 class ReadinessError(WorkspaceError):

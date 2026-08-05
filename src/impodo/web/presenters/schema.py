@@ -15,14 +15,14 @@ from ...business_keys import (
 )
 from ...derived_entities import DerivedEntityRule
 from ...projects import MigrationProject
-from ...workspace import (
+from ...workspace_contracts import (
     OdooModelCatalog,
     OdooModelSummary,
     SchemaField,
     SchemaModel,
     SchemaOrigin,
-    WorkspaceError,
 )
+from ...workspace_errors import WorkspaceError
 from ..constants import (
     _APPLICATION_MODULE_PREFIXES,
     _MANUAL_FIELD_NAME,

@@ -16,7 +16,7 @@ from ...domain.errors import ReadinessError
 from ...domain.staging.transformation_impact import TransformationImpactFilter
 from ...secrets import SecretStoreError
 from ...source import SourceLoadError
-from ...workspace import WorkspaceError
+from ...workspace_errors import WorkspaceError
 from ..security import require_csrf, require_session
 from fastapi import APIRouter
 from ..constants import TRANSFORMATION_IMPACT_PAGE_SIZE, TRANSFORMATION_IMPACT_OUTCOMES

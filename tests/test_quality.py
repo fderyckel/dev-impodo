@@ -37,7 +37,11 @@ from impodo.staging_contracts import (
     StagingDisposition,
     StagingReconciliation,
 )
-from impodo.workspace import SourceDataset, SourceDatasetColumn, SourceSelection
+from impodo.workspace_contracts import (
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -616,7 +620,7 @@ class QualityStoreTests(unittest.TestCase):
                     "PRAGMA table_info('readiness_run')"
                 ).fetchall()
             }
-        self.assertEqual(version, (16,))
+            self.assertEqual(version, (17,))
         self.assertIn("quality_run_id", columns)
         self.assertIn("quality_content_hash", columns)
 

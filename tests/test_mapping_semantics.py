@@ -31,7 +31,7 @@ from impodo.mapping_semantics import (
     canonicalize_scalar_value,
     evaluate_scalar_mapping_value,
 )
-from impodo.workspace import (
+from impodo.workspace_contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,

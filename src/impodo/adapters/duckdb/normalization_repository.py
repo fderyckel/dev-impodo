@@ -27,7 +27,7 @@ from ...normalization import (
     start_dry_run,
 )
 from ...quality import retention_context_hash
-from ...workspace import WorkspaceError
+from ...workspace_errors import WorkspaceError
 
 
 

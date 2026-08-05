@@ -8,7 +8,7 @@ from ...connectors import ConnectorError
 from ...projects import ProjectError
 from ...domain.errors import ReadinessError
 from ...secrets import SecretStoreError
-from ...workspace import WorkspaceError
+from ...workspace_errors import WorkspaceError
 from fastapi import APIRouter
 from ..context import WebContext
 from ..forms import _secure_form

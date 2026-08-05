@@ -10,7 +10,7 @@ from .reference_keys import (
     CURRENCY_REFERENCE_KEY,
     LANGUAGE_REFERENCE_KEY,
 )
-from .workspace import SchemaField, SchemaModel
+from .workspace_contracts import SchemaField, SchemaModel
 
 
 _UNIQUE_DEFINITION = re.compile(

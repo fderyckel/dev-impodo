@@ -19,12 +19,12 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 from .access import Actor, AuthorizationPolicy, Capability
 from .inspection import SourceFileCatalog
 from .projects import MigrationProject
-from .workspace import (
+from .workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
-    WorkspaceError,
 )
+from .workspace_errors import WorkspaceError
 
 
 DERIVED_ENTITY_CONTRACT_VERSION = 2

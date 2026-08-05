@@ -20,13 +20,12 @@ from ...mapping_semantics import (
     mapping_issue_fingerprint,
 )
 from ...projects import ProjectNotFoundError
-from ...workspace import (
-    MappingDraft,
+from ...workspace_contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
     SourceSelection,
-    WorkspaceError,
 )
+from ...workspace_errors import WorkspaceError
 
 
 
@@ -37,28 +36,6 @@ from ...workspace import (
 class MappingRepositoryMixin:
     """Persistence operations for mapping repository."""
 
-    def get_mapping_draft(self, project_id: str) -> MappingDraft | None:
-        value = self._read_singleton_json(
-            project_id,
-            "SELECT draft_json FROM mapping_draft WHERE singleton_id = 1",
-        )
-        return MappingDraft.from_json(value) if value else None
-    def save_mapping_draft(
-        self,
-        project_id: str,
-        draft: MappingDraft,
-        *,
-        actor: Actor,
-    ) -> None:
-        self._save_singleton(
-            project_id,
-            table="mapping_draft",
-            value_column="draft_json",
-            value=draft.to_json(),
-            event_type=f"MAPPING_{draft.status.value}",
-            detail=f"version {draft.version}: {len(draft.entries)} mapping(s)",
-            actor=actor,
-        )
     def get_mapping_working_draft(
         self,
         project_id: str,
@@ -354,7 +331,6 @@ class MappingRepositoryMixin:
                         validation.to_json(),
                     ],
                 )
-                connection.execute("DELETE FROM mapping_draft")
                 self._invalidate_canonical_staging(
                     connection,
                     reason="MAPPING_REVISION_CHANGED",

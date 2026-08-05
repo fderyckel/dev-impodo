@@ -23,10 +23,8 @@ from ...staging_contracts import (
     CanonicalRow,
     CanonicalStagingRun,
 )
-from ...workspace import (
-    SourceSelection,
-    WorkspaceError,
-)
+from ...workspace_contracts import SourceSelection
+from ...workspace_errors import WorkspaceError
 
 
 

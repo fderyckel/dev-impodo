@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from io import BytesIO
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -25,6 +26,13 @@ from impodo.projects import (
     ProjectStatus,
     SourceFile,
 )
+from impodo.workspace_contracts import (
+    MappingWorkingDraft,
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+)
+from impodo.workspace_serialization import content_hash
 from impodo.domain.staging.transformation_impact import (
     TransformationImpactFilter,
     TransformationImpactIdentity,
@@ -505,6 +513,137 @@ class ProjectLifecycleTests(unittest.TestCase):
         self.assertEqual(
             working_draft_table,
             ("mapping_working_draft",),
+        )
+
+    def test_version_sixteen_retires_and_recovers_field_list_draft(
+        self,
+    ) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Mapping draft retirement",
+            source_system="CSV",
+        )
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+        now = datetime.now(timezone.utc)
+        selection = SourceSelection(
+            selection_id="selection-1",
+            version=1,
+            project_id=project.project_id,
+            created_at=now,
+            created_by="Migration test",
+            datasets=(
+                SourceDataset(
+                    dataset_id="dataset:customers",
+                    name="customers",
+                    file_id="file-1",
+                    table_key="csv",
+                    source_sha256="a" * 64,
+                    catalog_hash="sha256:" + "b" * 64,
+                    encoding="utf-8",
+                    delimiter=",",
+                    header_row=1,
+                    row_count=1,
+                    columns=(
+                        SourceDatasetColumn(
+                            ordinal=1,
+                            source_name="name",
+                            stable_key="column:1:name",
+                            candidate_type="text",
+                        ),
+                    ),
+                ),
+            ),
+            content_hash="sha256:" + "c" * 64,
+        )
+        schema_hash = "sha256:" + "d" * 64
+        old_payload = {
+            "mapping_id": "mapping-1",
+            "version": 3,
+            "status": "DRAFT",
+            "source_selection_hash": selection.content_hash,
+            "schema_hash": schema_hash,
+            "updated_at": now.isoformat(),
+            "updated_by": "Migration test",
+            "entries": [
+                {
+                    "dataset_name": "customers",
+                    "source_column": "name",
+                    "target_model": "res.partner",
+                    "target_field": "name",
+                }
+            ],
+        }
+        old_payload["content_hash"] = content_hash(
+            {
+                key: old_payload[key]
+                for key in (
+                    "mapping_id",
+                    "version",
+                    "status",
+                    "source_selection_hash",
+                    "schema_hash",
+                    "entries",
+                )
+            }
+        )
+        with self.repository._connect(database_path) as connection:
+            connection.execute(
+                """
+                CREATE TABLE mapping_draft (
+                    singleton_id INTEGER PRIMARY KEY,
+                    draft_json VARCHAR NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                "INSERT INTO mapping_draft VALUES (1, ?)",
+                [json.dumps(old_payload)],
+            )
+            connection.execute(
+                "INSERT INTO source_selection VALUES (1, ?)",
+                [selection.to_json()],
+            )
+            connection.execute(
+                "INSERT INTO odoo_schema_catalog VALUES (1, ?)",
+                [json.dumps({"content_hash": schema_hash})],
+            )
+            connection.execute("UPDATE schema_version SET version = 16")
+
+        self.repository.get(project.project_id)
+
+        with self.repository._connect(database_path) as connection:
+            tables = {
+                str(row[0])
+                for row in connection.execute("SHOW TABLES").fetchall()
+            }
+            retired = connection.execute(
+                """
+                SELECT retirement_reason, payload_json
+                  FROM retired_evidence
+                 WHERE evidence_type = 'FIELD_LIST_MAPPING_DRAFT'
+                   AND evidence_key = 'singleton'
+                """
+            ).fetchone()
+            recovered_json = connection.execute(
+                """
+                SELECT draft_json
+                  FROM mapping_working_draft
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()[0]
+        recovered = MappingWorkingDraft.from_json(str(recovered_json))
+        self.assertEqual(
+            retired,
+            ("CONVERTED_TO_WORKING_DRAFT", json.dumps(old_payload)),
+        )
+        self.assertNotIn("mapping_draft", tables)
+        self.assertEqual(recovered.mapping_id, "mapping-1")
+        self.assertEqual(
+            recovered.definition.datasets[0].fields[0].source_column_key,
+            "column:1:name",
         )
 
     def test_version_eleven_database_adds_durable_staging(self) -> None:

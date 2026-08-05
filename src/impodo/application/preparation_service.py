@@ -28,7 +28,7 @@ from ..projects import MigrationProject
 from ..quality import QualityRun, QualityRunSummary
 from ..source import SourceTable, load_selected_source_table
 from ..staging import StagingRunSummary
-from ..workspace import SourceSelection
+from ..workspace_contracts import SourceSelection
 from ..domain.errors import ReadinessError
 from .normalization_service import NormalizationService
 from .quality_service import QualityService

@@ -31,7 +31,7 @@ from ...quality import (
     QuarantineEntry,
     retention_context_hash,
 )
-from ...workspace import WorkspaceError
+from ...workspace_errors import WorkspaceError
 
 
 

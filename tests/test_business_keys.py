@@ -5,7 +5,7 @@ import unittest
 from impodo.business_keys import recommend_business_key
 from impodo.models import UniqueConstraintMetadata
 from impodo.reference_keys import standard_reference_key
-from impodo.workspace import SchemaField, SchemaModel
+from impodo.workspace_contracts import SchemaField, SchemaModel
 
 
 class BusinessKeyRecommendationTests(unittest.TestCase):

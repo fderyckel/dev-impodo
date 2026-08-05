@@ -25,7 +25,7 @@ from ...domain.staging.transformation_impact import (
     TransformationImpactRow,
     TransformationImpactSnapshot,
 )
-from ...workspace import WorkspaceError
+from ...workspace_errors import WorkspaceError
 
 
 

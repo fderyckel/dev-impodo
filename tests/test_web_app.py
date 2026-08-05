@@ -63,7 +63,7 @@ from impodo.secrets import MemorySecretStore
 from impodo.staging_contracts import CanonicalControlTotal
 from impodo.web import create_local_app
 from impodo.web.target_readers import _source_value_choices
-from impodo.workspace import (
+from impodo.workspace_contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,

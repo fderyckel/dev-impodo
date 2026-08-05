@@ -216,7 +216,6 @@ class ProjectRepositoryMixin:
                 if target_changed:
                     connection.execute("DELETE FROM odoo_schema_catalog")
                     connection.execute("DELETE FROM schema_governance_current")
-                    connection.execute("DELETE FROM mapping_draft")
                     connection.execute("DELETE FROM mapping_current")
                     self._invalidate_canonical_staging(
                         connection,
@@ -325,7 +324,6 @@ class ProjectRepositoryMixin:
                 self._update_project(connection, project)
                 connection.execute("DELETE FROM odoo_schema_catalog")
                 connection.execute("DELETE FROM schema_governance_current")
-                connection.execute("DELETE FROM mapping_draft")
                 connection.execute("DELETE FROM mapping_current")
                 self._invalidate_canonical_staging(
                     connection,

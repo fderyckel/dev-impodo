@@ -3,7 +3,7 @@
 from __future__ import annotations
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from ...workspace import WorkspaceError
+from ...workspace_errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
