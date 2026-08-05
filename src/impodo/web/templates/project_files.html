@@ -4,12 +4,12 @@
   {% set step = "files" %}
   {% include "_steps.html" %}
   <section class="form-card">
-    <p class="eyebrow">Project setup · Governed source intake</p>
+    <p class="eyebrow">Project setup · Source files</p>
     <h1>Add source files</h1>
     <p>
       CSV and modern XLSX only. Legacy <code>.xls</code> files must be opened
       in Excel and saved as <code>.xlsx</code>; renaming the extension is not
-      sufficient. Originals are copied, hashed, and kept immutable.
+      sufficient. Impodo keeps an unchanged copy of every file.
     </p>
 
     {% if project.source_files %}

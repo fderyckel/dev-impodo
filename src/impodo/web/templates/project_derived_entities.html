@@ -1,20 +1,20 @@
 {% extends "base.html" %}
-{% block title %}Prepare related datasets - {{ project.name }} - Impodo{% endblock %}
+{% block title %}Prepare related records - {{ project.name }} - Impodo{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Source preparation - related records</p>
-      <h1>Prepare related datasets</h1>
-      <p>Turn denormalized source data into the related datasets Odoo expects without editing the original file.</p>
+      <p class="eyebrow">Optional · Related records</p>
+      <h1>Prepare related records</h1>
+      <p>Separate linked records when one source table contains more than one type of Odoo record.</p>
     </div>
     {% if plan %}
-      <span class="status registered">PLAN - v{{ plan.version }}</span>
+      <span class="status registered">Rules saved · v{{ plan.version }}</span>
     {% endif %}
   </div>
 
   <div class="notice">
     <strong>Your source evidence stays unchanged.</strong>
-    Impodo stores a reviewed, hash-bound preparation rule. Prepared datasets become normal datasets in Mapping, and readiness repeats the rule over every source row.
+    Saved rules are repeated consistently for every row when Impodo checks the data.
   </div>
 
   {% if not selection %}
@@ -24,8 +24,8 @@
       <a class="button primary" href="/projects/{{ project.project_id }}/datasets">Freeze datasets</a>
     </section>
   {% else %}
-    <section class="form-card evidence-card">
-      <h2>Evidence binding</h2>
+    <details class="form-card technical-evidence evidence-card">
+      <summary>Technical evidence <small>For audit and support</small></summary>
       <div class="definition-list">
         <div><dt>Frozen source</dt><dd><code title="{{ selection.content_hash }}">{{ selection.content_hash }}</code></dd></div>
         {% if plan %}
@@ -33,7 +33,7 @@
         {% endif %}
       </div>
       <p class="muted">Changing the frozen source or a preparation rule invalidates the current mapping so it cannot silently use an outdated structure.</p>
-    </section>
+    </details>
 
     <section class="form-card">
       <h2>What does your source contain?</h2>

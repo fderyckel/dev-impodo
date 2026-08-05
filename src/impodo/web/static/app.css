@@ -2120,6 +2120,63 @@ label.model-choice input {
   margin-bottom: 1rem;
 }
 
+.next-action-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--impodo-charcoal);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: clamp(1.35rem, 3vw, 2rem);
+}
+
+.next-action-card.blocked {
+  border-left-color: var(--danger);
+}
+
+.next-action-card.review {
+  border-left-color: #c08018;
+}
+
+.next-action-card.ready {
+  border-left-color: #4d7c5b;
+}
+
+.next-action-card h2,
+.next-action-card p {
+  margin-bottom: .45rem;
+}
+
+.next-action-buttons {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: .6rem;
+}
+
+.next-action-buttons form,
+.next-action-buttons .button {
+  width: 100%;
+  margin: 0;
+}
+
+.optional-workflow {
+  margin-top: 1.5rem;
+}
+
+.optional-workflow p {
+  max-width: 680px;
+  margin: .75rem 0;
+}
+
+.advanced-matching-options label {
+  max-width: 620px;
+  margin-bottom: .5rem;
+}
+
 .readiness-card {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -2524,6 +2581,12 @@ label.model-choice input {
 @media (max-width: 720px) {
   .readiness-cards {
     grid-template-columns: 1fr;
+  }
+
+  .next-action-card {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 1rem;
   }
 
   .rule-inline-fields {

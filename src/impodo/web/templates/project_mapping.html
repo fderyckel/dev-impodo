@@ -3,18 +3,18 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Mapping</p>
+      <p class="eyebrow">Step 4 · Match fields</p>
       <h1>Match your data to Odoo</h1>
-      <p>Choose how each source dataset identifies records and fills Odoo fields.</p>
+      <p>Choose where each source value belongs and how existing records are found.</p>
     </div>
     {% if has_unvalidated_changes %}
-      <span class="status">WORKING DRAFT · v{{ working_draft.version }}</span>
+      <span class="status">Unsaved checks · v{{ working_draft.version }}</span>
     {% elif submission %}
-      <span class="status registered">SUBMITTED · v{{ submission.version }}</span>
+      <span class="status registered">Field matches confirmed · v{{ submission.version }}</span>
     {% elif revision %}
-      <span class="status registered">DRAFT · v{{ revision.version }}</span>
+      <span class="status registered">Mapping checked · v{{ revision.version }}</span>
     {% elif legacy_draft %}
-      <span class="status">LEGACY UNVALIDATED · v{{ legacy_draft.version }}</span>
+      <span class="status">Older unchecked draft · v{{ legacy_draft.version }}</span>
     {% endif %}
   </div>
 
@@ -71,8 +71,8 @@
           <div class="page-heading compact">
             <div>
               <p class="eyebrow">
-                Dataset {{ loop.index }}
-                {% if view.related_role %} - generated {{ view.related_role }}{% endif %}
+                Table {{ loop.index }}
+                {% if view.related_role %} · prepared {{ view.related_role }} records{% endif %}
               </p>
               <h2>{{ view.source.name }}</h2>
               <p>
@@ -81,12 +81,15 @@
               </p>
             </div>
             <div>
-              <code>{{ view.source.dataset_id }}</code>
               {% if view.active %}
-                <span class="status registered">Editing fields</span>
+                <span class="status registered">Editing this table</span>
               {% else %}
-                <a class="button secondary" href="{{ view.edit_url }}">Edit this dataset</a>
+                <a class="button secondary" href="{{ view.edit_url }}">Edit this table</a>
               {% endif %}
+              <details class="technical-details">
+                <summary>Technical ID</summary>
+                <code>{{ view.source.dataset_id }}</code>
+              </details>
             </div>
           </div>
 
@@ -103,7 +106,7 @@
 
           <div class="form-grid">
             <label>
-              Target model
+              Odoo record type
               <select name="target_model_{{ dataset_index }}" data-target-model>
                 {% for model in view.models %}
                   <option value="{{ model.name }}" {% if model.name == view.selected_model %}selected{% endif %}>
@@ -111,26 +114,30 @@
                   </option>
                 {% endfor %}
               </select>
-              <small>Changing the model refreshes its captured fields before you map them.</small>
+              <small>Changing the record type refreshes the available Odoo fields.</small>
             </label>
             <label>
-              Dataset mode
+              What should Impodo prepare?
               <select name="mode_{{ dataset_index }}">
                 {% set selected_mode = view.mapping.mode.value if view.mapping else 'upsert' %}
-                {% for mode in ('upsert', 'create', 'reference') %}
-                  <option value="{{ mode }}" {% if selected_mode == mode %}selected{% endif %}>{{ mode }}</option>
-                {% endfor %}
+                <option value="upsert" {% if selected_mode == 'upsert' %}selected{% endif %}>Create new records or update matches</option>
+                <option value="create" {% if selected_mode == 'create' %}selected{% endif %}>Create new records only</option>
+                <option value="reference" {% if selected_mode == 'reference' %}selected{% endif %}>Use existing Odoo records only</option>
               </select>
-            </label>
-            <label>
-              Existing identity in create mode
-              {% set selected_existing = view.mapping.on_existing if view.mapping else 'block' %}
-              <select name="on_existing_{{ dataset_index }}">
-                <option value="block" {% if selected_existing == 'block' %}selected{% endif %}>Block</option>
-                <option value="unchanged" {% if selected_existing == 'unchanged' %}selected{% endif %}>Treat as unchanged</option>
-              </select>
+              <small>This affects the readiness result; it never changes Odoo on this screen.</small>
             </label>
           </div>
+          <details class="technical-evidence advanced-matching-options">
+            <summary>Advanced matching option</summary>
+            <label>
+              If a record already exists while using “Create new records only”
+              {% set selected_existing = view.mapping.on_existing if view.mapping else 'block' %}
+              <select name="on_existing_{{ dataset_index }}">
+                <option value="block" {% if selected_existing == 'block' %}selected{% endif %}>Stop and ask me to review it</option>
+                <option value="unchanged" {% if selected_existing == 'unchanged' %}selected{% endif %}>Keep the existing record unchanged</option>
+              </select>
+            </label>
+          </details>
 
           <div class="identity-pair">
             <section class="identity-panel" aria-labelledby="source-identity-{{ dataset_index }}">
@@ -816,22 +823,34 @@
         <section class="form-card" id="semantic-validation">
           <div class="page-heading compact">
             <div>
-              <p class="eyebrow">Semantic validation</p>
-              <h2>{{ validation.status.value.replace('_', ' ') }}</h2>
+              <p class="eyebrow">Mapping check</p>
+              <h2>{% if validation.status.value == 'INVALID' %}Needs attention{% else %}Ready to confirm{% endif %}</h2>
             </div>
-            <span class="status registered">{{ validation.issues|length }} finding(s)</span>
+            <span class="status {% if validation.issues %}needs_review{% else %}ready{% endif %}">
+              {{ validation.issues|length }} item{{ "s" if validation.issues|length != 1 else "" }}
+            </span>
           </div>
           {% if validation.issues %}
             <div class="table-scroll">
               <table class="data-table">
-                <thead><tr><th>Severity</th><th>Code</th><th>Location</th><th>Finding</th><th>Remediation</th></tr></thead>
+                <thead><tr><th>Problem</th><th>Where</th><th>How to fix it</th></tr></thead>
                 <tbody>
                   {% for issue in validation.issues %}
                     <tr>
-                      <td>{{ issue.severity }}</td>
-                      <th><code>{{ issue.code }}</code></th>
-                      <td><code>{{ issue.path }}</code></td>
-                      <td>{{ issue.message }}</td>
+                      <th>
+                        {{ issue.message }}
+                        <details class="technical-details">
+                          <summary>Technical code</summary>
+                          <code>{{ issue.code }}</code> · {{ issue.severity }}
+                        </details>
+                      </th>
+                      <td>
+                        {{ issue.path.replace('_', ' ').replace('.', ' · ') }}
+                        <details class="technical-details">
+                          <summary>Technical path</summary>
+                          <code>{{ issue.path }}</code>
+                        </details>
+                      </td>
                       <td>{{ issue.remediation }}</td>
                     </tr>
                   {% endfor %}
@@ -839,7 +858,7 @@
               </table>
             </div>
           {% else %}
-            <p>No static semantic issue was found. Runtime data checks remain deferred to staging and preflight.</p>
+            <p>Your field matches are consistent. The next step checks every source row and compares it with Odoo.</p>
           {% endif %}
           {% if validation.status.value != 'INVALID' and revision and not has_unvalidated_changes %}
             <div class="actions">
@@ -854,7 +873,7 @@
             </label>
           {% endfor %}
           <details>
-            <summary>Deferred runtime checks</summary>
+            <summary>Checks Impodo will run on your data next</summary>
             <ul>
               {% for check in validation.deferred_runtime_checks %}
                 <li><code>{{ check.code }}</code> · {{ check.message }}</li>
@@ -880,13 +899,13 @@
             Changes are not saved yet.
           {% endif %}
         </p>
-        <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Back to schema</a>
+        <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Back to Odoo fields</a>
         <button class="button secondary" name="action" value="save_progress" type="submit" data-save-mapping-progress>Save progress</button>
-        <button class="button secondary" name="action" value="draft" type="submit">Validate draft</button>
+        <button class="button secondary" name="action" value="draft" type="submit">Check mapping</button>
         {% if submission %}
-          <a class="button primary" href="/projects/{{ project.project_id }}/summary">Check data readiness</a>
+          <a class="button primary" href="/projects/{{ project.project_id }}/summary">Check all rows</a>
         {% elif schema.origin.value != 'LOCAL_MANUAL' %}
-          <button class="button primary" name="action" value="submit" type="submit">Submit exact validated mapping</button>
+          <button class="button primary" name="action" value="submit" type="submit">Confirm field matches</button>
         {% endif %}
       </div>
     </form>

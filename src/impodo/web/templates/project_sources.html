@@ -3,16 +3,16 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Source discovery · Source inspection</p>
-      <h1>Inspect source files</h1>
-      <p>Inventory and profile the immutable files registered to {{ project.name }}.</p>
+      <p class="eyebrow">Step 1 · Source data</p>
+      <h1>Check your source files</h1>
+      <p>Confirm the tables and columns Impodo found in {{ project.name }}.</p>
     </div>
     <span class="status registered">{{ catalogs|length }}/{{ project.source_files|length }} cataloged</span>
   </div>
 
   <section class="form-card">
-    <h2>Registered evidence</h2>
-    <p>Inspection verifies each stored file against its registered size and SHA-256 hash. Preview values are bounded and the files are never modified.</p>
+    <h2>Files in this project</h2>
+    <p>Impodo checks each file without changing the original.</p>
     <div class="file-list">
       {% for file in project.source_files %}
         <div class="file-row">
@@ -33,7 +33,7 @@
     <form method="post" action="/projects/{{ project.project_id }}/sources/inspect">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
-        <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to project</a>
+        <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to review</a>
         <button class="button primary" type="submit">
           {% if catalogs %}Inspect again{% else %}Inspect source files{% endif %}
         </button>
@@ -44,7 +44,7 @@
   {% if not catalogs %}
     <section class="empty-state workflow-empty">
       <h2>No source catalog yet</h2>
-      <p>Run inspection to detect CSV structure or inventory workbook sheets, headers, samples, and data-quality signals.</p>
+      <p>Check the files to see their tables, columns, sample values and possible data issues.</p>
     </section>
   {% endif %}
 
@@ -231,10 +231,10 @@
 
   {% if catalogs and configurations|length == project.source_files|length %}
     <section class="form-card">
-      <h2>Source configuration complete</h2>
-      <p>Every registered source has a current, hash-bound confirmation.</p>
+      <h2>Your source data is confirmed</h2>
+      <p>Every source file is ready for table selection.</p>
       <div class="actions">
-        <a class="button primary" href="/projects/{{ project.project_id }}/datasets">Choose and freeze datasets</a>
+        <a class="button primary" href="/projects/{{ project.project_id }}/datasets">Choose tables</a>
       </div>
     </section>
   {% endif %}

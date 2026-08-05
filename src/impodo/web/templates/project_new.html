@@ -3,7 +3,7 @@
 {% block content %}
   <section class="form-card narrow">
     <p class="eyebrow">Project setup · Start</p>
-    <h1>Create a migration project</h1>
+    <h1>Start a data preparation project</h1>
     <p>This creates a local draft. You can finish it over several sessions.</p>
     <form method="post" action="/projects/new">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -23,7 +23,7 @@
       </label>
       <div class="actions">
         <a class="button secondary" href="/projects">Cancel</a>
-        <button class="button primary" type="submit">Create draft</button>
+        <button class="button primary" type="submit">Start project</button>
       </div>
     </form>
   </section>

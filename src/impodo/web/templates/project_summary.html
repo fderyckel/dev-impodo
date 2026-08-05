@@ -3,20 +3,22 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Summary</p>
+      <p class="eyebrow">Step 5 · Review</p>
       <h1>{{ project.name }}</h1>
       {% if readiness %}
-        <p>Row-level readiness for mapping version {{ readiness.mapping_version }}.</p>
+        <p>Every source row has been checked against your confirmed field matches.</p>
       {% elif submission %}
-        <p>Your mapping is ready for a full data check.</p>
+        <p>Your field matches are confirmed. Check every source row next.</p>
       {% else %}
-        <p>Registered migration project</p>
+        <p>Continue preparing and checking this project.</p>
       {% endif %}
     </div>
     {% if readiness %}
-      <span class="status {{ readiness.status|lower }}">{{ readiness.status.replace('_', ' ') }}</span>
+      <span class="status {{ readiness.status|lower }}">
+        {% if readiness.status == 'READY' %}Data check complete{% elif readiness.status == 'NEEDS_REVIEW' %}Decisions needed{% else %}Fixes needed{% endif %}
+      </span>
     {% else %}
-      <span class="status registered">{{ project.status.value }}</span>
+      <span class="status registered">{% if project.status.value == 'REGISTERED' %}Setup complete{% else %}In setup{% endif %}</span>
     {% endif %}
   </div>
 
@@ -25,28 +27,65 @@
   {% endif %}
 
   {% if readiness %}
+    <section class="next-action-card {% if readiness.blocked_count %}blocked{% elif readiness.needs_review_count %}review{% else %}ready{% endif %}" aria-labelledby="next-action-title">
+      <div>
+        <p class="eyebrow">Next action</p>
+        {% if readiness.blocked_count %}
+          <h2 id="next-action-title">Fix {{ readiness.blocked_count }} row{{ "s" if readiness.blocked_count != 1 else "" }} first</h2>
+          <p>These rows cannot continue until their data or field matches are corrected.</p>
+        {% elif readiness.needs_review_count %}
+          <h2 id="next-action-title">Review {{ readiness.needs_review_count }} decision{{ "s" if readiness.needs_review_count != 1 else "" }}</h2>
+          <p>Impodo needs your choice before it can mark the data check complete.</p>
+        {% elif review_workbook_ready %}
+          <h2 id="next-action-title">Your review workbook is ready</h2>
+          <p>Download the workbook to share or keep with the migration evidence.</p>
+        {% else %}
+          <h2 id="next-action-title">Your data check is complete</h2>
+          <p>Create a review workbook with the checked rows and supporting evidence.</p>
+        {% endif %}
+      </div>
+      <div class="next-action-buttons">
+        {% if readiness.blocked_count %}
+          <a class="button primary" href="?status=blocked#readiness-rows">Show rows to fix</a>
+        {% elif readiness.needs_review_count %}
+          <a class="button primary" href="?status=needs_review#readiness-rows">Review decisions</a>
+        {% elif review_workbook_ready %}
+          <a class="button primary" href="/projects/{{ project.project_id }}/summary/workbook">Download review workbook</a>
+        {% else %}
+          <form method="post" action="/projects/{{ project.project_id }}/summary/package">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button primary" type="submit">Create review workbook</button>
+          </form>
+        {% endif %}
+        <form method="post" action="/projects/{{ project.project_id }}/summary/check">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button secondary" type="submit">Check all rows again</button>
+        </form>
+      </div>
+    </section>
+
     <section class="readiness-cards" aria-label="Readiness overview">
       <a class="readiness-card ready{% if status_filter == 'ready' %} selected{% endif %}" href="?status=ready">
         <span>Ready</span>
         <strong>{{ readiness.ready_count }}</strong>
-        <small>Create, update or unchanged</small>
+        <small>No blocking problem found</small>
       </a>
       <a class="readiness-card review{% if status_filter == 'needs_review' %} selected{% endif %}" href="?status=needs_review">
-        <span>Needs review</span>
+        <span>Review</span>
         <strong>{{ readiness.needs_review_count }}</strong>
-        <small>A decision is required</small>
+        <small>Your decision is needed</small>
       </a>
       <a class="readiness-card blocked{% if status_filter == 'blocked' %} selected{% endif %}" href="?status=blocked">
-        <span>Blocked</span>
+        <span>Fix</span>
         <strong>{{ readiness.blocked_count }}</strong>
-        <small>Fix before continuing</small>
+        <small>Must be corrected</small>
       </a>
     </section>
 
     <section class="form-card readiness-datasets">
       <div class="page-heading compact">
         <div>
-          <p class="eyebrow">By dataset</p>
+          <p class="eyebrow">By table</p>
           <h2>{{ readiness.total_count }} rows checked</h2>
         </div>
         <span class="muted">{{ readiness.checked_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
@@ -54,7 +93,7 @@
       <div class="table-scroll">
         <table class="data-table">
           <thead>
-            <tr><th>Dataset</th><th>Target</th><th>Ready</th><th>Needs review</th><th>Blocked</th></tr>
+            <tr><th>Table</th><th>Odoo record type</th><th>Ready</th><th>Review</th><th>Fix</th></tr>
           </thead>
           <tbody>
             {% for item in readiness.datasets %}
@@ -74,9 +113,9 @@
     <section class="form-card" id="readiness-rows">
       <div class="page-heading compact">
         <div>
-          <p class="eyebrow">Rows</p>
+          <p class="eyebrow">Checked rows</p>
           <h2>
-            {% if status_filter %}{{ status_filter.replace('_', ' ')|title }}{% else %}All results{% endif %}
+            {% if status_filter == 'ready' %}Ready{% elif status_filter == 'needs_review' %}Review{% elif status_filter == 'blocked' %}Fix{% else %}All results{% endif %}
             {% if dataset_filter %} · {{ dataset_filter.replace('_', ' ')|title }}{% endif %}
           </h2>
         </div>
@@ -93,7 +132,7 @@
         <div class="table-scroll">
           <table class="data-table readiness-row-table">
             <thead>
-              <tr><th>Dataset</th><th>Source row</th><th>Key</th><th>Reason</th><th>What to do</th></tr>
+              <tr><th>Table</th><th>Source row</th><th>Record</th><th>What Impodo found</th><th>What to do</th></tr>
             </thead>
             <tbody>
               {% for row in readiness_rows %}
@@ -137,37 +176,19 @@
       {% endif %}
     </section>
 
-    <div class="actions readiness-actions">
-      <form method="post" action="/projects/{{ project.project_id }}/summary/check">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="button secondary" type="submit">Recheck data</button>
-      </form>
-      {% if readiness.blocked_count %}
-        <a class="button primary" href="?status=blocked#readiness-rows">Review blocked rows</a>
-      {% elif readiness.needs_review_count %}
-        <a class="button primary" href="?status=needs_review#readiness-rows">Review decisions</a>
-      {% elif review_workbook_ready %}
-        <a class="button primary" href="/projects/{{ project.project_id }}/summary/workbook">Download review package</a>
-      {% else %}
-        <form method="post" action="/projects/{{ project.project_id }}/summary/package">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button primary" type="submit">Generate review package</button>
-        </form>
-      {% endif %}
-    </div>
     <p class="muted">
-      This is a read-only check. Impodo did not change Odoo.
-      <a href="/projects/{{ project.project_id }}/summary/manifest">Download technical evidence</a>
+      This check is read-only. Odoo remains unchanged.
+      <a href="/projects/{{ project.project_id }}/summary/manifest">Technical evidence</a>
     </p>
 
   {% elif submission %}
     <section class="form-card readiness-start">
       <div class="empty-state">
-        <h2>Check every row</h2>
-        <p>Impodo will validate keys, values, relationships and Odoo matches.</p>
+        <h2>Check all source rows</h2>
+        <p>Impodo will check values, linked records and possible matches in Odoo.</p>
         <form method="post" action="/projects/{{ project.project_id }}/summary/check">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button primary" type="submit">Check data readiness</button>
+          <button class="button primary" type="submit">Check all rows</button>
         </form>
         <small>Read-only · no changes are sent to Odoo</small>
       </div>
@@ -176,9 +197,9 @@
   {% elif revision %}
     <section class="form-card">
       <div class="empty-state">
-        <h2>Submit the mapping first</h2>
-        <p>Only the exact submitted mapping can be checked row by row.</p>
-        <a class="button primary" href="/projects/{{ project.project_id }}/mapping">Open mapping</a>
+        <h2>Finish your field matches first</h2>
+        <p>Confirm the field matches you want Impodo to apply to every source row.</p>
+        <a class="button primary" href="/projects/{{ project.project_id }}/mapping">Continue field matching</a>
       </div>
     </section>
 

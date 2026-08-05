@@ -21,10 +21,7 @@ The target may contain:
 
 The complete product covers source discovery, target-schema discovery,
 mapping, normalization, validation, staging, target preflight, approval,
-controlled loading, and reconciliation. The intended product category is
-similar to [STML's Odoo migration tooling](https://www.stml.io/), but Impodo
-is an independent implementation with explicit governance and safety
-boundaries.
+controlled loading, and reconciliation. 
 
 The current product provides local-browser project setup, CSV/XLSX source
 discovery and frozen datasets, read-only target-schema capture, and governed

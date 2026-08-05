@@ -4,10 +4,10 @@
   {% set step = "target" %}
   {% include "_steps.html" %}
   <section class="form-card">
-    <p class="eyebrow">Project setup · Odoo target</p>
-    <h1>Choose the read-only target</h1>
+    <p class="eyebrow">Project setup · Connect Odoo</p>
+    <h1>Connect to Odoo safely</h1>
     <p>Connect to an authorised Odoo 19 target on this computer or through
-      HTTPS. Impodo keeps the connection read-only.</p>
+      HTTPS. This connection can read information but cannot change Odoo.</p>
     <form
       method="post"
       action="/projects/{{ project.project_id }}/target"
@@ -75,11 +75,10 @@
       </label>
 
       <fieldset>
-        <legend>Migration application scope (optional)</legend>
+        <legend>Odoo apps in this project (optional)</legend>
         <p class="muted">
-          This gives reviewers business context and filters the model catalogue
-          shown later. It does not grant Odoo access; the exact permitted
-          models are confirmed separately before schema capture.
+          This keeps the next screen focused on relevant Odoo record types.
+          You will still choose exactly which record types the project may read.
         </p>
         <div class="choice-grid">
           {% for application in applications %}

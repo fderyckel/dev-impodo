@@ -3,9 +3,9 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Source discovery · Dataset selection</p>
-      <h1>Freeze governed datasets</h1>
-      <p>Name the confirmed tables that will form the immutable mapping boundary.</p>
+      <p class="eyebrow">Step 2 · Select tables</p>
+      <h1>Choose the tables to prepare</h1>
+      <p>Give each confirmed source table a short, recognisable name.</p>
     </div>
     {% if selection %}
       <span class="status registered">Version {{ selection.version }}</span>
@@ -24,13 +24,14 @@
                 <span>{{ choice.row_count }} rows · {{ choice.column_count }} columns</span>
               </div>
               <label>
-                <span>Dataset name</span>
+                <span>Table name in Impodo</span>
                 <input
                   name="dataset_name_{{ loop.index0 }}"
                   value="{{ selection.datasets[loop.index0].name if selection and selection.datasets|length > loop.index0 else choice.default_name }}"
                   pattern="[a-z][a-z0-9_]{0,62}"
                   required
                 >
+                <small>Use lowercase letters, numbers and underscores.</small>
               </label>
             </div>
           {% endfor %}
@@ -38,7 +39,7 @@
         <div class="actions">
           <a class="button secondary" href="/projects/{{ project.project_id }}/sources">Back to sources</a>
           <button class="button primary" type="submit">
-            {% if selection %}Freeze new version{% else %}Freeze selection{% endif %}
+            {% if selection %}Save a new version{% else %}Save table selection{% endif %}
           </button>
         </div>
       </form>
@@ -53,12 +54,20 @@
 
   {% if selection %}
     <section class="form-card">
-      <h2>Current frozen selection</h2>
-      <p><code>{{ selection.content_hash }}</code></p>
+      <h2>Tables ready for the next step</h2>
+      <p>Your saved selection will stay linked to these exact source files.</p>
       <div class="actions">
-        <a class="button primary" href="/projects/{{ project.project_id }}/derived-entities">Prepare related datasets</a>
-        <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Continue without source preparation</a>
+        <a class="button primary" href="/projects/{{ project.project_id }}/schema">Continue to Odoo fields</a>
       </div>
+      <details class="technical-evidence optional-workflow">
+        <summary>Does one table contain linked record types?</summary>
+        <p>Prepare separate parent, child or lookup records before choosing Odoo fields.</p>
+        <a class="button secondary" href="/projects/{{ project.project_id }}/derived-entities">Prepare related records</a>
+      </details>
+      <details class="technical-evidence">
+        <summary>Technical evidence <small>For audit and support</small></summary>
+        <code>{{ selection.content_hash }}</code>
+      </details>
     </section>
   {% endif %}
 {% endblock %}

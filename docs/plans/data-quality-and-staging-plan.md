@@ -5,8 +5,9 @@
 **Status:** Active plan for the next integrated delivery. The complete flow is
 not implemented.
 
-This plan owns the work between a submitted browser mapping and a certifiable
-read-only preflight package. It does not redefine:
+This plan owns the work that turns the implemented, transient all-row browser
+readiness path into durable canonical staging, governed normalization, and a
+certifiable read-only preflight package. It does not redefine:
 
 - source, schema, and mapping behavior in the
   [browser workspace contract](../contracts/workspace.md);
@@ -26,15 +27,17 @@ read-only preflight package. It does not redefine:
 | Source evidence | Browser registration, inspection, confirmation, and frozen dataset selections are integrated and hash-bound |
 | Target schema | Read-only Odoo 19 capture, permitted model scope, business keys, and manual-draft boundary are integrated |
 | Mapping | Immutable revisions, scalar providers, allowlisted transformations, relationships, validation, and exact-hash submission are integrated |
-| Derived entities | Lookup and parent/child preparation rules can be authored and previewed, but do not yet produce durable full-row datasets |
+| Derived entities | Lookup and parent/child preparation rules can be authored and previewed, and browser readiness repeats them over every frozen source row; they do not yet produce durable canonical datasets |
 | Normalization governance | Immutable dry-run decisions and freeze rules exist as standalone domain behavior, not as a browser or repository workflow |
-| Read-only preflight | The profile-driven CLI can snapshot, resolve, compare, and classify, but it does not consume submitted browser mappings |
+| Read-only preflight | Strict CLI profiles and exact submitted browser mapping revisions both feed the preflight engine. Browser readiness compiles the mapping, evaluates every frozen row, batches target reads, classifies results, and persists the report and technical manifest; its prepared bundle remains transient rather than durable canonical staging |
 | Export approval | Frozen-plan approval objects exist as standalone domain behavior, without an integrated staged package or executor |
 | Staging and certification | Durable canonical rows, quarantine, integrated full-row quality execution, and clean-package certification are absent |
 
 The missing product seam is therefore not another mapping editor or another
-rule language. It is deterministic full-row execution and evidence connecting
-the implemented components.
+rule language, or another browser-to-preflight adapter. It is durable,
+deterministic publication of the existing full-row evaluation, followed by
+quarantine, normalization review, clean-package certification, and reuse of
+that frozen evidence by preflight.
 
 ## Target flow
 
@@ -85,12 +88,16 @@ lower into shared semantics.
 **Gate:** the contracts identify one authority for every value, status, hash,
 and transition; no preview-only behavior is described as full-row execution.
 
-### Slice 1 — Execute current authoring semantics over every row
+### Slice 1 — Extract and reuse the current all-row evaluation
 
-Compile the exact submitted mapping and current derived-entity plan. Execute
-existing providers, fallbacks, null policies, scalar transformations, types,
-and bounded related-dataset rules over frozen source data. Emit proposed typed
-values, issues, and lineage without connecting to Odoo.
+Refactor the implemented browser-readiness preparation into a reusable,
+storage-independent evaluator. It continues to compile the exact submitted
+mapping and current derived-entity plan and to execute existing providers,
+fallbacks, null policies, scalar transformations, types, and bounded
+related-dataset rules over every frozen source row. Emit proposed typed values,
+issues, and lineage without requiring Odoo access; the current transient
+readiness behavior remains the compatibility path while durable publication is
+added in Slice 2.
 
 **Gate:** preview and runtime produce the same result for the same value, and
 unsupported semantics block rather than fall back silently.
@@ -125,12 +132,14 @@ hash. Any changed input creates a new run and invalidates approval eligibility.
 **Gate:** required correction groups and collisions cannot be bypassed, and a
 normalization approval grants no Odoo capability.
 
-### Slice 5 — Integrate read-only preflight
+### Slice 5 — Run read-only preflight from durable staging
 
-Adapt frozen canonical rows to the existing prepared-record and preflight
-contracts. Plan metadata once per model, merge record requirements, split
-large domains into bounded requests, and build indexed relationship lookups.
-Retain target fingerprints and snapshot hashes with the staged run.
+Replace the browser readiness service's transient prepared bundle with frozen
+canonical rows adapted to the existing prepared-record and preflight contracts.
+Preserve the implemented browser and CLI entry paths, plan metadata once per
+model, merge record requirements, split large domains into bounded requests,
+and build indexed relationship lookups. Retain target fingerprints and
+snapshot hashes with the staged run.
 
 **Gate:** no connector call occurs inside a row loop; equivalent browser and
 profile fixtures produce equivalent portable identities, resolutions, and

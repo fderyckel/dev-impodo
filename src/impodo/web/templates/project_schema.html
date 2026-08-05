@@ -1,14 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Odoo schema · {{ project.name }} · Impodo{% endblock %}
+{% block title %}Odoo fields · {{ project.name }} · Impodo{% endblock %}
 {% block content %}
   {% set local_mode = project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' %}
   {% set local_reader_ready = not local_mode or local_stack.profile %}
   {% set local_access_verified = not local_mode or local_stack.metadata_ready %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Target schema · Permitted Odoo fields</p>
-      <h1>Capture permitted Odoo fields</h1>
-      <p>Set the exact technical model allowlist, then read field metadata once for each permitted model.</p>
+      <p class="eyebrow">Step 3 · Odoo fields</p>
+      <h1>Choose the Odoo records to prepare</h1>
+      <p>Select the record types and fields this project may read from Odoo.</p>
     </div>
     {% if schema %}
       <span class="status {% if schema.origin.value == 'LOCAL_MANUAL' %}warning{% else %}registered{% endif %}">
@@ -20,8 +20,8 @@
   <section class="form-card">
     <div class="page-heading compact">
       <div>
-        <p class="eyebrow">Connected model discovery</p>
-        <h2>Choose target Odoo models</h2>
+        <p class="eyebrow">Available in Odoo</p>
+        <h2>Choose Odoo record types</h2>
         <p>
           Target: {{ project.odoo_connection_mode.value|title }} /
           <code>{{ project.odoo_database }}</code>
@@ -77,13 +77,9 @@
 
     {% if model_catalog %}
       <div class="notice stack-ready" role="status">
-        <strong>Verified model snapshot stored.</strong>
-        DuckDB contains {{ model_catalog.models|length }} persistent models
-        captured from <code>{{ model_catalog.database }}</code> on Odoo
-        {{ model_catalog.odoo_version }} at
-        {{ model_catalog.captured_at.strftime("%Y-%m-%d %H:%M UTC") }}.
-        This page loaded the snapshot without contacting Odoo. You can choose
-        from these models without refreshing the catalogue.
+        <strong>Odoo record types are ready.</strong>
+        Choose the record types needed for this project. Impodo will contact
+        Odoo again only when you explicitly refresh this list or load fields.
       </div>
       {% if local_mode %}
         {% if local_access_verified %}
@@ -127,7 +123,7 @@
           {% if focus_model_count < model_choices|length %}
             <label class="checkbox">
               <input type="checkbox" data-show-all-models>
-              Browse all models
+              Show all record types
             </label>
           {% endif %}
           <p
@@ -139,7 +135,7 @@
           ></p>
         </div>
         <fieldset class="model-picker-list" id="model-picker-list">
-          <legend>Permitted target models for schema capture and mapping</legend>
+          <legend>Odoo record types available to this project</legend>
           {% for choice in model_choices %}
             <label
               class="model-choice"
@@ -164,18 +160,17 @@
           {% endfor %}
         </fieldset>
         <small>
-          This selection is the enforced allowlist. Changing it clears the
-          captured schema, governed business keys, and active mapping.
+          Changing this selection clears saved Odoo fields, matching rules and
+          field matches so that they cannot point to the wrong record type.
         </small>
         <div class="actions">
-          <button class="button secondary" type="submit">Save permitted model scope</button>
+          <button class="button secondary" type="submit">Save record types</button>
         </div>
       </form>
     {% else %}
       <div class="notice">
-        First load the lightweight model catalogue from this connected Odoo.
-        The searchable model selector will then appear here. Impodo will not
-        fetch field metadata until you explicitly select and save models.
+        Load the list of record types from this Odoo connection. Impodo will
+        not load their fields until you choose and save the record types needed.
       </div>
       {% if project.intended_models %}
         <p>
@@ -186,28 +181,39 @@
       {% endif %}
     {% endif %}
 
-    <p>Current permitted models: <code>{{ project.intended_models|join(", ") or "Not set" }}</code></p>
+    <p>Selected record types: <strong>{{ project.intended_models|join(", ") or "None yet" }}</strong></p>
     {% if schema and schema.origin.value != 'LOCAL_MANUAL' %}
       <div class="notice stack-ready" role="status">
-        <strong>Verified effective-field snapshot stored.</strong>
-        DuckDB contains {{ schema_field_count }} fields across
-        {{ schema.models|length }} selected model(s), captured from
-        <code>{{ schema.database }}</code> at
-        {{ schema.captured_at.strftime("%Y-%m-%d %H:%M UTC") }}.
-        Mapping uses this hash-bound snapshot without contacting Odoo.
+        <strong>Odoo fields are ready.</strong>
+        {{ schema_field_count }} fields are available across
+        {{ schema.models|length }} selected record type(s).
       </div>
     {% endif %}
-    <p class="muted">
-      Field capture uses Odoo <code>fields_get</code>, so each selected model
-      includes its complete effective field set, including fields contributed
-      by inherited models and mixins.
-    </p>
+    {% if model_catalog or schema %}
+      <details class="technical-evidence">
+        <summary>Technical evidence <small>For audit and support</small></summary>
+        {% if model_catalog %}
+          <p>
+            {{ model_catalog.models|length }} persistent models captured from
+            <code>{{ model_catalog.database }}</code> on Odoo {{ model_catalog.odoo_version }} at
+            {{ model_catalog.captured_at.strftime("%Y-%m-%d %H:%M UTC") }}.
+          </p>
+        {% endif %}
+        {% if schema and schema.origin.value != 'LOCAL_MANUAL' %}
+          <p>
+            {{ schema_field_count }} effective fields captured from
+            <code>{{ schema.database }}</code> at {{ schema.captured_at.strftime("%Y-%m-%d %H:%M UTC") }}.
+            The snapshot includes inherited fields and is used without another Odoo call.
+          </p>
+        {% endif %}
+      </details>
+    {% endif %}
     <form method="post" action="/projects/{{ project.project_id }}/schema/capture">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to datasets</a>
         <button class="button primary" type="submit" {% if not selection or not project.intended_models or not local_reader_ready %}disabled{% endif %}>
-          {% if schema %}Refresh selected-model fields from Odoo{% else %}Fetch fields for selected models{% endif %}
+          {% if schema %}Refresh fields from Odoo{% else %}Load fields from Odoo{% endif %}
         </button>
       </div>
       {% if local_mode and project.intended_models and not local_stack.profile %}
@@ -269,11 +275,11 @@
       <section class="form-card" id="schema-governance">
         <div class="page-heading compact">
           <div>
-            <p class="eyebrow">Schema governance</p>
-            <h2>Confirm target business keys</h2>
+            <p class="eyebrow">Matching rules</p>
+            <h2>Tell Impodo how to find existing records</h2>
             <p>
-              Define the natural identity used to find one existing Odoo record.
-              Put company or tenant fields in scope—not in the natural key.
+              Choose the stable field that identifies one record. If the same
+              value can occur in several companies, add the company as the scope.
             </p>
           </div>
           {% if governance %}
@@ -463,9 +469,9 @@
       {% endfor %}
 
       <div class="actions">
-        <button class="button primary" type="submit">Confirm keys and open mapping</button>
+        <button class="button primary" type="submit">Confirm matching rules</button>
         {% if governance %}
-          <a class="button secondary" href="/projects/{{ project.project_id }}/mapping">Open current mapping</a>
+          <a class="button secondary" href="/projects/{{ project.project_id }}/mapping">Continue to field matching</a>
         {% endif %}
       </div>
     </form>

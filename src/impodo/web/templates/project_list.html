@@ -4,9 +4,9 @@
 {% block content %}
   <section class="projects-hero">
     <div>
-      <p class="eyebrow">Migration workspace</p>
+      <p class="eyebrow">Your work</p>
       <h1>Projects</h1>
-      <p>Create and resume governed migration projects.</p>
+      <p>Prepare, check and review data before it moves to Odoo.</p>
     </div>
     <a class="button primary new-project-button" href="/projects/new">
       <svg class="ui-icon" aria-hidden="true" focusable="false">
@@ -22,7 +22,7 @@
         <span>Project name</span>
         <span>Status</span>
         <span>Last updated</span>
-        <span>Revision</span>
+        <span>Version</span>
         <span>Actions</span>
       </div>
       {% for project in projects %}
@@ -34,10 +34,12 @@
               </svg>
               <div>
                 <strong>{{ project.name }}</strong>
-                <span>Governed migration project</span>
+                <span>Data preparation project</span>
               </div>
             </div>
-            <span class="status {{ project.status.value|lower }}">{{ project.status.value }}</span>
+            <span class="status {{ project.status.value|lower }}">
+              {% if project.status.value == "REGISTERED" %}Setup complete{% else %}In setup{% endif %}
+            </span>
             <span class="project-updated">{{ project.updated_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
             <span class="project-revision">v{{ project.revision }}</span>
             <span class="project-action-spacer" aria-hidden="true"></span>
@@ -97,7 +99,7 @@
   {% else %}
     <section class="empty-state">
       <h2>No projects yet</h2>
-      <p>Start by registering the migration context and source.</p>
+      <p>Start with the source data and the Odoo destination you are preparing.</p>
       <a class="button primary" href="/projects/new">Create the first project</a>
     </section>
   {% endif %}

@@ -48,11 +48,11 @@
         </button>
         <div class="brand-lockup">
           <a class="brand" href="/projects">IMPODO</a>
-          <span class="brand-tagline">Import Anything into Odoo</span>
+          <span class="brand-tagline">Prepare clean data for Odoo</span>
         </div>
       </div>
       <span class="boundary">
-        Local application · Odoo 19 · Read-only
+        Safe preview · Odoo stays unchanged
         {{ app_icon("shield-check") }}
       </span>
     </header>
@@ -88,55 +88,55 @@
             <a
               class="sidebar-link{% if nav_active == 'source' %} active{% endif %}"
               href="/projects/{{ project_id }}/sources"
-              title="Source"
+              title="Source data"
               {% if nav_active == "source" %}aria-current="page"{% endif %}
             >
               {{ app_icon("database") }}
-              <span class="nav-label">Source</span>
+              <span class="nav-label">Source data</span>
             </a>
             <a
               class="sidebar-link{% if nav_active == 'datasets' %} active{% endif %}"
               href="/projects/{{ project_id }}/datasets"
-              title="Datasets"
+              title="Select tables"
               {% if nav_active == "datasets" %}aria-current="page"{% endif %}
             >
               {{ app_icon("grid-3x3-gap") }}
-              <span class="nav-label">Datasets</span>
+              <span class="nav-label">Select tables</span>
             </a>
             <a
               class="sidebar-link{% if nav_active == 'schema' %} active{% endif %}"
               href="/projects/{{ project_id }}/schema"
-              title="Schema"
+              title="Odoo fields"
               {% if nav_active == "schema" %}aria-current="page"{% endif %}
             >
               {{ app_icon("diagram-3") }}
-              <span class="nav-label">Schema</span>
+              <span class="nav-label">Odoo fields</span>
             </a>
             <a
               class="sidebar-link{% if nav_active == 'mapping' %} active{% endif %}"
               href="/projects/{{ project_id }}/mapping"
-              title="Mapping"
+              title="Match fields"
               {% if nav_active == "mapping" %}aria-current="page"{% endif %}
             >
               {{ app_icon("link-45deg") }}
-              <span class="nav-label">Mapping</span>
+              <span class="nav-label">Match fields</span>
             </a>
             <a
               class="sidebar-link{% if nav_active == 'summary' %} active{% endif %}"
               href="/projects/{{ project_id }}/summary"
-              title="Summary"
+              title="Review"
               {% if nav_active == "summary" %}aria-current="page"{% endif %}
             >
               {{ app_icon("clipboard-check") }}
-              <span class="nav-label">Summary</span>
+              <span class="nav-label">Review</span>
             </a>
           {% else %}
             {% for item in (
-              ("database", "Source"),
-              ("grid-3x3-gap", "Datasets"),
-              ("diagram-3", "Schema"),
-              ("link-45deg", "Mapping"),
-              ("clipboard-check", "Summary")
+              ("database", "Source data"),
+              ("grid-3x3-gap", "Select tables"),
+              ("diagram-3", "Odoo fields"),
+              ("link-45deg", "Match fields"),
+              ("clipboard-check", "Review")
             ) %}
               <span
                 class="sidebar-link disabled"

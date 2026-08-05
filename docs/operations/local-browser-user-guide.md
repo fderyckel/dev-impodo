@@ -6,7 +6,7 @@ This guide is for data analysts and data managers using the current local
 browser workflow:
 
 ```text
-Project setup -> Source discovery -> Target schema -> Governed mapping
+Project setup -> Source data -> Odoo fields -> Match fields -> Review
 ```
 
 Impodo registers and inspects CSV/XLSX evidence, freezes selected datasets,
@@ -28,16 +28,16 @@ The screenshots use fictional training data at a desktop viewport.
 3. Add every related source file before registering the project.
 4. Configure an authorised `LOCAL` or `REMOTE` Odoo target.
 5. Inspect and confirm every file, then freeze the selected datasets.
-6. Capture the permitted Odoo models and fields.
-7. Confirm natural business keys and scope.
-8. Map identity, ordinary fields, and relationships.
-9. Save progress regularly, then validate a coherent mapping revision.
+6. Choose the Odoo record types and load their fields.
+7. Confirm how Impodo should find existing records.
+8. Match source values, ordinary fields, and linked records.
+9. Save progress regularly, then select **Check mapping**.
 10. Select **Review transformation impact** and inspect the raw-to-proposed
     results across the frozen source.
 11. Resolve blocking findings, review warnings, and submit the exact revision.
-12. Open **Summary**, select **Check data readiness**, and review every blocked
-    or decision-required row.
-13. Generate the review package when every row is ready.
+12. Open **Review**, select **Check all rows**, and fix or review every row
+    Impodo identifies.
+13. Create the review workbook when every row is ready.
 14. Use **Quit Impodo** when finished.
 
 ## Before starting
@@ -135,7 +135,7 @@ acknowledgement.
 Acknowledgement proves review, not data readiness. Inspection never trims,
 replaces, deduplicates, recalculates, or rewrites source values.
 
-### Freeze datasets
+### Choose tables
 
 After confirming every source, select the exact CSV table, worksheet, or named
 table to map. Assign stable snake-case names such as `companies`, `contacts`,
@@ -156,9 +156,9 @@ Readiness repeats the rule over every frozen row; the page preview remains
 bounded evidence. See
 [derived-entity authoring](../derived-entity-authoring.md).
 
-## 3. Target schema
+## 3. Odoo fields
 
-Open **Odoo schema**, select only approved technical models, and capture their
+Open **Odoo fields**, select only approved Odoo record types, and load their
 effective fields. Schema capture is read-only and uses stored, hash-bound
 snapshots for later mapping.
 
@@ -176,7 +176,7 @@ but submission remains blocked until live capture replaces it. Changing the
 permitted models or recapturing schema invalidates governed keys and the active
 mapping.
 
-## 4. Governed mapping
+## 4. Match fields
 
 ### Confirm business keys
 
@@ -192,7 +192,7 @@ For each permitted model, Impodo keeps the page simple:
 3. Add **Within** only when the same value may exist in several companies or
    organizational scopes.
 4. Use **Combined key or technical entry** only for a genuinely composite key.
-5. Select **Confirm keys and open mapping** to create governed evidence.
+5. Select **Confirm matching rules**, then continue to field matching.
 
 This works for standard and custom models. For example, a custom model with an
 Odoo uniqueness rule on `code` and `company_id` can be presented as **Code,
@@ -210,7 +210,7 @@ Some standard examples still need judgment:
 | Account | Ask the owner to choose | Odoo 19 account codes depend on company context; do not invent a `company_id` field |
 
 Avoid mutable names, guessed fields, sample-only uniqueness, or numeric IDs.
-Confirmation records the intended rule; **Check data readiness** later applies
+Confirmation records the intended rule; **Check all rows** later applies
 it across the frozen rows and the captured target evidence.
 
 ### Map each dataset
@@ -432,7 +432,7 @@ while editing. A red proposed value explains why the displayed sample cannot be
 converted.
 
 The preview is a working aid, not the complete dataset result. Select **Save
-progress** to keep unfinished work without validation. Select **Validate draft**
+progress** to keep unfinished work without validation. Select **Check mapping**
 to check the complete mapping definition. When that definition is valid, select
 **Review transformation impact** before submission. Impodo then reloads every
 frozen source row locally and reports each affected raw source value beside its
@@ -446,10 +446,10 @@ affected rows (.csv)** for complete row-level evidence. These controls use only
 the JavaScript shipped with Impodo; they do not use a CDN, browser extension, or
 Node.js.
 
-After submitting the exact validated revision, open **Summary** and select
-**Check data readiness**. That later step repeats the mapping over every frozen
-row, checks relationships and target matches, and reports **Ready**, **Needs
-review**, or **Blocked** without changing Odoo.
+After confirming the exact checked revision, open **Review** and select **Check
+all rows**. That step repeats the mapping over every frozen row, checks linked
+records and target matches, and groups the result as **Ready**, **Review**, or
+**Fix** without changing Odoo.
 
 #### Worked example
 
@@ -518,7 +518,7 @@ Working drafts are bound to the exact frozen source and governed schema. If
 either changes, Impodo retains the earlier draft as recovery evidence but does
 not silently apply it to the new fields.
 
-Select **Validate draft** after a coherent group of changes.
+Select **Check mapping** after a coherent group of changes.
 
 ![Validation and submission.](../images/impodo-local-browser-guide/08-validation-and-submit.png)
 
@@ -530,7 +530,7 @@ Select **Validate draft** after a coherent group of changes.
 
 Validation checks the mapping structure and meaning. Row-level values,
 uniqueness, relationship resolution, and target matches are checked after
-submission through **Check data readiness**.
+confirmation through **Check all rows**.
 
 For a valid or valid-with-warnings revision, select **Review transformation
 impact** before submission. This is the normalization and transformation review:
@@ -538,13 +538,13 @@ it compares the raw scalar input with the locally proposed value across every
 frozen row. Resolve invalid results and obtain the data owner's agreement on
 intentional changes before submitting the exact mapping.
 
-**Submit exact validated mapping** binds the exact mapping, validation, source,
+**Confirm field matches** binds the exact mapping, validation, source,
 schema, and business-key evidence. Submission is not functional approval,
 clean-package certification, an Odoo import, or a write action.
 
-## 6. Check data readiness
+## 6. Review every row
 
-Open **Summary** and select **Check data readiness**. Impodo reloads every
+Open **Review** and select **Check all rows**. Impodo reloads every
 frozen row, applies the submitted providers, transformations, types, and
 policies, resolves relationships, and compares candidates with the captured
 read-only Odoo target evidence.
@@ -552,19 +552,19 @@ read-only Odoo target evidence.
 | Result | Meaning | Next action |
 | --- | --- | --- |
 | **Ready** | The row is classified as create, update, or unchanged without a blocking issue | Review the proposed result |
-| **Needs review** | Impodo needs a governed decision | Review the displayed reason and complete the decision |
-| **Blocked** | A key, value, relationship, or target condition prevents the row from continuing | Correct the governing source or mapping evidence, then recheck |
+| **Review** | Impodo needs a governed decision | Review the displayed reason and complete the decision |
+| **Fix** | A key, value, relationship, or target condition prevents the row from continuing | Correct the governing source or mapping evidence, then recheck |
 
 Use the status cards and dataset totals to filter the row list. Impodo shows a
 plain-language reason and recommended action first; expand **Technical
 details** only when you need the classification or issue code.
 
 After every relevant source, mapping, schema, or target-evidence change, run
-the check again. When every row is ready, generate the review package. The
-readiness check and review package remain read-only and do not authorize an
+the check again. When every row is ready, create the review workbook. The
+row check and review workbook remain read-only and do not authorize an
 Odoo import.
 
-The downloadable Excel review package is created by Impodo's controlled Python
+The downloadable Excel review workbook is created by Impodo's controlled Python
 runtime using the same `openpyxl` dependency already used for governed XLSX
 intake. It does not require Node.js. The workbook is downloaded for review; it
 is not embedded as an Excel preview in the browser.
@@ -576,7 +576,7 @@ is not embedded as an Excel preview in the browser.
 - Configure each visible provider, transformation, type, and policy so its
   intent is retained with the mapping hash.
 - Use the one-value preview while authoring, **Review transformation impact**
-  after validation, and **Check data readiness** after submission.
+  after validation, and **Check all rows** after confirmation.
 - Recheck business keys, transformations, and relationships after any source
   or mapping revision.
 - Treat **Valid**, **Submitted**, and **Ready** as review states, never as Odoo
@@ -611,7 +611,7 @@ Before submission confirm:
 | Business key not confirmed | Obtain functional approval and confirm key plus scope |
 | Relationship unresolved or ambiguous | Correct the resolver/key/scope; do not ignore ambiguity |
 | Preview result is unexpected | Recheck provider, type, transformation order, locale, and date format |
-| Mapping is valid but rows are blocked | Open Summary, filter **Blocked**, and follow the reason and recommended action |
+| Mapping is valid but rows need fixes | Open **Review**, filter **Fix**, and follow the reason and recommended action |
 
 ## End the session
 
