@@ -15,8 +15,8 @@ submission, it can check every frozen source row against the mapping and the
 read-only Odoo evidence. It does not write to Odoo or reconcile a completed
 load.
 
-The [migration project contract](../contracts/migration-project.md) and
-[browser workspace contract](../contracts/workspace.md) define the exact
+The [migration project contract](../contracts/01-migration-project.md) and
+[browser workspace contract](../contracts/02-workspace.md) define the exact
 persistence, invalidation, and submission rules.
 
 The screenshots use fictional training data at a desktop viewport.
@@ -105,7 +105,7 @@ files or DuckDB directly.
   the project database.
 
 For local discovery, readiness, Start/Stop/Restart, and ownership rules, use
-the [local Odoo runbook](local-odoo.md).
+the [local Odoo runbook](02-local-odoo.md).
 
 The migration-application selection is reviewer context. The technical model
 allowlist configured later is the enforced schema-read boundary.
@@ -438,13 +438,15 @@ to check the complete mapping definition. When that definition is valid, select
 frozen source row locally and reports each affected raw source value beside its
 proposed value without contacting Odoo.
 
-The transformation page provides complete counts for changed, fallback, null,
-invalid, constant-provided, and unchanged values. The browser table shows up to
-5,000 affected values and supports local dataset, outcome, and text filters.
-Select **Download filtered rows (.csv)** for the current view or **Download all
-affected rows (.csv)** for complete row-level evidence. These controls use only
-the JavaScript shipped with Impodo; they do not use a CDN, browser extension, or
-Node.js.
+The transformation page first prepares one local snapshot for the exact frozen
+source, related-record plan, schema, evaluator, and validated mapping. Complete
+counts cover changed, fallback, null, invalid, constant-provided, and unchanged
+values. The browser then loads at most 100 affected values at a time. Dataset,
+result, target-field, and text filters run against the complete snapshot rather
+than only the visible page. Select **Download matching rows (.csv)** for every
+row matching the current filters or **Download all affected rows (.csv)** for
+complete row-level evidence. Preparing and reviewing this snapshot does not
+contact or write to Odoo.
 
 After confirming the exact checked revision, open **Review** and select **Check
 all rows**. That step repeats the mapping over every frozen row, checks linked

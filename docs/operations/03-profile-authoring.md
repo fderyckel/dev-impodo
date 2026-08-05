@@ -95,7 +95,7 @@ Names are usually poor identifiers, and database IDs are not portable.
 Declare only fields needed for validation or comparison.
 
 This section describes expert YAML. For the browser controls and examples, use
-the [scalar mapping reference](local-browser-user-guide.md#scalar-fields-choose-what-impodo-should-do).
+the [scalar mapping reference](01-local-browser-user-guide.md#scalar-fields-choose-what-impodo-should-do).
 
 ```yaml
 fields:
@@ -195,5 +195,5 @@ target_domain:
 The runnable profiles in [`profiles/examples`](../../profiles/examples) show
 products, bills of materials, and the golden slice. The normative invariants
 and classification behavior are in the
-[preflight contract](../contracts/preflight.md); execution is covered by the
-[CLI runbook](cli.md).
+[preflight contract](../contracts/04-preflight.md); execution is covered by the
+[CLI runbook](04-cli.md).

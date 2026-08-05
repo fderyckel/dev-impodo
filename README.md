@@ -124,7 +124,7 @@ line to your shell profile.
 
 Editable installation is the development lane. For use with approved internal
 data, promote and install a clean, evidence-producing bundle by following the
-[internal development and release runbook](docs/operations/internal-release.md).
+[internal development and release runbook](docs/operations/06-internal-release.md).
 
 ## Documentation
 

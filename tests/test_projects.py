@@ -27,6 +27,12 @@ from impodo.projects import (
     ProjectStatus,
     SourceFile,
 )
+from impodo.readiness import (
+    TransformationImpactFilter,
+    TransformationImpactIdentity,
+    TransformationImpactReport,
+    TransformationImpactRow,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -295,6 +301,131 @@ class ProjectLifecycleTests(unittest.TestCase):
             ).fetchone()
         self.assertIsNone(legacy_column_row)
         self.assertEqual(migration_event, ("TARGET_CONTRACT_MIGRATED",))
+
+    def test_transformation_impact_snapshot_is_bounded_filterable_and_atomic(
+        self,
+    ) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Products migration",
+            source_system="Dynamics AX 2012",
+        )
+        identity = TransformationImpactIdentity(
+            physical_selection_hash="sha256:" + "1" * 64,
+            source_selection_hash="sha256:" + "2" * 64,
+            mapping_content_hash="sha256:" + "3" * 64,
+            schema_hash="sha256:" + "4" * 64,
+            derived_plan_hash=None,
+        )
+        rows = tuple(
+            TransformationImpactRow(
+                dataset="products",
+                source_row=(index // 2) + 2,
+                source_column="Product name",
+                target_field="name" if index % 3 else "default_code",
+                raw_value=f" source {index} ",
+                proposed_value=f"Source {index}",
+                rules="Trim",
+                outcome="invalid" if index % 2 else "changed",
+                message="Needs review" if index % 2 else "",
+            )
+            for index in range(205)
+        )
+
+        def build(write_row):
+            for row in rows:
+                write_row(row)
+            return TransformationImpactReport(
+                mapping_content_hash=identity.mapping_content_hash,
+                evaluated_count=205,
+                changed_count=103,
+                fallback_count=0,
+                null_count=0,
+                invalid_count=102,
+                provided_count=0,
+                unchanged_count=0,
+                rows=(),
+                detail_limit=0,
+            )
+
+        snapshot = self.repository.replace_transformation_impact_snapshot(
+            project.project_id,
+            identity,
+            build,
+            actor=LOCAL_ACTOR,
+        )
+        first = self.repository.get_transformation_impact_page(
+            project.project_id,
+            identity,
+            TransformationImpactFilter(),
+            page_size=100,
+        )
+        second = self.repository.get_transformation_impact_page(
+            project.project_id,
+            identity,
+            TransformationImpactFilter(),
+            page_size=100,
+            after=first.next_after,
+        )
+        invalid = self.repository.get_transformation_impact_page(
+            project.project_id,
+            identity,
+            TransformationImpactFilter(outcome="invalid", query="review"),
+            page_size=100,
+        )
+
+        self.assertEqual(snapshot.affected_row_count, 103)
+        self.assertEqual((first.start_position, first.end_position), (1, 100))
+        self.assertEqual(len(first.rows), 100)
+        self.assertIsNone(first.previous_before)
+        self.assertIsNotNone(first.next_after)
+        self.assertEqual((second.start_position, second.end_position), (101, 200))
+        self.assertIsNotNone(second.previous_before)
+        self.assertEqual(invalid.matching_count, 102)
+        self.assertEqual(len(invalid.rows), 100)
+        self.assertEqual(
+            len(
+                tuple(
+                    self.repository.iter_transformation_impact_rows(
+                        project.project_id,
+                        identity,
+                        TransformationImpactFilter(target_field="name"),
+                    )
+                )
+            ),
+            136,
+        )
+
+        reused = self.repository.replace_transformation_impact_snapshot(
+            project.project_id,
+            identity,
+            lambda _write: self.fail("matching snapshots must be reused"),
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(reused.created_at, snapshot.created_at)
+
+        replacement_identity = replace(
+            identity,
+            mapping_content_hash="sha256:" + "5" * 64,
+        )
+
+        def fail_after_one_row(write_row):
+            write_row(rows[0])
+            raise RuntimeError("simulated preparation failure")
+
+        with self.assertRaisesRegex(RuntimeError, "simulated preparation failure"):
+            self.repository.replace_transformation_impact_snapshot(
+                project.project_id,
+                replacement_identity,
+                fail_after_one_row,
+                actor=LOCAL_ACTOR,
+            )
+        self.assertIsNotNone(
+            self.repository.get_transformation_impact_snapshot(
+                project.project_id,
+                identity,
+            )
+        )
 
     def test_delete_permanently_removes_registered_project_and_artifacts(
         self,

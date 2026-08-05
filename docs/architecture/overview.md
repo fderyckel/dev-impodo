@@ -8,9 +8,10 @@ main components, data flow, and boundaries without repeating the detailed
 [architecture decisions](../decisions/README.md).
 
 Impodo is currently a local browser application for governing CSV/XLSX data
-and preparing an Odoo 19 migration. Odoo access is read-only. Full-row staging,
-functional approval, Odoo writes, and reconciliation remain later product
-capabilities described in the [product vision](../product-vision.md).
+and preparing an Odoo 19 migration. Odoo access is read-only. Governed
+normalization, clean-package certification, functional approval, Odoo writes,
+and reconciliation remain later product capabilities described in the
+[product vision](../product-vision.md).
 
 ## System context
 
@@ -145,7 +146,7 @@ loopback assumptions must not be relaxed and reused as hosted controls. See
 ## Authoritative detail
 
 - [Security and infrastructure](security-and-infrastructure.md)
-- [Migration project contract](../contracts/migration-project.md)
-- [Browser workspace contract](../contracts/workspace.md)
-- [Profile-driven preflight contract](../contracts/preflight.md)
+- [Migration project contract](../contracts/01-migration-project.md)
+- [Browser workspace contract](../contracts/02-workspace.md)
+- [Profile-driven preflight contract](../contracts/04-preflight.md)
 - [Acceptance and test strategy](../testing/acceptance.md)

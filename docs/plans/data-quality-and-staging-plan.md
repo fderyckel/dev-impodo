@@ -10,13 +10,13 @@ readiness path into durable canonical staging, governed normalization, and a
 certifiable read-only preflight package. It does not redefine:
 
 - source, schema, and mapping behavior in the
-  [browser workspace contract](../contracts/workspace.md);
+  [browser workspace contract](../contracts/02-workspace.md);
 - the expert CLI matcher and classifier in the
-  [preflight contract](../contracts/preflight.md);
+  [preflight contract](../contracts/04-preflight.md);
 - the durable canonical evaluation foundation in the
-  [canonical staging contract](../contracts/canonical-staging.md);
+  [canonical staging contract](../contracts/03-canonical-staging.md);
 - the standalone approval lifecycle in the
-  [normalization governance contract](../contracts/normalization-governance.md);
+  [normalization governance contract](../contracts/05-normalization-governance.md);
 - product stages or later Odoo execution in the
   [product vision](../product-vision.md);
 - case-family readiness and clean-package gates in the

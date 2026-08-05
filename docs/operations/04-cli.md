@@ -129,5 +129,5 @@ does not validate a migration or connect to Odoo.
   migration package, or permission to write to Odoo.
 
 The normative behavior is defined in the
-[profile-driven preflight contract](../contracts/preflight.md). Profile syntax
-is documented in the [profile authoring guide](profile-authoring.md).
+[profile-driven preflight contract](../contracts/04-preflight.md). Profile
+syntax is documented in the [profile authoring guide](03-profile-authoring.md).

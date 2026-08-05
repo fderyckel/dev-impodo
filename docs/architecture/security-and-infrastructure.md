@@ -4,7 +4,7 @@
 
 This document summarizes Impodo's current security boundary, implemented
 controls, infrastructure dependencies, and unresolved acceptance work. The
-[Windows workstation requirements](../operations/windows-workstation-readiness.md)
+[Windows workstation requirements](../operations/05-windows-workstation-readiness.md)
 contain the detailed endpoint-provisioning checklist.
 
 ## At a glance
@@ -131,7 +131,7 @@ Impodo workstation dependency.
 
 Impodo requires no inbound firewall opening. Detailed installation and
 verification steps belong in the
-[workstation runbook](../operations/windows-workstation-readiness.md), not in
+[workstation runbook](../operations/05-windows-workstation-readiness.md), not in
 this security summary.
 
 ## Data handling
@@ -172,11 +172,11 @@ a separate architecture and security workstream.
 Project evidence:
 
 - [Architecture overview](overview.md)
-- [Migration project contract](../contracts/migration-project.md)
-- [Profile-driven preflight contract](../contracts/preflight.md)
+- [Migration project contract](../contracts/01-migration-project.md)
+- [Profile-driven preflight contract](../contracts/04-preflight.md)
 - [Acceptance and test strategy](../testing/acceptance.md)
-- [Internal release runbook](../operations/internal-release.md)
-- [Windows workstation requirements](../operations/windows-workstation-readiness.md)
+- [Internal release runbook](../operations/06-internal-release.md)
+- [Windows workstation requirements](../operations/05-windows-workstation-readiness.md)
 
 External control references:
 

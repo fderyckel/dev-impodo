@@ -39,7 +39,7 @@ Dataset modes are:
 
 Profiles contain no target URL, database, credential, token, or numeric Odoo
 record ID. Detailed YAML examples belong in the
-[profile authoring guide](../operations/profile-authoring.md).
+[profile authoring guide](../operations/03-profile-authoring.md).
 
 ## Prepared-record boundary
 

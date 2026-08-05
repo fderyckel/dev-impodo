@@ -31,6 +31,7 @@ from impodo.mapping_semantics import (
     BusinessKeyStatus,
     DatasetMapping,
     IdentityComponentMapping,
+    MappingValidationStatus,
     MappingTargetMode,
     ReferenceKeyMapping,
     RelationshipMapping,
@@ -49,6 +50,7 @@ from impodo.models import (
     target_identity_hash,
 )
 from impodo.projects import OdooConnectionMode, ProjectStatus
+from impodo.readiness import TransformationImpactReport, TransformationImpactRow
 from impodo.secrets import MemorySecretStore
 from impodo.staging_contracts import CanonicalControlTotal
 from impodo.web import create_app
@@ -1811,12 +1813,23 @@ class ProjectSetupWizardTests(unittest.TestCase):
         impact_page = self.client.get(impact_link)
         self.assertEqual(impact_page.status_code, 200)
         self.assertIn("Transformation impact", impact_page.text)
+        self.assertIn("Prepare transformation impact", impact_page.text)
+        self.assertNotIn("data-impact-row", impact_page.text)
+        prepared = self.client.post(
+            f"{impact_link}/prepare",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(prepared.status_code, 303)
+        impact_page = self.client.get(prepared.headers["location"])
         self.assertIn("Raw source", impact_page.text)
         self.assertIn("Proposed value", impact_page.text)
-        self.assertIn("Download filtered rows (.csv)", impact_page.text)
+        self.assertIn("Download matching rows (.csv)", impact_page.text)
         self.assertIn("Download all affected rows (.csv)", impact_page.text)
         self.assertIn("Your registered Excel or CSV source remains unchanged", impact_page.text)
-        self.assertIn("data-impact-row", impact_page.text)
+        self.assertIn("Showing 1", impact_page.text)
+        self.assertNotIn("data-impact-row", impact_page.text)
         impact_csv = self.client.post(
             f"{impact_link}.csv",
             data={"csrf_token": self.csrf},
@@ -1827,8 +1840,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Raw source", impact_csv.text)
         self.assertIn("Proposed value", impact_csv.text)
         mapping_script = self.client.get("/static/app.js")
-        self.assertIn('new Blob(["\\uFEFF"', mapping_script.text)
-        self.assertIn("data-impact-export", mapping_script.text)
+        self.assertNotIn("data-impact-export", mapping_script.text)
 
         summary = self.client.get(f"/projects/{project_id}/summary")
         self.assertIn("Check all rows", summary.text)
@@ -2957,6 +2969,120 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("<summary>Technical details</summary>", page.text)
         self.assertEqual(package.status_code, 422)
         self.assertIn("Resolve the named totals", package.text)
+
+    def test_transformation_impact_uses_server_filters_and_100_row_pages(
+        self,
+    ) -> None:
+        project_id, dataset, business_key = self._mapping_ready_project(
+            scalar_field_count=1,
+        )
+        source_identity, source_value = dataset.columns
+        context = self.app.state.context
+        revision, validation, _submission = (
+            context.mapping_workspace.save_definition(
+                project_id,
+                datasets=(
+                    DatasetMapping(
+                        dataset_id=dataset.dataset_id,
+                        target_model="res.partner",
+                        mode=MappingTargetMode.UPSERT,
+                        source_identity_column_keys=(
+                            source_identity.stable_key,
+                        ),
+                        target_identity=(
+                            IdentityComponentMapping(
+                                source_column_keys=(
+                                    source_identity.stable_key,
+                                ),
+                                target_fields=business_key.key_fields,
+                            ),
+                        ),
+                        fields=(
+                            ScalarFieldMapping(
+                                target_field="field_0000",
+                                source_column_key=source_value.stable_key,
+                                value_source=ScalarValueSource.SOURCE,
+                            ),
+                        ),
+                    ),
+                ),
+                expected_parent_version=None,
+                submit=False,
+                actor=context.actor,
+            )
+        )
+        self.assertNotEqual(validation.status, MappingValidationStatus.INVALID)
+        impact_rows = tuple(
+            TransformationImpactRow(
+                dataset=dataset.name,
+                source_row=index + 2,
+                source_column=source_value.source_name,
+                target_field="field_0000",
+                raw_value=f" raw {index} ",
+                proposed_value=f"Raw {index}",
+                rules="Trim",
+                outcome="invalid" if index % 2 else "changed",
+                message="Needs review" if index % 2 else "",
+            )
+            for index in range(205)
+        )
+
+        def fake_stage(*_args, **kwargs):
+            sink = kwargs["transformation_impact_sink"]
+            for row in impact_rows:
+                sink(row)
+            return MagicMock(
+                transformation_impact=TransformationImpactReport(
+                    mapping_content_hash=revision.definition.content_hash,
+                    evaluated_count=205,
+                    changed_count=103,
+                    fallback_count=0,
+                    null_count=0,
+                    invalid_count=102,
+                    provided_count=0,
+                    unchanged_count=0,
+                    rows=(),
+                    detail_limit=0,
+                )
+            )
+
+        impact_url = f"/projects/{project_id}/mapping/transformation-impact"
+        first_visit = self.client.get(impact_url)
+        self.assertIn("Prepare transformation impact", first_visit.text)
+        with patch("impodo.web.app.stage_browser_mapping", side_effect=fake_stage) as staged:
+            prepared = self.client.post(
+                f"{impact_url}/prepare",
+                data={"csrf_token": self.csrf},
+                headers=POST_HEADERS,
+                follow_redirects=False,
+            )
+        self.assertEqual(prepared.status_code, 303)
+        staged.assert_called_once()
+
+        first_page = self.client.get(impact_url)
+        self.assertEqual(first_page.text.count('class="impact-row'), 100)
+        self.assertIn("Showing 1–100 of 205", first_page.text)
+        self.assertIn("Next 100", first_page.text)
+        next_match = re.search(
+            r'href="([^"]+after=[^"]+)"[^>]*>Next 100</a>',
+            first_page.text,
+        )
+        self.assertIsNotNone(next_match)
+        second_page = self.client.get(unescape(next_match.group(1)))
+        self.assertEqual(second_page.text.count('class="impact-row'), 100)
+        self.assertIn("Showing 101–200 of 205", second_page.text)
+        self.assertIn("Previous 100", second_page.text)
+
+        invalid_page = self.client.get(f"{impact_url}?outcome=invalid")
+        self.assertEqual(invalid_page.text.count('class="impact-row'), 100)
+        self.assertIn("Showing 1–100 of 102", invalid_page.text)
+        invalid_csv = self.client.post(
+            f"{impact_url}.csv",
+            data={"csrf_token": self.csrf, "outcome": "invalid"},
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(invalid_csv.status_code, 200)
+        self.assertEqual(len(invalid_csv.text.splitlines()), 103)
 
     def _mapping_ready_project(
         self,

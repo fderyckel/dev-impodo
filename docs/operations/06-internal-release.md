@@ -100,4 +100,4 @@ signature and does not by itself establish publisher identity.
 - [ ] The complete, unchanged bundle is transferred.
 - [ ] Installer reports success and prints a versioned launcher.
 - [ ] Workstation requirements in the
-      [readiness guide](windows-workstation-readiness.md) are satisfied.
+      [readiness guide](05-windows-workstation-readiness.md) are satisfied.

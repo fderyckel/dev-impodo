@@ -41,35 +41,41 @@ Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
 
 ## Contracts
 
-- [Migration project contract](contracts/migration-project.md) — project
+The numbered contracts form the recommended conceptual reading order.
+
+- [Migration project contract](contracts/01-migration-project.md) — project
   lifecycle, registration requirements, source/target evidence, audit, and
   persistence boundary.
-- [Browser workspace contract](contracts/workspace.md) — source inspection,
+- [Browser workspace contract](contracts/02-workspace.md) — source inspection,
   confirmation, dataset freezing, target schema, governed mapping,
   invalidation, validation, and submission.
-- [Profile-driven preflight contract](contracts/preflight.md) — strict profile,
-  typed preparation, closed Odoo reads, snapshots, classification, and
-  portable review evidence.
-- [Canonical staging evaluation contract](contracts/canonical-staging.md) —
+- [Canonical staging evaluation contract](contracts/03-canonical-staging.md) —
   full-row canonical evidence, complete grouped-row lineage, reconciliation,
   deterministic hashing, and atomic project-scoped DuckDB publication.
-- [Normalization dry-run governance contract](contracts/normalization-governance.md)
+- [Profile-driven preflight contract](contracts/04-preflight.md) — strict
+  profile, typed preparation, closed Odoo reads, snapshots, classification,
+  and portable review evidence.
+- [Normalization dry-run governance contract](contracts/05-normalization-governance.md)
   — implemented standalone approval lifecycle, explicit integration status,
   and the boundary between source approval and Odoo authorization.
 
 ## Operations and quality
 
-- [Local-browser user guide](operations/local-browser-user-guide.md) — concise
+The numbered runbooks are grouped by reader journey. Browser users start with
+01 and use 02 for a local target; expert CLI users read 03 then 04; IT and
+release teams use 05 and 06.
+
+- [Local-browser user guide](operations/01-local-browser-user-guide.md) — concise
   walkthrough of the current read-only browser workflow and its limits.
-- [Local Odoo runbook](operations/local-odoo.md) — local target readiness,
+- [Local Odoo runbook](operations/02-local-odoo.md) — local target readiness,
   ownership-aware start and stop behavior, and troubleshooting.
-- [Preflight CLI runbook](operations/cli.md) — safe profile-driven snapshot and
-  offline classification sequence, evidence rules, and exit behavior.
-- [Profile authoring](operations/profile-authoring.md) — strict YAML datasets,
+- [Profile authoring](operations/03-profile-authoring.md) — strict YAML datasets,
   business identities, fields, relationships, and validation workflow.
-- [Windows workstation readiness](operations/windows-workstation-readiness.md)
+- [Preflight CLI runbook](operations/04-cli.md) — safe profile-driven snapshot
+  and offline classification sequence, evidence rules, and exit behavior.
+- [Windows workstation readiness](operations/05-windows-workstation-readiness.md)
   — IT provisioning, installation boundaries, Odoo access, and verification.
-- [Internal development and release runbook](operations/internal-release.md) —
+- [Internal development and release runbook](operations/06-internal-release.md) —
   development setup, authoritative dependency locking, promotion, evidence,
   and installation of an accepted internal bundle.
 - [Derived-entity authoring](derived-entity-authoring.md) — the implemented

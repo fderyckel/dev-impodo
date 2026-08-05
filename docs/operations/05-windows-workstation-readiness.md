@@ -76,7 +76,7 @@ Never place the API key in a project file, profile, screenshot, support ticket,
 or shared command history.
 
 For the optional local development stack, follow the
-[local Odoo runbook](local-odoo.md). Local and remote identify connection
+[local Odoo runbook](02-local-odoo.md). Local and remote identify connection
 location; they are not DEV/TEST lifecycle labels.
 
 ## Source and output access
@@ -124,4 +124,4 @@ Impodo-managed project database.
 - [ ] The installed launcher starts Impodo successfully.
 
 Release production and troubleshooting details are in the
-[internal release runbook](internal-release.md).
+[internal release runbook](06-internal-release.md).

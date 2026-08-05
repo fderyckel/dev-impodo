@@ -52,7 +52,7 @@ exact immutable evidence.
 Source files are stored under generated identifiers, size-bounded, validated
 in an isolated worker, SHA-256 hashed, and immutable after registration.
 Worksheet/table selection and dataset freezing belong to the
-[workspace contract](workspace.md).
+[workspace contract](02-workspace.md).
 
 Target security is controlled by connection mode, not by organizational
 lifecycle labels:

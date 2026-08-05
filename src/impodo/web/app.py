@@ -6,6 +6,7 @@ import csv
 from collections import Counter
 from dataclasses import dataclass, replace
 import hashlib
+from io import StringIO
 import json
 from pathlib import Path
 import re
@@ -20,6 +21,7 @@ from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
     RedirectResponse,
+    StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -2108,6 +2110,7 @@ def create_local_app(
             effective_selection,
             plan,
         )
+        source_catalogs = context.repository.get_source_catalogs(project_id)
 
         def build_snapshot():
             def evaluate(write_impact):
@@ -2117,7 +2120,7 @@ def create_local_app(
                     physical_selection,
                     effective_selection,
                     plan,
-                    context.repository.get_source_catalogs(project_id),
+                    source_catalogs,
                     context.artifacts,
                     collect_transformation_impact=True,
                     transformation_detail_limit=0,
@@ -2213,12 +2216,6 @@ def create_local_app(
                 detail="Prepare the current transformation impact first",
             )
 
-        report_directory = (
-            context.repository.project_directory(project_id)
-            / "reports"
-            / "transformation-impact"
-        ).resolve()
-        report_directory.mkdir(parents=True, exist_ok=True)
         hash_token = revision.definition.content_hash.removeprefix("sha256:")[:16]
         filter_token = hashlib.sha256(
             json.dumps(
@@ -2244,62 +2241,64 @@ def create_local_app(
             f"transformation-impact-{scope}-v{revision.version}-"
             f"{hash_token}-{filter_token}.csv"
         )
-        target = (report_directory / filename).resolve()
-        if target.parent != report_directory:
-            raise HTTPException(status_code=404, detail="Report file not found")
-        partial = target.with_name(f".{target.name}.partial")
 
-        def build_csv() -> None:
-            try:
-                with partial.open("w", encoding="utf-8-sig", newline="") as stream:
-                    writer = csv.writer(stream)
-                    writer.writerow(
-                        (
-                            "Dataset",
-                            "Excel row",
-                            "Source column",
-                            "Odoo target field",
-                            "Raw source",
-                            "Proposed value",
-                            "Rules applied",
-                            "Result",
-                            "Message",
+        def csv_chunks():
+            stream = StringIO(newline="")
+            writer = csv.writer(stream)
+            stream.write("\ufeff")
+            writer.writerow(
+                (
+                    "Dataset",
+                    "Excel row",
+                    "Source column",
+                    "Odoo target field",
+                    "Raw source",
+                    "Proposed value",
+                    "Rules applied",
+                    "Result",
+                    "Message",
+                )
+            )
+            yield stream.getvalue()
+            stream.seek(0)
+            stream.truncate(0)
+            for index, row in enumerate(
+                context.repository.iter_transformation_impact_rows(
+                    project_id,
+                    identity,
+                    filters,
+                ),
+                start=1,
+            ):
+                writer.writerow(
+                    tuple(
+                        _safe_spreadsheet_text(value)
+                        for value in (
+                            row.dataset,
+                            row.source_row,
+                            row.source_column,
+                            row.target_field,
+                            row.raw_value,
+                            row.proposed_value,
+                            row.rules,
+                            row.outcome,
+                            row.message,
                         )
                     )
+                )
+                if index % 1_000 == 0:
+                    yield stream.getvalue()
+                    stream.seek(0)
+                    stream.truncate(0)
+            if stream.tell():
+                yield stream.getvalue()
 
-                    for row in context.repository.iter_transformation_impact_rows(
-                        project_id,
-                        identity,
-                        filters,
-                    ):
-                        writer.writerow(
-                            tuple(
-                                _safe_spreadsheet_text(value)
-                                for value in (
-                                    row.dataset,
-                                    row.source_row,
-                                    row.source_column,
-                                    row.target_field,
-                                    row.raw_value,
-                                    row.proposed_value,
-                                    row.rules,
-                                    row.outcome,
-                                    row.message,
-                                )
-                            )
-                        )
-                partial.replace(target)
-            finally:
-                partial.unlink(missing_ok=True)
-
-        try:
-            await run_in_threadpool(build_csv)
-        except (OSError, ReadinessError, WorkspaceError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        return FileResponse(
-            target,
+        return StreamingResponse(
+            csv_chunks(),
             media_type="text/csv; charset=utf-8",
-            filename=filename,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            },
         )
 
     @app.post("/projects/{project_id}/mapping/save")

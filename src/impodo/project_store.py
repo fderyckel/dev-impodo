@@ -37,6 +37,20 @@ from .projects import (
     ProjectSummary,
     SourceFile,
 )
+from .quality import (
+    QUALITY_CONTRACT_VERSION,
+    QUALITY_EVALUATOR_VERSION,
+    QUALITY_RULESET_CONTRACT_VERSION,
+    QualityIssue,
+    QualityRuleSet,
+    QualityRowResult,
+    QualityRun,
+    QualityRunStatus,
+    QualityRunSummary,
+    QuarantineEntry,
+    SourceAccountingEntry,
+    retention_context_hash,
+)
 from .readiness import (
     ReadinessReport,
     TransformationImpactFilter,
@@ -64,8 +78,9 @@ from .workspace import (
 )
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 STAGING_ROW_BATCH_SIZE = 1_000
+QUALITY_ROW_BATCH_SIZE = 1_000
 TRANSFORMATION_IMPACT_ROW_BATCH_SIZE = 1_000
 
 
@@ -1495,6 +1510,8 @@ class DuckDbProjectRepository:
         mapping_content_hash: str,
         staging_run_id: str,
         staging_content_hash: str,
+        quality_run_id: str,
+        quality_content_hash: str,
     ) -> ReadinessReport | None:
         values = self._read_json_rows(
             project_id,
@@ -1506,6 +1523,8 @@ class DuckDbProjectRepository:
                AND mapping_content_hash = ?
                AND staging_run_id = ?
                AND staging_content_hash = ?
+               AND quality_run_id = ?
+               AND quality_content_hash = ?
              ORDER BY checked_at DESC, run_id
             """,
             [
@@ -1514,6 +1533,8 @@ class DuckDbProjectRepository:
                 mapping_content_hash,
                 staging_run_id,
                 staging_content_hash,
+                quality_run_id,
+                quality_content_hash,
             ],
         )
         return ReadinessReport.from_json(values[0]) if values else None
@@ -1638,6 +1659,11 @@ class DuckDbProjectRepository:
                 ):
                     connection.rollback()
                     return self._staging_summary(project_id, current)
+
+                self._invalidate_quality(
+                    connection,
+                    reason="CANONICAL_STAGING_CHANGED",
+                )
 
                 connection.execute(
                     """
@@ -1841,6 +1867,557 @@ class DuckDbProjectRepository:
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Stored prepared-data evidence is invalid") from error
 
+    def get_current_quality_ruleset(
+        self,
+        project_id: str,
+    ) -> QualityRuleSet | None:
+        value = self._read_singleton_json(
+            project_id,
+            """
+            SELECT revision.ruleset_json
+              FROM quality_ruleset_current AS current
+              JOIN quality_ruleset_revision AS revision
+                ON revision.ruleset_id = current.ruleset_id
+               AND revision.version = current.version
+             WHERE current.singleton_id = 1
+            """,
+        )
+        if not value:
+            return None
+        try:
+            return QualityRuleSet.from_json(value)
+        except (TypeError, ValueError) as error:
+            raise WorkspaceError("Stored data-check rules are invalid") from error
+
+    def publish_quality_ruleset(
+        self,
+        project_id: str,
+        ruleset: QualityRuleSet,
+        *,
+        actor: Actor,
+    ) -> QualityRuleSet:
+        """Publish one complete guided ruleset and retire its quality result."""
+
+        if ruleset.project_id != project_id:
+            raise WorkspaceError("Data-check rules belong to another project")
+        if ruleset.contract_version != QUALITY_RULESET_CONTRACT_VERSION:
+            raise WorkspaceError("Data-check rules use an unsupported version")
+        try:
+            QualityRuleSet.from_json(ruleset.to_json())
+        except (TypeError, ValueError) as error:
+            raise WorkspaceError("Data-check rules are invalid") from error
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        created_at = datetime.now(timezone.utc)
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            connection.begin()
+            try:
+                mapping = connection.execute(
+                    """
+                    SELECT revision.content_hash, revision.schema_hash
+                      FROM mapping_current AS current
+                      JOIN mapping_revision AS revision
+                        ON revision.mapping_id = current.mapping_id
+                       AND revision.version = current.version
+                     WHERE current.singleton_id = 1
+                    """
+                ).fetchone()
+                if mapping is None or (
+                    str(mapping[0]) != ruleset.mapping_hash
+                    or str(mapping[1]) != ruleset.schema_hash
+                ):
+                    raise WorkspaceError(
+                        "Data checks no longer match the current field matches"
+                    )
+                current = connection.execute(
+                    """
+                    SELECT revision.ruleset_id, revision.version,
+                           revision.content_hash, revision.ruleset_json
+                      FROM quality_ruleset_current AS active
+                      JOIN quality_ruleset_revision AS revision
+                        ON revision.ruleset_id = active.ruleset_id
+                       AND revision.version = active.version
+                     WHERE active.singleton_id = 1
+                    """
+                ).fetchone()
+                if current is not None and str(current[2]) == ruleset.content_hash:
+                    connection.rollback()
+                    return QualityRuleSet.from_json(str(current[3]))
+                if current is None:
+                    if ruleset.parent_version is not None:
+                        raise WorkspaceError(
+                            "The data-check parent version is no longer current"
+                        )
+                elif (
+                    str(current[0]) != ruleset.ruleset_id
+                    or int(current[1]) != ruleset.parent_version
+                    or ruleset.version != int(current[1]) + 1
+                ):
+                    raise WorkspaceError(
+                        "The data checks were changed by another request"
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO quality_ruleset_revision (
+                        ruleset_id, version, parent_version, mapping_hash,
+                        schema_hash, content_hash, contract_version,
+                        created_at, created_by, ruleset_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        ruleset.ruleset_id,
+                        ruleset.version,
+                        ruleset.parent_version,
+                        ruleset.mapping_hash,
+                        ruleset.schema_hash,
+                        ruleset.content_hash,
+                        ruleset.contract_version,
+                        created_at.isoformat(),
+                        actor.identity.display_name,
+                        ruleset.to_json(),
+                    ],
+                )
+                self._invalidate_quality(
+                    connection,
+                    reason="QUALITY_RULESET_CHANGED",
+                )
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO quality_ruleset_current
+                    VALUES (1, ?, ?)
+                    """,
+                    [ruleset.ruleset_id, ruleset.version],
+                )
+                self._insert_workspace_audit(
+                    connection,
+                    revision=self._project_revision(connection),
+                    event_type="QUALITY_RULESET_PUBLISHED",
+                    detail=(
+                        f"version {ruleset.version}: "
+                        f"{len(ruleset.rules)} data check(s)"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return ruleset
+
+    def publish_quality_run(
+        self,
+        project_id: str,
+        run: QualityRun,
+        *,
+        actor: Actor,
+    ) -> QualityRunSummary:
+        """Atomically publish a complete quality overlay and quarantine set."""
+
+        if run.project_id != project_id:
+            raise WorkspaceError("Quality evidence belongs to another project")
+        if (
+            run.contract_version != QUALITY_CONTRACT_VERSION
+            or run.evaluator_version != QUALITY_EVALUATOR_VERSION
+        ):
+            raise WorkspaceError(
+                "Quality evidence must be regenerated with the current evaluator"
+            )
+        try:
+            QualityRun.from_json(run.to_json())
+        except (TypeError, ValueError) as error:
+            raise WorkspaceError("Quality evidence is invalid") from error
+        project = self.get(project_id)
+        if run.retention_context_hash != retention_context_hash(project):
+            raise WorkspaceError(
+                "Quality evidence no longer matches project ownership and retention"
+            )
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        published_at = datetime.now(timezone.utc)
+        run_id = str(uuid4())
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            connection.begin()
+            try:
+                staging = connection.execute(
+                    """
+                    SELECT run.run_id, run.content_hash, run.mapping_hash,
+                           run.schema_hash
+                      FROM canonical_staging_current AS current
+                      JOIN canonical_staging_run AS run
+                        ON run.run_id = current.run_id
+                     WHERE current.singleton_id = 1
+                       AND run.status = 'PUBLISHED'
+                    """
+                ).fetchone()
+                if staging is None or (
+                    str(staging[0]) != run.staging_run_id
+                    or str(staging[1]) != run.staging_content_hash
+                    or str(staging[2]) != run.mapping_hash
+                    or str(staging[3]) != run.schema_hash
+                ):
+                    raise WorkspaceError(
+                        "Quality evidence no longer matches current prepared data"
+                    )
+                ruleset = connection.execute(
+                    """
+                    SELECT revision.content_hash
+                      FROM quality_ruleset_current AS current
+                      JOIN quality_ruleset_revision AS revision
+                        ON revision.ruleset_id = current.ruleset_id
+                       AND revision.version = current.version
+                     WHERE current.singleton_id = 1
+                    """
+                ).fetchone()
+                if ruleset is None or str(ruleset[0]) != run.ruleset_hash:
+                    raise WorkspaceError(
+                        "Quality evidence no longer matches current data checks"
+                    )
+                current = connection.execute(
+                    """
+                    SELECT run_id, content_hash, staging_run_id,
+                           staging_content_hash, ruleset_hash, status,
+                           published_at, published_by, summary_json
+                      FROM quality_run
+                     WHERE run_id = (
+                         SELECT run_id FROM quality_current
+                          WHERE singleton_id = 1
+                     )
+                    """
+                ).fetchone()
+                if current is not None and str(current[1]) == run.content_hash:
+                    connection.rollback()
+                    return self._quality_summary(project_id, current)
+                connection.execute(
+                    """
+                    INSERT INTO quality_run (
+                        run_id, content_hash, staging_run_id,
+                        staging_content_hash, ruleset_hash, mapping_hash,
+                        schema_hash, retention_context_hash, contract_version,
+                        evaluator_version, status, published_at, published_by,
+                        row_count, source_count, issue_count, quarantine_count,
+                        summary_json, retired_at, retired_reason,
+                        successor_run_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                              NULL, NULL, NULL)
+                    """,
+                    [
+                        run_id,
+                        run.content_hash,
+                        run.staging_run_id,
+                        run.staging_content_hash,
+                        run.ruleset_hash,
+                        run.mapping_hash,
+                        run.schema_hash,
+                        run.retention_context_hash,
+                        run.contract_version,
+                        run.evaluator_version,
+                        QualityRunStatus.PUBLISHED.value,
+                        published_at.isoformat(),
+                        actor.identity.display_name,
+                        len(run.row_results),
+                        len(run.source_accounting),
+                        len(run.issues),
+                        len(run.quarantine),
+                        _canonical_json(
+                            {
+                                "ready_count": run.ready_count,
+                                "review_count": run.review_count,
+                                "quarantined_count": run.quarantined_count,
+                                "excluded_count": run.excluded_count,
+                                "blocked_count": run.blocked_count,
+                            }
+                        ),
+                    ],
+                )
+                self._insert_quality_evidence(connection, run_id, run)
+                stored = connection.execute(
+                    """
+                    SELECT
+                        (SELECT COUNT(*) FROM quality_row_result WHERE run_id = ?),
+                        (SELECT COUNT(*) FROM source_accounting_entry WHERE run_id = ?),
+                        (SELECT COUNT(*) FROM quality_issue WHERE run_id = ?),
+                        (SELECT COUNT(*) FROM quality_quarantine_entry WHERE run_id = ?),
+                        (SELECT COUNT(*)
+                           FROM quality_row_result AS quality
+                           JOIN canonical_staging_row AS staging
+                             ON staging.run_id = ?
+                            AND staging.row_id = quality.row_id
+                          WHERE quality.run_id = ?)
+                    """,
+                    [run_id, run_id, run_id, run_id, run.staging_run_id, run_id],
+                ).fetchone()
+                expected = (
+                    len(run.row_results),
+                    len(run.source_accounting),
+                    len(run.issues),
+                    len(run.quarantine),
+                    len(run.row_results),
+                )
+                if stored is None or tuple(int(item) for item in stored) != expected:
+                    raise WorkspaceError("Quality evidence was not stored completely")
+                if current is not None:
+                    connection.execute(
+                        """
+                        UPDATE quality_run
+                           SET status = ?, retired_at = ?, retired_reason = ?,
+                               successor_run_id = ?
+                         WHERE run_id = ?
+                        """,
+                        [
+                            QualityRunStatus.SUPERSEDED.value,
+                            published_at.isoformat(),
+                            "NEW_QUALITY_RUN",
+                            run_id,
+                            str(current[0]),
+                        ],
+                    )
+                    connection.execute(
+                        """
+                        UPDATE quality_quarantine_entry
+                           SET superseded_by_run_id = ?
+                         WHERE run_id = ?
+                        """,
+                        [run_id, str(current[0])],
+                    )
+                connection.execute(
+                    "INSERT OR REPLACE INTO quality_current VALUES (1, ?)",
+                    [run_id],
+                )
+                connection.execute(
+                    """
+                    UPDATE project
+                       SET current_run_id = NULL,
+                           approval_status = 'INVALIDATED'
+                    """
+                )
+                self._insert_workspace_audit(
+                    connection,
+                    revision=self._project_revision(connection),
+                    event_type="QUALITY_RUN_PUBLISHED",
+                    detail=(
+                        f"run {run_id}: {run.ready_count} ready; "
+                        f"{run.review_count} review; "
+                        f"{run.quarantined_count} set aside; "
+                        f"{run.blocked_count} setup"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return QualityRunSummary(
+            run_id=run_id,
+            project_id=project_id,
+            content_hash=run.content_hash,
+            staging_run_id=run.staging_run_id,
+            staging_content_hash=run.staging_content_hash,
+            ruleset_hash=run.ruleset_hash,
+            status=QualityRunStatus.PUBLISHED,
+            published_at=published_at,
+            published_by=actor.identity.display_name,
+            ready_count=run.ready_count,
+            review_count=run.review_count,
+            quarantined_count=run.quarantined_count,
+            excluded_count=run.excluded_count,
+            blocked_count=run.blocked_count,
+        )
+
+    def get_current_quality_summary(
+        self,
+        project_id: str,
+    ) -> QualityRunSummary | None:
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            row = connection.execute(
+                """
+                SELECT run.run_id, run.content_hash, run.staging_run_id,
+                       run.staging_content_hash, run.ruleset_hash, run.status,
+                       run.published_at, run.published_by, run.summary_json
+                  FROM quality_current AS current
+                  JOIN quality_run AS run ON run.run_id = current.run_id
+                 WHERE current.singleton_id = 1
+                   AND run.status = 'PUBLISHED'
+                """
+            ).fetchone()
+        return self._quality_summary(project_id, row) if row else None
+
+    def get_quality_run(
+        self,
+        project_id: str,
+        run_id: str,
+    ) -> QualityRun | None:
+        try:
+            canonical_run_id = str(UUID(run_id))
+        except (ValueError, AttributeError) as error:
+            raise WorkspaceError("Quality run identifier is invalid") from error
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            header = connection.execute(
+                """
+                SELECT content_hash, staging_run_id, staging_content_hash,
+                       ruleset_hash, mapping_hash, schema_hash,
+                       retention_context_hash, contract_version,
+                       evaluator_version
+                  FROM quality_run
+                 WHERE run_id = ?
+                """,
+                [canonical_run_id],
+            ).fetchone()
+            if header is None:
+                return None
+            rows = connection.execute(
+                "SELECT row_json FROM quality_row_result WHERE run_id = ? ORDER BY ordinal",
+                [canonical_run_id],
+            ).fetchall()
+            accounting = connection.execute(
+                "SELECT entry_json FROM source_accounting_entry WHERE run_id = ? ORDER BY ordinal",
+                [canonical_run_id],
+            ).fetchall()
+            issues = connection.execute(
+                "SELECT issue_json FROM quality_issue WHERE run_id = ? ORDER BY ordinal",
+                [canonical_run_id],
+            ).fetchall()
+            quarantine = connection.execute(
+                "SELECT entry_json FROM quality_quarantine_entry WHERE run_id = ? ORDER BY ordinal",
+                [canonical_run_id],
+            ).fetchall()
+        payload = {
+            "content_hash": str(header[0]),
+            "project_id": project_id,
+            "staging_run_id": str(header[1]),
+            "staging_content_hash": str(header[2]),
+            "ruleset_hash": str(header[3]),
+            "mapping_hash": str(header[4]),
+            "schema_hash": str(header[5]),
+            "retention_context_hash": str(header[6]),
+            "contract_version": int(header[7]),
+            "evaluator_version": int(header[8]),
+            "row_results": [json.loads(str(item[0])) for item in rows],
+            "source_accounting": [json.loads(str(item[0])) for item in accounting],
+            "issues": [json.loads(str(item[0])) for item in issues],
+            "quarantine": [json.loads(str(item[0])) for item in quarantine],
+        }
+        try:
+            return QualityRun.from_dict(payload)
+        except (TypeError, ValueError) as error:
+            raise WorkspaceError("Stored quality evidence is invalid") from error
+
+    @staticmethod
+    def _insert_quality_evidence(
+        connection: duckdb.DuckDBPyConnection,
+        run_id: str,
+        run: QualityRun,
+    ) -> None:
+        for start in range(0, len(run.row_results), QUALITY_ROW_BATCH_SIZE):
+            batch = run.row_results[start : start + QUALITY_ROW_BATCH_SIZE]
+            connection.executemany(
+                """
+                INSERT INTO quality_row_result (
+                    run_id, ordinal, row_id, dataset, source_row,
+                    effective_disposition, requires_review, row_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    [run_id, start + offset, item.row_id, item.dataset,
+                     item.source_row, item.effective_disposition.value,
+                     item.requires_review, _canonical_json(item.to_portable_dict())]
+                    for offset, item in enumerate(batch)
+                ],
+            )
+        for start in range(0, len(run.issues), QUALITY_ROW_BATCH_SIZE):
+            batch = run.issues[start : start + QUALITY_ROW_BATCH_SIZE]
+            connection.executemany(
+                """
+                INSERT INTO quality_issue (
+                    run_id, ordinal, issue_id, rule_id, dataset, row_id,
+                    policy, issue_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    [run_id, start + offset, item.issue_id, item.rule_id,
+                     item.dataset, item.row_id, item.policy.value,
+                     _canonical_json(item.to_portable_dict())]
+                    for offset, item in enumerate(batch)
+                ],
+            )
+        for start in range(0, len(run.source_accounting), QUALITY_ROW_BATCH_SIZE):
+            batch = run.source_accounting[start : start + QUALITY_ROW_BATCH_SIZE]
+            connection.executemany(
+                """
+                INSERT INTO source_accounting_entry (
+                    run_id, ordinal, physical_dataset_id, source_row,
+                    state, entry_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    [run_id, start + offset, item.physical_dataset_id,
+                     item.source_row, item.state.value,
+                     _canonical_json(item.to_portable_dict())]
+                    for offset, item in enumerate(batch)
+                ],
+            )
+            links = [
+                [run_id, start + offset, row_id]
+                for offset, item in enumerate(batch)
+                for row_id in item.canonical_row_ids
+            ]
+            if links:
+                connection.executemany(
+                    """
+                    INSERT INTO source_accounting_link (
+                        run_id, accounting_ordinal, row_id
+                    ) VALUES (?, ?, ?)
+                    """,
+                    links,
+                )
+        for start in range(0, len(run.quarantine), QUALITY_ROW_BATCH_SIZE):
+            batch = run.quarantine[start : start + QUALITY_ROW_BATCH_SIZE]
+            connection.executemany(
+                """
+                INSERT INTO quality_quarantine_entry (
+                    run_id, ordinal, entry_id, row_id, rule_id, entry_json,
+                    superseded_by_run_id
+                ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+                """,
+                [
+                    [run_id, start + offset, item.entry_id, item.row_id,
+                     item.rule_id, _canonical_json(item.to_portable_dict())]
+                    for offset, item in enumerate(batch)
+                ],
+            )
+
+    @staticmethod
+    def _quality_summary(
+        project_id: str,
+        row: Sequence[object],
+    ) -> QualityRunSummary:
+        counts = json.loads(str(row[8]))
+        return QualityRunSummary(
+            run_id=str(row[0]),
+            project_id=project_id,
+            content_hash=str(row[1]),
+            staging_run_id=str(row[2]),
+            staging_content_hash=str(row[3]),
+            ruleset_hash=str(row[4]),
+            status=QualityRunStatus(str(row[5])),
+            published_at=datetime.fromisoformat(str(row[6])),
+            published_by=str(row[7]),
+            ready_count=int(counts["ready_count"]),
+            review_count=int(counts["review_count"]),
+            quarantined_count=int(counts["quarantined_count"]),
+            excluded_count=int(counts["excluded_count"]),
+            blocked_count=int(counts["blocked_count"]),
+        )
+
     @staticmethod
     def _insert_canonical_rows(
         connection: duckdb.DuckDBPyConnection,
@@ -1916,6 +2493,7 @@ class DuckDbProjectRepository:
         try:
             canonical_run_id = str(UUID(report.run_id))
             canonical_staging_run_id = str(UUID(report.staging_run_id))
+            canonical_quality_run_id = str(UUID(report.quality_run_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Readiness run identifier is invalid") from error
         if report.project_id != project_id:
@@ -1970,15 +2548,36 @@ class DuckDbProjectRepository:
                     raise WorkspaceError(
                         "Readiness report does not match the current prepared data"
                     )
+                quality = connection.execute(
+                    """
+                    SELECT run.content_hash, run.staging_run_id,
+                           run.staging_content_hash
+                      FROM quality_current AS current
+                      JOIN quality_run AS run ON run.run_id = current.run_id
+                     WHERE current.singleton_id = 1
+                       AND run.run_id = ?
+                       AND run.status = 'PUBLISHED'
+                    """,
+                    [canonical_quality_run_id],
+                ).fetchone()
+                if quality is None or (
+                    str(quality[0]) != report.quality_content_hash
+                    or str(quality[1]) != canonical_staging_run_id
+                    or str(quality[2]) != report.staging_content_hash
+                ):
+                    raise WorkspaceError(
+                        "Readiness report does not match the current data checks"
+                    )
                 revision = self._project_revision(connection)
                 connection.execute(
                     """
                     INSERT INTO readiness_run (
                         run_id, mapping_id, mapping_version,
                         mapping_content_hash, target_hash, staging_run_id,
-                        staging_content_hash, checked_at, checked_by,
+                        staging_content_hash, quality_run_id,
+                        quality_content_hash, checked_at, checked_by,
                         report_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         canonical_run_id,
@@ -1988,6 +2587,8 @@ class DuckDbProjectRepository:
                         report.target_hash,
                         canonical_staging_run_id,
                         report.staging_content_hash,
+                        canonical_quality_run_id,
+                        report.quality_content_hash,
                         report.checked_at.isoformat(),
                         report.checked_by,
                         report.to_json(),
@@ -2044,9 +2645,23 @@ class DuckDbProjectRepository:
                  WHERE singleton_id = 1
                 """
             ).fetchone()
-        if row is None or str(row[0]) != identity.content_hash:
+        if row is None:
             return None
-        return self._transformation_impact_snapshot(identity, row)
+        stored_identity = TransformationImpactIdentity(
+            physical_selection_hash=str(row[1]),
+            source_selection_hash=str(row[2]),
+            mapping_content_hash=str(row[3]),
+            schema_hash=str(row[4]),
+            derived_plan_hash=str(row[5]) if row[5] else None,
+            contract_version=int(row[6]),
+            evaluator_version=int(row[7]),
+        )
+        if (
+            stored_identity != identity
+            or str(row[0]) != stored_identity.content_hash
+        ):
+            return None
+        return self._transformation_impact_snapshot(stored_identity, row)
 
     def replace_transformation_impact_snapshot(
         self,
@@ -2370,7 +2985,7 @@ class DuckDbProjectRepository:
                 "contains(lower(message), ?)"
                 ")"
             )
-            parameters.extend([filters.query.casefold()] * 6)
+            parameters.extend([filters.query.lower()] * 6)
         return "WHERE " + " AND ".join(conditions), parameters
 
     @staticmethod
@@ -2520,12 +3135,50 @@ class DuckDbProjectRepository:
         return int(row[0])
 
     @staticmethod
+    def _invalidate_quality(
+        connection: duckdb.DuckDBPyConnection,
+        *,
+        reason: str,
+    ) -> None:
+        """Retire the current quality pointer without deleting evidence."""
+
+        current = connection.execute(
+            "SELECT run_id FROM quality_current WHERE singleton_id = 1"
+        ).fetchone()
+        if current is None:
+            return
+        connection.execute(
+            """
+            UPDATE quality_run
+               SET status = ?, retired_at = ?, retired_reason = ?
+             WHERE run_id = ?
+            """,
+            [
+                QualityRunStatus.INVALIDATED.value,
+                datetime.now(timezone.utc).isoformat(),
+                reason,
+                str(current[0]),
+            ],
+        )
+        connection.execute("DELETE FROM quality_current")
+        connection.execute(
+            """
+            UPDATE project
+               SET current_run_id = NULL,
+                   approval_status = 'INVALIDATED'
+            """
+        )
+
+    @classmethod
     def _invalidate_canonical_staging(
+        cls,
         connection: duckdb.DuckDBPyConnection,
         *,
         reason: str,
     ) -> None:
         """Retire the current staging pointer without deleting audit evidence."""
+
+        cls._invalidate_quality(connection, reason=reason)
 
         current = connection.execute(
             """
@@ -2813,6 +3466,125 @@ class DuckDbProjectRepository:
                 run_id VARCHAR NOT NULL
             );
 
+            CREATE TABLE quality_ruleset_revision (
+                ruleset_id VARCHAR NOT NULL,
+                version INTEGER NOT NULL,
+                parent_version INTEGER,
+                mapping_hash VARCHAR NOT NULL,
+                schema_hash VARCHAR NOT NULL,
+                content_hash VARCHAR NOT NULL,
+                contract_version INTEGER NOT NULL,
+                created_at VARCHAR NOT NULL,
+                created_by VARCHAR NOT NULL,
+                ruleset_json VARCHAR NOT NULL,
+                PRIMARY KEY (ruleset_id, version)
+            );
+
+            CREATE TABLE quality_ruleset_current (
+                singleton_id INTEGER PRIMARY KEY,
+                ruleset_id VARCHAR NOT NULL,
+                version INTEGER NOT NULL
+            );
+
+            CREATE TABLE quality_run (
+                run_id VARCHAR PRIMARY KEY,
+                content_hash VARCHAR NOT NULL,
+                staging_run_id VARCHAR NOT NULL,
+                staging_content_hash VARCHAR NOT NULL,
+                ruleset_hash VARCHAR NOT NULL,
+                mapping_hash VARCHAR NOT NULL,
+                schema_hash VARCHAR NOT NULL,
+                retention_context_hash VARCHAR NOT NULL,
+                contract_version INTEGER NOT NULL,
+                evaluator_version INTEGER NOT NULL,
+                status VARCHAR NOT NULL,
+                published_at VARCHAR NOT NULL,
+                published_by VARCHAR NOT NULL,
+                row_count BIGINT NOT NULL,
+                source_count BIGINT NOT NULL,
+                issue_count BIGINT NOT NULL,
+                quarantine_count BIGINT NOT NULL,
+                summary_json VARCHAR NOT NULL,
+                retired_at VARCHAR,
+                retired_reason VARCHAR,
+                successor_run_id VARCHAR
+            );
+
+            CREATE TABLE quality_row_result (
+                run_id VARCHAR NOT NULL,
+                ordinal BIGINT NOT NULL,
+                row_id VARCHAR NOT NULL,
+                dataset VARCHAR NOT NULL,
+                source_row BIGINT NOT NULL,
+                effective_disposition VARCHAR NOT NULL,
+                requires_review BOOLEAN NOT NULL,
+                row_json VARCHAR NOT NULL,
+                PRIMARY KEY (run_id, ordinal),
+                UNIQUE (run_id, row_id)
+            );
+
+            CREATE INDEX quality_row_result_lookup
+                ON quality_row_result (
+                    run_id, effective_disposition, requires_review, dataset
+                );
+
+            CREATE TABLE quality_issue (
+                run_id VARCHAR NOT NULL,
+                ordinal BIGINT NOT NULL,
+                issue_id VARCHAR NOT NULL,
+                rule_id VARCHAR NOT NULL,
+                dataset VARCHAR NOT NULL,
+                row_id VARCHAR,
+                policy VARCHAR NOT NULL,
+                issue_json VARCHAR NOT NULL,
+                PRIMARY KEY (run_id, ordinal),
+                UNIQUE (run_id, issue_id)
+            );
+
+            CREATE INDEX quality_issue_lookup
+                ON quality_issue (run_id, dataset, policy, row_id);
+
+            CREATE TABLE source_accounting_entry (
+                run_id VARCHAR NOT NULL,
+                ordinal BIGINT NOT NULL,
+                physical_dataset_id VARCHAR NOT NULL,
+                source_row BIGINT NOT NULL,
+                state VARCHAR NOT NULL,
+                entry_json VARCHAR NOT NULL,
+                PRIMARY KEY (run_id, ordinal),
+                UNIQUE (run_id, physical_dataset_id, source_row)
+            );
+
+            CREATE TABLE source_accounting_link (
+                run_id VARCHAR NOT NULL,
+                accounting_ordinal BIGINT NOT NULL,
+                row_id VARCHAR NOT NULL,
+                PRIMARY KEY (run_id, accounting_ordinal, row_id)
+            );
+
+            CREATE INDEX source_accounting_link_lookup
+                ON source_accounting_link (run_id, row_id);
+
+            CREATE TABLE quality_quarantine_entry (
+                run_id VARCHAR NOT NULL,
+                ordinal BIGINT NOT NULL,
+                entry_id VARCHAR NOT NULL,
+                row_id VARCHAR NOT NULL,
+                rule_id VARCHAR NOT NULL,
+                entry_json VARCHAR NOT NULL,
+                superseded_by_run_id VARCHAR,
+                PRIMARY KEY (run_id, ordinal),
+                UNIQUE (run_id, entry_id)
+            );
+
+            CREATE INDEX quality_quarantine_lookup
+                ON quality_quarantine_entry (run_id, row_id, rule_id);
+
+            CREATE TABLE quality_current (
+                singleton_id INTEGER PRIMARY KEY,
+                run_id VARCHAR NOT NULL
+            );
+
             CREATE TABLE transformation_impact_run (
                 singleton_id INTEGER PRIMARY KEY,
                 identity_hash VARCHAR NOT NULL,
@@ -2861,6 +3633,8 @@ class DuckDbProjectRepository:
                 target_hash VARCHAR NOT NULL,
                 staging_run_id VARCHAR NOT NULL,
                 staging_content_hash VARCHAR NOT NULL,
+                quality_run_id VARCHAR NOT NULL,
+                quality_content_hash VARCHAR NOT NULL,
                 checked_at VARCHAR NOT NULL,
                 checked_by VARCHAR NOT NULL,
                 report_json VARCHAR NOT NULL
@@ -3356,6 +4130,188 @@ class DuckDbProjectRepository:
                         """
                     )
                     version = 14
+                if version == 14:
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS quality_ruleset_revision (
+                            ruleset_id VARCHAR NOT NULL,
+                            version INTEGER NOT NULL,
+                            parent_version INTEGER,
+                            mapping_hash VARCHAR NOT NULL,
+                            schema_hash VARCHAR NOT NULL,
+                            content_hash VARCHAR NOT NULL,
+                            contract_version INTEGER NOT NULL,
+                            created_at VARCHAR NOT NULL,
+                            created_by VARCHAR NOT NULL,
+                            ruleset_json VARCHAR NOT NULL,
+                            PRIMARY KEY (ruleset_id, version)
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS quality_ruleset_current (
+                            singleton_id INTEGER PRIMARY KEY,
+                            ruleset_id VARCHAR NOT NULL,
+                            version INTEGER NOT NULL
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS quality_run (
+                            run_id VARCHAR PRIMARY KEY,
+                            content_hash VARCHAR NOT NULL,
+                            staging_run_id VARCHAR NOT NULL,
+                            staging_content_hash VARCHAR NOT NULL,
+                            ruleset_hash VARCHAR NOT NULL,
+                            mapping_hash VARCHAR NOT NULL,
+                            schema_hash VARCHAR NOT NULL,
+                            retention_context_hash VARCHAR NOT NULL,
+                            contract_version INTEGER NOT NULL,
+                            evaluator_version INTEGER NOT NULL,
+                            status VARCHAR NOT NULL,
+                            published_at VARCHAR NOT NULL,
+                            published_by VARCHAR NOT NULL,
+                            row_count BIGINT NOT NULL,
+                            source_count BIGINT NOT NULL,
+                            issue_count BIGINT NOT NULL,
+                            quarantine_count BIGINT NOT NULL,
+                            summary_json VARCHAR NOT NULL,
+                            retired_at VARCHAR,
+                            retired_reason VARCHAR,
+                            successor_run_id VARCHAR
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS quality_row_result (
+                            run_id VARCHAR NOT NULL,
+                            ordinal BIGINT NOT NULL,
+                            row_id VARCHAR NOT NULL,
+                            dataset VARCHAR NOT NULL,
+                            source_row BIGINT NOT NULL,
+                            effective_disposition VARCHAR NOT NULL,
+                            requires_review BOOLEAN NOT NULL,
+                            row_json VARCHAR NOT NULL,
+                            PRIMARY KEY (run_id, ordinal),
+                            UNIQUE (run_id, row_id)
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS quality_row_result_lookup
+                            ON quality_row_result (
+                                run_id, effective_disposition,
+                                requires_review, dataset
+                            )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS quality_issue (
+                            run_id VARCHAR NOT NULL,
+                            ordinal BIGINT NOT NULL,
+                            issue_id VARCHAR NOT NULL,
+                            rule_id VARCHAR NOT NULL,
+                            dataset VARCHAR NOT NULL,
+                            row_id VARCHAR,
+                            policy VARCHAR NOT NULL,
+                            issue_json VARCHAR NOT NULL,
+                            PRIMARY KEY (run_id, ordinal),
+                            UNIQUE (run_id, issue_id)
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS quality_issue_lookup
+                            ON quality_issue (run_id, dataset, policy, row_id)
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS source_accounting_entry (
+                            run_id VARCHAR NOT NULL,
+                            ordinal BIGINT NOT NULL,
+                            physical_dataset_id VARCHAR NOT NULL,
+                            source_row BIGINT NOT NULL,
+                            state VARCHAR NOT NULL,
+                            entry_json VARCHAR NOT NULL,
+                            PRIMARY KEY (run_id, ordinal),
+                            UNIQUE (run_id, physical_dataset_id, source_row)
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS source_accounting_link (
+                            run_id VARCHAR NOT NULL,
+                            accounting_ordinal BIGINT NOT NULL,
+                            row_id VARCHAR NOT NULL,
+                            PRIMARY KEY (run_id, accounting_ordinal, row_id)
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS source_accounting_link_lookup
+                            ON source_accounting_link (run_id, row_id)
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS quality_quarantine_entry (
+                            run_id VARCHAR NOT NULL,
+                            ordinal BIGINT NOT NULL,
+                            entry_id VARCHAR NOT NULL,
+                            row_id VARCHAR NOT NULL,
+                            rule_id VARCHAR NOT NULL,
+                            entry_json VARCHAR NOT NULL,
+                            superseded_by_run_id VARCHAR,
+                            PRIMARY KEY (run_id, ordinal),
+                            UNIQUE (run_id, entry_id)
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS quality_quarantine_lookup
+                            ON quality_quarantine_entry (run_id, row_id, rule_id)
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS quality_current (
+                            singleton_id INTEGER PRIMARY KEY,
+                            run_id VARCHAR NOT NULL
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        ALTER TABLE readiness_run
+                        ADD COLUMN IF NOT EXISTS quality_run_id
+                        VARCHAR DEFAULT ''
+                        """
+                    )
+                    connection.execute(
+                        """
+                        ALTER TABLE readiness_run
+                        ADD COLUMN IF NOT EXISTS quality_content_hash
+                        VARCHAR DEFAULT ''
+                        """
+                    )
+                    connection.execute(
+                        """
+                        UPDATE project
+                           SET current_run_id = NULL,
+                               approval_status = 'INVALIDATED'
+                        """
+                    )
+                    version = 15
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

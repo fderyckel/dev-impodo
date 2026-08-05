@@ -144,7 +144,7 @@ workflow.
 
 End-user explanations of every scalar provider, type, transformation, policy,
 and preview belong in the
-[local-browser scalar mapping reference](../operations/local-browser-user-guide.md#scalar-fields-choose-what-impodo-should-do).
+[local-browser scalar mapping reference](../operations/01-local-browser-user-guide.md#scalar-fields-choose-what-impodo-should-do).
 
 Derived-entity rules may create deterministic related-dataset plans from
 denormalized source columns. Their bounded previews do not execute full-row

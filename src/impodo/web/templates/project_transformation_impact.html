@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Transformation impact · {{ project.name }} · Impodo{% endblock %}
+{% block title %}Transformation impact &middot; {{ project.name }} &middot; Impodo{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
@@ -8,7 +8,7 @@
       {% if report %}
         <p>Raw source values compared with the proposed values from mapping version {{ revision.version }}. For a derived dataset, the raw value is the prepared input to that dataset.</p>
       {% else %}
-        <p>The transformation evidence could not be prepared.</p>
+        <p>Prepare a local, filterable comparison for mapping version {{ revision.version }}.</p>
       {% endif %}
     </div>
     <span class="status registered">Read only</span>
@@ -18,6 +18,18 @@
     <div class="alert error" role="alert">{{ error }}</div>
   {% endif %}
 
+  {% if not report %}
+    <section class="form-card">
+      <p class="eyebrow">Bounded browser view</p>
+      <h2>Prepare transformation impact</h2>
+      <p>Impodo will evaluate every frozen row locally, store one hash-bound snapshot, and then show up to 100 matching values at a time. It will not contact or write to Odoo.</p>
+      <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact/prepare">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="button primary" type="submit">Prepare transformation impact</button>
+      </form>
+    </section>
+  {% endif %}
+
   {% if report %}
     <div class="notice success">
       <strong>Your registered Excel or CSV source remains unchanged.</strong>
@@ -25,23 +37,30 @@
     </div>
 
     <section class="impact-cards" aria-label="Transformation impact overview">
-      <article class="impact-card changed"><span>Changed</span><strong>{{ report.changed_count }}</strong></article>
-      <article class="impact-card fallback"><span>Fallback used</span><strong>{{ report.fallback_count }}</strong></article>
-      <article class="impact-card null"><span>Became null</span><strong>{{ report.null_count }}</strong></article>
-      <article class="impact-card invalid"><span>Invalid</span><strong>{{ report.invalid_count }}</strong></article>
-      <article class="impact-card provided"><span>Constant provided</span><strong>{{ report.provided_count }}</strong></article>
+      <a class="impact-card changed{% if filters.outcome == 'changed' %} selected{% endif %}" href="{{ outcome_urls.changed }}" {% if filters.outcome == 'changed' %}aria-current="true"{% endif %}><span>Changed</span><strong>{{ report.changed_count }}</strong></a>
+      <a class="impact-card fallback{% if filters.outcome == 'fallback' %} selected{% endif %}" href="{{ outcome_urls.fallback }}" {% if filters.outcome == 'fallback' %}aria-current="true"{% endif %}><span>Fallback used</span><strong>{{ report.fallback_count }}</strong></a>
+      <a class="impact-card null{% if filters.outcome == 'null' %} selected{% endif %}" href="{{ outcome_urls.null }}" {% if filters.outcome == 'null' %}aria-current="true"{% endif %}><span>Became null</span><strong>{{ report.null_count }}</strong></a>
+      <a class="impact-card invalid{% if filters.outcome == 'invalid' %} selected{% endif %}" href="{{ outcome_urls.invalid }}" {% if filters.outcome == 'invalid' %}aria-current="true"{% endif %}><span>Invalid</span><strong>{{ report.invalid_count }}</strong></a>
+      <a class="impact-card provided{% if filters.outcome == 'provided' %} selected{% endif %}" href="{{ outcome_urls.provided }}" {% if filters.outcome == 'provided' %}aria-current="true"{% endif %}><span>Constant provided</span><strong>{{ report.provided_count }}</strong></a>
       <article class="impact-card unchanged"><span>Unchanged</span><strong>{{ report.unchanged_count }}</strong></article>
     </section>
 
-    <section class="form-card" data-impact-report data-export-name="impodo-transformation-impact-v{{ revision.version }}.csv">
+    <section class="form-card">
       <div class="page-heading compact">
         <div>
-          <p class="eyebrow">Changed values</p>
+          <p class="eyebrow">Affected values</p>
           <h2>{{ report.impact_count }} value{{ "s" if report.impact_count != 1 else "" }} affected</h2>
-          <p class="muted">{{ report.evaluated_count }} mapped values were evaluated across every frozen row.</p>
+          <p class="muted">Across {{ snapshot.affected_row_count }} dataset row{{ "s" if snapshot.affected_row_count != 1 else "" }}. {{ report.evaluated_count }} mapped values were evaluated across every frozen row.</p>
         </div>
         <div class="actions">
-          <button class="button secondary" type="button" data-impact-export>Download filtered rows (.csv)</button>
+          <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact.csv">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="dataset" value="{{ filters.dataset }}">
+            <input type="hidden" name="outcome" value="{{ filters.outcome }}">
+            <input type="hidden" name="field" value="{{ filters.target_field }}">
+            <input type="hidden" name="q" value="{{ filters.query }}">
+            <button class="button secondary" type="submit">Download matching rows (.csv)</button>
+          </form>
           <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact.csv">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button primary" type="submit">Download all affected rows (.csv)</button>
@@ -49,43 +68,57 @@
         </div>
       </div>
 
-      {% if report.truncated %}
-        <div class="notice warning" role="status">
-          The browser table is limited to the first {{ report.detail_limit }} affected values. Summary counts still cover the complete frozen dataset; use <strong>Download all affected rows</strong> for complete row-level evidence.
-        </div>
-      {% endif %}
-
-      <div class="impact-tools">
+      <form class="impact-tools" method="get" action="/projects/{{ project.project_id }}/mapping/transformation-impact">
         <label>
           Dataset
-          <select data-impact-dataset>
+          <select name="dataset">
             <option value="">All datasets</option>
             {% for dataset_name, dataset_label in datasets %}
-              <option value="{{ dataset_name }}">{{ dataset_label }}</option>
+              <option value="{{ dataset_name }}" {% if filters.dataset == dataset_name %}selected{% endif %}>{{ dataset_label }}</option>
             {% endfor %}
           </select>
         </label>
         <label>
           Result
-          <select data-impact-outcome>
+          <select name="outcome">
             <option value="">All affected values</option>
-            <option value="changed">Changed</option>
-            <option value="fallback">Fallback used</option>
-            <option value="null">Became null</option>
-            <option value="invalid">Invalid</option>
-            <option value="provided">Constant provided</option>
+            <option value="changed" {% if filters.outcome == 'changed' %}selected{% endif %}>Changed</option>
+            <option value="fallback" {% if filters.outcome == 'fallback' %}selected{% endif %}>Fallback used</option>
+            <option value="null" {% if filters.outcome == 'null' %}selected{% endif %}>Became null</option>
+            <option value="invalid" {% if filters.outcome == 'invalid' %}selected{% endif %}>Invalid</option>
+            <option value="provided" {% if filters.outcome == 'provided' %}selected{% endif %}>Constant provided</option>
+          </select>
+        </label>
+        <label>
+          Odoo target field
+          <select name="field">
+            <option value="">All target fields</option>
+            {% for field_name, field_label in field_choices %}
+              <option value="{{ field_name }}" {% if filters.target_field == field_name %}selected{% endif %}>{{ field_label }} ({{ field_name }})</option>
+            {% endfor %}
           </select>
         </label>
         <label>
           Search
-          <input type="search" data-impact-search placeholder="Column, target field, value, or rule">
+          <input type="search" name="q" value="{{ filters.query }}" maxlength="128" placeholder="Column, value, rule, or message">
         </label>
-        <p class="muted" role="status" aria-live="polite" data-impact-visible-count>{{ rows|length }} row{{ "s" if rows|length != 1 else "" }} shown</p>
-      </div>
+        <div class="actions impact-filter-actions">
+          <button class="button primary" type="submit">Apply filters</button>
+          <a class="button secondary" href="/projects/{{ project.project_id }}/mapping/transformation-impact">Clear</a>
+        </div>
+      </form>
+
+      <p class="muted impact-page-status" role="status" aria-live="polite">
+        {% if impact_page.matching_count %}
+          Showing {{ impact_page.start_position }}–{{ impact_page.end_position }} of {{ impact_page.matching_count }} matching affected values.
+        {% else %}
+          No affected values match the current filters.
+        {% endif %}
+      </p>
 
       {% if rows %}
         <div class="table-scroll">
-          <table class="data-table impact-table" data-impact-table>
+          <table class="data-table impact-table">
             <thead>
               <tr>
                 <th>Dataset</th>
@@ -100,13 +133,7 @@
             </thead>
             <tbody>
               {% for row in rows %}
-                <tr
-                  class="impact-row outcome-{{ row.outcome }}"
-                  data-impact-row
-                  data-dataset="{{ row.dataset }}"
-                  data-outcome="{{ row.outcome }}"
-                  data-search="{{ row.source_column|lower }} {{ row.target_field|lower }} {{ row.raw_value|lower }} {{ row.proposed_value|lower }} {{ row.rules|lower }} {{ row.message|lower }}"
-                >
+                <tr class="impact-row outcome-{{ row.outcome }}">
                   <td>{{ row.dataset.replace('_', ' ')|title }}</td>
                   <td>{{ row.source_row }}</td>
                   <td>{{ row.source_column }}</td>
@@ -126,15 +153,24 @@
             </tbody>
           </table>
         </div>
-        <div class="empty-state compact" data-impact-empty hidden>
-          <h3>No affected values match these filters</h3>
-          <p>Clear a filter or search for another value.</p>
-        </div>
       {% else %}
         <div class="empty-state compact">
-          <h3>No values changed</h3>
-          <p>The validated scalar rules produced the same value as the source for every evaluated field.</p>
+          {% if report.impact_count %}
+            <h3>No affected values match these filters</h3>
+            <p>Clear a filter or search for another value.</p>
+          {% else %}
+            <h3>No values changed</h3>
+            <p>The validated scalar rules produced the same value as the source for every evaluated field.</p>
+          {% endif %}
         </div>
+      {% endif %}
+
+      {% if previous_url or next_url %}
+        <nav class="impact-pagination" aria-label="Transformation impact pages">
+          {% if previous_url %}<a class="button secondary" href="{{ previous_url }}">Previous 100</a>{% endif %}
+          <span class="muted">Up to 100 values per page</span>
+          {% if next_url %}<a class="button secondary" href="{{ next_url }}">Next 100</a>{% endif %}
+        </nav>
       {% endif %}
     </section>
   {% endif %}

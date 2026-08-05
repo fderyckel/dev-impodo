@@ -77,6 +77,15 @@ from .profile import (
     TargetSpec,
 )
 from .projects import MigrationProject, SourceFile
+from .quality import (
+    QualityError,
+    QualityRuleSet,
+    QualityRun,
+    QualityRunSummary,
+    default_quality_ruleset,
+    eligible_prepared_bundle,
+    evaluate_quality,
+)
 from .source import (
     PreparedBundle,
     SourceRow,
@@ -94,7 +103,7 @@ from .staging_contracts import (
 from .workspace import SourceDataset, SourceSelection, WorkspaceError
 
 
-READINESS_CONTRACT_VERSION = 2
+READINESS_CONTRACT_VERSION = 3
 MANIFEST_NAME = "impodo_preflight_manifest.json"
 TRANSFORMATION_IMPACT_DETAIL_LIMIT = 5_000
 TRANSFORMATION_IMPACT_CONTRACT_VERSION = 1
@@ -348,6 +357,8 @@ class ReadinessReport:
     mapping_content_hash: str
     staging_run_id: str
     staging_content_hash: str
+    quality_run_id: str
+    quality_content_hash: str
     target_hash: str
     checked_at: datetime
     checked_by: str
@@ -402,6 +413,8 @@ class ReadinessReport:
             mapping_content_hash=str(payload["mapping_content_hash"]),
             staging_run_id=str(payload["staging_run_id"]),
             staging_content_hash=str(payload["staging_content_hash"]),
+            quality_run_id=str(payload["quality_run_id"]),
+            quality_content_hash=str(payload["quality_content_hash"]),
             target_hash=str(payload["target_hash"]),
             checked_at=datetime.fromisoformat(str(payload["checked_at"])),
             checked_by=str(payload["checked_by"]),
@@ -445,6 +458,8 @@ class ReadinessRepository(Protocol):
         mapping_content_hash: str,
         staging_run_id: str,
         staging_content_hash: str,
+        quality_run_id: str,
+        quality_content_hash: str,
     ) -> ReadinessReport | None: ...
 
     def publish_canonical_staging(
@@ -460,6 +475,38 @@ class ReadinessRepository(Protocol):
         self,
         project_id: str,
     ) -> StagingRunSummary | None: ...
+
+    def get_current_quality_ruleset(
+        self,
+        project_id: str,
+    ) -> QualityRuleSet | None: ...
+
+    def publish_quality_ruleset(
+        self,
+        project_id: str,
+        ruleset: QualityRuleSet,
+        *,
+        actor: Actor,
+    ) -> QualityRuleSet: ...
+
+    def publish_quality_run(
+        self,
+        project_id: str,
+        run: QualityRun,
+        *,
+        actor: Actor,
+    ) -> QualityRunSummary: ...
+
+    def get_current_quality_summary(
+        self,
+        project_id: str,
+    ) -> QualityRunSummary | None: ...
+
+    def get_quality_run(
+        self,
+        project_id: str,
+        run_id: str,
+    ) -> QualityRun | None: ...
 
     def save_readiness_report(
         self,
@@ -485,6 +532,7 @@ class StagedBrowserMapping:
     canonical_run: CanonicalStagingRun
     dataset_labels: Mapping[str, str]
     source_field_labels: Mapping[tuple[str, str], str]
+    physical_rows: Mapping[str, tuple[int, ...]]
     transformation_impact: TransformationImpactReport | None = None
 
 
@@ -506,6 +554,9 @@ class BrowserReadinessService:
         staging = self.repository.get_current_staging_summary(project_id)
         if staging is None:
             return None
+        quality = self.repository.get_current_quality_summary(project_id)
+        if quality is None or quality.staging_run_id != staging.run_id:
+            return None
         revision = self.repository.get_mapping_revision(project_id)
         if revision is None:
             return None
@@ -521,10 +572,24 @@ class BrowserReadinessService:
             revision.definition.content_hash,
             staging.run_id,
             staging.content_hash,
+            quality.run_id,
+            quality.content_hash,
         )
 
     def current_staging(self, project_id: str) -> StagingRunSummary | None:
         return self.repository.get_current_staging_summary(project_id)
+
+    def current_quality_summary(
+        self,
+        project_id: str,
+    ) -> QualityRunSummary | None:
+        return self.repository.get_current_quality_summary(project_id)
+
+    def current_quality(self, project_id: str) -> QualityRun | None:
+        summary = self.repository.get_current_quality_summary(project_id)
+        if summary is None:
+            return None
+        return self.repository.get_quality_run(project_id, summary.run_id)
 
     def run(
         self,
@@ -570,10 +635,55 @@ class BrowserReadinessService:
             mapping_version=revision.version,
             actor=actor,
         )
+        ruleset = self.repository.get_current_quality_ruleset(project_id)
+        if (
+            ruleset is None
+            or ruleset.mapping_hash != revision.definition.content_hash
+            or ruleset.schema_hash != revision.definition.schema_hash
+        ):
+            ruleset = default_quality_ruleset(
+                project_id=project_id,
+                mapping_hash=revision.definition.content_hash,
+                schema_hash=revision.definition.schema_hash,
+                datasets=(item.name for item in effective_selection.datasets),
+                version=(ruleset.version + 1 if ruleset is not None else 1),
+                parent_version=(ruleset.version if ruleset is not None else None),
+            )
+            ruleset = self.repository.publish_quality_ruleset(
+                project_id,
+                ruleset,
+                actor=actor,
+            )
+        try:
+            quality_run = evaluate_quality(
+                project=project,
+                staging_run_id=publication.run_id,
+                staging=staged.canonical_run,
+                prepared=staged.prepared,
+                physical_rows=staged.physical_rows,
+                ruleset=ruleset,
+            )
+        except QualityError as error:
+            raise ReadinessError(str(error)) from error
+        quality = self.repository.publish_quality_run(
+            project_id,
+            quality_run,
+            actor=actor,
+        )
+        if not quality.can_compare:
+            raise ReadinessError(
+                "Fix the data-check setup shown below, then check all rows again. "
+                "Odoo was not contacted."
+            )
+        eligible = eligible_prepared_bundle(
+            staged.canonical_run,
+            staged.prepared,
+            quality_run,
+        )
         metadata_requests = plan_metadata_requests(staged.profile)
         record_requests = plan_record_requests(
             staged.profile,
-            staged.prepared.records,
+            eligible.records,
         )
         metadata, records = reader(metadata_requests, record_requests)
         expected_target = target_identity_hash(
@@ -589,7 +699,7 @@ class BrowserReadinessService:
             raise ReadinessError("Readiness data came from a different Odoo target")
         result = self.engine.run(
             staged.profile,
-            staged.prepared,
+            eligible,
             metadata,
             records,
         )
@@ -603,6 +713,7 @@ class BrowserReadinessService:
             staged.source_field_labels,
             actor,
             publication,
+            quality,
         )
         _write_manifest(self.repository, project_id, run_id, result)
         self.repository.save_readiness_report(
@@ -875,6 +986,10 @@ def evaluate_browser_mapping(
             for item in effective_selection.datasets
         },
         source_field_labels=source_labels,
+        physical_rows={
+            dataset_id: tuple(row.number for row in table.rows)
+            for dataset_id, table in sorted(loaded_tables.items())
+        },
         transformation_impact=(
             impact_collector.report() if impact_collector is not None else None
         ),
@@ -1632,6 +1747,7 @@ def _readiness_report(
     source_labels: Mapping[tuple[str, str], str],
     actor: Actor,
     staging: StagingRunSummary,
+    quality: QualityRunSummary,
 ) -> ReadinessReport:
     rows = tuple(
         _readiness_row(decision, dataset_labels, source_labels)
@@ -1670,6 +1786,8 @@ def _readiness_report(
         mapping_content_hash=revision.definition.content_hash,
         staging_run_id=staging.run_id,
         staging_content_hash=staging.content_hash,
+        quality_run_id=quality.run_id,
+        quality_content_hash=quality.content_hash,
         target_hash=result.fingerprint.target_hash,
         checked_at=datetime.now(timezone.utc),
         checked_by=actor.identity.display_name,
