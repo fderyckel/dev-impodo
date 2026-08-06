@@ -1019,6 +1019,75 @@ class QualityStoreTests(unittest.TestCase):
         self.assertEqual(first.status, QualityRunStatus.PUBLISHED)
         self.assertEqual(restored.to_json(), run.to_json())
 
+    def test_quality_review_reads_deterministic_50_row_pages(self) -> None:
+        rows = tuple(
+            replace(
+                _canonical_row(
+                    "a",
+                    source_row,
+                    source_identity=(f"C{source_row:03d}",),
+                    target_identity=(f"C{source_row:03d}",),
+                ),
+                row_id=f"sha256:{source_row:064x}",
+            )
+            for source_row in range(2, 53)
+        )
+        staging_run = _staging(self.project.project_id, rows)
+        staging = self.staging.publish_canonical_staging(
+            self.project.project_id,
+            staging_run,
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts",),
+        )
+        self.quality.publish_quality_ruleset(
+            self.project.project_id,
+            ruleset,
+            actor=LOCAL_ACTOR,
+        )
+        run = evaluate_quality(
+            project=self.project,
+            staging=staging_run,
+            physical_rows={
+                "dataset:contacts": tuple(range(2, 53)),
+            },
+            ruleset=ruleset,
+        )
+        published = self.quality.publish_quality_run(
+            self.project.project_id,
+            run,
+            staging_run_id=staging.run_id,
+            actor=LOCAL_ACTOR,
+        )
+
+        first = self.quality.get_quality_review_page(
+            self.project.project_id,
+            published.run_id,
+            page=1,
+            page_size=50,
+        )
+        second = self.quality.get_quality_review_page(
+            self.project.project_id,
+            published.run_id,
+            page=2,
+            page_size=50,
+        )
+
+        self.assertEqual(first.matching_count, 51)
+        self.assertEqual(first.page_count, 2)
+        self.assertEqual(len(first.items), 50)
+        self.assertEqual(first.items[0].row.source_row, 2)
+        self.assertEqual(first.items[-1].row.source_row, 51)
+        self.assertEqual(second.matching_count, 51)
+        self.assertEqual(second.page, 2)
+        self.assertEqual(len(second.items), 1)
+        self.assertEqual(second.items[0].row.source_row, 52)
+
     def test_failed_quality_batch_preserves_previous_current_run(self) -> None:
         row = _canonical_row("5", 2)
         staging_run = _staging(self.project.project_id, (row,))

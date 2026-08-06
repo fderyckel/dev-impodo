@@ -21,6 +21,7 @@ from ...workspace_errors import WorkspaceError
 from ..constants import (
     NORMALIZATION_GROUPS_PER_PAGE,
     ODOO_APPLICATIONS,
+    QUALITY_REVIEW_ROWS_PER_PAGE,
     READINESS_ROWS_PER_PAGE,
 )
 from ..context import WebContext
@@ -200,6 +201,8 @@ def _render_summary(
     if quality_dataset not in quality_datasets:
         quality_dataset = ""
     quality_page = None
+    quality_row_start = 0
+    quality_row_end = 0
     if quality is not None:
         quality_page = context.queries.get_quality_review_page(
             project_id,
@@ -210,8 +213,17 @@ def _render_summary(
                 request.query_params.get("quality_page"),
                 default=1,
             ),
-            page_size=READINESS_ROWS_PER_PAGE,
+            page_size=QUALITY_REVIEW_ROWS_PER_PAGE,
         )
+        if quality_page.matching_count:
+            quality_row_start = (
+                (quality_page.page - 1) * QUALITY_REVIEW_ROWS_PER_PAGE
+                + 1
+            )
+            quality_row_end = min(
+                quality_page.page * QUALITY_REVIEW_ROWS_PER_PAGE,
+                quality_page.matching_count,
+            )
     status_filter = request.query_params.get("status", "").strip()
     if status_filter not in {"", "ready", "needs_review", "blocked"}:
         status_filter = ""
@@ -225,7 +237,7 @@ def _render_summary(
         request.query_params.get("page"),
         default=1,
     )
-    if report is not None and not report.rows:
+    if report is not None:
         persisted_page = context.preflight.readiness_rows(
             project_id,
             report.run_id,
@@ -240,23 +252,11 @@ def _render_summary(
         row_page_count = persisted_page.page_count
         row_start_index = (row_page - 1) * READINESS_ROWS_PER_PAGE
     else:
-        matching_rows = tuple(
-            item
-            for item in (report.rows if report else ())
-            if (not status_filter or item.status == status_filter)
-            and (not dataset_filter or item.dataset == dataset_filter)
-        )
-        row_total = len(matching_rows)
-        row_page_count = max(
-            1,
-            (row_total + READINESS_ROWS_PER_PAGE - 1)
-            // READINESS_ROWS_PER_PAGE,
-        )
-        row_page = min(requested_row_page, row_page_count)
-        row_start_index = (row_page - 1) * READINESS_ROWS_PER_PAGE
-        rows = matching_rows[
-            row_start_index : row_start_index + READINESS_ROWS_PER_PAGE
-        ]
+        rows = ()
+        row_total = 0
+        row_page = 1
+        row_page_count = 1
+        row_start_index = 0
     return _render(
         request,
         "project_summary.html",
@@ -268,6 +268,8 @@ def _render_summary(
         normalization=normalization,
         resolution=resolution,
         quality_review_page=quality_page,
+        quality_review_row_start=quality_row_start,
+        quality_review_row_end=quality_row_end,
         quality_status=quality_status,
         quality_dataset=quality_dataset,
         quality_previous_url=(

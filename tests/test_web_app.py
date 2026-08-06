@@ -1659,6 +1659,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("restoreMappingPosition", mapping_script.text)
         self.assertIn("window.sessionStorage", mapping_script.text)
         self.assertIn("preventScroll: true", mapping_script.text)
+        self.assertIn("rememberNormalizationPosition", mapping_script.text)
+        self.assertIn("restoreNormalizationPosition", mapping_script.text)
+        self.assertIn("data-normalization-decision-form", mapping_script.text)
         self.assertIn("scheduleScalarCatalogSearch", mapping_script.text)
         self.assertIn("new AbortController()", mapping_script.text)
         self.assertIn("new DOMParser()", mapping_script.text)
@@ -1976,7 +1979,31 @@ class ProjectSetupWizardTests(unittest.TestCase):
         review_page = self.client.get(str(completed_job["redirect_url"]))
         self.assertIn("Review what Impodo prepared", review_page.text)
         self.assertIn("Nothing is sent to Odoo", review_page.text)
+        self.assertIn("data-normalization-review", review_page.text)
+        self.assertIn("data-normalization-decision-form", review_page.text)
+        self.assertIn("data-normalization-table-scroll", review_page.text)
         self.assertEqual(len(self.readiness_calls), 0)
+
+        context = self.app.state.context
+        quality_summary = context.quality.current_summary(project_id)
+        assert quality_summary is not None
+        quality_page = context.queries.get_quality_review_page(
+            project_id,
+            quality_summary.run_id,
+            status="",
+            dataset="",
+            page=1,
+            page_size=50,
+        )
+        self.assertLessEqual(len(quality_page.items), 50)
+        prepared_summary_page = self.client.get(
+            f"/projects/{project_id}/summary"
+        )
+        self.assertIn(
+            f"Records 1-{min(50, quality_page.matching_count)} "
+            f"of {quality_page.matching_count}",
+            prepared_summary_page.text,
+        )
 
         normalization_service = self.app.state.context.normalization
         review = normalization_service.current_review(project_id)
@@ -1986,7 +2013,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
             if not group.requires_decision:
                 continue
             accepted = self.client.post(
-                f"/projects/{project_id}/normalization/groups/{group.group_id}/accept",
+                f"/projects/{project_id}/normalization/groups/"
+                f"{group.group_id}/accept?status=pending&page=2",
                 data={
                     "csrf_token": self.csrf,
                     "run_id": normalization.run_id,
@@ -1996,6 +2024,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 follow_redirects=False,
             )
             self.assertEqual(accepted.status_code, 303)
+            self.assertEqual(
+                accepted.headers["location"],
+                f"/projects/{project_id}/normalization"
+                "?status=pending&page=2#review-groups",
+            )
             normalization = normalization_service.current_summary(project_id)
             assert normalization is not None
         approved = self.client.post(
@@ -2335,12 +2368,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
             self.assertEqual(
                 first_page.text.count("data-readiness-row"),
-                100,
+                50,
             )
-            self.assertIn("Rows 1-100 of 201", first_page.text)
-            self.assertIn("Page 1 of 3", first_page.text)
-            self.assertIn("ROW-0100", first_page.text)
-            self.assertNotIn("ROW-0101", first_page.text)
+            self.assertIn("Rows 1-50 of 201", first_page.text)
+            self.assertIn("Page 1 of 5", first_page.text)
+            self.assertIn("ROW-0050", first_page.text)
+            self.assertNotIn("ROW-0051", first_page.text)
             next_match = re.search(
                 r'href="([^"]+)" data-readiness-next',
                 first_page.text,
@@ -2356,11 +2389,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
             self.assertEqual(
                 second_page.text.count("data-readiness-row"),
-                100,
+                50,
             )
-            self.assertIn("Rows 101-200 of 201", second_page.text)
-            self.assertIn("ROW-0101", second_page.text)
-            self.assertIn("ROW-0200", second_page.text)
+            self.assertIn("Rows 51-100 of 201", second_page.text)
+            self.assertIn("ROW-0051", second_page.text)
+            self.assertIn("ROW-0100", second_page.text)
             self.assertNotIn("ROW-0001", second_page.text)
 
             clamped_page = self.client.get(
@@ -2371,7 +2404,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 1,
             )
             self.assertIn("Rows 201-201 of 201", clamped_page.text)
-            self.assertIn("Page 3 of 3", clamped_page.text)
+            self.assertIn("Page 5 of 5", clamped_page.text)
             self.assertIn("ROW-0201", clamped_page.text)
 
             filtered_page = self.client.get(
@@ -2379,7 +2412,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 params={
                     "status": "blocked",
                     "dataset": sample_row.dataset,
-                    "page": "2",
+                    "page": "3",
                 },
             )
             self.assertEqual(
@@ -2387,7 +2420,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 20,
             )
             self.assertIn("Rows 101-120 of 120", filtered_page.text)
-            self.assertIn("Page 2 of 2", filtered_page.text)
+            self.assertIn("Page 3 of 3", filtered_page.text)
             self.assertNotIn("data-readiness-next", filtered_page.text)
             previous_match = re.search(
                 r'href="([^"]+)" data-readiness-previous',
@@ -2402,7 +2435,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 previous_query["dataset"],
                 [sample_row.dataset],
             )
-            self.assertNotIn("page", previous_query)
+            self.assertEqual(previous_query["page"], ["2"])
 
         self.assertEqual(len(self.readiness_calls), 2)
         readiness_requests = self.readiness_calls[-1][2]

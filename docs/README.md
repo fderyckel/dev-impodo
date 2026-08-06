@@ -42,6 +42,9 @@ Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
 - [100,000-row performance refactor plan](plans/100k-performance-refactor-plan.md)
   — measured path from the current 25,000-row materializing workflow to
   bounded 100,000-row preparation in less than two minutes.
+- [DuckDB batch-transport optimization plan](plans/duckdb-batch-transport-optimization-plan.md)
+  — measured Windows persistence bottleneck and staged plan for faster local
+  staging, quality, normalization, and honest progress reporting.
 - [100,000-row bounded preparation implementation plan](plans/100k-bounded-preparation-plan.md)
   — P3 design, increments, failure behavior, parity tests, and memory gates for
   Products followed by BOM.

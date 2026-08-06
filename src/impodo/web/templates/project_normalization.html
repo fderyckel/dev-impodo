@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Review prepared data - {{ project.name }} - Impodo{% endblock %}
 {% block content %}
-  <div class="page-heading">
+  <div class="page-heading" data-normalization-review data-normalization-position-key="{{ project.project_id }}">
     <div>
       <p class="eyebrow">Step 5 - Review prepared data</p>
       <h1>Review what Impodo prepared</h1>
@@ -100,13 +100,13 @@
     </div>
 
     {% if review_items %}
-      <div class="table-scroll">
+      <div class="table-scroll" data-normalization-table-scroll>
         <table class="data-table readiness-row-table">
           <thead><tr><th>What Impodo prepared</th><th>Records</th><th>Examples</th><th>Decision</th></tr></thead>
           <tbody>
             {% for item in review_items %}
               {% set group = item.group %}
-              <tr data-normalization-group>
+              <tr data-normalization-group="{{ group.group_id }}">
                 <th>
                   {{ group.name }}
                   <small class="row-field">{{ group.explanation }}</small>
@@ -141,13 +141,13 @@
                     <span class="status blocked">Not included</span>
                   {% else %}
                     <div class="next-action-buttons">
-                      <form method="post" action="/projects/{{ project.project_id }}/normalization/groups/{{ group.group_id }}/accept">
+                      <form method="post" action="/projects/{{ project.project_id }}/normalization/groups/{{ group.group_id }}/accept?status={{ review_status }}&amp;page={{ review_page }}" data-normalization-decision-form>
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
                         <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
                         <button class="button primary small" type="submit">{% if group.kind.value == 'FINDING' %}I reviewed this{% else %}Accept this change{% endif %}</button>
                       </form>
-                      <form method="post" action="/projects/{{ project.project_id }}/normalization/groups/{{ group.group_id }}/reject">
+                      <form method="post" action="/projects/{{ project.project_id }}/normalization/groups/{{ group.group_id }}/reject?status={{ review_status }}&amp;page={{ review_page }}" data-normalization-decision-form>
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
                         <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">

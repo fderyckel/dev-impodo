@@ -219,6 +219,96 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
 
+  const normalizationReview = document.querySelector(
+    "[data-normalization-review]"
+  );
+  const normalizationPositionStorageKey = normalizationReview
+    ? `impodo.normalization.position:${normalizationReview.dataset.normalizationPositionKey}`
+    : "";
+  const rememberNormalizationPosition = (form) => {
+    if (!normalizationPositionStorageKey) {
+      return;
+    }
+    const rows = Array.from(
+      document.querySelectorAll("[data-normalization-group]")
+    );
+    const row = form.closest("[data-normalization-group]");
+    const tableScroll = document.querySelector(
+      "[data-normalization-table-scroll]"
+    );
+    try {
+      window.sessionStorage.setItem(
+        normalizationPositionStorageKey,
+        JSON.stringify({
+          scrollY: window.scrollY,
+          groupId: row?.dataset.normalizationGroup || "",
+          rowIndex: row ? rows.indexOf(row) : -1,
+          rowOffset: row?.getBoundingClientRect().top ?? null,
+          tableScrollLeft: tableScroll?.scrollLeft || 0,
+        })
+      );
+    } catch {
+      // The server-side anchor still keeps the decision table in view.
+    }
+  };
+  const restoreNormalizationPosition = () => {
+    if (!normalizationPositionStorageKey) {
+      return;
+    }
+    let stored = null;
+    try {
+      stored = JSON.parse(
+        window.sessionStorage.getItem(normalizationPositionStorageKey) ||
+          "null"
+      );
+      window.sessionStorage.removeItem(normalizationPositionStorageKey);
+    } catch {
+      stored = null;
+    }
+    if (!stored) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const rows = Array.from(
+          document.querySelectorAll("[data-normalization-group]")
+        );
+        const sameRow = rows.find(
+          (candidate) =>
+            candidate.dataset.normalizationGroup === stored.groupId
+        );
+        const fallbackIndex = Math.min(
+          Math.max(0, Number(stored.rowIndex) || 0),
+          Math.max(0, rows.length - 1)
+        );
+        const row = sameRow || rows[fallbackIndex];
+        const targetTop =
+          row && Number.isFinite(stored.rowOffset)
+            ? window.scrollY +
+              row.getBoundingClientRect().top -
+              stored.rowOffset
+            : stored.scrollY;
+        window.scrollTo({
+          top: Math.max(0, targetTop || 0),
+          behavior: "auto",
+        });
+        const tableScroll = document.querySelector(
+          "[data-normalization-table-scroll]"
+        );
+        if (tableScroll) {
+          tableScroll.scrollLeft = stored.tableScrollLeft || 0;
+        }
+      });
+    });
+  };
+  for (const form of document.querySelectorAll(
+    "[data-normalization-decision-form]"
+  )) {
+    form.addEventListener("submit", () => {
+      rememberNormalizationPosition(form);
+    });
+  }
+
   const targetModels = Array.from(
     document.querySelectorAll("[data-target-model]")
   );
@@ -2260,5 +2350,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   restoreMappingPosition();
+  restoreNormalizationPosition();
 
 });
