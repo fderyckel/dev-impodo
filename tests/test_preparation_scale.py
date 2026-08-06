@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 from dataclasses import replace
 from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 from time import perf_counter, sleep
@@ -1053,16 +1054,56 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 transformation_impact_sink=legacy_impacts.append,
             )
 
-        from impodo.adapters.duckdb import quality_repository
+        from impodo.adapters.duckdb import (
+            preparation_session_repository,
+            quality_repository,
+        )
 
-        quality_transport_batches: list[int] = []
+        quality_transport_batches: dict[str, list[int]] = {
+            "quality_rows": [],
+            "source_entries": [],
+            "source_links": [],
+        }
         original_quality_batches = (
             quality_repository.iter_encoded_json_batches
         )
 
         def count_quality_batches(*args, **kwargs):
             for batch in original_quality_batches(*args, **kwargs):
-                quality_transport_batches.append(batch.row_count)
+                keys = set(json.loads(batch.payload)[0])
+                if "effective_disposition" in keys:
+                    family = "quality_rows"
+                elif "physical_dataset_id" in keys:
+                    family = "source_entries"
+                elif "accounting_ordinal" in keys:
+                    family = "source_links"
+                else:
+                    raise AssertionError("Unexpected quality transport shape")
+                quality_transport_batches[family].append(batch.row_count)
+                yield batch
+
+        preparation_transport_batches: dict[str, list[int]] = {
+            "canonical_rows": [],
+            "impacts": [],
+        }
+        original_impact_batches = (
+            preparation_session_repository.iter_encoded_json_batches
+        )
+
+        def count_preparation_batches(*args, **kwargs):
+            for batch in original_impact_batches(*args, **kwargs):
+                keys = set(json.loads(batch.payload)[0])
+                if "row_json" in keys:
+                    family = "canonical_rows"
+                elif "impact_json" in keys:
+                    family = "impacts"
+                else:
+                    raise AssertionError(
+                        "Unexpected preparation transport shape"
+                    )
+                preparation_transport_batches[family].append(
+                    batch.row_count
+                )
                 yield batch
 
         with (
@@ -1103,13 +1144,38 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 "iter_encoded_json_batches",
                 count_quality_batches,
             ),
+            patch.object(
+                preparation_session_repository,
+                "iter_encoded_json_batches",
+                count_preparation_batches,
+            ),
+            patch.object(
+                preparation_session_repository,
+                "DUCKDB_JSON_BATCH_MAX_BYTES",
+                10_000,
+            ),
+            patch.object(
+                preparation_session_repository,
+                "DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES",
+                10_000,
+            ),
         ):
             self.context.preparation.prepare(
                 project_id,
                 actor=self.context.actor,
             )
-        self.assertGreater(len(quality_transport_batches), 1)
-        self.assertEqual(sum(quality_transport_batches), 37)
+        for family_batches in quality_transport_batches.values():
+            self.assertGreater(len(family_batches), 1)
+            self.assertEqual(sum(family_batches), 37)
+        canonical_batches = preparation_transport_batches["canonical_rows"]
+        self.assertGreater(len(canonical_batches), 1)
+        self.assertEqual(sum(canonical_batches), 37)
+        impact_batches = preparation_transport_batches["impacts"]
+        self.assertGreater(len(impact_batches), 1)
+        self.assertEqual(
+            sum(impact_batches),
+            len(legacy_impacts),
+        )
 
         summary = self.context.preparation.staging.get_current_staging_summary(
             project_id
@@ -1295,6 +1361,218 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 """
             ).fetchone()
         self.assertEqual(counts, (0, 0, 0))
+
+    def test_canonical_transport_failure_cleans_pending_preparation(self) -> None:
+        project_id, _source_hash, _source_size = (
+            PreparationWorkflowScaleTests._prepare_project_and_evidence(
+                self,
+                row_count=5,
+                column_count=5,
+                mapped_field_count=5,
+                dirty=True,
+            )
+        )
+        from impodo.adapters.duckdb import preparation_session_repository
+
+        original_batches = (
+            preparation_session_repository.iter_encoded_json_batches
+        )
+
+        def fail_after_first_canonical_batch(*args, **kwargs):
+            for batch in original_batches(*args, **kwargs):
+                yield batch
+                if '"row_json"' in batch.payload:
+                    raise RuntimeError("injected canonical transport failure")
+
+        with (
+            patch.object(
+                preparation_session_repository,
+                "iter_encoded_json_batches",
+                fail_after_first_canonical_batch,
+            ),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "injected canonical transport failure",
+            ),
+        ):
+            self.context.preparation.prepare(
+                project_id,
+                actor=self.context.actor,
+            )
+
+        database_path = self.root / project_id / "project.duckdb"
+        with self.context.preparation.staging._connect(database_path) as connection:
+            session = connection.execute(
+                "SELECT status, failure_code FROM preparation_session"
+            ).fetchone()
+            counts = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM canonical_staging_row),
+                    (SELECT COUNT(*) FROM canonical_staging_run),
+                    (SELECT COUNT(*) FROM canonical_staging_current)
+                """
+            ).fetchone()
+        self.assertEqual(session, ("FAILED", "BOUNDED_PREPARATION_FAILED"))
+        self.assertEqual(counts, (0, 0, 0))
+
+    def test_large_canonical_rows_use_scalar_fallback(self) -> None:
+        project_id, _source_hash, _source_size = (
+            PreparationWorkflowScaleTests._prepare_project_and_evidence(
+                self,
+                row_count=5,
+                column_count=5,
+                mapped_field_count=5,
+                dirty=True,
+            )
+        )
+        from impodo.adapters.duckdb import preparation_session_repository
+
+        original_batches = (
+            preparation_session_repository.iter_encoded_json_batches
+        )
+
+        def reject_canonical_json_batches(*args, **kwargs):
+            for batch in original_batches(*args, **kwargs):
+                if '"row_json"' in batch.payload:
+                    raise AssertionError(
+                        "large canonical rows must bypass JSON transport"
+                    )
+                yield batch
+
+        with (
+            patch.object(
+                preparation_session_repository,
+                "_CANONICAL_ROW_SCALAR_FALLBACK_BYTES",
+                1,
+            ),
+            patch.object(
+                preparation_session_repository,
+                "iter_encoded_json_batches",
+                reject_canonical_json_batches,
+            ),
+        ):
+            summary = self.context.preparation.prepare(
+                project_id,
+                actor=self.context.actor,
+            )
+
+        staging = self.context.preparation.staging.get_current_staging_summary(
+            project_id
+        )
+        self.assertIsNotNone(staging)
+        assert staging is not None
+        self.assertEqual(staging.total_rows, 5)
+        self.assertEqual(summary.project_id, project_id)
+
+    def test_impact_transport_failure_cleans_pending_preparation(self) -> None:
+        project_id, _source_hash, _source_size = (
+            PreparationWorkflowScaleTests._prepare_project_and_evidence(
+                self,
+                row_count=5,
+                column_count=5,
+                mapped_field_count=5,
+                dirty=True,
+            )
+        )
+        from impodo.adapters.duckdb import preparation_session_repository
+
+        original_batches = (
+            preparation_session_repository.iter_encoded_json_batches
+        )
+
+        def fail_after_first_impact_batch(*args, **kwargs):
+            for batch in original_batches(*args, **kwargs):
+                yield batch
+                raise RuntimeError("injected impact transport failure")
+
+        with (
+            patch.object(
+                preparation_session_repository,
+                "iter_encoded_json_batches",
+                fail_after_first_impact_batch,
+            ),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "injected impact transport failure",
+            ),
+        ):
+            self.context.preparation.prepare(
+                project_id,
+                actor=self.context.actor,
+            )
+
+        database_path = self.root / project_id / "project.duckdb"
+        with self.context.preparation.staging._connect(database_path) as connection:
+            session = connection.execute(
+                """
+                SELECT status, failure_code
+                  FROM preparation_session
+                """
+            ).fetchone()
+            counts = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM preparation_impact_row),
+                    (SELECT COUNT(*) FROM canonical_staging_row),
+                    (SELECT COUNT(*) FROM canonical_staging_run),
+                    (SELECT COUNT(*) FROM canonical_staging_current)
+                """
+            ).fetchone()
+        self.assertEqual(session, ("FAILED", "BOUNDED_PREPARATION_FAILED"))
+        self.assertEqual(counts, (0, 0, 0, 0))
+
+    def test_source_accounting_transport_failure_rolls_back_quality(self) -> None:
+        project_id, _source_hash, _source_size = (
+            PreparationWorkflowScaleTests._prepare_project_and_evidence(
+                self,
+                row_count=5,
+                column_count=5,
+                mapped_field_count=5,
+                dirty=True,
+            )
+        )
+        from impodo.adapters.duckdb import quality_repository
+
+        original_batches = quality_repository.iter_encoded_json_batches
+
+        def fail_after_first_source_entry(*args, **kwargs):
+            for batch in original_batches(*args, **kwargs):
+                yield batch
+                if '"physical_dataset_id"' in batch.payload:
+                    raise RuntimeError(
+                        "injected source accounting transport failure"
+                    )
+
+        with (
+            patch.object(
+                quality_repository,
+                "iter_encoded_json_batches",
+                fail_after_first_source_entry,
+            ),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "injected source accounting transport failure",
+            ),
+        ):
+            self.context.preparation.prepare(
+                project_id,
+                actor=self.context.actor,
+            )
+
+        database_path = self.root / project_id / "project.duckdb"
+        with self.context.preparation.staging._connect(database_path) as connection:
+            counts = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM quality_row_result),
+                    (SELECT COUNT(*) FROM source_accounting_entry),
+                    (SELECT COUNT(*) FROM source_accounting_link),
+                    (SELECT COUNT(*) FROM quality_run),
+                    (SELECT COUNT(*) FROM quality_current)
+                """
+            ).fetchone()
+        self.assertEqual(counts, (0, 0, 0, 0, 0))
 
     def test_normalization_transport_failure_rolls_back_pending_evidence(self) -> None:
         project_id, _source_hash, _source_size = (

@@ -70,6 +70,19 @@ _QUALITY_ROW_RESULT_JSON_STRUCTURE = """[{
     "row_json":"VARCHAR"
 }]"""
 
+_SOURCE_ACCOUNTING_ENTRY_JSON_STRUCTURE = """[{
+    "ordinal":"BIGINT",
+    "physical_dataset_id":"VARCHAR",
+    "source_row":"BIGINT",
+    "state":"VARCHAR",
+    "entry_json":"VARCHAR"
+}]"""
+
+_SOURCE_ACCOUNTING_LINK_JSON_STRUCTURE = """[{
+    "accounting_ordinal":"BIGINT",
+    "row_id":"VARCHAR"
+}]"""
+
 
 class QualityRepository(DuckDbRepository):
     """Implement the quality port with immutable revisions and current pointers."""
@@ -879,62 +892,165 @@ class QualityRepository(DuckDbRepository):
         hasher.add_value("ruleset_hash", run.ruleset_hash)
         hasher.add_value("schema_hash", run.schema_hash)
         hasher.start_array("source_accounting")
-        accounting_batch_reader = getattr(
-            run.source_accounting,
-            "iter_batches",
-            None,
-        )
-        accounting_batches = (
-            accounting_batch_reader(connection, QUALITY_ROW_BATCH_SIZE)
-            if callable(accounting_batch_reader)
-            else (
-                run.source_accounting[start : start + QUALITY_ROW_BATCH_SIZE]
-                for start in range(
-                    0, len(run.source_accounting), QUALITY_ROW_BATCH_SIZE
-                )
-            )
-        )
         accounting_ordinal = 0
-        for batch in accounting_batches:
-            values = []
-            for offset, item in enumerate(batch):
-                item_json = _canonical_json(item.to_portable_dict())
-                hasher.add_encoded_array_item(item_json)
-                values.append([
-                    run_id, accounting_ordinal + offset, item.physical_dataset_id,
-                    item.source_row, item.state.value, item_json,
-                ])
-            connection.execute(
-                """
-                INSERT INTO source_accounting_entry (
-                    run_id, ordinal, physical_dataset_id, source_row,
-                    state, entry_json
-                )
-                SELECT
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR)
-                """,
-                _columnar_parameters(values),
+        if isinstance(run, StoredQualityRun):
+            accounting_batch_reader = getattr(
+                run.source_accounting,
+                "iter_batches",
+                None,
             )
-            links = [
-                [run_id, accounting_ordinal + offset, row_id]
-                for offset, item in enumerate(batch)
-                for row_id in item.canonical_row_ids
-            ]
-            if links:
+            if not callable(accounting_batch_reader):
+                raise WorkspaceError(
+                    "Stored quality source accounting is not replayable"
+                )
+            accounting_batches = accounting_batch_reader(
+                connection,
+                QUALITY_ROW_BATCH_SIZE,
+            )
+            for batch in accounting_batches:
+                batch_start_ordinal = accounting_ordinal
+
+                def entry_transport_rows():
+                    for offset, item in enumerate(batch):
+                        item_json = _canonical_json(item.to_portable_dict())
+                        hasher.add_encoded_array_item(item_json)
+                        yield {
+                            "ordinal": batch_start_ordinal + offset,
+                            "physical_dataset_id": item.physical_dataset_id,
+                            "source_row": item.source_row,
+                            "state": item.state.value,
+                            "entry_json": item_json,
+                        }
+
+                inserted_entries = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    entry_transport_rows(),
+                    max_rows=QUALITY_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO source_accounting_entry (
+                            run_id, ordinal, physical_dataset_id, source_row,
+                            state, entry_json
+                        )
+                        SELECT
+                            ?, item.ordinal, item.physical_dataset_id,
+                            item.source_row, item.state, item.entry_json
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
+                        [
+                            run_id,
+                            encoded_batch.payload,
+                            _SOURCE_ACCOUNTING_ENTRY_JSON_STRUCTURE,
+                        ],
+                    )
+                    inserted_entries += encoded_batch.row_count
+                if inserted_entries != len(batch):
+                    raise WorkspaceError(
+                        "Quality source accounting batch is incomplete"
+                    )
+
+                link_rows = (
+                    {
+                        "accounting_ordinal": batch_start_ordinal + offset,
+                        "row_id": row_id,
+                    }
+                    for offset, item in enumerate(batch)
+                    for row_id in item.canonical_row_ids
+                )
+                expected_links = sum(
+                    len(item.canonical_row_ids)
+                    for item in batch
+                )
+                inserted_links = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    link_rows,
+                    max_rows=QUALITY_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO source_accounting_link (
+                            run_id, accounting_ordinal, row_id
+                        )
+                        SELECT
+                            ?, item.accounting_ordinal, item.row_id
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
+                        [
+                            run_id,
+                            encoded_batch.payload,
+                            _SOURCE_ACCOUNTING_LINK_JSON_STRUCTURE,
+                        ],
+                    )
+                    inserted_links += encoded_batch.row_count
+                if inserted_links != expected_links:
+                    raise WorkspaceError(
+                        "Quality source accounting links are incomplete"
+                    )
+                accounting_ordinal += inserted_entries
+        else:
+            for start in range(
+                0,
+                len(run.source_accounting),
+                QUALITY_ROW_BATCH_SIZE,
+            ):
+                batch = run.source_accounting[
+                    start : start + QUALITY_ROW_BATCH_SIZE
+                ]
+                values = []
+                for offset, item in enumerate(batch):
+                    item_json = _canonical_json(item.to_portable_dict())
+                    hasher.add_encoded_array_item(item_json)
+                    values.append([
+                        run_id,
+                        accounting_ordinal + offset,
+                        item.physical_dataset_id,
+                        item.source_row,
+                        item.state.value,
+                        item_json,
+                    ])
                 connection.execute(
                     """
-                    INSERT INTO source_accounting_link (
-                        run_id, accounting_ordinal, row_id
+                    INSERT INTO source_accounting_entry (
+                        run_id, ordinal, physical_dataset_id, source_row,
+                        state, entry_json
                     )
                     SELECT
                         CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
-                        CAST(unnest(?) AS VARCHAR)
+                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
+                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR)
                     """,
-                    _columnar_parameters(links),
+                    _columnar_parameters(values),
                 )
-            accounting_ordinal += len(batch)
+                links = [
+                    [run_id, accounting_ordinal + offset, row_id]
+                    for offset, item in enumerate(batch)
+                    for row_id in item.canonical_row_ids
+                ]
+                if links:
+                    connection.execute(
+                        """
+                        INSERT INTO source_accounting_link (
+                            run_id, accounting_ordinal, row_id
+                        )
+                        SELECT
+                            CAST(unnest(?) AS VARCHAR),
+                            CAST(unnest(?) AS BIGINT),
+                            CAST(unnest(?) AS VARCHAR)
+                        """,
+                        _columnar_parameters(links),
+                    )
+                accounting_ordinal += len(batch)
         if accounting_ordinal != len(run.source_accounting):
             raise WorkspaceError("Quality source accounting is incomplete")
         hasher.end_array()

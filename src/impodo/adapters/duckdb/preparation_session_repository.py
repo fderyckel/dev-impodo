@@ -46,14 +46,64 @@ from ...staging_contracts import (
 )
 from ...workspace_errors import WorkspaceError
 from .constants import (
+    DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES,
+    DUCKDB_JSON_BATCH_MAX_BYTES,
     PREPARATION_SESSION_MEMORY_LIMIT,
     PREPARATION_SESSION_ROW_BATCH_SIZE,
 )
 from .repository import DuckDbRepository
-from .serialization import _canonical_json, _columnar_parameters
+from .serialization import (
+    _canonical_json,
+    _columnar_parameters,
+    iter_encoded_json_batches,
+)
 
 
 _FAILURE_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+
+_PREPARATION_IMPACT_JSON_STRUCTURE = """[{
+    "ordinal":"BIGINT",
+    "dataset":"VARCHAR",
+    "source_row":"BIGINT",
+    "target_field":"VARCHAR",
+    "outcome":"VARCHAR",
+    "impact_json":"VARCHAR"
+}]"""
+
+_CANONICAL_STAGING_ROW_JSON_STRUCTURE = """[{
+    "ordinal":"BIGINT",
+    "row_id":"VARCHAR",
+    "dataset":"VARCHAR",
+    "source_row":"BIGINT",
+    "target_model":"VARCHAR",
+    "disposition":"VARCHAR",
+    "row_json":"VARCHAR"
+}]"""
+
+# A canonical row can legally be much larger than the normal JSON envelope.
+# Route a conservative upper-bound estimate through one scalar insert instead
+# of rejecting valid source evidence or creating an oversized copied payload.
+_CANONICAL_ROW_SCALAR_FALLBACK_BYTES = (
+    DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES // 3
+)
+
+
+def _canonical_row_requires_scalar_transport(
+    row: CanonicalPreparedSessionRow,
+) -> bool:
+    """Avoid copying a legally large canonical row into a JSON envelope."""
+
+    estimated_bytes = sum(
+        len(value.encode("utf-8"))
+        for value in (
+            row.row_id,
+            row.dataset,
+            row.target_model,
+            row.disposition.value,
+            row.row_json,
+        )
+    )
+    return estimated_bytes > _CANONICAL_ROW_SCALAR_FALLBACK_BYTES
 
 
 class _SessionCanonicalRows(Sequence[CanonicalRow]):
@@ -332,7 +382,6 @@ class PreparationSessionRepository(DuckDbRepository):
         if not rows:
             return
         canonical_session_id = self._session_id(session_id)
-        row_values: list[list[object]] = []
         identity_values: list[list[object]] = []
         lineage_values: list[list[object]] = []
         physical_values: list[list[object]] = []
@@ -349,18 +398,6 @@ class PreparationSessionRepository(DuckDbRepository):
                     }
                 )
             ).hexdigest()
-            row_values.append(
-                [
-                    canonical_session_id,
-                    item.ordinal,
-                    item.row_id,
-                    item.dataset,
-                    item.source_row,
-                    item.target_model,
-                    item.disposition.value,
-                    item.row_json,
-                ]
-            )
             identity_values.append(
                 [
                     canonical_session_id,
@@ -417,17 +454,80 @@ class PreparationSessionRepository(DuckDbRepository):
                     raise WorkspaceError(
                         "Direct preparation run is not pending"
                     )
-                connection.execute(
-                    """
-                    INSERT INTO canonical_staging_row (
-                        run_id, ordinal, row_id, dataset, source_row,
-                        target_model, disposition, row_json
+                json_rows = []
+                scalar_rows = []
+                for item in rows:
+                    destination = (
+                        scalar_rows
+                        if _canonical_row_requires_scalar_transport(item)
+                        else json_rows
                     )
-                    SELECT unnest(?), unnest(?), unnest(?), unnest(?),
-                           unnest(?), unnest(?), unnest(?), unnest(?)
-                    """,
-                    _columnar_parameters(row_values),
+                    destination.append(item)
+                canonical_row_count = 0
+                transport_rows = (
+                    {
+                        "ordinal": item.ordinal,
+                        "row_id": item.row_id,
+                        "dataset": item.dataset,
+                        "source_row": item.source_row,
+                        "target_model": item.target_model,
+                        "disposition": item.disposition.value,
+                        "row_json": item.row_json,
+                    }
+                    for item in json_rows
                 )
+                for encoded_batch in iter_encoded_json_batches(
+                    transport_rows,
+                    max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO canonical_staging_row (
+                            run_id, ordinal, row_id, dataset, source_row,
+                            target_model, disposition, row_json
+                        )
+                        SELECT
+                            ?, item.ordinal, item.row_id, item.dataset,
+                            item.source_row, item.target_model,
+                            item.disposition, item.row_json
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
+                        [
+                            canonical_session_id,
+                            encoded_batch.payload,
+                            _CANONICAL_STAGING_ROW_JSON_STRUCTURE,
+                        ],
+                    )
+                    canonical_row_count += encoded_batch.row_count
+                for item in scalar_rows:
+                    connection.execute(
+                        """
+                        INSERT INTO canonical_staging_row (
+                            run_id, ordinal, row_id, dataset, source_row,
+                            target_model, disposition, row_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [
+                            canonical_session_id,
+                            item.ordinal,
+                            item.row_id,
+                            item.dataset,
+                            item.source_row,
+                            item.target_model,
+                            item.disposition.value,
+                            item.row_json,
+                        ],
+                    )
+                    canonical_row_count += 1
+                if canonical_row_count != len(rows):
+                    raise WorkspaceError(
+                        "Prepared canonical row batch is incomplete"
+                    )
                 connection.execute(
                     """
                     INSERT INTO preparation_direct_identity (
@@ -466,7 +566,7 @@ class PreparationSessionRepository(DuckDbRepository):
                      WHERE session_id = ?
                     """,
                     [
-                        len(row_values),
+                        canonical_row_count,
                         datetime.now(timezone.utc).isoformat(),
                         canonical_session_id,
                     ],
@@ -617,31 +717,51 @@ class PreparationSessionRepository(DuckDbRepository):
                         """,
                         _columnar_parameters(physical_values),
                     )
-                impact_values = [
-                    [
-                        session_id,
-                        int(current[2]) + offset,
-                        row.dataset,
-                        row.source_row,
-                        row.target_field,
-                        row.outcome,
-                        _canonical_json(
+                impact_start = int(current[2])
+                impact_rows = (
+                    {
+                        "ordinal": impact_start + offset,
+                        "dataset": row.dataset,
+                        "source_row": row.source_row,
+                        "target_field": row.target_field,
+                        "outcome": row.outcome,
+                        "impact_json": _canonical_json(
                             transformation_impact_to_portable_dict(row)
                         ),
-                    ]
+                    }
                     for offset, row in enumerate(impacts)
-                ]
-                if impact_values:
+                )
+                impact_count = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    impact_rows,
+                    max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
                     connection.execute(
                         """
                         INSERT INTO preparation_impact_row (
                             session_id, ordinal, dataset, source_row,
                             target_field, outcome, impact_json
                         )
-                        SELECT unnest(?), unnest(?), unnest(?), unnest(?),
-                               unnest(?), unnest(?), unnest(?)
+                        SELECT
+                            ?, item.ordinal, item.dataset, item.source_row,
+                            item.target_field, item.outcome, item.impact_json
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
                         """,
-                        _columnar_parameters(impact_values),
+                        [
+                            session_id,
+                            encoded_batch.payload,
+                            _PREPARATION_IMPACT_JSON_STRUCTURE,
+                        ],
+                    )
+                    impact_count += encoded_batch.row_count
+                if impact_count != len(impacts):
+                    raise WorkspaceError(
+                        "Preparation impact batch is incomplete"
                     )
                 connection.execute(
                     """
@@ -653,7 +773,7 @@ class PreparationSessionRepository(DuckDbRepository):
                     """,
                     [
                         len(provisional_values),
-                        len(impact_values),
+                        impact_count,
                         datetime.now(timezone.utc).isoformat(),
                         session_id,
                     ],

@@ -4,10 +4,11 @@
 
 **Status:** Approved on 2026-08-06. P0 now separates quality and normalization
 evaluation from persistence/hash time. P1 normalization transport and the
-first contained P2 family—stored quality row results—are implemented locally.
-Exact-parity, type/byte-bound, and rollback tests pass. The three-run
-reference-Windows gate is still required before extending P2 to another
-evidence family.
+first four contained P2 families—stored quality row results, source accounting,
+preparation impacts, and direct canonical rows—are implemented locally.
+Exact-parity, type/byte-bound, large-row fallback, cleanup, and rollback tests
+pass. The three-run reference-Windows gate is still required before extending
+P2 to another evidence family.
 
 Reduce the complete local preparation time for the observed 4,000-row XLSX
 workload from **5 minutes 38 seconds to less than 60 seconds** on the reference
@@ -105,6 +106,32 @@ The family-specific 4,000-row transport benchmark produced warmed medians of
 also validates complete field types. Exact evidence parity passes when the
 byte limit is deliberately reduced enough to split one quality reader batch
 across multiple JSON envelopes.
+
+For the two-table source-accounting family, the 4,000-entry synthetic benchmark
+stored 3,862 links in eight bounded insert batches. Warmed medians were 0.0423
+seconds for column arrays and 0.0426 seconds for typed JSON: effectively tied
+on this Mac. The first cold column-array observation was materially slower,
+but the release decision must use the repeated Windows workflow rather than
+one cold microbenchmark. The corresponding local workflow completed in 4.018
+seconds with a 282.2 MiB peak and exact evidence parity.
+
+For 15,873 synthetic preparation impacts in four 5,000-row-bounded batches,
+warmed medians were 0.168 seconds for column arrays and 0.156 seconds for typed
+JSON. A fresh 4,000-row local workflow completed in 4.047 seconds with a 284.5
+MiB peak. Impact append time was 0.076 seconds. The forced-byte-split parity
+test proves impact order and every downstream staging, quality, and
+normalization hash; an injected partial insert leaves a safe failed session and
+removes its pending canonical and impact rows.
+
+Canonical rows require a smaller envelope because each row contains its full
+canonical JSON. A 16 MiB envelope caused repeatable 302–315 MiB local peaks and
+was rejected. With a canonical-specific 2 MiB limit, three fresh-process runs
+peaked at 265.8, 268.8, and 265.8 MiB and completed in 4.042, 4.031, and 4.059
+seconds. The 4,000-row microbenchmark was slightly slower when warm (0.113
+seconds typed JSON versus 0.102 seconds arrays) but avoided the much larger
+first column-binding observation. Valid individual rows too large for the
+2 MiB envelope use a scalar insert, so the transport limit does not narrow the
+existing source contract.
 
 ## Current design weaknesses
 
@@ -235,9 +262,12 @@ phases.
 After P1 passes, migrate one evidence family at a time:
 
 1. quality row results — implemented locally with row and byte bounds;
-2. source-accounting entries and links;
-3. preparation transformation impacts;
-4. canonical staging rows;
+2. source-accounting entries and links — implemented locally with separate
+   bounded envelopes and explicit link-count validation;
+3. preparation transformation impacts — implemented locally with bounded
+   envelopes, contiguous ordinals, and failed-session cleanup;
+4. canonical staging rows — implemented locally with 2 MiB envelopes and a
+   non-rejecting scalar fallback for unusually large valid rows;
 5. identity, lineage, and physical-row facts;
 6. remaining high-volume evidence tables.
 
@@ -249,10 +279,12 @@ Benchmark each family before proceeding. A global mechanical replacement is
 not acceptable because small metadata tables do not need a bulk transport and
 different row shapes have different null, boolean, integer, and JSON rules.
 
-The quality-row change applies only to `StoredQualityRun`. The materialized
-quality path remains on the prior transport and serves as an independent
-semantic reference. Source accounting, issues, quarantine entries, and every
-staging family remain unchanged in this slice.
+The quality-row and source-accounting changes apply only to `StoredQualityRun`.
+The materialized quality path remains on the prior transport and serves as an
+independent semantic reference. Preparation impact and direct canonical-row
+transport are confined to the unpublished session adapter. Issues, quarantine
+entries, identity facts, lineage, physical-row facts, and the materialized
+staging publisher remain unchanged in these slices.
 
 **Gate:** The 4,000-row workflow completes in less than 60 seconds across three
 fresh-process Windows runs, with exact evidence parity. The existing 100,000-
@@ -394,9 +426,10 @@ customer values are not committed as fixtures.
    parity tests are complete.
 3. Review three fresh-process Windows runs. The second-platform regression and
    workflow checks are complete, but are not substitutes for Windows evidence.
-4. Continue P2 one evidence family at a time. Stored quality row results are
-   complete locally; source accounting is next only after reviewing the
-   Windows evidence.
+4. Continue P2 one evidence family at a time. Stored quality row results,
+   source accounting, preparation impacts, and direct canonical rows are
+   complete locally; identity, lineage, and physical-row facts are next only
+   after reviewing the Windows evidence.
 5. Profile again before approving P3 or P4.
 6. Implement P5 progress reporting after stable subphase counters exist.
 7. Update the 100,000-row performance plan with comparable before-and-after
