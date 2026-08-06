@@ -310,8 +310,9 @@ This is the capability implemented by the current proof of concept:
 - produce exact field differences;
 - create a portable JSON manifest and review workbook.
 
-It must later consume the durable staging store rather than only an in-memory
-prepared source bundle.
+The browser path consumes the exact approved durable staging, quality, and
+normalization evidence. The expert profile path retains its declared-source
+adapter and feeds the same compiled plan, matcher, resolver, and classifier.
 
 ### Stage I — Freeze an approved import plan
 
@@ -521,9 +522,11 @@ Odoo-default intent, allowlisted scalar transformations, bounded value
 previews, deterministic semantic validation, and immutable exact-hash
 submissions. It also retains strict CSV and declared-sheet XLSX loading,
 mapping through the existing expert profile, normalization and validation, and
-the read-only preflight path. It does not yet implement lookup translations,
-mapping import/export and approval, durable canonical staging, the executor,
-or reconciliation.
+the read-only preflight path. Durable canonical staging, quality/quarantine,
+normalization approval, and restart-safe protected target snapshots are
+integrated for the bounded browser scope. It does not yet implement advanced
+lookup translations, mapping import/export and approval, clean-package
+certification, the executor, or reconciliation.
 
 ## 8. Delivery roadmap
 

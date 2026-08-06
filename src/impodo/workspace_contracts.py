@@ -1,4 +1,15 @@
-"""Governed source, Odoo schema, and mapping working-state contracts."""
+"""Define portable workspace evidence shared by migration Stages B–D.
+
+Layer: domain contracts at the package root.
+
+The types form the handoff from confirmed source structure to frozen datasets,
+then to target-bound Odoo schema catalogs and recoverable mapping work. They
+are immutable, JSON-serializable, and contain no source rows, credentials, or
+numeric Odoo IDs.
+
+See ``docs/architecture/python-code-map.md``,
+``docs/contracts/02-workspace.md``, and ``tests/test_workspace.py``.
+"""
 
 from __future__ import annotations
 
@@ -27,10 +38,14 @@ class SourceConfiguration:
     confirmed_by: str
 
     def to_json(self) -> str:
+        """Serialize the complete hash-bound confirmation deterministically."""
+
         return canonical_json(asdict(self))
 
     @classmethod
     def from_json(cls, value: str) -> "SourceConfiguration":
+        """Restore one stored confirmation without reinterpreting its catalog."""
+
         payload = json.loads(value)
         return cls(
             file_id=str(payload["file_id"]),
@@ -47,6 +62,13 @@ class SourceConfiguration:
 
 @dataclass(frozen=True, slots=True)
 class SourceDatasetColumn:
+    """Identify one frozen source column independently of its display name.
+
+    ``ordinal`` plus ``stable_key`` are the mapping identity; ``source_name``
+    remains human evidence and ``candidate_type`` is inspection guidance, not a
+    guaranteed runtime type.
+    """
+
     ordinal: int
     source_name: str
     stable_key: str
@@ -55,6 +77,8 @@ class SourceDatasetColumn:
 
 @dataclass(frozen=True, slots=True)
 class SourceDataset:
+    """Bind one selected physical table and its columns to immutable source evidence."""
+
     dataset_id: str
     name: str
     file_id: str
@@ -70,7 +94,12 @@ class SourceDataset:
 
 @dataclass(frozen=True, slots=True)
 class SourceSelection:
-    """Frozen, versioned source datasets consumed by governed mapping."""
+    """Freeze the complete Stage B dataset set consumed by later stages.
+
+    A new version replaces the current pointer but does not mutate historical
+    mappings or runs. ``content_hash`` binds dataset identities, source/catalog
+    hashes, parsing choices, row counts, and column contracts.
+    """
 
     selection_id: str
     version: int
@@ -81,10 +110,14 @@ class SourceSelection:
     content_hash: str
 
     def to_json(self) -> str:
+        """Serialize the full frozen selection as deterministic portable JSON."""
+
         return canonical_json(asdict(self))
 
     @classmethod
     def from_json(cls, value: str) -> "SourceSelection":
+        """Restore a frozen selection without reopening source artifacts."""
+
         payload = json.loads(value)
         datasets = tuple(
             SourceDataset(
@@ -123,6 +156,8 @@ class SourceSelection:
 
 @dataclass(frozen=True, slots=True)
 class SchemaField:
+    """Describe one captured Odoo field needed for mapping and validation."""
+
     name: str
     label: str
     type: str
@@ -135,6 +170,8 @@ class SchemaField:
 
 @dataclass(frozen=True, slots=True)
 class SchemaModel:
+    """Describe one permitted Odoo model and its captured field surface."""
+
     name: str
     label: str
     fields: tuple[SchemaField, ...]
@@ -166,10 +203,14 @@ class OdooModelCatalog:
     content_hash: str
 
     def to_json(self) -> str:
+        """Serialize the target-bound persistent-model choices."""
+
         return canonical_json(asdict(self))
 
     @classmethod
     def from_json(cls, value: str) -> "OdooModelCatalog":
+        """Restore model choices without contacting the target again."""
+
         payload = json.loads(value)
         return cls(
             project_id=payload["project_id"],
@@ -201,7 +242,12 @@ class SchemaOrigin(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class OdooSchemaCatalog:
-    """Read-only, permitted-model Odoo schema captured for mapping."""
+    """Hold the exact permitted-model Odoo schema captured for mapping.
+
+    ``target_hash`` binds the configured Odoo identity and selected model
+    scope. ``origin`` distinguishes authenticated/live evidence from an
+    explicitly unverified local draft that cannot support submission.
+    """
 
     project_id: str
     target_hash: str
@@ -215,10 +261,14 @@ class OdooSchemaCatalog:
     origin: SchemaOrigin = SchemaOrigin.LIVE_API
 
     def to_json(self) -> str:
+        """Serialize the complete captured schema and provenance deterministically."""
+
         return canonical_json(asdict(self))
 
     @classmethod
     def from_json(cls, value: str) -> "OdooSchemaCatalog":
+        """Restore captured metadata without making another Odoo request."""
+
         payload = json.loads(value)
         return cls(
             project_id=payload["project_id"],
@@ -283,9 +333,13 @@ class MappingWorkingDraft:
 
     @property
     def content_hash(self) -> str:
+        """Return the definition hash; editor metadata is not semantic content."""
+
         return self.definition.content_hash
 
     def to_json(self) -> str:
+        """Serialize recoverable editor state with its semantic content hash."""
+
         return canonical_json(
             {
                 "mapping_id": self.mapping_id,
@@ -301,6 +355,8 @@ class MappingWorkingDraft:
 
     @classmethod
     def from_json(cls, value: str) -> "MappingWorkingDraft":
+        """Restore editor state and reject a tampered definition hash."""
+
         payload = json.loads(value)
         definition = MappingDefinition.from_dict(payload["definition"])
         if payload.get("content_hash") != definition.content_hash:

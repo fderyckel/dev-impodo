@@ -83,4 +83,6 @@ class CanonicalStagingRepository(Protocol):
         self,
         project_id: str,
         run_id: str,
+        *,
+        expected_content_hash: str | None = None,
     ) -> CanonicalStagingRun | None: ...

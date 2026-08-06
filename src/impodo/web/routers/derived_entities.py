@@ -1,4 +1,12 @@
-"""Derived Entities browser routes."""
+"""Expose bounded related-dataset authoring between Stages B and D.
+
+Layer: web route. The router parses lookup-extraction and parent/child rules,
+then delegates preview and optimistic plan revisions to
+``DerivedEntityWorkspaceService``. A saved plan changes the effective datasets
+visible to mapping but never edits frozen source bytes.
+
+See ``docs/derived-entity-authoring.md`` and ``tests/test_web_app.py``.
+"""
 
 from __future__ import annotations
 from fastapi import Request
@@ -13,6 +21,8 @@ from ..presenters.schema import _render_derived_entities
 
 
 def build_derived_entities_router(context: WebContext) -> APIRouter:
+    """Build derived-dataset preview, save, and delete routes."""
+
     router = APIRouter()
 
     @router.get(

@@ -45,9 +45,10 @@
         <p>You can now compare these exact records with Odoo. This comparison is read-only.</p>
       </div>
       <div class="next-action-buttons">
-        <form method="post" action="/projects/{{ project.project_id }}/summary/compare">
+        <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button primary" type="submit">Compare with Odoo</button>
+          <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
         </form>
         <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to project review</a>
       </div>

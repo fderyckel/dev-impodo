@@ -72,6 +72,8 @@ class LocalOdooReaderError(ConnectorError):
 
 @dataclass(frozen=True, slots=True)
 class LocalShellResult:
+    """Capture bounded process output from one fixed local Odoo shell call."""
+
     returncode: int
     stdout: str
     stderr: str
@@ -100,6 +102,8 @@ class LocalOdooMetadataReader:
         project: MigrationProject,
         profile: LocalStackProfile,
     ) -> TargetFingerprint:
+        """Read only target identity/version evidence for the selected local stack."""
+
         payload = self._invoke(project, profile, _fingerprint_script())
         return self._fingerprint(project, payload)
 
@@ -108,6 +112,8 @@ class LocalOdooMetadataReader:
         project: MigrationProject,
         profile: LocalStackProfile,
     ) -> RecordSnapshot:
+        """Read the bounded persistent ``ir.model`` catalogue for Stage C."""
+
         payload = self._invoke(project, profile, _model_catalog_script())
         fingerprint = self._fingerprint(project, payload)
         raw_records = payload.get("records")
@@ -160,6 +166,8 @@ class LocalOdooMetadataReader:
         profile: LocalStackProfile,
         models: Sequence[str],
     ) -> MetadataSnapshot:
+        """Read ``fields_get`` only for the explicit validated model allowlist."""
+
         requested = tuple(dict.fromkeys(models))
         if not requested:
             raise LocalOdooReaderError(

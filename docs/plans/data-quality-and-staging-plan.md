@@ -2,7 +2,7 @@
 
 ## Status and ownership
 
-**Status:** Active delivery plan. Slices 0 through 5 are implemented for the
+**Status:** Active delivery plan. Slices 0 through 5 are complete for the
 bounded browser workflow; package certification and Odoo execution remain
 later slices.
 
@@ -45,7 +45,9 @@ limited to advanced coverage families required by approved migration scopes.
 The cross-cutting
 [100,000-row performance refactor plan](100k-performance-refactor-plan.md)
 owns the measured scale extension. The current 25,000-row browser limit remains
-in force until the complete preparation and durable-comparison gates pass.
+the verified materializing scope; the complete preparation and durable
+comparison gates pass at that limit. Raising it still requires the separate
+100,000-row gates.
 
 ## Target flow
 
@@ -222,7 +224,10 @@ bounded read requirements, binds deterministic protected snapshots, stores
 decisions for server-side paging, and atomically advances a dedicated current
 preflight pointer. Upstream changes invalidate only the current pointer and
 retain history. The existing UI journey is unchanged and Odoo remains
-read-only.
+read-only. The 25,000-row durable comparison probe completed in 5.273 seconds
+at 507.3 MiB peak working set with a 69.5 MiB project database, within all
+Slice 5 guards. The complete local suite is green, so Slice 5 is closed and
+Slice 6 may begin once its advanced coverage families are approved.
 
 ### Slice 6 — Close advanced coverage gaps
 

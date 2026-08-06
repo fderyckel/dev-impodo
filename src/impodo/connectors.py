@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+from io import StringIO
 import json
 import os
 from pathlib import Path
@@ -34,6 +35,7 @@ from .models import (
     TargetRecord,
     UniqueConstraintMetadata,
     canonical_json_bytes,
+    canonical_json_text,
     portable_value,
     target_identity_hash,
 )
@@ -161,6 +163,49 @@ def record_snapshot_payload(snapshot: RecordSnapshot) -> dict[str, Any]:
             for model, items in sorted(snapshot.records.items())
         },
     }
+
+
+def record_snapshot_json(snapshot: RecordSnapshot) -> str:
+    """Serialize protected rows without materializing a second record tree."""
+
+    stream = StringIO()
+    stream.write('{"complete":')
+    stream.write(canonical_json_text(snapshot.complete))
+    stream.write(',"fingerprint":')
+    stream.write(canonical_json_text(snapshot.fingerprint.portable_dict()))
+    stream.write(',"models":{')
+    for model_index, (model, records) in enumerate(
+        sorted(snapshot.records.items())
+    ):
+        if model_index:
+            stream.write(",")
+        stream.write(canonical_json_text(model))
+        stream.write(":[")
+        for record_index, record in enumerate(
+            sorted(records, key=lambda item: item.odoo_id)
+        ):
+            if record_index:
+                stream.write(",")
+            stream.write(
+                canonical_json_text(
+                    {
+                        "id": record.odoo_id,
+                        "values": portable_value(record.values),
+                    }
+                )
+            )
+        stream.write("]")
+    stream.write('},"requested_fields":')
+    stream.write(
+        canonical_json_text(
+            {
+                model: list(fields)
+                for model, fields in sorted(snapshot.requested_fields.items())
+            }
+        )
+    )
+    stream.write("}")
+    return stream.getvalue()
 
 
 class OdooReadConnector(Protocol):

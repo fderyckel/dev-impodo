@@ -1,4 +1,15 @@
-"""FastAPI composition root for the local Impodo application."""
+"""Assemble the local browser application and all concrete dependencies.
+
+Migration stages: cross-cutting A–H. Layer: composition root.
+
+``create_local_app`` connects DuckDB repositories, filesystem artifacts,
+application services, read-only Odoo readers, security middleware, and route
+modules through :class:`impodo.web.context.WebContext`. Business rules belong
+to the injected services and domain modules; this module owns construction and
+local deployment choices only.
+
+See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
+"""
 
 from __future__ import annotations
 
@@ -93,7 +104,18 @@ def create_local_app(
     local_stack_service: LocalStackService | None = None,
     local_odoo_reader: LocalOdooMetadataReader | None = None,
 ) -> FastAPI:
-    """Construct the local application with injectable security/test boundaries."""
+    """Construct the loopback FastAPI application for migration Stages A–H.
+
+    Production defaults use per-project DuckDB repositories, local artifact
+    storage, the credential vault, inline jobs, and closed read-only Odoo
+    adapters. Parameters expose the security, storage, job, and reader seams so
+    tests or another local composition can replace them without changing
+    application/domain behavior.
+
+    The returned app keeps the assembled :class:`WebContext` in
+    ``app.state.context`` and passes that same context to every router. This
+    function opens no project and contacts no Odoo target while composing.
+    """
 
     database = DuckDbDatabase(project_root)
     project_repository = ProjectRepository(database)

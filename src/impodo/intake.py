@@ -1,4 +1,14 @@
-"""Governed source-file intake for migration projects."""
+"""Validate and register immutable Stage A/B source-file evidence.
+
+Layer: application service at the artifact boundary.
+
+``SourceIntakeService.accept`` is called by the project setup router. It streams
+an upload through the ``ArtifactStore`` and isolated file validator, then asks
+``ProjectService`` to attach the resulting size/hash evidence. The original
+display name is never used as the storage key.
+
+See ``docs/architecture/python-code-map.md`` and ``tests/test_projects.py``.
+"""
 
 from __future__ import annotations
 
@@ -24,7 +34,12 @@ class SourceIntakeError(ProjectError):
 
 
 class SourceIntakeService:
-    """Stream, validate, hash, and register one browser-uploaded source file."""
+    """Coordinate safe artifact storage with project source registration.
+
+    Storage and project persistence form a compensated operation: if project
+    registration fails after storage succeeds, the newly written artifact is
+    deleted before the error is returned.
+    """
 
     def __init__(
         self,
@@ -43,6 +58,19 @@ class SourceIntakeService:
         display_name: str,
         stream: BinaryIO,
     ) -> SourceFile:
+        """Accept one bounded CSV/XLSX stream as immutable source evidence.
+
+        Returns:
+            The registered ``SourceFile`` containing its generated ID, opaque
+            storage key, byte count, SHA-256 hash, and receipt time.
+
+        Raises:
+            SourceIntakeError: If the name, format, size, bytes, or artifact
+                operation is unsafe or unsupported.
+            ProjectError: If project authorization, lifecycle, or optimistic
+                revision validation rejects the attachment.
+        """
+
         safe_name = _safe_display_name(display_name)
         extension = Path(safe_name).suffix.casefold()
         if extension not in ALLOWED_EXTENSIONS:

@@ -1,4 +1,16 @@
-"""Application service for governed source confirmation and selection."""
+"""Confirm Stage B source structure and freeze mapping-ready datasets.
+
+Layer: application service.
+
+After isolated inspection, ``SourceWorkspaceService.confirm_source`` binds
+chosen tables and warning acknowledgement to an exact catalog.
+``freeze_selection`` then creates stable dataset/column identities consumed by
+schema, derived-entity, mapping, staging, and preflight workflows. It reads no
+source bytes and performs no Odoo access.
+
+See ``docs/architecture/python-code-map.md``,
+``docs/contracts/02-workspace.md``, and ``tests/test_workspace.py``.
+"""
 
 from __future__ import annotations
 
@@ -26,20 +38,29 @@ _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
 
 class ProjectReader(Protocol):
-    def get(self, project_id: str) -> MigrationProject: ...
+    """Read the project lifecycle needed before dataset freezing."""
+
+    def get(self, project_id: str) -> MigrationProject:
+        """Return the project whose registration gates dataset freezing."""
+        ...
 
 
 class SourceWorkspaceRepository(Protocol):
+    """Persist catalogs, confirmations, and the current frozen selection."""
 
     def get_source_catalogs(
         self,
         project_id: str,
-    ) -> tuple[SourceFileCatalog, ...]: ...
+    ) -> tuple[SourceFileCatalog, ...]:
+        """Return the current hash-bound catalog for each registered file."""
+        ...
 
     def get_source_configurations(
         self,
         project_id: str,
-    ) -> tuple[SourceConfiguration, ...]: ...
+    ) -> tuple[SourceConfiguration, ...]:
+        """Return confirmed table/parsing choices in registered-file order."""
+        ...
 
     def save_source_configuration(
         self,
@@ -47,9 +68,13 @@ class SourceWorkspaceRepository(Protocol):
         configuration: SourceConfiguration,
         *,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Persist one exact catalog confirmation and retire its dependents."""
+        ...
 
-    def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
+    def get_source_selection(self, project_id: str) -> SourceSelection | None:
+        """Return the current complete frozen selection, if one exists."""
+        ...
 
     def save_source_selection(
         self,
@@ -57,10 +82,19 @@ class SourceWorkspaceRepository(Protocol):
         selection: SourceSelection,
         *,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Publish one selection version and invalidate derived/mapping evidence."""
+        ...
 
 
 class SourceWorkspaceService:
+    """Own Stage B confirmation and versioned dataset-freeze rules.
+
+    Confirmation is per registered file and bound to its exact inspection
+    catalog. Freezing requires every file to be confirmed, assigns stable
+    logical keys, and publishes one complete ``SourceSelection`` version.
+    """
+
     def __init__(
         self,
         projects: ProjectReader,
@@ -80,6 +114,12 @@ class SourceWorkspaceService:
         warnings_acknowledged: bool,
         actor: Actor,
     ) -> SourceConfiguration:
+        """Confirm selected tables and acknowledged warnings for one catalog.
+
+        Blocking header problems cannot be acknowledged. Any repository update
+        invalidates the older frozen selection and dependent active evidence.
+        """
+
         self.authorization.require(
             actor,
             Capability.SOURCE_CONFIGURE,
@@ -137,6 +177,13 @@ class SourceWorkspaceService:
         dataset_names: Mapping[tuple[str, str], str],
         actor: Actor,
     ) -> SourceSelection:
+        """Freeze all confirmed tables as one versioned logical selection.
+
+        Dataset names must be unique stable identifiers. Every dataset retains
+        the source/catalog hashes and stable ordinal-based column keys required
+        to detect later replacement or reinterpretation.
+        """
+
         self.authorization.require(
             actor,
             Capability.SOURCE_SELECT,
@@ -255,10 +302,14 @@ def _catalog(
 
 
 def _column_key(ordinal: int, name: str) -> str:
+    """Derive a stable mapping key from column position plus its source name."""
+
     digest = sha256(name.encode("utf-8")).hexdigest()[:12]
     return f"column:{ordinal}:{digest}"
 
 
 def _dataset_key(file_id: str, table_key: str) -> str:
+    """Derive a stable dataset identity from registered file and table keys."""
+
     digest = sha256(f"{file_id}\0{table_key}".encode("utf-8")).hexdigest()
     return f"dataset:{digest[:24]}"

@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 
 from impodo.connectors import SnapshotConnector
-from impodo.domain.compiler import compile_profile_document
+from impodo.domain.compiler import CompiledMigrationPlan, compile_profile_document
 from impodo.engine import PreflightEngine, _relation_difference
 from impodo.models import (
     BusinessReference,
@@ -240,6 +240,90 @@ class PreflightClassificationTests(unittest.TestCase):
         )
         self.assertEqual(same.classification, Classification.BLOCKED)
         self.assertIn("CREATE_IDENTITY_EXISTS", {issue.code for issue in same.issues})
+
+    def test_reference_mode_rows_resolve_without_import_decisions(self) -> None:
+        profile = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/golden_slice.yaml")
+        )
+        products = profile.dataset("products")
+        reference_products = products.model_copy(
+            update={
+                "target": products.target.model_copy(update={"mode": "reference"})
+            }
+        )
+        changed_profile = profile.model_copy(
+            update={
+                "datasets": tuple(
+                    reference_products if item.name == "products" else item
+                    for item in profile.datasets
+                )
+            }
+        )
+        prepared = prepare_sources(changed_profile, ROOT / "examples/golden")
+        connector = SnapshotConnector(
+            combined_path=ROOT / "fixtures/golden/target_snapshot.json"
+        )
+        result = PreflightEngine().run(
+            changed_profile,
+            prepared,
+            connector.get_model_metadata(plan_metadata_requests(changed_profile)),
+            connector.get_records(
+                plan_record_requests(changed_profile, prepared.records)
+            ),
+        )
+
+        self.assertFalse(
+            any(decision.dataset == "products" for decision in result.decisions)
+        )
+        self.assertTrue(
+            any(
+                resolution.dataset == "products"
+                for resolution in result.reference_resolutions
+            )
+        )
+
+    def test_browser_and_profile_plans_share_portable_preflight_semantics(self) -> None:
+        profile_plan = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/golden_slice.yaml")
+        )
+        browser_plan = CompiledMigrationPlan.model_validate(
+            {
+                **profile_plan.model_dump(mode="python"),
+                "origin": "browser_mapping",
+                "source_selection_hash": "sha256:" + "1" * 64,
+                "schema_hash": "sha256:" + "2" * 64,
+            }
+        )
+        prepared = prepare_sources(profile_plan, ROOT / "examples/golden")
+        connector = SnapshotConnector(
+            combined_path=ROOT / "fixtures/golden/target_snapshot.json"
+        )
+        metadata = connector.get_model_metadata(
+            plan_metadata_requests(profile_plan)
+        )
+        records = connector.get_records(
+            plan_record_requests(profile_plan, prepared.records)
+        )
+
+        profile_result = PreflightEngine().run(
+            profile_plan,
+            prepared,
+            metadata,
+            records,
+        )
+        browser_result = PreflightEngine().run(
+            browser_plan,
+            prepared,
+            metadata,
+            records,
+        )
+
+        self.assertEqual(browser_result.decisions, profile_result.decisions)
+        self.assertEqual(
+            browser_result.reference_resolutions,
+            profile_result.reference_resolutions,
+        )
+        self.assertEqual(browser_result.issues, profile_result.issues)
 
 
 class Many2ManyOperationTests(unittest.TestCase):

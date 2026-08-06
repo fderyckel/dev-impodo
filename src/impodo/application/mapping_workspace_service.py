@@ -1,4 +1,17 @@
-"""Application service for governed mapping drafts and revisions."""
+"""Orchestrate Stage D mapping drafts, validation, revisions, and submission.
+
+Layer: application service.
+
+The mapping router supplies complete dataset-centric definitions.
+``MappingWorkspaceService`` binds them to the effective source selection and
+captured/governed schema, delegates deterministic meaning checks to
+``MappingSemanticValidator``, and persists through focused repository ports.
+Working drafts are recoverable but unchecked; revisions and submissions are
+immutable evidence.
+
+See ``docs/architecture/python-code-map.md``,
+``docs/contracts/02-workspace.md``, and ``tests/test_workspace.py``.
+"""
 
 from __future__ import annotations
 
@@ -33,31 +46,43 @@ from ..workspace_errors import WorkspaceError
 
 
 class MappingSourceRepository(Protocol):
+    """Provide the physical plus derived dataset selection visible to mapping."""
+
     def get_mapping_source_selection(
         self,
         project_id: str,
-    ) -> SourceSelection | None: ...
+    ) -> SourceSelection | None:
+        """Return the effective physical-plus-derived selection visible to mapping."""
+        ...
 
 
 class MappingSchemaRepository(Protocol):
+    """Provide the captured schema and optional exact key governance."""
 
     def get_odoo_schema_catalog(
         self,
         project_id: str,
-    ) -> OdooSchemaCatalog | None: ...
+    ) -> OdooSchemaCatalog | None:
+        """Return the current target-bound detailed schema."""
+        ...
 
     def get_schema_governance(
         self,
         project_id: str,
-    ) -> SchemaGovernance | None: ...
+    ) -> SchemaGovernance | None:
+        """Return current confirmed business-key governance, when available."""
+        ...
 
 
 class MappingWorkspaceRepository(Protocol):
+    """Persist recoverable drafts and immutable mapping evidence."""
 
     def get_mapping_working_draft(
         self,
         project_id: str,
-    ) -> MappingWorkingDraft | None: ...
+    ) -> MappingWorkingDraft | None:
+        """Return recoverable unchecked editor state, if one exists."""
+        ...
 
     def save_mapping_working_draft(
         self,
@@ -66,18 +91,24 @@ class MappingWorkspaceRepository(Protocol):
         *,
         expected_version: int | None,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Replace editor state only at the expected optimistic draft version."""
+        ...
 
     def get_mapping_revision(
         self,
         project_id: str,
         version: int | None = None,
-    ) -> MappingRevision | None: ...
+    ) -> MappingRevision | None:
+        """Return the current or requested immutable mapping revision."""
+        ...
 
     def list_mapping_revisions(
         self,
         project_id: str,
-    ) -> tuple[MappingRevision, ...]: ...
+    ) -> tuple[MappingRevision, ...]:
+        """Return the complete immutable revision history in version order."""
+        ...
 
     def save_mapping_revision(
         self,
@@ -87,7 +118,9 @@ class MappingWorkspaceRepository(Protocol):
         validation: MappingValidationResult,
         expected_parent_version: int | None,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Append a revision/validation pair at the expected parent version."""
+        ...
 
     def save_mapping_validation(
         self,
@@ -96,7 +129,9 @@ class MappingWorkspaceRepository(Protocol):
         validation: MappingValidationResult,
         *,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Append deterministic revalidation for one exact stored revision."""
+        ...
 
     def save_mapping_submission(
         self,
@@ -104,10 +139,20 @@ class MappingWorkspaceRepository(Protocol):
         submission: MappingSubmission,
         *,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Append exact submission evidence after repository-side gate checks."""
+        ...
 
 
 class MappingWorkspaceService:
+    """Own Stage D concurrency, evidence binding, and submission gates.
+
+    The service keeps recoverable editor progress separate from semantic
+    revisions. Submission additionally requires a verified schema, a non-
+    invalid validation result, and acknowledgement of the exact current
+    warning fingerprints.
+    """
+
     def __init__(
         self,
         sources: MappingSourceRepository,

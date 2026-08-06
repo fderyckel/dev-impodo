@@ -1,4 +1,12 @@
-"""DuckDB mapping repository implementation."""
+"""Persist Stage D working drafts, revisions, validation, and submissions.
+
+Layer: adapter. Working drafts are replaceable optimistic editor recovery;
+mapping revisions, validation results, and submissions are immutable evidence.
+Advancing the current mapping revision invalidates canonical staging, while a
+submission must match the stored revision and validation hashes exactly.
+
+See ``docs/architecture/python-code-map.md`` and ``tests/test_workspace.py``.
+"""
 
 from __future__ import annotations
 
@@ -37,12 +45,14 @@ from .repository import DuckDbRepository
 
 
 class MappingRepository(DuckDbRepository):
-    """Persistence operations for mapping repository."""
+    """Own recoverable editor state and immutable governed mapping evidence."""
 
     def get_mapping_working_draft(
         self,
         project_id: str,
     ) -> MappingWorkingDraft | None:
+        """Load current recoverable editor state without claiming validation."""
+
         value = self._read_singleton_json(
             project_id,
             """
@@ -60,6 +70,8 @@ class MappingRepository(DuckDbRepository):
         expected_version: int | None,
         actor: Actor,
     ) -> None:
+        """Replace unchecked editor progress using its optimistic draft version."""
+
         if draft.project_id != project_id:
             raise WorkspaceError("Working draft belongs to another project")
         database_path = self.project_directory(project_id) / "project.duckdb"
@@ -212,6 +224,8 @@ class MappingRepository(DuckDbRepository):
         project_id: str,
         version: int | None = None,
     ) -> MappingRevision | None:
+        """Load the current pointer or one historical immutable version."""
+
         if version is None:
             query = """
                 SELECT revision.revision_json
@@ -239,6 +253,8 @@ class MappingRepository(DuckDbRepository):
         self,
         project_id: str,
     ) -> tuple[MappingRevision, ...]:
+        """Return all immutable mapping revisions in deterministic order."""
+
         return tuple(
             MappingRevision.from_json(value)
             for value in self._read_json_rows(
@@ -259,6 +275,8 @@ class MappingRepository(DuckDbRepository):
         expected_parent_version: int | None,
         actor: Actor,
     ) -> None:
+        """Append an exact revision/validation pair and advance the current pointer."""
+
         if revision.definition.mapping_id != revision.mapping_id:
             raise WorkspaceError(
                 "Mapping revision and definition IDs do not match"
@@ -357,6 +375,8 @@ class MappingRepository(DuckDbRepository):
         project_id: str,
         version: int,
     ) -> MappingValidationResult | None:
+        """Return the newest stored validation for one mapping version."""
+
         values = self._read_json_rows(
             project_id,
             """
@@ -378,6 +398,8 @@ class MappingRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
+        """Append revalidation only when its mapping content hash matches."""
+
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -416,6 +438,8 @@ class MappingRepository(DuckDbRepository):
         project_id: str,
         version: int | None = None,
     ) -> MappingSubmission | None:
+        """Return the newest submission globally or for one requested version."""
+
         condition = "WHERE version = ?" if version is not None else ""
         parameters: list[object] = [version] if version is not None else []
         values = self._read_json_rows(
@@ -436,6 +460,8 @@ class MappingRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
+        """Append a submission only when validation and warnings match exactly."""
+
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")

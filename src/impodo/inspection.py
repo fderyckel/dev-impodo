@@ -1,9 +1,16 @@
-"""Profile-free source inspection for the local source-discovery workflow.
+"""Build bounded, hash-bound catalogs for Stage B source discovery.
 
-The inspector reads an immutable project inbox file and produces a bounded,
-portable catalog.  It never changes the source file and never requires a
-mapping profile.  Values exposed to the browser are deliberately sampled and
-truncated, while statistics are accumulated in one streaming pass.
+Layer: source-inspection domain plus application service.
+
+``SourceInspectionService`` materializes registered artifacts and calls the
+isolated worker used by the browser. ``inspect_source_file`` contains the
+profile-free CSV/XLSX inspection logic. It verifies immutable bytes, never
+changes the source file, and never requires a mapping profile or Odoo access.
+Values exposed to the browser are deliberately sampled and truncated, while
+statistics are accumulated in one streaming pass.
+
+See ``docs/architecture/python-code-map.md`` and
+``tests/test_inspection.py``.
 """
 
 from __future__ import annotations
@@ -69,6 +76,8 @@ class SourceInspectionOptions:
     worksheet_header_rows: tuple[tuple[str, int], ...] = ()
 
     def header_row_for(self, table_key: str) -> int | None:
+        """Return a governed worksheet header override when one was supplied."""
+
         return dict(self.worksheet_header_rows).get(table_key)
 
 
@@ -187,16 +196,23 @@ class SourceFileCatalog:
 
 
 class ProjectCatalogReader(Protocol):
-    def get(self, project_id: str): ...
+    """Read registered project files and lifecycle for source inspection."""
+
+    def get(self, project_id: str):
+        """Return the project whose immutable artifacts will be inspected."""
+        ...
 
 
 class SourceCatalogRepository(Protocol):
+    """Persist complete or per-file hash-bound inspection catalogs."""
     """Structural protocol implemented by the local DuckDB repository."""
 
     def get_source_catalogs(
         self,
         project_id: str,
-    ) -> tuple[SourceFileCatalog, ...]: ...
+    ) -> tuple[SourceFileCatalog, ...]:
+        """Return current catalogs in registered source-file order."""
+        ...
 
     def save_source_catalogs(
         self,
@@ -204,7 +220,9 @@ class SourceCatalogRepository(Protocol):
         catalogs: Iterable[SourceFileCatalog],
         *,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Atomically replace the complete catalog set and invalidate dependents."""
+        ...
 
     def save_source_catalog(
         self,
@@ -212,11 +230,18 @@ class SourceCatalogRepository(Protocol):
         catalog: SourceFileCatalog,
         *,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Replace one exact file catalog and invalidate its confirmations."""
+        ...
 
 
 class SourceInspectionService:
-    """Inspect registered project files and persist their hash-bound catalogs."""
+    """Inspect registered files and publish their hash-bound catalogs.
+
+    The service owns authorization and project lifecycle checks. Artifact
+    materialization and isolated parsing are boundary operations; the source
+    repository owns the atomic replacement and downstream invalidation.
+    """
 
     def __init__(
         self,
@@ -236,6 +261,8 @@ class SourceInspectionService:
         *,
         actor: Actor,
     ) -> tuple[SourceFileCatalog, ...]:
+        """Reinspect every registered file and replace the complete catalog set."""
+
         self.authorization.require(
             actor,
             Capability.SOURCE_INSPECT,
@@ -1020,6 +1047,8 @@ class _DistinctBudget:
         self.remaining = DISTINCT_TABLE_VALUE_LIMIT
 
     def claim(self) -> bool:
+        """Reserve one bounded distinct-value slot across the complete table."""
+
         if self.remaining <= 0:
             return False
         self.remaining -= 1
@@ -1041,6 +1070,8 @@ class _ColumnAccumulator:
         self.maximum_by_kind: dict[str, tuple[Any, str]] = {}
 
     def observe(self, value: Any) -> None:
+        """Accumulate one cell into bounded type, range, and distinct statistics."""
+
         if value is None or (isinstance(value, str) and not value.strip()):
             self.null_count += 1
             return
@@ -1079,6 +1110,8 @@ class _ColumnAccumulator:
             self.maximum_by_kind[kind] = (comparison_key, display)
 
     def profile(self, ordinal: int, name: str) -> SourceColumnProfile:
+        """Freeze accumulated statistics into the portable column profile."""
+
         candidate_type = _candidate_type(self.kinds)
         minimum, maximum = self._range(candidate_type)
         distinct_count = len(self.distinct_values) + (

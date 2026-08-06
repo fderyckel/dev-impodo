@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 import json
 from pathlib import Path
 import tempfile
@@ -13,6 +14,7 @@ from impodo.access import LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbDatabase
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
+from impodo.models import BusinessReference, LogicalReference
 from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
 from impodo.staging import StagingRunStatus
 from impodo.staging_contracts import (
@@ -30,6 +32,7 @@ from impodo.workspace_contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
+from impodo.workspace_errors import WorkspaceError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -173,6 +176,87 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         self.assertEqual(run_count, (1,))
         self.assertEqual(row_count, (1,))
         self.assertEqual(audit_count, (1,))
+
+    def test_durable_rows_restore_typed_values_for_downstream_evaluation(
+        self,
+    ) -> None:
+        template = _run(self.project.project_id, value="Alice", row_token="5")
+        incoming = LogicalReference(
+            origin="incoming",
+            key=("CAT-1",),
+            dataset="categories",
+            target_fields=("name",),
+        )
+        existing = BusinessReference(
+            model="res.country",
+            key=("BE",),
+        )
+        row = replace(
+            template.rows[0],
+            source_identity=("C001", Decimal("10.2500")),
+            target_identity=("C001", incoming),
+            target_scope=(existing,),
+            proposed_values={
+                "amount": Decimal("10.2500"),
+                "start_date": date(2026, 8, 7),
+                "captured_at": datetime(
+                    2026,
+                    8,
+                    7,
+                    12,
+                    30,
+                    tzinfo=timezone.utc,
+                ),
+            },
+            references={
+                "category_id": incoming,
+                "country_id": existing,
+                "related_ids": (incoming, existing),
+            },
+        )
+        run = replace(
+            template,
+            rows=(row,),
+            datasets=(
+                StagingDatasetReconciliation.from_rows(
+                    dataset="contacts",
+                    target_model="res.partner",
+                    physical_dataset_id="dataset:contacts",
+                    role=StagingDatasetRole.DIRECT,
+                    input_rows=1,
+                    source_rows=(2,),
+                    lineage_links=1,
+                    rows=(row,),
+                ),
+            ),
+            reconciliation=StagingReconciliation.from_rows((row,)),
+        )
+
+        summary = self.repository.publish_canonical_staging(
+            self.project.project_id,
+            run,
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+        restored = self.repository.get_canonical_staging_run(
+            self.project.project_id,
+            summary.run_id,
+            expected_content_hash=summary.content_hash,
+        )
+
+        self.assertIsNotNone(restored)
+        assert restored is not None
+        self.assertEqual(restored, run)
+        self.assertEqual(restored.to_json(), run.to_json())
+        self.assertIsInstance(restored.rows[0].references["category_id"], LogicalReference)
+        self.assertIsInstance(restored.rows[0].references["country_id"], BusinessReference)
+
+        with self.assertRaisesRegex(WorkspaceError, "changed unexpectedly"):
+            self.repository.get_canonical_staging_run(
+                self.project.project_id,
+                summary.run_id,
+                expected_content_hash="sha256:" + "0" * 64,
+            )
 
     def test_new_evidence_supersedes_current_but_preserves_history(self) -> None:
         first = self.repository.publish_canonical_staging(
@@ -394,11 +478,12 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         )
 
     def test_row_writer_uses_bounded_bulk_batches(self) -> None:
-        template = _run(
+        template_run = _run(
             self.project.project_id,
             value="Alice",
             row_token="5",
-        ).rows[0]
+        )
+        template = template_run.rows[0]
         rows = tuple(
             replace(
                 template,
@@ -417,13 +502,27 @@ class CanonicalStagingStoreTests(unittest.TestCase):
         self.repository._insert_canonical_rows(
             connection,
             str(uuid4()),
-            rows,
+            replace(
+                template_run,
+                rows=rows,
+                reconciliation=StagingReconciliation.from_rows(rows),
+                datasets=(
+                    replace(
+                        template_run.datasets[0],
+                        input_rows=len(rows),
+                        input_rows_used=len(rows),
+                        output_rows=len(rows),
+                        lineage_links=len(rows),
+                        candidate_rows=len(rows),
+                    ),
+                ),
+            ),
         )
 
         self.assertEqual(connection.execute.call_count, 3)
         self.assertEqual(
             [
-                len(json.loads(item.args[1][0]))
+                len(item.args[1][0])
                 for item in connection.execute.call_args_list
             ],
             [1_000, 1_000, 1],

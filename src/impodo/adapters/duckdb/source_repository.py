@@ -1,4 +1,12 @@
-"""DuckDB source repository implementation."""
+"""Persist Stage B catalogs, confirmations, and frozen selections in DuckDB.
+
+Layer: adapter. ``SourceRepository`` binds every source decision to registered
+file and catalog hashes and atomically invalidates dependent current evidence
+when files are reinterpreted, reconfirmed, or refrozen. It also projects the
+physical selection plus current derived plan as the effective mapping source.
+
+See ``docs/architecture/python-code-map.md`` and ``tests/test_workspace.py``.
+"""
 
 from __future__ import annotations
 
@@ -29,7 +37,7 @@ from .repository import DuckDbRepository
 
 
 class SourceRepository(DuckDbRepository):
-    """Persistence operations for source repository."""
+    """Own current Stage B workspace evidence and its invalidation boundary."""
 
     def __init__(
         self,
@@ -203,6 +211,8 @@ class SourceRepository(DuckDbRepository):
         self,
         project_id: str,
     ) -> tuple[SourceConfiguration, ...]:
+        """Load confirmations in the same order as registered source files."""
+
         return tuple(
             SourceConfiguration.from_json(value)
             for value in self._read_json_rows(
@@ -223,6 +233,8 @@ class SourceRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
+        """Confirm one exact catalog and invalidate selection/mapping/staging."""
+
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -277,6 +289,8 @@ class SourceRepository(DuckDbRepository):
                 connection.rollback()
                 raise
     def get_source_selection(self, project_id: str) -> SourceSelection | None:
+        """Return the current frozen physical selection, when available."""
+
         value = self._read_singleton_json(
             project_id,
             "SELECT selection_json FROM source_selection WHERE singleton_id = 1",
@@ -303,6 +317,8 @@ class SourceRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
+        """Publish one frozen selection and retire dependent current pointers."""
+
         self._save_singleton(
             project_id,
             table="source_selection",

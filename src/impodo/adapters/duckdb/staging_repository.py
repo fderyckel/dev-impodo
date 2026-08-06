@@ -20,18 +20,23 @@ from ...staging import StagingRunStatus, StagingRunSummary
 from ...staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
+    CanonicalControlTotal,
+    CanonicalIssue,
     CanonicalRow,
     CanonicalStagingRun,
+    StagingDatasetReconciliation,
+    StagingReconciliation,
 )
 from ...workspace_contracts import SourceSelection
 from ...workspace_errors import WorkspaceError
+from ...domain.serialization import CanonicalJsonObjectHasher
 from .repository import DuckDbRepository
 
 
 
 
 
-from .serialization import _canonical_json
+from .serialization import _canonical_json, _columnar_parameters
 
 
 class StagingRepository(DuckDbRepository):
@@ -56,14 +61,6 @@ class StagingRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Prepared data must be regenerated with the current evaluator"
             )
-        run_payload = run.to_portable_dict()
-        run_content_hash = str(run_payload["content_hash"])
-        try:
-            CanonicalStagingRun.from_json(_canonical_json(run_payload))
-        except (TypeError, ValueError) as error:
-            raise WorkspaceError("Prepared data evidence is invalid") from error
-        finally:
-            del run_payload
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -153,6 +150,11 @@ class StagingRepository(DuckDbRepository):
                      WHERE active.singleton_id = 1
                     """
                 ).fetchone()
+                run_content_hash = self._insert_canonical_rows(
+                    connection,
+                    run_id,
+                    run,
+                )
                 if (
                     current is not None
                     and str(current[1]) == run_content_hash
@@ -215,7 +217,6 @@ class StagingRepository(DuckDbRepository):
                         ),
                     ],
                 )
-                self._insert_canonical_rows(connection, run_id, run.rows)
                 stored_count = connection.execute(
                     """
                     SELECT COUNT(*)
@@ -314,6 +315,8 @@ class StagingRepository(DuckDbRepository):
         self,
         project_id: str,
         run_id: str,
+        *,
+        expected_content_hash: str | None = None,
     ) -> CanonicalStagingRun | None:
         try:
             canonical_run_id = str(UUID(run_id))
@@ -338,47 +341,149 @@ class StagingRepository(DuckDbRepository):
             ).fetchone()
             if header is None:
                 return None
-            rows = connection.execute(
+            if (
+                expected_content_hash is not None
+                and str(header[0]) != expected_content_hash
+            ):
+                raise WorkspaceError(
+                    "Published prepared-data evidence changed unexpectedly"
+                )
+            try:
+                stored_content_hash = str(header[0])
+                contract_version = int(header[8])
+                evaluator_version = int(header[9])
+                issues_payload = json.loads(str(header[10]))
+                reconciliation_payload = json.loads(str(header[11]))
+                datasets_payload = json.loads(str(header[12]))
+                control_totals_payload = json.loads(str(header[13]))
+            except (TypeError, ValueError) as error:
+                raise WorkspaceError(
+                    "Stored prepared-data evidence is invalid"
+                ) from error
+
+            hasher = CanonicalJsonObjectHasher()
+            if contract_version >= 4:
+                hasher.add_value(
+                    "compiled_plan_hash",
+                    str(header[7]) if header[7] else None,
+                )
+            hasher.add_value("contract_version", contract_version)
+            if contract_version >= 3:
+                hasher.add_value("control_totals", control_totals_payload)
+            hasher.add_value("datasets", datasets_payload)
+            hasher.add_value(
+                "derived_plan_hash",
+                str(header[6]) if header[6] else None,
+            )
+            hasher.add_value("evaluator_version", evaluator_version)
+            hasher.add_value("issues", issues_payload)
+            hasher.add_value("mapping_hash", str(header[4]))
+            hasher.add_value("mapping_id", str(header[1]))
+            hasher.add_value("physical_selection_hash", str(header[2]))
+            hasher.add_value("project_id", project_id)
+            hasher.add_value("reconciliation", reconciliation_payload)
+            hasher.start_array("rows")
+
+            cursor = connection.execute(
                 """
-                SELECT row_json
+                SELECT ordinal, row_json
                   FROM canonical_staging_row
                  WHERE run_id = ?
                  ORDER BY ordinal
                 """,
                 [canonical_run_id],
-            ).fetchall()
-        payload = {
-            "content_hash": str(header[0]),
-            "mapping_id": str(header[1]),
-            "project_id": project_id,
-            "physical_selection_hash": str(header[2]),
-            "source_selection_hash": str(header[3]),
-            "mapping_hash": str(header[4]),
-            "schema_hash": str(header[5]),
-            "derived_plan_hash": str(header[6]) if header[6] else None,
-            "compiled_plan_hash": str(header[7]) if header[7] else None,
-            "contract_version": int(header[8]),
-            "evaluator_version": int(header[9]),
-            "issues": json.loads(str(header[10])),
-            "reconciliation": json.loads(str(header[11])),
-            "datasets": json.loads(str(header[12])),
-            "control_totals": json.loads(str(header[13])),
-            "rows": [json.loads(str(item[0])) for item in rows],
-        }
+            )
+            rows: list[CanonicalRow] = []
+            expected_ordinal = 0
+            while batch := cursor.fetchmany(STAGING_ROW_BATCH_SIZE):
+                for ordinal, row_text in batch:
+                    if int(ordinal) != expected_ordinal:
+                        raise WorkspaceError(
+                            "Stored prepared-data row ordering is invalid"
+                        )
+                    expected_ordinal += 1
+                    encoded_row = str(row_text)
+                    hasher.add_encoded_array_item(encoded_row)
+                    try:
+                        rows.append(
+                            CanonicalRow.from_dict(json.loads(encoded_row))
+                        )
+                    except (TypeError, ValueError) as error:
+                        raise WorkspaceError(
+                            "Stored prepared-data row evidence is invalid"
+                        ) from error
+            hasher.end_array()
+            hasher.add_value("schema_hash", str(header[5]))
+            hasher.add_value("source_selection_hash", str(header[3]))
+            if hasher.finish() != stored_content_hash:
+                raise WorkspaceError("Stored prepared-data content hash is invalid")
+
         try:
-            return CanonicalStagingRun.from_dict(payload)
+            return CanonicalStagingRun(
+                project_id=project_id,
+                mapping_id=str(header[1]),
+                physical_selection_hash=str(header[2]),
+                source_selection_hash=str(header[3]),
+                mapping_hash=str(header[4]),
+                schema_hash=str(header[5]),
+                derived_plan_hash=str(header[6]) if header[6] else None,
+                compiled_plan_hash=str(header[7]) if header[7] else None,
+                contract_version=contract_version,
+                evaluator_version=evaluator_version,
+                issues=tuple(
+                    CanonicalIssue.from_dict(item) for item in issues_payload
+                ),
+                reconciliation=StagingReconciliation.from_dict(
+                    reconciliation_payload
+                ),
+                datasets=tuple(
+                    StagingDatasetReconciliation.from_dict(item)
+                    for item in datasets_payload
+                ),
+                control_totals=tuple(
+                    CanonicalControlTotal.from_dict(item)
+                    for item in control_totals_payload
+                ),
+                rows=tuple(rows),
+            )
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Stored prepared-data evidence is invalid") from error
     @staticmethod
     def _insert_canonical_rows(
         connection: duckdb.DuckDBPyConnection,
         run_id: str,
-        rows: Sequence[CanonicalRow],
-    ) -> None:
-        for start in range(0, len(rows), STAGING_ROW_BATCH_SIZE):
-            batch = rows[start : start + STAGING_ROW_BATCH_SIZE]
-            values = [
-                [
+        run: CanonicalStagingRun,
+    ) -> str:
+        hasher = CanonicalJsonObjectHasher()
+        hasher.add_value("compiled_plan_hash", run.compiled_plan_hash)
+        hasher.add_value("contract_version", run.contract_version)
+        hasher.add_value(
+            "control_totals",
+            [item.to_portable_dict() for item in run.control_totals],
+        )
+        hasher.add_value(
+            "datasets",
+            [item.to_portable_dict() for item in run.datasets],
+        )
+        hasher.add_value("derived_plan_hash", run.derived_plan_hash)
+        hasher.add_value("evaluator_version", run.evaluator_version)
+        hasher.add_value(
+            "issues",
+            [item.to_portable_dict() for item in run.issues],
+        )
+        hasher.add_value("mapping_hash", run.mapping_hash)
+        hasher.add_value("mapping_id", run.mapping_id)
+        hasher.add_value("physical_selection_hash", run.physical_selection_hash)
+        hasher.add_value("project_id", run.project_id)
+        hasher.add_value("reconciliation", run.reconciliation.to_portable_dict())
+        hasher.start_array("rows")
+        for start in range(0, len(run.rows), STAGING_ROW_BATCH_SIZE):
+            batch = run.rows[start : start + STAGING_ROW_BATCH_SIZE]
+            values: list[list[object]] = []
+            for offset, row in enumerate(batch):
+                row_json = _canonical_json(row.to_portable_dict())
+                hasher.add_encoded_array_item(row_json)
+                values.append([
                     run_id,
                     start + offset,
                     row.row_id,
@@ -386,10 +491,8 @@ class StagingRepository(DuckDbRepository):
                     row.source_row,
                     row.target_model,
                     row.disposition.value,
-                    _canonical_json(row.to_portable_dict()),
-                ]
-                for offset, row in enumerate(batch)
-            ]
+                    row_json,
+                ])
             connection.execute(
                 """
                 INSERT INTO canonical_staging_row (
@@ -397,18 +500,15 @@ class StagingRepository(DuckDbRepository):
                     target_model, disposition, row_json
                 )
                 SELECT
-                    json_extract_string(value, '$[0]'),
-                    CAST(json_extract(value, '$[1]') AS BIGINT),
-                    json_extract_string(value, '$[2]'),
-                    json_extract_string(value, '$[3]'),
-                    CAST(json_extract(value, '$[4]') AS BIGINT),
-                    json_extract_string(value, '$[5]'),
-                    json_extract_string(value, '$[6]'),
-                    json_extract_string(value, '$[7]')
-                  FROM json_each(?)
+                    unnest(?), unnest(?), unnest(?), unnest(?),
+                    unnest(?), unnest(?), unnest(?), unnest(?)
                 """,
-                [_canonical_json(values)],
+                _columnar_parameters(values),
             )
+        hasher.end_array()
+        hasher.add_value("schema_hash", run.schema_hash)
+        hasher.add_value("source_selection_hash", run.source_selection_hash)
+        return hasher.finish()
     @staticmethod
     def _staging_summary(
         project_id: str,

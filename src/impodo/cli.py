@@ -1,4 +1,16 @@
-"""Command-line interface for the read-only profiler."""
+"""Expose the expert profile and read-only preflight command sequence.
+
+Migration stage: primarily H, with source preparation and snapshot commands
+that precede offline comparison. Layer: CLI entry point.
+
+Unlike the browser workflow, this path starts from a strict YAML profile. It
+can prepare portable rows, capture narrowly planned read-only Odoo snapshots,
+and classify entirely offline. It does not share browser lifecycle persistence
+and exposes no Odoo write command.
+
+See ``docs/operations/04-cli.md``, ``docs/contracts/04-preflight.md``, and
+``tests/test_reporting_cli.py``.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +40,8 @@ from .source import prepare_sources
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the explicit profile, snapshot, preflight, and benchmark commands."""
+
     parser = argparse.ArgumentParser(
         prog="impodo",
         description=(
@@ -108,6 +122,8 @@ def _add_connector_options(parser: argparse.ArgumentParser) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Dispatch one CLI command and translate expected failures to exit codes."""
+
     parser = build_parser()
     arguments = parser.parse_args(argv)
     try:

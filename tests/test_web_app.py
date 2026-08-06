@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import date, datetime, timezone
 from html import unescape
 from io import BytesIO
+import json
 from pathlib import Path
 import re
 import tempfile
@@ -51,6 +52,7 @@ from impodo.models import (
     TargetRecord,
     target_identity_hash,
 )
+from impodo.models import canonical_json_text
 from impodo.projects import OdooConnectionMode, ProjectStatus
 from impodo.quality import (
     QualityOutcomePolicy,
@@ -1943,6 +1945,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Included in preparation", readiness_page.text)
         self.assertIn("Set aside", readiness_page.text)
         self.assertIn("Needs correction", readiness_page.text)
+        self.assertIn("New in Odoo", readiness_page.text)
+        self.assertIn("Different from Odoo", readiness_page.text)
+        self.assertIn("Already matches", readiness_page.text)
+        self.assertIn("Needs attention", readiness_page.text)
         self.assertIn('id="quality-rows"', readiness_page.text)
         self.assertIn("Ready", readiness_page.text)
         self.assertIn("Needs a decision", readiness_page.text)
@@ -1954,9 +1960,22 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("prepared rows safely saved", readiness_page.text)
         self.assertIn("data-staging-summary", readiness_page.text)
         self.assertIn("<summary>Support details</summary>", readiness_page.text)
+        self.assertIn("data-preflight-compare", readiness_page.text)
+        self.assertIn(
+            "Comparing with Odoo... Keep this page open.",
+            readiness_page.text,
+        )
 
         report = self.app.state.context.preflight.current_report(project_id)
         assert report is not None
+        self.assertEqual(
+            report.create_count
+            + report.update_count
+            + report.unchanged_count
+            + report.ambiguous_count
+            + report.blocked_count,
+            report.total_count,
+        )
         staging = self.app.state.context.preflight.current_staging(project_id)
         assert staging is not None
         self.assertEqual(report.staging_run_id, staging.run_id)
@@ -1972,6 +1991,122 @@ class ProjectSetupWizardTests(unittest.TestCase):
             restored_staging.content_hash,
             staging.content_hash,
         )
+        restart_app = create_local_app(
+            self.temporary.name,
+            secret_store=self.secrets,
+            readiness_reader=lambda *_args: self.fail(
+                "Restart retrieval must not contact Odoo"
+            ),
+        )
+        restarted_report = restart_app.state.context.preflight.current_report(
+            project_id
+        )
+        self.assertIsNotNone(restarted_report)
+        assert restarted_report is not None
+        self.assertEqual(restarted_report.run_id, report.run_id)
+
+        sample_row = self.app.state.context.preflight.readiness_rows(
+            project_id,
+            report.run_id,
+        ).items[0]
+        self.assertIn(
+            sample_row.source_trace_id,
+            {item.row_id for item in restored_staging.rows},
+        )
+
+        database_path = (
+            self.app.state.context.projects.repository.project_directory(project_id)
+            / "project.duckdb"
+        )
+        staging_repository = self.app.state.context.preflight.staging
+        with staging_repository._connect(database_path) as connection:
+            stored_row = connection.execute(
+                """
+                SELECT ordinal, row_json
+                  FROM canonical_staging_row
+                 WHERE run_id = ?
+                 ORDER BY ordinal
+                 LIMIT 1
+                """,
+                [staging.run_id],
+            ).fetchone()
+            assert stored_row is not None
+            tampered_payload = json.loads(str(stored_row[1]))
+            tampered_payload["target_model"] = "x.tampered"
+            connection.execute(
+                """
+                UPDATE canonical_staging_row
+                   SET row_json = ?
+                 WHERE run_id = ? AND ordinal = ?
+                """,
+                [
+                    canonical_json_text(tampered_payload),
+                    staging.run_id,
+                    int(stored_row[0]),
+                ],
+            )
+        try:
+            rejected_tamper = self.client.post(
+                f"/projects/{project_id}/summary/compare",
+                data={"csrf_token": self.csrf},
+                headers=POST_HEADERS,
+                follow_redirects=False,
+            )
+        finally:
+            with staging_repository._connect(database_path) as connection:
+                connection.execute(
+                    """
+                    UPDATE canonical_staging_row
+                       SET row_json = ?
+                     WHERE run_id = ? AND ordinal = ?
+                    """,
+                    [str(stored_row[1]), staging.run_id, int(stored_row[0])],
+                )
+        self.assertEqual(rejected_tamper.status_code, 422)
+        self.assertEqual(len(self.readiness_calls), 1)
+
+        compared_again = self.client.post(
+            f"/projects/{project_id}/summary/compare",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(compared_again.status_code, 303, compared_again.text)
+        repeated_report = self.app.state.context.preflight.current_report(project_id)
+        assert repeated_report is not None
+        self.assertNotEqual(repeated_report.run_id, report.run_id)
+        self.assertEqual(repeated_report.staging_run_id, report.staging_run_id)
+        self.assertEqual(repeated_report.quality_run_id, report.quality_run_id)
+        self.assertEqual(
+            repeated_report.normalization_run_id,
+            report.normalization_run_id,
+        )
+        with staging_repository._connect(database_path) as connection:
+            run_count = connection.execute(
+                "SELECT COUNT(*) FROM readiness_run"
+            ).fetchone()
+            current_run = connection.execute(
+                "SELECT run_id FROM preflight_current WHERE singleton_id = 1"
+            ).fetchone()
+            superseded = connection.execute(
+                """
+                SELECT detail
+                  FROM preflight_transition
+                 WHERE run_id = ? AND event_type = 'SUPERSEDED'
+                """,
+                [report.run_id],
+            ).fetchone()
+        self.assertEqual(run_count, (2,))
+        self.assertEqual(current_run, (repeated_report.run_id,))
+        self.assertEqual(superseded, (repeated_report.run_id,))
+        current_normalization = normalization_service.current_summary(project_id)
+        assert current_normalization is not None
+        self.assertEqual(
+            current_normalization.run_id,
+            report.normalization_run_id,
+        )
+
+        report = repeated_report
         sample_row = self.app.state.context.preflight.readiness_rows(
             project_id,
             report.run_id,
@@ -1979,34 +2114,40 @@ class ProjectSetupWizardTests(unittest.TestCase):
         paged_rows = tuple(
             replace(
                 sample_row,
+                source_trace_id=f"sha256:{index:064x}",
                 source_row=index,
                 status="blocked" if index <= 120 else "ready",
                 identity=f"ROW-{index:04d}",
             )
             for index in range(1, 202)
         )
-        paged_datasets = tuple(
-            replace(
-                item,
-                total=201,
-                ready=81,
-                needs_review=0,
-                blocked=120,
+        with staging_repository._connect(database_path) as connection:
+            connection.execute(
+                "DELETE FROM preflight_decision WHERE run_id = ?",
+                [report.run_id],
             )
-            if item.dataset == sample_row.dataset
-            else item
-            for item in report.datasets
-        )
-        paged_report = replace(
-            report,
-            datasets=paged_datasets,
-            rows=paged_rows,
-        )
-        with patch.object(
-            self.app.state.context.preflight,
-            "current_report",
-            return_value=paged_report,
-        ):
+            connection.executemany(
+                """
+                INSERT INTO preflight_decision (
+                    run_id, ordinal, source_trace_id, dataset,
+                    source_row, status, decision_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    [
+                        report.run_id,
+                        index,
+                        item.source_trace_id,
+                        item.dataset,
+                        item.source_row,
+                        item.status,
+                        canonical_json_text(asdict(item)),
+                    ]
+                    for index, item in enumerate(paged_rows)
+                ],
+            )
+
+        with self.subTest("persisted readiness paging"):
             first_page = self.client.get(
                 f"/projects/{project_id}/summary"
             )
@@ -2081,8 +2222,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
             self.assertNotIn("page", previous_query)
 
-        self.assertEqual(len(self.readiness_calls), 1)
-        readiness_requests = self.readiness_calls[0][2]
+        self.assertEqual(len(self.readiness_calls), 2)
+        readiness_requests = self.readiness_calls[-1][2]
         self.assertTrue(readiness_requests)
         self.assertEqual(
             {item.model for item in readiness_requests},

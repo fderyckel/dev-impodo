@@ -1,4 +1,11 @@
-"""Versioned mapping revision and submission evidence."""
+"""Separate immutable Stage D revision evidence from submission evidence.
+
+Layer: domain evidence. A revision records who created one exact mapping
+definition and its optimistic parent. A submission separately binds that
+revision's content hash to one deterministic validation hash and the exact
+warning acknowledgement set. Neither artifact approves prepared data or an
+Odoo write.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +20,8 @@ from .contracts import MappingDefinition
 
 @dataclass(frozen=True, slots=True)
 class MappingRevision:
+    """Record one immutable mapping definition in its optimistic version chain."""
+
     mapping_id: str
     version: int
     parent_version: int | None
@@ -21,6 +30,8 @@ class MappingRevision:
     created_by: str
 
     def to_json(self) -> str:
+        """Serialize the complete immutable revision and definition."""
+
         return _canonical_json(
             {
                 "mapping_id": self.mapping_id,
@@ -34,6 +45,8 @@ class MappingRevision:
 
     @classmethod
     def from_json(cls, value: str) -> "MappingRevision":
+        """Restore one stored revision and its hash-validating definition."""
+
         payload = json.loads(value)
         return cls(
             mapping_id=str(payload["mapping_id"]),
@@ -52,6 +65,8 @@ class MappingRevision:
 
 @dataclass(frozen=True, slots=True)
 class MappingSubmission:
+    """Bind one exact revision to validation and warning-review evidence."""
+
     submission_id: str
     mapping_id: str
     version: int
@@ -62,10 +77,14 @@ class MappingSubmission:
     submitted_by: str
 
     def to_json(self) -> str:
+        """Serialize immutable submission evidence deterministically."""
+
         return _canonical_json(_portable(asdict(self)))
 
     @classmethod
     def from_json(cls, value: str) -> "MappingSubmission":
+        """Restore one submission without implying its evidence is still current."""
+
         payload = json.loads(value)
         return cls(
             submission_id=str(payload["submission_id"]),

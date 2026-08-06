@@ -16,9 +16,8 @@ from hashlib import sha256
 import json
 from typing import Any, Iterable, Mapping
 
-from .models import LogicalReference, PreparedRecord, canonical_json_bytes, portable_value
+from .models import LogicalReference, canonical_json_bytes, portable_value
 from .projects import MigrationProject
-from .source import PreparedBundle
 from .staging_contracts import CanonicalIssue, CanonicalRow, CanonicalStagingRun, StagingDisposition
 
 
@@ -743,9 +742,9 @@ def evaluate_quality(
     *,
     project: MigrationProject,
     staging: CanonicalStagingRun,
-    prepared: PreparedBundle,
     physical_rows: Mapping[str, tuple[int, ...]],
     ruleset: QualityRuleSet,
+    published_staging_content_hash: str | None = None,
 ) -> QualityRun:
     """Evaluate a complete quality overlay without database or Odoo access."""
 
@@ -753,22 +752,11 @@ def evaluate_quality(
         raise QualityError("Quality evidence belongs to another project")
     if ruleset.mapping_hash != staging.mapping_hash or ruleset.schema_hash != staging.schema_hash:
         raise QualityError("Data checks no longer match the submitted field matches")
-    staging_content_hash = staging.content_hash
+    staging_content_hash = (
+        published_staging_content_hash or staging.content_hash
+    )
     ruleset_hash = ruleset.content_hash
     rows_by_id = {row.row_id: row for row in staging.rows}
-    prepared_by_coordinate: dict[
-        tuple[str, int],
-        PreparedRecord | tuple[PreparedRecord, ...],
-    ] = {}
-    for record in prepared.records:
-        coordinate = (record.dataset, record.source_row)
-        existing = prepared_by_coordinate.get(coordinate)
-        if existing is None:
-            prepared_by_coordinate[coordinate] = record
-        elif isinstance(existing, tuple):
-            prepared_by_coordinate[coordinate] = (*existing, record)
-        else:
-            prepared_by_coordinate[coordinate] = (existing, record)
     canonical_by_coordinate: dict[
         tuple[str, int],
         CanonicalRow | tuple[CanonicalRow, ...],
@@ -796,10 +784,12 @@ def evaluate_quality(
         issue = _setup_issue(project, dataset, family, "QUALITY_RULE_MISSING", "An automatic data check is missing. Restore the recommended checks before continuing.")
         issue_map[issue.issue_id] = issue
     available_fields: dict[str, set[str]] = {}
+    rows_by_dataset: dict[str, list[CanonicalRow]] = {}
     for row in staging.rows:
         available_fields.setdefault(row.dataset, set()).update(
             row.proposed_values
         )
+        rows_by_dataset.setdefault(row.dataset, []).append(row)
     invalid_manager_rules = {
         rule.rule_id
         for rule in ruleset.manager_rules
@@ -884,7 +874,7 @@ def evaluate_quality(
         if item.source is QualityRuleSource.MANAGER_AUTHORED
         and item.rule_id not in invalid_manager_rules
     ):
-        for row in (item for item in staging.rows if item.dataset == rule.dataset):
+        for row in rows_by_dataset.get(rule.dataset, ()):
             failed, reason = _business_rule_failed(rule, row)
             if not failed:
                 continue
@@ -923,9 +913,9 @@ def evaluate_quality(
     dependents_by_parent: dict[str, str | list[str]] = {}
     unresolved_dependents: set[str] = set()
     relationship_rule_by_row: dict[str, QualityRule] = {}
-    for coordinate, record in prepared_by_coordinate.items():
-        row = canonical_by_coordinate.get(coordinate)
-        if isinstance(record, tuple) or row is None or isinstance(row, tuple):
+    for row in staging.rows:
+        coordinate = (row.dataset, row.source_row)
+        if isinstance(canonical_by_coordinate.get(coordinate), tuple):
             continue
         rule = rules_by_family.get(
             (row.dataset, QualityRuleFamily.RELATIONSHIP_READINESS)
@@ -934,7 +924,7 @@ def evaluate_quality(
             continue
         relationship_rule_by_row[row.row_id] = rule
         seen_parent_ids: set[str] = set()
-        for reference in _logical_references(record):
+        for reference in _logical_references(row):
             if not reference.dataset:
                 continue
             matches = source_index.get(
@@ -1202,7 +1192,7 @@ def _business_rule_failed(rule: QualityRule, row: CanonicalRow) -> tuple[bool, s
     raise QualityError("A manager-authored data check uses an unsupported rule")
 
 
-def _logical_references(record: PreparedRecord) -> tuple[LogicalReference, ...]:
+def _logical_references(row: CanonicalRow) -> tuple[LogicalReference, ...]:
     found: list[LogicalReference] = []
 
     def collect(value: object) -> None:
@@ -1212,7 +1202,7 @@ def _logical_references(record: PreparedRecord) -> tuple[LogicalReference, ...]:
             for item in value:
                 collect(item)
 
-    for value in (*record.target_identity, *record.target_scope, *record.references.values()):
+    for value in (*row.target_identity, *row.target_scope, *row.references.values()):
         collect(value)
     return tuple(found)
 

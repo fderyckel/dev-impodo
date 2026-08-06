@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Iterable, Protocol
 
 from ..access import Actor
 from ..derived_entities import DerivedEntityPlan
 from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
 from ..connectors import MetadataSnapshot, RecordSnapshot
-from ..domain.preflight.reports import ReadinessReport, ReadinessRowPage
+from ..domain.preflight.reports import ReadinessReport, ReadinessRow, ReadinessRowPage
 from ..governance import DryRun
 from ..inspection import SourceFileCatalog
 from ..normalization import (
@@ -61,6 +61,13 @@ class PreparationStagingRepository(Protocol):
         mapping_version: int,
         actor: Actor,
     ) -> StagingRunSummary: ...
+    def get_canonical_staging_run(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        expected_content_hash: str | None = None,
+    ) -> CanonicalStagingRun | None: ...
 
 
 class QualityMappingRepository(Protocol):
@@ -153,7 +160,11 @@ class PreflightStagingRepository(Protocol):
         self, project_id: str
     ) -> StagingRunSummary | None: ...
     def get_canonical_staging_run(
-        self, project_id: str, run_id: str
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        expected_content_hash: str | None = None,
     ) -> CanonicalStagingRun | None: ...
 
 
@@ -213,6 +224,8 @@ class PreflightRepository(Protocol):
         project_id: str,
         report: ReadinessReport,
         *,
+        decision_rows: Iterable[ReadinessRow],
+        decision_count: int,
         metadata_snapshot: MetadataSnapshot,
         record_snapshot: RecordSnapshot,
         actor: Actor,

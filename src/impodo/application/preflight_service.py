@@ -213,6 +213,25 @@ class PreflightService:
         if not result.metadata_snapshot_hash or not result.record_snapshot_hash:
             raise ReadinessError("Odoo snapshot evidence is incomplete")
         run_id = str(uuid4())
+        frozen_input_hash = frozen.content_hash
+        requirement_plan_hash = requirements.semantic_hash
+        manifest = result.to_portable_dict()
+        manifest["preflight_evidence"] = {
+            "frozen_input_hash": frozen_input_hash,
+            "normalization_run_id": frozen.normalization.run_id,
+            "normalization_content_hash": frozen.normalization.content_hash,
+            "normalization_lifecycle_version": (
+                frozen.normalization.lifecycle_version
+            ),
+            "eligible_dataset_hash": frozen.normalization.eligible_dataset_hash,
+            "compiled_migration_plan_hash": frozen.plan.semantic_hash,
+            "requirement_plan_hash": requirement_plan_hash,
+            "requirement_model_count": requirements.model_count,
+            "requirement_chunk_count": requirements.chunk_count,
+            "source_record_count": requirements.source_record_count,
+        }
+        manifest_content = canonical_json_bytes(manifest) + b"\n"
+        del manifest
         report = _readiness_report(
             run_id,
             project,
@@ -224,31 +243,19 @@ class PreflightService:
             frozen.staging,
             frozen.quality,
             frozen.normalization,
-            frozen_input_hash=frozen.content_hash,
-            requirement_plan_hash=requirements.semantic_hash,
+            frozen_input_hash=frozen_input_hash,
+            requirement_plan_hash=requirement_plan_hash,
             metadata_snapshot_hash=result.metadata_snapshot_hash,
             record_snapshot_hash=result.record_snapshot_hash,
         )
-        manifest = result.to_portable_dict()
-        manifest["preflight_evidence"] = {
-            "frozen_input_hash": frozen.content_hash,
-            "normalization_run_id": frozen.normalization.run_id,
-            "normalization_content_hash": frozen.normalization.content_hash,
-            "normalization_lifecycle_version": (
-                frozen.normalization.lifecycle_version
-            ),
-            "eligible_dataset_hash": frozen.normalization.eligible_dataset_hash,
-            "compiled_migration_plan_hash": frozen.plan.semantic_hash,
-            "requirement_plan_hash": requirements.semantic_hash,
-            "requirement_model_count": requirements.model_count,
-            "requirement_chunk_count": requirements.chunk_count,
-            "source_record_count": requirements.source_record_count,
-        }
-        manifest_content = canonical_json_bytes(manifest) + b"\n"
         report = replace(
             report,
             manifest_hash="sha256:" + sha256(manifest_content).hexdigest(),
         )
+        decision_count = len(report.rows)
+        decision_rows = iter(report.rows)
+        report = replace(report, rows=())
+        del frozen, requirements, result
         try:
             self.artifacts.write_report(
                 project_id,
@@ -259,6 +266,8 @@ class PreflightService:
             self.preflight.save_readiness_report(
                 project_id,
                 report,
+                decision_rows=decision_rows,
+                decision_count=decision_count,
                 metadata_snapshot=metadata,
                 record_snapshot=records,
                 actor=actor,
@@ -351,8 +360,12 @@ def _validate_snapshot_projection(
     if set(metadata.models) != set(expected_metadata):
         raise ReadinessError("Odoo metadata snapshot is incomplete")
     for model, fields in expected_metadata.items():
-        if not set(metadata.models[model].fields).issubset(fields):
-            raise ReadinessError("Odoo metadata snapshot contains unplanned fields")
+        actual_fields = set(metadata.models[model].fields)
+        expected_fields = set(fields)
+        if actual_fields != expected_fields:
+            if actual_fields - expected_fields:
+                raise ReadinessError("Odoo metadata snapshot contains unplanned fields")
+            raise ReadinessError("Odoo metadata snapshot is incomplete")
 
     expected_records: dict[str, tuple[str, ...]] = {}
     for request in record_requests:

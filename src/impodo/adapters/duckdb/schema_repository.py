@@ -1,4 +1,12 @@
-"""DuckDB schema repository implementation."""
+"""Persist Stage C model/schema catalogs and business-key governance.
+
+Layer: adapter. Model and schema catalogs are current target-bound snapshots;
+schema governance is immutable revision evidence with a current pointer.
+Recapture and regovernance atomically invalidate downstream mapping and
+staging pointers.
+
+See ``docs/architecture/python-code-map.md`` and ``tests/test_workspace.py``.
+"""
 
 from __future__ import annotations
 
@@ -21,12 +29,14 @@ from .repository import DuckDbRepository
 
 
 class SchemaRepository(DuckDbRepository):
-    """Persistence operations for schema repository."""
+    """Own current schema catalogs and versioned governance evidence."""
 
     def get_odoo_schema_catalog(
         self,
         project_id: str,
     ) -> OdooSchemaCatalog | None:
+        """Return the current detailed schema catalog, if captured."""
+
         value = self._read_singleton_json(
             project_id,
             """
@@ -40,6 +50,8 @@ class SchemaRepository(DuckDbRepository):
         self,
         project_id: str,
     ) -> OdooModelCatalog | None:
+        """Return current lightweight model discovery, if refreshed."""
+
         value = self._read_singleton_json(
             project_id,
             """
@@ -56,6 +68,8 @@ class SchemaRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
+        """Replace model discovery without changing the permitted scope itself."""
+
         self._save_singleton(
             project_id,
             table="odoo_model_catalog",
@@ -72,6 +86,8 @@ class SchemaRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
+        """Publish an exact schema catalog and retire governance/mapping/staging."""
+
         event_type = (
             "LOCAL_SCHEMA_DRAFT_CREATED"
             if catalog.origin.value == "LOCAL_MANUAL"
@@ -99,6 +115,8 @@ class SchemaRepository(DuckDbRepository):
         self,
         project_id: str,
     ) -> SchemaGovernance | None:
+        """Load the current governance revision selected by its pointer."""
+
         value = self._read_singleton_json(
             project_id,
             """
@@ -118,6 +136,8 @@ class SchemaRepository(DuckDbRepository):
         *,
         actor: Actor,
     ) -> None:
+        """Append the next exact governance revision and invalidate dependents."""
+
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")

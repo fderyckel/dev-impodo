@@ -1,7 +1,16 @@
-"""Migration-project domain for the local Impodo application.
+"""Define Stage A project identity, governance, target, and lifecycle rules.
 
-This module has no web-framework or database dependency.  The browser, CLI,
-and persistence adapters all use the same lifecycle and validation rules.
+Layer: domain/application boundary retained at the package root.
+
+``ProjectService`` is called by the project and schema routers and persists
+through the ``ProjectRepository`` port. It owns authorization, optimistic
+revision checks, draft editability, and registration readiness. Concrete
+persistence owns atomic invalidation when source, target, scope, or governance
+changes affect later migration stages.
+
+This module has no web-framework or database dependency. See
+``docs/architecture/python-code-map.md``,
+``docs/contracts/01-migration-project.md``, and ``tests/test_projects.py``.
 """
 
 from __future__ import annotations
@@ -37,23 +46,31 @@ class ProjectRegistrationError(ProjectError):
 
 
 class ProjectStatus(StrEnum):
+    """Lifecycle state of the Stage A project setup boundary."""
+
     DRAFT = "DRAFT"
     REGISTERED = "REGISTERED"
     CLOSED = "CLOSED"
 
 
 class ExportStatus(StrEnum):
+    """Whether the declared source export is still planned or has been received."""
+
     PLANNED = "PLANNED"
     RECEIVED = "RECEIVED"
 
 
 class DataClassification(StrEnum):
+    """Govern retention, display, and operational handling of project data."""
+
     INTERNAL = "INTERNAL"
     CONFIDENTIAL = "CONFIDENTIAL"
     RESTRICTED = "RESTRICTED"
 
 
 class OdooConnectionMode(StrEnum):
+    """Select the local-shell or remote JSON-2 read boundary for one project."""
+
     LOCAL = "LOCAL"
     REMOTE = "REMOTE"
 
@@ -81,6 +98,8 @@ class SourceFile:
 
 @dataclass(frozen=True, slots=True)
 class ProjectSummary:
+    """Provide the lightweight registry projection used by the project list."""
+
     project_id: str
     name: str
     status: ProjectStatus
@@ -90,7 +109,13 @@ class ProjectSummary:
 
 @dataclass(frozen=True, slots=True)
 class MigrationProject:
-    """Project-setup migration-project aggregate."""
+    """Hold the governed Stage A identity and current lifecycle pointers.
+
+    The aggregate is immutable; service operations create a replacement with
+    an incremented optimistic ``revision``. Source-file entries are immutable
+    evidence, while mapping/run/approval fields are summaries whose underlying
+    versioned evidence remains authoritative.
+    """
 
     project_id: str
     name: str
@@ -130,18 +155,26 @@ class MigrationProject:
 class ProjectRepository(Protocol):
     """Persistence port used by the project application service."""
 
-    def create(self, project: MigrationProject, *, actor: Actor) -> None: ...
+    def create(self, project: MigrationProject, *, actor: Actor) -> None:
+        """Persist a new draft, its contained storage, registry, and audit."""
+        ...
 
-    def get(self, project_id: str) -> MigrationProject: ...
+    def get(self, project_id: str) -> MigrationProject:
+        """Return the complete current aggregate or raise ``ProjectNotFoundError``."""
+        ...
 
-    def list(self) -> tuple[ProjectSummary, ...]: ...
+    def list(self) -> tuple[ProjectSummary, ...]:
+        """Return lightweight registry projections without opening every project."""
+        ...
 
     def delete(
         self,
         project_id: str,
         *,
         expected_revision: int,
-    ) -> None: ...
+    ) -> None:
+        """Delete exactly the expected project revision and its contained data."""
+        ...
 
     def save(
         self,
@@ -151,7 +184,9 @@ class ProjectRepository(Protocol):
         event_type: str,
         event_detail: str,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Atomically save one optimistic lifecycle change and its audit event."""
+        ...
 
     def add_source_file(
         self,
@@ -160,7 +195,9 @@ class ProjectRepository(Protocol):
         *,
         expected_revision: int,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Attach immutable file evidence and invalidate affected current runs."""
+        ...
 
     def update_schema_scope(
         self,
@@ -168,11 +205,19 @@ class ProjectRepository(Protocol):
         *,
         expected_revision: int,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Replace the Stage C allowlist and invalidate schema dependents."""
+        ...
 
 
 class ProjectService:
-    """Own project lifecycle operations independently of HTTP and DuckDB."""
+    """Own Stage A lifecycle operations independently of HTTP and DuckDB.
+
+    Every mutation requires an actor capability and, after creation, the
+    caller's expected project revision. Draft setup fields become read-only on
+    registration; the permitted Odoo model scope is a separate Stage C
+    decision and therefore remains changeable on registered projects.
+    """
 
     def __init__(
         self,
@@ -189,6 +234,8 @@ class ProjectService:
         name: str,
         source_system: str,
     ) -> MigrationProject:
+        """Create and persist a minimal editable migration-project draft."""
+
         self.authorization.require(actor, Capability.PROJECT_CREATE)
         clean_name = _required_text(name, "Project name")
         clean_source = _required_text(source_system, "Source system")
@@ -241,6 +288,8 @@ class ProjectService:
         export_date: str,
         description: str,
     ) -> MigrationProject:
+        """Validate and save editable source-export identity and description."""
+
         project = self._editable(
             project_id,
             expected_revision,
@@ -287,6 +336,8 @@ class ProjectService:
         retention_days: int,
         support_access: bool,
     ) -> MigrationProject:
+        """Validate and save project ownership, classification, and retention."""
+
         project = self._editable(
             project_id,
             expected_revision,
@@ -327,6 +378,12 @@ class ProjectService:
         intended_applications: Sequence[str],
         intended_models: Sequence[str] | None = None,
     ) -> MigrationProject:
+        """Replace the draft target identity and application/model context.
+
+        Concrete persistence invalidates current schema, mapping, and staging
+        evidence when the saved target identity or scope actually changes.
+        """
+
         project = self._editable(
             project_id,
             expected_revision,
@@ -423,6 +480,8 @@ class ProjectService:
         expected_revision: int,
         source_file: SourceFile,
     ) -> MigrationProject:
+        """Attach one new immutable source-file record to the draft project."""
+
         project = self._editable(
             project_id,
             expected_revision,
@@ -452,6 +511,13 @@ class ProjectService:
         actor: Actor,
         expected_revision: int,
     ) -> MigrationProject:
+        """Register a complete draft and close the editable setup boundary.
+
+        All problems from :func:`registration_problems` are returned together
+        through ``ProjectRegistrationError``. Registration is project evidence,
+        not mapping, normalization, package, or execution approval.
+        """
+
         project = self._editable(
             project_id,
             expected_revision,

@@ -75,7 +75,6 @@ def _quality(project, staging, rows):
     return ruleset, evaluate_quality(
         project=project,
         staging=staging,
-        prepared=_prepared(rows),
         physical_rows={"dataset:contacts": tuple(item.source_row for item in rows)},
         ruleset=ruleset,
     )

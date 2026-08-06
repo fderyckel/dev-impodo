@@ -81,14 +81,12 @@ class QualityEvaluationTests(unittest.TestCase):
         first = evaluate_quality(
             project=self.project,
             staging=staging,
-            prepared=prepared,
             physical_rows={"dataset:contacts": (2, 3, 4)},
             ruleset=ruleset,
         )
         repeated = evaluate_quality(
             project=self.project,
             staging=staging,
-            prepared=prepared,
             physical_rows={"dataset:contacts": (2, 3, 4)},
             ruleset=ruleset,
         )
@@ -132,7 +130,6 @@ class QualityEvaluationTests(unittest.TestCase):
         run = evaluate_quality(
             project=self.project,
             staging=staging,
-            prepared=prepared,
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
@@ -164,36 +161,25 @@ class QualityEvaluationTests(unittest.TestCase):
             disposition=StagingDisposition.BLOCKED,
             issues=(parent_issue,),
         )
-        child = _canonical_row(
-            "6",
-            2,
-            dataset="products",
-            source_identity=("P1",),
-            target_identity=("P1",),
-            physical_dataset_id="dataset:products",
-        )
-        staging = _staging(self.project.project_id, (parent, child))
-        prepared = PreparedBundle(
-            records=(
-                _prepared_record(parent),
-                replace(
-                    _prepared_record(child),
-                    references={
-                        "categ_id": LogicalReference(
-                            origin="incoming",
-                            key=("CAT",),
-                            dataset="categories",
-                            target_fields=("name",),
-                        )
-                    },
-                ),
+        child = replace(
+            _canonical_row(
+                "6",
+                2,
+                dataset="products",
+                source_identity=("P1",),
+                target_identity=("P1",),
+                physical_dataset_id="dataset:products",
             ),
-            issues=(),
-            source_hashes={
-                "categories": SOURCE_HASH,
-                "products": SOURCE_HASH,
+            references={
+                "categ_id": LogicalReference(
+                    origin="incoming",
+                    key=("CAT",),
+                    dataset="categories",
+                    target_fields=("name",),
+                )
             },
         )
+        staging = _staging(self.project.project_id, (parent, child))
         ruleset = default_quality_ruleset(
             project_id=self.project.project_id,
             mapping_hash=MAPPING_HASH,
@@ -204,7 +190,6 @@ class QualityEvaluationTests(unittest.TestCase):
         run = evaluate_quality(
             project=self.project,
             staging=staging,
-            prepared=prepared,
             physical_rows={
                 "dataset:categories": (2,),
                 "dataset:products": (2,),
@@ -256,27 +241,23 @@ class QualityEvaluationTests(unittest.TestCase):
             ),
             *rows[1:],
         )
-        prepared = PreparedBundle(
-            records=tuple(
-                replace(
-                    _prepared_record(row),
-                    references=(
-                        {}
-                        if index == 0
-                        else {
-                            "parent_id": LogicalReference(
-                                origin="incoming",
-                                key=(f"CAT-{index - 1:03d}",),
-                                dataset="categories",
-                                target_fields=("name",),
-                            )
-                        }
-                    ),
-                )
-                for index, row in enumerate(rows)
-            ),
-            issues=(),
-            source_hashes={"categories": SOURCE_HASH},
+        rows = tuple(
+            replace(
+                row,
+                references=(
+                    {}
+                    if index == 0
+                    else {
+                        "parent_id": LogicalReference(
+                            origin="incoming",
+                            key=(f"CAT-{index - 1:03d}",),
+                            dataset="categories",
+                            target_fields=("name",),
+                        )
+                    }
+                ),
+            )
+            for index, row in enumerate(rows)
         )
         ruleset = default_quality_ruleset(
             project_id=self.project.project_id,
@@ -288,7 +269,6 @@ class QualityEvaluationTests(unittest.TestCase):
         run = evaluate_quality(
             project=self.project,
             staging=_staging(self.project.project_id, rows),
-            prepared=prepared,
             physical_rows={
                 "dataset:categories": tuple(range(2, row_count + 2)),
             },
@@ -332,36 +312,27 @@ class QualityEvaluationTests(unittest.TestCase):
             first,
             disposition=StagingDisposition.BLOCKED,
             issues=(root_issue,),
+            references={
+                "parent_id": LogicalReference(
+                    origin="incoming",
+                    key=("B",),
+                    dataset="categories",
+                    target_fields=("name",),
+                )
+            },
+        )
+        second = replace(
+            second,
+            references={
+                "parent_id": LogicalReference(
+                    origin="incoming",
+                    key=("A",),
+                    dataset="categories",
+                    target_fields=("name",),
+                )
+            },
         )
         rows = (first, second)
-        prepared = PreparedBundle(
-            records=(
-                replace(
-                    _prepared_record(first),
-                    references={
-                        "parent_id": LogicalReference(
-                            origin="incoming",
-                            key=("B",),
-                            dataset="categories",
-                            target_fields=("name",),
-                        )
-                    },
-                ),
-                replace(
-                    _prepared_record(second),
-                    references={
-                        "parent_id": LogicalReference(
-                            origin="incoming",
-                            key=("A",),
-                            dataset="categories",
-                            target_fields=("name",),
-                        )
-                    },
-                ),
-            ),
-            issues=(),
-            source_hashes={"categories": SOURCE_HASH},
-        )
         ruleset = default_quality_ruleset(
             project_id=self.project.project_id,
             mapping_hash=MAPPING_HASH,
@@ -372,7 +343,6 @@ class QualityEvaluationTests(unittest.TestCase):
         run = evaluate_quality(
             project=self.project,
             staging=_staging(self.project.project_id, rows),
-            prepared=prepared,
             physical_rows={"dataset:categories": (2, 3)},
             ruleset=ruleset,
         )
@@ -423,20 +393,13 @@ class QualityEvaluationTests(unittest.TestCase):
             dataset="categories",
             target_fields=("name",),
         )
-        prepared = PreparedBundle(
-            records=(
-                _prepared_record(rows[0]),
-                replace(
-                    _prepared_record(rows[1]),
-                    references={"parents": (root_reference, root_reference)},
-                ),
-                replace(
-                    _prepared_record(rows[2]),
-                    references={"parent_id": root_reference},
-                ),
+        rows = (
+            rows[0],
+            replace(
+                rows[1],
+                references={"parents": (root_reference, root_reference)},
             ),
-            issues=(),
-            source_hashes={"categories": SOURCE_HASH},
+            replace(rows[2], references={"parent_id": root_reference}),
         )
         ruleset = default_quality_ruleset(
             project_id=self.project.project_id,
@@ -448,7 +411,6 @@ class QualityEvaluationTests(unittest.TestCase):
         run = evaluate_quality(
             project=self.project,
             staging=_staging(self.project.project_id, rows),
-            prepared=prepared,
             physical_rows={"dataset:categories": (2, 3, 4)},
             ruleset=ruleset,
         )
@@ -494,27 +456,23 @@ class QualityEvaluationTests(unittest.TestCase):
             ),
             *rows[1:],
         )
-        prepared = PreparedBundle(
-            records=tuple(
-                replace(
-                    _prepared_record(row),
-                    references=(
-                        {}
-                        if index == 0
-                        else {
-                            "parent_id": LogicalReference(
-                                origin="incoming",
-                                key=(rows[index - 1].source_identity[0],),
-                                dataset="categories",
-                                target_fields=("name",),
-                            )
-                        }
-                    ),
-                )
-                for index, row in enumerate(rows)
-            ),
-            issues=(),
-            source_hashes={"categories": SOURCE_HASH},
+        rows = tuple(
+            replace(
+                row,
+                references=(
+                    {}
+                    if index == 0
+                    else {
+                        "parent_id": LogicalReference(
+                            origin="incoming",
+                            key=(rows[index - 1].source_identity[0],),
+                            dataset="categories",
+                            target_fields=("name",),
+                        )
+                    }
+                ),
+            )
+            for index, row in enumerate(rows)
         )
         ruleset = default_quality_ruleset(
             project_id=self.project.project_id,
@@ -535,7 +493,6 @@ class QualityEvaluationTests(unittest.TestCase):
         run = evaluate_quality(
             project=self.project,
             staging=_staging(self.project.project_id, rows),
-            prepared=prepared,
             physical_rows={"dataset:categories": (2, 3, 4)},
             ruleset=ruleset,
         )
@@ -575,7 +532,6 @@ class QualityEvaluationTests(unittest.TestCase):
         run = evaluate_quality(
             project=self.project,
             staging=staging,
-            prepared=_prepared((row,)),
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
@@ -651,7 +607,6 @@ class QualityEvaluationTests(unittest.TestCase):
         run = evaluate_quality(
             project=self.project,
             staging=staging,
-            prepared=prepared,
             physical_rows={
                 "dataset:products": tuple(
                     item.source_row for item in partner_records
@@ -705,7 +660,6 @@ class QualityEvaluationTests(unittest.TestCase):
         run = evaluate_quality(
             project=self.project,
             staging=staging,
-            prepared=prepared,
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
@@ -776,27 +730,23 @@ class QualityRelationshipScaleTests(unittest.TestCase):
             ),
             *rows[1:],
         )
-        prepared = PreparedBundle(
-            records=tuple(
-                replace(
-                    _prepared_record(row),
-                    references=(
-                        {}
-                        if index == 0
-                        else {
-                            "parent_id": LogicalReference(
-                                origin="incoming",
-                                key=(f"CAT-{index - 1:06d}",),
-                                dataset="categories",
-                                target_fields=("name",),
-                            )
-                        }
-                    ),
-                )
-                for index, row in enumerate(rows)
-            ),
-            issues=(),
-            source_hashes={"categories": SOURCE_HASH},
+        rows = tuple(
+            replace(
+                row,
+                references=(
+                    {}
+                    if index == 0
+                    else {
+                        "parent_id": LogicalReference(
+                            origin="incoming",
+                            key=(f"CAT-{index - 1:06d}",),
+                            dataset="categories",
+                            target_fields=("name",),
+                        )
+                    }
+                ),
+            )
+            for index, row in enumerate(rows)
         )
         staging = _staging(project.project_id, rows)
         ruleset = default_quality_ruleset(
@@ -811,7 +761,6 @@ class QualityRelationshipScaleTests(unittest.TestCase):
         run = evaluate_quality(
             project=project,
             staging=staging,
-            prepared=prepared,
             physical_rows={
                 "dataset:categories": tuple(range(2, row_count + 2)),
             },
@@ -919,7 +868,6 @@ class QualityStoreTests(unittest.TestCase):
         run = evaluate_quality(
             project=self.project,
             staging=staging_run,
-            prepared=_prepared((row,)),
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
@@ -964,7 +912,6 @@ class QualityStoreTests(unittest.TestCase):
         run = evaluate_quality(
             project=self.project,
             staging=staging_run,
-            prepared=_prepared((row,)),
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )
@@ -1018,7 +965,6 @@ class QualityStoreTests(unittest.TestCase):
         run = evaluate_quality(
             project=self.project,
             staging=staging_run,
-            prepared=_prepared((row,)),
             physical_rows={"dataset:contacts": (2,)},
             ruleset=ruleset,
         )

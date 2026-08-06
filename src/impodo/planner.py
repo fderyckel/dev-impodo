@@ -125,6 +125,8 @@ def plan_preflight_requirements(
     records_by_dataset: dict[str, list[PreparedRecord]] = defaultdict(list)
     for record in prepared_records:
         records_by_dataset[record.dataset].append(record)
+    incoming_identity_index = _incoming_identity_index(prepared_records)
+    target_key_cache: dict[tuple[str, int], tuple[Any, ...] | None] = {}
 
     fields: dict[str, set[str]] = defaultdict(set)
     domain_chunks: dict[str, list[list[Any]]] = defaultdict(list)
@@ -135,7 +137,8 @@ def plan_preflight_requirements(
                 plan,
                 dataset,
                 dataset_records,
-                records_by_dataset,
+                incoming_identity_index,
+                target_key_cache,
                 maximum_keys_per_request,
             )
             fields[dataset.target.model].update(_dataset_target_fields(dataset))
@@ -226,7 +229,10 @@ def _dataset_identity_domain_chunks(
     plan: CompiledMigrationPlan,
     dataset: DatasetSpec,
     records: Iterable[PreparedRecord],
-    records_by_dataset: dict[str, list[PreparedRecord]],
+    incoming_identity_index: dict[
+        tuple[str, bytes], PreparedRecord | None
+    ],
+    target_key_cache: dict[tuple[str, int], tuple[Any, ...] | None],
     chunk_size: int,
 ) -> list[list[Any]] | None:
     fields = _dataset_identity_fields(plan, dataset)
@@ -234,7 +240,13 @@ def _dataset_identity_domain_chunks(
         return None
     keys = []
     for record in records:
-        key = _record_target_key(plan, dataset, record, records_by_dataset)
+        key = _record_target_key(
+            plan,
+            dataset,
+            record,
+            incoming_identity_index,
+            target_key_cache,
+        )
         if key is not None:
             keys.append(key)
     return _key_domain_chunks(fields, keys, chunk_size)
@@ -288,10 +300,16 @@ def _record_target_key(
     plan: CompiledMigrationPlan,
     dataset: DatasetSpec,
     record: PreparedRecord,
-    records_by_dataset: dict[str, list[PreparedRecord]],
+    incoming_identity_index: dict[
+        tuple[str, bytes], PreparedRecord | None
+    ],
+    target_key_cache: dict[tuple[str, int], tuple[Any, ...] | None],
     *,
     visiting: frozenset[str] = frozenset(),
 ) -> tuple[Any, ...] | None:
+    cache_key = (dataset.name, id(record))
+    if cache_key in target_key_cache:
+        return target_key_cache[cache_key]
     if dataset.name in visiting:
         return None
     visiting = visiting | {dataset.name}
@@ -333,18 +351,20 @@ def _record_target_key(
                 referenced_dataset = plan.dataset(resolve.dataset)
             except KeyError:
                 return None
-            matches = [
-                candidate
-                for candidate in records_by_dataset.get(resolve.dataset, ())
-                if tuple(candidate.source_identity) == tuple(reference.key)
-            ]
-            if len(matches) != 1:
+            match = incoming_identity_index.get(
+                (
+                    resolve.dataset,
+                    canonical_json_bytes(portable_value(reference.key)),
+                )
+            )
+            if match is None:
                 return None
             referenced_key = _record_target_key(
                 plan,
                 referenced_dataset,
-                matches[0],
-                records_by_dataset,
+                match,
+                incoming_identity_index,
+                target_key_cache,
                 visiting=visiting,
             )
             if referenced_key is None:
@@ -352,7 +372,27 @@ def _record_target_key(
             result.extend(referenced_key)
         if cursor != len(values):
             return None
-    return tuple(result)
+    resolved = tuple(result)
+    target_key_cache[cache_key] = resolved
+    return resolved
+
+
+def _incoming_identity_index(
+    records: Iterable[PreparedRecord],
+) -> dict[tuple[str, bytes], PreparedRecord | None]:
+    """Index unique incoming business keys once; duplicates remain ambiguous."""
+
+    result: dict[tuple[str, bytes], PreparedRecord | None] = {}
+    for record in records:
+        key = (
+            record.dataset,
+            canonical_json_bytes(portable_value(record.source_identity)),
+        )
+        if key in result:
+            result[key] = None
+        else:
+            result[key] = record
+    return result
 
 
 def _key_domain_chunks(

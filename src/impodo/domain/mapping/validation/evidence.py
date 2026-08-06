@@ -1,4 +1,10 @@
-"""Stable validation evidence and acknowledgement identities."""
+"""Define deterministic Stage D validation and acknowledgement evidence.
+
+Layer: domain evidence. Results bind one mapping hash to exact source/schema
+hashes, validator version, ordered issues, coverage, and deferred runtime
+checks. Warning fingerprints let submission acknowledge meaning rather than a
+transient display position.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +22,8 @@ MAPPING_VALIDATOR_VERSION = "6.0.0"
 
 
 class MappingValidationStatus(StrEnum):
+    """Summarize whether errors or reviewable warnings remain."""
+
     VALID = "VALID"
     VALID_WITH_WARNINGS = "VALID_WITH_WARNINGS"
     INVALID = "INVALID"
@@ -24,6 +32,8 @@ class MappingValidationStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class MappingValidationIssue:
+    """Describe one stable, actionable semantic finding at a mapping path."""
+
     code: str
     severity: str
     path: str
@@ -37,6 +47,8 @@ class MappingValidationIssue:
 
 @dataclass(frozen=True, slots=True)
 class DeferredRuntimeCheck:
+    """Record a valid mapping condition that needs full-row or target evidence."""
+
     code: str
     dataset_id: str
     message: str
@@ -44,6 +56,8 @@ class DeferredRuntimeCheck:
 
 @dataclass(frozen=True, slots=True)
 class MappingValidationResult:
+    """Bind deterministic findings and coverage to one exact mapping context."""
+
     mapping_content_hash: str
     source_selection_hash: str
     schema_hash: str
@@ -56,9 +70,13 @@ class MappingValidationResult:
 
     @property
     def validation_hash(self) -> str:
+        """Return the immutable identity used by mapping submission."""
+
         return _content_hash(self.to_dict(include_hash=False))
 
     def to_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
+        """Return the stable portable validation payload."""
+
         payload: dict[str, Any] = {
             "contract_version": self.contract_version,
             "validator_version": self.validator_version,
@@ -77,10 +95,14 @@ class MappingValidationResult:
         return payload
 
     def to_json(self) -> str:
+        """Serialize validation evidence with its content hash."""
+
         return _canonical_json(self.to_dict())
 
     @classmethod
     def from_json(cls, value: str) -> "MappingValidationResult":
+        """Restore validation evidence and reject hash tampering."""
+
         payload = json.loads(value)
         result = cls(
             contract_version=int(payload["contract_version"]),

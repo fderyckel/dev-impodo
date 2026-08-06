@@ -2,9 +2,10 @@
 
 ## Status and outcome
 
-**Status:** In progress since 2026-08-05. P1 CPU work is implemented. The
-first complete 100,000-row workflow probe failed both the time and memory
-gates, so bounded-memory preparation and publication remain release blockers.
+**Status:** In progress since 2026-08-05. P1 CPU work and the proposal's
+encoded-once publication slice are implemented. The 2026-08-06 complete
+100,000-row probes pass the time gate by a wide margin but still exceed the
+900-MiB memory gate, so bounded-memory preparation remains the release blocker.
 
 This plan raises the supported browser preparation scope from 25,000 to
 100,000 physical source rows without weakening deterministic evidence,
@@ -154,10 +155,10 @@ normalization effect per row. It uses 30 source columns and 20 mapped scalar
 fields. The scale guard alone is patched inside the test; no evaluator,
 publication, validation, hashing, or persistence rule is bypassed.
 
-At 10,000 rows the workflow took **40.271 seconds** and peaked at **383.8
-MiB**. At 100,000 rows it took **429.175 seconds** and peaked at **2,897.3
-MiB**, failing the required 120-second and 900-MiB gates. The 100,000-row
-phase breakdown was:
+On the Lenovo Windows reference machine, 10,000 rows took **40.271 seconds**
+and peaked at **383.8 MiB**. At 100,000 rows the workflow took **429.175
+seconds** and peaked at **2,897.3 MiB**, failing the required 120-second and
+900-MiB gates. The 100,000-row phase breakdown was:
 
 | Phase | Elapsed |
 | --- | ---: |
@@ -171,6 +172,78 @@ eligible normalization dataset; the control total passed and all three
 content hashes were published. This is a performance failure, not a logic or
 data-loss failure. The supported browser limit remains 25,000 rows. The
 database reached 221.8 MiB, which remains a recorded non-gating observation.
+
+### 2026-08-06 - Proposal phases 0 through 2
+
+Implemented the contained measurement, CPU, and encoded-publication work
+without changing the portable contracts or the supported browser limit:
+
+- the opt-in full-workflow probe now selects deterministic `products` and
+  effect-heavy `bom` workloads and records mapped cells, canonical rows,
+  lineage links, issues, effects, groups, serialized characters, phase times,
+  hashes, database size, and peak working set;
+- transformation comparison has primitive type-aware fast paths and preserves
+  display semantics such as `False` being distinct from `0`;
+- quality manager rules reuse one dataset index, and preflight incoming
+  identity resolution uses a deterministic identity index instead of scanning
+  candidate rows for each request;
+- staging, quality, and normalization publication no longer performs a whole
+  `from_json(to_json())` validation round trip;
+- every large row item is canonically encoded once, and the exact same encoded
+  text is both persisted and fed to an incremental canonical-document hash;
+- DuckDB bulk ingestion now uses bounded typed parameter arrays with `UNNEST`
+  instead of serializing and reparsing an outer nested JSON document;
+- published staging and quality hashes are passed to downstream phases instead
+  of recalculating complete upstream hashes, and quality summary counts are
+  accumulated once per publication.
+
+The incremental encoder is covered by an exact equivalence test against the
+existing canonical JSON hash. Existing publication round-trip, idempotency,
+rollback, invalidation, and batching tests remain green. The complete ordinary
+suite executed **256 tests in 18.759 seconds: 247 passed and 9 opt-in tests were
+skipped**.
+
+Fresh-process 100,000-row results on the MacBook Air M5 were:
+
+| Workload | Complete preparation | Peak working set | Project DB | Effects | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Products | 23.178 s | 1,102.3 MiB | 224.3 MiB | 100,000 | Time passed; RAM failed |
+| BOM | 27.090 s | 1,237.1 MiB | 302.3 MiB | 300,000 | Time passed; RAM failed |
+
+These Mac results are not compared numerically with the earlier Lenovo Windows
+results. The different processor, operating system, storage, and runtime
+environment make that an invalid before/after measurement.
+
+A controlled same-Mac A/B used the exact committed 10,000-row fixture, source
+checksum, Python environment, and benchmark command. The baseline was commit
+`b90782697bfef9c6a3554aa4ab90b41fe6c5cd81`; the optimized snapshot differed
+only in the 12 source files changed by proposal phases 1 and 2. Each side ran
+three times in a fresh process:
+
+| Same-Mac median | Committed baseline | Optimized | Change |
+| --- | ---: | ---: | ---: |
+| Complete preparation | 5.487 s | 2.401 s | **56.2% lower** |
+| Peak working set | 539.9 MiB | 339.0 MiB | **37.2% lower** |
+| Source loading and evaluation | 1.416 s | 1.203 s | **15.0% lower** |
+| Canonical publication | 1.838 s | 0.292 s | **84.1% lower** |
+| Quality | 0.674 s | 0.276 s | **59.1% lower** |
+| Normalization | 1.497 s | 0.526 s | **64.9% lower** |
+
+All six runs used source SHA-256
+`1787ff4b764acb36336768d8258c0edaefd2d253c4840b476b42cb4b8018ebad`
+and passed the same assertions: 10,000 staged rows, 10,000 ready rows, no
+review, quarantine, blocked rows, or failed control total, and 10,000 eligible
+and changed normalization records. Exact incremental-hash equivalence,
+publication round-trip, idempotency, and rollback behavior are separately
+covered by the ordinary semantic suite.
+
+The controlled result demonstrates that the code changes reduce both elapsed
+time and peak working set. The remaining 100,000-row Mac peak is still too
+high: the workflow retains complete source, prepared, canonical, quality,
+transformation-impact, and normalization object graphs. The BOM fixture makes
+the effect amplification visible by retaining 300,000 normalization effects.
+P3/P4 streaming and typed durable-row restoration remain necessary before the
+product limit can be raised.
 
 ## Benchmark fixtures
 
@@ -325,9 +398,10 @@ increases from 25,000 to 100,000.
 
 ### P4 - Stream quality and normalization evidence
 
-**Status:** Partial only for single-use hash caching and removal of the
-normalization-candidate tuple copy. Bounded quality and effect publication is
-still pending.
+**Status:** Partial. Single-use upstream hashes, exact incremental document
+hashing, encode-once row persistence, typed `UNNEST` batches, and removal of
+the normalization-candidate tuple copy are implemented. Bounded evaluation and
+effect production are still pending.
 
 Quality must consume persisted canonical rows in bounded batches. It may retain
 compact global indexes required for identity and relationship rules, but not a

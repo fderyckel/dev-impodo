@@ -1,4 +1,12 @@
-"""Preparation browser routes."""
+"""Translate the browser preparation action into the Stages E–G use case.
+
+Layer: web route. The router delegates to
+``WebContext.preparation.prepare`` in a worker thread, presents expected
+workflow failures on the Summary page, and redirects successful preparation to
+normalization review. It performs no row evaluation or persistence itself.
+
+See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
+"""
 
 from __future__ import annotations
 from fastapi import Request
@@ -16,10 +24,14 @@ from ..presenters.common import _flash
 
 
 def build_preparation_router(context: WebContext) -> APIRouter:
+    """Build the route that prepares frozen data for explicit review."""
+
     router = APIRouter()
 
     @router.post("/projects/{project_id}/summary/check")
     async def check_project_data(request: Request, project_id: str):
+        """Run target-independent preparation and open normalization review."""
+
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         try:

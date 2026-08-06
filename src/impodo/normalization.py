@@ -22,6 +22,7 @@ from .governance import (
     DryRunSummary,
 )
 from .domain.mapping.contracts import DatasetMapping
+from .domain.serialization import CanonicalJsonObjectHasher
 from .models import canonical_json_bytes
 from .projects import DataClassification, MigrationProject
 from .quality import (
@@ -404,12 +405,16 @@ def evaluate_normalization(
     quality: QualityRun,
     mappings: Mapping[str, DatasetMapping],
     candidates: Iterable[NormalizationCandidate],
+    published_staging_content_hash: str | None = None,
+    published_quality_content_hash: str | None = None,
 ) -> NormalizationEvaluation:
     """Build complete review groups without repository or Odoo access."""
 
     if staging.project_id != project.project_id or quality.project_id != project.project_id:
         raise NormalizationError("Prepared review evidence belongs to another project")
-    staging_content_hash = staging.content_hash
+    staging_content_hash = (
+        published_staging_content_hash or staging.content_hash
+    )
     if quality.staging_content_hash != staging_content_hash:
         raise NormalizationError("Prepared review no longer matches the data checks")
     if quality.mapping_hash != staging.mapping_hash or quality.schema_hash != staging.schema_hash:
@@ -582,8 +587,15 @@ def evaluate_normalization(
             )
         )
 
-    quality_content_hash = quality.content_hash
-    eligible_dataset_hash = canonical_eligible_dataset_hash(staging, quality)
+    quality_content_hash = (
+        published_quality_content_hash or quality.content_hash
+    )
+    eligible_dataset_hash = canonical_eligible_dataset_hash(
+        staging,
+        quality,
+        staging_content_hash=staging_content_hash,
+        quality_content_hash=quality_content_hash,
+    )
     return NormalizationEvaluation(
         project_id=project.project_id,
         staging_content_hash=staging_content_hash,
@@ -745,23 +757,28 @@ def _hash(value: object) -> str:
 def canonical_eligible_dataset_hash(
     staging: CanonicalStagingRun,
     quality: QualityRun,
+    *,
+    staging_content_hash: str | None = None,
+    quality_content_hash: str | None = None,
 ) -> str:
     """Hash the exact quality-eligible canonical rows for durable reuse."""
 
-    if quality.staging_content_hash != staging.content_hash:
+    canonical_staging_hash = staging_content_hash or staging.content_hash
+    canonical_quality_hash = quality_content_hash or quality.content_hash
+    if quality.staging_content_hash != canonical_staging_hash:
         raise NormalizationError("Prepared data no longer matches the data checks")
     eligible_ids = quality.eligible_row_ids
-    return _hash(
-        {
-            "staging_content_hash": staging.content_hash,
-            "quality_content_hash": quality.content_hash,
-            "rows": [
-                row.to_portable_dict()
-                for row in staging.rows
-                if row.row_id in eligible_ids
-            ],
-        }
-    )
+    hasher = CanonicalJsonObjectHasher()
+    hasher.add_value("quality_content_hash", canonical_quality_hash)
+    hasher.start_array("rows")
+    for row in staging.rows:
+        if row.row_id in eligible_ids:
+            hasher.add_encoded_array_item(
+                canonical_json_bytes(row.to_portable_dict())
+            )
+    hasher.end_array()
+    hasher.add_value("staging_content_hash", canonical_staging_hash)
+    return hasher.finish()
 
 
 def _require_hash(value: str, label: str) -> None:

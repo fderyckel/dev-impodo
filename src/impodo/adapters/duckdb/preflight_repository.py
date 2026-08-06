@@ -1,9 +1,21 @@
-"""DuckDB preflight repository implementation."""
+"""Persist Stage H reports and protected Odoo snapshot evidence in DuckDB.
+
+Layer: adapter. ``PreflightRepository`` is called by ``PreflightService`` after
+the shared engine has produced deterministic decisions. It returns a report
+only when every supplied upstream evidence binding still matches and publishes
+the report, row projections, snapshots, current pointer, and audit event in one
+database transaction.
+
+See ``docs/architecture/python-code-map.md``,
+``docs/contracts/04-preflight.md``, and ``tests/test_preflight_service.py``.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
+from itertools import islice
 import json
 from uuid import UUID
 
@@ -12,7 +24,7 @@ from ...connectors import (
     MetadataSnapshot,
     RecordSnapshot,
     metadata_snapshot_payload,
-    record_snapshot_payload,
+    record_snapshot_json,
 )
 from ...domain.preflight.reports import (
     ReadinessReport,
@@ -29,7 +41,12 @@ from .repository import DuckDbRepository
 
 
 class PreflightRepository(DuckDbRepository):
-    """Persistence operations for preflight repository."""
+    """Own immutable readiness runs and the current compatible report pointer.
+
+    Numeric Odoo IDs are permitted only in the protected target snapshots
+    stored here. Portable reports and row projections remain bound to business
+    identities and source trace IDs.
+    """
 
     def __init__(
         self,
@@ -54,6 +71,8 @@ class PreflightRepository(DuckDbRepository):
         normalization_lifecycle_version: int,
         eligible_dataset_hash: str,
     ) -> ReadinessReport | None:
+        """Return the current report only when all upstream bindings match."""
+
         values = self._read_json_rows(
             project_id,
             """
@@ -94,10 +113,18 @@ class PreflightRepository(DuckDbRepository):
         project_id: str,
         report: ReadinessReport,
         *,
+        decision_rows: Iterable[ReadinessRow],
+        decision_count: int,
         metadata_snapshot: MetadataSnapshot,
         record_snapshot: RecordSnapshot,
         actor: Actor,
     ) -> None:
+        """Atomically publish a report, rows, snapshots, pointer, and audit event.
+
+        The report must match the current project target, submitted mapping,
+        staging, quality, and frozen normalization evidence. Validation or any
+        write failure rolls back the database transaction.
+        """
         try:
             canonical_run_id = str(UUID(report.run_id))
             canonical_staging_run_id = str(UUID(report.staging_run_id))
@@ -112,6 +139,8 @@ class PreflightRepository(DuckDbRepository):
             or record_snapshot.content_hash != report.record_snapshot_hash
             or metadata_snapshot.fingerprint != record_snapshot.fingerprint
             or metadata_snapshot.fingerprint.target_hash != report.target_hash
+            or report.rows
+            or decision_count < 0
         ):
             raise WorkspaceError("Readiness snapshot evidence is invalid")
         database_path = self.project_directory(project_id) / "project.duckdb"
@@ -283,8 +312,10 @@ class PreflightRepository(DuckDbRepository):
                         """,
                         dataset_values,
                     )
-                for start in range(
-                    0, len(report.rows), PREFLIGHT_ROW_BATCH_SIZE
+                row_iterator = iter(decision_rows)
+                inserted_decisions = 0
+                while batch := tuple(
+                    islice(row_iterator, PREFLIGHT_ROW_BATCH_SIZE)
                 ):
                     connection.executemany(
                         """
@@ -296,19 +327,20 @@ class PreflightRepository(DuckDbRepository):
                         [
                             [
                                 canonical_run_id,
-                                start + offset,
+                                inserted_decisions + offset,
                                 item.source_trace_id,
                                 item.dataset,
                                 item.source_row,
                                 item.status,
                                 canonical_json_text(asdict(item)),
                             ]
-                            for offset, item in enumerate(
-                                report.rows[
-                                    start : start + PREFLIGHT_ROW_BATCH_SIZE
-                                ]
-                            )
+                            for offset, item in enumerate(batch)
                         ],
+                    )
+                    inserted_decisions += len(batch)
+                if inserted_decisions != decision_count:
+                    raise WorkspaceError(
+                        "Readiness decision count changed during publication"
                     )
                 connection.executemany(
                     """
@@ -328,9 +360,7 @@ class PreflightRepository(DuckDbRepository):
                             canonical_run_id,
                             "records",
                             report.record_snapshot_hash,
-                            canonical_json_text(
-                                record_snapshot_payload(record_snapshot)
-                            ),
+                            record_snapshot_json(record_snapshot),
                         ],
                     ],
                 )
@@ -345,7 +375,7 @@ class PreflightRepository(DuckDbRepository):
                 ).fetchone()
                 if stored is None or tuple(int(item) for item in stored) != (
                     len(report.datasets),
-                    len(report.rows),
+                    decision_count,
                     2,
                 ):
                     raise WorkspaceError("Readiness evidence was not stored completely")

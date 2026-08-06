@@ -1,4 +1,12 @@
-"""DuckDB project repository implementation."""
+"""Persist Stage A project state, registry rows, files, and audit evidence.
+
+Layer: DuckDB/filesystem adapter. ``ProjectRepository`` implements the port
+used by ``ProjectService``. It owns optimistic transactions, the per-project
+directory/database boundary, lightweight registry synchronization, registration
+manifests, and downstream invalidation caused by project-level changes.
+
+See ``docs/architecture/python-code-map.md`` and ``tests/test_projects.py``.
+"""
 
 from __future__ import annotations
 
@@ -33,9 +41,11 @@ from .serialization import (
 
 
 class ProjectRepository(DuckDbRepository):
-    """Persistence operations for project repository."""
+    """Own durable project state and project-level invalidation transactions."""
 
     def create(self, project: MigrationProject, *, actor: Actor) -> None:
+        """Create the contained project directory, database, audit, and registry row."""
+
         project_dir = self.project_directory(project.project_id)
         project_dir.mkdir(parents=False, exist_ok=False)
         for child in ("inbox", "staging", "snapshots", "reports", "audit"):
@@ -65,6 +75,8 @@ class ProjectRepository(DuckDbRepository):
                 ],
             )
     def get(self, project_id: str) -> MigrationProject:
+        """Load one complete project aggregate from its contained database."""
+
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -85,6 +97,8 @@ class ProjectRepository(DuckDbRepository):
             ).fetchall()
         return _project_from_rows(data, source_rows)
     def list(self) -> tuple[ProjectSummary, ...]:
+        """List registry summaries without scanning contained project databases."""
+
         with self._connect(self.registry_path) as connection:
             rows = connection.execute(
                 """
@@ -170,6 +184,13 @@ class ProjectRepository(DuckDbRepository):
         event_detail: str,
         actor: Actor,
     ) -> None:
+        """Save one optimistic lifecycle change and invalidate affected evidence.
+
+        Target changes retire current schema/mapping/staging evidence;
+        ownership or retention changes retire quality evidence. Successful
+        registration also refreshes the portable registration manifest.
+        """
+
         database_path = self.project_directory(project.project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")

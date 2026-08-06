@@ -1,4 +1,16 @@
-"""Application service for read-only Odoo schema discovery and governance."""
+"""Orchestrate Stage C read-only Odoo schema discovery and governance.
+
+Layer: application service.
+
+The schema router supplies closed, project-bound snapshots.
+``SchemaWorkspaceService`` verifies their completeness, target identity,
+connection mode, database, Odoo version, and permitted-model coverage before
+publishing catalogs. Governance then binds explicit business keys to the exact
+captured schema. This module cannot call Odoo by itself.
+
+See ``docs/architecture/python-code-map.md``,
+``docs/contracts/02-workspace.md``, and ``tests/test_workspace.py``.
+"""
 
 from __future__ import annotations
 
@@ -37,19 +49,30 @@ _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 
 
 class SchemaProjectReader(Protocol):
-    def get(self, project_id: str) -> MigrationProject: ...
+    """Read the registered project and configured target identity."""
+
+    def get(self, project_id: str) -> MigrationProject:
+        """Return registration, target identity, and permitted-model scope."""
+        ...
 
 
 class SourceSelectionReader(Protocol):
-    def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
+    """Prove that Stage B dataset freezing precedes schema capture."""
+
+    def get_source_selection(self, project_id: str) -> SourceSelection | None:
+        """Return Stage B evidence required before detailed schema capture."""
+        ...
 
 
 class SchemaWorkspaceRepository(Protocol):
+    """Persist model/schema catalogs and versioned key governance."""
 
     def get_odoo_model_catalog(
         self,
         project_id: str,
-    ) -> OdooModelCatalog | None: ...
+    ) -> OdooModelCatalog | None:
+        """Return current lightweight model discovery for the target."""
+        ...
 
     def save_odoo_model_catalog(
         self,
@@ -57,12 +80,16 @@ class SchemaWorkspaceRepository(Protocol):
         catalog: OdooModelCatalog,
         *,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Publish current target-bound model choices and an audit event."""
+        ...
 
     def get_odoo_schema_catalog(
         self,
         project_id: str,
-    ) -> OdooSchemaCatalog | None: ...
+    ) -> OdooSchemaCatalog | None:
+        """Return the current detailed permitted-model schema catalog."""
+        ...
 
     def save_odoo_schema_catalog(
         self,
@@ -70,12 +97,16 @@ class SchemaWorkspaceRepository(Protocol):
         catalog: OdooSchemaCatalog,
         *,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Publish detailed schema and retire governance/mapping dependents."""
+        ...
 
     def get_schema_governance(
         self,
         project_id: str,
-    ) -> SchemaGovernance | None: ...
+    ) -> SchemaGovernance | None:
+        """Return current key governance for the current schema, if present."""
+        ...
 
     def save_schema_governance(
         self,
@@ -83,10 +114,19 @@ class SchemaWorkspaceRepository(Protocol):
         governance: SchemaGovernance,
         *,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Append the next exact key-governance revision and invalidate mapping."""
+        ...
 
 
 class SchemaWorkspaceService:
+    """Validate target-bound snapshots and govern mapping-visible identities.
+
+    Model discovery, schema capture, and key governance are separate evidence
+    transitions. A manual local draft is explicitly unverified and may support
+    mapping experiments, but the mapping service blocks its submission.
+    """
+
     def __init__(
         self,
         projects: SchemaProjectReader,

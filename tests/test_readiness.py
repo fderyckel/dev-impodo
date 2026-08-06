@@ -70,6 +70,7 @@ from impodo.application.preparation_service import (
 )
 from impodo.domain.errors import ReadinessError
 from impodo.domain.staging.evaluator import evaluate_browser_mapping
+from impodo.domain.staging.transformation_impact import _display_values_equal
 from impodo.domain.staging.scale import (
     BROWSER_EVALUATION_ROW_LIMIT,
     browser_evaluation_scale,
@@ -88,6 +89,18 @@ from impodo.workspace_contracts import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class TransformationImpactDisplayTests(unittest.TestCase):
+    def test_fast_equality_preserves_cross_type_display_semantics(self) -> None:
+        self.assertTrue(_display_values_equal("1.00", Decimal("1.00")))
+        self.assertFalse(_display_values_equal(False, 0))
+        self.assertTrue(
+            _display_values_equal(
+                datetime(2026, 1, 2, 3, 4, tzinfo=timezone.utc),
+                "2026-01-02T03:04:00Z",
+            )
+        )
 
 
 class PreflightAuthorizationTests(unittest.TestCase):

@@ -7,6 +7,7 @@ from datetime import (
     datetime,
 )
 import json
+from typing import Sequence
 
 
 from ...projects import (
@@ -123,3 +124,16 @@ def _canonical_json(value: object) -> str:
         separators=(",", ":"),
         sort_keys=True,
     )
+
+
+def _columnar_parameters(
+    rows: Sequence[Sequence[object]],
+) -> list[list[object]]:
+    """Transpose one bounded row batch for DuckDB parameter-array ingestion."""
+
+    if not rows:
+        return []
+    width = len(rows[0])
+    if not width or any(len(row) != width for row in rows):
+        raise ValueError("DuckDB bulk rows must use one non-empty shape")
+    return [[row[index] for row in rows] for index in range(width)]

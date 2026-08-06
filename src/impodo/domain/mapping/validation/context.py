@@ -13,22 +13,30 @@ from ..contracts import DatasetMapping, MappingDefinition
 
 
 class SourceColumnView(Protocol):
+    """Minimal frozen-column shape required by semantic validation."""
+
     stable_key: str
     candidate_type: str
 
 
 class SourceDatasetView(Protocol):
+    """Minimal frozen-dataset shape required by semantic validation."""
+
     dataset_id: str
     name: str
     columns: Sequence[SourceColumnView]
 
 
 class SourceSelectionView(Protocol):
+    """Minimal complete source-selection shape required by validation."""
+
     content_hash: str
     datasets: Sequence[SourceDatasetView]
 
 
 class SchemaFieldView(Protocol):
+    """Minimal captured-field metadata used by mapping validators."""
+
     name: str
     type: str
     required: bool
@@ -39,11 +47,15 @@ class SchemaFieldView(Protocol):
 
 
 class SchemaModelView(Protocol):
+    """Minimal captured-model metadata used by mapping validators."""
+
     name: str
     fields: Sequence[SchemaFieldView]
 
 
 class SchemaCatalogView(Protocol):
+    """Minimal target-bound schema catalog used by mapping validators."""
+
     content_hash: str
     models: Sequence[SchemaModelView]
 
@@ -74,6 +86,8 @@ class ValidationContext:
         schema_catalog: SchemaCatalogView,
         schema_governance: SchemaGovernance | None,
     ) -> "ValidationContext":
+        """Index every source, schema, mapping, and confirmed-key lookup once."""
+
         source_datasets = {
             item.dataset_id: item for item in source_selection.datasets
         }
@@ -118,4 +132,6 @@ class ValidationContext:
         key_fields: tuple[str, ...],
         scope_fields: tuple[str, ...],
     ) -> bool:
+        """Return whether the exact target key/scope signature is confirmed."""
+
         return (model, key_fields, scope_fields) in self.governed_key_signatures

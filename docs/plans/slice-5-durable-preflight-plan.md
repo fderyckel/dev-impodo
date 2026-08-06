@@ -2,7 +2,9 @@
 
 ## Status and outcome
 
-**Status:** Implemented on 2026-08-05 for the bounded browser workflow.
+**Status:** Complete on 2026-08-06 for the bounded 25,000-row browser
+workflow. Slice 6 may start for explicitly approved advanced coverage
+families.
 
 Slice 5 makes the approved, durable prepared rows the only browser input to
 the read-only Odoo comparison. It removes the current comparison-time source
@@ -29,6 +31,26 @@ The normal page uses business labels and one clear next action. Request
 domains, model names, field names, snapshot hashes, planner versions, numeric
 Odoo IDs, and internal issue codes remain in protected evidence or collapsed
 **Support details**.
+
+Closure evidence:
+
+- the complete local suite ran 262 tests in 19.680 seconds: 252 passed and 10
+  environment-gated tests were skipped;
+- durable comparison works after source deletion and application restart;
+- tampered canonical rows stop before target access, while repeated successful
+  comparisons retain history and leave source normalization unchanged;
+- stored decision rows are retrieved through real bounded DuckDB pages;
+- browser/profile runtime plans produce equivalent portable classifications
+  and resolutions, reference-mode rows resolve without import decisions, and
+  overlapping target chunks fail closed on conflicts;
+- the opt-in 25,000-row durable comparison completed in 5.273 seconds at
+  507.3 MiB peak working set with a 69.5 MiB project database. It issued one
+  metadata request and 50 bounded record chunks for 25,000 target rows, stored
+  2,915,076 bytes of protected snapshot JSON, a 6,665,592-byte manifest, and a
+  688,774-byte workbook.
+
+These figures are deterministic workstation regression guards, not production
+sizing guarantees or live-Odoo acceptance.
 
 ## Why this slice comes before certification or export
 

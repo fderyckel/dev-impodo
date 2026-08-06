@@ -1,4 +1,12 @@
-"""Projects browser routes."""
+"""Translate the Stage A setup wizard into project lifecycle operations.
+
+Layer: web route. The router creates a draft, collects project details and
+governance, accepts immutable source files, configures the target, and invokes
+registration. Validation and lifecycle meaning remain in ``ProjectService``;
+artifact intake remains in ``SourceIntakeService``.
+
+See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
+"""
 
 from __future__ import annotations
 from fastapi import HTTPException, Request
@@ -21,6 +29,8 @@ from ..target_readers import _target_credential_id
 
 
 def build_projects_router(context: WebContext) -> APIRouter:
+    """Build project list, setup, registration, and deletion routes."""
+
     router = APIRouter()
 
     @router.get("/projects", response_class=HTMLResponse)
@@ -84,6 +94,8 @@ def build_projects_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/new")
     async def new_project(request: Request):
+        """Create the minimal draft and enter its governed setup sequence."""
+
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "name", "source_system"})
         values = _form_values(form)
@@ -287,6 +299,8 @@ def build_projects_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/register")
     async def register_project(request: Request, project_id: str):
+        """Register a complete draft or render every remaining problem."""
+
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision"})
         try:

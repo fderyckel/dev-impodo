@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from time import perf_counter
 import tempfile
+from threading import Event, Thread
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
@@ -51,8 +52,42 @@ PREPARATION_SCALE_COLUMNS = int(
 PREPARATION_SCALE_MAPPED_FIELDS = int(
     os.environ.get("IMPODO_PREPARATION_SCALE_MAPPED_FIELDS", "20")
 )
+PREPARATION_SCALE_WORKLOAD = os.environ.get(
+    "IMPODO_PREPARATION_SCALE_WORKLOAD",
+    "products",
+).casefold()
 PREPARATION_TIME_LIMIT_SECONDS = 120
 PREPARATION_PEAK_WORKING_SET_LIMIT_MIB = 900
+
+
+class _PeakWorkingSetSampler:
+    """Sample cross-platform process working set during the timed operation."""
+
+    def __init__(self, process, *, interval_seconds: float = 0.01) -> None:
+        self._process = process
+        self._interval_seconds = interval_seconds
+        self._stop = Event()
+        self._thread = Thread(target=self._sample_until_stopped, daemon=True)
+        self.peak_bytes = 0
+
+    def __enter__(self) -> "_PeakWorkingSetSampler":
+        self._sample()
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self._stop.set()
+        self._thread.join()
+        self._sample()
+
+    def _sample_until_stopped(self) -> None:
+        while not self._stop.wait(self._interval_seconds):
+            self._sample()
+
+    def _sample(self) -> None:
+        memory = self._process.memory_info()
+        working_set = getattr(memory, "peak_wset", memory.rss)
+        self.peak_bytes = max(self.peak_bytes, working_set)
 
 
 @unittest.skipUnless(
@@ -83,6 +118,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             self.fail("The source fixture must include every mapped field")
         if PREPARATION_SCALE_MAPPED_FIELDS < 3:
             self.fail("The benchmark requires identity, changed, and numeric fields")
+        if PREPARATION_SCALE_WORKLOAD not in {"products", "bom"}:
+            self.fail("The benchmark workload must be 'products' or 'bom'")
 
         fixture_started = perf_counter()
         project_id, source_sha256, source_size_bytes = (
@@ -110,13 +147,18 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         original_publish = (
             self.context.preparation.staging.publish_canonical_staging
         )
+        original_reload = (
+            self.context.preparation.staging.get_canonical_staging_run
+        )
         original_quality = self.context.preparation.quality.evaluate_and_publish
         original_normalization = (
             self.context.preparation.normalization.evaluate_and_publish
         )
 
+        process = psutil.Process()
         started = perf_counter()
         with (
+            _PeakWorkingSetSampler(process) as memory_sampler,
             patch(
                 "impodo.application.preparation_service."
                 "require_supported_browser_scale",
@@ -133,6 +175,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 self.context.preparation.staging,
                 "publish_canonical_staging",
                 timed("staging_publication", original_publish),
+            ),
+            patch.object(
+                self.context.preparation.staging,
+                "get_canonical_staging_run",
+                timed("staging_reload", original_reload),
             ),
             patch.object(
                 self.context.preparation.quality,
@@ -167,22 +214,62 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         assert quality is not None
         assert current_normalization is not None
 
-        memory = psutil.Process().memory_info()
-        peak_mib = getattr(memory, "peak_wset", memory.rss) / (1024 * 1024)
+        ending_mib = process.memory_info().rss / (1024 * 1024)
+        peak_mib = memory_sampler.peak_bytes / (1024 * 1024)
         database_path = self.root / project_id / "project.duckdb"
         database_mib = database_path.stat().st_size / (1024 * 1024)
+        with self.context.preparation.staging._connect(database_path) as connection:
+            counters = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM canonical_staging_row),
+                    (SELECT COUNT(*) FROM quality_row_result),
+                    (SELECT COUNT(*) FROM quality_issue),
+                    (SELECT COUNT(*) FROM quality_quarantine_entry),
+                    (SELECT COUNT(*) FROM source_accounting_link),
+                    (SELECT COUNT(*) FROM normalization_effect),
+                    (SELECT COUNT(*) FROM normalization_group),
+                    COALESCE((SELECT SUM(LENGTH(row_json)) FROM canonical_staging_row), 0)
+                      + COALESCE((SELECT SUM(LENGTH(row_json)) FROM quality_row_result), 0)
+                      + COALESCE((SELECT SUM(LENGTH(issue_json)) FROM quality_issue), 0)
+                      + COALESCE((SELECT SUM(LENGTH(entry_json)) FROM source_accounting_entry), 0)
+                      + COALESCE((SELECT SUM(LENGTH(entry_json)) FROM quality_quarantine_entry), 0)
+                      + COALESCE((SELECT SUM(LENGTH(effect_json)) FROM normalization_effect), 0)
+                      + COALESCE((SELECT SUM(LENGTH(group_json)) FROM normalization_group), 0)
+                """
+            ).fetchone()
+        assert counters is not None
+        (
+            canonical_rows,
+            quality_rows,
+            quality_issues,
+            quarantine_entries,
+            lineage_links,
+            normalization_effects,
+            normalization_groups,
+            serialized_characters,
+        ) = (int(item) for item in counters)
         phase_text = ", ".join(
             f"{name}={seconds:.3f}s"
             for name, seconds in phases.items()
         )
         print(
             "Complete preparation scale probe: "
+            f"workload={PREPARATION_SCALE_WORKLOAD}, "
             f"rows={PREPARATION_SCALE_ROWS:,}, "
             f"columns={PREPARATION_SCALE_COLUMNS}, "
             f"mapped_fields={PREPARATION_SCALE_MAPPED_FIELDS}, "
             f"fixture={fixture_seconds:.3f}s, total={elapsed:.3f}s, "
-            f"peak={peak_mib:.1f} MiB, database={database_mib:.1f} MiB, "
+            f"peak={peak_mib:.1f} MiB, ending_rss={ending_mib:.1f} MiB, "
+            f"database={database_mib:.1f} MiB, "
             f"source_bytes={source_size_bytes}, source_sha256={source_sha256}, "
+            f"selected_cells={PREPARATION_SCALE_ROWS * PREPARATION_SCALE_COLUMNS}, "
+            f"mapped_scalar_evaluations={PREPARATION_SCALE_ROWS * PREPARATION_SCALE_MAPPED_FIELDS}, "
+            f"canonical_rows={canonical_rows}, quality_rows={quality_rows}, "
+            f"quality_issues={quality_issues}, quarantine_entries={quarantine_entries}, "
+            f"lineage_links={lineage_links}, effects={normalization_effects}, "
+            f"normalization_groups={normalization_groups}, "
+            f"serialized_characters={serialized_characters}, "
             f"{phase_text}, staging_hash={staging.content_hash}, "
             f"quality_hash={quality.content_hash}, "
             f"normalization_hash={normalization.content_hash}"
@@ -235,12 +322,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             source_system="Deterministic CSV fixture",
         )
         source_path = self.root / "preparation-scale-input.csv"
-        headers = _headers(column_count)
+        headers = _headers(column_count, PREPARATION_SCALE_WORKLOAD)
         with source_path.open("w", encoding="utf-8", newline="") as stream:
             writer = csv.writer(stream, lineterminator="\n")
             writer.writerow(headers)
             for index in range(row_count):
-                writer.writerow(_source_values(index, column_count))
+                writer.writerow(
+                    _source_values(index, column_count, PREPARATION_SCALE_WORKLOAD)
+                )
 
         file_id = str(uuid4())
         with source_path.open("rb") as stream:
@@ -276,7 +365,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_scale",
-            intended_models=("res.partner",),
+            intended_models=(
+                "product.template"
+                if PREPARATION_SCALE_WORKLOAD == "products"
+                else "mrp.bom.line",
+            ),
             status=ProjectStatus.REGISTERED,
             revision=project.revision + 1,
             updated_at=now,
@@ -310,7 +403,13 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         selection = self.context.sources.freeze_selection(
             registered.project_id,
-            dataset_names={(source.file_id, "csv"): "contacts"},
+            dataset_names={
+                (source.file_id, "csv"): (
+                    "products"
+                    if PREPARATION_SCALE_WORKLOAD == "products"
+                    else "bom_lines"
+                )
+            },
             actor=self.context.actor,
         )
         dataset = selection.datasets[0]
@@ -318,11 +417,23 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         fields = tuple(
             ScalarFieldMapping(
                 target_field=(
-                    "ref"
+                    (
+                        "default_code"
+                        if PREPARATION_SCALE_WORKLOAD == "products"
+                        else "x_bom_reference"
+                    )
                     if index == 0
-                    else "name"
+                    else (
+                        "name"
+                        if PREPARATION_SCALE_WORKLOAD == "products"
+                        else "x_line_reference"
+                    )
                     if index == 1
-                    else "credit_limit"
+                    else (
+                        "list_price"
+                        if PREPARATION_SCALE_WORKLOAD == "products"
+                        else "product_qty"
+                    )
                     if index == 2
                     else f"x_scale_{index:02d}"
                 ),
@@ -344,20 +455,50 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             datasets=(
                 DatasetMapping(
                     dataset_id=dataset.dataset_id,
-                    target_model="res.partner",
+                    target_model=(
+                        "product.template"
+                        if PREPARATION_SCALE_WORKLOAD == "products"
+                        else "mrp.bom.line"
+                    ),
                     mode=MappingTargetMode.UPSERT,
-                    source_identity_column_keys=(columns[0].stable_key,),
+                    source_identity_column_keys=(
+                        (columns[0].stable_key,)
+                        if PREPARATION_SCALE_WORKLOAD == "products"
+                        else (
+                            columns[0].stable_key,
+                            columns[1].stable_key,
+                        )
+                    ),
                     target_identity=(
                         IdentityComponentMapping(
-                            source_column_keys=(columns[0].stable_key,),
-                            target_fields=("ref",),
+                            source_column_keys=(
+                                (columns[0].stable_key,)
+                                if PREPARATION_SCALE_WORKLOAD == "products"
+                                else (
+                                    columns[0].stable_key,
+                                    columns[1].stable_key,
+                                )
+                            ),
+                            target_fields=(
+                                ("default_code",)
+                                if PREPARATION_SCALE_WORKLOAD == "products"
+                                else ("x_bom_reference", "x_line_reference")
+                            ),
                         ),
                     ),
                     fields=fields,
                     control_totals=(
                         BusinessControlTotal(
-                            name="Credit limit total",
-                            target_field="credit_limit",
+                            name=(
+                                "Sales price total"
+                                if PREPARATION_SCALE_WORKLOAD == "products"
+                                else "Component quantity total"
+                            ),
+                            target_field=(
+                                "list_price"
+                                if PREPARATION_SCALE_WORKLOAD == "products"
+                                else "product_qty"
+                            ),
                             expected_total=str(row_count),
                             unit="EUR",
                         ),
@@ -407,19 +548,31 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         return registered.project_id, stored.sha256, stored.size_bytes
 
 
-def _headers(column_count: int) -> tuple[str, ...]:
+def _headers(column_count: int, workload: str) -> tuple[str, ...]:
     return (
-        "reference",
-        "name",
-        "credit_limit",
+        "product_reference" if workload == "products" else "bom_reference",
+        "name" if workload == "products" else "line_reference",
+        "list_price" if workload == "products" else "quantity",
         *(f"field_{index:02d}" for index in range(3, column_count)),
     )
 
 
-def _source_values(index: int, column_count: int) -> tuple[str, ...]:
+def _source_values(
+    index: int,
+    column_count: int,
+    workload: str,
+) -> tuple[str, ...]:
     return (
-        f"C{index:06d}",
-        f" Contact {index:06d} ",
+        (
+            f"P{index:06d}"
+            if workload == "products"
+            else f"BOM{index // 10:06d}"
+        ),
+        (
+            f" Product {index:06d} "
+            if workload == "products"
+            else f" L{index:06d} "
+        ),
         "1",
         *(
             f"value-{column:02d}-{index % 100:02d}"
@@ -435,7 +588,7 @@ def _catalog(
     column_count: int,
     inspected_at: datetime,
 ) -> SourceFileCatalog:
-    headers = _headers(column_count)
+    headers = _headers(column_count, PREPARATION_SCALE_WORKLOAD)
     profiles = tuple(
         SourceColumnProfile(
             ordinal=index + 1,
@@ -482,7 +635,7 @@ def _catalog(
                 column_count=column_count,
                 columns=profiles,
                 preview_rows=tuple(
-                    _source_values(index, column_count)
+                    _source_values(index, column_count, PREPARATION_SCALE_WORKLOAD)
                     for index in range(min(5, row_count))
                 ),
             ),

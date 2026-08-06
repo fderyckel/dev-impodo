@@ -47,6 +47,10 @@ class ReadinessDataset:
     ready: int
     needs_review: int
     blocked: int
+    create_count: int = 0
+    update_count: int = 0
+    unchanged_count: int = 0
+    ambiguous_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +106,26 @@ class ReadinessReport:
         return sum(item.blocked for item in self.datasets)
 
     @property
+    def create_count(self) -> int:
+        return sum(item.create_count for item in self.datasets)
+
+    @property
+    def update_count(self) -> int:
+        return sum(item.update_count for item in self.datasets)
+
+    @property
+    def unchanged_count(self) -> int:
+        return sum(item.unchanged_count for item in self.datasets)
+
+    @property
+    def ambiguous_count(self) -> int:
+        return sum(item.ambiguous_count for item in self.datasets)
+
+    @property
+    def attention_count(self) -> int:
+        return self.ambiguous_count + self.blocked_count
+
+    @property
     def total_count(self) -> int:
         return sum(item.total for item in self.datasets)
 
@@ -127,7 +151,7 @@ class ReadinessReport:
     def from_json(cls, value: str) -> "ReadinessReport":
         payload = json.loads(value)
         contract_version = int(payload.get("contract_version", 0))
-        if contract_version not in {3, READINESS_CONTRACT_VERSION}:
+        if contract_version not in {3, 4, READINESS_CONTRACT_VERSION}:
             raise ValueError("Readiness report contract version is unsupported")
         return cls(
             run_id=str(payload["run_id"]),
@@ -218,6 +242,22 @@ def _readiness_report(
                     item.status == "needs_review" for item in dataset_rows
                 ),
                 blocked=sum(item.status == "blocked" for item in dataset_rows),
+                create_count=sum(
+                    item.classification == Classification.CREATE.value
+                    for item in dataset_rows
+                ),
+                update_count=sum(
+                    item.classification == Classification.UPDATE.value
+                    for item in dataset_rows
+                ),
+                unchanged_count=sum(
+                    item.classification == Classification.UNCHANGED.value
+                    for item in dataset_rows
+                ),
+                ambiguous_count=sum(
+                    item.classification == Classification.AMBIGUOUS.value
+                    for item in dataset_rows
+                ),
             )
         )
     return ReadinessReport(

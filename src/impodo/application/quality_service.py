@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..access import Actor
-from ..domain.staging.evaluator import StagedBrowserMapping
 from ..domain.mapping.artifacts import MappingRevision
 from ..projects import MigrationProject
 from ..quality import (
@@ -18,6 +17,7 @@ from ..quality import (
     evaluate_quality,
 )
 from ..staging import StagingRunSummary
+from ..staging_contracts import CanonicalStagingRun
 from ..workspace_contracts import SourceSelection
 from ..workspace_errors import WorkspaceError
 from ..domain.errors import ReadinessError
@@ -153,7 +153,8 @@ class QualityService:
         project: MigrationProject,
         revision: MappingRevision,
         selection: SourceSelection,
-        staged: StagedBrowserMapping,
+        canonical_run: CanonicalStagingRun,
+        physical_rows: dict[str, tuple[int, ...]],
         staging: StagingRunSummary,
         *,
         actor: Actor,
@@ -180,10 +181,10 @@ class QualityService:
         try:
             quality_run = evaluate_quality(
                 project=project,
-                staging=staged.canonical_run,
-                prepared=staged.prepared,
-                physical_rows=staged.physical_rows,
+                staging=canonical_run,
+                physical_rows=physical_rows,
                 ruleset=ruleset,
+                published_staging_content_hash=staging.content_hash,
             )
         except QualityError as error:
             raise ReadinessError(str(error)) from error

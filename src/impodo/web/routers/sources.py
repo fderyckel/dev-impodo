@@ -1,4 +1,12 @@
-"""Sources browser routes."""
+"""Expose Stage B inspection, confirmation, and dataset freezing.
+
+Layer: web route. Potentially expensive source inspection runs in a worker
+thread through ``SourceInspectionService``. Confirmation and freezing delegate
+to ``SourceWorkspaceService``; this router does not parse source bytes or
+construct persistence records itself.
+
+See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
+"""
 
 from __future__ import annotations
 from fastapi import HTTPException, Request
@@ -16,6 +24,8 @@ from ..presenters.schema import _dataset_choices, _decode_delimiter
 
 
 def build_sources_router(context: WebContext) -> APIRouter:
+    """Build the registered-source and frozen-dataset workflow routes."""
+
     router = APIRouter()
 
     @router.get("/projects/{project_id}/sources", response_class=HTMLResponse)
@@ -40,6 +50,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/sources/inspect")
     async def inspect_project_sources(request: Request, project_id: str):
+        """Reinspect all registered source bytes and replace their catalogs."""
+
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         project = context.queries.get(project_id)
@@ -166,6 +178,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/datasets/freeze")
     async def freeze_project_datasets(request: Request, project_id: str):
+        """Freeze confirmed tables under stable, user-selected dataset names."""
+
         form = await request.form()
         choices = _dataset_choices(context, project_id)
         allowed = {"csrf_token"} | {

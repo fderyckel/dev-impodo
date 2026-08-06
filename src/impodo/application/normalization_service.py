@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Iterable
 
 from ..access import Actor, AuthorizationPolicy, Capability
-from ..domain.staging.evaluator import StagedBrowserMapping
 from ..domain.staging.transformation_impact import TransformationImpactRow
 from ..governance import DryRun
 from ..domain.mapping.artifacts import MappingRevision
@@ -20,6 +19,7 @@ from ..normalization import (
 from ..projects import MigrationProject
 from ..quality import QualityRun, QualityRunSummary
 from ..staging import StagingRunSummary
+from ..staging_contracts import CanonicalStagingRun
 from ..workspace_contracts import SourceSelection
 from ..domain.errors import ReadinessError
 from .readiness_ports import NormalizationRepository
@@ -131,7 +131,7 @@ class NormalizationService:
         project: MigrationProject,
         revision: MappingRevision,
         selection: SourceSelection,
-        staged: StagedBrowserMapping,
+        canonical_run: CanonicalStagingRun,
         staging: StagingRunSummary,
         quality_run: QualityRun,
         quality: QualityRunSummary,
@@ -162,10 +162,12 @@ class NormalizationService:
         try:
             evaluation = evaluate_normalization(
                 project=project,
-                staging=staged.canonical_run,
+                staging=canonical_run,
                 quality=quality_run,
                 mappings=mappings,
                 candidates=candidates,
+                published_staging_content_hash=staging.content_hash,
+                published_quality_content_hash=quality.content_hash,
             )
         except NormalizationError as error:
             raise ReadinessError(str(error)) from error

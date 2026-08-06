@@ -1,4 +1,13 @@
-"""Governed Odoo model scope and portable business keys."""
+"""Define Stage C portable business-key governance for captured Odoo models.
+
+Layer: domain. Business keys are functional matching identities expressed only
+with model and field names; they never contain numeric Odoo IDs. One immutable
+``SchemaGovernance`` revision binds the full confirmed key set to the exact
+captured schema hash.
+
+See ``docs/architecture/python-code-map.md`` and
+``tests/test_business_keys.py``.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +22,8 @@ from ..serialization import content_hash as _content_hash
 
 
 class BusinessKeyStatus(StrEnum):
+    """Distinguish suggested key shapes from explicitly governed identities."""
+
     CANDIDATE = "CANDIDATE"
     CONFIRMED = "CONFIRMED"
 
@@ -71,9 +82,13 @@ class SchemaGovernance:
 
     @property
     def content_hash(self) -> str:
+        """Bind model scope, keys, provenance, and revision metadata."""
+
         return _content_hash(self.to_dict(include_hash=False))
 
     def to_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
+        """Return the deterministic portable governance payload."""
+
         payload: dict[str, Any] = {
             "governance_id": self.governance_id,
             "version": self.version,
@@ -95,10 +110,14 @@ class SchemaGovernance:
         return payload
 
     def to_json(self) -> str:
+        """Serialize governance with its verified content hash."""
+
         return _canonical_json(self.to_dict())
 
     @classmethod
     def from_json(cls, value: str) -> "SchemaGovernance":
+        """Restore governance and reject a mismatched content hash."""
+
         payload = json.loads(value)
         result = cls(
             governance_id=str(payload["governance_id"]),

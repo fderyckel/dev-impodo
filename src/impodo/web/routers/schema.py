@@ -1,4 +1,12 @@
-"""Schema browser routes."""
+"""Expose Stage C model discovery, schema capture, and key governance.
+
+Layer: web route. The router selects a configured local or remote closed
+reader, obtains target-bound snapshots, and delegates their validation to
+``SchemaWorkspaceService``. It also routes the exact permitted-model scope
+through ``ProjectService``. No generic Odoo method or write is exposed.
+
+See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
+"""
 
 from __future__ import annotations
 from fastapi import HTTPException, Request
@@ -35,6 +43,8 @@ from ..target_readers import (
 
 
 def build_schema_router(context: WebContext) -> APIRouter:
+    """Build the read-only schema discovery and governance routes."""
+
     router = APIRouter()
 
     @router.get("/projects/{project_id}/schema", response_class=HTMLResponse)
@@ -82,6 +92,8 @@ def build_schema_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/schema/models/refresh")
     async def refresh_project_models(request: Request, project_id: str):
+        """Refresh persistent model choices from the exact configured target."""
+
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         project = context.queries.get(project_id)
@@ -184,6 +196,8 @@ def build_schema_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/schema/capture")
     async def capture_project_schema(request: Request, project_id: str):
+        """Capture metadata for the explicitly permitted models only."""
+
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         project = context.queries.get(project_id)
@@ -290,6 +304,8 @@ def build_schema_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/schema/govern")
     async def govern_project_schema(request: Request, project_id: str):
+        """Confirm business-key definitions against the current schema."""
+
         form = await request.form()
         schema = context.queries.get_odoo_schema_catalog(project_id)
         if schema is None:

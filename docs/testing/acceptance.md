@@ -11,9 +11,10 @@ Do not copy a fixed test count into documentation. The discovered suite is the
 current executable inventory; optional environment-gated integrations must be
 reported separately.
 
-This is not yet live-target acceptance. The required 100–300-record sanitized
-slice, live target runs, Odoo-side ACL evidence, and expected-scale memory
-evidence remain pending.
+This is not yet live-target acceptance. The local 25,000-row preparation and
+durable-preflight scopes have measured workstation evidence. The required
+100–300-record sanitized slice, live target runs, Odoo-side ACL evidence, and
+representative production sizing remain pending.
 
 ## Validation command
 
@@ -41,7 +42,7 @@ runtime is installed and that integration is part of the acceptance run.
 | --- | --- |
 | Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_web_app` |
 | Mapping, preparation, staging, and quality | `test_mapping_validation`, `test_derived_entities`, `test_readiness`, `test_staging_store`, `test_quality` |
-| Profile-driven preflight | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_reporting_cli` |
+| Profile-driven and durable preflight | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_preflight_service`, `test_preflight_scale`, `test_reporting_cli` |
 | Local Odoo lifecycle | `test_local_odoo_reader`, `test_local_stack` |
 | Security, governance, hosting, and release | `test_project_security`, `test_governance`, `test_hosting_contracts`, `test_internal_release` |
 
@@ -60,11 +61,11 @@ runtime is installed and that integration is part of the acceptance run.
 | Target-only reference has two matches | `BLOCKED` | resolver logic; dedicated test pending |
 | Incoming parent is missing | child `BLOCKED` | golden |
 | Incoming parent is present but blocked | child `BLOCKED_BY_DEPENDENCY` | implementation; dedicated test pending |
-| Record snapshot is incomplete | run fails; no conclusions | connector behavior; dedicated saved-file test pending |
+| Record or metadata snapshot is incomplete | run fails; no conclusions | connector and exact-projection unit tests |
 | Source identity is duplicated | all duplicates `BLOCKED` | unit |
 | Create-only identity exists with `block` | `BLOCKED` | unit |
 | Create-only identity exists with `unchanged` | `UNCHANGED` | implementation; dedicated test pending |
-| Reference-mode row | no decision | implementation; dedicated test pending |
+| Reference-mode row | resolves references without an import decision | dedicated engine test |
 
 ## Identity and relation requirements
 
@@ -126,8 +127,8 @@ runtime is installed and that integration is part of the acceptance run.
   retain unit/tolerance evidence, persist atomically, and block package creation
   when they differ or contain empty values.
 
-Source-side streaming beyond the bounded browser limit, normalization
-approval, and clean-package certification remain pending.
+Source-side streaming beyond the bounded browser limit and clean-package
+certification remain pending.
 
 ### Quality and quarantine verified
 
@@ -147,6 +148,30 @@ approval, and clean-package certification remain pending.
   identifiers collapsed;
 - automatic checks cannot be switched off and optional checks use guided
   business-language fields and outcomes.
+
+### Durable preflight verified
+
+- comparison reloads exact frozen staging, quality, normalization, and mapping
+  evidence without reading the registered source artifact;
+- stored-row tampering fails before the target reader is called;
+- every browser decision carries its canonical row trace ID;
+- reference-mode rows support resolution without import decisions;
+- browser-origin and profile-origin compiled plans share classifications,
+  differences, issues, and reference resolutions;
+- metadata and record projections must contain exactly the planned models and
+  fields;
+- same-model domain chunks merge identical rows and reject conflicts or
+  repeated pagination IDs;
+- a second comparison publishes a new current run and snapshot while retaining
+  the previous run and unchanged source normalization;
+- restart retrieval uses stored evidence without connector access;
+- normal result paging reads bounded decision pages from DuckDB rather than an
+  in-memory report;
+- schema-v17 history survives migration and is not promoted to current
+  preflight evidence;
+- the Review page shows New in Odoo, Different from Odoo, Already matches,
+  Needs attention, and Set aside, and disables repeat submission while a
+  comparison is running.
 
 ### Verified
 
@@ -379,7 +404,7 @@ $env:IMPODO_QUALITY_SCALE_ROWS = '100000'
   tests.test_quality.QualityRelationshipScaleTests.test_deep_dependency_chain_is_linear
 ```
 
-Results on 2026-08-05:
+Results on the Lenovo Windows reference machine on 2026-08-05:
 
 | Version of the same fixture | Rows | Edges | Fixture build | Quality evaluation | Quality hash | Measured phase total | Peak working set |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -422,6 +447,7 @@ Command:
 ```powershell
 $env:IMPODO_RUN_PREPARATION_SCALE = '1'
 $env:IMPODO_PREPARATION_SCALE_ROWS = '100000'
+$env:IMPODO_PREPARATION_SCALE_WORKLOAD = 'products' # or 'bom'
 .\.venv\Scripts\python.exe -m unittest `
   tests.test_preparation_scale.PreparationWorkflowScaleTests.test_complete_preparation_workflow -v
 ```
@@ -449,13 +475,102 @@ This run fails the less-than-120-second and less-than-900-MiB release contract.
 The supported browser limit therefore remains 25,000 rows. Database and
 temporary-file size remain observations rather than optimization gates.
 
-The normal post-benchmark regression run executed 230 tests in 252.428 seconds:
-221 passed, 6 errored, and 3 opt-in scale tests were skipped. All six errors
-come from the concurrently changing Slice 5 planner rejecting legacy
-`asset_lines` fixtures whose Odoo reads cannot be narrowed safely. The staging,
-quality, normalization, and preparation-scale modules reported no ordinary
-regression failure. Slice 5 must reconcile those fixtures before a green full
-suite can be claimed.
+### Complete durable preflight diagnostic
+
+The opt-in `tests.test_preflight_scale` fixture prepares and freezes a real
+project, removes its source artifact, and launches a fresh comparison process.
+The measured interval starts with durable frozen-evidence retrieval and ends
+after the manifest, decision rows, protected target snapshots, and current
+preflight pointer are persisted. Workbook generation runs afterward so its
+size is recorded without changing the comparison-time guard.
+
+Command:
+
+```bash
+IMPODO_RUN_PREFLIGHT_SCALE=1 \
+IMPODO_PREFLIGHT_SCALE_ROWS=25000 \
+.venv/bin/python -m unittest \
+  tests.test_preflight_scale.DurablePreflightScaleTests.test_durable_preflight_workflow -v
+```
+
+Result on the MacBook Air M5 on 2026-08-06:
+
+| Source rows | Target rows | Metadata requests | Bounded record chunks | Comparison and persistence | Peak working set | Project DB |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 25,000 | 25,000 | 1 | 50 | 5.273 s | 507.3 MiB | 69.5 MiB |
+
+The protected snapshot was 2,915,076 bytes, the portable manifest was
+6,665,592 bytes, and the workbook was 688,774 bytes. All 25,000 decisions were
+persisted as `UNCHANGED`; two protected snapshot envelopes and one readiness
+run were stored. The run passed the Slice 5 guards of less than 60 seconds,
+less than 512 MiB peak working set, and less than 128 MiB project-database
+size.
+
+The ordinary regression suite then ran 262 tests in 19.680 seconds: 252 passed
+and 10 environment-gated tests were skipped. There were no failures or errors.
+
+Results after the contained CPU and encoded-once publication changes on the
+MacBook Air M5 on 2026-08-06:
+
+| Workload | Physical rows | Source columns | Mapped fields | Complete preparation | Peak working set | Project DB | Effects | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Products | 100,000 | 30 | 20 | 23.178 s | 1,102.3 MiB | 224.3 MiB | 100,000 | Time passed; RAM failed |
+| BOM | 100,000 | 30 | 20 | 27.090 s | 1,237.1 MiB | 302.3 MiB | 300,000 | Time passed; RAM failed |
+
+The products run published staging, quality, and normalization hashes
+`sha256:41ec0dcb43ea203224d3b0decb227a434c5a52c056ff2c5306402f7eb3c508e8`,
+`sha256:08bd6a1e38a12138e9fb09b1e10b4ed75e674b551974a2deb59bbcc8bff2118f`,
+and
+`sha256:a5fbf988e58ded0030e778b06b4549be87dee06777e9dbaa81a14077f1bd5a58`.
+Its phase times were 11.891 seconds for source loading and evaluation, 2.839
+seconds for canonical publication, 2.665 seconds for quality, and 5.665 seconds
+for normalization.
+
+The BOM run published staging, quality, and normalization hashes
+`sha256:c014ecd78683cc1ee01e7f1c346423b611b008fa61ef4f5bb9e1212131e8d8fa`,
+`sha256:0386708c5e3669c166c266e67a0a84565ea8e4b9318ada99f3cc4b2e43c4c741`,
+and
+`sha256:433c024b4a360905a2577b3db0b000172073a1d8f62e99e33bce07034de2b696`.
+Its phase times were 12.267 seconds for source loading and evaluation, 2.898
+seconds for canonical publication, 2.720 seconds for quality, and 9.089 seconds
+for normalization.
+
+These are non-profiled release-style measurements. They pass the time gate but
+not the 900-MiB working-set gate, so the 25,000-row supported browser limit is
+unchanged. The complete ordinary regression suite then ran 256 tests in 18.759
+seconds: 247 passed and 9 opt-in scale tests were skipped.
+
+The Lenovo and Mac measurements above are independent workstation evidence and
+must not be used as a numerical before/after comparison.
+
+To isolate the code change, a controlled A/B was run on the same MacBook Air M5
+with the exact committed 10,000-row fixture and source checksum. The baseline
+was commit `b90782697bfef9c6a3554aa4ab90b41fe6c5cd81`; the optimized snapshot
+differed only in the 12 implementation files from proposal phases 1 and 2.
+Both sides used the same virtual environment and each ran three times in a
+fresh process.
+
+| Same-Mac median | Committed baseline | Optimized | Change |
+| --- | ---: | ---: | ---: |
+| Complete preparation | 5.487 s | 2.401 s | 56.2% lower |
+| Peak working set | 539.9 MiB | 339.0 MiB | 37.2% lower |
+| Source loading and evaluation | 1.416 s | 1.203 s | 15.0% lower |
+| Canonical publication | 1.838 s | 0.292 s | 84.1% lower |
+| Quality | 0.674 s | 0.276 s | 59.1% lower |
+| Normalization | 1.497 s | 0.526 s | 64.9% lower |
+
+Raw `(complete seconds, peak MiB)` pairs were baseline `(5.329, 539.9)`,
+`(5.487, 539.6)`, `(5.971, 539.9)` and optimized `(2.456, 338.3)`,
+`(2.354, 339.0)`, `(2.401, 340.0)`.
+
+Every A/B run used the 3,510,271-byte source with SHA-256
+`1787ff4b764acb36336768d8258c0edaefd2d253c4840b476b42cb4b8018ebad`
+and passed identical workload assertions: 10,000 staged and ready rows, no
+review, quarantine, blocked rows, or failed total, plus 10,000 eligible and
+changed normalization records. Content hashes cannot be compared across these
+fresh fixtures because each fixture intentionally creates new project and
+mapping identities. Hash-algorithm parity is instead verified by exact
+canonical-encoder equivalence tests and repository round-trip tests.
 
 This is workstation evidence, not a production sizing guarantee. Wide sources,
 saved snapshots, workbooks, and Odoo transport still require representative
@@ -493,7 +608,7 @@ Structural requirements already apply:
 | Relational comparison | verified locally | real target relationships |
 | 100–300 sanitized records | not complete | build and review |
 | Live authorised target | not complete | execute smoke tests |
-| Historical-scale memory | not complete | profile and document |
+| Historical-scale memory | 25,000-row browser preparation and durable preflight verified | 100,000-row expansion remains separate |
 
 ## Acceptance gate
 

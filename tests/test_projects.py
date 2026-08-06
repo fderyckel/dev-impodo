@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from uuid import uuid4
 
 from impodo.access import (
     CapabilityAuthorizationPolicy,
@@ -37,7 +38,7 @@ from impodo.workspace_contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
-from impodo.domain.serialization import content_hash
+from impodo.domain.serialization import CanonicalJsonObjectHasher, content_hash
 from impodo.domain.staging.transformation_impact import (
     TransformationImpactFilter,
     TransformationImpactIdentity,
@@ -47,6 +48,34 @@ from impodo.domain.staging.transformation_impact import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class CanonicalSerializationTests(unittest.TestCase):
+    def test_incremental_object_hash_matches_materialized_canonical_json(self) -> None:
+        payload = {
+            "contract_version": 1,
+            "rows": [
+                {"row_id": "row-1", "value": "Élodie"},
+                {"row_id": "row-2", "value": None},
+            ],
+            "source_hash": "sha256:" + "a" * 64,
+        }
+        hasher = CanonicalJsonObjectHasher()
+        hasher.add_value("contract_version", 1)
+        hasher.start_array("rows")
+        for row in payload["rows"]:
+            hasher.add_encoded_array_item(
+                json.dumps(
+                    row,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            )
+        hasher.end_array()
+        hasher.add_value("source_hash", payload["source_hash"])
+
+        self.assertEqual(hasher.finish(), content_hash(payload))
 
 
 class ProjectLifecycleTests(unittest.TestCase):
@@ -724,6 +753,73 @@ class ProjectLifecycleTests(unittest.TestCase):
         self.assertIn("staging_run_id", readiness_columns)
         self.assertIn("staging_content_hash", readiness_columns)
         self.assertIn("compiled_plan_hash", staging_columns)
+
+    def test_version_seventeen_preserves_history_without_promoting_it(self) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Version seventeen project",
+            source_system="CSV",
+        )
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+        historical_run_id = str(uuid4())
+        with self.repository._connect(database_path) as connection:
+            connection.execute(
+                """
+                INSERT INTO readiness_run (
+                    run_id, mapping_id, mapping_version,
+                    mapping_content_hash, target_hash, staging_run_id,
+                    staging_content_hash, quality_run_id,
+                    quality_content_hash, checked_at, checked_by, report_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    historical_run_id,
+                    "legacy-mapping",
+                    1,
+                    "sha256:" + "1" * 64,
+                    "sha256:" + "2" * 64,
+                    "",
+                    "",
+                    "",
+                    "",
+                    "2026-08-01T00:00:00+00:00",
+                    "Legacy operator",
+                    "{}",
+                ],
+            )
+            for table in (
+                "preflight_current",
+                "preflight_dataset",
+                "preflight_decision",
+                "preflight_target_snapshot",
+                "preflight_transition",
+            ):
+                connection.execute(f"DROP TABLE {table}")
+            connection.execute("UPDATE schema_version SET version = 17")
+
+        self.repository.get(project.project_id)
+
+        with self.repository._connect(database_path) as connection:
+            version = connection.execute(
+                "SELECT version FROM schema_version"
+            ).fetchone()
+            historical = connection.execute(
+                """
+                SELECT run_id, normalization_run_id, requirement_plan_hash
+                  FROM readiness_run
+                 WHERE run_id = ?
+                """,
+                [historical_run_id],
+            ).fetchone()
+            current_count = connection.execute(
+                "SELECT COUNT(*) FROM preflight_current"
+            ).fetchone()
+        self.assertEqual(version, (SCHEMA_VERSION,))
+        self.assertEqual(historical, (historical_run_id, "", ""))
+        self.assertEqual(current_count, (0,))
 
     def test_complete_project_can_be_registered(self) -> None:
         project = self.service.create_project(

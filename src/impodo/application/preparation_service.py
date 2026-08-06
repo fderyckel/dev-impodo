@@ -1,4 +1,17 @@
-"""Prepare immutable source evidence for quality and normalization review."""
+"""Orchestrate target-independent preparation and review evidence.
+
+Migration stages: E–G — normalize/validate, canonical staging, and symbolic
+relationship preparation. Layer: application service.
+
+``PreparationService.prepare`` is called by the preparation browser route. It
+loads a submitted mapping and frozen source selection, delegates pure row
+evaluation to :mod:`impodo.domain.staging.evaluator`, then publishes canonical
+staging, quality, and normalization evidence in that order. This module may
+read registered source artifacts but never contacts Odoo.
+
+See ``docs/architecture/python-code-map.md``,
+``docs/contracts/03-canonical-staging.md``, and ``tests/test_readiness.py``.
+"""
 
 from __future__ import annotations
 
@@ -36,7 +49,14 @@ from .readiness_ports import (
 
 
 class PreparationService:
-    """Coordinate source loading and target-independent evidence publication."""
+    """Coordinate source loading and target-independent evidence publication.
+
+    The service owns the fixed transition from a current submitted mapping to
+    canonical staging, quality, and normalization review evidence. Repositories
+    supply current governed inputs and durable publication; the domain
+    evaluator owns row semantics. The service deliberately has no target
+    reader, which keeps preparation independent from Odoo availability.
+    """
 
     def __init__(
         self,
@@ -66,6 +86,23 @@ class PreparationService:
         *,
         actor: Actor,
     ) -> NormalizationRunSummary:
+        """Prepare every frozen row for review without contacting Odoo.
+
+        The current mapping must be submitted against the current frozen source
+        selection. The method authorizes the action, evaluates the physical and
+        derived datasets, publishes canonical staging, evaluates quality, and
+        creates normalization review evidence. Each downstream publication is
+        bound to the exact result returned by the previous step.
+
+        Returns:
+            The current normalization run summary that the browser uses to
+            direct the data manager to review and explicit approval.
+
+        Raises:
+            ReadinessError: If the mapping, submission, source selection, or
+                source bindings are absent, stale, or inconsistent.
+        """
+
         self.authorization.require(
             actor,
             Capability.MAPPING_SUBMIT,
@@ -110,11 +147,24 @@ class PreparationService:
             mapping_version=revision.version,
             actor=actor,
         )
+        physical_rows = dict(staged.physical_rows)
+        del staged
+        canonical_run = self.staging.get_canonical_staging_run(
+            project_id,
+            staging.run_id,
+            expected_content_hash=staging.content_hash,
+        )
+        if canonical_run is None:
+            raise ReadinessError(
+                "The published prepared data could not be verified. "
+                "Prepare the data again."
+            )
         quality_run, quality = self.quality.evaluate_and_publish(
             project,
             revision,
             effective_selection,
-            staged,
+            canonical_run,
+            physical_rows,
             staging,
             actor=actor,
         )
@@ -122,7 +172,7 @@ class PreparationService:
             project,
             revision,
             effective_selection,
-            staged,
+            canonical_run,
             staging,
             quality_run,
             quality,
@@ -134,7 +184,11 @@ class PreparationService:
 
 
 def canonical_source_hashes(selection: SourceSelection) -> dict[str, str]:
-    """Validate frozen source bindings before publishing derived evidence."""
+    """Return one canonical content hash for every frozen source file.
+
+    Conflicting dataset bindings for the same file fail closed so staging and
+    normalization evidence cannot claim two source contents for one file ID.
+    """
 
     invalid_message = (
         "Impodo could not verify the registered source files. "
@@ -181,7 +235,13 @@ def stage_browser_mapping(
     transformation_impact_sink: Callable[[TransformationImpactRow], None]
     | None = None,
 ) -> StagedBrowserMapping:
-    """Load frozen artifacts, then delegate to the reusable evaluator."""
+    """Materialize frozen tables, then delegate to the pure row evaluator.
+
+    This is the I/O-to-domain seam for browser preparation. It enforces the
+    bounded browser scale, loads only the selected physical tables, and calls
+    :func:`impodo.domain.staging.evaluator.evaluate_browser_mapping`. It does
+    not publish evidence or contact Odoo.
+    """
 
     require_supported_browser_scale(physical_selection)
     physical_tables = _load_browser_source_tables(
@@ -250,4 +310,3 @@ def _load_browser_source_tables(
                 named_table_range=named_range,
             )
     return loaded
-

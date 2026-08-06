@@ -1,4 +1,13 @@
-"""Orchestration for pure mapping semantic validation."""
+"""Coordinate pure Stage D mapping semantic validation.
+
+Layer: domain. ``MappingSemanticValidator`` canonicalizes one complete mapping,
+builds a read-only validation context, and delegates identities, scalar fields,
+relationships, dependencies, and control totals to focused validators. It
+performs no persistence, source-file read, or Odoo call.
+
+See ``docs/architecture/python-code-map.md`` and
+``tests/test_mapping_validation.py``.
+"""
 
 from __future__ import annotations
 
@@ -58,6 +67,8 @@ def _claim_target(
 
 
 class MappingSemanticValidator:
+    """Return deterministic issues and runtime checks for one mapping definition."""
+
     def validate(
         self,
         definition: MappingDefinition,
@@ -65,6 +76,8 @@ class MappingSemanticValidator:
         schema_catalog: SchemaCatalogView,
         schema_governance: SchemaGovernance | None,
     ) -> MappingValidationResult:
+        """Validate exact source/schema bindings and every declared dataset rule."""
+
         definition = canonicalize_mapping_definition(definition)
         context = ValidationContext.build(
             definition,

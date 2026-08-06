@@ -1,8 +1,12 @@
-"""Framework-independent actor and authorization contracts.
+"""Define cross-stage actor identity and command authorization contracts.
 
 Local Impodo uses one trusted operator. A later hosted adapter will construct
 the same :class:`Actor` from a verified corporate identity token and resolve
 project membership before application services execute a command.
+
+Application services call ``AuthorizationPolicy.require`` before reading or
+mutating governed evidence. Repositories retain the verified stable
+``ActorIdentity`` in audit records; display names alone are not identities.
 """
 
 from __future__ import annotations
@@ -106,7 +110,9 @@ class AuthorizationPolicy(Protocol):
         capability: Capability,
         *,
         project_id: str | None = None,
-    ) -> None: ...
+    ) -> None:
+        """Allow the command or raise before its service accesses project state."""
+        ...
 
 
 class CapabilityAuthorizationPolicy:
@@ -119,6 +125,8 @@ class CapabilityAuthorizationPolicy:
         *,
         project_id: str | None = None,
     ) -> None:
+        """Require an already-resolved capability, honoring project-admin override."""
+
         if actor.has(capability):
             return
         scope = f" for project {project_id}" if project_id else ""

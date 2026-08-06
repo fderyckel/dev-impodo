@@ -69,6 +69,7 @@ from .transformation_impact import (
     TransformationImpactReport,
     _TransformationImpactCollector,
     _display_value,
+    _display_values_equal,
 )
 
 
@@ -870,8 +871,9 @@ def _record_identity_preparation(
             )
             for value in raw_values
         )
-        if tuple(_display_value(item) for item in raw_values) == tuple(
-            _display_value(item) for item in proposed_values
+        if all(
+            _display_values_equal(raw, proposed)
+            for raw, proposed in zip(raw_values, proposed_values, strict=True)
         ):
             continue
         raw_display = " | ".join(_display_value(item) for item in raw_values)
@@ -919,7 +921,7 @@ def _apply_relationship_value_mappings(
                     rules=relationship.rules,
                     outcome=(
                         "changed"
-                        if _display_value(raw_value) != _display_value(target_value)
+                        if not _display_values_equal(raw_value, target_value)
                         else "unchanged"
                     ),
                 )
@@ -939,7 +941,7 @@ def _transformation_outcome(
         return "fallback"
     if proposed_value is None and raw_value is not None:
         return "null"
-    if _display_value(raw_value) != _display_value(proposed_value):
+    if not _display_values_equal(raw_value, proposed_value):
         return "changed"
     return "unchanged"
 

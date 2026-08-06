@@ -1,4 +1,11 @@
-"""Read-only application queries used by server-rendered browser workflows."""
+"""Expose read-only current-evidence projections to browser presenters.
+
+Migration stages: cross-cutting A–H. ``BrowserQueryService`` deliberately
+contains transparent forwarding methods: it gives routes one typed read facade
+without mixing queries into command services or exposing DuckDB directly.
+These one-line forwarders are documented by their repository port and return
+type and are an explicit docstring-coverage exception.
+"""
 
 from __future__ import annotations
 
@@ -29,11 +36,15 @@ from ..workspace_contracts import (
 
 
 class ProjectQueryRepository(Protocol):
+    """Read current project aggregates and lightweight list projections."""
+
     def list(self) -> tuple[ProjectSummary, ...]: ...
     def get(self, project_id: str) -> MigrationProject: ...
 
 
 class SourceQueryRepository(Protocol):
+    """Read current Stage B catalogs, confirmations, and selections."""
+
     def get_source_catalogs(
         self, project_id: str
     ) -> tuple[SourceFileCatalog, ...]: ...
@@ -47,12 +58,16 @@ class SourceQueryRepository(Protocol):
 
 
 class DerivedEntityQueryRepository(Protocol):
+    """Read the current source-preparation plan used by mapping presenters."""
+
     def get_derived_entity_plan(
         self, project_id: str
     ) -> DerivedEntityPlan | None: ...
 
 
 class SchemaQueryRepository(Protocol):
+    """Read current Stage C model, schema, and key-governance evidence."""
+
     def get_odoo_model_catalog(
         self, project_id: str
     ) -> OdooModelCatalog | None: ...
@@ -65,6 +80,8 @@ class SchemaQueryRepository(Protocol):
 
 
 class MappingQueryRepository(Protocol):
+    """Read current or selected Stage D draft/revision/validation/submission."""
+
     def get_mapping_working_draft(
         self, project_id: str
     ) -> MappingWorkingDraft | None: ...
@@ -80,6 +97,8 @@ class MappingQueryRepository(Protocol):
 
 
 class QualityQueryRepository(Protocol):
+    """Read current quality configuration and bounded review projections."""
+
     def get_current_quality_ruleset(
         self, project_id: str
     ) -> QualityRuleSet | None: ...
@@ -96,6 +115,8 @@ class QualityQueryRepository(Protocol):
 
 
 class TransformationImpactQueryRepository(Protocol):
+    """Read bounded transformation-impact snapshots, pages, and export rows."""
+
     def get_transformation_impact_snapshot(
         self,
         project_id: str,
@@ -120,7 +141,12 @@ class TransformationImpactQueryRepository(Protocol):
 
 
 class BrowserQueryService:
-    """Expose browser reads through explicit workflow repositories."""
+    """Expose browser reads through explicit workflow repositories.
+
+    Methods intentionally perform no validation, mutation, or evidence
+    selection beyond forwarding their explicit parameters. Command services
+    remain the only route for lifecycle changes.
+    """
 
     def __init__(
         self,

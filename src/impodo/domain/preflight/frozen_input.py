@@ -1,4 +1,16 @@
-"""Durable source-side input for read-only Odoo preflight."""
+"""Verify and adapt approved source-side evidence for Odoo preflight.
+
+Migration stage: boundary from E–G evidence into H preflight. Layer: domain.
+
+``build_frozen_preflight_input`` binds the current submitted mapping,
+canonical staging, quality run, frozen normalization approval, and compiled
+plan. It rejects stale or inconsistent evidence before target I/O and adapts
+eligible canonical rows to the shared preflight ``PreparedBundle`` without
+executing transformation rules again.
+
+See ``docs/architecture/python-code-map.md``,
+``docs/contracts/04-preflight.md``, and ``tests/test_readiness.py``.
+"""
 
 from __future__ import annotations
 
@@ -33,7 +45,13 @@ FROZEN_PREFLIGHT_INPUT_VERSION = 2
 
 @dataclass(frozen=True, slots=True)
 class FrozenPreflightInput:
-    """Exact approved rows plus every source-side evidence binding."""
+    """Hold exact approved rows plus every source-side evidence binding.
+
+    The immutable envelope is storage-independent and safe to pass into
+    request planning and comparison. ``prepared`` contains only quality-
+    eligible rows; the other fields prove which mapping, staging, quality, and
+    normalization evidence authorized them.
+    """
 
     project_id: str
     revision: MappingRevision
@@ -49,6 +67,8 @@ class FrozenPreflightInput:
 
     @property
     def content_hash(self) -> str:
+        """Bind the portable preflight input to all consequential evidence."""
+
         payload = {
             "contract_version": self.contract_version,
             "project_id": self.project_id,
@@ -92,7 +112,17 @@ def build_frozen_preflight_input(
     dataset_labels: Mapping[str, str],
     source_field_labels: Mapping[tuple[str, str], str],
 ) -> FrozenPreflightInput:
-    """Validate and adapt the exact frozen repository evidence."""
+    """Validate current durable evidence and build the preflight envelope.
+
+    Validation covers upstream content hashes, lifecycle/run identities,
+    compiled semantics, eligible-row accounting, source lineage, and the
+    frozen normalization dataset hash. Every failure occurs before an Odoo
+    reader is available to this function.
+
+    Raises:
+        ReadinessError: If any evidence is stale, incomplete, unapproved, or
+            inconsistent with another bound input.
+    """
 
     if (
         revision.definition.content_hash != staging.mapping_hash
@@ -119,7 +149,13 @@ def build_frozen_preflight_input(
     if dry_run.run_id != normalization.run_id:
         raise ReadinessError("The prepared-data approval evidence is incomplete")
 
-    eligible_hash = canonical_eligible_dataset_hash(staging, quality)
+    eligible_ids = quality.eligible_row_ids
+    eligible_hash = canonical_eligible_dataset_hash(
+        staging,
+        quality,
+        staging_content_hash=staging_summary.content_hash,
+        quality_content_hash=quality_summary.content_hash,
+    )
     if (
         eligible_hash != normalization.eligible_dataset_hash
         or dry_run.canonical_dataset_hash != eligible_hash
@@ -144,9 +180,11 @@ def build_frozen_preflight_input(
         staging,
         quality,
         source_hashes=source_hashes,
+        staging_content_hash=staging_summary.content_hash,
+        eligible_row_ids=eligible_ids,
     )
     eligible_row_ids = tuple(
-        row.row_id for row in staging.rows if row.row_id in quality.eligible_row_ids
+        row.row_id for row in staging.rows if row.row_id in eligible_ids
     )
     result = FrozenPreflightInput(
         project_id=project_id,
@@ -175,18 +213,27 @@ def canonical_rows_to_prepared_bundle(
     quality: QualityRun,
     *,
     source_hashes: Mapping[str, str],
+    staging_content_hash: str | None = None,
+    eligible_row_ids: frozenset[str] | None = None,
 ) -> PreparedBundle:
-    """Adapt stored canonical rows without applying any preparation rule."""
+    """Adapt quality-eligible canonical rows without preparing values again.
 
-    if quality.staging_content_hash != staging.content_hash:
+    The adapter preserves typed proposed values, symbolic references, issues,
+    and canonical row IDs as source trace IDs. It applies no parsing,
+    normalization, lookup, fallback, or validation rule.
+    """
+
+    canonical_staging_hash = staging_content_hash or staging.content_hash
+    if quality.staging_content_hash != canonical_staging_hash:
         raise ReadinessError("Prepared rows no longer match their data checks")
     by_id = {row.row_id: row for row in staging.rows}
     if set(by_id) != {item.row_id for item in quality.row_results}:
         raise ReadinessError("Prepared row evidence is incomplete")
+    eligible_ids = eligible_row_ids or quality.eligible_row_ids
     records = tuple(
         _prepared_record(row)
         for row in staging.rows
-        if row.row_id in quality.eligible_row_ids
+        if row.row_id in eligible_ids
     )
     return PreparedBundle(
         records=records,
@@ -203,8 +250,8 @@ def _prepared_record(row: CanonicalRow) -> PreparedRecord:
         source_identity=row.source_identity,
         target_identity=row.target_identity,
         target_scope=row.target_scope,
-        scalar_values=dict(row.proposed_values),
-        references=dict(row.references),
+        scalar_values=row.proposed_values,
+        references=row.references,
         source_trace_id=row.row_id,
         issues=tuple(
             Issue(

@@ -1,4 +1,14 @@
-"""Portable, versioned mapping-definition contracts."""
+"""Define the portable Stage D mapping language and its semantic hash.
+
+Layer: domain contracts. A ``MappingDefinition`` binds every dataset mapping to
+one exact source-selection hash and schema/governance hash. Its nested objects
+describe value providers, transformations, identities, relationships, target
+modes, and declared control totals without executable Python/SQL or numeric
+Odoo IDs.
+
+See ``docs/architecture/python-code-map.md``,
+``docs/contracts/02-workspace.md``, and ``tests/test_mapping_validation.py``.
+"""
 
 from __future__ import annotations
 
@@ -21,12 +31,16 @@ MAX_CONTROL_TOTALS_PER_DATASET = 3
 
 
 class MappingTargetMode(StrEnum):
+    """Choose whether a dataset upserts, creates only, or resolves references."""
+
     UPSERT = "upsert"
     CREATE = "create"
     REFERENCE = "reference"
 
 
 class ResolverOrigin(StrEnum):
+    """Resolve a logical reference from a prepared dataset or target snapshot."""
+
     DATASET = "dataset"
     TARGET_CATALOG = "target_catalog"
 
@@ -44,6 +58,8 @@ class ScalarValueSource(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ReferenceKeyMapping:
+    """Map one source key/scope component to one related target field."""
+
     source_column_key: str
     target_field: str
 
@@ -83,6 +99,13 @@ def _normalized_value_mappings(
 
 @dataclass(frozen=True, slots=True)
 class RelationshipResolver:
+    """Declare how symbolic relationship values become business references.
+
+    Dataset resolvers name another prepared dataset. Target-catalog resolvers
+    name an Odoo model that Stage H may read through governed key/scope fields.
+    Optional value mappings are exact reviewed translations.
+    """
+
     origin: ResolverOrigin
     dataset_id: str | None = None
     model: str | None = None
@@ -101,6 +124,8 @@ class RelationshipResolver:
 
 @dataclass(frozen=True, slots=True)
 class IdentityComponentMapping:
+    """Map one typed source identity component onto target key/scope fields."""
+
     source_column_keys: tuple[str, ...]
     target_fields: tuple[str, ...]
     value_type: str = "string"
@@ -109,6 +134,13 @@ class IdentityComponentMapping:
 
 @dataclass(frozen=True, slots=True)
 class ScalarFieldMapping:
+    """Declare one scalar provider, transformation, validation, and comparison.
+
+    ``value_source`` chooses source, constant, fallback, or Odoo-default intent.
+    Runtime preparation uses the shared scalar evaluator; this contract carries
+    only allowlisted policy and portable literal evidence.
+    """
+
     target_field: str
     source_column_key: str | None = None
     value_source: ScalarValueSource = ScalarValueSource.SOURCE
@@ -152,6 +184,8 @@ class ScalarFieldMapping:
 
 @dataclass(frozen=True, slots=True)
 class RelationshipMapping:
+    """Declare one symbolic many2one/one2many/many2many field mapping."""
+
     target_field: str
     kind: str
     source_column_keys: tuple[str, ...]
@@ -169,6 +203,13 @@ class RelationshipMapping:
 
 @dataclass(frozen=True, slots=True)
 class DatasetMapping:
+    """Map one frozen or derived dataset to one target model and behavior.
+
+    The object groups source/target identity, scope, scalar providers,
+    relationship providers, target mode, and optional business control totals.
+    Semantic validation, not ``__post_init__``, checks cross-object meaning.
+    """
+
     dataset_id: str
     target_model: str
     mode: MappingTargetMode = MappingTargetMode.UPSERT
@@ -236,9 +277,13 @@ class MappingDefinition:
 
     @property
     def content_hash(self) -> str:
+        """Return the deterministic semantic identity of the complete mapping."""
+
         return _content_hash(self.to_dict(include_hash=False))
 
     def to_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
+        """Return a canonically ordered, version-aware portable representation."""
+
         payload = {
             "mapping_id": self.mapping_id,
             "contract_version": self.contract_version,
@@ -283,10 +328,14 @@ class MappingDefinition:
         return payload
 
     def to_json(self) -> str:
+        """Serialize the mapping with its content hash."""
+
         return _canonical_json(self.to_dict())
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "MappingDefinition":
+        """Restore one mapping contract and reject a supplied bad hash."""
+
         definition = cls(
             mapping_id=str(payload["mapping_id"]),
             contract_version=int(
@@ -306,6 +355,8 @@ class MappingDefinition:
 
     @classmethod
     def from_json(cls, value: str) -> "MappingDefinition":
+        """Restore a mapping definition from its portable JSON envelope."""
+
         return cls.from_dict(json.loads(value))
 
 

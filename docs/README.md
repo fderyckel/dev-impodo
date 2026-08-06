@@ -22,6 +22,9 @@ Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
 - [Architecture overview](architecture/overview.md) — current system context,
   browser and preflight boundaries, component layers, evidence flow,
   performance invariants, and deployment seams.
+- [Python code map](architecture/python-code-map.md) — navigation from browser
+  and CLI entry points through services, domain behavior, repositories, and
+  migration evidence.
 - [Security and infrastructure](architecture/security-and-infrastructure.md) — factual
   overview of the local architecture, implemented controls, infrastructure
   requirements, data handling, verification evidence, and current limitations.
@@ -45,8 +48,11 @@ Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
   — implemented grouped prepared-value review, immutable decisions, exact
   eligible-dataset freeze, and the gate before read-only Odoo comparison.
 - [Slice 5 durable preflight plan](plans/slice-5-durable-preflight-plan.md)
-  — proposed adapter from approved durable rows to bounded read-only Odoo
+  — implemented adapter from approved durable rows to bounded read-only Odoo
   comparison, protected target evidence, and plain data-manager results.
+- [Python code documentation plan](plans/python-code-documentation-plan.md) —
+  phased module, class, method, and call-flow documentation for `src/impodo/`,
+  organized around migration Stages A–K.
 
 ## Contracts
 

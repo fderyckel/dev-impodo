@@ -54,9 +54,10 @@
       </div>
       <div class="next-action-buttons">
         {% if normalization.frozen %}
-          <form method="post" action="/projects/{{ project.project_id }}/summary/compare">
+          <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button primary" type="submit">Compare with Odoo</button>
+            <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
           </form>
           <a class="button secondary" href="/projects/{{ project.project_id }}/normalization">View approved data</a>
         {% else %}
@@ -208,9 +209,10 @@
             <button class="button primary" type="submit">Create review workbook</button>
           </form>
         {% endif %}
-        <form method="post" action="/projects/{{ project.project_id }}/summary/compare">
+        <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="button secondary" type="submit">Compare with Odoo again</button>
+          <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
         </form>
       </div>
     </section>
@@ -288,21 +290,31 @@
       {% endif %}
     {% endif %}
 
-    <section class="readiness-cards" aria-label="Readiness overview">
-      <a class="readiness-card ready{% if status_filter == 'ready' %} selected{% endif %}" href="?status=ready">
-        <span>Ready</span>
-        <strong>{{ readiness.ready_count }}</strong>
-        <small>No blocking problem found</small>
+    <section class="readiness-cards comparison-cards" aria-label="Odoo comparison overview">
+      <div class="readiness-card ready">
+        <span>New in Odoo</span>
+        <strong>{{ readiness.create_count }}</strong>
+        <small>Ready to create later</small>
+      </div>
+      <div class="readiness-card ready">
+        <span>Different from Odoo</span>
+        <strong>{{ readiness.update_count }}</strong>
+        <small>Prepared values differ</small>
+      </div>
+      <div class="readiness-card ready">
+        <span>Already matches</span>
+        <strong>{{ readiness.unchanged_count }}</strong>
+        <small>No change is needed</small>
+      </div>
+      <a class="readiness-card review" href="#readiness-rows">
+        <span>Needs attention</span>
+        <strong>{{ readiness.attention_count }}</strong>
+        <small>A decision or correction is needed</small>
       </a>
-      <a class="readiness-card review{% if status_filter == 'needs_review' %} selected{% endif %}" href="?status=needs_review">
-        <span>Needs a decision</span>
-        <strong>{{ readiness.needs_review_count }}</strong>
-        <small>Your decision is needed</small>
-      </a>
-      <a class="readiness-card blocked{% if status_filter == 'blocked' %} selected{% endif %}" href="?status=blocked">
-        <span>Needs correction</span>
-        <strong>{{ readiness.blocked_count }}</strong>
-        <small>Must be corrected</small>
+      <a class="readiness-card blocked" href="#quality-rows">
+        <span>Set aside</span>
+        <strong>{{ quality.quarantined_count + quality.excluded_count if quality else 0 }}</strong>
+        <small>Not sent to comparison</small>
       </a>
     </section>
 
@@ -317,15 +329,16 @@
       <div class="table-scroll">
         <table class="data-table">
           <thead>
-            <tr><th>Table</th><th>Ready</th><th>Needs a decision</th><th>Needs correction</th></tr>
+            <tr><th>Table</th><th>New in Odoo</th><th>Different</th><th>Already matches</th><th>Needs attention</th></tr>
           </thead>
           <tbody>
             {% for item in readiness.datasets %}
               <tr>
                 <th>{{ item.label }}</th>
-                <td><a href="?dataset={{ item.dataset }}&status=ready">{{ item.ready }}</a></td>
-                <td><a href="?dataset={{ item.dataset }}&status=needs_review">{{ item.needs_review }}</a></td>
-                <td><a href="?dataset={{ item.dataset }}&status=blocked">{{ item.blocked }}</a></td>
+                <td>{{ item.create_count }}</td>
+                <td>{{ item.update_count }}</td>
+                <td>{{ item.unchanged_count }}</td>
+                <td>{{ item.ambiguous_count + item.blocked }}</td>
               </tr>
             {% endfor %}
           </tbody>

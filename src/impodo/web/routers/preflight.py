@@ -1,4 +1,16 @@
-"""Preflight browser routes."""
+"""Expose read-only Odoo comparison and its review artifacts.
+
+Migration stage: H — read-only target preflight. Layer: web route.
+
+The compare action supplies
+:class:`impodo.application.preflight_service.PreflightService` with a
+project-bound read-only snapshot reader. Other routes download the already-
+published technical manifest or build/download its human review workbook
+projection. No route exposes an Odoo write operation.
+
+See ``docs/architecture/python-code-map.md`` and
+``tests/test_preflight_service.py``.
+"""
 
 from __future__ import annotations
 from collections.abc import Iterator
@@ -32,6 +44,8 @@ def _report_chunks(
     run_id: str,
     filename: str,
 ) -> Iterator[bytes]:
+    """Stream a protected report artifact without loading it all in memory."""
+
     with context.artifacts.materialize_report(
         project_id, run_id, filename
     ) as path:
@@ -41,10 +55,14 @@ def _report_chunks(
 
 
 def build_preflight_router(context: WebContext) -> APIRouter:
+    """Build compare, manifest, and workbook routes for current Stage H evidence."""
+
     router = APIRouter()
 
     @router.post("/projects/{project_id}/summary/compare")
     async def compare_project_data(request: Request, project_id: str):
+        """Compare the exact approved rows through a bounded read-only reader."""
+
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         project = context.queries.get(project_id)

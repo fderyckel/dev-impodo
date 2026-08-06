@@ -28,6 +28,7 @@ from ...normalization import (
 )
 from ...quality import retention_context_hash
 from ...workspace_errors import WorkspaceError
+from ...domain.serialization import CanonicalJsonObjectHasher
 from .database import DuckDbDatabase
 from .project_repository import ProjectRepository
 from .repository import DuckDbRepository
@@ -36,7 +37,7 @@ from .repository import DuckDbRepository
 
 
 
-from .serialization import _canonical_json
+from .serialization import _canonical_json, _columnar_parameters
 
 
 class NormalizationRepository(DuckDbRepository):
@@ -69,16 +70,6 @@ class NormalizationRepository(DuckDbRepository):
             or evaluation.evaluator_version != NORMALIZATION_EVALUATOR_VERSION
         ):
             raise WorkspaceError("Prepared review must be regenerated")
-        evaluation_payload = evaluation.to_portable_dict()
-        evaluation_content_hash = str(evaluation_payload["content_hash"])
-        try:
-            NormalizationEvaluation.from_json(
-                _canonical_json(evaluation_payload)
-            )
-        except (TypeError, ValueError) as error:
-            raise WorkspaceError("Prepared review evidence is invalid") from error
-        finally:
-            del evaluation_payload
         project = self._projects.get(project_id)
         if evaluation.retention_context_hash != retention_context_hash(project):
             raise WorkspaceError(
@@ -87,6 +78,7 @@ class NormalizationRepository(DuckDbRepository):
         database_path = self.project_directory(project_id) / "project.duckdb"
         published_at = datetime.now(timezone.utc)
         run_id = str(uuid4())
+        changed_record_count = evaluation.changed_record_count
         try:
             dry_run = start_dry_run(
                 evaluation,
@@ -134,6 +126,11 @@ class NormalizationRepository(DuckDbRepository):
                         "WHERE run.run_id = (SELECT run_id FROM normalization_current WHERE singleton_id = 1)"
                     )
                 ).fetchone()
+                evaluation_content_hash = self._insert_normalization_evidence(
+                    connection,
+                    run_id,
+                    evaluation,
+                )
                 if current is not None and str(current[1]) == evaluation_content_hash:
                     connection.rollback()
                     return self._normalization_summary(project_id, current)
@@ -194,18 +191,13 @@ class NormalizationRepository(DuckDbRepository):
                         published_at.isoformat(),
                         actor.identity.display_name,
                         eligible_count,
-                        evaluation.changed_record_count,
+                        changed_record_count,
                         automatic_group_count,
                         decision_group_count,
                         set_aside_count,
                         self._normalization_evaluation_header(evaluation),
                         dry_run.to_json(),
                     ],
-                )
-                self._insert_normalization_evidence(
-                    connection,
-                    run_id,
-                    evaluation,
                 )
                 connection.execute(
                     """
@@ -240,7 +232,7 @@ class NormalizationRepository(DuckDbRepository):
                     event_type="PREPARED_REVIEW_PUBLISHED",
                     detail=(
                         f"run {run_id}: {eligible_count} eligible; "
-                        f"{evaluation.changed_record_count} changed; "
+                        f"{changed_record_count} changed; "
                         f"{decision_group_count} decision group(s)"
                     ),
                     actor=actor,
@@ -514,20 +506,36 @@ class NormalizationRepository(DuckDbRepository):
     def _normalization_evaluation_header(
         evaluation: NormalizationEvaluation,
     ) -> str:
-        payload = evaluation.to_portable_dict(include_hash=False)
-        payload.pop("effects")
-        payload.pop("groups")
-        return _canonical_json(payload)
+        return _canonical_json(
+            {
+                "contract_version": evaluation.contract_version,
+                "evaluator_version": evaluation.evaluator_version,
+                "project_id": evaluation.project_id,
+                "staging_content_hash": evaluation.staging_content_hash,
+                "quality_content_hash": evaluation.quality_content_hash,
+                "mapping_hash": evaluation.mapping_hash,
+                "schema_hash": evaluation.schema_hash,
+                "policy_hash": evaluation.policy_hash,
+                "retention_context_hash": evaluation.retention_context_hash,
+                "eligible_dataset_hash": evaluation.eligible_dataset_hash,
+            }
+        )
     @staticmethod
     def _insert_normalization_evidence(
         connection: duckdb.DuckDBPyConnection,
         run_id: str,
         evaluation: NormalizationEvaluation,
-    ) -> None:
+    ) -> str:
+        hasher = CanonicalJsonObjectHasher()
+        hasher.add_value("contract_version", evaluation.contract_version)
+        hasher.start_array("effects")
         for start in range(0, len(evaluation.effects), NORMALIZATION_ROW_BATCH_SIZE):
             batch = evaluation.effects[start : start + NORMALIZATION_ROW_BATCH_SIZE]
-            values = [
-                [
+            values: list[list[object]] = []
+            for offset, item in enumerate(batch):
+                item_json = _canonical_json(item.to_portable_dict())
+                hasher.add_encoded_array_item(item_json)
+                values.append([
                     run_id,
                     start + offset,
                     item.effect_id,
@@ -537,10 +545,8 @@ class NormalizationRepository(DuckDbRepository):
                     item.source_row,
                     item.target_field,
                     item.eligible,
-                    _canonical_json(item.to_portable_dict()),
-                ]
-                for offset, item in enumerate(batch)
-            ]
+                    item_json,
+                ])
             connection.execute(
                 """
                 INSERT INTO normalization_effect (
@@ -548,24 +554,25 @@ class NormalizationRepository(DuckDbRepository):
                     source_row, target_field, eligible, effect_json
                 )
                 SELECT
-                    json_extract_string(value, '$[0]'),
-                    CAST(json_extract(value, '$[1]') AS BIGINT),
-                    json_extract_string(value, '$[2]'),
-                    json_extract_string(value, '$[3]'),
-                    json_extract_string(value, '$[4]'),
-                    json_extract_string(value, '$[5]'),
-                    CAST(json_extract(value, '$[6]') AS BIGINT),
-                    json_extract_string(value, '$[7]'),
-                    CAST(json_extract(value, '$[8]') AS BOOLEAN),
-                    json_extract_string(value, '$[9]')
-                  FROM json_each(?)
+                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
+                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
+                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
+                    CAST(unnest(?) AS BIGINT), CAST(unnest(?) AS VARCHAR),
+                    CAST(unnest(?) AS BOOLEAN), CAST(unnest(?) AS VARCHAR)
                 """,
-                [_canonical_json(values)],
+                _columnar_parameters(values),
             )
+        hasher.end_array()
+        hasher.add_value("eligible_dataset_hash", evaluation.eligible_dataset_hash)
+        hasher.add_value("evaluator_version", evaluation.evaluator_version)
+        hasher.start_array("groups")
         for start in range(0, len(evaluation.groups), NORMALIZATION_ROW_BATCH_SIZE):
             batch = evaluation.groups[start : start + NORMALIZATION_ROW_BATCH_SIZE]
-            values = [
-                [
+            values = []
+            for offset, item in enumerate(batch):
+                item_json = _canonical_json(item.to_portable_dict())
+                hasher.add_encoded_array_item(item_json)
+                values.append([
                     run_id,
                     start + offset,
                     item.group_id,
@@ -574,10 +581,8 @@ class NormalizationRepository(DuckDbRepository):
                     item.dataset,
                     item.target_field,
                     item.requires_decision,
-                    _canonical_json(item.to_portable_dict()),
-                ]
-                for offset, item in enumerate(batch)
-            ]
+                    item_json,
+                ])
             connection.execute(
                 """
                 INSERT INTO normalization_group (
@@ -585,19 +590,26 @@ class NormalizationRepository(DuckDbRepository):
                     target_field, requires_decision, group_json
                 )
                 SELECT
-                    json_extract_string(value, '$[0]'),
-                    CAST(json_extract(value, '$[1]') AS BIGINT),
-                    json_extract_string(value, '$[2]'),
-                    json_extract_string(value, '$[3]'),
-                    json_extract_string(value, '$[4]'),
-                    json_extract_string(value, '$[5]'),
-                    json_extract_string(value, '$[6]'),
-                    CAST(json_extract(value, '$[7]') AS BOOLEAN),
-                    json_extract_string(value, '$[8]')
-                  FROM json_each(?)
+                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
+                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
+                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
+                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BOOLEAN),
+                    CAST(unnest(?) AS VARCHAR)
                 """,
-                [_canonical_json(values)],
+                _columnar_parameters(values),
             )
+        hasher.end_array()
+        hasher.add_value("mapping_hash", evaluation.mapping_hash)
+        hasher.add_value("policy_hash", evaluation.policy_hash)
+        hasher.add_value("project_id", evaluation.project_id)
+        hasher.add_value("quality_content_hash", evaluation.quality_content_hash)
+        hasher.add_value(
+            "retention_context_hash",
+            evaluation.retention_context_hash,
+        )
+        hasher.add_value("schema_hash", evaluation.schema_hash)
+        hasher.add_value("staging_content_hash", evaluation.staging_content_hash)
+        return hasher.finish()
     @staticmethod
     def _normalization_summary_query(where: str) -> str:
         return f"""

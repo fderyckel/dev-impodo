@@ -115,6 +115,8 @@ class ScalarValidationPolicy:
 
     @property
     def configured(self) -> bool:
+        """Return whether any final-value validation check is enabled."""
+
         return bool(
             self.exact_length is not None
             or self.segment_location != "none"

@@ -14,15 +14,32 @@ from impodo.access import (
     Capability,
     CapabilityAuthorizationPolicy,
 )
-from impodo.application.preflight_service import MANIFEST_NAME, PreflightService
+from impodo.application.preflight_service import (
+    MANIFEST_NAME,
+    PreflightService,
+    _validate_snapshot_projection,
+)
 from impodo.artifacts import LocalArtifactStore
 from impodo.connectors import (
+    MetadataRequest,
     MetadataSnapshot,
+    RecordRequest,
     RecordSnapshot,
     bind_snapshot_hashes,
+    record_snapshot_json,
+    record_snapshot_payload,
 )
+from impodo.domain.errors import ReadinessError
 from impodo.domain.preflight.reports import ReadinessReport
-from impodo.models import PreflightResult, TargetFingerprint, target_identity_hash
+from impodo.models import (
+    FieldMetadata,
+    ModelMetadata,
+    PreflightResult,
+    TargetFingerprint,
+    TargetRecord,
+    canonical_json_text,
+    target_identity_hash,
+)
 from impodo.projects import OdooConnectionMode
 from impodo.workspace_errors import WorkspaceError
 
@@ -186,6 +203,103 @@ class PreflightPublicationTests(unittest.TestCase):
             artifacts.delete_report(project_id, run_id, MANIFEST_NAME)
 
             self.assertFalse(run_directory.exists())
+
+
+class SnapshotProjectionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fingerprint = TargetFingerprint(
+            target_hash="sha256:" + "9" * 64,
+            connection_mode="LOCAL",
+            database="odoo19_test",
+            odoo_version="19.0",
+            snapshot_timestamp="2026-08-06T12:00:00Z",
+        )
+        self.metadata_requests = (
+            MetadataRequest("res.partner", ("name", "ref")),
+        )
+        self.record_requests = (
+            RecordRequest(
+                "res.partner",
+                ("name", "ref"),
+                (["ref", "=", "C001"],),
+            ),
+        )
+
+    def test_missing_planned_metadata_field_fails_closed(self) -> None:
+        metadata = MetadataSnapshot(
+            fingerprint=self.fingerprint,
+            models={
+                "res.partner": ModelMetadata(
+                    model="res.partner",
+                    description="Contact",
+                    fields={
+                        "ref": FieldMetadata(name="ref", type="char"),
+                    },
+                )
+            },
+        )
+        records = RecordSnapshot(
+            fingerprint=self.fingerprint,
+            records={"res.partner": ()},
+            requested_fields={"res.partner": ("name", "ref")},
+        )
+
+        with self.assertRaisesRegex(ReadinessError, "snapshot is incomplete"):
+            _validate_snapshot_projection(
+                self.metadata_requests,
+                self.record_requests,
+                metadata,
+                records,
+            )
+
+    def test_unplanned_metadata_field_fails_closed(self) -> None:
+        metadata = MetadataSnapshot(
+            fingerprint=self.fingerprint,
+            models={
+                "res.partner": ModelMetadata(
+                    model="res.partner",
+                    description="Contact",
+                    fields={
+                        "name": FieldMetadata(name="name", type="char"),
+                        "ref": FieldMetadata(name="ref", type="char"),
+                        "email": FieldMetadata(name="email", type="char"),
+                    },
+                )
+            },
+        )
+        records = RecordSnapshot(
+            fingerprint=self.fingerprint,
+            records={"res.partner": ()},
+            requested_fields={"res.partner": ("name", "ref")},
+        )
+
+        with self.assertRaisesRegex(ReadinessError, "unplanned fields"):
+            _validate_snapshot_projection(
+                self.metadata_requests,
+                self.record_requests,
+                metadata,
+                records,
+            )
+
+    def test_streamed_protected_snapshot_matches_canonical_payload(self) -> None:
+        records = RecordSnapshot(
+            fingerprint=self.fingerprint,
+            records={
+                "res.partner": (
+                    TargetRecord(
+                        model="res.partner",
+                        odoo_id=7,
+                        values={"ref": "C001", "name": "Contact"},
+                    ),
+                )
+            },
+            requested_fields={"res.partner": ("name", "ref")},
+        )
+
+        self.assertEqual(
+            record_snapshot_json(records),
+            canonical_json_text(record_snapshot_payload(records)),
+        )
 
 
 if __name__ == "__main__":

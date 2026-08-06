@@ -1,8 +1,12 @@
-"""Governed source-preparation plans for related logical datasets.
+"""Govern Stage B/D preparation plans for related logical datasets.
 
-The browser can author bounded previews for lookup extraction and parent/child
-dataset splits.  Both rule types participate in mapping and are repeated over
-every source row by readiness staging without changing the frozen source.
+Layer: domain contracts plus application workspace service. The browser can
+author bounded previews for lookup extraction and parent/child dataset splits.
+Both rule types participate in the effective mapping selection and are repeated
+over every source row by readiness staging without changing the frozen source.
+
+See ``docs/architecture/python-code-map.md``,
+``docs/derived-entity-authoring.md``, and ``tests/test_derived_entities.py``.
 """
 
 from __future__ import annotations
@@ -190,9 +194,13 @@ class DerivedEntityPlan:
 
     @property
     def content_hash(self) -> str:
+        """Return the semantic identity of the complete ordered rule revision."""
+
         return _content_hash(self.to_dict(include_hash=False))
 
     def to_dict(self, *, include_hash: bool = True) -> dict[str, object]:
+        """Return stable portable rule and provenance evidence."""
+
         payload: dict[str, object] = {
             "plan_id": self.plan_id,
             "version": self.version,
@@ -211,10 +219,14 @@ class DerivedEntityPlan:
         return payload
 
     def to_json(self) -> str:
+        """Serialize the immutable plan revision with its content hash."""
+
         return _canonical_json(self.to_dict())
 
     @classmethod
     def from_json(cls, value: str) -> "DerivedEntityPlan":
+        """Restore a supported plan revision and reject hash tampering."""
+
         payload = json.loads(value)
         content_hash = payload.get("content_hash")
         unhashed = dict(payload)
@@ -321,18 +333,27 @@ class DerivedDatasetLink:
 
 
 class DerivedSourceRepository(Protocol):
-    def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
+    """Provide the exact frozen source evidence used to author and preview rules."""
+
+    def get_source_selection(self, project_id: str) -> SourceSelection | None:
+        """Return the current frozen physical selection."""
+        ...
 
     def get_source_catalogs(
         self, project_id: str
-    ) -> tuple[SourceFileCatalog, ...]: ...
+    ) -> tuple[SourceFileCatalog, ...]:
+        """Return bounded previews and field labels for the frozen sources."""
+        ...
 
 
 class DerivedEntityRepository(Protocol):
+    """Persist immutable source-preparation plan revisions and a current pointer."""
 
     def get_derived_entity_plan(
         self, project_id: str
-    ) -> DerivedEntityPlan | None: ...
+    ) -> DerivedEntityPlan | None:
+        """Return the current source-preparation plan, if one exists."""
+        ...
 
     def save_derived_entity_plan(
         self,
@@ -341,11 +362,18 @@ class DerivedEntityRepository(Protocol):
         *,
         expected_parent_version: int | None,
         actor: Actor,
-    ) -> None: ...
+    ) -> None:
+        """Append a plan at the expected parent version and invalidate mapping."""
+        ...
 
 
 class DerivedEntityWorkspaceService:
-    """Author and preview deterministic derived-entity rules."""
+    """Author and preview deterministic derived-entity rules.
+
+    Saved rules are bound to the current frozen physical selection and use an
+    optimistic plan version. Previews are bounded authoring evidence only; the
+    staging evaluator later repeats accepted rules across every frozen row.
+    """
 
     def __init__(
         self,
@@ -372,6 +400,8 @@ class DerivedEntityWorkspaceService:
         expected_parent_version: int | None,
         actor: Actor,
     ) -> tuple[DerivedEntityPlan, DerivedEntityRule]:
+        """Append one reviewed lookup-extraction rule to the current plan."""
+
         self.authorization.require(
             actor,
             Capability.NORMALIZATION_DECIDE,
@@ -662,6 +692,8 @@ class DerivedEntityWorkspaceService:
         expected_parent_version: int | None,
         actor: Actor,
     ) -> DerivedEntityPlan:
+        """Append a new plan revision without the requested existing rule."""
+
         self.authorization.require(
             actor,
             Capability.NORMALIZATION_DECIDE,
@@ -699,6 +731,8 @@ class DerivedEntityWorkspaceService:
         project_id: str,
         rule: DerivedEntityRule,
     ) -> DerivedEntityPreview:
+        """Build a bounded lookup-extraction preview from current source catalogs."""
+
         selection = self.sources.get_source_selection(project_id)
         if selection is None:
             raise WorkspaceError("Freeze source datasets before deriving entities")
@@ -713,6 +747,8 @@ class DerivedEntityWorkspaceService:
         project_id: str,
         rule: RelatedDatasetRule,
     ) -> RelatedDatasetPreview:
+        """Build a bounded parent/child preview from current source catalogs."""
+
         selection = self.sources.get_source_selection(project_id)
         if selection is None:
             raise WorkspaceError("Freeze source datasets before preparing related data")

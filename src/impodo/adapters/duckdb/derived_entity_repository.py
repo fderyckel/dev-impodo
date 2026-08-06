@@ -1,4 +1,13 @@
-"""DuckDB derived entity repository implementation."""
+"""Persist immutable source-preparation plan revisions in DuckDB.
+
+Layer: adapter. Plans must match the current frozen physical selection and
+advance by one optimistic parent version. Publishing a new current plan retires
+the active mapping and canonical staging because the effective mapping dataset
+shape has changed.
+
+See ``docs/derived-entity-authoring.md`` and
+``tests/test_derived_entities.py``.
+"""
 
 from __future__ import annotations
 
@@ -18,12 +27,14 @@ from .repository import DuckDbRepository
 
 
 class DerivedEntityRepository(DuckDbRepository):
-    """Persistence operations for derived entity repository."""
+    """Own immutable derived-plan history and its single current pointer."""
 
     def get_derived_entity_plan(
         self,
         project_id: str,
     ) -> DerivedEntityPlan | None:
+        """Load the plan revision selected by the current pointer."""
+
         value = self._read_singleton_json(
             project_id,
             """
@@ -44,6 +55,8 @@ class DerivedEntityRepository(DuckDbRepository):
         expected_parent_version: int | None,
         actor: Actor,
     ) -> None:
+        """Append one exact plan revision and invalidate mapping/staging."""
+
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")

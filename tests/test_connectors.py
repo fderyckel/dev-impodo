@@ -7,6 +7,7 @@ import unittest
 
 from impodo.connectors import (
     ConnectorConfigurationError,
+    ConnectorIncompleteResultError,
     ConnectorTransportError,
     Json2Config,
     Json2ReadConnector,
@@ -73,6 +74,69 @@ class Json2ConnectorTests(unittest.TestCase):
             all(call[1]["X-Odoo-Database"] == "odoo_review" for call in post_calls)
         )
         self.assertTrue(all(call[2]["order"] == "id asc" for call in post_calls))
+
+    def test_same_model_chunks_merge_identical_records(self) -> None:
+        def transport(url, _headers, body, _timeout, _method):
+            if url.endswith("/web/version"):
+                return 200, {"version": "19.0"}
+            payload = json.loads(body)
+            return 200, [{"id": 7, "code": "SAME"}]
+
+        connector = Json2ReadConnector(self.config(page_size=500), transport=transport)
+        snapshot = connector.get_records(
+            (
+                RecordRequest("x.model", ("code",), (["code", "=", "A"],)),
+                RecordRequest("x.model", ("code",), (["code", "=", "B"],)),
+            )
+        )
+
+        self.assertEqual(
+            snapshot.records["x.model"],
+            (snapshot.records["x.model"][0],),
+        )
+        self.assertEqual(snapshot.records["x.model"][0].odoo_id, 7)
+
+    def test_same_model_chunk_conflict_fails_closed(self) -> None:
+        responses = iter(("FIRST", "SECOND"))
+
+        def transport(url, _headers, body, _timeout, _method):
+            if url.endswith("/web/version"):
+                return 200, {"version": "19.0"}
+            json.loads(body)
+            return 200, [{"id": 7, "code": next(responses)}]
+
+        connector = Json2ReadConnector(self.config(page_size=500), transport=transport)
+        with self.assertRaisesRegex(
+            ConnectorIncompleteResultError,
+            "record chunks conflict",
+        ):
+            connector.get_records(
+                (
+                    RecordRequest("x.model", ("code",), (["code", "=", "A"],)),
+                    RecordRequest("x.model", ("code",), (["code", "=", "B"],)),
+                )
+            )
+
+    def test_repeated_record_across_pages_fails_closed(self) -> None:
+        def transport(url, _headers, body, _timeout, _method):
+            if url.endswith("/web/version"):
+                return 200, {"version": "19.0"}
+            offset = json.loads(body)["offset"]
+            if offset == 0:
+                return 200, [
+                    {"id": 1, "code": "A"},
+                    {"id": 2, "code": "B"},
+                ]
+            return 200, [{"id": 2, "code": "B"}]
+
+        connector = Json2ReadConnector(self.config(page_size=2), transport=transport)
+        with self.assertRaisesRegex(
+            ConnectorIncompleteResultError,
+            "pagination repeated records",
+        ):
+            connector.get_records(
+                (RecordRequest("x.model", ("code",), (["active", "=", True],)),)
+            )
 
     def test_fields_get_uses_named_json2_arguments(self) -> None:
         calls = []
@@ -298,4 +362,3 @@ class Json2ConnectorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

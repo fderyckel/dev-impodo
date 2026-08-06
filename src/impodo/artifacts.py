@@ -1,4 +1,13 @@
-"""Artifact-storage port and contained local-filesystem adapter."""
+"""Define governed artifact storage and its contained filesystem adapter.
+
+Migration stages: source evidence in A/B and report projections in H. The port
+uses opaque generated keys, bounded streaming, context-managed materialization,
+partial files, and atomic replacement. Callers never receive a generic path
+write capability outside one validated project/run boundary.
+
+See ``docs/architecture/security-and-infrastructure.md`` and
+``tests/test_projects.py``.
+"""
 
 from __future__ import annotations
 
@@ -32,7 +41,7 @@ ArtifactValidator = Callable[[Path], None]
 
 
 class ArtifactStore(Protocol):
-    """Port for immutable source files and future generated artifacts."""
+    """Port for immutable source files and replaceable report projections."""
 
     def store_source(
         self,
@@ -44,15 +53,21 @@ class ArtifactStore(Protocol):
         maximum_bytes: int,
         chunk_bytes: int,
         validator: ArtifactValidator,
-    ) -> StoredArtifact: ...
+    ) -> StoredArtifact:
+        """Stream, bound, validate, hash, and atomically publish source bytes."""
+        ...
 
     def materialize_source(
         self,
         project_id: str,
         storage_key: str,
-    ) -> ContextManager[Path]: ...
+    ) -> ContextManager[Path]:
+        """Temporarily expose one validated immutable source path for reading."""
+        ...
 
-    def delete_source(self, project_id: str, storage_key: str) -> None: ...
+    def delete_source(self, project_id: str, storage_key: str) -> None:
+        """Delete newly stored source bytes during a failed compensated intake."""
+        ...
 
     def write_report(
         self,
@@ -60,39 +75,53 @@ class ArtifactStore(Protocol):
         run_id: str,
         filename: str,
         content: bytes,
-    ) -> None: ...
+    ) -> None:
+        """Atomically write one bounded in-memory report projection."""
+        ...
 
     def prepare_report(
         self,
         project_id: str,
         run_id: str,
         filename: str,
-    ) -> ContextManager[Path]: ...
+    ) -> ContextManager[Path]:
+        """Yield a partial path and atomically publish it on successful exit."""
+        ...
 
     def report_exists(
         self,
         project_id: str,
         run_id: str,
         filename: str,
-    ) -> bool: ...
+    ) -> bool:
+        """Return whether one non-symlink report projection exists."""
+        ...
 
     def delete_report(
         self,
         project_id: str,
         run_id: str,
         filename: str,
-    ) -> None: ...
+    ) -> None:
+        """Remove a failed/unpublished projection without deleting run evidence."""
+        ...
 
     def materialize_report(
         self,
         project_id: str,
         run_id: str,
         filename: str,
-    ) -> ContextManager[Path]: ...
+    ) -> ContextManager[Path]:
+        """Temporarily expose one validated report projection for reading."""
+        ...
 
 
 class LocalArtifactStore:
-    """Store project artifacts below one validated local root."""
+    """Store project artifacts below one validated local root.
+
+    Every project/run/key is canonicalized before path construction. Symlinks
+    and path traversal are rejected, and partial files are removed on failure.
+    """
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).resolve()
@@ -109,6 +138,8 @@ class LocalArtifactStore:
         chunk_bytes: int,
         validator: ArtifactValidator,
     ) -> StoredArtifact:
+        """Write validated immutable source bytes under a generated opaque key."""
+
         canonical_artifact_id = str(UUID(artifact_id))
         if suffix not in {".csv", ".xlsx"}:
             raise ArtifactStoreError("Unsupported source artifact suffix")
@@ -151,6 +182,8 @@ class LocalArtifactStore:
         project_id: str,
         storage_key: str,
     ) -> Iterator[Path]:
+        """Yield one contained regular source file for read-only use."""
+
         path = self._source_path(project_id, storage_key)
         if path.is_symlink():
             raise ArtifactStoreError(
@@ -161,6 +194,8 @@ class LocalArtifactStore:
         yield path
 
     def delete_source(self, project_id: str, storage_key: str) -> None:
+        """Remove one contained source artifact if present."""
+
         self._source_path(project_id, storage_key).unlink(missing_ok=True)
 
     def write_report(
@@ -170,6 +205,8 @@ class LocalArtifactStore:
         filename: str,
         content: bytes,
     ) -> None:
+        """Publish one report from in-memory bytes via the partial-file boundary."""
+
         with self.prepare_report(project_id, run_id, filename) as partial:
             partial.write_bytes(content)
 
@@ -180,6 +217,8 @@ class LocalArtifactStore:
         run_id: str,
         filename: str,
     ) -> Iterator[Path]:
+        """Yield a partial report path and replace the final path atomically."""
+
         path = self._report_path(project_id, run_id, filename, create=True)
         partial = path.with_name(f".{path.name}.partial")
         try:
@@ -196,6 +235,8 @@ class LocalArtifactStore:
         run_id: str,
         filename: str,
     ) -> bool:
+        """Check for one contained regular report without following a symlink."""
+
         path = self._report_path(project_id, run_id, filename, create=False)
         return not path.is_symlink() and path.is_file()
 
@@ -223,6 +264,8 @@ class LocalArtifactStore:
         run_id: str,
         filename: str,
     ) -> Iterator[Path]:
+        """Yield one contained regular report artifact for reading."""
+
         path = self._report_path(project_id, run_id, filename, create=False)
         if path.is_symlink() or not path.is_file():
             raise ArtifactStoreError("Stored report artifact is missing")

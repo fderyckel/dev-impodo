@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from hashlib import sha256
 import json
 from typing import (
@@ -201,6 +202,26 @@ class _TransformationImpactCollector:
 
 
 def _display_value(value: object) -> str:
+    # Scalar mappings overwhelmingly compare primitive source and prepared
+    # values.  Keep their established display semantics without first building
+    # recursive portable dictionaries for every unchanged field.
+    if value is None:
+        return "—"
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool | int):
+        return str(value)
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, datetime):
+        normalized = value
+        if normalized.tzinfo is None:
+            normalized = normalized.replace(tzinfo=timezone.utc)
+        return normalized.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, tuple | list):
+        return " / ".join(_display_value(item) for item in value)
     portable = portable_value(value)
     if isinstance(portable, Mapping) and "value" in portable:
         return str(portable["value"])
@@ -209,3 +230,11 @@ def _display_value(value: object) -> str:
     if isinstance(portable, Mapping):
         return json.dumps(portable, ensure_ascii=False, separators=(",", ":"))
     return str(portable) if portable is not None else "—"
+
+
+def _display_values_equal(left: object, right: object) -> bool:
+    """Compare values using the existing normalization-review semantics."""
+
+    if left is right:
+        return True
+    return _display_value(left) == _display_value(right)

@@ -1,4 +1,13 @@
-"""Mapping browser routes."""
+"""Expose the Stage D mapping editor and its evidence transitions.
+
+Layer: web route. The save action parses the browser form into complete
+dataset-centric contracts, first preserves a recoverable working draft, then
+optionally asks ``MappingWorkspaceService`` to validate an immutable revision
+or submit it. Preview and transformation-impact routes are projections and do
+not authorize later migration stages.
+
+See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
+"""
 
 from __future__ import annotations
 import csv
@@ -52,6 +61,8 @@ from ..target_readers import _relationship_value_choices, _source_value_choices
 
 
 def build_mapping_router(context: WebContext) -> APIRouter:
+    """Build mapping editor, preview, impact, validation, and submission routes."""
+
     router = APIRouter()
 
     @router.get("/projects/{project_id}/mapping", response_class=HTMLResponse)
@@ -492,6 +503,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/mapping/save")
     async def save_project_mapping(request: Request, project_id: str):
+        """Preserve progress, then optionally validate or submit exact evidence."""
+
         require_session(request)
         json_request = _is_json_request(request)
         selection = context.queries.get_mapping_source_selection(project_id)
