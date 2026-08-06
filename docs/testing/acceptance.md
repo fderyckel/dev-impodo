@@ -672,7 +672,7 @@ The next performance target remains complete local preparation of 100,000
 physical rows in less than 120 seconds and less than 900 MiB peak working set.
 The supported limit is now 50,000 rows for bounded direct projects and 25,000
 for derived/materialized projects. The gates in the
-[100,000-row performance refactor plan](../plans/100k-performance-refactor-plan.md)
+[remaining-work plan](../plans/remaining-work.md#1-finish-bounded-preparation-and-raise-the-scale-limit)
 must pass before either path promises 100,000 rows. Every optimization must
 append comparable evidence here rather than replacing historical results.
 

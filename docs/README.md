@@ -5,7 +5,7 @@ read-only preflight engine, and the future migration product.
 
 Accepted decisions and contracts are normative. Architecture describes the
 current composition and boundaries; operations explain how to use it; testing
-records evidence; plans and the product vision describe future or historical
+records evidence; the remaining-work plan and product vision describe future
 delivery. Where an example conflicts with a **MUST**, **MUST NOT**, **SHOULD**,
 or **MAY** rule, the normative rule wins.
 
@@ -34,37 +34,11 @@ Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
 - [Architecture decisions](decisions/README.md) — accepted decisions that
   constrain implementation.
 
-## Active plans
+## Active plan
 
-- [Data-quality and staging delivery plan](plans/data-quality-and-staging-plan.md)
-  — current integration gap, delivery slices, acceptance requirements, and
-  decisions for full-row staging through clean-package certification.
-- [100,000-row performance refactor plan](plans/100k-performance-refactor-plan.md)
-  — measured path from the current 25,000-row materializing workflow to
-  bounded 100,000-row preparation in less than two minutes.
-- [DuckDB batch-transport optimization plan](plans/duckdb-batch-transport-optimization-plan.md)
-  — measured Windows persistence bottleneck and staged plan for faster local
-  staging, quality, normalization, and honest progress reporting.
-- [100,000-row bounded preparation implementation plan](plans/100k-bounded-preparation-plan.md)
-  — P3 design, increments, failure behavior, parity tests, and memory gates for
-  Products followed by BOM.
-- [Data-quality coverage ledger](plans/data-quality-coverage.md) — current
-  status of 24 capability families and the authoritative clean-package gates.
-- [Slice 4 normalization review plan](plans/slice-4-normalization-review-plan.md)
-  — implemented grouped prepared-value review, immutable decisions, exact
-  eligible-dataset freeze, and the gate before read-only Odoo comparison.
-- [Slice 5 durable preflight plan](plans/slice-5-durable-preflight-plan.md)
-  — implemented adapter from approved durable rows to bounded read-only Odoo
-  comparison, protected target evidence, and plain data-manager results.
-- [Slice 6 advanced coverage plan](plans/slice-6-advanced-coverage-plan.md)
-  — scoped structural, reference, domain, anomaly, fuzzy-resolution,
-  survivorship, and effective-dataset work before clean-package certification.
-- [Practical delivery reset](plans/practical-delivery-reset.md) — active path
-  to one 100–300-record disposable-target migration before expanding optional
-  governance or production controls.
-- [Python code documentation plan](plans/python-code-documentation-plan.md) —
-  phased module, class, method, and call-flow documentation for `src/impodo/`,
-  organized around migration Stages A–K.
+- [Impodo remaining work](plans/remaining-work.md) — the single forward-looking
+  roadmap for 100,000-row preparation, optional clean-package certification,
+  remote/production loading, and conditional gateway or hosted work.
 
 ## Contracts
 

@@ -102,9 +102,9 @@ ownership, classification, or retention changes invalidate the current
 normalization pointer while retaining history. The read-only Odoo comparison
 requires the exact current result in `FROZEN` state.
 
-The implementation boundary, evidence adapters, conservative review policy,
-data-manager UI, and freeze gate are specified in the
-[Slice 4 normalization review plan](../plans/slice-4-normalization-review-plan.md).
+The implemented boundary and evidence flow are mapped in the
+[Python code map](../architecture/python-code-map.md); future scale and package
+work is tracked only in the [remaining-work plan](../plans/remaining-work.md).
 
 ## Executable evidence
 

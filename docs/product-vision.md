@@ -26,14 +26,13 @@ controlled loading, and reconciliation.
 The current product provides local-browser project setup, CSV/XLSX source
 discovery and frozen datasets, read-only target-schema capture, governed
 mapping authoring, durable canonical and effective staging, integrated quality
-and normalization approval, and read-only Odoo comparison. It does not yet
-provide controlled Odoo loading or write reconciliation.
+and normalization approval, read-only Odoo comparison, a reviewed local Odoo
+19 load, a durable write journal, and post-write reconciliation.
 
-The active roadmap follows the
-[practical delivery reset](plans/practical-delivery-reset.md): complete one
-100–300-record migration in a disposable Odoo database before expanding
-optional governance or production controls. Advanced coverage capabilities
-remain available but are not prerequisites for the ordinary path.
+The completed disposable-target migration is retained as acceptance evidence.
+The active [remaining-work roadmap](plans/remaining-work.md) now prioritizes
+bounded 100,000-row preparation before optional clean-package, remote,
+production, gateway, or hosted capabilities.
 
 ## 2. User workflow
 
@@ -617,9 +616,8 @@ import/export, functional review, and approval.
 - joins, expansion, grouping, and declarative business rules;
 - scalable execution against large files.
 
-The current delivery sequence, integration boundaries, and acceptance gates
-are maintained in the
-[data-quality and staging delivery plan](plans/data-quality-and-staging-plan.md).
+Remaining scale and optional certification work is maintained in the
+[remaining-work plan](plans/remaining-work.md).
 
 ### Phase 4 — Integrated preflight
 

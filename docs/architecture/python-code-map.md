@@ -8,8 +8,8 @@ layer owns each decision, what evidence is produced, and what to open next.
 
 This is a navigation aid. The [contracts](../README.md#contracts) remain
 normative, and the
-[data-quality and staging plan](../plans/data-quality-and-staging-plan.md)
-records the current implementation boundary.
+[remaining-work plan](../plans/remaining-work.md) records unfinished delivery
+work without duplicating the current implementation boundary.
 
 **Documentation rollout:** the advisory DOC-0 inventory is active; the DOC-1
 navigation spine covers all six current journeys; and DOC-2 through DOC-5 now
