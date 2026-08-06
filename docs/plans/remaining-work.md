@@ -44,6 +44,8 @@ evidence, and failed publication must leave the last valid evidence current.
   for the 4,000-row effect-heavy workbook and the 50,000/100,000-row fixtures.
 - Record revision, fixture checksum, Python environment, batch sizes, elapsed
   time by phase, peak and ending working set, database size, counts, and hashes.
+- Add any missing bounded subphase counters needed to separate evaluation,
+  transport, hashing, commit, and checkpoint time without exposing row values.
 - Add the missing mixed related-dataset fixture. It must exercise relationships,
   derived entities, grouping, multi-source lineage, and ambiguity behavior.
 - Keep second-platform results as regression evidence, not as a substitute for
@@ -76,9 +78,9 @@ evidence, and failed publication must leave the last valid evidence current.
 
 ### 1.4 Profile before further persistence changes
 
-The high-volume direct-path DuckDB transports are already converted. Do not
-mechanically convert more tables. Profile the complete workflow after the
-Windows runs, then implement only demonstrated remaining bottlenecks:
+Do not mechanically convert more DuckDB tables. Profile the complete workflow
+after the Windows runs, then implement only demonstrated remaining
+bottlenecks:
 
 - remove repeated row decoding or effect construction;
 - reuse a bounded cursor where it improves measured behavior;
@@ -222,4 +224,3 @@ security, and Odoo integration suites.
    expectations define the first production profile?
 4. Which concrete business action, if any, justifies a target-side gateway?
 5. Which deployment requirement, if any, justifies the hosted composition?
-
