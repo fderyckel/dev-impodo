@@ -2468,6 +2468,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(packaged.status_code, 303)
         packaged_page = self.client.get(packaged.headers["location"])
         self.assertIn("Download review workbook", packaged_page.text)
+        self.assertIn("Recreate review workbook", packaged_page.text)
         workbook = self.client.get(
             f"/projects/{project_id}/summary/workbook"
         )
