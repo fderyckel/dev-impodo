@@ -187,18 +187,19 @@ Impodo already provides most of the safety foundation:
 - a deliberate separation between local/DuckDB and future
   hosted/PostgreSQL composition roots.
 
-The missing capabilities are:
+The practical local profile now implements the first three foundations:
 
-1. an automatically generated immutable migration snapshot and execution
-   manifest;
-2. a restricted native Odoo writer behind a portable executor port;
-3. an execution journal with explicit uncertain-outcome handling and a
-   target-specific ID crosswalk;
-4. post-write read-back and complete reconciliation;
-5. streamed preparation beyond the current 25,000-physical-row browser
+- an automatically generated immutable execution snapshot;
+- a restricted native Odoo writer behind a small executor port; and
+- a durable row journal with explicit uncertain outcomes and target IDs.
+
+The remaining capabilities are:
+
+1. post-write read-back and complete reconciliation;
+2. streamed preparation beyond the current 25,000-physical-row browser
    boundary;
-6. risk classification and the standard-profile operational controls;
-7. an optional target-side gateway for controlled-profile work.
+3. risk classification and the standard-profile operational controls; and
+4. an optional target-side gateway for controlled-profile work.
 
 ## Target architecture
 
@@ -786,6 +787,10 @@ a specific next action rather than a generic retry button.
 module, generic method surface, duplicate, or silent loss.
 
 ### Slice 1 — Routine migration MVP
+
+**Status:** In progress. The practical snapshot, local native writer, bounded
+dependency-ordered writes, durable row journal, uncertain-response stop, and
+preview/load UI are implemented. Read-back reconciliation and recovery remain.
 
 - Implement `MigrationSnapshotV1`, incremental row hashing,
   `ExecutionManifestV1`, DuckDB row-stream repositories, dependency ordering,

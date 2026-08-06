@@ -164,8 +164,9 @@ Before using real customer data or claiming production readiness, complete:
 - any required threat model, privacy assessment, penetration test, and
   customer security review.
 
-These gaps do not authorize broadening the connector. A future Odoo writer is
-a separate architecture and security workstream.
+These gaps do not authorize broadening the read connector or the practical
+writer. The current writer is a separate, local-only, allowlisted master-data
+boundary and is not production authorization.
 
 ## Evidence and references
 

@@ -7,10 +7,12 @@ from urllib.parse import urlencode
 from fastapi import HTTPException, Request
 
 from ...access import AuthorizationError, Capability
+from ...domain.errors import ReadinessError
 from ...domain.staging.scale import browser_evaluation_scale
 from ...local_stack import LocalStackError
 from ...projects import MigrationProject, OdooConnectionMode
 from ...reporting import WORKBOOK_NAME
+from ...workspace_errors import WorkspaceError
 from ..constants import (
     NORMALIZATION_GROUPS_PER_PAGE,
     ODOO_APPLICATIONS,
@@ -159,6 +161,12 @@ def _render_summary(
     ):
         quality = None
     report = context.preflight.current_report(project_id)
+    try:
+        load_preview = context.execution.current_preview(project_id)
+    except (ReadinessError, WorkspaceError):
+        # Historical or manually repaired preflight evidence may predate the
+        # execution artifact. It can still be reviewed and compared again.
+        load_preview = None
     quality_status = request.query_params.get("quality_status", "").strip()
     if quality_status not in {"", "ready", "review", "quarantined", "blocked"}:
         quality_status = ""
@@ -261,6 +269,7 @@ def _render_summary(
             else None
         ),
         readiness=report,
+        load_preview=load_preview,
         readiness_rows=rows,
         readiness_row_total=row_total,
         readiness_row_start=(row_start_index + 1 if row_total else 0),

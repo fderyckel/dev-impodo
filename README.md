@@ -5,21 +5,24 @@ Impodo is a local browser platform for preparing CSV and XLSX data for an Odoo
 target Odoo schema, and build a validated mapping before any migration work is
 considered.
 
-Today, Impodo connects to Odoo with read-only access only. Loading data into
-Odoo is not implemented yet; it is the next product capability and will be
-delivered shortly.
+Impodo's normal preparation and comparison workflow is read-only. For a
+disposable local Odoo 19 target, it can now preview and explicitly load a
+narrow allowlist of contacts, product categories, and products through Odoo's
+native API. Post-write read-back reconciliation is the next product slice.
 
 ## The platform
 
 Impodo runs locally on Windows and macOS and opens in the default browser on a
 local-only `127.0.0.1` address. Each project has its own local DuckDB database,
 which stores project evidence, source inspection results, frozen datasets,
-Odoo schema captures, mapping revisions, and validation results.
+Odoo schema captures, mapping revisions, validation results, and local load
+outcomes.
 
 The platform accepts `.csv` and `.xlsx` source files. It can connect to an
 authorised Odoo 19 target. A local Windows instance uses an explicitly
 selected `odoo.conf` and fixed read-only metadata operations without an Odoo
-API key. A remote instance requires HTTPS and a dedicated read-only API key.
+API key. The explicit local load does require an Odoo API key. A remote
+instance requires HTTPS and a dedicated read-only API key.
 Impodo does not classify targets by an organisation's lifecycle stages.
 
 The browser, source inspection, and read-only Odoo connection work on both
@@ -77,12 +80,21 @@ start a local Odoo stack separately before connecting to it in Impodo.
 Changing a confirmed source, frozen dataset, Odoo schema capture, or governed
 business key invalidates the active mapping so it must be validated again.
 
-**Delivery status:** Phase 1 (source discovery), Phase 2A (target schema),
-Phase 2B (identities, scope, and relationships), Phase 2C.1 (scalar providers,
-transformations, and guided value rules), mapping-ready lookup extraction, and
-parent/child dataset preparation are implemented. Durable structural staging, governed lookup
-translations, mapping import/export, functional review, and approval remain in
-later delivery scope.
+### Practical local load
+
+- Freezes the exact compared rows and field intentions automatically.
+- Shows create, update, and unchanged totals before any write.
+- Requires one explicit **Load into Odoo** action.
+- Uses an allowlisted JSON-2 writer, dependency-ordered batches, exact
+  business-key updates, and no direct SQL or generic RPC.
+- Journals every proposed write and stops without retrying after a lost write
+  response.
+- Shows the saved API outcome without claiming read-back verification.
+
+**Delivery status:** The bounded preparation, review, durable preflight,
+execution snapshot, and practical local load path are implemented. Read-back
+reconciliation, broader/remote loading, and production controls remain later
+delivery scope.
 
 ## Install and start
 

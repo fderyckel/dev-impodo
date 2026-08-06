@@ -16,6 +16,7 @@ from ..normalization import (
     NormalizationEvaluation,
     NormalizationReviewGroup,
     NormalizationRunSummary,
+    StoredNormalizationEvaluation,
     evaluate_normalization,
 )
 from ..projects import MigrationProject
@@ -25,6 +26,10 @@ from ..staging_contracts import CanonicalStagingRun
 from ..workspace_contracts import SourceSelection
 from ..domain.errors import ReadinessError
 from .readiness_ports import NormalizationRepository
+from .bounded_normalization import (
+    BoundedNormalizationUnsupported,
+    build_bounded_normalization_evaluation,
+)
 
 
 class NormalizationService:
@@ -180,16 +185,46 @@ class NormalizationService:
             for item in impact_rows
         )
         try:
-            evaluation = evaluate_normalization(
-                project=project,
-                staging=canonical_run,
-                quality=quality_run,
-                mappings=mappings,
-                candidates=candidates,
-                published_staging_content_hash=staging.content_hash,
-                published_quality_content_hash=quality.content_hash,
-                effective=effective,
-            )
+            if (
+                isinstance(canonical_run, StoredCanonicalStagingRun)
+                and isinstance(quality_run, StoredQualityRun)
+            ):
+                try:
+                    evaluation: (
+                        NormalizationEvaluation
+                        | StoredNormalizationEvaluation
+                    ) = build_bounded_normalization_evaluation(
+                        project=project,
+                        staging=canonical_run,
+                        quality=quality_run,
+                        mappings=mappings,
+                        impact_rows=impact_rows,
+                        staging_content_hash=staging.content_hash,
+                        quality_content_hash=quality.content_hash,
+                        effective=effective,
+                    )
+                except BoundedNormalizationUnsupported:
+                    evaluation = evaluate_normalization(
+                        project=project,
+                        staging=canonical_run,
+                        quality=quality_run,
+                        mappings=mappings,
+                        candidates=candidates,
+                        published_staging_content_hash=staging.content_hash,
+                        published_quality_content_hash=quality.content_hash,
+                        effective=effective,
+                    )
+            else:
+                evaluation = evaluate_normalization(
+                    project=project,
+                    staging=canonical_run,
+                    quality=quality_run,
+                    mappings=mappings,
+                    candidates=candidates,
+                    published_staging_content_hash=staging.content_hash,
+                    published_quality_content_hash=quality.content_hash,
+                    effective=effective,
+                )
         except NormalizationError as error:
             raise ReadinessError(str(error)) from error
         return self.repository.publish_normalization_run(

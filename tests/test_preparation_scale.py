@@ -54,6 +54,10 @@ from impodo.projects import (
     ProjectStatus,
     SourceFile,
 )
+from impodo.normalization import (
+    NormalizationCandidate,
+    evaluate_normalization,
+)
 from impodo.quality import (
     QualityOutcomePolicy,
     QualityOwnerRole,
@@ -882,6 +886,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             create=True,
             return_value={},
         ):
+            legacy_impacts = []
             legacy = preparation_module.stage_browser_mapping(
                 project,
                 revision.definition,
@@ -892,13 +897,22 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 self.artifacts,
                 collect_transformation_impact=True,
                 transformation_detail_limit=0,
+                transformation_impact_sink=legacy_impacts.append,
             )
 
-        with patch.object(
-            self.context.preparation.staging,
-            "get_canonical_staging_run",
-            side_effect=AssertionError(
-                "bounded preparation must not reload every canonical row"
+        with (
+            patch.object(
+                self.context.preparation.staging,
+                "get_canonical_staging_run",
+                side_effect=AssertionError(
+                    "bounded preparation must not reload every canonical row"
+                ),
+            ),
+            patch(
+                "impodo.application.normalization_service.evaluate_normalization",
+                side_effect=AssertionError(
+                    "bounded preparation must not materialize normalization"
+                ),
             ),
         ):
             self.context.preparation.prepare(
@@ -937,6 +951,55 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertIsNotNone(stored_quality)
         assert stored_quality is not None
         self.assertEqual(stored_quality.to_json(), expected_quality.to_json())
+        datasets_by_id = {item.dataset_id: item for item in effective.datasets}
+        mappings = {
+            datasets_by_id[item.dataset_id].name: item
+            for item in revision.definition.datasets
+        }
+        expected_normalization = evaluate_normalization(
+            project=project,
+            staging=legacy.canonical_run,
+            quality=expected_quality,
+            mappings=mappings,
+            candidates=(
+                NormalizationCandidate(
+                    dataset=item.dataset,
+                    source_row=item.source_row,
+                    source_label=item.source_column,
+                    target_field=item.target_field,
+                    raw_display=item.raw_value,
+                    proposed_display=item.proposed_value,
+                    rules=item.rules,
+                    outcome=item.outcome,
+                    message=item.message,
+                )
+                for item in legacy_impacts
+            ),
+            published_staging_content_hash=summary.content_hash,
+            published_quality_content_hash=quality_summary.content_hash,
+        )
+        normalization_summary = (
+            self.context.preparation.normalization.current_summary(project_id)
+        )
+        self.assertIsNotNone(normalization_summary)
+        assert normalization_summary is not None
+        self.assertEqual(
+            normalization_summary.content_hash,
+            expected_normalization.content_hash,
+        )
+        stored_normalization = (
+            self.context.preparation.normalization.repository
+            .get_normalization_evaluation(
+                project_id,
+                normalization_summary.run_id,
+            )
+        )
+        self.assertIsNotNone(stored_normalization)
+        assert stored_normalization is not None
+        self.assertEqual(
+            stored_normalization.to_json(),
+            expected_normalization.to_json(),
+        )
         database_path = self.root / project_id / "project.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
             sessions = connection.execute(

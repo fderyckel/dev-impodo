@@ -130,6 +130,41 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
             start += len(batch)
 
 
+class _SessionImpacts:
+    """Replay finalized transformation impacts without materializing them."""
+
+    def __init__(
+        self,
+        repository: "PreparationSessionRepository",
+        project_id: str,
+        session_id: str,
+    ) -> None:
+        self._repository = repository
+        self._project_id = project_id
+        self._session_id = session_id
+
+    def __iter__(self) -> Iterator[TransformationImpactRow]:
+        yield from self._repository._iter_impacts(
+            self._project_id,
+            self._session_id,
+        )
+
+    def iter_bound_rows(
+        self,
+        *,
+        connection=None,
+        batch_size: int = PREPARATION_SESSION_ROW_BATCH_SIZE,
+    ):
+        """Yield each impact with its unique canonical row ID."""
+
+        yield from self._repository._iter_bound_impacts(
+            self._project_id,
+            self._session_id,
+            connection=connection,
+            batch_size=batch_size,
+        )
+
+
 class PreparationSessionRepository(DuckDbRepository):
     """Persist provisional rows and expose a bounded canonical publication."""
 
@@ -853,23 +888,43 @@ class PreparationSessionRepository(DuckDbRepository):
         self,
         project_id: str,
         session_id: str,
+    ) -> _SessionImpacts:
+        """Return a replayable bounded view of persisted transformation impacts."""
+
+        return _SessionImpacts(self, project_id, self._session_id(session_id))
+
+    def _iter_impacts(
+        self,
+        project_id: str,
+        session_id: str,
     ) -> Iterator[TransformationImpactRow]:
-        """Yield persisted impacts in original deterministic emission order."""
+        """Yield persisted impacts in deterministic bounded ordinal pages."""
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
             self._migrate_project_database(connection)
-            cursor = connection.execute(
+            next_ordinal = 0
+            while batch := connection.execute(
                 """
-                SELECT impact_json
+                SELECT ordinal, impact_json
                   FROM preparation_impact_row
                  WHERE session_id = ?
+                   AND ordinal >= ?
                  ORDER BY ordinal
+                 LIMIT ?
                 """,
-                [self._session_id(session_id)],
-            )
-            while batch := cursor.fetchmany(PREPARATION_SESSION_ROW_BATCH_SIZE):
-                for (row_text,) in batch:
+                [
+                    self._session_id(session_id),
+                    next_ordinal,
+                    PREPARATION_SESSION_ROW_BATCH_SIZE,
+                ],
+            ).fetchall():
+                for ordinal, row_text in batch:
+                    if int(ordinal) != next_ordinal:
+                        raise WorkspaceError(
+                            "Stored preparation impacts are not contiguous"
+                        )
+                    next_ordinal += 1
                     try:
                         yield transformation_impact_from_portable_dict(
                             json.loads(str(row_text))
@@ -878,6 +933,61 @@ class PreparationSessionRepository(DuckDbRepository):
                         raise WorkspaceError(
                             "Stored preparation impact is invalid"
                         ) from error
+
+    def _iter_bound_impacts(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        connection=None,
+        batch_size: int,
+    ):
+        """Join impact coordinates to one canonical row in bounded pages."""
+
+        if connection is None:
+            database_path = self.project_directory(project_id) / "project.duckdb"
+            with self._connect(database_path) as owned_connection:
+                self._migrate_project_database(owned_connection)
+                yield from self._iter_bound_impacts(
+                    project_id,
+                    session_id,
+                    connection=owned_connection,
+                    batch_size=batch_size,
+                )
+            return
+
+        canonical_session_id = self._session_id(session_id)
+        next_ordinal = 0
+        while batch := connection.execute(
+            """
+            SELECT impact.ordinal, impact.impact_json, canonical.row_id
+              FROM preparation_impact_row AS impact
+              JOIN preparation_final_row AS canonical
+                ON canonical.session_id = impact.session_id
+               AND canonical.dataset = impact.dataset
+               AND canonical.source_row = impact.source_row
+             WHERE impact.session_id = ?
+               AND impact.ordinal >= ?
+             ORDER BY impact.ordinal
+             LIMIT ?
+            """,
+            [canonical_session_id, next_ordinal, batch_size],
+        ).fetchall():
+            for ordinal, row_text, row_id in batch:
+                if int(ordinal) != next_ordinal:
+                    raise WorkspaceError(
+                        "Prepared changes do not match one canonical row"
+                    )
+                next_ordinal += 1
+                try:
+                    impact = transformation_impact_from_portable_dict(
+                        json.loads(str(row_text))
+                    )
+                except (TypeError, ValueError) as error:
+                    raise WorkspaceError(
+                        "Stored preparation impact is invalid"
+                    ) from error
+                yield impact, str(row_id)
 
     def mark_published(self, project_id: str, session_id: str) -> None:
         """Retain value-free status metadata and remove all temporary evidence."""

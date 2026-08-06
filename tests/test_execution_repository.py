@@ -1,0 +1,188 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import datetime, timezone
+from pathlib import Path
+import tempfile
+import unittest
+from uuid import uuid4
+
+from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from impodo.adapters.duckdb.constants import SCHEMA_VERSION
+from impodo.adapters.duckdb.database import DuckDbDatabase
+from impodo.adapters.duckdb.execution_repository import ExecutionRepository
+from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.domain.execution import (
+    ExecutionRowAttempt,
+    ExecutionRowStatus,
+    ExecutionRun,
+    ExecutionRunStatus,
+)
+from impodo.projects import ProjectService
+
+
+ROOT = Path(__file__).resolve().parents[1]
+HASH = "sha256:" + "1" * 64
+TARGET_HASH = "sha256:" + "2" * 64
+
+
+class ExecutionRepositoryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        (ROOT / ".tmp").mkdir(exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.database = DuckDbDatabase(self.temporary.name)
+        self.projects = ProjectRepository(self.database)
+        self.repository = ExecutionRepository(self.database)
+        self.project = ProjectService(
+            self.projects,
+            CapabilityAuthorizationPolicy(),
+        ).create_project(
+            actor=LOCAL_ACTOR,
+            name="Execution journal",
+            source_system="CSV",
+        )
+        self.preflight_id = str(uuid4())
+        path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
+        with self.projects._connect(path) as connection:
+            connection.execute(
+                """
+                INSERT INTO readiness_run (
+                    run_id, mapping_id, mapping_version, mapping_content_hash,
+                    target_hash, staging_run_id, staging_content_hash,
+                    quality_run_id, quality_content_hash, checked_at,
+                    checked_by, report_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    self.preflight_id,
+                    str(uuid4()),
+                    1,
+                    HASH,
+                    TARGET_HASH,
+                    str(uuid4()),
+                    HASH,
+                    str(uuid4()),
+                    HASH,
+                    datetime.now(timezone.utc).isoformat(),
+                    "Test operator",
+                    "{}",
+                ],
+            )
+            connection.execute(
+                "INSERT INTO preflight_current VALUES (1, ?)",
+                [self.preflight_id],
+            )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def _run(self) -> ExecutionRun:
+        rows = tuple(
+            ExecutionRowAttempt(
+                row_id="sha256:" + f"{index:064x}",
+                dataset="contacts",
+                source_row=index + 2,
+                target_model="res.partner",
+                operation="CREATE" if index == 1 else "UPDATE",
+                field_names=("name",),
+                proposed_external_id=f"impodo_test.contact_{index}",
+            )
+            for index in (1, 2)
+        )
+        return ExecutionRun(
+            run_id=str(uuid4()),
+            project_id=self.project.project_id,
+            snapshot_hash=HASH,
+            snapshot_root_hash=HASH,
+            preflight_run_id=self.preflight_id,
+            target_hash=TARGET_HASH,
+            target_database="odoo19_disposable",
+            status=ExecutionRunStatus.RUNNING,
+            started_at=datetime.now(timezone.utc),
+            started_by="Test operator",
+            completed_at=None,
+            rows=rows,
+        )
+
+    def test_journals_every_row_and_reloads_terminal_result(self) -> None:
+        run = self._run()
+        self.repository.start_run(
+            self.project.project_id,
+            run,
+            actor=LOCAL_ACTOR,
+        )
+        self.repository.record_outcomes(
+            self.project.project_id,
+            run.run_id,
+            (
+                replace(
+                    run.rows[0],
+                    status=ExecutionRowStatus.COMMITTED,
+                    attempt=1,
+                    odoo_id=42,
+                ),
+                replace(
+                    run.rows[1],
+                    status=ExecutionRowStatus.BLOCKED,
+                    safe_error="Dependency did not complete",
+                ),
+            ),
+        )
+
+        finished = self.repository.finish_run(
+            self.project.project_id,
+            run.run_id,
+            ExecutionRunStatus.COMPLETED_WITH_ERRORS,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(finished.status, ExecutionRunStatus.COMPLETED_WITH_ERRORS)
+        self.assertEqual(finished.committed_count, 1)
+        self.assertEqual(finished.blocked_count, 1)
+        self.assertEqual(
+            self.repository.get_current_run(
+                self.project.project_id,
+                HASH,
+            ),
+            finished,
+        )
+        path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
+        with self.projects._connect(path) as connection:
+            events = connection.execute(
+                """
+                SELECT event_type FROM audit_event
+                 WHERE event_type LIKE 'ODOO_LOAD_%' ORDER BY event_id
+                """
+            ).fetchall()
+        self.assertEqual(events, [("ODOO_LOAD_STARTED",), ("ODOO_LOAD_FINISHED",)])
+
+    def test_version_twenty_three_adds_execution_tables(self) -> None:
+        path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
+        with self.projects._connect(path) as connection:
+            connection.execute("DROP TABLE execution_current")
+            connection.execute("DROP TABLE execution_row")
+            connection.execute("DROP TABLE execution_run")
+            connection.execute("UPDATE schema_version SET version = 23")
+
+        self.projects.get(self.project.project_id)
+
+        with self.projects._connect(path) as connection:
+            version = connection.execute("SELECT version FROM schema_version").fetchone()
+            tables = {
+                str(item[0])
+                for item in connection.execute(
+                    """
+                    SELECT table_name FROM information_schema.tables
+                     WHERE table_name LIKE 'execution_%'
+                    """
+                ).fetchall()
+            }
+        self.assertEqual(version, (SCHEMA_VERSION,))
+        self.assertEqual(
+            tables,
+            {"execution_current", "execution_row", "execution_run"},
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

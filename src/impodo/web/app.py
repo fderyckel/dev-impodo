@@ -123,10 +123,10 @@ def create_local_app(
     """Construct the loopback FastAPI application for migration Stages A–J.
 
     Production defaults use per-project DuckDB repositories, local artifact
-    storage, the credential vault, inline jobs, and closed read-only Odoo
-    adapters. Parameters expose the security, storage, job, and reader seams so
-    tests or another local composition can replace them without changing
-    application/domain behavior.
+    storage, the credential vault, inline jobs, closed read-only Odoo adapters,
+    and the separate practical writer. Parameters expose the security, storage,
+    job, reader, and writer seams so tests or another local composition can
+    replace them without changing application/domain behavior.
 
     The returned app keeps the assembled :class:`WebContext` in
     ``app.state.context`` and passes that same context to every router. This

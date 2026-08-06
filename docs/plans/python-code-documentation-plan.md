@@ -34,11 +34,10 @@ Current progress:
   credential storage, idempotent jobs, local-stack process ownership, hardened
   DuckDB connections/unit-of-work/migrations, downstream invalidation, stable
   serialization/hashing, transactional audit, composition, and error translation.
-- DOC-6: complete. Standalone approval objects and future Stages I–K are now
-  explicitly separated from implemented Stage-H readiness. Read/composition
-  boundaries state that no writer, execution journal, or post-write
-  reconciliation exists, and normal tests enforce module orientation while
-  public-symbol gaps remain an advisory review report.
+- DOC-6: complete and maintained through the practical Stage-J addition.
+  Standalone higher-risk approvals remain separate; the narrow local writer,
+  execution journal, and preview/load route are documented as implemented,
+  while post-write reconciliation remains future work.
 
 This plan makes `src/impodo/` understandable from inside the Python files.
 Its success criterion is practical: after opening a module, a maintainer should
@@ -109,7 +108,7 @@ the authority for current implementation status.
 | G — Resolve relationships | Implemented mapping validation, derived parent/child preparation, symbolic references, and preflight lookup resolution within the current bounded workflow | `derived_entities.py`, `reference_keys.py`, `domain/mapping/validation/`, `domain/compiler/`, `engine.py` |
 | H — Read-only target preflight | Implemented durable-input loading, bounded target-read planning, metadata validation, comparison, classifications, and reports | `application/preflight_service.py`, `domain/preflight/`, `planner.py`, `metadata.py`, `catalog.py`, `engine.py`, `reporting.py`, connectors and preflight repositories/routes |
 | I — Freeze exact execution input | The practical browser path automatically emits and revalidates a hash-bound execution snapshot; optional clean-package certification and approval remain unintegrated | `domain/execution_snapshot.py`, `application/preflight_service.py`, plus `approvals.py` as a future higher-risk boundary |
-| J — Controlled Odoo execution | Not implemented; current Odoo surfaces are read-only | document the prohibition and extension boundary in connectors, authorization, and architecture-facing modules |
+| J — Controlled Odoo execution | Implemented only for the practical disposable-local master-data scope through a separate closed writer and durable journal | `application/execution_service.py`, `domain/execution.py`, `odoo_writer.py`, DuckDB execution repository/migration, load router/template, and composition |
 | K — Reconcile | Not implemented as a post-write workflow | document as a future boundary; do not imply that source/staging accounting is post-write reconciliation |
 
 This table belongs in a shorter, navigable form in the eventual code map. A
@@ -365,7 +364,7 @@ violations as architecture work, not something documentation should disguise.
 **Exit gate:** cross-cutting guarantees are described once at their owner and
 referenced from consumers instead of being inconsistently repeated.
 
-### DOC-6 — Mark future Stages I–K and keep docs current
+### DOC-6 — Mark implemented and future stages accurately
 
 **Size:** Small initially, then continuous.
 
@@ -374,10 +373,12 @@ continuous.
 
 - Document `approvals.py` as standalone domain behavior, not an integrated
   executable import plan.
-- Mark clean-package certification, controlled Odoo writes, execution journal,
-  and post-write reconciliation as future boundaries.
-- State the read-only restriction at every connector/composition boundary
-  where a future writer might otherwise be inferred.
+- Mark the practical execution snapshot, narrow local writer, execution
+  journal, and load route as implemented without implying production support.
+- Keep clean-package certification, higher-risk approval, and post-write
+  reconciliation as future boundaries.
+- State the read-only restriction on reader connectors and point to the
+  separate allowlisted writer where write behavior might otherwise be inferred.
 - Add an advisory documentation report to normal verification, then consider
   making missing docs blocking only for newly added public services, ports,
   repositories, and domain operations.
@@ -385,9 +386,9 @@ continuous.
   binding, side effect, or migration-stage status changes, update the owning
   docstring, code map, contract/plan, and focused tests together.
 
-**Exit gate:** current code never claims to implement Stages I–K, and new
-public workflow APIs cannot be merged without an explicit documentation
-decision.
+**Exit gate:** current code claims only the Stage I–J scope it actually
+implements, keeps Stage K explicit, and documents every new public workflow
+boundary as it is added.
 
 ## Review and delivery rules
 

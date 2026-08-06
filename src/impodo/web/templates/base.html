@@ -23,7 +23,7 @@
     {% set nav_active = "schema" %}
   {% elif "/mapping" in current_path %}
     {% set nav_active = "mapping" %}
-  {% elif "/summary" in current_path or "/normalization" in current_path %}
+  {% elif "/summary" in current_path or "/normalization" in current_path or "/load" in current_path %}
     {% set nav_active = "summary" %}
   {% endif %}
   <head>
@@ -52,7 +52,7 @@
         </div>
       </div>
       <span class="boundary">
-        Safe preview · Odoo stays unchanged
+        {% if "/load" in current_path %}Local test load · explicit action only{% else %}Safe preview · Odoo stays unchanged{% endif %}
         {{ app_icon("shield-check") }}
       </span>
     </header>

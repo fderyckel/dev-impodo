@@ -3,8 +3,9 @@
 ## Status and ownership
 
 **Status:** Active delivery plan. Slices 0 through 6 are complete for the
-bounded browser workflow; package certification and Odoo execution remain
-later slices.
+bounded browser workflow. The separate practical path now has a narrow local
+Odoo loader; clean-package certification and post-write reconciliation remain
+later work.
 
 This plan owns the work that turns the implemented, transient all-row browser
 readiness path into durable canonical staging, governed normalization, and a
@@ -38,6 +39,7 @@ certifiable read-only preflight package. It does not redefine:
 | Quality and quarantine | Versioned automatic and guided checks, dual source/canonical accounting, immutable quarantine evidence, bounded review paging, and eligible-row filtering before Odoo comparison are integrated |
 | Staging and certification | Durable atomic canonical staging, row controls, opt-in named business totals, and normalization freeze are integrated. Clean-package certification remains absent |
 | Advanced coverage | Approved scope and reference revisions, bounded structural rules, deterministic duplicate candidates, reviewed survivor/correction evidence, effective rows, and advanced quality checks are integrated without Odoo writes |
+| Practical Odoo execution | The execution snapshot, explicit local load preview, allowlisted contacts/categories/products writer, bounded batches, and durable row journal are integrated separately; read-back reconciliation is not yet implemented |
 
 Read-only preflight now runs directly from durable frozen effective rows
 instead of recomputing a transient prepared bundle. Slice 6 is complete. The

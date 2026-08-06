@@ -11,9 +11,10 @@ Project setup -> Source data -> Odoo fields -> Match fields -> Review
 
 Impodo registers and inspects CSV/XLSX evidence, freezes selected datasets,
 captures an Odoo 19 schema, and creates validated mapping revisions. After
-submission, it can check every frozen source row against the mapping and the
-read-only Odoo evidence. It does not write to Odoo or reconcile a completed
-load.
+submission, it can check every frozen source row against read-only Odoo
+evidence. For contacts, product categories, and products on a disposable Local
+Odoo 19 target, it can then perform one explicitly confirmed native-API load.
+It does not yet read the written rows back or reconcile a completed load.
 
 The [migration project contract](../contracts/01-migration-project.md) and
 [browser workspace contract](../contracts/02-workspace.md) define the exact
@@ -37,8 +38,12 @@ The screenshots use fictional training data at a desktop viewport.
 11. Resolve blocking findings, review warnings, and submit the exact revision.
 12. Open **Review**, select **Check all rows**, and fix or review every row
     Impodo identifies.
-13. Create the review workbook when every row is ready.
-14. Use **Quit Impodo** when finished.
+13. Optionally create the review workbook when every row is ready.
+14. For a disposable Local Odoo target, open **Preview Odoo load**, review the
+    totals, enter the Odoo API key, and select **Load into Odoo** once.
+15. Review the saved row outcomes. Treat them as API receipts until read-back
+    reconciliation is implemented.
+16. Use **Quit Impodo** when finished.
 
 ## Before starting
 
@@ -49,7 +54,9 @@ Prepare:
 - the source export date, data owner, classification, and retention decision;
 - the exact authorised Odoo 19 URL, database, models, and business keys;
 - a dedicated read-only API key for `REMOTE`, or the selected local
-  `odoo.conf` for `LOCAL`.
+  `odoo.conf` for `LOCAL` inspection;
+- an Odoo API key with the required model/field permissions if the approved
+  disposable-local load will be used.
 
 Keep the original export unchanged. When the source owner issues a correction,
 register it as new governed evidence rather than editing a registered project
@@ -566,14 +573,28 @@ plain-language reason and recommended action first; expand **Technical
 details** only when you need the classification or issue code.
 
 After every relevant source, mapping, schema, or target-evidence change, run
-the check again. When every row is ready, create the review workbook. The
-row check and review workbook remain read-only and do not authorize an
-Odoo import.
+the check again. When every row is ready, create the review workbook if useful.
+The row check and workbook remain read-only. Only the separate load preview's
+explicit **Load into Odoo** button starts writes.
 
 The downloadable Excel review workbook is created by Impodo's controlled Python
 runtime using the same `openpyxl` dependency already used for governed XLSX
 intake. It does not require Node.js. The workbook is downloaded for review; it
 is not embedded as an Excel preview in the browser.
+
+## 7. Preview and load the disposable local target
+
+When the current comparison has no blocked or ambiguous row, select **Preview
+Odoo load**. Confirm the exact target database and the create/update totals by
+dataset. This path is intentionally limited to Local Odoo 19 contacts, product
+categories, products, and simple many2one links.
+
+Enter an Odoo API key and select **Load into Odoo**. Impodo sends bounded create
+batches in dependency order and uniquely re-matches every update by its
+business key. It never retries a write whose response was lost. The result
+page records accepted, rejected, blocked, and unknown rows, but it is not yet
+read-back reconciliation. If any outcome is unknown, inspect Odoo before
+running a new comparison.
 
 ## Use Impodo safely today
 
@@ -585,8 +606,8 @@ is not embedded as an Excel preview in the browser.
   after validation, and **Check all rows** after confirmation.
 - Recheck business keys, transformations, and relationships after any source
   or mapping revision.
-- Treat **Valid**, **Submitted**, and **Ready** as review states, never as Odoo
-  write authorization.
+- Treat **Valid**, **Submitted**, and **Ready** as review states. Only the
+  separate explicit **Load into Odoo** action authorizes this local test load.
 
 ## Final review
 

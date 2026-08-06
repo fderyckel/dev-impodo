@@ -329,6 +329,29 @@ class Json2WriteExecutorTests(unittest.TestCase):
             self.executor.create_rows("res.partner", ({"password": "No"},))
         with self.assertRaises(OdooWriteRejected):
             self.executor.find_ids("res.partner", ())
+        with self.assertRaises(OdooWriteRejected):
+            self.executor.create_rows(
+                "res.partner",
+                tuple({"name": f"Contact {index}"} for index in range(51)),
+            )
+
+    def test_server_error_and_invalid_create_receipt_are_uncertain(self):
+        server_error = Json2WriteExecutor(
+            self.executor.config,
+            transport=lambda *_args: (500, None),
+        )
+        with self.assertRaises(OdooWriteOutcomeUnknown):
+            server_error.create_rows("res.partner", ({"name": "Contact"},))
+
+        invalid_receipt = Json2WriteExecutor(
+            self.executor.config,
+            transport=lambda *_args: (200, [True]),
+        )
+        with self.assertRaises(OdooWriteOutcomeUnknown):
+            invalid_receipt.create_rows(
+                "res.partner",
+                ({"name": "Contact"},),
+            )
 
 
 if __name__ == "__main__":

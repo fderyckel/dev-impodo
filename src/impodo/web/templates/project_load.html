@@ -146,7 +146,7 @@
       <div>
         <p class="eyebrow">Load unavailable</p>
         <h2>Return to the data check</h2>
-        <p>Resolve rows needing attention, or compare again if this preview is no longer current.</p>
+        <p>{{ preview.scope_error or 'Resolve rows needing attention, or compare again if this preview is no longer current.' }}</p>
       </div>
       <a class="button primary" href="/projects/{{ project.project_id }}/summary">Back to review</a>
     </section>

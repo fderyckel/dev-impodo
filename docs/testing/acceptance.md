@@ -42,7 +42,7 @@ runtime is installed and that integration is part of the acceptance run.
 | --- | --- |
 | Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_web_app` |
 | Mapping, preparation, staging, and quality | `test_mapping_validation`, `test_derived_entities`, `test_advanced_coverage`, `test_preparation_session`, `test_readiness`, `test_staging_store`, `test_quality` |
-| Profile-driven and durable preflight | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_preflight_service`, `test_preflight_scale`, `test_reporting_cli` |
+| Profile-driven preflight and practical execution | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_preflight_service`, `test_execution_snapshot`, `test_execution_service`, `test_execution_repository`, `test_preflight_scale`, `test_reporting_cli` |
 | Local Odoo lifecycle | `test_local_odoo_reader`, `test_local_stack` |
 | Security, governance, hosting, and release | `test_project_security`, `test_governance`, `test_hosting_contracts`, `test_internal_release` |
 
@@ -172,6 +172,24 @@ certification remain pending.
 - the Review page shows New in Odoo, Different from Odoo, Already matches,
   Needs attention, and Set aside, and disables repeat submission while a
   comparison is running.
+
+### Practical local execution verified
+
+- only the current hash-bound execution snapshot can be loaded;
+- only Local Odoo 19 contacts, product categories, and products can write;
+- the native adapter exposes exact business-key lookup, bounded create, and
+  single-record update rather than generic RPC;
+- dependency-ordered creates resolve incoming many2one IDs before dependants;
+- every proposed write is journaled before target I/O and receives a terminal
+  row outcome;
+- a lost write response is recorded as `OUTCOME_UNKNOWN`, is not retried, and
+  blocks the remaining work;
+- schema version 23 migrates to the durable execution tables; and
+- the browser end-to-end test previews, confirms, journals, and renders a load
+  without exposing the submitted API key.
+
+Live Odoo write/read-back acceptance remains part of P3/P4, not this automated
+adapter proof.
 
 ### Verified
 

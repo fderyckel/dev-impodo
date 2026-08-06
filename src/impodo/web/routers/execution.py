@@ -108,12 +108,14 @@ def build_execution_router(context: WebContext) -> APIRouter:
         if run.unknown_count:
             _flash(
                 request,
-                "The Odoo response was lost. Impodo stopped without retrying; review the saved outcome below.",
+                "The Odoo response was lost. Impodo stopped without retrying; "
+                "review the saved outcome below.",
             )
         elif run.failed_count:
             _flash(
                 request,
-                "The load finished with rows that Odoo did not accept. Review the saved outcome below.",
+                "The load finished with rows that Odoo did not accept. "
+                "Review the saved outcome below.",
             )
         else:
             _flash(request, f"Odoo accepted {run.committed_count} row(s).")

@@ -6,9 +6,9 @@ for a future clean-package/import-plan workflow: no application service,
 repository, browser route, or executor currently creates or consumes them.
 Their presence must not be interpreted as Odoo write authorization.
 
-Stages J–K remain outside this module. There is no writer connector, execution
-journal, idempotent action executor, or post-write reconciliation contract in
-the current product.
+Stages J–K remain outside this module. The practical local writer and journal
+do not consume these optional higher-risk approvals, and post-write
+reconciliation is not implemented yet.
 """
 
 from __future__ import annotations

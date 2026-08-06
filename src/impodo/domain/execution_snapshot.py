@@ -3,7 +3,7 @@
 The snapshot is generated automatically from the exact frozen preparation
 input and its target comparison.  It is an internal reliability artifact,
 not another user approval.  Every compared row is accounted for, while only
-``CREATE`` and ``UPDATE`` rows carry field intentions for a future writer.
+``CREATE`` and ``UPDATE`` rows carry field intentions for the practical writer.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from ..models import (
 from ..profile import DatasetSpec, IdentityComponent, ResolveSpec
 
 
-EXECUTION_SNAPSHOT_VERSION = 1
+EXECUTION_SNAPSHOT_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +47,7 @@ class ExecutionDataset:
 
 @dataclass(frozen=True, slots=True)
 class FieldIntent:
-    """Explicit field effect consumed by the future allowlisted writer."""
+    """Explicit field effect consumed by the practical allowlisted writer."""
 
     field: str
     action: str

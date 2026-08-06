@@ -80,7 +80,7 @@ Phase 2B describe when capabilities were built; they are not the same thing.
 | G — Resolve relationships | Implemented across mapping validation, structural preparation, exact references, reviewed duplicate resolution, and preflight lookup resolution | [`domain/mapping/validation/`](../../src/impodo/domain/mapping/validation), [`domain/structural.py`](../../src/impodo/domain/structural.py), [`application/resolution_service.py`](../../src/impodo/application/resolution_service.py), and [`engine.py`](../../src/impodo/engine.py) |
 | H — Read-only target preflight | Implemented from approved durable rows and for strict CLI profiles | [`application/preflight_service.py`](../../src/impodo/application/preflight_service.py), [`domain/preflight/frozen_input.py`](../../src/impodo/domain/preflight/frozen_input.py), [`planner.py`](../../src/impodo/planner.py), and [`engine.py`](../../src/impodo/engine.py) |
 | I — Freeze exact practical execution input | Implemented automatically after browser preflight; no extra certification or approval lifecycle | [`domain/execution_snapshot.py`](../../src/impodo/domain/execution_snapshot.py), emitted and revalidated by [`application/preflight_service.py`](../../src/impodo/application/preflight_service.py) |
-| J — Controlled Odoo execution | Not implemented; connectors are intentionally read-only | [`connectors.py`](../../src/impodo/connectors.py) for the boundary, not a writer |
+| J — Controlled Odoo execution | Implemented for the narrow disposable-local master-data path; readers remain read-only | [`application/execution_service.py`](../../src/impodo/application/execution_service.py), [`odoo_writer.py`](../../src/impodo/odoo_writer.py), and [`web/routers/execution.py`](../../src/impodo/web/routers/execution.py) |
 | K — Reconcile after writes | Not implemented | Source/staging accounting must not be mistaken for post-write reconciliation |
 
 ## Local browser composition
@@ -576,23 +576,20 @@ Important boundaries when navigating:
 - `reporting.py` projects canonical portable results. The workbook is never an
   input to classification, approval, or persistence.
 
-## Practical Stage I and future Stage J–K boundaries
+## Practical Stages I–J and future Stage K boundary
 
-The practical path now freezes Stage-H evidence automatically as an internal
-execution snapshot. It still ends before target writes. The following objects
-and capability names reserve the optional approval profile and later product
-stages; they do not make controlled execution or reconciliation available:
+The practical path freezes Stage-H evidence automatically and can load its
+narrow, disposable-local master-data scope. Optional production approval and
+post-write reconciliation remain separate later boundaries:
 
 | Stage | Code that exists now | Remaining boundary |
 | --- | --- | --- |
 | I — Freeze exact execution input | [`domain/execution_snapshot.py`](../../src/impodo/domain/execution_snapshot.py) automatically adapts frozen prepared rows and Stage-H decisions into a portable, row-hashed artifact. The database-bound preflight manifest anchors its semantic hash. [`approvals.py`](../../src/impodo/approvals.py) still defines standalone higher-governance approval values. | The practical snapshot needs no separate approval; the user will confirm **Load** in Stage J. Clean-package certification, dual approval, expiry, and signed grants remain unintegrated optional controls for higher-risk targets. |
-| J — Controlled Odoo execution | `EXPORT_PLAN_EXECUTE` is a reserved capability and the product vision defines future safety requirements. | There is no Odoo writer port/adapter, application executor, write route/CLI command, idempotency ledger, execution journal, compensation policy, or write result contract. `OdooReadConnector` must remain closed to `fields_get`/`search_read`; a writer requires a separate boundary. |
+| J — Controlled Odoo execution | [`application/execution_service.py`](../../src/impodo/application/execution_service.py) validates the current snapshot and orders writes; [`odoo_writer.py`](../../src/impodo/odoo_writer.py) owns the separate closed JSON-2 write surface; [`adapters/duckdb/execution_repository.py`](../../src/impodo/adapters/duckdb/execution_repository.py) journals every proposed write; and the load route/template expose one explicit action and saved outcome. | Limited to Local Odoo 19, contacts/categories/products, creates, explicit updates, simple many2one relationships, and batches of at most 50. It is not production cutover, a generic writer, or read-back proof. |
 | K — Post-write reconciliation | Source accounting, staging reconciliation, quality counts, and Stage-H target snapshots exist. | None of these proves a write occurred. There is no post-write snapshot request, expected-versus-actual action reconciliation, target-result journal, rollback evidence, or closure workflow. |
 
-For Stage J–K, add new application ports/services and composition fields rather
-than broadening current readers or repurposing readiness reports. Update the
-product stage table, owning contracts, this map, and focused tests in the same
-change.
+Stage K must add a separate read-back service and reconciliation evidence
+rather than broadening the writer or repurposing readiness reports.
 
 ## Journey 6 — Compare approved rows with Odoo (Stage H)
 

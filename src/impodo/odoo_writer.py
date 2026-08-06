@@ -183,9 +183,12 @@ class Json2WriteExecutor:
         if not isinstance(response, list):
             raise OdooWriteRejected("Odoo returned an invalid lookup result")
         try:
-            identifiers = tuple(int(item["id"]) for item in response)
+            raw_identifiers = tuple(item["id"] for item in response)
         except (KeyError, TypeError, ValueError) as error:
             raise OdooWriteRejected("Odoo returned an invalid lookup result") from error
+        if any(type(item) is not int for item in raw_identifiers):
+            raise OdooWriteRejected("Odoo returned an invalid lookup result")
+        identifiers = tuple(raw_identifiers)
         if any(identifier <= 0 for identifier in identifiers):
             raise OdooWriteRejected("Odoo returned an invalid lookup result")
         return identifiers
@@ -214,12 +217,11 @@ class Json2WriteExecutor:
         if isinstance(response, int) and not isinstance(response, bool):
             identifiers = (response,)
         elif isinstance(response, list):
-            try:
-                identifiers = tuple(int(item) for item in response)
-            except (TypeError, ValueError) as error:
+            if any(type(item) is not int for item in response):
                 raise OdooWriteOutcomeUnknown(
                     "Odoo create returned an invalid receipt"
-                ) from error
+                )
+            identifiers = tuple(response)
         else:
             raise OdooWriteOutcomeUnknown("Odoo create returned an invalid receipt")
         if len(identifiers) != len(rows) or any(item <= 0 for item in identifiers):
@@ -298,7 +300,7 @@ class Json2WriteExecutor:
                 self.config.timeout_seconds,
                 "POST",
             )
-        except (TimeoutError, socket.timeout, URLError) as error:
+        except (TimeoutError, socket.timeout, URLError, ValueError) as error:
             if write:
                 raise OdooWriteOutcomeUnknown(
                     "The Odoo response was lost; the outcome is unknown"
@@ -308,4 +310,8 @@ class Json2WriteExecutor:
             return response
         if status in {401, 403}:
             raise OdooWriteRejected("Odoo did not authorize this load")
+        if write and status >= 500:
+            raise OdooWriteOutcomeUnknown(
+                "Odoo returned a server error; the outcome is unknown"
+            )
         raise OdooWriteRejected(f"Odoo rejected the load request (HTTP {status})")

@@ -118,13 +118,24 @@ current report. This is automatic internal evidence, not a new user approval.
 
 ### P2 — Preview and load a disposable target
 
-**Status:** Next.
+**Status:** Completed 2026-08-06.
 
-Add an allowlisted native writer for contacts, categories, and products. Show
-one preview, require one **Load** confirmation, execute bounded batches, and
-record each attempted row.
+The local browser now shows one business-language preview and one explicit
+**Load into Odoo** action. A separate JSON-2 writer permits only contacts,
+product categories, products, exact business-key lookups, bounded list-create
+batches, and one-record updates. It resolves simple many2one dependencies in
+dataset order and exposes no generic method, delete, direct SQL, `sudo`, or
+caller-controlled context.
+
+Every proposed create/update row is journaled before target I/O and ends as
+committed, failed, blocked, or outcome unknown. A lost write response stops the
+run without retrying. The browser shows the saved API outcome honestly as a
+receipt, not as read-back verification. P2 adds no 60-second or 512-MiB release
+gate; runtime and memory remain diagnostics.
 
 ### P3 — Reconcile and recover
+
+**Status:** Next.
 
 Read the written rows back by External ID or governed business key. Produce a
 plain result page and downloadable fallout list. On uncertain responses,

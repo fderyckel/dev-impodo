@@ -72,10 +72,10 @@ class WebContext:
     """Share one assembled set of local services and boundary callables.
 
     Service fields expose browser use cases; ``queries`` provides read-only
-    projections; reader callables isolate target I/O; and actor,
-    authorization, artifacts, jobs, secrets, and local-stack services provide
-    cross-cutting boundaries. The object is mutable only so the local launcher
-    and tests can replace explicitly injectable runtime seams.
+    projections; target callables isolate read and practical write I/O; and
+    actor, authorization, artifacts, jobs, secrets, and local-stack services
+    provide cross-cutting boundaries. The object is mutable only so the local
+    launcher and tests can replace explicitly injectable runtime seams.
     """
 
     queries: BrowserQueryService

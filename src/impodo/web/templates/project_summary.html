@@ -195,6 +195,12 @@
         {% elif readiness.needs_review_count %}
           <h2 id="next-action-title">Review {{ readiness.needs_review_count }} decision{{ "s" if readiness.needs_review_count != 1 else "" }}</h2>
           <p>Impodo needs your choice before it can mark the data check complete.</p>
+        {% elif load_preview and load_preview.can_load %}
+          <h2 id="next-action-title">Preview the Odoo load</h2>
+          <p>Review the exact create-and-update totals, then load them into the disposable local Odoo database.</p>
+        {% elif load_preview and load_preview.current_run %}
+          <h2 id="next-action-title">Review the saved load outcome</h2>
+          <p>See which rows Odoo accepted and whether any response needs checking.</p>
         {% elif review_workbook_ready %}
           <h2 id="next-action-title">Your review workbook is ready</h2>
           <p>Download the workbook to share or keep with the migration evidence.</p>
@@ -214,6 +220,16 @@
           <a class="button primary" href="#control-totals">Review totals</a>
         {% elif readiness.needs_review_count %}
           <a class="button primary" href="?status=needs_review#readiness-rows">Review decisions</a>
+        {% elif load_preview and (load_preview.can_load or load_preview.current_run) %}
+          <a class="button primary" href="/projects/{{ project.project_id }}/load">{% if load_preview.current_run %}View load outcome{% else %}Preview Odoo load{% endif %}</a>
+          {% if review_workbook_ready %}
+            <a class="button secondary" href="/projects/{{ project.project_id }}/summary/workbook">Download review workbook</a>
+          {% elif load_preview.can_load %}
+            <form method="post" action="/projects/{{ project.project_id }}/summary/package">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="button secondary" type="submit">Create review workbook</button>
+            </form>
+          {% endif %}
         {% elif review_workbook_ready %}
           <a class="button primary" href="/projects/{{ project.project_id }}/summary/workbook">Download review workbook</a>
         {% else %}

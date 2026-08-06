@@ -113,10 +113,11 @@ scripts for the model catalogue and `fields_get`; it is not a generic Odoo
 shell. Local stack controls can stop only services started and retained by the
 current Impodo session.
 
-There is no create, write, unlink, import, arbitrary model method, or SQL
-surface. A future write executor requires a separate connector, credential,
-authorization model, frozen plan, idempotency journal, reconciliation design,
-and security review.
+The reader has no create, write, unlink, import, arbitrary model method, or SQL
+surface. The practical disposable-local path uses a separate writer limited to
+allowlisted master-data models, fields, exact lookups, create, and write. Its
+frozen snapshot, authorization, and journal are independent of the reader;
+post-write reconciliation is still pending.
 
 ## Performance invariants
 
@@ -128,9 +129,10 @@ Odoo access must remain batched:
 - cache dependency resolution rather than rescanning datasets;
 - split very large key domains into deterministic bounded requests.
 
-No current or future Odoo reader should call `fields_get`, `search_read`,
-`browse`, or another ORM/RPC method inside a row loop. A future writer must use
-Odoo batch create/write patterns and avoid one-record-at-a-time ORM work.
+No Odoo reader should call `fields_get`, `search_read`, `browse`, or another
+ORM/RPC method inside a row loop. Creates use bounded list-form batches. The
+practical writer updates one uniquely re-matched record per call because Odoo
+write failures must remain attributable to one proposed row.
 
 ## Deployment boundary
 

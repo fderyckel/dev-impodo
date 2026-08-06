@@ -344,7 +344,14 @@ rules, but their review does not replace a required production approval.
 
 ### Stage J — Controlled Odoo execution
 
-The executor is a separate capability and security milestone. It:
+The first implemented executor profile is deliberately narrow: a disposable
+Local Odoo 19 database, contacts/product categories/products, create and
+explicit update, simple many2one relations, an allowlisted native JSON-2
+writer, bounded dependency-ordered batches, and a durable row journal. One
+explicit **Load into Odoo** action consumes the current frozen snapshot. A lost
+write response is recorded as outcome unknown and is never blindly retried.
+
+Broader or production execution remains a separate security milestone. It:
 
 - runs only against organisation-approved targets under the project's own
   promotion policy;
@@ -655,6 +662,6 @@ Confirmed:
 
 The mapping workspace may make governed local changes to drafts and derived
 staging records in order to validate and correct data. This does **not** give
-the current read-only preflight connector permission to change Odoo. Odoo
-writes remain a separate, approval-bound executor capability, as defined in
-Stage J.
+the read-only preflight connector permission to change Odoo. The practical
+writer is a separate, explicitly confirmed local executor capability. A later
+production profile may add approval-bound execution as defined in Stage J.

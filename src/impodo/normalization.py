@@ -433,6 +433,61 @@ class NormalizationEvaluation:
 
 
 @dataclass(frozen=True, slots=True)
+class StoredNormalizationEvaluation:
+    """Validated Stage-G header backed by a replayable bounded effect stream."""
+
+    project_id: str
+    staging_content_hash: str
+    quality_content_hash: str
+    mapping_hash: str
+    schema_hash: str
+    policy_hash: str
+    retention_context_hash: str
+    eligible_dataset_hash: str
+    effects: Iterable[NormalizationEffect]
+    groups: tuple[NormalizationReviewGroup, ...]
+    effect_count: int
+    changed_record_count: int
+    effective_dataset_hash: str
+    evaluator_version: int = NORMALIZATION_EVALUATOR_VERSION
+    contract_version: int = NORMALIZATION_CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        if (self.contract_version, self.evaluator_version) not in _SUPPORTED_NORMALIZATION_VERSIONS:
+            raise ValueError("Normalization evidence version is unsupported")
+        if not self.project_id or self.effect_count < 0 or self.changed_record_count < 0:
+            raise ValueError("Stored normalization evidence is incomplete")
+        for value, label in (
+            (self.staging_content_hash, "normalization staging hash"),
+            (self.quality_content_hash, "normalization quality hash"),
+            (self.mapping_hash, "normalization mapping hash"),
+            (self.schema_hash, "normalization schema hash"),
+            (self.policy_hash, "normalization policy hash"),
+            (self.retention_context_hash, "normalization retention hash"),
+            (self.eligible_dataset_hash, "eligible dataset hash"),
+            (self.effective_dataset_hash, "normalization effective-dataset hash"),
+        ):
+            _require_hash(value, label)
+        if self.groups != tuple(sorted(self.groups, key=lambda item: item.group_id)):
+            raise ValueError("Normalization groups must be deterministically ordered")
+        if len({item.group_id for item in self.groups}) != len(self.groups):
+            raise ValueError("Normalization groups must be unique")
+        if self.changed_record_count > self.effect_count:
+            raise ValueError("Changed records exceed normalization effects")
+
+    @property
+    def ready_count(self) -> int:
+        return sum(
+            group.outcome is NormalizationOutcome.AUTOMATIC
+            for group in self.groups
+        )
+
+    @property
+    def pending_group_count(self) -> int:
+        return sum(group.requires_decision for group in self.groups)
+
+
+@dataclass(frozen=True, slots=True)
 class NormalizationRunSummary:
     """Lifecycle and count projection for a durable Stage-G review run."""
 
@@ -741,7 +796,7 @@ def evaluate_normalization(
 
 
 def start_dry_run(
-    evaluation: NormalizationEvaluation,
+    evaluation: NormalizationEvaluation | StoredNormalizationEvaluation,
     *,
     run_id: str,
     source_hashes: Mapping[str, str],

@@ -22,6 +22,7 @@ from ..normalization import (
     NormalizationEvaluation,
     NormalizationReviewGroup,
     NormalizationRunSummary,
+    StoredNormalizationEvaluation,
 )
 from ..projects import MigrationProject
 from ..quality import (
@@ -275,7 +276,7 @@ class NormalizationRepository(Protocol):
     def publish_normalization_run(
         self,
         project_id: str,
-        evaluation: NormalizationEvaluation,
+        evaluation: NormalizationEvaluation | StoredNormalizationEvaluation,
         *,
         staging_run_id: str,
         quality_run_id: str,

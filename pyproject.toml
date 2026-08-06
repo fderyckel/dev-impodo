@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "impodo"
 version = "0.0.0"
-description = "Model-agnostic, read-only Odoo migration preflight engine"
+description = "Local Odoo migration preparation, preflight, and practical loading"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

@@ -2106,6 +2106,62 @@ class ProjectSetupWizardTests(unittest.TestCase):
             report.normalization_run_id,
         )
 
+        load_preview = self.app.state.context.execution.current_preview(project_id)
+        assert load_preview is not None
+        load_page = self.client.get(f"/projects/{project_id}/load")
+        self.assertEqual(load_page.status_code, 200)
+        self.assertIn("Review the Odoo load", load_page.text)
+        self.assertIn("Load into Odoo", load_page.text)
+        self.assertIn("contacts, categories, and products only", load_page.text)
+
+        class FakeWriteExecutor:
+            target_hash = load_preview.snapshot.target_hash
+
+            def __init__(self):
+                self.created = []
+                self.updated = []
+                self.next_id = 100
+
+            def find_ids(self, model, domain):
+                del model, domain
+                return (42,)
+
+            def create_rows(self, model, values):
+                rows = tuple(dict(item) for item in values)
+                self.created.append((model, rows))
+                identifiers = tuple(
+                    range(self.next_id, self.next_id + len(rows))
+                )
+                self.next_id += len(rows)
+                return identifiers
+
+            def update_row(self, model, record_id, values):
+                self.updated.append((model, record_id, dict(values)))
+
+        fake_writer = FakeWriteExecutor()
+        self.app.state.context.write_executor_factory = (
+            lambda _project, _api_key: fake_writer
+        )
+        loaded = self.client.post(
+            f"/projects/{project_id}/load",
+            data={
+                "csrf_token": self.csrf,
+                "snapshot_hash": load_preview.snapshot.semantic_hash,
+                "api_key": "load-secret",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(loaded.status_code, 303, loaded.text)
+        outcome_page = self.client.get(loaded.headers["location"])
+        self.assertIn("Saved load outcome", outcome_page.text)
+        self.assertIn("Odoo returned a successful API response", outcome_page.text)
+        self.assertEqual(
+            outcome_page.text.count("data-load-row"),
+            repeated_report.create_count + repeated_report.update_count,
+        )
+        self.assertNotIn("load-secret", outcome_page.text)
+
         report = repeated_report
         sample_row = self.app.state.context.preflight.readiness_rows(
             project_id,

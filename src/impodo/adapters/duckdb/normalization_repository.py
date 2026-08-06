@@ -29,6 +29,7 @@ from ...normalization import (
     NormalizationOutcome,
     NormalizationReviewGroup,
     NormalizationRunSummary,
+    StoredNormalizationEvaluation,
     start_dry_run,
 )
 from ...quality import retention_context_hash
@@ -59,7 +60,7 @@ class NormalizationRepository(DuckDbRepository):
     def publish_normalization_run(
         self,
         project_id: str,
-        evaluation: NormalizationEvaluation,
+        evaluation: NormalizationEvaluation | StoredNormalizationEvaluation,
         *,
         staging_run_id: str,
         quality_run_id: str,
@@ -530,7 +531,7 @@ class NormalizationRepository(DuckDbRepository):
         return summary
     @staticmethod
     def _normalization_evaluation_header(
-        evaluation: NormalizationEvaluation,
+        evaluation: NormalizationEvaluation | StoredNormalizationEvaluation,
     ) -> str:
         return _canonical_json(
             {
@@ -551,7 +552,7 @@ class NormalizationRepository(DuckDbRepository):
     def _insert_normalization_evidence(
         connection: duckdb.DuckDBPyConnection,
         run_id: str,
-        evaluation: NormalizationEvaluation,
+        evaluation: NormalizationEvaluation | StoredNormalizationEvaluation,
     ) -> str:
         hasher = CanonicalJsonObjectHasher()
         hasher.add_value("contract_version", evaluation.contract_version)
@@ -561,24 +562,58 @@ class NormalizationRepository(DuckDbRepository):
                 evaluation.effective_dataset_hash,
             )
         hasher.start_array("effects")
-        for start in range(0, len(evaluation.effects), NORMALIZATION_ROW_BATCH_SIZE):
-            batch = evaluation.effects[start : start + NORMALIZATION_ROW_BATCH_SIZE]
-            values: list[list[object]] = []
-            for offset, item in enumerate(batch):
-                item_json = _canonical_json(item.to_portable_dict())
-                hasher.add_encoded_array_item(item_json)
-                values.append([
-                    run_id,
-                    start + offset,
-                    item.effect_id,
-                    item.group_id,
-                    item.row_id,
-                    item.dataset,
-                    item.source_row,
-                    item.target_field,
-                    item.eligible,
-                    item_json,
-                ])
+        if isinstance(evaluation, StoredNormalizationEvaluation):
+            connection.execute(
+                """
+                CREATE TEMP TABLE normalization_pending_effect (
+                    effect_id VARCHAR PRIMARY KEY,
+                    group_id VARCHAR NOT NULL,
+                    row_id VARCHAR NOT NULL,
+                    dataset VARCHAR NOT NULL,
+                    source_row BIGINT NOT NULL,
+                    target_field VARCHAR NOT NULL,
+                    eligible BOOLEAN NOT NULL,
+                    effect_json VARCHAR NOT NULL
+                )
+                """
+            )
+            batch_reader = getattr(evaluation.effects, "iter_batches", None)
+            if not callable(batch_reader):
+                raise WorkspaceError(
+                    "Stored normalization effects are not replayable"
+                )
+            effect_count = 0
+            for batch in batch_reader(connection, NORMALIZATION_ROW_BATCH_SIZE):
+                values: list[list[object]] = []
+                for item in batch:
+                    values.append([
+                        item.effect_id,
+                        item.group_id,
+                        item.row_id,
+                        item.dataset,
+                        item.source_row,
+                        item.target_field,
+                        item.eligible,
+                        _canonical_json(item.to_portable_dict()),
+                    ])
+                connection.execute(
+                    """
+                    INSERT INTO normalization_pending_effect
+                    SELECT
+                        CAST(unnest(?) AS VARCHAR),
+                        CAST(unnest(?) AS VARCHAR),
+                        CAST(unnest(?) AS VARCHAR),
+                        CAST(unnest(?) AS VARCHAR),
+                        CAST(unnest(?) AS BIGINT),
+                        CAST(unnest(?) AS VARCHAR),
+                        CAST(unnest(?) AS BOOLEAN),
+                        CAST(unnest(?) AS VARCHAR)
+                    """,
+                    _columnar_parameters(values),
+                )
+                effect_count += len(batch)
+            if effect_count != evaluation.effect_count:
+                raise WorkspaceError("Stored normalization effects are incomplete")
             connection.execute(
                 """
                 INSERT INTO normalization_effect (
@@ -586,14 +621,69 @@ class NormalizationRepository(DuckDbRepository):
                     source_row, target_field, eligible, effect_json
                 )
                 SELECT
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                    CAST(unnest(?) AS BIGINT), CAST(unnest(?) AS VARCHAR),
-                    CAST(unnest(?) AS BOOLEAN), CAST(unnest(?) AS VARCHAR)
+                    ?, ROW_NUMBER() OVER (ORDER BY effect_id) - 1,
+                    effect_id, group_id, row_id, dataset, source_row,
+                    target_field, eligible, effect_json
+                  FROM normalization_pending_effect
                 """,
-                _columnar_parameters(values),
+                [run_id],
             )
+            cursor = connection.execute(
+                """
+                SELECT effect_json
+                  FROM normalization_effect
+                 WHERE run_id = ?
+                 ORDER BY ordinal
+                """,
+                [run_id],
+            )
+            hashed_effect_count = 0
+            while batch := cursor.fetchmany(NORMALIZATION_ROW_BATCH_SIZE):
+                for (effect_json,) in batch:
+                    hasher.add_encoded_array_item(str(effect_json))
+                    hashed_effect_count += 1
+            if hashed_effect_count != evaluation.effect_count:
+                raise WorkspaceError("Stored normalization effect order is incomplete")
+        else:
+            for start in range(
+                0,
+                len(evaluation.effects),
+                NORMALIZATION_ROW_BATCH_SIZE,
+            ):
+                batch = evaluation.effects[
+                    start : start + NORMALIZATION_ROW_BATCH_SIZE
+                ]
+                values = []
+                for offset, item in enumerate(batch):
+                    item_json = _canonical_json(item.to_portable_dict())
+                    hasher.add_encoded_array_item(item_json)
+                    values.append([
+                        run_id,
+                        start + offset,
+                        item.effect_id,
+                        item.group_id,
+                        item.row_id,
+                        item.dataset,
+                        item.source_row,
+                        item.target_field,
+                        item.eligible,
+                        item_json,
+                    ])
+                connection.execute(
+                    """
+                    INSERT INTO normalization_effect (
+                        run_id, ordinal, effect_id, group_id, row_id, dataset,
+                        source_row, target_field, eligible, effect_json
+                    )
+                    SELECT
+                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
+                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
+                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
+                        CAST(unnest(?) AS BIGINT), CAST(unnest(?) AS VARCHAR),
+                        CAST(unnest(?) AS BOOLEAN), CAST(unnest(?) AS VARCHAR)
+                    """,
+                    _columnar_parameters(values),
+                )
         hasher.end_array()
         hasher.add_value("eligible_dataset_hash", evaluation.eligible_dataset_hash)
         hasher.add_value("evaluator_version", evaluation.evaluator_version)

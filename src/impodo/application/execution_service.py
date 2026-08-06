@@ -29,6 +29,7 @@ from ..models import (
 )
 from ..odoo_writer import (
     MAX_CREATE_BATCH_ROWS,
+    PRACTICAL_LOOKUP_FIELDS,
     PRACTICAL_WRITE_FIELDS,
     OdooWriteExecutor,
     OdooWriteOutcomeUnknown,
@@ -85,6 +86,7 @@ class ExecutionPreview:
     snapshot: ExecutionSnapshot
     datasets: tuple[ExecutionDatasetPreview, ...]
     current_run: ExecutionRun | None
+    scope_error: str = ""
 
     @property
     def can_load(self) -> bool:
@@ -93,6 +95,7 @@ class ExecutionPreview:
             and int(self.snapshot.counts.get("BLOCKED", 0)) == 0
             and int(self.snapshot.counts.get("AMBIGUOUS", 0)) == 0
             and self.current_run is None
+            and not self.scope_error
         )
 
 
@@ -115,6 +118,7 @@ class ExecutionService:
         snapshot = self.preflight.current_execution_snapshot(project_id)
         if snapshot is None:
             return None
+        project = self.projects.get(project_id)
         current = self.journal.get_current_run(project_id, snapshot.semantic_hash)
         return ExecutionPreview(
             snapshot=snapshot,
@@ -142,6 +146,7 @@ class ExecutionService:
                 if any(row.dataset == dataset.dataset for row in snapshot.rows)
             ),
             current_run=current,
+            scope_error=_practical_snapshot_error(project, snapshot),
         )
 
     def execute(
@@ -419,15 +424,12 @@ class ExecutionService:
             raise WorkspaceError(
                 "This preview was already loaded. Compare with Odoo again first."
             )
+        if preview.scope_error:
+            raise WorkspaceError(preview.scope_error)
         if not preview.can_load:
             raise WorkspaceError("Resolve every blocked or ambiguous row before loading")
-        if not snapshot.target_odoo_version.startswith("19."):
-            raise WorkspaceError("The practical load path requires Odoo 19")
         if executor.target_hash != snapshot.target_hash:
             raise WorkspaceError("The load connection points to a different Odoo target")
-        models = {row.target_model for row in snapshot.rows if row.fields}
-        if not models or not models.issubset(PRACTICAL_WRITE_FIELDS):
-            raise WorkspaceError("The preview contains a model outside the load scope")
 
     def _row_values(
         self,
@@ -591,6 +593,50 @@ def _identity_domain(
             strict=True,
         )
     )
+
+
+def _practical_snapshot_error(
+    project: MigrationProject,
+    snapshot: ExecutionSnapshot,
+) -> str:
+    """Explain unsupported scope before the user can press Load."""
+
+    if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
+        return "This first load path is limited to a disposable local Odoo target"
+    if not snapshot.target_odoo_version.startswith("19."):
+        return "The practical load path requires Odoo 19"
+    write_rows = tuple(row for row in snapshot.rows if row.fields)
+    if not write_rows:
+        return "This preview has no rows to create or update"
+    datasets = {item.dataset: item for item in snapshot.datasets}
+    for row in write_rows:
+        allowed = PRACTICAL_WRITE_FIELDS.get(row.target_model)
+        if allowed is None or any(
+            intent.field not in allowed for intent in row.fields
+        ):
+            return (
+                "The preview contains an Odoo model or field outside the "
+                "practical load scope"
+            )
+        dataset = datasets.get(row.dataset)
+        lookup_fields = PRACTICAL_LOOKUP_FIELDS.get(row.target_model, frozenset())
+        if dataset is None or not set(
+            (*dataset.identity_fields, *dataset.scope_fields)
+        ).issubset(lookup_fields):
+            return "The preview uses a business key outside the practical load scope"
+        for intent in row.fields:
+            if intent.kind == "scalar" or intent.action != "SET_VALUE":
+                continue
+            if (
+                intent.relation_operation != "replace"
+                or isinstance(intent.value, tuple)
+                or intent.related_model not in PRACTICAL_LOOKUP_FIELDS
+            ):
+                return (
+                    "The first load path supports simple many-to-one "
+                    "relationships only"
+                )
+    return ""
 
 
 def _odoo_scalar(value: Any) -> Any:
