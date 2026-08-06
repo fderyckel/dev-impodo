@@ -1,4 +1,9 @@
-"""DuckDB normalization repository implementation."""
+"""DuckDB persistence for Stage-G review decisions and eligible-data freeze.
+
+The repository stores immutable evaluation effects/groups beside a versioned
+``DryRun`` lifecycle. Group decisions use optimistic lifecycle versions; final
+approval freezes the exact eligible-dataset hash for Stage H consumption.
+"""
 
 from __future__ import annotations
 
@@ -41,7 +46,7 @@ from .serialization import _canonical_json, _columnar_parameters
 
 
 class NormalizationRepository(DuckDbRepository):
-    """Persistence operations for normalization repository."""
+    """Implement publication, concurrent review, approval, and freeze."""
 
     def __init__(
         self,
@@ -97,7 +102,9 @@ class NormalizationRepository(DuckDbRepository):
                     """
                     SELECT staging.run_id, staging.content_hash,
                            quality.run_id, quality.content_hash,
-                           staging.mapping_hash, staging.schema_hash
+                           staging.mapping_hash, staging.schema_hash,
+                           quality.effective_dataset_run_id,
+                           quality.effective_dataset_hash
                       FROM canonical_staging_current AS staging_current
                       JOIN canonical_staging_run AS staging
                         ON staging.run_id = staging_current.run_id
@@ -117,6 +124,11 @@ class NormalizationRepository(DuckDbRepository):
                     or str(current_inputs[3]) != evaluation.quality_content_hash
                     or str(current_inputs[4]) != evaluation.mapping_hash
                     or str(current_inputs[5]) != evaluation.schema_hash
+                    or (
+                        str(current_inputs[7])
+                        if current_inputs[7] is not None
+                        else None
+                    ) != evaluation.effective_dataset_hash
                 ):
                     raise WorkspaceError(
                         "Prepared review no longer matches the current data"
@@ -168,9 +180,11 @@ class NormalizationRepository(DuckDbRepository):
                         published_at, published_by, eligible_record_count,
                         changed_record_count, automatic_group_count,
                         decision_group_count, set_aside_record_count,
-                        evaluation_json, dry_run_json, retired_at,
+                        evaluation_json, dry_run_json,
+                        effective_dataset_run_id, effective_dataset_hash,
+                        retired_at,
                         retired_reason, successor_run_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
                     """,
                     [
                         run_id,
@@ -197,6 +211,12 @@ class NormalizationRepository(DuckDbRepository):
                         set_aside_count,
                         self._normalization_evaluation_header(evaluation),
                         dry_run.to_json(),
+                        (
+                            str(current_inputs[6])
+                            if current_inputs[6] is not None
+                            else None
+                        ),
+                        evaluation.effective_dataset_hash,
                     ],
                 )
                 connection.execute(
@@ -249,6 +269,8 @@ class NormalizationRepository(DuckDbRepository):
         self,
         project_id: str,
     ) -> NormalizationRunSummary | None:
+        """Return the current non-retired review run's lifecycle projection."""
+
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -269,6 +291,8 @@ class NormalizationRepository(DuckDbRepository):
         project_id: str,
         run_id: str,
     ) -> NormalizationEvaluation | None:
+        """Reassemble immutable effect/group evidence and verify its hash."""
+
         canonical_run_id = self._normalization_run_id(run_id)
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
@@ -302,6 +326,8 @@ class NormalizationRepository(DuckDbRepository):
         project_id: str,
         run_id: str,
     ) -> DryRun | None:
+        """Load the current serialized decision state for one run."""
+
         canonical_run_id = self._normalization_run_id(run_id)
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
@@ -518,6 +544,7 @@ class NormalizationRepository(DuckDbRepository):
                 "policy_hash": evaluation.policy_hash,
                 "retention_context_hash": evaluation.retention_context_hash,
                 "eligible_dataset_hash": evaluation.eligible_dataset_hash,
+                "effective_dataset_hash": evaluation.effective_dataset_hash,
             }
         )
     @staticmethod
@@ -528,6 +555,11 @@ class NormalizationRepository(DuckDbRepository):
     ) -> str:
         hasher = CanonicalJsonObjectHasher()
         hasher.add_value("contract_version", evaluation.contract_version)
+        if evaluation.contract_version >= 2:
+            hasher.add_value(
+                "effective_dataset_hash",
+                evaluation.effective_dataset_hash,
+            )
         hasher.start_array("effects")
         for start in range(0, len(evaluation.effects), NORMALIZATION_ROW_BATCH_SIZE):
             batch = evaluation.effects[start : start + NORMALIZATION_ROW_BATCH_SIZE]
@@ -620,7 +652,8 @@ class NormalizationRepository(DuckDbRepository):
                    run.published_by, run.eligible_record_count,
                    run.changed_record_count, run.automatic_group_count,
                    run.decision_group_count, run.set_aside_record_count,
-                   run.dry_run_json
+                   run.dry_run_json, run.effective_dataset_run_id,
+                   run.effective_dataset_hash
               FROM normalization_run AS run
               {where}
         """
@@ -652,6 +685,12 @@ class NormalizationRepository(DuckDbRepository):
             decision_group_count=int(row[14]),
             reviewed_group_count=len(dry_run.group_decisions),
             set_aside_record_count=int(row[15]),
+            effective_dataset_run_id=(
+                str(row[17]) if len(row) > 17 and row[17] is not None else None
+            ),
+            effective_dataset_hash=(
+                str(row[18]) if len(row) > 18 and row[18] is not None else None
+            ),
         )
     @staticmethod
     def _normalization_run_id(run_id: str) -> str:

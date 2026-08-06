@@ -17,12 +17,13 @@ makes every conversion issue traceable to its original dataset and row.
 from __future__ import annotations
 
 import csv
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from hashlib import sha256
 from pathlib import Path
 from pathlib import PurePosixPath
 import stat
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 import zipfile
 
 from .canonical import ValueParseError, parse_field, parse_value
@@ -68,6 +69,39 @@ class SourceRow:
     values: dict[str, Any]
 
 
+@dataclass(slots=True)
+class SelectedSourceBatchStream:
+    """One-shot bounded reader for a validated browser source selection.
+
+    The owning :func:`open_selected_source_batches` context keeps the CSV file
+    or read-only workbook open while batches are consumed and closes it even
+    when evaluation stops early.
+    """
+
+    dataset: str
+    path: Path
+    headers: tuple[str, ...]
+    content_hash: str
+    batch_size: int
+    _rows: Iterator[SourceRow]
+
+    def __post_init__(self) -> None:
+        if self.batch_size < 1:
+            raise ValueError("Source batch size must be positive")
+
+    def iter_batches(self) -> Iterator[tuple[SourceRow, ...]]:
+        """Yield at most ``batch_size`` rows without retaining prior batches."""
+
+        batch: list[SourceRow] = []
+        for row in self._rows:
+            batch.append(row)
+            if len(batch) == self.batch_size:
+                yield tuple(batch)
+                batch.clear()
+        if batch:
+            yield tuple(batch)
+
+
 @dataclass(frozen=True, slots=True)
 class PreparedBundle:
     """All prepared records, global source issues, and source-file hashes."""
@@ -90,6 +124,51 @@ class PreparedBundle:
             dataset: tuple(records)
             for dataset, records in grouped.items()
         }
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledPreparedRowTransformer:
+    """Compile row-invariant source preparation for one effective dataset."""
+
+    dataset: DatasetSpec
+    missing_headers: tuple[str, ...]
+
+    @classmethod
+    def compile(
+        cls,
+        dataset: DatasetSpec,
+        headers: Iterable[str],
+    ) -> "CompiledPreparedRowTransformer":
+        """Bind one dataset specification to the available staged headers."""
+
+        return cls(
+            dataset=dataset,
+            missing_headers=tuple(
+                sorted(_required_headers(dataset) - set(headers))
+            ),
+        )
+
+    @property
+    def dataset_issue(self) -> Issue | None:
+        """Return the existing dataset-level missing-header issue, if any."""
+
+        if not self.missing_headers:
+            return None
+        return Issue(
+            code="SOURCE_FIELD_MISSING",
+            message=f"missing source headers: {', '.join(self.missing_headers)}",
+            dataset=self.dataset.name,
+        )
+
+    def transform(self, row: SourceRow) -> PreparedRecord:
+        """Prepare one staged row without retaining it after the call."""
+
+        return _prepare_row(
+            self.dataset,
+            row.values,
+            row.number,
+            self.missing_headers,
+        )
 
 
 class SourceLoadError(ValueError):
@@ -189,6 +268,47 @@ def load_selected_source_table(
     reusing the same passive XLSX, row, column, and cell safety limits.
     """
 
+    with open_selected_source_batches(
+        path,
+        dataset=dataset,
+        table_key=table_key,
+        encoding=encoding,
+        delimiter=delimiter,
+        header_row=header_row,
+        named_table_range=named_table_range,
+    ) as source:
+        return SourceTable(
+            dataset=source.dataset,
+            path=source.path,
+            headers=source.headers,
+            rows=tuple(
+                row
+                for batch in source.iter_batches()
+                for row in batch
+            ),
+            content_hash=source.content_hash,
+        )
+
+
+@contextmanager
+def open_selected_source_batches(
+    path: str | Path,
+    *,
+    dataset: str,
+    table_key: str,
+    encoding: str | None,
+    delimiter: str | None,
+    header_row: int,
+    named_table_range: str | None = None,
+    batch_size: int = 1_000,
+) -> Iterator[SelectedSourceBatchStream]:
+    """Open one frozen browser dataset and yield validated bounded batches.
+
+    This is the streaming counterpart to :func:`load_selected_source_table`.
+    It preserves the exact strict reader and source-hash behavior while keeping
+    only the current input batch in Python memory.
+    """
+
     source_path = Path(path).resolve()
     if not source_path.is_file() or source_path.is_symlink():
         raise SourceLoadError("stored source artifact is unavailable")
@@ -196,17 +316,30 @@ def load_selected_source_table(
         raise SourceLoadError(
             f"source file exceeds {MAX_SOURCE_FILE_BYTES} bytes: {source_path.name}"
         )
+    if batch_size < 1:
+        raise ValueError("Source batch size must be positive")
+
     content_hash = _source_content_hash(source_path)
     suffix = source_path.suffix.casefold()
     if suffix == ".csv":
         if table_key != "csv":
             raise SourceLoadError("CSV dataset selection is invalid")
-        headers, rows = _load_csv(
+        with _open_csv_rows(
             source_path,
             encoding or "utf-8-sig",
             delimiter or ",",
-        )
-    elif suffix == ".xlsx":
+        ) as (headers, rows):
+            yield SelectedSourceBatchStream(
+                dataset=dataset,
+                path=source_path,
+                headers=headers,
+                content_hash=content_hash,
+                batch_size=batch_size,
+                _rows=rows,
+            )
+        return
+
+    if suffix == ".xlsx":
         if table_key.startswith("sheet:"):
             sheet = table_key.removeprefix("sheet:")
             cell_range = None
@@ -219,21 +352,23 @@ def load_selected_source_table(
             cell_range = named_table_range
         else:
             raise SourceLoadError("XLSX dataset selection is invalid")
-        headers, rows = _load_xlsx(
+        with _open_xlsx_rows(
             source_path,
             sheet=sheet,
             header_row=header_row,
             cell_range=cell_range,
-        )
-    else:
-        raise SourceLoadError("Only CSV and XLSX source files are supported")
-    return SourceTable(
-        dataset=dataset,
-        path=source_path,
-        headers=headers,
-        rows=rows,
-        content_hash=content_hash,
-    )
+        ) as (headers, rows):
+            yield SelectedSourceBatchStream(
+                dataset=dataset,
+                path=source_path,
+                headers=headers,
+                content_hash=content_hash,
+                batch_size=batch_size,
+                _rows=rows,
+            )
+        return
+
+    raise SourceLoadError("Only CSV and XLSX source files are supported")
 
 
 def _source_content_hash(path: Path) -> str:
@@ -271,6 +406,18 @@ def _load_csv(
 ) -> tuple[tuple[str, ...], tuple[SourceRow, ...]]:
     """Read one CSV file and enforce row, column, and cell-size limits."""
 
+    with _open_csv_rows(path, encoding, delimiter) as (headers, rows):
+        return headers, tuple(rows)
+
+
+@contextmanager
+def _open_csv_rows(
+    path: Path,
+    encoding: str,
+    delimiter: str,
+) -> Iterator[tuple[tuple[str, ...], Iterator[SourceRow]]]:
+    """Open one CSV file and expose its validated rows as a one-shot stream."""
+
     with path.open("r", encoding=encoding, newline="") as handle:
         reader = csv.reader(handle, delimiter=delimiter)
         try:
@@ -278,29 +425,31 @@ def _load_csv(
         except StopIteration as exc:
             raise SourceLoadError(f"CSV source has no header row: {path.name}") from exc
         headers = _validate_headers(raw_headers, path.name)
-        rows: list[SourceRow] = []
-        for values in reader:
-            row_number = reader.line_num
-            if not values:
-                continue
-            if len(rows) >= MAX_SOURCE_ROWS:
-                raise SourceLoadError(
-                    f"source exceeds {MAX_SOURCE_ROWS} data rows: {path.name}"
-                )
-            if len(values) > len(headers):
-                raise SourceLoadError(
-                    f"row {row_number} has {len(values)} cells but the header has "
-                    f"{len(headers)}: {path.name}"
-                )
-            padded = [*values, *([None] * (len(headers) - len(values)))]
-            _validate_cell_lengths(padded, path.name, row_number)
-            rows.append(
-                SourceRow(
+
+        def iter_rows() -> Iterator[SourceRow]:
+            data_rows = 0
+            for values in reader:
+                row_number = reader.line_num
+                if not values:
+                    continue
+                if data_rows >= MAX_SOURCE_ROWS:
+                    raise SourceLoadError(
+                        f"source exceeds {MAX_SOURCE_ROWS} data rows: {path.name}"
+                    )
+                if len(values) > len(headers):
+                    raise SourceLoadError(
+                        f"row {row_number} has {len(values)} cells but the header has "
+                        f"{len(headers)}: {path.name}"
+                    )
+                padded = [*values, *([None] * (len(headers) - len(values)))]
+                _validate_cell_lengths(padded, path.name, row_number)
+                data_rows += 1
+                yield SourceRow(
                     number=row_number,
                     values=dict(zip(headers, padded, strict=True)),
                 )
-            )
-    return headers, tuple(rows)
+
+        yield headers, iter_rows()
 
 
 def _load_xlsx(
@@ -310,7 +459,26 @@ def _load_xlsx(
     header_row: int,
     cell_range: str | None = None,
 ) -> tuple[tuple[str, ...], tuple[SourceRow, ...]]:
-    """Read one worksheet from a passive, bounded XLSX container.
+    """Read one worksheet from a passive, bounded XLSX container."""
+
+    with _open_xlsx_rows(
+        path,
+        sheet=sheet,
+        header_row=header_row,
+        cell_range=cell_range,
+    ) as (headers, rows):
+        return headers, tuple(rows)
+
+
+@contextmanager
+def _open_xlsx_rows(
+    path: Path,
+    *,
+    sheet: str,
+    header_row: int,
+    cell_range: str | None = None,
+) -> Iterator[tuple[tuple[str, ...], Iterator[SourceRow]]]:
+    """Open one worksheet and expose validated selected rows lazily.
 
     Workbook loading is read-only and formulas are rejected instead of being
     calculated or trusted.  The original worksheet row numbers are retained.
@@ -398,34 +566,35 @@ def _load_xlsx(
             f"{path.name}#{sheet}",
         )
 
-        rows: list[SourceRow] = []
-        for cells in iterator:
-            row_number = cells[0].row if cells else header_row + len(rows) + 1
-            _reject_unsafe_cells(cells, path.name, row_number)
-            values = [cell.value for cell in cells[: len(headers)]]
-            if cell_range is None and len(cells) > len(headers) and any(
-                cell.value is not None for cell in cells[len(headers) :]
-            ):
-                raise SourceLoadError(
-                    f"row {row_number} has data beyond the declared headers: "
-                    f"{path.name}#{sheet}"
-                )
-            if not any(value is not None for value in values):
-                continue
-            if len(rows) >= MAX_SOURCE_ROWS:
-                raise SourceLoadError(
-                    f"source exceeds {MAX_SOURCE_ROWS} data rows: "
-                    f"{path.name}#{sheet}"
-                )
-            padded = [*values, *([None] * (len(headers) - len(values)))]
-            _validate_cell_lengths(padded, path.name, row_number)
-            rows.append(
-                SourceRow(
+        def iter_rows() -> Iterator[SourceRow]:
+            data_rows = 0
+            for cells in iterator:
+                row_number = cells[0].row if cells else header_row + data_rows + 1
+                _reject_unsafe_cells(cells, path.name, row_number)
+                values = [cell.value for cell in cells[: len(headers)]]
+                if cell_range is None and len(cells) > len(headers) and any(
+                    cell.value is not None for cell in cells[len(headers) :]
+                ):
+                    raise SourceLoadError(
+                        f"row {row_number} has data beyond the declared headers: "
+                        f"{path.name}#{sheet}"
+                    )
+                if not any(value is not None for value in values):
+                    continue
+                if data_rows >= MAX_SOURCE_ROWS:
+                    raise SourceLoadError(
+                        f"source exceeds {MAX_SOURCE_ROWS} data rows: "
+                        f"{path.name}#{sheet}"
+                    )
+                padded = [*values, *([None] * (len(headers) - len(values)))]
+                _validate_cell_lengths(padded, path.name, row_number)
+                data_rows += 1
+                yield SourceRow(
                     number=row_number,
                     values=dict(zip(headers, padded, strict=True)),
                 )
-            )
-        return headers, tuple(rows)
+
+        yield headers, iter_rows()
     finally:
         workbook.close()
 
@@ -643,19 +812,14 @@ def prepare_source_tables(
 
     for dataset in plan.datasets:
         table = by_dataset[dataset.name]
-        missing_headers = sorted(_required_headers(dataset) - set(table.headers))
-        if missing_headers:
-            issues.append(
-                Issue(
-                    code="SOURCE_FIELD_MISSING",
-                    message=f"missing source headers: {', '.join(missing_headers)}",
-                    dataset=dataset.name,
-                )
-            )
+        transformer = CompiledPreparedRowTransformer.compile(
+            dataset,
+            table.headers,
+        )
+        if transformer.dataset_issue is not None:
+            issues.append(transformer.dataset_issue)
         for row in table.rows:
-            records.append(
-                _prepare_row(dataset, row.values, row.number, missing_headers)
-            )
+            records.append(transformer.transform(row))
 
     records = _mark_duplicate_source_identities(records)
     issues.extend(

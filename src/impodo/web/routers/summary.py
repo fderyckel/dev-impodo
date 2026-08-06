@@ -1,4 +1,4 @@
-"""Summary browser routes."""
+"""Preparation summary route spanning canonical, quality, and review status."""
 
 from __future__ import annotations
 from fastapi import Request
@@ -10,6 +10,8 @@ from ..presenters.summary import _render_summary
 
 
 def build_summary_router(context: WebContext) -> APIRouter:
+    """Build the read-only project summary entry point for Stages E-G."""
+
     router = APIRouter()
 
     @router.get("/projects/{project_id}/summary", response_class=HTMLResponse)

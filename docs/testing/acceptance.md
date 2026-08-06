@@ -512,7 +512,7 @@ and 10 environment-gated tests were skipped. There were no failures or errors.
 Results after the contained CPU and encoded-once publication changes on the
 MacBook Air M5 on 2026-08-06:
 
-| Workload | Physical rows | Source columns | Mapped fields | Complete preparation | Peak working set | Project DB | Effects | Result |
+| Workload | Physical rows | Source columns | Mapped fields | Complete preparation | Ending RSS | Project DB | Effects | Result |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | Products | 100,000 | 30 | 20 | 23.178 s | 1,102.3 MiB | 224.3 MiB | 100,000 | Time passed; RAM failed |
 | BOM | 100,000 | 30 | 20 | 27.090 s | 1,237.1 MiB | 302.3 MiB | 300,000 | Time passed; RAM failed |
@@ -535,8 +535,10 @@ Its phase times were 12.267 seconds for source loading and evaluation, 2.898
 seconds for canonical publication, 2.720 seconds for quality, and 9.089 seconds
 for normalization.
 
-These are non-profiled release-style measurements. They pass the time gate but
-not the 900-MiB working-set gate, so the 25,000-row supported browser limit is
+These are non-profiled release-style timing measurements. On macOS the original
+harness used end-of-run RSS when Windows `peak_wset` was unavailable, so the
+memory column is not a true peak. Both ending values already exceed 900 MiB and
+therefore still fail the RAM gate. The 25,000-row supported browser limit is
 unchanged. The complete ordinary regression suite then ran 256 tests in 18.759
 seconds: 247 passed and 9 opt-in scale tests were skipped.
 
@@ -553,13 +555,13 @@ fresh process.
 | Same-Mac median | Committed baseline | Optimized | Change |
 | --- | ---: | ---: | ---: |
 | Complete preparation | 5.487 s | 2.401 s | 56.2% lower |
-| Peak working set | 539.9 MiB | 339.0 MiB | 37.2% lower |
+| Ending RSS | 539.9 MiB | 339.0 MiB | 37.2% lower |
 | Source loading and evaluation | 1.416 s | 1.203 s | 15.0% lower |
 | Canonical publication | 1.838 s | 0.292 s | 84.1% lower |
 | Quality | 0.674 s | 0.276 s | 59.1% lower |
 | Normalization | 1.497 s | 0.526 s | 64.9% lower |
 
-Raw `(complete seconds, peak MiB)` pairs were baseline `(5.329, 539.9)`,
+Raw `(complete seconds, ending RSS MiB)` pairs were baseline `(5.329, 539.9)`,
 `(5.487, 539.6)`, `(5.971, 539.9)` and optimized `(2.456, 338.3)`,
 `(2.354, 339.0)`, `(2.401, 340.0)`.
 
@@ -571,6 +573,38 @@ changed normalization records. Content hashes cannot be compared across these
 fresh fixtures because each fixture intentionally creates new project and
 mapping identities. Hash-algorithm parity is instead verified by exact
 canonical-encoder equivalence tests and repository round-trip tests.
+
+### Durable typed-row quality diagnostic
+
+The next slice removed quality's dependency on the transient `PreparedBundle`.
+After canonical publication, preparation releases the staged object and
+reloads the exact durable canonical run using bounded row fetches, incremental
+hash verification, and typed-value restoration. Quality and normalization then
+consume that verified run.
+
+The preparation scale harness now samples process working set throughout the
+timed operation on every platform and reports ending RSS separately. This
+corrects the earlier macOS fallback described above.
+
+Corrected 100,000-row diagnostics on the MacBook Air M5:
+
+| Workload | Complete preparation | Observed peak | Ending RSS | Project DB | Durable reload | Effects | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Products | 26.929 s | 1,605.0 MiB | 829.0 MiB | 223.3 MiB | 4.543 s | 100,000 | Time passed; RAM failed |
+| BOM | 61.961 s | 1,685.6 MiB | 789.6 MiB | 298.3 MiB | 8.855 s | 300,000 | Time passed; RAM failed |
+
+The BOM run followed several large local probes and is retained as an observed
+diagnostic rather than a stable timing baseline. Both runs preserved every
+canonical and quality row, had no quality issue or quarantine entry, and
+published all expected normalization effects. The complete ordinary suite then
+ran 263 tests in 39.969 seconds: 253 passed and 10 environment-gated tests were
+skipped.
+
+These results show that releasing `PreparedBundle` lowers downstream residency
+but does not solve the actual peak. The peak occurs earlier while source
+tables, prepared rows, canonical rows, and transformation impacts coexist. The
+next required implementation is bounded source transformation into pending
+durable canonical/effect batches.
 
 This is workstation evidence, not a production sizing guarantee. Wide sources,
 saved snapshots, workbooks, and Odoo transport still require representative

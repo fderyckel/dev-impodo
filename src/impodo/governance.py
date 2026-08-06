@@ -69,6 +69,8 @@ class DryRunTransitionError(ValueError):
 
 
 class CorrectionDecisionKind(StrEnum):
+    """Reviewer choice recorded for one required normalization group."""
+
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
 
@@ -99,6 +101,8 @@ class CorrectionGroupKey:
         _require_text(self.field, "field")
 
     def to_portable_dict(self) -> dict[str, str]:
+        """Serialize the stable rule/dataset/field group identity."""
+
         return {
             "rule_id": self.rule_id,
             "dataset": self.dataset,
@@ -107,6 +111,8 @@ class CorrectionGroupKey:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "CorrectionGroupKey":
+        """Reconstruct a group key from persisted decision evidence."""
+
         return cls(
             rule_id=str(payload["rule_id"]),
             dataset=str(payload["dataset"]),
@@ -151,6 +157,8 @@ class CorrectionImpact:
         return self.collision_count > 0
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize the correction counts and approval policy."""
+
         return {
             "key": self.key.to_portable_dict(),
             "approval_mode": self.approval_mode.value,
@@ -160,6 +168,8 @@ class CorrectionImpact:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "CorrectionImpact":
+        """Reconstruct and validate an aggregated correction impact."""
+
         return cls(
             key=CorrectionGroupKey.from_dict(dict(payload["key"])),
             approval_mode=ApprovalMode(str(payload["approval_mode"])),
@@ -183,6 +193,8 @@ class CorrectionDecision:
             )
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize the decision together with authorization evidence."""
+
         return {
             "key": self.key.to_portable_dict(),
             "decision": self.decision.value,
@@ -191,6 +203,8 @@ class CorrectionDecision:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "CorrectionDecision":
+        """Reconstruct and authorize-check a stored group decision."""
+
         return cls(
             key=CorrectionGroupKey.from_dict(dict(payload["key"])),
             decision=CorrectionDecisionKind(str(payload["decision"])),

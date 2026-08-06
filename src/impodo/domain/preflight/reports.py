@@ -1,4 +1,11 @@
-"""Extracted reports domain behavior."""
+"""Portable Stage-H readiness report contracts and browser projections.
+
+``PreflightEngine`` produces technical :class:`Decision` objects. The private
+``_readiness_report`` adapter turns them into dataset summaries and plain-
+language row guidance, then ``PreflightRepository`` stores the report header
+and rows separately for bounded review. These objects contain business
+identities and source trace IDs, never environment-local numeric Odoo IDs.
+"""
 
 from __future__ import annotations
 
@@ -24,6 +31,13 @@ from ..staging.transformation_impact import _display_value
 
 @dataclass(frozen=True, slots=True)
 class ReadinessRow:
+    """Plain-language projection of one engine decision for human review.
+
+    ``status`` is the review state (ready/review/blocked), while
+    ``classification`` preserves the engine outcome such as ``CREATE`` or
+    ``UPDATE``. ``source_trace_id`` links back to the eligible canonical row.
+    """
+
     dataset: str
     dataset_label: str
     source_row: int
@@ -40,6 +54,8 @@ class ReadinessRow:
 
 @dataclass(frozen=True, slots=True)
 class ReadinessDataset:
+    """Reconciled Stage-H counts for one logical source dataset."""
+
     dataset: str
     label: str
     target_model: str
@@ -55,6 +71,8 @@ class ReadinessDataset:
 
 @dataclass(frozen=True, slots=True)
 class ReadinessRowPage:
+    """Bounded repository page of readiness rows for browser navigation."""
+
     items: tuple[ReadinessRow, ...]
     matching_count: int
     page: int
@@ -63,6 +81,15 @@ class ReadinessRowPage:
 
 @dataclass(frozen=True, slots=True)
 class ReadinessReport:
+    """Portable durable summary of one read-only Odoo comparison.
+
+    The report binds the submitted mapping, staging, quality, frozen
+    normalization input, bounded requirement plan, protected target snapshots,
+    engine result, manifest, and target identity. ``rows`` is present while
+    building the report and removed from the stored header after rows are
+    streamed separately into the repository.
+    """
+
     run_id: str
     project_id: str
     mapping_id: str
@@ -95,42 +122,62 @@ class ReadinessReport:
 
     @property
     def ready_count(self) -> int:
+        """Count rows ready for a future import-plan decision."""
+
         return sum(item.ready for item in self.datasets)
 
     @property
     def needs_review_count(self) -> int:
+        """Count rows whose comparison outcome needs human review."""
+
         return sum(item.needs_review for item in self.datasets)
 
     @property
     def blocked_count(self) -> int:
+        """Count rows that cannot safely progress."""
+
         return sum(item.blocked for item in self.datasets)
 
     @property
     def create_count(self) -> int:
+        """Count eligible rows with no matching target business identity."""
+
         return sum(item.create_count for item in self.datasets)
 
     @property
     def update_count(self) -> int:
+        """Count uniquely matched rows with material field differences."""
+
         return sum(item.update_count for item in self.datasets)
 
     @property
     def unchanged_count(self) -> int:
+        """Count uniquely matched rows with no material differences."""
+
         return sum(item.unchanged_count for item in self.datasets)
 
     @property
     def ambiguous_count(self) -> int:
+        """Count rows whose identity matched more than one target record."""
+
         return sum(item.ambiguous_count for item in self.datasets)
 
     @property
     def attention_count(self) -> int:
+        """Count ambiguous plus blocked outcomes requiring intervention."""
+
         return self.ambiguous_count + self.blocked_count
 
     @property
     def total_count(self) -> int:
+        """Count every compared eligible canonical row."""
+
         return sum(item.total for item in self.datasets)
 
     @property
     def status(self) -> str:
+        """Derive the run status using blocked-before-review precedence."""
+
         if self.blocked_count:
             return "BLOCKED"
         if self.needs_review_count:
@@ -138,6 +185,8 @@ class ReadinessReport:
         return "READY"
 
     def to_json(self) -> str:
+        """Serialize the portable report header/projection deterministically."""
+
         payload = asdict(self)
         payload["checked_at"] = self.checked_at.isoformat()
         return json.dumps(
@@ -149,6 +198,8 @@ class ReadinessReport:
 
     @classmethod
     def from_json(cls, value: str) -> "ReadinessReport":
+        """Load a supported report contract, including legacy versions."""
+
         payload = json.loads(value)
         contract_version = int(payload.get("contract_version", 0))
         if contract_version not in {3, 4, READINESS_CONTRACT_VERSION}:
@@ -215,6 +266,8 @@ def _readiness_report(
     record_snapshot_hash: str,
     manifest_hash: str = "",
 ) -> ReadinessReport:
+    """Bind engine decisions and every evidence hash into a portable report."""
+
     rows = tuple(
         _readiness_row(decision, dataset_labels, source_labels)
         for decision in result.decisions
@@ -297,6 +350,8 @@ def _readiness_row(
     labels: Mapping[str, str],
     source_labels: Mapping[tuple[str, str], str],
 ) -> ReadinessRow:
+    """Translate one technical decision into status, reason, and next action."""
+
     status = (
         "needs_review"
         if decision.classification is Classification.AMBIGUOUS

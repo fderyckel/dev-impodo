@@ -30,6 +30,9 @@ from ..mapping.contracts import (
     ResolverOrigin,
     ScalarValueSource,
 )
+from ..coverage import ReferenceBundle, ReferenceDataSet, ReferenceEntry
+from ..serialization import content_hash
+from ...models import portable_value
 from ..mapping.scalar_values import (
     ScalarValueError,
     ScalarValueRuleError,
@@ -57,6 +60,13 @@ from ...workspace_contracts import (
 )
 from ..contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
 from ..errors import ReadinessError
+from ..structural import (
+    ExactJoinRule,
+    GroupAggregateRule,
+    StructuralError,
+    UnionAllRule,
+    execute_structural_rules,
+)
 
 
 
@@ -75,6 +85,14 @@ from .transformation_impact import (
 
 @dataclass(frozen=True, slots=True)
 class StagedBrowserMapping:
+    """Complete in-memory output of Stage E mapping evaluation.
+
+    The object connects the compiled mapping plan and prepared source bundle to
+    the portable :class:`CanonicalStagingRun`. Display labels and physical-row
+    coordinates support later quality/review screens; transformation impact is
+    optional because it can be streamed into its own durable snapshot.
+    """
+
     plan: CompiledMigrationPlan
     prepared: PreparedBundle
     canonical_run: CanonicalStagingRun
@@ -124,6 +142,110 @@ class _DerivedReferencePlan:
     target_field: str
 
 
+@dataclass(slots=True)
+class ProjectedBrowserRow:
+    """Row-local projection before any cross-row grouping decision."""
+
+    number: int
+    values: dict[str, object]
+    parent_key: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledBrowserRowTransformer:
+    """Compiled pure mapping behavior for one non-lookup effective dataset.
+
+    Projection is separated from finishing so a caller can persist or resolve
+    the parent de-duplication key before transformation impacts are emitted.
+    """
+
+    dataset_name: str
+    effective_column_keys: tuple[str, ...]
+    source_name_by_key: Mapping[str, str]
+    evaluation_plan: _DatasetEvaluationPlan
+    derived_reference_plan: tuple[_DerivedReferencePlan, ...]
+    related_rule: RelatedDatasetRule | None
+    role: str
+    headers: tuple[str, ...]
+    reference_indexes: Mapping[
+        tuple[str, str],
+        tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
+    ]
+
+    def project(self, row: SourceRow) -> ProjectedBrowserRow:
+        """Select stable columns and normalize governed related-row keys."""
+
+        values = {
+            stable_key: row.values.get(self.source_name_by_key[stable_key])
+            for stable_key in self.effective_column_keys
+        }
+        rule = self.related_rule
+        if rule is not None:
+            for key in (
+                rule.parent_key_column_key,
+                rule.scope_column_key,
+                rule.child_key_column_key if self.role == "child" else None,
+            ):
+                if key is not None and key in values:
+                    values[key] = _normalized_key(values.get(key))
+
+        parent_key: tuple[str, ...] | None = None
+        if self.role == "parent" and rule is not None:
+            keys = tuple(
+                values.get(key)
+                for key in (
+                    rule.parent_key_column_key,
+                    rule.scope_column_key,
+                )
+                if key is not None
+            )
+            if all(value is not None for value in keys):
+                parent_key = tuple(str(value) for value in keys)
+        return ProjectedBrowserRow(
+            number=row.number,
+            values=values,
+            parent_key=parent_key,
+        )
+
+    def finish(
+        self,
+        projected: ProjectedBrowserRow,
+        *,
+        impact_collector: _TransformationImpactCollector | None = None,
+    ) -> tuple[SourceRow, tuple[Issue, ...]]:
+        """Apply the row-local mapping rules after cross-row admission."""
+
+        issues = _normalize_derived_references(
+            projected.values,
+            self.derived_reference_plan,
+            dataset=self.dataset_name,
+            source_row=projected.number,
+        )
+        _record_identity_preparation(
+            projected.values,
+            self.evaluation_plan,
+            source_row=projected.number,
+            impact_collector=impact_collector,
+        )
+        _apply_relationship_value_mappings(
+            projected.values,
+            self.evaluation_plan,
+            source_row=projected.number,
+            impact_collector=impact_collector,
+        )
+        _apply_scalar_mappings(
+            projected.values,
+            self.evaluation_plan,
+            source_row=projected.number,
+            impact_collector=impact_collector,
+            reference_indexes=self.reference_indexes,
+        )
+        return (
+            SourceRow(number=projected.number, values=projected.values),
+            issues,
+        )
+
+
 def evaluate_browser_mapping(
     *,
     project_id: str,
@@ -132,6 +254,7 @@ def evaluate_browser_mapping(
     effective_selection: SourceSelection,
     plan: DerivedEntityPlan | None,
     loaded_tables: Mapping[str, SourceTable],
+    reference_bundle: ReferenceBundle | None = None,
     collect_transformation_impact: bool = False,
     transformation_detail_limit: int = TRANSFORMATION_IMPACT_DETAIL_LIMIT,
     transformation_impact_sink: Callable[[TransformationImpactRow], None]
@@ -152,6 +275,9 @@ def evaluate_browser_mapping(
         or (plan is not None and plan.project_id != project_id)
     ):
         raise ReadinessError("Canonical evaluation evidence belongs to another project")
+    if reference_bundle is not None and reference_bundle.project_id != project_id:
+        raise ReadinessError("Reference data belongs to another project")
+    reference_indexes = _compile_reference_indexes(reference_bundle)
     if (
         plan is not None
         and plan.source_selection_hash != physical_selection.content_hash
@@ -224,6 +350,21 @@ def evaluate_browser_mapping(
         if table.content_hash != f"sha256:{expected_hash}":
             raise ReadinessError("Stored source content changed after selection")
 
+    structural_rules = tuple(
+        item
+        for item in (plan.rules if plan else ())
+        if isinstance(item, (ExactJoinRule, UnionAllRule, GroupAggregateRule))
+    )
+    try:
+        structural_execution = execute_structural_rules(
+            selection=physical_selection,
+            loaded_tables=loaded_tables,
+            rules=structural_rules,
+        )
+    except StructuralError as error:
+        raise ReadinessError(str(error)) from error
+    structural_by_id = structural_execution.by_dataset_id()
+
     compiled_plan = compile_browser_mapping(
         definition,
         effective_selection,
@@ -233,7 +374,8 @@ def evaluate_browser_mapping(
     preparation_issues: list[Issue] = []
     source_labels: dict[tuple[str, str], str] = {}
     source_lineage: dict[
-        tuple[str, int], tuple[str, tuple[int, ...]]
+        tuple[str, int],
+        tuple[str, tuple[int, ...]] | Mapping[str, tuple[int, ...]],
     ] = {}
     dataset_evidence: dict[
         str, tuple[str, StagingDatasetRole, int]
@@ -241,9 +383,18 @@ def evaluate_browser_mapping(
     for dataset_spec in compiled_plan.datasets:
         effective = effective_by_name[dataset_spec.name]
         mapping = mapping_by_id[effective.dataset_id]
+        structural = structural_by_id.get(effective.dataset_id)
         lookup = lookup_by_dataset_id.get(effective.dataset_id)
         split = split_by_name.get(effective.name)
-        if lookup is not None:
+        if structural is not None:
+            physical = effective
+            role = {
+                ExactJoinRule: "join",
+                UnionAllRule: "union",
+                GroupAggregateRule: "group",
+            }[type(next(item for item in structural_rules if item.output_dataset_name == effective.name))]
+            rule = None
+        elif lookup is not None:
             lookup_rule, lookup_link = lookup
             physical = physical_by_id.get(lookup_rule.source_dataset_id)
             role = "lookup"
@@ -257,7 +408,20 @@ def evaluate_browser_mapping(
             physical = physical_by_id.get(rule.source_dataset_id)
         if physical is None:
             raise ReadinessError("Prepared dataset no longer has a source")
-        if lookup is not None:
+        if structural is not None:
+            staged, issues, _ = _stage_table(
+                effective,
+                physical,
+                mapping,
+                structural.table,
+                None,
+                "source",
+                (),
+                impact_collector=impact_collector,
+                reference_indexes=reference_indexes,
+            )
+            row_lineage = structural.lineage
+        elif lookup is not None:
             staged, issues, row_lineage = _stage_derived_table(
                 effective,
                 physical,
@@ -266,6 +430,7 @@ def evaluate_browser_mapping(
                 lookup_rule,
                 lookup_link,
                 impact_collector=impact_collector,
+                reference_indexes=reference_indexes,
             )
         else:
             staged, issues, row_lineage = _stage_table(
@@ -277,18 +442,27 @@ def evaluate_browser_mapping(
                 role,
                 tuple(lookup_by_consumer.get(effective.dataset_id, ())),
                 impact_collector=impact_collector,
+                reference_indexes=reference_indexes,
             )
         staged_tables.append(staged)
         preparation_issues.extend(issues)
-        source_lineage.update(
-            {
-                (effective.name, source_row): (
-                    physical.dataset_id,
-                    physical_rows,
-                )
-                for source_row, physical_rows in row_lineage.items()
-            }
-        )
+        if structural is not None:
+            source_lineage.update(
+                {
+                    (effective.name, source_row): physical_sources
+                    for source_row, physical_sources in row_lineage.items()
+                }
+            )
+        else:
+            source_lineage.update(
+                {
+                    (effective.name, source_row): (
+                        physical.dataset_id,
+                        physical_rows,
+                    )
+                    for source_row, physical_rows in row_lineage.items()
+                }
+            )
         dataset_evidence[effective.name] = (
             physical.dataset_id,
             {
@@ -296,8 +470,15 @@ def evaluate_browser_mapping(
                 "parent": StagingDatasetRole.PARENT,
                 "child": StagingDatasetRole.CHILD,
                 "lookup": StagingDatasetRole.LOOKUP,
+                "join": StagingDatasetRole.JOIN,
+                "union": StagingDatasetRole.UNION,
+                "group": StagingDatasetRole.GROUP,
             }[role],
-            len(loaded_tables[physical.dataset_id].rows),
+            (
+                structural.reconciliation.input_rows
+                if structural is not None
+                else len(loaded_tables[physical.dataset_id].rows)
+            ),
         )
         for column in effective.columns:
             source_labels[(effective.name, column.stable_key)] = column.source_name
@@ -391,6 +572,15 @@ def _canonical_field_sources(
     return result
 
 
+def canonical_field_sources(
+    definition: MappingDefinition,
+    selection: SourceSelection,
+) -> dict[str, dict[str, tuple[str, ...]]]:
+    """Expose the one canonical source-field lineage compiler to streaming."""
+
+    return _canonical_field_sources(definition, selection)
+
+
 def _compile_dataset_evaluation_plan(
     effective: SourceDataset,
     mapping: DatasetMapping,
@@ -462,6 +652,50 @@ def _compile_identity_impact(
     )
 
 
+def compile_browser_row_transformer(
+    effective: SourceDataset,
+    physical: SourceDataset,
+    mapping: DatasetMapping,
+    rule: RelatedDatasetRule | None,
+    role: str,
+    lookup_bindings: tuple[
+        tuple[DerivedEntityRule, DerivedDatasetLink], ...
+    ] = (),
+    reference_indexes: Mapping[
+        tuple[str, str],
+        tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
+    ] | None = None,
+) -> CompiledBrowserRowTransformer:
+    """Compile the row-local half of browser staging exactly once."""
+
+    headers = (
+        *(column.stable_key for column in effective.columns),
+        *(
+            synthetic_field(index)
+            for index, field in enumerate(mapping.fields)
+            if field.value_source is not ScalarValueSource.ODOO_DEFAULT
+        ),
+    )
+    return CompiledBrowserRowTransformer(
+        dataset_name=effective.name,
+        effective_column_keys=tuple(
+            column.stable_key for column in effective.columns
+        ),
+        source_name_by_key={
+            column.stable_key: column.source_name for column in physical.columns
+        },
+        evaluation_plan=_compile_dataset_evaluation_plan(effective, mapping),
+        derived_reference_plan=_compile_derived_reference_plan(
+            mapping,
+            lookup_bindings,
+        ),
+        related_rule=rule,
+        role=role,
+        headers=tuple(headers),
+        reference_indexes=reference_indexes or {},
+    )
+
+
 def _stage_table(
     effective: SourceDataset,
     physical: SourceDataset,
@@ -474,93 +708,48 @@ def _stage_table(
     ] = (),
     *,
     impact_collector: _TransformationImpactCollector | None = None,
+    reference_indexes: Mapping[
+        tuple[str, str],
+        tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
+    ] | None = None,
 ) -> tuple[
     SourceTable,
     tuple[Issue, ...],
     dict[int, tuple[int, ...]],
 ]:
-    source_name_by_key = {
-        column.stable_key: column.source_name for column in physical.columns
-    }
-    evaluation_plan = _compile_dataset_evaluation_plan(effective, mapping)
-    derived_reference_plan = _compile_derived_reference_plan(
+    transformer = compile_browser_row_transformer(
+        effective,
+        physical,
         mapping,
+        rule,
+        role,
         lookup_bindings,
+        reference_indexes,
     )
     staged_rows: list[SourceRow] = []
     issues: list[Issue] = []
     parent_row_by_key: dict[tuple[str, ...], int] = {}
     source_rows_by_output: dict[int, list[int]] = {}
     for row in table.rows:
-        values = {
-            column.stable_key: row.values.get(source_name_by_key[column.stable_key])
-            for column in effective.columns
-        }
-        if rule is not None:
-            for key in (
-                rule.parent_key_column_key,
-                rule.scope_column_key,
-                rule.child_key_column_key if role == "child" else None,
-            ):
-                if key is not None and key in values:
-                    values[key] = _normalized_key(values.get(key))
-        if role == "parent" and rule is not None:
-            keys = tuple(
-                values.get(key)
-                for key in (
-                    rule.parent_key_column_key,
-                    rule.scope_column_key,
-                )
-                if key is not None
-            )
-            if all(value is not None for value in keys):
-                canonical = tuple(str(value) for value in keys)
-                existing_row = parent_row_by_key.get(canonical)
-                if existing_row is not None:
-                    source_rows_by_output[existing_row].append(row.number)
-                    continue
-                parent_row_by_key[canonical] = row.number
-        issues.extend(
-            _normalize_derived_references(
-                values,
-                derived_reference_plan,
-                dataset=effective.name,
-                source_row=row.number,
-            )
-        )
-        _record_identity_preparation(
-            values,
-            evaluation_plan,
-            source_row=row.number,
+        projected = transformer.project(row)
+        if projected.parent_key is not None:
+            existing_row = parent_row_by_key.get(projected.parent_key)
+            if existing_row is not None:
+                source_rows_by_output[existing_row].append(row.number)
+                continue
+            parent_row_by_key[projected.parent_key] = row.number
+        staged_row, row_issues = transformer.finish(
+            projected,
             impact_collector=impact_collector,
         )
-        _apply_relationship_value_mappings(
-            values,
-            evaluation_plan,
-            source_row=row.number,
-            impact_collector=impact_collector,
-        )
-        _apply_scalar_mappings(
-            values,
-            evaluation_plan,
-            source_row=row.number,
-            impact_collector=impact_collector,
-        )
-        staged_rows.append(SourceRow(number=row.number, values=values))
+        issues.extend(row_issues)
+        staged_rows.append(staged_row)
         source_rows_by_output[row.number] = [row.number]
-    headers = (
-        *(column.stable_key for column in effective.columns),
-        *(
-            synthetic_field(index)
-            for index, field in enumerate(mapping.fields)
-            if field.value_source is not ScalarValueSource.ODOO_DEFAULT
-        ),
-    )
     return (
         SourceTable(
             dataset=effective.name,
             path=table.path,
-            headers=tuple(headers),
+            headers=transformer.headers,
             rows=tuple(staged_rows),
             content_hash=table.content_hash,
         ),
@@ -581,6 +770,10 @@ def _stage_derived_table(
     link: DerivedDatasetLink,
     *,
     impact_collector: _TransformationImpactCollector | None = None,
+    reference_indexes: Mapping[
+        tuple[str, str],
+        tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
+    ] | None = None,
 ) -> tuple[
     SourceTable,
     tuple[Issue, ...],
@@ -660,6 +853,7 @@ def _stage_derived_table(
             evaluation_plan,
             source_row=generated_row,
             impact_collector=impact_collector,
+            reference_indexes=reference_indexes or {},
         )
         evidence_row = int(entry["source_row"])
         aliases = entry["aliases"]
@@ -782,6 +976,10 @@ def _apply_scalar_mappings(
     *,
     source_row: int,
     impact_collector: _TransformationImpactCollector | None = None,
+    reference_indexes: Mapping[
+        tuple[str, str],
+        tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
+    ] | None = None,
 ) -> None:
     source_values_by_ordinal = {
         ordinal: values.get(stable_key)
@@ -795,9 +993,20 @@ def _apply_scalar_mappings(
             else None
         )
         try:
+            scalar_input = raw
+            if field.reference_lookup is not None:
+                raw = tuple(
+                    values.get(key)
+                    for key in field.reference_lookup.key_source_column_keys
+                )
+                scalar_input = _reference_lookup_value(
+                    field,
+                    values,
+                    reference_indexes or {},
+                )
             proposed = evaluate_scalar_mapping_value(
                 field,
-                raw,
+                scalar_input,
                 source_values_by_ordinal=source_values_by_ordinal,
             )
             values[synthetic_field(field_plan.index)] = proposed
@@ -848,6 +1057,84 @@ def _apply_scalar_mappings(
                     outcome="invalid",
                     message=str(error),
                 )
+
+
+def _compile_reference_indexes(
+    bundle: ReferenceBundle | None,
+) -> dict[
+    tuple[str, str],
+    tuple[ReferenceDataSet, dict[str, ReferenceEntry]],
+]:
+    """Compile exact typed reference keys once for bounded row evaluation."""
+
+    if bundle is None:
+        return {}
+    return {
+        (dataset.reference_id, dataset.content_hash): (
+            dataset,
+            {entry.key_hash: entry for entry in dataset.entries},
+        )
+        for dataset in bundle.datasets
+    }
+
+
+def compile_reference_indexes(
+    bundle: ReferenceBundle | None,
+) -> dict[
+    tuple[str, str],
+    tuple[ReferenceDataSet, dict[str, ReferenceEntry]],
+]:
+    """Expose the compiled exact-key index to bounded row evaluation."""
+
+    return _compile_reference_indexes(bundle)
+
+
+def _reference_lookup_value(
+    field: ScalarFieldMapping,
+    values: Mapping[str, object],
+    indexes: Mapping[
+        tuple[str, str],
+        tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
+    ],
+) -> object:
+    lookup = field.reference_lookup
+    if lookup is None:
+        raise ScalarValueRuleError(
+            "REFERENCE_POLICY_MISSING",
+            "The reference lookup policy is missing.",
+        )
+    indexed = indexes.get((lookup.reference_id, lookup.reference_content_hash))
+    if indexed is None:
+        raise ScalarValueRuleError(
+            "REFERENCE_INPUT_MISSING",
+            "The approved reference list is missing or has changed.",
+        )
+    dataset, entries = indexed
+    if lookup.value_field not in dataset.value_kinds:
+        raise ScalarValueRuleError(
+            "REFERENCE_OUTPUT_MISSING",
+            "The approved reference list no longer provides this output.",
+        )
+    key = tuple(values.get(item) for item in lookup.key_source_column_keys)
+    if any(
+        item is None or (isinstance(item, str) and not item.strip())
+        for item in key
+    ):
+        if lookup.on_blank == "null":
+            return None
+        raise ScalarValueRuleError(
+            "REFERENCE_KEY_BLANK",
+            "A required reference key is blank.",
+        )
+    entry = entries.get(content_hash(portable_value(key)))
+    if entry is None:
+        if lookup.on_unknown == "null":
+            return None
+        raise ScalarValueRuleError(
+            "REFERENCE_KEY_UNKNOWN",
+            "The source value is not present in the approved reference list.",
+        )
+    return entry.values[lookup.value_field]
 
 
 def _record_identity_preparation(
@@ -967,6 +1254,8 @@ def _transformation_rule_summary(field) -> str:
         rules.append("Source")
     if field.value_mappings:
         rules.append(f"Match {len(field.value_mappings)} source choice(s)")
+    if field.reference_lookup is not None:
+        rules.append("Approved reference lookup")
     transform = field.transform
     if transform.formula:
         rules.append("Formula")

@@ -14,6 +14,16 @@ from uuid import uuid4
 
 from impodo.application import preparation_service as preparation_module
 from impodo.artifacts import LocalArtifactStore
+from impodo.domain.coverage import (
+    CoverageApplicability,
+    CoverageDeclaration,
+    CoverageFamily,
+    CoverageScopeRevision,
+    ReferenceBundle,
+    ReferenceDataSet,
+    ReferenceEntry,
+    ReferenceValueKind,
+)
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
 from impodo.domain.mapping.contracts import (
     BusinessControlTotal,
@@ -27,6 +37,12 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationResult,
     MappingValidationStatus,
 )
+from impodo.domain.resolution import (
+    FuzzyComparisonField,
+    ResolutionPolicy,
+    ResolutionRule,
+    SimilarityAlgorithm,
+)
 from impodo.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
@@ -37,6 +53,15 @@ from impodo.projects import (
     OdooConnectionMode,
     ProjectStatus,
     SourceFile,
+)
+from impodo.quality import (
+    QualityOutcomePolicy,
+    QualityOwnerRole,
+    QualityRule,
+    QualityRuleFamily,
+    QualityRuleSet,
+    QualityRuleSource,
+    default_quality_ruleset,
 )
 from impodo.value_rules import ScalarTransformPolicy
 from impodo.web.app import create_local_app
@@ -129,6 +154,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
             )
         )
+        if os.environ.get("IMPODO_PREPARATION_ADVANCED") == "1":
+            self._enable_advanced_coverage(project_id)
         fixture_seconds = perf_counter() - fixture_started
 
         phases: dict[str, float] = {}
@@ -143,7 +170,22 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
             return invoke
 
+        def accumulated(name, callback):
+            def invoke(*args, **kwargs):
+                started = perf_counter()
+                try:
+                    return callback(*args, **kwargs)
+                finally:
+                    phases[name] = phases.get(name, 0.0) + (
+                        perf_counter() - started
+                    )
+
+            return invoke
+
         original_stage = preparation_module.stage_browser_mapping
+        original_bounded_stage = (
+            preparation_module.prepare_bounded_direct_session
+        )
         original_publish = (
             self.context.preparation.staging.publish_canonical_staging
         )
@@ -154,6 +196,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         original_normalization = (
             self.context.preparation.normalization.evaluate_and_publish
         )
+        original_append_rows = (
+            self.context.preparation.sessions.append_provisional_rows
+        )
+        original_append_impacts = self.context.preparation.sessions.append_impacts
+        original_finalize_session = self.context.preparation.sessions.finalize_session
 
         process = psutil.Process()
         started = perf_counter()
@@ -170,6 +217,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             patch(
                 "impodo.application.preparation_service.stage_browser_mapping",
                 timed("load_and_evaluate", original_stage),
+            ),
+            patch(
+                "impodo.application.preparation_service."
+                "prepare_bounded_direct_session",
+                timed("bounded_load_and_evaluate", original_bounded_stage),
             ),
             patch.object(
                 self.context.preparation.staging,
@@ -190,6 +242,21 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 self.context.preparation.normalization,
                 "evaluate_and_publish",
                 timed("normalization", original_normalization),
+            ),
+            patch.object(
+                self.context.preparation.sessions,
+                "append_provisional_rows",
+                accumulated("session_row_append", original_append_rows),
+            ),
+            patch.object(
+                self.context.preparation.sessions,
+                "append_impacts",
+                accumulated("session_impact_append", original_append_impacts),
+            ),
+            patch.object(
+                self.context.preparation.sessions,
+                "finalize_session",
+                timed("session_finalization", original_finalize_session),
             ),
         ):
             normalization = self.context.preparation.prepare(
@@ -308,6 +375,76 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 )
             if failures:
                 self.fail("; ".join(failures))
+
+    def test_bounded_source_preparation_phase(self) -> None:
+        """Measure P3 independently from still-materializing P4 stages."""
+
+        import psutil
+
+        project_id, source_sha256, source_size_bytes = (
+            self._prepare_project_and_evidence(
+                row_count=PREPARATION_SCALE_ROWS,
+                column_count=PREPARATION_SCALE_COLUMNS,
+                mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
+            )
+        )
+        project = self.context.preparation.projects.get(project_id)
+        revision = self.context.preparation.mappings.get_mapping_revision(project_id)
+        physical = self.context.preparation.sources.get_source_selection(project_id)
+        effective = self.context.preparation.sources.get_mapping_source_selection(
+            project_id
+        )
+        assert revision is not None
+        assert physical is not None
+        assert effective is not None
+        reference_bundle = (
+            self.context.preparation.resolution.current_reference_bundle(project_id)
+            if self.context.preparation.resolution is not None
+            else None
+        )
+        process = psutil.Process()
+        started = perf_counter()
+        with _PeakWorkingSetSampler(process) as memory_sampler:
+            bounded = preparation_module.prepare_bounded_direct_session(
+                project,
+                revision.definition,
+                revision.version,
+                physical,
+                effective,
+                self.context.preparation.sources.get_source_catalogs(project_id),
+                self.artifacts,
+                reference_bundle,
+                self.context.preparation.sessions,
+            )
+        elapsed = perf_counter() - started
+        peak_mib = memory_sampler.peak_bytes / (1024 * 1024)
+        ending_mib = process.memory_info().rss / (1024 * 1024)
+        database_path = self.root / project_id / "project.duckdb"
+        database_mib = database_path.stat().st_size / (1024 * 1024)
+        self.assertEqual(len(bounded.run.rows), PREPARATION_SCALE_ROWS)
+        print(
+            "Bounded source preparation probe: "
+            f"workload={PREPARATION_SCALE_WORKLOAD}, "
+            f"rows={PREPARATION_SCALE_ROWS:,}, "
+            f"columns={PREPARATION_SCALE_COLUMNS}, "
+            f"mapped_fields={PREPARATION_SCALE_MAPPED_FIELDS}, "
+            f"total={elapsed:.3f}s, peak={peak_mib:.1f} MiB, "
+            f"ending_rss={ending_mib:.1f} MiB, database={database_mib:.1f} MiB, "
+            f"source_bytes={source_size_bytes}, source_sha256={source_sha256}, "
+            f"session={bounded.session_id}"
+        )
+        failures = []
+        if elapsed >= PREPARATION_TIME_LIMIT_SECONDS:
+            failures.append(
+                f"{elapsed:.3f}s is not below {PREPARATION_TIME_LIMIT_SECONDS}s"
+            )
+        if peak_mib >= PREPARATION_PEAK_WORKING_SET_LIMIT_MIB:
+            failures.append(
+                f"{peak_mib:.1f} MiB is not below "
+                f"{PREPARATION_PEAK_WORKING_SET_LIMIT_MIB} MiB"
+            )
+        if failures:
+            self.fail("; ".join(failures))
 
     def _prepare_project_and_evidence(
         self,
@@ -546,6 +683,284 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             actor=self.context.actor,
         )
         return registered.project_id, stored.sha256, stored.size_bytes
+
+    def _enable_advanced_coverage(self, project_id: str) -> None:
+        """Install deterministic Slice 6 inputs for the supported-scale probe."""
+
+        selection = self.context.preparation.sources.get_source_selection(project_id)
+        revision = self.context.preparation.mappings.get_mapping_revision(project_id)
+        assert selection is not None
+        assert revision is not None
+        dataset_mapping = revision.definition.datasets[0]
+        dataset_name = selection.datasets[0].name
+        now = datetime.now(timezone.utc)
+        scope = CoverageScopeRevision(
+            scope_id=str(uuid4()),
+            project_id=project_id,
+            version=1,
+            parent_version=None,
+            source_selection_hash=selection.content_hash,
+            declarations=tuple(
+                CoverageDeclaration(
+                    family=family,
+                    applicability=(
+                        CoverageApplicability.APPLICABLE
+                        if family in {
+                            CoverageFamily.TC_09,
+                            CoverageFamily.TC_14,
+                            CoverageFamily.TC_15,
+                            CoverageFamily.TC_20,
+                            CoverageFamily.TC_23,
+                        }
+                        else CoverageApplicability.INAPPLICABLE
+                    ),
+                    rationale=(
+                        "Included in the deterministic Slice 6 scale fixture."
+                        if family in {
+                            CoverageFamily.TC_09,
+                            CoverageFamily.TC_14,
+                            CoverageFamily.TC_15,
+                            CoverageFamily.TC_20,
+                            CoverageFamily.TC_23,
+                        }
+                        else "Not required by this deterministic scale fixture."
+                    ),
+                    datasets=(dataset_name,)
+                    if family in {
+                        CoverageFamily.TC_09,
+                        CoverageFamily.TC_14,
+                        CoverageFamily.TC_15,
+                        CoverageFamily.TC_20,
+                        CoverageFamily.TC_23,
+                    }
+                    else (),
+                )
+                for family in CoverageFamily
+            ),
+            approved_by=self.context.actor.identity,
+            approved_at=now,
+        )
+        reference_entries = tuple(
+            sorted(
+                (
+                    ReferenceEntry(
+                        key=(f"value-03-{index:02d}",),
+                        values={"approved_value": f"value-03-{index:02d}"},
+                    )
+                    for index in range(100)
+                ),
+                key=lambda item: item.key_hash,
+            )
+        )
+        reference = ReferenceDataSet(
+            reference_id=str(uuid4()),
+            version=1,
+            name="Scale approved values",
+            key_fields=("value",),
+            value_kinds={"approved_value": ReferenceValueKind.BUSINESS_KEY},
+            entries=reference_entries,
+            owner="Performance tester",
+            classification="internal",
+            effective_label="Deterministic scale fixture",
+        )
+        bundle = ReferenceBundle(project_id=project_id, datasets=(reference,))
+        target_fields = tuple(
+            sorted(item.target_field for item in dataset_mapping.fields)
+        )
+        policy = ResolutionPolicy(
+            policy_id=str(uuid4()),
+            project_id=project_id,
+            version=1,
+            parent_version=None,
+            coverage_scope_hash=scope.content_hash,
+            mapping_hash=revision.definition.content_hash,
+            schema_hash=revision.definition.schema_hash,
+            reference_bundle_hash=bundle.content_hash,
+            rules=(
+                ResolutionRule(
+                    rule_id=str(uuid4()),
+                    dataset=dataset_name,
+                    blocking_fields=(target_fields[0],),
+                    comparison_fields=(
+                        FuzzyComparisonField(
+                            field=target_fields[1],
+                            algorithm=SimilarityAlgorithm.NORMALIZED_LEVENSHTEIN,
+                        ),
+                    ),
+                    candidate_threshold="0.95",
+                    survivor_fields=target_fields,
+                    correctable_fields=(target_fields[1],),
+                ),
+            ),
+        )
+        advanced = self.context.resolution.repository
+        advanced.save_coverage_scope(
+            project_id,
+            scope,
+            expected_parent_version=None,
+            actor=self.context.actor,
+        )
+        advanced.save_reference_bundle(
+            project_id,
+            bundle,
+            actor=self.context.actor,
+        )
+        advanced.save_resolution_policy(
+            project_id,
+            policy,
+            expected_parent_version=None,
+            actor=self.context.actor,
+        )
+        base = default_quality_ruleset(
+            project_id=project_id,
+            mapping_hash=revision.definition.content_hash,
+            schema_hash=revision.definition.schema_hash,
+            datasets=(dataset_name,),
+        )
+        approved_code = QualityRule(
+            rule_id="sha256:" + "8" * 64,
+            dataset=dataset_name,
+            family=QualityRuleFamily.APPROVED_CODE_LIST,
+            name="Approved scale values",
+            explanation="Require a value from the deterministic governed list.",
+            input_fields=("x_scale_03",),
+            parameters={
+                "reference_id": reference.reference_id,
+                "reference_content_hash": reference.content_hash,
+            },
+            outcome=QualityOutcomePolicy.QUARANTINE,
+            owner_role=QualityOwnerRole.DATA_MANAGER,
+            source=QualityRuleSource.SCOPE_APPROVED,
+        )
+        count_boundary = QualityRule(
+            rule_id="sha256:" + "9" * 64,
+            dataset=dataset_name,
+            family=QualityRuleFamily.METRIC_BOUNDARY,
+            name="Expected scale population",
+            explanation="Require the approved deterministic row count.",
+            input_fields=(),
+            parameters={
+                "metric": "count",
+                "minimum": str(PREPARATION_SCALE_ROWS),
+                "maximum": str(PREPARATION_SCALE_ROWS),
+            },
+            outcome=QualityOutcomePolicy.BLOCK,
+            owner_role=QualityOwnerRole.DATA_MANAGER,
+            source=QualityRuleSource.SCOPE_APPROVED,
+        )
+        ruleset = QualityRuleSet(
+            ruleset_id=base.ruleset_id,
+            project_id=project_id,
+            version=1,
+            parent_version=None,
+            mapping_hash=base.mapping_hash,
+            schema_hash=base.schema_hash,
+            rules=tuple(
+                sorted((*base.rules, approved_code, count_boundary), key=lambda item: item.rule_id)
+            ),
+            coverage_scope_hash=scope.content_hash,
+            reference_bundle_hash=bundle.content_hash,
+        )
+        self.context.quality.publish_ruleset(
+            project_id,
+            ruleset,
+            actor=self.context.actor,
+        )
+
+
+class BoundedPreparationParityTests(unittest.TestCase):
+    """Prove the direct durable path preserves the materialized Stage-E bytes."""
+
+    def setUp(self) -> None:
+        (ROOT / ".tmp").mkdir(exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.root = Path(self.temporary.name)
+        self.artifacts = LocalArtifactStore(self.root)
+        self.app = create_local_app(
+            self.root,
+            artifact_store=self.artifacts,
+        )
+        self.context = self.app.state.context
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_direct_session_matches_materialized_canonical_evidence(self) -> None:
+        project_id, _source_hash, _source_size = (
+            PreparationWorkflowScaleTests._prepare_project_and_evidence(
+                self,
+                row_count=37,
+                column_count=8,
+                mapped_field_count=5,
+            )
+        )
+        project = self.context.preparation.projects.get(project_id)
+        revision = self.context.preparation.mappings.get_mapping_revision(project_id)
+        physical = self.context.preparation.sources.get_source_selection(project_id)
+        effective = self.context.preparation.sources.get_mapping_source_selection(
+            project_id
+        )
+        self.assertIsNotNone(revision)
+        self.assertIsNotNone(physical)
+        self.assertIsNotNone(effective)
+        assert revision is not None
+        assert physical is not None
+        assert effective is not None
+        with patch(
+            "impodo.domain.staging.evaluator._compile_reference_indexes",
+            create=True,
+            return_value={},
+        ):
+            legacy = preparation_module.stage_browser_mapping(
+                project,
+                revision.definition,
+                physical,
+                effective,
+                None,
+                self.context.preparation.sources.get_source_catalogs(project_id),
+                self.artifacts,
+                collect_transformation_impact=True,
+                transformation_detail_limit=0,
+            )
+
+        self.context.preparation.prepare(
+            project_id,
+            actor=self.context.actor,
+        )
+
+        summary = self.context.preparation.staging.get_current_staging_summary(
+            project_id
+        )
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        stored = self.context.preparation.staging.get_canonical_staging_run(
+            project_id,
+            summary.run_id,
+        )
+        self.assertIsNotNone(stored)
+        assert stored is not None
+        self.assertEqual(summary.content_hash, legacy.canonical_run.content_hash)
+        self.assertEqual(stored.to_json(), legacy.canonical_run.to_json())
+        database_path = self.root / project_id / "project.duckdb"
+        with self.context.preparation.staging._connect(database_path) as connection:
+            sessions = connection.execute(
+                """
+                SELECT status, provisional_row_count, canonical_row_count,
+                       impact_row_count
+                  FROM preparation_session
+                """
+            ).fetchall()
+            temporary_rows = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM preparation_provisional_row),
+                    (SELECT COUNT(*) FROM preparation_lineage),
+                    (SELECT COUNT(*) FROM preparation_impact_row),
+                    (SELECT COUNT(*) FROM preparation_final_row)
+                """
+            ).fetchone()
+        self.assertEqual(sessions, [("PUBLISHED", 37, 37, 37)])
+        self.assertEqual(temporary_rows, (0, 0, 0, 0))
 
 
 def _headers(column_count: int, workload: str) -> tuple[str, ...]:

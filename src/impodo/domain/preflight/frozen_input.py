@@ -31,6 +31,7 @@ from ...normalization import (
     canonical_eligible_dataset_hash,
 )
 from ...quality import QualityRun, QualityRunSummary
+from ..resolution import EffectiveDataset
 from ...source import PreparedBundle
 from ...staging import StagingRunSummary
 from ...staging_contracts import CanonicalRow, CanonicalStagingRun
@@ -40,7 +41,7 @@ from ..errors import ReadinessError
 from ..mapping.artifacts import MappingRevision
 
 
-FROZEN_PREFLIGHT_INPUT_VERSION = 2
+FROZEN_PREFLIGHT_INPUT_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +80,8 @@ class FrozenPreflightInput:
             "staging_content_hash": self.staging.content_hash,
             "quality_run_id": self.quality.run_id,
             "quality_content_hash": self.quality.content_hash,
+            "effective_dataset_run_id": self.quality.effective_dataset_run_id,
+            "effective_dataset_hash": self.quality.effective_dataset_hash,
             "normalization_run_id": self.normalization.run_id,
             "normalization_content_hash": self.normalization.content_hash,
             "normalization_lifecycle_version": self.normalization.lifecycle_version,
@@ -111,6 +114,7 @@ def build_frozen_preflight_input(
     plan: CompiledMigrationPlan,
     dataset_labels: Mapping[str, str],
     source_field_labels: Mapping[tuple[str, str], str],
+    effective: EffectiveDataset | None = None,
 ) -> FrozenPreflightInput:
     """Validate current durable evidence and build the preflight envelope.
 
@@ -137,6 +141,8 @@ def build_frozen_preflight_input(
         or staging_summary.run_id != normalization.staging_run_id
         or staging_summary.content_hash != normalization.staging_content_hash
         or staging.compiled_plan_hash != plan.semantic_hash
+        or quality.effective_dataset_hash != quality_summary.effective_dataset_hash
+        or normalization.effective_dataset_hash != quality.effective_dataset_hash
     ):
         raise ReadinessError(
             "The approved prepared data is no longer current. Odoo was not contacted."
@@ -155,6 +161,7 @@ def build_frozen_preflight_input(
         quality,
         staging_content_hash=staging_summary.content_hash,
         quality_content_hash=quality_summary.content_hash,
+        effective=effective,
     )
     if (
         eligible_hash != normalization.eligible_dataset_hash
@@ -169,7 +176,19 @@ def build_frozen_preflight_input(
         dataset.name: _canonical_source_hash(dataset.source_sha256)
         for dataset in selection.datasets
     }
-    for row in staging.rows:
+    rows = tuple(
+        item.canonical_row for item in effective.rows
+    ) if effective is not None else staging.rows
+    if effective is not None and (
+        effective.project_id != project_id
+        or effective.staging_content_hash != staging_summary.content_hash
+        or effective.content_hash != quality.effective_dataset_hash
+        or quality_summary.effective_dataset_run_id is None
+    ):
+        raise ReadinessError(
+            "The approved resolved rows could not be verified. Odoo was not contacted."
+        )
+    for row in rows:
         expected = source_hashes.get(row.dataset)
         if expected is None or row.lineage.source_hash != expected:
             raise ReadinessError(
@@ -182,9 +201,10 @@ def build_frozen_preflight_input(
         source_hashes=source_hashes,
         staging_content_hash=staging_summary.content_hash,
         eligible_row_ids=eligible_ids,
+        effective=effective,
     )
     eligible_row_ids = tuple(
-        row.row_id for row in staging.rows if row.row_id in eligible_ids
+        row.row_id for row in rows if row.row_id in eligible_ids
     )
     result = FrozenPreflightInput(
         project_id=project_id,
@@ -215,6 +235,7 @@ def canonical_rows_to_prepared_bundle(
     source_hashes: Mapping[str, str],
     staging_content_hash: str | None = None,
     eligible_row_ids: frozenset[str] | None = None,
+    effective: EffectiveDataset | None = None,
 ) -> PreparedBundle:
     """Adapt quality-eligible canonical rows without preparing values again.
 
@@ -226,13 +247,20 @@ def canonical_rows_to_prepared_bundle(
     canonical_staging_hash = staging_content_hash or staging.content_hash
     if quality.staging_content_hash != canonical_staging_hash:
         raise ReadinessError("Prepared rows no longer match their data checks")
-    by_id = {row.row_id: row for row in staging.rows}
+    rows = tuple(
+        item.canonical_row for item in effective.rows
+    ) if effective is not None else staging.rows
+    if quality.effective_dataset_hash != (
+        effective.content_hash if effective is not None else canonical_staging_hash
+    ):
+        raise ReadinessError("Prepared rows no longer match resolved data")
+    by_id = {row.row_id: row for row in rows}
     if set(by_id) != {item.row_id for item in quality.row_results}:
         raise ReadinessError("Prepared row evidence is incomplete")
     eligible_ids = eligible_row_ids or quality.eligible_row_ids
     records = tuple(
         _prepared_record(row)
-        for row in staging.rows
+        for row in rows
         if row.row_id in eligible_ids
     )
     return PreparedBundle(
@@ -243,6 +271,8 @@ def canonical_rows_to_prepared_bundle(
 
 
 def _prepared_record(row: CanonicalRow) -> PreparedRecord:
+    """Adapt one canonical row while preserving values, references, and trace ID."""
+
     return PreparedRecord(
         dataset=row.dataset,
         source_row=row.source_row,
@@ -269,6 +299,8 @@ def _prepared_record(row: CanonicalRow) -> PreparedRecord:
 
 
 def _canonical_source_hash(value: str) -> str:
+    """Normalize a frozen source hash and reject malformed lineage evidence."""
+
     digest = value.removeprefix("sha256:").casefold()
     if len(digest) != 64:
         raise ReadinessError("Approved source evidence has an invalid hash")

@@ -1,4 +1,10 @@
-"""Project-root location and operating-system access controls."""
+"""Secure the filesystem root before databases or artifacts are created.
+
+Production mode requires a local, contained, owner-private location: protected
+Windows DACLs reject synced/network/reparse/Git paths, while POSIX permissions
+are forced to owner-only. Explicit development mode relaxes this for disposable
+data and is reported in ``ProjectRootSecurityStatus``.
+"""
 
 from __future__ import annotations
 
@@ -48,7 +54,11 @@ def prepare_project_root(
     development_mode: bool = False,
     environment: Mapping[str, str] | None = None,
 ) -> ProjectRootSecurityStatus:
-    """Create and secure the root before any project database is opened."""
+    """Create, contain, and verify the root before any project data is opened.
+
+    Returns the effective access-control mode for startup diagnostics and
+    raises without partially accepting a production root that fails policy.
+    """
 
     current = environment if environment is not None else os.environ
     candidate = _absolute_path(root)

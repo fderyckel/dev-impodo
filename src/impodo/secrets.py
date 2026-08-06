@@ -1,4 +1,10 @@
-"""Secret-store boundary for Odoo API keys."""
+"""Secret-store boundary for Odoo API keys and other target credentials.
+
+Routes address secrets by opaque project-derived credential IDs. Application
+and domain objects never receive persistent-store details, and repositories do
+not serialize secret values. ``CredentialVault`` keeps session values in
+memory and optionally mirrors them to the operating-system keyring.
+"""
 
 from __future__ import annotations
 
@@ -16,11 +22,19 @@ class SecretStoreError(RuntimeError):
 
 
 class SecretStore(Protocol):
-    def get(self, credential_id: str) -> str | None: ...
+    """Port for retrieving, setting, and deleting an opaque credential."""
 
-    def set(self, credential_id: str, secret: str, *, persistent: bool) -> None: ...
+    def get(self, credential_id: str) -> str | None:
+        """Return the secret for ``credential_id`` without exposing storage."""
+        ...
 
-    def delete(self, credential_id: str) -> None: ...
+    def set(self, credential_id: str, secret: str, *, persistent: bool) -> None:
+        """Store a session secret and optionally persist it in the OS vault."""
+        ...
+
+    def delete(self, credential_id: str) -> None:
+        """Remove both session and persistent copies when present."""
+        ...
 
 
 class CredentialVault:
@@ -30,6 +44,8 @@ class CredentialVault:
         self._session: dict[str, str] = {}
 
     def get(self, credential_id: str) -> str | None:
+        """Prefer the session copy, then consult the operating-system keyring."""
+
         if credential_id in self._session:
             return self._session[credential_id]
         try:
@@ -40,6 +56,8 @@ class CredentialVault:
             ) from error
 
     def set(self, credential_id: str, secret: str, *, persistent: bool) -> None:
+        """Validate and retain a secret, optionally persisting it in keyring."""
+
         clean_secret = secret.strip()
         if not clean_secret:
             raise SecretStoreError("API key is empty")
@@ -53,6 +71,8 @@ class CredentialVault:
                 ) from error
 
     def delete(self, credential_id: str) -> None:
+        """Delete the in-memory and operating-system copies of a credential."""
+
         self._session.pop(credential_id, None)
         try:
             if keyring.get_password(SERVICE_NAME, credential_id) is not None:
@@ -70,11 +90,17 @@ class MemorySecretStore:
         self.values: dict[str, str] = {}
 
     def get(self, credential_id: str) -> str | None:
+        """Return a test secret from process-local memory."""
+
         return self.values.get(credential_id)
 
     def set(self, credential_id: str, secret: str, *, persistent: bool) -> None:
+        """Store a test secret; persistence has no separate meaning here."""
+
         del persistent
         self.values[credential_id] = secret
 
     def delete(self, credential_id: str) -> None:
+        """Remove a test secret if present."""
+
         self.values.pop(credential_id, None)

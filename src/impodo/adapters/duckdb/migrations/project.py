@@ -12,9 +12,17 @@ import duckdb
 from ..constants import SCHEMA_VERSION
 from .mapping_draft_retirement import retire_mapping_draft
 from .preflight import create_preflight_schema
+from .advanced_coverage import create_advanced_coverage_schema
+from .preparation_session import create_preparation_session_schema
 
 class ProjectMigrationsMixin:
-    """Keep new databases and upgrades on one versioned schema path."""
+    """Keep new databases and upgrades on one monotonic schema path.
+
+    Initialization creates the current schema; migration reads the stored
+    version and applies every intermediate upgrade in order within one
+    transaction. Semantic retirements preserve incompatible legacy payloads
+    as retired evidence instead of silently treating them as current.
+    """
 
     def _initialize_project_database(
         self,
@@ -502,6 +510,8 @@ class ProjectMigrationsMixin:
             """
         )
         create_preflight_schema(connection)
+        create_advanced_coverage_schema(connection)
+        create_preparation_session_schema(connection)
 
     def _migrate_project_database(
         self,
@@ -1149,6 +1159,32 @@ class ProjectMigrationsMixin:
                     )
                     connection.execute("DELETE FROM canonical_staging_current")
                     version = 19
+                if version == 19:
+                    create_advanced_coverage_schema(connection)
+                    connection.execute(
+                        """
+                        UPDATE canonical_staging_run
+                           SET status = 'INVALIDATED',
+                               retired_at = COALESCE(retired_at, ?),
+                               retired_reason = COALESCE(
+                                   retired_reason,
+                                   'MULTI_SOURCE_LINEAGE_REQUIRED'
+                               )
+                         WHERE status = 'PUBLISHED'
+                        """,
+                        [datetime.now(timezone.utc).isoformat()],
+                    )
+                    connection.execute("DELETE FROM canonical_staging_current")
+                    connection.execute("DELETE FROM quality_current")
+                    connection.execute("DELETE FROM normalization_current")
+                    connection.execute("DELETE FROM preflight_current")
+                    version = 20
+                if version == 20:
+                    create_preparation_session_schema(connection)
+                    version = 21
+                if version == 21:
+                    create_preparation_session_schema(connection)
+                    version = 22
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

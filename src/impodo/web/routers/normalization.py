@@ -1,4 +1,4 @@
-"""Normalization browser routes."""
+"""Stage-G review routes for group decisions and eligible-dataset approval."""
 
 from __future__ import annotations
 from fastapi import Request
@@ -16,6 +16,8 @@ from ..presenters.summary import _render_normalization
 
 
 def build_normalization_router(context: WebContext) -> APIRouter:
+    """Build review, group-decision, and final-freeze HTTP actions."""
+
     router = APIRouter()
 
     @router.get("/projects/{project_id}/normalization", response_class=HTMLResponse)

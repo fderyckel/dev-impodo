@@ -152,6 +152,7 @@ def _render_summary(
     staging = context.preflight.current_staging(project_id)
     quality = context.quality.current_summary(project_id)
     normalization = context.normalization.current_summary(project_id)
+    resolution = context.resolution.current_summary(project_id)
     if (
         quality is not None
         and (staging is None or quality.staging_run_id != staging.run_id)
@@ -234,6 +235,7 @@ def _render_summary(
         staging=staging,
         quality=quality,
         normalization=normalization,
+        resolution=resolution,
         quality_review_page=quality_page,
         quality_status=quality_status,
         quality_dataset=quality_dataset,

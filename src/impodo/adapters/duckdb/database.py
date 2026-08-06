@@ -1,4 +1,10 @@
-"""DuckDB database implementation."""
+"""Shared hardened DuckDB boundary for registry and per-project databases.
+
+``DuckDbDatabase`` owns connection configuration, schema migration, contained
+project paths, transaction factories, audit helpers, and downstream
+invalidation. Concrete repositories are thin responsibility-specific adapters
+over this shared boundary; they do not open differently configured databases.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +31,12 @@ from .unit_of_work import (
 class DuckDbDatabase(
     ProjectMigrationsMixin, EvidenceInvalidationMixin, AuditMixin
 ):
-    """Shared DuckDB connection, migration, and transaction boundary."""
+    """Shared DuckDB connection, migration, and transaction boundary.
+
+    The root contains one registry plus a UUID-named directory/database per
+    project. DuckDB external access and extension loading are disabled by the
+    connection factory. Migrations run before project reads or writes.
+    """
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).resolve()
@@ -37,6 +48,8 @@ class DuckDbDatabase(
             ensure_registry_schema(connection)
 
     def project_directory(self, project_id: str) -> Path:
+        """Return the contained UUID directory for a validated project ID."""
+
         try:
             canonical = str(UUID(project_id))
         except (ValueError, AttributeError) as error:

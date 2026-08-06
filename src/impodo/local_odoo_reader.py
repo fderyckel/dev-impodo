@@ -1,4 +1,4 @@
-"""Fixed, read-only metadata capture through a selected local Odoo shell.
+"""Fixed, read-only schema and Stage-H capture through a local Odoo shell.
 
 Local Odoo does not need a bearer API key when Impodo can use the exact local
 ``odoo.conf`` and Odoo Python installation selected by the operator.  This
@@ -6,9 +6,10 @@ adapter starts an isolated ``odoo-bin shell`` process, executes one fixed read
 operation, emits a bounded JSON envelope, and relies on Odoo's shell command to
 roll the transaction back when the process exits.
 
-The adapter is intentionally not a generic shell capability.  Callers can only
-request the model catalogue or ``fields_get`` metadata for an explicit,
-validated model allowlist.
+The adapter is intentionally not a generic shell capability. Callers can only
+request the model catalogue, allowlisted ``fields_get`` metadata, or one exact
+bounded preflight request plan. The fixed script paginates by model rather than
+source row, and Odoo rolls its transaction back when the process exits.
 """
 
 from __future__ import annotations
@@ -86,7 +87,7 @@ LocalShellRunner = Callable[
 
 
 class LocalOdooMetadataReader:
-    """Read effective Odoo 19 metadata without a bearer API key."""
+    """Read Odoo 19 schema or bounded preflight snapshots without an API key."""
 
     def __init__(
         self,
@@ -403,6 +404,8 @@ class LocalOdooMetadataReader:
         profile: LocalStackProfile,
         script: str,
     ) -> Mapping[str, Any]:
+        """Run one fixed script against the validated local stack and parse it."""
+
         _validate_local_binding(project, profile)
         assert profile.python_path is not None
         assert profile.odoo_bin_path is not None

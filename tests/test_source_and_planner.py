@@ -19,13 +19,106 @@ from impodo.planner import (
     plan_record_requests,
 )
 from impodo.profile import SourceSpec, load_profile
-from impodo.source import SourceLoadError, prepare_sources
+from impodo.source import (
+    SourceLoadError,
+    load_selected_source_table,
+    open_selected_source_batches,
+    prepare_sources,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class PreparedRecordTests(unittest.TestCase):
+    def test_selected_csv_batches_match_materialized_reader(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "products.csv"
+            path.write_text(
+                "code,name,quantity\n"
+                + "".join(
+                    f"P-{index:03d},Product {index},{index}.5\n"
+                    for index in range(35)
+                ),
+                encoding="utf-8",
+            )
+            materialized = load_selected_source_table(
+                path,
+                dataset="products",
+                table_key="csv",
+                encoding="utf-8",
+                delimiter=",",
+                header_row=1,
+            )
+
+            for batch_size in (1, 17, 1_000):
+                with self.subTest(batch_size=batch_size):
+                    with open_selected_source_batches(
+                        path,
+                        dataset="products",
+                        table_key="csv",
+                        encoding="utf-8",
+                        delimiter=",",
+                        header_row=1,
+                        batch_size=batch_size,
+                    ) as source:
+                        batches = tuple(source.iter_batches())
+                        self.assertEqual(source.headers, materialized.headers)
+                        self.assertEqual(
+                            source.content_hash,
+                            materialized.content_hash,
+                        )
+                    self.assertTrue(
+                        all(len(batch) <= batch_size for batch in batches)
+                    )
+                    self.assertEqual(
+                        tuple(row for batch in batches for row in batch),
+                        materialized.rows,
+                    )
+
+    def test_selected_xlsx_batches_match_materialized_reader(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "products.xlsx"
+            workbook = Workbook()
+            worksheet = workbook.active
+            worksheet.title = "Products"
+            worksheet.append(["Governed export"])
+            worksheet.append([])
+            worksheet.append(["code", "active", "quantity"])
+            for index in range(35):
+                worksheet.append([f"P-{index:03d}", index % 2 == 0, index + 0.5])
+            workbook.save(path)
+            workbook.close()
+
+            materialized = load_selected_source_table(
+                path,
+                dataset="products",
+                table_key="sheet:Products",
+                encoding=None,
+                delimiter=None,
+                header_row=3,
+            )
+
+            for batch_size in (1, 17, 1_000):
+                with self.subTest(batch_size=batch_size):
+                    with open_selected_source_batches(
+                        path,
+                        dataset="products",
+                        table_key="sheet:Products",
+                        encoding=None,
+                        delimiter=None,
+                        header_row=3,
+                        batch_size=batch_size,
+                    ) as source:
+                        batches = tuple(source.iter_batches())
+                    self.assertTrue(
+                        all(len(batch) <= batch_size for batch in batches)
+                    )
+                    self.assertEqual(
+                        tuple(row for batch in batches for row in batch),
+                        materialized.rows,
+                    )
+
     def test_bom_values_and_references_are_preserved(self) -> None:
         profile = compile_profile_document(
             load_profile(ROOT / "profiles/examples/bom.yaml")

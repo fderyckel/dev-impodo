@@ -30,11 +30,13 @@ from .quality import (
     QualityRun,
     retention_context_hash,
 )
+from .domain.resolution import EffectiveDataset
 from .staging_contracts import CanonicalStagingRun
 
 
-NORMALIZATION_CONTRACT_VERSION = 1
-NORMALIZATION_EVALUATOR_VERSION = 1
+NORMALIZATION_CONTRACT_VERSION = 2
+NORMALIZATION_EVALUATOR_VERSION = 2
+_SUPPORTED_NORMALIZATION_VERSIONS = {(1, 1), (2, 2)}
 NORMALIZATION_POLICY_VERSION = 1
 NORMALIZATION_EXAMPLE_LIMIT = 5
 
@@ -44,6 +46,8 @@ class NormalizationError(ValueError):
 
 
 class NormalizationOutcome(StrEnum):
+    """Review policy assigned to a group of prepared-value effects."""
+
     AUTOMATIC = "AUTOMATIC"
     DECISION_REQUIRED = "DECISION_REQUIRED"
     REVIEW_FINDING = "REVIEW_FINDING"
@@ -51,6 +55,8 @@ class NormalizationOutcome(StrEnum):
 
 
 class NormalizationGroupKind(StrEnum):
+    """Whether a review group describes a change or a quality warning."""
+
     CHANGE = "CHANGE"
     FINDING = "FINDING"
 
@@ -72,11 +78,15 @@ class NormalizationCandidate:
 
 @dataclass(frozen=True, slots=True)
 class NormalizationExample:
+    """Bounded before/after example displayed for one review group."""
+
     source_row: int
     before: str
     after: str
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize the example without exposing additional row data."""
+
         return {
             "source_row": self.source_row,
             "before": self.before,
@@ -85,6 +95,8 @@ class NormalizationExample:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "NormalizationExample":
+        """Reconstruct a display example from persisted evidence."""
+
         return cls(
             source_row=int(payload["source_row"]),
             before=str(payload["before"]),
@@ -94,6 +106,8 @@ class NormalizationExample:
 
 @dataclass(frozen=True, slots=True)
 class NormalizationEffect:
+    """One canonical row/field value effect linked to a review group."""
+
     effect_id: str
     group_id: str
     row_id: str
@@ -115,6 +129,8 @@ class NormalizationEffect:
             raise ValueError("Normalization effect coordinates are invalid")
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize the stable effect identity and protected display values."""
+
         return {
             "effect_id": self.effect_id,
             "group_id": self.group_id,
@@ -129,6 +145,8 @@ class NormalizationEffect:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "NormalizationEffect":
+        """Reconstruct a validated effect from persisted evidence."""
+
         return cls(
             effect_id=str(payload["effect_id"]),
             group_id=str(payload["group_id"]),
@@ -144,6 +162,13 @@ class NormalizationEffect:
 
 @dataclass(frozen=True, slots=True)
 class NormalizationReviewGroup:
+    """Aggregate effects that share one rule and one governance decision.
+
+    Groups keep the UI and governance model bounded: reviewers approve a
+    stable semantic rule group rather than making one decision per record.
+    ``decision_key`` connects this object to :class:`governance.DryRun`.
+    """
+
     group_id: str
     rule_id: str
     kind: NormalizationGroupKind
@@ -183,6 +208,8 @@ class NormalizationReviewGroup:
 
     @property
     def requires_decision(self) -> bool:
+        """Whether eligible records in this group need an explicit decision."""
+
         return self.eligible_count > 0 and self.outcome in {
             NormalizationOutcome.DECISION_REQUIRED,
             NormalizationOutcome.REVIEW_FINDING,
@@ -190,6 +217,8 @@ class NormalizationReviewGroup:
 
     @property
     def decision_key(self) -> CorrectionGroupKey:
+        """Return the stable key used to store this group's governance choice."""
+
         return CorrectionGroupKey(
             rule_id=self.rule_id,
             dataset=self.dataset,
@@ -199,6 +228,8 @@ class NormalizationReviewGroup:
         )
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize group metadata, counts, and bounded examples."""
+
         return {
             "group_id": self.group_id,
             "rule_id": self.rule_id,
@@ -221,6 +252,8 @@ class NormalizationReviewGroup:
         cls,
         payload: Mapping[str, Any],
     ) -> "NormalizationReviewGroup":
+        """Reconstruct and validate a review group from storage."""
+
         return cls(
             group_id=str(payload["group_id"]),
             rule_id=str(payload["rule_id"]),
@@ -244,6 +277,13 @@ class NormalizationReviewGroup:
 
 @dataclass(frozen=True, slots=True)
 class NormalizationEvaluation:
+    """Complete Stage-G review input bound to staging and quality evidence.
+
+    Effects explain individual changes; groups define the decisions reviewers
+    make. ``eligible_dataset_hash`` fingerprints the exact canonical rows kept
+    by quality and is frozen only after required group decisions are resolved.
+    """
+
     project_id: str
     staging_content_hash: str
     quality_content_hash: str
@@ -254,15 +294,22 @@ class NormalizationEvaluation:
     eligible_dataset_hash: str
     effects: tuple[NormalizationEffect, ...]
     groups: tuple[NormalizationReviewGroup, ...]
+    effective_dataset_hash: str | None = None
     evaluator_version: int = NORMALIZATION_EVALUATOR_VERSION
     contract_version: int = NORMALIZATION_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if (
-            self.contract_version != NORMALIZATION_CONTRACT_VERSION
-            or self.evaluator_version != NORMALIZATION_EVALUATOR_VERSION
-        ):
+        if (self.contract_version, self.evaluator_version) not in _SUPPORTED_NORMALIZATION_VERSIONS:
             raise ValueError("Normalization evidence version is unsupported")
+        if self.contract_version >= 2:
+            if self.effective_dataset_hash is None:
+                raise ValueError("Current normalization evidence requires resolved data")
+            _require_hash(
+                self.effective_dataset_hash,
+                "normalization effective-dataset hash",
+            )
+        elif self.effective_dataset_hash is not None:
+            raise ValueError("Legacy normalization evidence cannot bind resolved data")
         if not self.project_id:
             raise ValueError("Normalization evidence requires a project")
         for value, label in (
@@ -289,10 +336,14 @@ class NormalizationEvaluation:
 
     @property
     def content_hash(self) -> str:
+        """Hash the immutable evaluation consumed by the normalization run."""
+
         return _hash(self.to_portable_dict(include_hash=False))
 
     @property
     def ready_count(self) -> int:
+        """Count low-risk groups governed by the automatic policy."""
+
         return sum(
             1
             for group in self.groups
@@ -301,13 +352,19 @@ class NormalizationEvaluation:
 
     @property
     def pending_group_count(self) -> int:
+        """Count groups that require explicit reviewer decisions."""
+
         return sum(group.requires_decision for group in self.groups)
 
     @property
     def changed_record_count(self) -> int:
+        """Count distinct eligible records with at least one visible effect."""
+
         return len({item.row_id for item in self.effects if item.eligible})
 
     def to_portable_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
+        """Serialize the evaluation and all review evidence."""
+
         payload = {
             "contract_version": self.contract_version,
             "evaluator_version": self.evaluator_version,
@@ -322,15 +379,21 @@ class NormalizationEvaluation:
             "effects": [item.to_portable_dict() for item in self.effects],
             "groups": [item.to_portable_dict() for item in self.groups],
         }
+        if self.contract_version >= 2:
+            payload["effective_dataset_hash"] = self.effective_dataset_hash
         if include_hash:
             payload["content_hash"] = self.content_hash
         return payload
 
     def to_json(self) -> str:
+        """Return the evaluation as canonical JSON."""
+
         return canonical_json_bytes(self.to_portable_dict()).decode("utf-8")
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "NormalizationEvaluation":
+        """Load an evaluation and verify its persisted content hash."""
+
         evaluation = cls(
             contract_version=int(payload.get("contract_version", 0)),
             evaluator_version=int(payload.get("evaluator_version", 0)),
@@ -350,6 +413,11 @@ class NormalizationEvaluation:
                 NormalizationReviewGroup.from_dict(item)
                 for item in payload.get("groups", ())
             ),
+            effective_dataset_hash=(
+                str(payload["effective_dataset_hash"])
+                if payload.get("effective_dataset_hash") is not None
+                else None
+            ),
         )
         if payload.get("content_hash") != evaluation.content_hash:
             raise ValueError("Normalization content hash is invalid")
@@ -357,11 +425,15 @@ class NormalizationEvaluation:
 
     @classmethod
     def from_json(cls, value: str) -> "NormalizationEvaluation":
+        """Load and validate an evaluation from canonical JSON."""
+
         return cls.from_dict(json.loads(value))
 
 
 @dataclass(frozen=True, slots=True)
 class NormalizationRunSummary:
+    """Lifecycle and count projection for a durable Stage-G review run."""
+
     run_id: str
     project_id: str
     content_hash: str
@@ -380,18 +452,26 @@ class NormalizationRunSummary:
     decision_group_count: int
     reviewed_group_count: int
     set_aside_record_count: int
+    effective_dataset_run_id: str | None = None
+    effective_dataset_hash: str | None = None
 
     @property
     def frozen(self) -> bool:
+        """Whether approval fixed the eligible dataset for later stages."""
+
         return self.status == "FROZEN"
 
     @property
     def decisions_left(self) -> int:
+        """Count required review groups without a recorded decision."""
+
         return max(0, self.decision_group_count - self.reviewed_group_count)
 
 
 @dataclass(frozen=True, slots=True)
 class NormalizationReviewPage:
+    """Bounded page of normalization groups for review navigation."""
+
     groups: tuple[NormalizationReviewGroup, ...]
     matching_count: int
     page: int
@@ -407,6 +487,7 @@ def evaluate_normalization(
     candidates: Iterable[NormalizationCandidate],
     published_staging_content_hash: str | None = None,
     published_quality_content_hash: str | None = None,
+    effective: EffectiveDataset | None = None,
 ) -> NormalizationEvaluation:
     """Build complete review groups without repository or Odoo access."""
 
@@ -419,6 +500,16 @@ def evaluate_normalization(
         raise NormalizationError("Prepared review no longer matches the data checks")
     if quality.mapping_hash != staging.mapping_hash or quality.schema_hash != staging.schema_hash:
         raise NormalizationError("Prepared review no longer matches the field matches")
+    effective_dataset_hash = (
+        effective.content_hash if effective is not None else staging_content_hash
+    )
+    if quality.effective_dataset_hash != effective_dataset_hash:
+        raise NormalizationError("Prepared review no longer matches resolved data")
+    if effective is not None and (
+        effective.project_id != project.project_id
+        or effective.staging_content_hash != staging_content_hash
+    ):
+        raise NormalizationError("Resolved data no longer matches prepared data")
     if not quality.can_compare:
         raise NormalizationError("Fix the data-check setup before reviewing prepared data")
     if not all(item.passed for item in staging.control_totals):
@@ -427,6 +518,16 @@ def evaluate_normalization(
     rows_by_coordinate: dict[tuple[str, int], list[Any]] = {}
     for row in staging.rows:
         rows_by_coordinate.setdefault((row.dataset, row.source_row), []).append(row)
+    effective_rows_by_id = (
+        {item.row_id: item.canonical_row for item in effective.rows}
+        if effective is not None
+        else {item.row_id: item for item in staging.rows}
+    )
+    effective_id_by_source = (
+        {item.source_row_id: item.effective_row_id for item in effective.accounting}
+        if effective is not None
+        else {item.row_id: item.row_id for item in staging.rows}
+    )
     eligible_ids = quality.eligible_row_ids
     policy_hash = _hash(
         {
@@ -436,6 +537,7 @@ def evaluate_normalization(
         }
     )
     effect_rows: list[NormalizationEffect] = []
+    effect_ids: set[str] = set()
     group_metadata: dict[str, dict[str, Any]] = {}
     restricted = project.data_classification is DataClassification.RESTRICTED
 
@@ -447,7 +549,13 @@ def evaluate_normalization(
             raise NormalizationError(
                 "Prepared changes cannot be matched safely to one business record"
             )
-        row = matches[0]
+        source_row = matches[0]
+        effective_row_id = effective_id_by_source.get(source_row.row_id)
+        row = effective_rows_by_id.get(effective_row_id or "")
+        if row is None:
+            raise NormalizationError(
+                "Prepared changes no longer match the resolved business records"
+            )
         mapping = mappings.get(candidate.dataset)
         if mapping is None:
             raise NormalizationError("Prepared changes use an unknown table")
@@ -498,7 +606,9 @@ def evaluate_normalization(
             after=after,
             eligible=row.row_id in eligible_ids,
         )
-        effect_rows.append(effect)
+        if effect.effect_id not in effect_ids:
+            effect_rows.append(effect)
+            effect_ids.add(effect.effect_id)
         name, explanation = _change_language(candidate.rules, outcome)
         group_metadata.setdefault(
             group_id,
@@ -595,6 +705,7 @@ def evaluate_normalization(
         quality,
         staging_content_hash=staging_content_hash,
         quality_content_hash=quality_content_hash,
+        effective=effective,
     )
     return NormalizationEvaluation(
         project_id=project.project_id,
@@ -607,6 +718,7 @@ def evaluate_normalization(
         eligible_dataset_hash=eligible_dataset_hash,
         effects=tuple(sorted(effect_rows, key=lambda item: item.effect_id)),
         groups=tuple(sorted(groups, key=lambda item: item.group_id)),
+        effective_dataset_hash=effective_dataset_hash,
     )
 
 
@@ -616,6 +728,13 @@ def start_dry_run(
     run_id: str,
     source_hashes: Mapping[str, str],
 ) -> DryRun:
+    """Translate normalization groups into the shared decision state machine.
+
+    Automatic groups become non-blocking correction impacts; groups requiring
+    judgment must be approved or rejected before :class:`DryRun` can be
+    approved and frozen with ``evaluation.eligible_dataset_hash``.
+    """
+
     corrections = tuple(
         sorted(
             (
@@ -760,6 +879,7 @@ def canonical_eligible_dataset_hash(
     *,
     staging_content_hash: str | None = None,
     quality_content_hash: str | None = None,
+    effective: EffectiveDataset | None = None,
 ) -> str:
     """Hash the exact quality-eligible canonical rows for durable reuse."""
 
@@ -767,11 +887,22 @@ def canonical_eligible_dataset_hash(
     canonical_quality_hash = quality_content_hash or quality.content_hash
     if quality.staging_content_hash != canonical_staging_hash:
         raise NormalizationError("Prepared data no longer matches the data checks")
+    effective_dataset_hash = (
+        effective.content_hash if effective is not None else canonical_staging_hash
+    )
+    if quality.effective_dataset_hash != effective_dataset_hash:
+        raise NormalizationError("Resolved data no longer matches the data checks")
     eligible_ids = quality.eligible_row_ids
     hasher = CanonicalJsonObjectHasher()
+    hasher.add_value("effective_dataset_hash", effective_dataset_hash)
     hasher.add_value("quality_content_hash", canonical_quality_hash)
     hasher.start_array("rows")
-    for row in staging.rows:
+    rows = (
+        (item.canonical_row for item in effective.rows)
+        if effective is not None
+        else iter(staging.rows)
+    )
+    for row in rows:
         if row.row_id in eligible_ids:
             hasher.add_encoded_array_item(
                 canonical_json_bytes(row.to_portable_dict())

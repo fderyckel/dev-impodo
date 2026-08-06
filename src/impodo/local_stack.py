@@ -57,6 +57,8 @@ class LocalStackStartError(LocalStackError):
 
 
 class ReadinessLevel(StrEnum):
+    """UI severity for one local configuration or service probe."""
+
     READY = "ready"
     ACTION = "action"
     ERROR = "error"
@@ -65,6 +67,8 @@ class ReadinessLevel(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class LocalStackCheck:
+    """One plain-language readiness observation for the local-stack UI."""
+
     key: str
     label: str
     level: ReadinessLevel
@@ -106,18 +110,26 @@ class LocalStackStatus:
 
     @property
     def odoo_ready(self) -> bool:
+        """Whether the configured Odoo loopback endpoint answered safely."""
+
         return self._level("odoo") is ReadinessLevel.READY
 
     @property
     def startup_needed(self) -> bool:
+        """Whether a valid profile exists but Odoo is not currently ready."""
+
         return self.profile is not None and not self.odoo_ready
 
     @property
     def metadata_ready(self) -> bool:
+        """Whether a fixed read-only metadata/database check succeeded."""
+
         return self._level("api") is ReadinessLevel.READY
 
     @property
     def missing_start_requirements(self) -> tuple[str, ...]:
+        """List absent executable/data paths needed to start missing services."""
+
         profile = self.profile
         if profile is None or not self.startup_needed:
             return ()
@@ -138,10 +150,14 @@ class LocalStackStatus:
 
     @property
     def can_start(self) -> bool:
+        """Whether startup is needed and all allowlisted prerequisites exist."""
+
         return self.startup_needed and not self.missing_start_requirements
 
     @property
     def has_managed_services(self) -> bool:
+        """Whether this Impodo process owns at least one displayed service."""
+
         return bool(self.managed_services)
 
     def _level(self, key: str) -> ReadinessLevel:
@@ -156,6 +172,8 @@ class LocalStackStatus:
 
     @classmethod
     def unconfigured(cls) -> "LocalStackStatus":
+        """Build the initial waiting state before an ``odoo.conf`` is chosen."""
+
         return cls(
             config_path="",
             base_url="",
@@ -183,6 +201,8 @@ class LocalStackStatus:
 
     @classmethod
     def invalid(cls, config_path: Path, message: str) -> "LocalStackStatus":
+        """Build a safe error state for a selected but invalid configuration."""
+
         return cls(
             config_path=str(config_path),
             base_url="",
@@ -210,34 +230,58 @@ class LocalStackStatus:
 
 
 class ConfigPicker(Protocol):
-    def __call__(self) -> str | Path | None: ...
+    """Port for selecting one local ``odoo.conf`` without uploading it."""
+
+    def __call__(self) -> str | Path | None:
+        """Return the selected path, or ``None`` when selection is cancelled."""
+        ...
 
 
 class StackProbe(Protocol):
-    def __call__(self, profile: LocalStackProfile) -> LocalStackStatus: ...
+    """Port for recomputing non-mutating local service readiness."""
+
+    def __call__(self, profile: LocalStackProfile) -> LocalStackStatus:
+        """Probe only the endpoints and paths described by ``profile``."""
+        ...
 
 
 class ProcessHandle(Protocol):
+    """Minimal owned-process surface needed for safe Odoo shutdown."""
+
     pid: int
 
-    def poll(self) -> int | None: ...
+    def poll(self) -> int | None:
+        """Return the exit code or ``None`` while the owned process runs."""
+        ...
 
-    def terminate(self) -> None: ...
+    def terminate(self) -> None:
+        """Request graceful termination of the exact owned process."""
+        ...
 
-    def wait(self, timeout: int | float | None = None) -> int: ...
+    def wait(self, timeout: int | float | None = None) -> int:
+        """Wait for the owned process to exit within ``timeout``."""
+        ...
 
-    def kill(self) -> None: ...
+    def kill(self) -> None:
+        """Force-stop the same owned process after graceful timeout."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
 class LocalStackStartResult:
+    """Probe result plus exact service identities started by this call."""
+
     status: LocalStackStatus
     odoo_process: ProcessHandle | None
     postgresql_pid: int | None
 
 
 class StackStarter(Protocol):
-    def __call__(self, profile: LocalStackProfile) -> LocalStackStartResult: ...
+    """Port for the fixed missing-service startup sequence."""
+
+    def __call__(self, profile: LocalStackProfile) -> LocalStackStartResult:
+        """Start only required loopback services and return their ownership."""
+        ...
 
 
 @dataclass(slots=True)
@@ -248,6 +292,8 @@ class _LocalStackOwnership:
 
     @property
     def services(self) -> tuple[str, ...]:
+        """Return only services whose exact owned processes still appear live."""
+
         services = []
         if self.odoo_process is not None and self.odoo_process.poll() is None:
             services.append("Odoo")
@@ -257,7 +303,13 @@ class _LocalStackOwnership:
 
 
 class LocalStackService:
-    """Hold machine-local, session-lifetime readiness profiles by project."""
+    """Hold machine-local readiness and exact process ownership by project.
+
+    Status/profile state is intentionally session-only. Start/stop/restart are
+    serialized and may affect only PostgreSQL/Odoo instances started by this
+    service during the current process; externally running services are never
+    adopted or stopped.
+    """
 
     def __init__(
         self,
@@ -274,6 +326,8 @@ class LocalStackService:
         self._control_lock = Lock()
 
     def pick_config(self) -> Path | None:
+        """Delegate to the native picker and normalize a selected path."""
+
         selected = self._config_picker()
         return Path(selected) if selected else None
 
@@ -282,6 +336,8 @@ class LocalStackService:
         project_id: str,
         config_path: str | Path,
     ) -> LocalStackStatus:
+        """Parse/probe a new config unless this session owns running services."""
+
         if self._managed_services(project_id):
             raise LocalStackError(
                 "Stop the services managed by Impodo before choosing "
@@ -297,6 +353,8 @@ class LocalStackService:
         return status
 
     def refresh(self, project_id: str) -> LocalStackStatus:
+        """Reread the selected config and recompute non-mutating readiness."""
+
         current = self.get(project_id)
         if current.profile is None:
             return current
@@ -419,6 +477,8 @@ class LocalStackService:
             return self._start_locked(project_id)
 
     def get(self, project_id: str) -> LocalStackStatus:
+        """Return current session status decorated with live ownership state."""
+
         status = self._statuses.get(project_id, LocalStackStatus.unconfigured())
         return self._decorate_status(project_id, status)
 

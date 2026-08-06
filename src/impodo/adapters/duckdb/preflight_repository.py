@@ -448,6 +448,13 @@ class PreflightRepository(DuckDbRepository):
         page: int = 1,
         page_size: int = 100,
     ) -> ReadinessRowPage:
+        """Return one filtered page without loading the full decision set.
+
+        Run IDs and page bounds are validated first. SQL applies dataset/status
+        filters and stable ordinal ordering, preserving the engine's decision
+        order while keeping browser memory bounded.
+        """
+
         try:
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:

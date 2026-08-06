@@ -71,6 +71,9 @@ def _validate_scalar(
                     target_field=field_mapping.target_field,
                 )
             )
+        if field_mapping.reference_lookup is not None:
+            for key in field_mapping.reference_lookup.key_source_column_keys[1:]:
+                _check_column(dataset, key, path, columns, issues)
     elif field_mapping.source_column_key is not None:
         issues.append(
             _issue(

@@ -1,4 +1,10 @@
-"""Durable-job domain contracts with a synchronous local adapter."""
+"""Cross-stage job lifecycle contracts with a synchronous local adapter.
+
+``JobRequest`` binds one operation to project, actor, input hash, and
+idempotency key. ``JobRecord`` is the transition state machine. The local
+``InlineJobDispatcher`` executes immediately but preserves the same replay and
+state semantics expected from a future durable hosted queue.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +19,8 @@ from .access import ActorIdentity
 
 
 class JobKind(StrEnum):
+    """Allowlisted long-running operations that may use a job boundary."""
+
     SOURCE_INSPECTION = "SOURCE_INSPECTION"
     NORMALIZATION = "NORMALIZATION"
     PREFLIGHT = "PREFLIGHT"
@@ -20,6 +28,8 @@ class JobKind(StrEnum):
 
 
 class JobStatus(StrEnum):
+    """Lifecycle states for one idempotent job request."""
+
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
     SUCCEEDED = "SUCCEEDED"
@@ -29,6 +39,8 @@ class JobStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class JobRequest:
+    """Immutable identity, provenance, and semantic input for one job."""
+
     job_id: str
     project_id: str
     kind: JobKind
@@ -52,6 +64,8 @@ class JobRequest:
 
 @dataclass(frozen=True, slots=True)
 class JobRecord:
+    """Versioned job state; transition methods return replaced instances."""
+
     request: JobRequest
     status: JobStatus = JobStatus.QUEUED
     version: int = 1
@@ -61,6 +75,8 @@ class JobRecord:
     failure_code: str = ""
 
     def start(self, *, at: datetime) -> "JobRecord":
+        """Move a queued job to running at a timezone-aware timestamp."""
+
         self._require(JobStatus.QUEUED)
         _aware(at, "started_at")
         return replace(
@@ -76,6 +92,8 @@ class JobRecord:
         at: datetime,
         result_artifact_ids: tuple[str, ...] = (),
     ) -> "JobRecord":
+        """Complete a running job and retain its result artifact identities."""
+
         self._require(JobStatus.RUNNING)
         _aware(at, "finished_at")
         return replace(
@@ -87,6 +105,8 @@ class JobRecord:
         )
 
     def fail(self, *, at: datetime, failure_code: str) -> "JobRecord":
+        """Complete a running job with a bounded non-sensitive failure code."""
+
         self._require(JobStatus.RUNNING)
         _aware(at, "finished_at")
         if not failure_code.strip() or len(failure_code) > 200:
@@ -110,9 +130,15 @@ JobWork = Callable[[], tuple[str, ...]]
 
 
 class JobDispatcher(Protocol):
-    def dispatch(self, request: JobRequest, work: JobWork) -> JobRecord: ...
+    """Port for idempotent execution and later status lookup."""
 
-    def get(self, job_id: str) -> JobRecord: ...
+    def dispatch(self, request: JobRequest, work: JobWork) -> JobRecord:
+        """Execute or reuse the request bound to its idempotency key."""
+        ...
+
+    def get(self, job_id: str) -> JobRecord:
+        """Return the latest lifecycle record for ``job_id``."""
+        ...
 
 
 class InlineJobDispatcher:
@@ -124,6 +150,8 @@ class InlineJobDispatcher:
         self._by_idempotency: dict[str, str] = {}
 
     def dispatch(self, request: JobRequest, work: JobWork) -> JobRecord:
+        """Run work synchronously while enforcing idempotent request binding."""
+
         with self._lock:
             existing_id = self._by_idempotency.get(request.idempotency_key)
             if existing_id is not None:
@@ -165,6 +193,8 @@ class InlineJobDispatcher:
         return succeeded
 
     def get(self, job_id: str) -> JobRecord:
+        """Return the last immutable record stored for a local job."""
+
         with self._lock:
             try:
                 return self._by_job_id[job_id]

@@ -5,7 +5,9 @@
     <div>
       <p class="eyebrow">Step 5 · Review</p>
       <h1>{{ project.name }}</h1>
-      {% if readiness %}
+      {% if resolution and resolution.status == 'REVIEW_REQUIRED' %}
+        <p>Possible duplicate records need your decision before the prepared-data checks can continue.</p>
+      {% elif readiness %}
         <p>Every source row is accounted for. Eligible records were checked against Odoo; unsafe records remain visible but set aside.</p>
       {% elif normalization and normalization.frozen %}
         <p>Your prepared data is approved. Compare it with Odoo when you are ready.</p>
@@ -21,7 +23,9 @@
         <p>Continue preparing and checking this project.</p>
       {% endif %}
     </div>
-    {% if readiness %}
+    {% if resolution and resolution.status == 'REVIEW_REQUIRED' %}
+      <span class="status review">Duplicate review needed</span>
+    {% elif readiness %}
       <span class="status {{ readiness.status|lower }}">
         {% if quality and quality.blocked_count %}Fix setup{% elif quality and quality.review_count %}Review needed{% elif staging and staging.failed_control_total_count %}Totals need attention{% elif readiness.status == 'READY' %}Data check complete{% elif readiness.status == 'NEEDS_REVIEW' %}Decisions needed{% else %}Fixes needed{% endif %}
       </span>
@@ -40,7 +44,16 @@
     {% endif %}
   </div>
 
-  {% if normalization and not readiness %}
+  {% if resolution and resolution.status == 'REVIEW_REQUIRED' %}
+    <section class="next-action-card review" aria-labelledby="resolution-next-title">
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2 id="resolution-next-title">Review possible duplicates</h2>
+        <p>Confirm whether similar records are the same, then choose any conflicting values to keep.</p>
+      </div>
+      <a class="button primary" href="/projects/{{ project.project_id }}/resolution">Review possible duplicates</a>
+    </section>
+  {% elif normalization and not readiness %}
     <section class="next-action-card {% if normalization.frozen %}ready{% else %}review{% endif %}" aria-labelledby="normalization-next-title">
       <div>
         <p class="eyebrow">Next action</p>

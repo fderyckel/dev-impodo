@@ -20,6 +20,8 @@ class BrowserEvaluationScale:
 
     @property
     def supported(self) -> bool:
+        """Whether the physical selection fits the in-memory safety limit."""
+
         return self.physical_rows <= self.supported_limit
 
 
@@ -32,6 +34,8 @@ def browser_evaluation_scale(selection: SourceSelection) -> BrowserEvaluationSca
 
 
 def require_supported_browser_scale(selection: SourceSelection) -> None:
+    """Stop Stage E before loading data when the project exceeds the limit."""
+
     scale = browser_evaluation_scale(selection)
     if scale.supported:
         return

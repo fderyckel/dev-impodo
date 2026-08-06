@@ -2,10 +2,10 @@
 
 ## Status and outcome
 
-**Status:** In progress since 2026-08-05. P1 CPU work and the proposal's
-encoded-once publication slice are implemented. The 2026-08-06 complete
-100,000-row probes pass the time gate by a wide margin but still exceed the
-900-MiB memory gate, so bounded-memory preparation remains the release blocker.
+**Status:** In progress since 2026-08-05. P1 CPU work, encoded-once
+publication, and the durable typed-row quality boundary are implemented. The
+corrected 2026-08-06 complete 100,000-row probes pass the time gate but peak at
+more than 1.6 GiB, so bounded source preparation remains the release blocker.
 
 This plan raises the supported browser preparation scope from 25,000 to
 100,000 physical source rows without weakening deterministic evidence,
@@ -203,16 +203,20 @@ rollback, invalidation, and batching tests remain green. The complete ordinary
 suite executed **256 tests in 18.759 seconds: 247 passed and 9 opt-in tests were
 skipped**.
 
-Fresh-process 100,000-row results on the MacBook Air M5 were:
+Fresh-process 100,000-row results on the MacBook Air M5 were initially reported
+as follows:
 
-| Workload | Complete preparation | Peak working set | Project DB | Effects | Result |
+| Workload | Complete preparation | Ending RSS | Project DB | Effects | Result |
 | --- | ---: | ---: | ---: | ---: | --- |
 | Products | 23.178 s | 1,102.3 MiB | 224.3 MiB | 100,000 | Time passed; RAM failed |
 | BOM | 27.090 s | 1,237.1 MiB | 302.3 MiB | 300,000 | Time passed; RAM failed |
 
-These Mac results are not compared numerically with the earlier Lenovo Windows
-results. The different processor, operating system, storage, and runtime
-environment make that an invalid before/after measurement.
+On macOS, the original harness fell back from unavailable Windows `peak_wset`
+to a single end-of-run RSS observation. The memory column is therefore ending
+RSS, not peak working set. Both ending values already exceed 900 MiB and prove
+that those runs fail the RAM gate, but they do not locate or quantify the true
+peak. These Mac results are also not compared numerically with the earlier
+Lenovo Windows results.
 
 A controlled same-Mac A/B used the exact committed 10,000-row fixture, source
 checksum, Python environment, and benchmark command. The baseline was commit
@@ -223,7 +227,7 @@ three times in a fresh process:
 | Same-Mac median | Committed baseline | Optimized | Change |
 | --- | ---: | ---: | ---: |
 | Complete preparation | 5.487 s | 2.401 s | **56.2% lower** |
-| Peak working set | 539.9 MiB | 339.0 MiB | **37.2% lower** |
+| Ending RSS | 539.9 MiB | 339.0 MiB | **37.2% lower** |
 | Source loading and evaluation | 1.416 s | 1.203 s | **15.0% lower** |
 | Canonical publication | 1.838 s | 0.292 s | **84.1% lower** |
 | Quality | 0.674 s | 0.276 s | **59.1% lower** |
@@ -237,13 +241,47 @@ and changed normalization records. Exact incremental-hash equivalence,
 publication round-trip, idempotency, and rollback behavior are separately
 covered by the ordinary semantic suite.
 
-The controlled result demonstrates that the code changes reduce both elapsed
-time and peak working set. The remaining 100,000-row Mac peak is still too
-high: the workflow retains complete source, prepared, canonical, quality,
-transformation-impact, and normalization object graphs. The BOM fixture makes
-the effect amplification visible by retaining 300,000 normalization effects.
-P3/P4 streaming and typed durable-row restoration remain necessary before the
-product limit can be raised.
+The controlled result demonstrates that the code changes reduce elapsed time
+and end-of-run resident memory. It did not continuously sample the macOS peak,
+so it is not evidence that peak memory fell by the same amount.
+
+### 2026-08-06 - Durable typed-row quality boundary
+
+The committed staging contract already contained a symmetric typed-value codec
+for decimals, dates, datetimes, logical references, and business references.
+This slice completed the architectural transition that codec was intended to
+enable:
+
+- quality no longer accepts or indexes `PreparedBundle`; relationship
+  propagation reads typed references from canonical rows;
+- after canonical publication, preparation releases the transient staged
+  object containing both prepared and canonical graphs;
+- quality and normalization consume the exact published canonical run reloaded
+  from DuckDB with its expected content hash;
+- durable reload now fetches bounded row batches, hashes the exact stored row
+  text incrementally, restores typed rows one at a time, and rejects missing or
+  reordered evidence;
+- a cross-platform sampler records working set throughout preparation and also
+  reports ending RSS, avoiding the previous macOS measurement ambiguity.
+
+The corrected complete-workflow diagnostics were:
+
+| Workload | Rows | Complete preparation | Observed peak | Ending RSS | Durable reload | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Products | 100,000 | 26.929 s | 1,605.0 MiB | 829.0 MiB | 4.543 s | Time passed; RAM failed |
+| BOM | 100,000 | 61.961 s | 1,685.6 MiB | 789.6 MiB | 8.855 s | Time passed; RAM failed |
+
+The BOM diagnostic ran after several large local probes and is retained as an
+observed result rather than a stable timing baseline. Both workloads remained
+below 120 seconds and preserved all expected rows and effects. The complete
+ordinary suite executed **263 tests in 39.969 seconds: 253 passed and 10
+environment-gated tests were skipped**.
+
+This slice lowers downstream residency and establishes one typed durable
+authority, but it cannot lower the true peak materially: the peak occurs while
+source evaluation still retains physical tables, prepared records, canonical
+rows, and transformation impacts together. P3 bounded source transformation
+and pending durable staging is therefore the next implementation slice.
 
 ## Benchmark fixtures
 
@@ -362,6 +400,9 @@ evidence is stale or incomplete.
 
 **Status:** Pending. This is now the next material performance phase.
 
+The implementation-ready scope, sequencing, failure model, and gates are in
+the [100,000-row bounded preparation implementation plan](100k-bounded-preparation-plan.md).
+
 Replace the materializing `SourceTable -> SourceTable -> PreparedBundle ->
 CanonicalStagingRun` path with bounded row batches and a transactional staging
 session:
@@ -400,8 +441,10 @@ increases from 25,000 to 100,000.
 
 **Status:** Partial. Single-use upstream hashes, exact incremental document
 hashing, encode-once row persistence, typed `UNNEST` batches, and removal of
-the normalization-candidate tuple copy are implemented. Bounded evaluation and
-effect production are still pending.
+the normalization-candidate tuple copy are implemented. Quality now consumes
+verified durable typed canonical rows without `PreparedBundle`, and durable
+reload is row-bounded. Quality still materializes the complete canonical run,
+and bounded evaluation and effect production remain pending.
 
 Quality must consume persisted canonical rows in bounded batches. It may retain
 compact global indexes required for identity and relationship rules, but not a

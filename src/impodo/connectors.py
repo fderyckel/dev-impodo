@@ -9,7 +9,9 @@ validator, catalog, and engine do not depend on transport details.
 Only ``fields_get`` and ``search_read`` are available through the live
 connector.  This closed method surface is a deliberate safety control: the
 profiler can inspect an authorised target but cannot create, update, delete,
-or execute an arbitrary Odoo model method.
+or execute an arbitrary Odoo model method. A future Stage-J writer must be a
+separate port and adapter with its own approval, idempotency, journaling, and
+reconciliation contracts; it must not be added to ``OdooReadConnector``.
 """
 
 from __future__ import annotations
@@ -1131,4 +1133,6 @@ class _NoRedirectHandler(HTTPRedirectHandler):
         headers,
         newurl,
     ):
+        """Reject redirects so bearer credentials never reach another URL."""
+
         return None

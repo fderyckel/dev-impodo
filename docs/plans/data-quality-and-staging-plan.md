@@ -2,7 +2,7 @@
 
 ## Status and ownership
 
-**Status:** Active delivery plan. Slices 0 through 5 are complete for the
+**Status:** Active delivery plan. Slices 0 through 6 are complete for the
 bounded browser workflow; package certification and Odoo execution remain
 later slices.
 
@@ -37,10 +37,12 @@ certifiable read-only preflight package. It does not redefine:
 | Export approval | Frozen-plan approval objects exist as standalone domain behavior, without an integrated staged package or executor |
 | Quality and quarantine | Versioned automatic and guided checks, dual source/canonical accounting, immutable quarantine evidence, bounded review paging, and eligible-row filtering before Odoo comparison are integrated |
 | Staging and certification | Durable atomic canonical staging, row controls, opt-in named business totals, and normalization freeze are integrated. Clean-package certification remains absent |
+| Advanced coverage | Approved scope and reference revisions, bounded structural rules, deterministic duplicate candidates, reviewed survivor/correction evidence, effective rows, and advanced quality checks are integrated without Odoo writes |
 
-Read-only preflight now runs directly from durable frozen rows instead of
-recomputing a transient prepared bundle. The next delivery slice is Slice 6,
-limited to advanced coverage families required by approved migration scopes.
+Read-only preflight now runs directly from durable frozen effective rows
+instead of recomputing a transient prepared bundle. Slice 6 is complete; the
+next delivery slice is Slice 7 clean-package certification and authorized
+target rehearsal.
 
 The cross-cutting
 [100,000-row performance refactor plan](100k-performance-refactor-plan.md)
@@ -53,9 +55,11 @@ comparison gates pass at that limit. Raising it still requires the separate
 
 ```text
 frozen source datasets
--> submitted mapping + derived-entity plan
--> full-row semantic evaluation
--> canonical staging + quarantine
+-> submitted mapping + versioned preparation rules + reference data
+-> full-row semantic and structural evaluation
+-> canonical staging
+-> reviewed resolution + immutable effective dataset
+-> quality and quarantine
 -> normalization review and freeze
 -> batched read-only Odoo preflight
 -> clean-package certification
@@ -227,7 +231,7 @@ retain history. The existing UI journey is unchanged and Odoo remains
 read-only. The 25,000-row durable comparison probe completed in 5.273 seconds
 at 507.3 MiB peak working set with a 69.5 MiB project database, within all
 Slice 5 guards. The complete local suite is green, so Slice 5 is closed and
-Slice 6 may begin once its advanced coverage families are approved.
+Slice 6 was then implemented behind explicit project scope approval.
 
 ### Slice 6 — Close advanced coverage gaps
 
@@ -236,8 +240,22 @@ and aggregations, versioned reference data, domain validators, anomaly rules,
 fuzzy candidate generation, reviewer decisions, and field-level survivorship.
 Each extension must preserve bounded execution, provenance, and reconciliation.
 
+The scope-approval prerequisite, effective-dataset boundary, contract and
+persistence design, conservative matching policy, implementation sequence,
+and acceptance cases are defined in the
+[Slice 6 advanced coverage plan](slice-6-advanced-coverage-plan.md).
+
 **Gate:** no join multiplies rows unexpectedly, no fuzzy candidate is merged
 automatically, and every survivor value records its source and decision.
+
+**Checkpoint:** scope, reference, policy, candidate, decision, effective-row,
+quality, normalization, and preflight evidence is durable and hash-bound.
+Candidate blocks and retained pairs are bounded, review decisions are
+append-only and optimistic, corrections preserve scalar types, restricted
+review values are masked, and pass-through effective rows reuse canonical row
+storage. The local suite is green. A 25,000-row advanced diagnostic completed
+with all rows reconciled; its time and memory are retained as observations,
+not Slice 6 release gates.
 
 ### Slice 7 — Certify a clean package and rehearse
 

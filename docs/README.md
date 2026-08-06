@@ -42,6 +42,9 @@ Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
 - [100,000-row performance refactor plan](plans/100k-performance-refactor-plan.md)
   — measured path from the current 25,000-row materializing workflow to
   bounded 100,000-row preparation in less than two minutes.
+- [100,000-row bounded preparation implementation plan](plans/100k-bounded-preparation-plan.md)
+  — P3 design, increments, failure behavior, parity tests, and memory gates for
+  Products followed by BOM.
 - [Data-quality coverage ledger](plans/data-quality-coverage.md) — current
   status of 24 capability families and the authoritative clean-package gates.
 - [Slice 4 normalization review plan](plans/slice-4-normalization-review-plan.md)
@@ -50,6 +53,9 @@ Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
 - [Slice 5 durable preflight plan](plans/slice-5-durable-preflight-plan.md)
   — implemented adapter from approved durable rows to bounded read-only Odoo
   comparison, protected target evidence, and plain data-manager results.
+- [Slice 6 advanced coverage plan](plans/slice-6-advanced-coverage-plan.md)
+  — scoped structural, reference, domain, anomaly, fuzzy-resolution,
+  survivorship, and effective-dataset work before clean-package certification.
 - [Python code documentation plan](plans/python-code-documentation-plan.md) —
   phased module, class, method, and call-flow documentation for `src/impodo/`,
   organized around migration Stages A–K.
@@ -114,3 +120,15 @@ its implementation, fixtures, examples, generated artifacts, tests, and links
 together. Label proposals and historical delivery documents explicitly; use
 Git history instead of retaining stale architecture summaries in the active
 documentation tree.
+
+For Python workflow changes, also update the owning module/class/method
+docstrings and the [Python code map](architecture/python-code-map.md). Run:
+
+```console
+python scripts/code_documentation_inventory.py --check
+python scripts/code_documentation_inventory.py --missing
+python -m unittest tests.test_code_documentation
+```
+
+The module check is blocking; the public-symbol list is advisory and requires
+semantic review rather than a docstring-percentage target.

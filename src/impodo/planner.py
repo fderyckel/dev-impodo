@@ -45,6 +45,8 @@ class PreflightRequirementPlan:
 
     @property
     def semantic_hash(self) -> str:
+        """Fingerprint the exact models, fields, domains, chunks, and row count."""
+
         payload = {
             "contract_version": self.contract_version,
             "source_record_count": self.source_record_count,
@@ -70,10 +72,14 @@ class PreflightRequirementPlan:
 
     @property
     def model_count(self) -> int:
+        """Count distinct models appearing in bounded record requests."""
+
         return len({item.model for item in self.record_requests})
 
     @property
     def chunk_count(self) -> int:
+        """Count record requests after business keys are split into safe chunks."""
+
         return len(self.record_requests)
 
 
@@ -117,7 +123,13 @@ def plan_preflight_requirements(
     *,
     maximum_keys_per_request: int = MAX_KEYS_PER_RECORD_REQUEST,
 ) -> PreflightRequirementPlan:
-    """Build one deterministic plan whose record reads are always narrowed."""
+    """Build one deterministic plan whose record reads are always narrowed.
+
+    Prepared identities and logical relationship keys become allowlisted Odoo
+    domains, split at ``maximum_keys_per_request``. Dataset target domains are
+    combined with those keys. A dataset or relationship that has records but
+    cannot produce a non-empty narrowing domain raises before connector use.
+    """
 
     if maximum_keys_per_request < 1:
         raise ValueError("maximum_keys_per_request must be positive")

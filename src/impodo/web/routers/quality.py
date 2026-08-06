@@ -1,4 +1,4 @@
-"""Quality browser routes."""
+"""Stage-F routes for editing guided manager-authored quality checks."""
 
 from __future__ import annotations
 from fastapi import Request
@@ -15,6 +15,8 @@ from ..presenters.mapping_view import _manager_quality_rules_from_form
 
 
 def build_quality_router(context: WebContext) -> APIRouter:
+    """Build routes that translate check forms into ``QualityService`` calls."""
+
     router = APIRouter()
 
     @router.post("/projects/{project_id}/mapping/quality")

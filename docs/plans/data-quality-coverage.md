@@ -11,6 +11,12 @@ clean-package gates. Delivery order belongs in the
 [data-quality and staging plan](data-quality-and-staging-plan.md); the product
 workflow belongs in the [product vision](../product-vision.md).
 
+The implemented structural, reference, domain, anomaly, fuzzy-resolution,
+survivorship, and governed-correction foundation is recorded in the
+[Slice 6 advanced coverage plan](slice-6-advanced-coverage-plan.md). The
+baseline remains conservative wherever target rehearsal or package-level proof
+is still absent.
+
 The browser now integrates full-row staging, quality, quarantine, and eligible
 row filtering before the existing read-only Odoo comparison. Normalization
 approval, clean-package certification, and Odoo execution are still separate
@@ -54,21 +60,21 @@ unaccounted, ambiguous, or unapproved row.
 | `TC-06` | Numbers, money, percentages, and units | Yes | `PARTIAL` | Currency, unit, locale, precision, and rounding context |
 | `TC-07` | Dates, datetimes, timezones, and Excel date systems | Yes | `PARTIAL` | Full date-system and timezone execution evidence |
 | `TC-08` | Format, value, and conditional constraints | Yes | `PARTIAL` | Bounded full-row validators and conditional rules |
-| `TC-09` | Dictionaries, lookups, and selection values | Yes | `PARTIAL` | Versioned translations and Odoo technical-key validation |
+| `TC-09` | Dictionaries, lookups, and selection values | Yes | `PARTIAL` | Exact versioned translations and captured technical-key checks are integrated; rehearsal recheck remains |
 | `TC-10` | Constants, defaults, fallbacks, and conditions | Yes | `PARTIAL` | Full-row execution and Odoo-default rehearsal evidence |
 | `TC-11` | Split, extract, concatenate, and calculate | Scope | `PARTIAL` | Compile bounded authoring plans into canonical rows |
-| `TC-12` | Multi-table and shape transformations | Scope | `PARTIAL` | Joins, unions, grouping, cardinality, and control totals |
+| `TC-12` | Multi-table and shape transformations | Scope | `PARTIAL` | Exact joins, union-all, grouping, lineage, and reconciliation are integrated; broader shapes remain out of scope |
 | `TC-13` | Exact duplicates and correction collisions | Yes | `VERIFIED` | Extend fixtures when new identity-changing transforms are added |
-| `TC-14` | Fuzzy entity resolution | Yes | `GAP` | Bounded candidates, review decisions, and false-match evidence |
-| `TC-15` | Survivorship and consolidation | Yes | `GAP` | Field-level provenance and approved survivor decisions |
-| `TC-16` | Domain-specific validation | Scope | `GAP` | Versioned validators with explicit proof boundaries |
+| `TC-14` | Fuzzy entity resolution | Yes | `PARTIAL` | Bounded deterministic candidates and explicit accept/reject evidence are integrated; broader business fixtures remain |
+| `TC-15` | Survivorship and consolidation | Yes | `PARTIAL` | Reviewed survivor decisions and field-level provenance are integrated; broader relationship cases remain |
+| `TC-16` | Domain-specific validation | Scope | `PARTIAL` | Allowlisted checksum, IBAN, postal, date-window, and approved-code checks are integrated; scope-specific proof remains |
 | `TC-17` | Relationships and hierarchy | Yes | `PARTIAL` | Incoming dependency quarantine is integrated; broader hierarchy cases remain |
 | `TC-18` | Odoo target semantics | Yes | `PARTIAL` | Company, currency, UoM, defaults, constraints, and rehearsal |
-| `TC-19` | Cross-field and cross-row business rules | Yes | `PARTIAL` | Guided allowlist and collisions are integrated; joins and aggregations remain |
-| `TC-20` | Distribution and anomaly controls | Scope | `PARTIAL` | Governed thresholds and full-package review evidence |
+| `TC-19` | Cross-field and cross-row business rules | Yes | `PARTIAL` | Guided rules, collisions, joins, and aggregates are integrated; package proof remains |
+| `TC-20` | Distribution and anomaly controls | Scope | `PARTIAL` | Governed metric boundaries and IQR evidence are integrated; full-package review remains |
 | `TC-21` | Evidence, privacy, and governance | Yes | `PARTIAL` | Quality retention and hidden technical evidence are integrated; package approval remains |
-| `TC-22` | Exception correction and reprocessing | Yes | `PARTIAL` | Immutable reruns and correction routes are integrated; governed value editing remains |
-| `TC-23` | Repeatability, bounded scale, and batched access | Yes | `PARTIAL` | 25,000-row browser bound is measured; production and Odoo transport sizing remain |
+| `TC-22` | Exception correction and reprocessing | Yes | `PARTIAL` | Typed governed corrections, provenance, immutable reruns, and invalidation are integrated; package certification remains |
+| `TC-23` | Repeatability, bounded scale, and batched access | Yes | `PARTIAL` | The 25,000-row advanced browser flow is measured; production and Odoo transport sizing remain |
 | `TC-24` | Reconciliation and clean-package certification | Yes | `PARTIAL` | Dual row accounting is integrated; certificate and target rehearsal remain |
 
 `Scope` means mandatory when the project uses that capability. The project

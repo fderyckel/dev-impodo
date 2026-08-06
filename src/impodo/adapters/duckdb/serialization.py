@@ -1,4 +1,10 @@
-"""DuckDB row serialization helpers."""
+"""Boundary helpers between domain objects and DuckDB row/JSON shapes.
+
+Project reconstruction converts persisted enum/date/source-file fields back
+into validated domain objects. Canonical JSON uses stable key ordering and
+compact separators. Columnar transposition supports bounded DuckDB batch
+ingestion without changing semantic row order.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +31,8 @@ from ...projects import (
 
 
 def _project_values(project: MigrationProject) -> list[object]:
+    """Flatten a validated project into the fixed project-table column order."""
+
     return [
         project.project_id,
         project.name,
@@ -61,6 +69,8 @@ def _project_from_rows(
     data: dict[str, object],
     source_rows: list[tuple[object, ...]],
 ) -> MigrationProject:
+    """Rebuild one project aggregate and its immutable source-file children."""
+
     export_date = str(data["export_date"]) if data["export_date"] else None
     registered_at = (
         str(data["registered_at"]) if data["registered_at"] else None
@@ -118,6 +128,8 @@ def _project_from_rows(
     )
 
 def _canonical_json(value: object) -> str:
+    """Serialize repository evidence with deterministic JSON key ordering."""
+
     return json.dumps(
         value,
         ensure_ascii=False,

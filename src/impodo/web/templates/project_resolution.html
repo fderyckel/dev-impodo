@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Review possible duplicates - {{ project.name }} - Impodo{% endblock %}
+{% block content %}
+  {% set restricted = project.data_classification.value == 'RESTRICTED' %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Resolve prepared records</p>
+      <h1>Review possible duplicates</h1>
+      <p>Scores only identify records worth checking. Nothing is merged until you confirm it here.</p>
+    </div>
+    <span class="status {% if pending_pairs or pending_fields %}review{% else %}ready{% endif %}">
+      {% if pending_pairs %}{{ pending_pairs }} pair{{ "s" if pending_pairs != 1 else "" }} left{% elif pending_fields %}{{ pending_fields }} field choice{{ "s" if pending_fields != 1 else "" }} left{% else %}Ready to approve{% endif %}
+    </span>
+  </div>
+
+  <p class="muted">This review is local and source-side. Odoo is not contacted.</p>
+
+  <section class="form-card" aria-labelledby="candidate-title">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Candidate pairs</p>
+        <h2 id="candidate-title">Are these the same business record?</h2>
+      </div>
+    </div>
+    {% if review.candidates %}
+      <div class="table-scroll">
+        <table class="data-table readiness-row-table">
+          <thead><tr><th>First record</th><th>Second record</th><th>Similarity</th><th>Decision</th></tr></thead>
+          <tbody>
+            {% for item in review.candidates %}
+              <tr>
+                <td>
+                  {% if restricted %}
+                    <strong>Protected record</strong><small class="row-field">Values are hidden for restricted data.</small>
+                  {% else %}
+                    <strong>{{ item.left.target_identity|join(" / ") }}</strong>
+                    {% for field, value in item.left.proposed_values.items() %}<small class="row-field">{{ field }}: {{ value }}</small>{% endfor %}
+                  {% endif %}
+                </td>
+                <td>
+                  {% if restricted %}
+                    <strong>Protected record</strong><small class="row-field">Values are hidden for restricted data.</small>
+                  {% else %}
+                    <strong>{{ item.right.target_identity|join(" / ") }}</strong>
+                    {% for field, value in item.right.proposed_values.items() %}<small class="row-field">{{ field }}: {{ value }}</small>{% endfor %}
+                  {% endif %}
+                </td>
+                <td>{{ item.score }}</td>
+                <td>
+                  {% if item.decision == 'SAME_RECORD' %}
+                    <span class="status ready">Same record</span>
+                  {% elif item.decision == 'KEEP_SEPARATE' %}
+                    <span class="status ready">Keep separate</span>
+                  {% else %}
+                    <form method="post" action="/projects/{{ project.project_id }}/resolution/candidates/{{ item.candidate_id }}/merge">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="run_id" value="{{ review.summary.run_id }}">
+                      <input type="hidden" name="lifecycle_version" value="{{ review.summary.lifecycle_version }}">
+                      <input name="reason" required maxlength="1000" placeholder="Why are these the same?">
+                      <button class="button primary small" type="submit">Merge as one record</button>
+                    </form>
+                    <form method="post" action="/projects/{{ project.project_id }}/resolution/candidates/{{ item.candidate_id }}/separate">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="run_id" value="{{ review.summary.run_id }}">
+                      <input type="hidden" name="lifecycle_version" value="{{ review.summary.lifecycle_version }}">
+                      <input name="reason" required maxlength="1000" placeholder="Why are these separate?">
+                      <button class="button secondary small" type="submit">Keep separate</button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state compact"><h3>No possible duplicates</h3><p>The resolved dataset can pass through unchanged.</p></div>
+    {% endif %}
+  </section>
+
+  {% if review.fields %}
+    <section class="form-card" aria-labelledby="survivor-title">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Surviving values</p>
+          <h2 id="survivor-title">Choose what the merged record keeps</h2>
+          <p>Every conflicting value needs an explicit source choice.</p>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table class="data-table readiness-row-table">
+          <thead><tr><th>Field</th><th>Available values</th><th>Decision</th></tr></thead>
+          <tbody>
+            {% for item in review.fields %}
+              <tr>
+                <th>{{ item.field }}</th>
+                <td>
+                  {% if restricted %}
+                    <small class="row-field">Values are hidden for restricted data.</small>
+                  {% else %}
+                    {% for row_id, value in item.choices %}<small class="row-field">{{ value }}</small>{% endfor %}
+                  {% endif %}
+                </td>
+                <td>
+                  {% if item.decision %}
+                    <span class="status ready">Selected</span>
+                  {% else %}
+                    {% for row_id, value in item.choices %}
+                      <form method="post" action="/projects/{{ project.project_id }}/resolution/groups/{{ item.group_id }}/fields/{{ item.field }}/select">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="run_id" value="{{ review.summary.run_id }}">
+                        <input type="hidden" name="lifecycle_version" value="{{ review.summary.lifecycle_version }}">
+                        <input type="hidden" name="row_ids" value="{{ item.row_ids|join(',') }}">
+                        <input type="hidden" name="selected_row_id" value="{{ row_id }}">
+                        <input type="hidden" name="reason" value="Selected during duplicate review">
+                        <button class="button secondary small" type="submit">Keep {% if restricted %}this source value{% else %}“{{ value }}”{% endif %}</button>
+                      </form>
+                    {% endfor %}
+                    {% if item.correctable %}
+                      <form method="post" action="/projects/{{ project.project_id }}/resolution/groups/{{ item.group_id }}/fields/{{ item.field }}/correct">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="run_id" value="{{ review.summary.run_id }}">
+                        <input type="hidden" name="lifecycle_version" value="{{ review.summary.lifecycle_version }}">
+                        <input type="hidden" name="row_ids" value="{{ item.row_ids|join(',') }}">
+                        <input name="replacement_value" required maxlength="500" placeholder="Corrected value">
+                        <input name="reason" required maxlength="1000" placeholder="Why is this correction approved?">
+                        <button class="button secondary small" type="submit">Use an approved correction</button>
+                      </form>
+                    {% endif %}
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+
+  {% if not pending_pairs and not pending_fields and review.summary.status != 'FROZEN' %}
+    <section class="next-action-card ready">
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2>Approve the resolved records</h2>
+        <p>This freezes the exact effective dataset and continues to data-quality review.</p>
+      </div>
+      <form method="post" action="/projects/{{ project.project_id }}/resolution/approve">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="run_id" value="{{ review.summary.run_id }}">
+        <input type="hidden" name="lifecycle_version" value="{{ review.summary.lifecycle_version }}">
+        <button class="button primary" type="submit">Approve duplicate review</button>
+      </form>
+    </section>
+  {% endif %}
+
+  <div class="form-actions split-actions">
+    <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to project review</a>
+  </div>
+{% endblock %}

@@ -7,6 +7,10 @@ passes it to each router builder. Routes use the typed services and closed
 reader callables here rather than constructing repositories or connectors.
 The context contains no migration state of its own.
 
+All target callables are read boundaries. There is intentionally no import-plan
+approver, Odoo writer, execution journal, or post-write reconciliation service
+in the current context.
+
 See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
 """
 
@@ -22,6 +26,7 @@ from ..application.normalization_service import NormalizationService
 from ..application.preflight_service import PreflightService
 from ..application.preparation_service import PreparationService
 from ..application.quality_service import QualityService
+from ..application.resolution_service import ResolutionService
 from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.transformation_impact_service import TransformationImpactService
@@ -80,6 +85,7 @@ class WebContext:
     mapping_workspace: MappingWorkspaceService
     preparation: PreparationService
     quality: QualityService
+    resolution: ResolutionService
     normalization: NormalizationService
     preflight: PreflightService
     transformation_impacts: TransformationImpactService

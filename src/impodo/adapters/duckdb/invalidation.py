@@ -1,4 +1,10 @@
-"""Atomic invalidation of downstream evidence pointers."""
+"""Atomic downstream invalidation while retaining immutable evidence history.
+
+Repositories call these helpers inside their existing write transaction. The
+cascade follows evidence dependencies—staging/effective dataset, quality,
+normalization, then preflight—retiring lifecycle status and deleting only
+``current`` pointers. Historical runs remain queryable for audit.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +26,7 @@ from ...staging import StagingRunStatus
 
 
 class EvidenceInvalidationMixin:
-    """Retire dependent evidence without deleting its audit history."""
+    """Retire dependent evidence in dependency order within the caller's transaction."""
 
     @staticmethod
     def _invalidate_normalization(
@@ -123,6 +129,39 @@ class EvidenceInvalidationMixin:
         )
 
     @classmethod
+    def _invalidate_resolution(
+        cls,
+        connection: duckdb.DuckDBPyConnection,
+        *,
+        reason: str,
+    ) -> None:
+        """Retire the current effective dataset before quality evidence."""
+
+        cls._invalidate_quality(connection, reason=reason)
+        current = connection.execute(
+            "SELECT run_id FROM resolution_current WHERE singleton_id = 1"
+        ).fetchone()
+        if current is None:
+            connection.execute("DELETE FROM effective_dataset_current")
+            return
+        connection.execute(
+            """
+            UPDATE resolution_run
+               SET status = 'INVALIDATED',
+                   retired_at = ?,
+                   retired_reason = ?
+             WHERE run_id = ?
+            """,
+            [
+                datetime.now(timezone.utc).isoformat(),
+                reason,
+                str(current[0]),
+            ],
+        )
+        connection.execute("DELETE FROM effective_dataset_current")
+        connection.execute("DELETE FROM resolution_current")
+
+    @classmethod
     def _invalidate_canonical_staging(
         cls,
         connection: duckdb.DuckDBPyConnection,
@@ -131,7 +170,7 @@ class EvidenceInvalidationMixin:
     ) -> None:
         """Retire the current staging pointer without deleting audit evidence."""
 
-        cls._invalidate_quality(connection, reason=reason)
+        cls._invalidate_resolution(connection, reason=reason)
 
         current = connection.execute(
             """

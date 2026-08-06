@@ -8,6 +8,10 @@ modules through :class:`impodo.web.context.WebContext`. Business rules belong
 to the injected services and domain modules; this module owns construction and
 local deployment choices only.
 
+No Stage-I import-plan service, Odoo writer, execution journal, or Stage-K
+reconciliation service is composed here. Adding any future write capability
+requires an explicit new boundary; read connectors must remain read-only.
+
 See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
 """
 
@@ -34,6 +38,7 @@ from ..application.normalization_service import NormalizationService
 from ..application.preflight_service import PreflightService
 from ..application.preparation_service import PreparationService
 from ..application.quality_service import QualityService
+from ..application.resolution_service import ResolutionService
 from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
 from ..application.transformation_impact_service import TransformationImpactService
@@ -54,6 +59,10 @@ from ..adapters.duckdb.quality_repository import QualityRepository
 from ..adapters.duckdb.schema_repository import SchemaRepository
 from ..adapters.duckdb.source_repository import SourceRepository
 from ..adapters.duckdb.staging_repository import StagingRepository
+from ..adapters.duckdb.preparation_session_repository import (
+    PreparationSessionRepository,
+)
+from ..adapters.duckdb.advanced_coverage_repository import AdvancedCoverageRepository
 from ..adapters.duckdb.transformation_impact_repository import (
     TransformationImpactRepository,
 )
@@ -79,6 +88,7 @@ from .routers.preflight import build_preflight_router
 from .routers.preparation import build_preparation_router
 from .routers.projects import build_projects_router
 from .routers.quality import build_quality_router
+from .routers.resolution import build_resolution_router
 from .routers.schema import build_schema_router
 from .routers.sources import build_sources_router
 from .routers.summary import build_summary_router
@@ -124,6 +134,8 @@ def create_local_app(
     schema_repository = SchemaRepository(database)
     mapping_repository = MappingRepository(database)
     staging_repository = StagingRepository(database)
+    preparation_session_repository = PreparationSessionRepository(database)
+    advanced_coverage_repository = AdvancedCoverageRepository(database)
     quality_repository = QualityRepository(database, project_repository)
     normalization_repository = NormalizationRepository(
         database,
@@ -143,16 +155,19 @@ def create_local_app(
         normalization_repository,
         resolved_authorization,
     )
+    resolution = ResolutionService(advanced_coverage_repository, staging_repository)
     preparation = PreparationService(
         project_repository,
         source_repository,
         derived_entity_repository,
         mapping_repository,
         staging_repository,
+        preparation_session_repository,
         resolved_artifacts,
         resolved_authorization,
         quality,
         normalization,
+        resolution,
     )
     preflight = PreflightService(
         staging_repository,
@@ -164,6 +179,7 @@ def create_local_app(
         preflight_repository,
         resolved_artifacts,
         resolved_authorization,
+        advanced_coverage_repository,
     )
     context = WebContext(
         queries=BrowserQueryService(
@@ -207,6 +223,7 @@ def create_local_app(
         ),
         preparation=preparation,
         quality=quality,
+        resolution=resolution,
         normalization=normalization,
         preflight=preflight,
         transformation_impacts=TransformationImpactService(
@@ -274,6 +291,7 @@ def create_local_app(
         build_mapping_router(context),
         build_quality_router(context),
         build_preparation_router(context),
+        build_resolution_router(context),
         build_normalization_router(context),
         build_summary_router(context),
         build_preflight_router(context),

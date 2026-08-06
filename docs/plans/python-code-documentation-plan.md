@@ -2,7 +2,8 @@
 
 ## Status and outcome
 
-**Status:** Active. Implementation started on 2026-08-06.
+**Status:** Initial DOC-0–DOC-6 rollout complete on 2026-08-06; continuous
+maintenance remains active.
 
 Current progress:
 
@@ -18,6 +19,26 @@ Current progress:
   dataset plans, mapping contracts, validation context/evidence, optimistic
   revisions, and invalidation responsibilities are documented. Transparent
   ``BrowserQueryService`` forwarders remain an explicit coverage exception.
+- DOC-3: complete. The target-independent preparation chain now documents
+  compiled evaluation, canonical rows/lineage, reconciliation and control
+  totals, transformation impact, quality eligibility/quarantine, grouped
+  normalization decisions, approval/freeze, and the service ports and DuckDB
+  repositories that bind each artifact to the preceding content hashes.
+- DOC-4: complete. Both Stage-H entry paths now document frozen-input or
+  strict-profile preparation, bounded request planning, closed local/remote
+  Odoo reads, snapshot provenance/projection checks, metadata validation,
+  reference resolution, classification precedence, portable reports,
+  protected target evidence, and transactional publication.
+- DOC-5: complete. Cross-cutting ownership now covers capability authorization,
+  loopback/session/CSRF security, secure project and artifact containment,
+  credential storage, idempotent jobs, local-stack process ownership, hardened
+  DuckDB connections/unit-of-work/migrations, downstream invalidation, stable
+  serialization/hashing, transactional audit, composition, and error translation.
+- DOC-6: complete. Standalone approval objects and future Stages I–K are now
+  explicitly separated from implemented Stage-H readiness. Read/composition
+  boundaries state that no writer, execution journal, or post-write
+  reconciliation exists, and normal tests enforce module orientation while
+  public-symbol gaps remain an advisory review report.
 
 This plan makes `src/impodo/` understandable from inside the Python files.
 Its success criterion is practical: after opening a module, a maintainer should
@@ -267,6 +288,8 @@ next workflow transition.
 
 **Size:** Extra large.
 
+**Status:** Complete on 2026-08-06.
+
 Cover the most interconnected target-independent pipeline: compiled mapping
 evaluation, canonical staging, lineage, reconciliation, control totals,
 quality/quarantine, transformation impact, normalization review, decisions,
@@ -300,6 +323,8 @@ including fan-out and set-aside behavior.
 
 **Size:** Large.
 
+**Status:** Complete on 2026-08-06.
+
 Cover both entry paths into the shared preflight engine:
 
 - the submitted-browser-mapping path using durable frozen evidence;
@@ -319,6 +344,8 @@ protected evidence diverge.
 ### DOC-5 — Document cross-cutting infrastructure
 
 **Size:** Medium.
+
+**Status:** Complete on 2026-08-06.
 
 Cover the code that spans stages rather than owning one:
 
@@ -341,6 +368,9 @@ referenced from consumers instead of being inconsistently repeated.
 ### DOC-6 — Mark future Stages I–K and keep docs current
 
 **Size:** Small initially, then continuous.
+
+**Status:** Initial implementation complete on 2026-08-06; maintenance is
+continuous.
 
 - Document `approvals.py` as standalone domain behavior, not an integrated
   executable import plan.

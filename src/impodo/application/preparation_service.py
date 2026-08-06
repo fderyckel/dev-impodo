@@ -22,6 +22,7 @@ from ..access import Actor, AuthorizationPolicy, Capability
 from ..artifacts import ArtifactStore
 from ..derived_entities import DerivedEntityPlan
 from ..domain.contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
+from ..domain.coverage import ReferenceBundle
 from ..domain.staging.evaluator import (
     StagedBrowserMapping,
     evaluate_browser_mapping,
@@ -37,14 +38,20 @@ from ..projects import MigrationProject
 from ..source import SourceTable, load_selected_source_table
 from ..workspace_contracts import SourceSelection
 from ..domain.errors import ReadinessError
+from .bounded_preparation import (
+    prepare_bounded_direct_session,
+    supports_bounded_direct_preparation,
+)
 from .normalization_service import NormalizationService
 from .quality_service import QualityService
+from .resolution_service import ResolutionService
 from .readiness_ports import (
     PreparationDerivedRepository,
     PreparationMappingRepository,
     PreparationProjectRepository,
     PreparationSourceRepository,
     PreparationStagingRepository,
+    PreparationSessionRepository,
 )
 
 
@@ -65,20 +72,24 @@ class PreparationService:
         derived_entities: PreparationDerivedRepository,
         mappings: PreparationMappingRepository,
         staging: PreparationStagingRepository,
+        sessions: PreparationSessionRepository,
         artifacts: ArtifactStore,
         authorization: AuthorizationPolicy,
         quality: QualityService,
         normalization: NormalizationService,
+        resolution: ResolutionService | None = None,
     ) -> None:
         self.projects = projects
         self.sources = sources
         self.derived_entities = derived_entities
         self.mappings = mappings
         self.staging = staging
+        self.sessions = sessions
         self.artifacts = artifacts
         self.authorization = authorization
         self.quality = quality
         self.normalization = normalization
+        self.resolution = resolution
 
     def prepare(
         self,
@@ -127,60 +138,147 @@ class PreparationService:
         effective_selection = self.sources.get_mapping_source_selection(project_id)
         if effective_selection is None:
             raise ReadinessError("Freeze the source datasets before checking data")
+        reference_bundle = (
+            self.resolution.current_reference_bundle(project_id)
+            if self.resolution is not None
+            else None
+        )
 
-        impact_rows: list[TransformationImpactRow] = []
-        staged = stage_browser_mapping(
-            project,
-            revision.definition,
+        derived_plan = self.derived_entities.get_derived_entity_plan(project_id)
+        bounded_session_id: str | None = None
+        impact_rows: Iterable[TransformationImpactRow]
+        if supports_bounded_direct_preparation(
             physical_selection,
             effective_selection,
-            self.derived_entities.get_derived_entity_plan(project_id),
-            self.sources.get_source_catalogs(project_id),
-            self.artifacts,
-            collect_transformation_impact=True,
-            transformation_detail_limit=0,
-            transformation_impact_sink=impact_rows.append,
-        )
-        staging = self.staging.publish_canonical_staging(
-            project_id,
-            staged.canonical_run,
-            mapping_version=revision.version,
-            actor=actor,
-        )
-        physical_rows = dict(staged.physical_rows)
-        del staged
-        canonical_run = self.staging.get_canonical_staging_run(
-            project_id,
-            staging.run_id,
-            expected_content_hash=staging.content_hash,
-        )
-        if canonical_run is None:
-            raise ReadinessError(
-                "The published prepared data could not be verified. "
-                "Prepare the data again."
+            derived_plan,
+        ):
+            require_supported_browser_scale(physical_selection)
+            bounded = prepare_bounded_direct_session(
+                project,
+                revision.definition,
+                revision.version,
+                physical_selection,
+                effective_selection,
+                self.sources.get_source_catalogs(project_id),
+                self.artifacts,
+                reference_bundle,
+                self.sessions,
             )
-        quality_run, quality = self.quality.evaluate_and_publish(
-            project,
-            revision,
-            effective_selection,
-            canonical_run,
-            physical_rows,
-            staging,
-            actor=actor,
-        )
-        normalization = self.normalization.evaluate_and_publish(
-            project,
-            revision,
-            effective_selection,
-            canonical_run,
-            staging,
-            quality_run,
-            quality,
-            impact_rows,
-            source_hashes,
-            actor=actor,
-        )
-        return normalization
+            bounded_session_id = bounded.session_id
+            staging_input = bounded.run
+            try:
+                staging = self.staging.publish_canonical_staging(
+                    project_id,
+                    staging_input,
+                    mapping_version=revision.version,
+                    actor=actor,
+                )
+            except Exception:
+                self.sessions.fail_session(
+                    project_id,
+                    bounded_session_id,
+                    "BOUNDED_PUBLICATION_FAILED",
+                )
+                raise
+            del staging_input, bounded
+            physical_rows = self.sessions.physical_rows(
+                project_id,
+                bounded_session_id,
+            )
+            impact_rows = self.sessions.iter_impacts(
+                project_id,
+                bounded_session_id,
+            )
+        else:
+            materialized_impacts: list[TransformationImpactRow] = []
+            staged = stage_browser_mapping(
+                project,
+                revision.definition,
+                physical_selection,
+                effective_selection,
+                derived_plan,
+                self.sources.get_source_catalogs(project_id),
+                self.artifacts,
+                collect_transformation_impact=True,
+                transformation_detail_limit=0,
+                transformation_impact_sink=materialized_impacts.append,
+            )
+            staging = self.staging.publish_canonical_staging(
+                project_id,
+                staged.canonical_run,
+                mapping_version=revision.version,
+                actor=actor,
+            )
+            physical_rows = dict(staged.physical_rows)
+            impact_rows = materialized_impacts
+            del staged
+
+        try:
+            canonical_run = self.staging.get_canonical_staging_run(
+                project_id,
+                staging.run_id,
+                expected_content_hash=staging.content_hash,
+            )
+            if canonical_run is None:
+                raise ReadinessError(
+                    "The published prepared data could not be verified. "
+                    "Prepare the data again."
+                )
+            effective = None
+            resolution_summary = None
+            if self.resolution is not None:
+                effective, resolution_summary = (
+                    self.resolution.evaluate_for_preparation(
+                        project_id,
+                        canonical_run,
+                        staging_run_id=staging.run_id,
+                        staging_content_hash=staging.content_hash,
+                        actor=actor,
+                    )
+                )
+            quality_run, quality = self.quality.evaluate_and_publish(
+                project,
+                revision,
+                effective_selection,
+                canonical_run,
+                physical_rows,
+                staging,
+                effective,
+                (
+                    resolution_summary.run_id
+                    if effective is not None and resolution_summary is not None
+                    else None
+                ),
+                reference_bundle,
+                actor=actor,
+            )
+            normalization = self.normalization.evaluate_and_publish(
+                project,
+                revision,
+                effective_selection,
+                canonical_run,
+                staging,
+                quality_run,
+                quality,
+                impact_rows,
+                source_hashes,
+                effective,
+                actor=actor,
+            )
+            if bounded_session_id is not None:
+                self.sessions.mark_published(project_id, bounded_session_id)
+            return normalization
+        except Exception:
+            if bounded_session_id is not None:
+                try:
+                    self.sessions.fail_session(
+                        project_id,
+                        bounded_session_id,
+                        "BOUNDED_PIPELINE_FAILED",
+                    )
+                except Exception:
+                    pass
+            raise
 
 
 def canonical_source_hashes(selection: SourceSelection) -> dict[str, str]:
@@ -229,6 +327,7 @@ def stage_browser_mapping(
     plan: DerivedEntityPlan | None,
     catalogs: Iterable[SourceFileCatalog],
     artifacts: ArtifactStore,
+    reference_bundle: ReferenceBundle | None = None,
     *,
     collect_transformation_impact: bool = False,
     transformation_detail_limit: int = TRANSFORMATION_IMPACT_DETAIL_LIMIT,
@@ -257,6 +356,7 @@ def stage_browser_mapping(
         effective_selection=effective_selection,
         plan=plan,
         loaded_tables=physical_tables,
+        reference_bundle=reference_bundle,
         collect_transformation_impact=collect_transformation_impact,
         transformation_detail_limit=transformation_detail_limit,
         transformation_impact_sink=transformation_impact_sink,

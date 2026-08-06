@@ -17,6 +17,7 @@ from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 import json
 from typing import Any, Mapping
+from uuid import UUID
 
 from ...value_rules import ScalarTransformPolicy, ScalarValidationPolicy
 from ..serialization import canonical_json as _canonical_json
@@ -24,7 +25,7 @@ from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
 
-MAPPING_CONTRACT_VERSION = 6
+MAPPING_CONTRACT_VERSION = 7
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 MAX_CONTROL_TOTALS_PER_DATASET = 3
@@ -82,6 +83,46 @@ class ValueMapping:
             or len(self.target_value) > MAX_VALUE_MAPPING_LENGTH
         ):
             raise ValueError("Odoo choice is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceLookupMapping:
+    """Resolve a scalar from one exact immutable reference-data package."""
+
+    reference_id: str
+    reference_content_hash: str
+    key_source_column_keys: tuple[str, ...]
+    value_field: str
+    on_blank: str = "block"
+    on_unknown: str = "block"
+
+    def __post_init__(self) -> None:
+        try:
+            object.__setattr__(self, "reference_id", str(UUID(self.reference_id)))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise ValueError("Reference lookup identifier is invalid") from error
+        if (
+            not self.reference_content_hash.startswith("sha256:")
+            or len(self.reference_content_hash) != 71
+        ):
+            raise ValueError("Reference lookup content hash is invalid")
+        try:
+            int(self.reference_content_hash[7:], 16)
+        except ValueError as error:
+            raise ValueError("Reference lookup content hash is invalid") from error
+        if not 1 <= len(self.key_source_column_keys) <= 5:
+            raise ValueError("Reference lookups require one to five key fields")
+        if (
+            len(set(self.key_source_column_keys)) != len(self.key_source_column_keys)
+            or any(not item or len(item) > 500 for item in self.key_source_column_keys)
+        ):
+            raise ValueError("Reference lookup key fields are invalid")
+        if not self.value_field or len(self.value_field) > 128:
+            raise ValueError("Reference lookup output field is invalid")
+        if self.on_blank not in {"block", "null"}:
+            raise ValueError("Reference blank policy is unsupported")
+        if self.on_unknown not in {"block", "null"}:
+            raise ValueError("Reference unknown policy is unsupported")
 
 
 def _normalized_value_mappings(
@@ -158,6 +199,7 @@ class ScalarFieldMapping:
     compare: bool = True
     validate_only: bool = False
     null_policy: str = "distinct"
+    reference_lookup: ReferenceLookupMapping | None = None
 
     def __post_init__(self) -> None:
         if not self.target_field.strip() or len(self.target_field) > 200:
@@ -179,6 +221,20 @@ class ScalarFieldMapping:
             "value_mappings",
             _normalized_value_mappings(self.value_mappings),
         )
+        if self.reference_lookup is not None:
+            if self.value_source is not ScalarValueSource.SOURCE:
+                raise ValueError("Reference lookups require a source value provider")
+            if self.value_mappings:
+                raise ValueError("Reference lookups cannot also use inline value matches")
+            if self.source_column_key != self.reference_lookup.key_source_column_keys[0]:
+                raise ValueError(
+                    "Reference lookup source must be its first key field"
+                )
+            if self.required and (
+                self.reference_lookup.on_blank == "null"
+                or self.reference_lookup.on_unknown == "null"
+            ):
+                raise ValueError("Required reference lookups must block missing values")
 
 
 
@@ -437,6 +493,9 @@ def _dataset_mapping_to_dict(
             relation.get("resolver", {}).pop("value_mappings", None)
     if contract_version < 6:
         payload.pop("control_totals", None)
+    if contract_version < 7:
+        for item in payload.get("fields", ()):
+            item.pop("reference_lookup", None)
     return payload
 
 
@@ -529,6 +588,11 @@ def _scalar_field_mapping_from_dict(
         compare=bool(payload.get("compare", True)),
         validate_only=bool(payload.get("validate_only", False)),
         null_policy=str(payload.get("null_policy", "distinct")),
+        reference_lookup=(
+            ReferenceLookupMapping(**payload["reference_lookup"])
+            if payload.get("reference_lookup") is not None
+            else None
+        ),
     )
 
 

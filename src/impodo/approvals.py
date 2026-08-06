@@ -1,4 +1,15 @@
-"""Immutable approval evidence for normalization and future target exports."""
+"""Immutable approval evidence used by normalization and future Stage I plans.
+
+``ApprovalEvidence`` is integrated into the Stage-G ``DryRun`` decision state.
+``FrozenExportPlan`` and ``ExportPlanApproval`` are standalone domain contracts
+for a future clean-package/import-plan workflow: no application service,
+repository, browser route, or executor currently creates or consumes them.
+Their presence must not be interpreted as Odoo write authorization.
+
+Stages J–K remain outside this module. There is no writer connector, execution
+journal, idempotent action executor, or post-write reconciliation contract in
+the current product.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +25,12 @@ from .access import Actor, ActorIdentity, Capability
 
 @dataclass(frozen=True, slots=True)
 class ApprovalEvidence:
-    """Who approved one exact decision, when, and under which capability."""
+    """Who approved one exact decision, when, and under which capability.
+
+    Stage G uses this inside ``governance.CorrectionDecision`` and the final
+    normalization approval. Stable issuer/subject identity is retained rather
+    than trusting the display name as identity.
+    """
 
     approved_by: ActorIdentity
     approved_at: datetime
@@ -52,6 +68,8 @@ class ApprovalEvidence:
         )
 
     def to_portable_dict(self) -> dict[str, object]:
+        """Serialize stable actor identity, capability, time, and reason."""
+
         return {
             "approved_by": {
                 "issuer": self.approved_by.issuer,
@@ -65,6 +83,8 @@ class ApprovalEvidence:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> "ApprovalEvidence":
+        """Reconstruct validated evidence from a portable decision payload."""
+
         actor_payload = dict(payload["approved_by"])
         return cls(
             approved_by=ActorIdentity(
@@ -80,7 +100,12 @@ class ApprovalEvidence:
 
 @dataclass(frozen=True, slots=True)
 class FrozenExportPlan:
-    """Exact immutable evidence that a later restricted executor may consume."""
+    """Future Stage-I contract binding every proposed execution input.
+
+    This value object is not built by the current Stage-H readiness workflow.
+    A future clean-package service must define and verify ``actions_hash`` and
+    every upstream/target binding before persisting one of these plans.
+    """
 
     plan_id: str
     project_id: str
@@ -156,7 +181,12 @@ class FrozenExportPlan:
 
 @dataclass(frozen=True, slots=True)
 class ExportPlanApproval:
-    """Approval of one frozen plan; it never grants a generic Odoo write."""
+    """Future approval of one exact frozen plan, never a generic Odoo write.
+
+    A later executor would still need a separately authorized, idempotent,
+    journaled Stage-J operation and must re-check plan hash and expiry. No such
+    executor or persistence integration exists today.
+    """
 
     approval_id: str
     plan_hash: str

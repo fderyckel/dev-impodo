@@ -1,9 +1,14 @@
-"""Write deterministic preflight evidence and its Excel review projection.
+"""Write portable Stage-H evidence and its Excel review projection.
 
 ``models.PreflightResult`` is the canonical decision source.  The JSON
 manifest is written first and the workbook is then generated locally with the
 same controlled Python runtime that Impodo already uses for XLSX intake.  The
 workbook is a projection and never feeds conclusions back into the engine.
+
+The manifest contains business identities and portable differences only.
+Protected target snapshots—with environment-local numeric Odoo IDs—are stored
+separately by the browser ``PreflightRepository`` and never enter the workbook.
+The CLI writes no repository state and builds both files from the same result.
 """
 
 from __future__ import annotations

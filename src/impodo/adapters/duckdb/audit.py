@@ -1,4 +1,10 @@
-"""Shared audit-event persistence."""
+"""Append verified actor and project-transition evidence inside active writes.
+
+Repositories call ``AuditMixin`` only within the same transaction as the
+state/pointer change being described. Events retain stable actor issuer and
+subject identifiers plus a display-name snapshot; display text is never used
+as the actor's identity.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +26,7 @@ from ...projects import MigrationProject
 
 
 class AuditMixin:
-    """Write project and workspace audit events in the active transaction."""
+    """Write audit rows in the caller's transaction so state and audit agree."""
 
     @staticmethod
     def _insert_workspace_audit(

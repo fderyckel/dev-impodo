@@ -1,4 +1,10 @@
-"""Shared DuckDB connection and transaction boundaries."""
+"""Hardened DuckDB connections and explicit project transaction scopes.
+
+The factory disables extension loading and external access and bounds memory
+and threads. ``DuckDbUnitOfWork`` migrates before beginning, commits only on a
+clean context exit, rolls back on every exception, and always closes the
+short-lived connection.
+"""
 
 from __future__ import annotations
 
@@ -24,8 +30,18 @@ class DuckDbConnectionFactory:
     """Open consistently hardened short-lived DuckDB connections."""
 
     @contextmanager
-    def connect(self, path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
-        connection = duckdb.connect(str(path), config=DUCKDB_CONFIG)
+    def connect(
+        self,
+        path: Path,
+        *,
+        memory_limit: str | None = None,
+    ) -> Iterator[duckdb.DuckDBPyConnection]:
+        """Yield one hardened connection and close it on every exit path."""
+
+        config = dict(DUCKDB_CONFIG)
+        if memory_limit is not None:
+            config["memory_limit"] = memory_limit
+        connection = duckdb.connect(str(path), config=config)
         try:
             yield connection
         finally:
@@ -33,7 +49,11 @@ class DuckDbConnectionFactory:
 
 
 class DuckDbUnitOfWork(AbstractContextManager["DuckDbUnitOfWork"]):
-    """Own one explicit transaction for a project-scoped command."""
+    """Own one explicit transaction shared by a project-scoped command.
+
+    Services can pass this boundary to cooperating repository operations when
+    several evidence writes and pointer changes must succeed atomically.
+    """
 
     def __init__(
         self,

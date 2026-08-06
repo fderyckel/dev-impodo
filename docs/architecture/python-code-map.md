@@ -11,10 +11,9 @@ normative, and the
 [data-quality and staging plan](../plans/data-quality-and-staging-plan.md)
 records the current implementation boundary.
 
-**Documentation rollout:** the advisory DOC-0 inventory is active and the
-DOC-1 navigation spine now covers all six current journeys from project setup
-through durable read-only preflight. DOC-2 and later phases deepen individual
-domain families, ports, repositories, and algorithms.
+**Documentation rollout:** the advisory DOC-0 inventory is active; the DOC-1
+navigation spine covers all six current journeys; and DOC-2 through DOC-5 now
+deepen Stages A–H plus their cross-cutting security/persistence boundaries.
 
 ## Read the layers from left to right
 
@@ -48,6 +47,7 @@ Run the advisory inventory from the repository root:
 ```console
 python scripts/code_documentation_inventory.py
 python scripts/code_documentation_inventory.py --missing
+python scripts/code_documentation_inventory.py --check
 ```
 
 The first form summarizes coverage by package area. The second identifies
@@ -56,6 +56,13 @@ the documentation standard permits recorded exceptions for obvious accessors,
 passive data carriers, and framework callbacks. The inventory is intended to
 prioritize semantic gaps in services, ports, repositories, and domain
 operations rather than reward repetitive docstrings.
+
+``--check`` is the normal regression gate: it fails only when a package module
+lacks its orientation docstring. ``tests/test_code_documentation.py`` exercises
+the same rule during unit-test discovery and verifies deterministic advisory
+output. Public-symbol gaps stay non-blocking until obvious accessors, passive
+carriers, framework callbacks, and other intentional exceptions have a reviewed
+baseline.
 
 ## Migration-stage orientation
 
@@ -90,6 +97,57 @@ a route such as `context.preparation.prepare(...)`, open the declared type of
 such as `self.staging`, open the matching protocol in
 [`application/readiness_ports.py`](../../src/impodo/application/readiness_ports.py),
 then the DuckDB implementation assembled in `create_local_app`.
+
+## Cross-cutting ownership and dependency direction
+
+Cross-cutting code owns one guarantee and is called from several stages. It
+must not absorb workflow decisions from the services or domain:
+
+```mermaid
+flowchart LR
+    Composition["web/app.py composition root"] --> Web["web routes and presenters"]
+    Composition --> Application["application services"]
+    Composition --> Adapters["DuckDB, artifact, secret, and reader adapters"]
+    Web --> Application
+    Application --> Domain["domain contracts and operations"]
+    Application --> Ports["service-facing protocols"]
+    Adapters -. "implement" .-> Ports
+    Adapters --> Domain
+    Readers["closed local/remote Odoo reads"] --> Snapshots["snapshot contracts"]
+    Application --> Snapshots
+```
+
+The intended direction is from delivery/orchestration toward domain contracts.
+Domain modules do not construct FastAPI routes, DuckDB repositories, secret
+stores, or Odoo transports. `create_local_app` is the one local place allowed
+to know all concrete implementations.
+
+| Guarantee | Owner | How it connects to workflow code |
+| --- | --- | --- |
+| Command authorization and audit identity | [`access.py`](../../src/impodo/access.py) | Routes provide an `Actor`; application services call `AuthorizationPolicy.require` before governed access; repositories write stable issuer/subject identity in the same transaction as state changes. `PROJECT_ADMIN` is the explicit capability override. |
+| Browser request security | [`web/security.py`](../../src/impodo/web/security.py) | Middleware constrains host, forwarding headers, unsafe-request origin, request size, and response headers. Route helpers independently require the launch-token session and CSRF token. This does not replace application authorization. |
+| Project-root containment | [`project_security.py`](../../src/impodo/project_security.py) | Startup secures the root before database/artifact construction. Production policy rejects unsafe Windows locations/links and enforces protected DACLs, or owner-only POSIX permissions. |
+| Source/report artifacts | [`artifacts.py`](../../src/impodo/artifacts.py) | `ArtifactStore` offers generated, project/run-contained operations rather than arbitrary path writes. Streaming is size-bounded; validation happens before atomic replacement; compensation removes unpublished files. |
+| Target credentials | [`secrets.py`](../../src/impodo/secrets.py) | Routes retrieve credentials by opaque ID only at the target-reader boundary. Secrets stay in session memory and optionally the OS vault; they never enter project/domain/repository evidence. |
+| Idempotent work | [`jobs.py`](../../src/impodo/jobs.py) | `JobRequest` binds actor/project/input hash to an idempotency key. The local dispatcher is synchronous but preserves queued/running/succeeded/failed transitions and future hosted-queue semantics. |
+| Local Odoo lifecycle | [`local_stack.py`](../../src/impodo/local_stack.py) | The service keeps session-only status and exact process ownership. It reads an allowlisted non-secret config subset and may stop/restart only services this Impodo process started; external services are probed but never adopted. |
+| Database boundary | [`adapters/duckdb/database.py`](../../src/impodo/adapters/duckdb/database.py) and [`unit_of_work.py`](../../src/impodo/adapters/duckdb/unit_of_work.py) | One hardened connection factory disables external access/extensions. Per-project UUID containment, migrations, explicit begin/commit/rollback, and shared unit-of-work scopes sit below all concrete repositories. |
+| Schema evolution | [`adapters/duckdb/migrations/project.py`](../../src/impodo/adapters/duckdb/migrations/project.py) | New databases initialize at the current version; existing databases apply every monotonic migration in order. Semantic incompatibilities are retired explicitly rather than silently reused. |
+| Evidence invalidation | [`adapters/duckdb/invalidation.py`](../../src/impodo/adapters/duckdb/invalidation.py) | Upstream writes retire dependent lifecycle state and remove only `current` pointers in the caller's transaction. Immutable historical evidence remains. The cascade follows staging/effective dataset → quality → normalization → preflight. |
+| Serialization and hashing | [`models.py`](../../src/impodo/models.py), [`domain/serialization.py`](../../src/impodo/domain/serialization.py), and DuckDB [`serialization.py`](../../src/impodo/adapters/duckdb/serialization.py) | Portable values and canonical JSON make content identities deterministic. Repository serializers adapt fixed row shapes without redefining domain semantics; numeric Odoo IDs remain forbidden from portable artifacts. |
+| Audit | [`adapters/duckdb/audit.py`](../../src/impodo/adapters/duckdb/audit.py) | Audit rows are appended inside the state-changing transaction, so a mutation and its actor evidence either commit or roll back together. |
+
+### Error ownership and translation
+
+Errors are grouped by where recovery belongs:
+
+| Error family | Meaning | Translation point |
+| --- | --- | --- |
+| Domain/value `ValueError` subclasses | An immutable contract or pure operation received invalid evidence | Application services normally translate workflow-relevant cases; CLI `main` maps expected profile/value failures to stable exit codes. |
+| `ProjectError` / `WorkspaceError` | A user-correctable lifecycle, stale-current, optimistic-concurrency, or governed-workspace problem | Browser routes catch these around one action and re-render the owning page with plain-language guidance. |
+| `ReadinessError` | Preparation/preflight cannot safely progress, often before Odoo contact | Preparation/preflight routes return actionable review feedback; it is not treated as an unexpected server error. |
+| Connector, artifact, secret, local-stack errors | A contained infrastructure boundary could not complete safely | The route owning that boundary catches its typed error and avoids exposing response bodies, credentials, raw filesystem capability, or arbitrary process controls. |
+| Unexpected exceptions | Programming/infrastructure faults outside an expected recovery contract | They propagate; repositories/unit-of-work roll back and artifact-compensation blocks prevent partial publication. |
 
 ## Stage A–D class and evidence families
 
@@ -387,6 +445,34 @@ Start verification in
 [`tests/test_workspace.py`](../../tests/test_workspace.py), and the mapping
 sections of [`tests/test_web_app.py`](../../tests/test_web_app.py).
 
+## Stage E–G class and evidence families
+
+The product-stage names overlap in implementation, so follow the fixed evidence
+order rather than assuming that each service creates only one stage's object:
+
+| Pipeline step | Main object family | Connection to the next step |
+| --- | --- | --- |
+| Compile and evaluate | `CompiledMigrationPlan` + `PreparedBundle` → `StagedBrowserMapping` | The evaluator applies the submitted mapping to every frozen row and assembles the portable staging contract without storage or Odoo access. |
+| Canonical staging | `CanonicalLineage` + `CanonicalRow` + dataset/run reconciliation + control totals → `CanonicalStagingRun`/`StagingRunSummary` | Row identities, proposed values, symbolic references, issues, and physical-source links become immutable Stage-E evidence. Its published content hash is the input identity for quality. |
+| Transformation impact | streamed `TransformationImpactRow` → `TransformationImpactReport`/`TransformationImpactSnapshot` | This is a filterable before/after projection of the same evaluation, not a second transformation pass with different semantics. Its identity binds physical/effective sources, mapping, schema, derived plan, and evaluator versions. |
+| Quality and quarantine | `QualityRuleSet` + canonical run → `QualityIssue`, `QualityRowResult`, `SourceAccountingEntry`, `QuarantineEntry` → `QualityRun`/summary | The quality overlay preserves canonical rows but decides which IDs remain eligible. Accounting proves every physical row is represented or explicitly set aside. The quality content hash feeds normalization. |
+| Normalization review | impact candidates + staging/quality → `NormalizationEffect` → `NormalizationReviewGroup` → `NormalizationEvaluation` | Effects explain individual field changes; groups collapse them into stable business decisions. Restricted projects mask displayed examples. |
+| Decide and freeze | review groups → `CorrectionImpact`/`CorrectionDecision` in `DryRun` → `NormalizationRunSummary` | Optimistic lifecycle versions protect concurrent decisions. Final approval freezes `eligible_dataset_hash`, the exact canonical rows Stage H may consume. |
+
+The service-facing persistence connections are:
+
+| Service-facing port | Local implementation | Durable responsibility |
+| --- | --- | --- |
+| `PreparationStagingRepository` / `CanonicalStagingRepository` | `adapters.duckdb.staging_repository.StagingRepository` | Verify current submitted inputs, batch-store immutable canonical evidence, advance the staging pointer, and invalidate downstream quality when content changes. |
+| `QualityRepository` | `adapters.duckdb.quality_repository.QualityRepository` | Version rulesets; publish full row/accounting/quarantine overlays; advance quality pointers; invalidate normalization when rules or results change. |
+| `TransformationImpactRepository` | `adapters.duckdb.transformation_impact_repository.TransformationImpactRepository` | Stream and atomically replace the filterable impact snapshot for one exact input identity. |
+| `NormalizationRepository` | `adapters.duckdb.normalization_repository.NormalizationRepository` | Store immutable effects/groups, version decisions with optimistic concurrency, and freeze the eligible-dataset identity after approval. |
+
+Content hashes form a forward-only evidence chain. Changing a submitted mapping,
+frozen selection, derived plan, quality ruleset, or project retention/ownership
+context retires the affected current pointer and requires downstream evidence to
+be regenerated; historical immutable runs remain audit history.
+
 ## Journey 5 — Prepare and review data (Stages E–G)
 
 ### Outcome
@@ -452,6 +538,60 @@ Start verification in
 [`tests/test_staging_store.py`](../../tests/test_staging_store.py),
 [`tests/test_quality.py`](../../tests/test_quality.py), and
 [`tests/test_normalization.py`](../../tests/test_normalization.py).
+
+## Stage H class, read, and evidence families
+
+Stage H has two entry paths that converge on one comparison core:
+
+| Concern | Submitted browser-mapping path | Strict profile/CLI path | Shared downstream code |
+| --- | --- | --- | --- |
+| Prepared input | `PreflightService._load_frozen_input` reloads submitted mapping, canonical staging, quality, and frozen normalization evidence; `build_frozen_preflight_input` verifies hashes/lifecycles and adapts eligible canonical rows without transforming again. | `load_profile` → `compile_profile_document` → `prepare_sources` rebuilds typed rows from the declared source package; saved snapshots are bound to profile/source hashes. | Both supply a `CompiledMigrationPlan` and `PreparedBundle`. |
+| Read planning | `plan_preflight_requirements` uses only frozen eligible rows. | `plan_metadata_requests` and `plan_record_requests` use strict-profile prepared rows. | `MetadataRequest`, `RecordRequest`, and `PreflightRequirementPlan` contain sorted fields plus key-derived domains chunked at the safety limit. Empty/unrestricted record domains are rejected before target I/O. |
+| Target capture | `_read_readiness_snapshots` chooses a fixed local shell reader or closed remote JSON-2 reader from project configuration. | Snapshot commands use `OdooReadConnector`; offline preflight uses `SnapshotConnector`. | Connectors expose only target fingerprint, metadata reads, and record reads. Metadata and record snapshots must share one fingerprint and receive deterministic content hashes. |
+| Validation and lookup | Browser verifies the exact planned snapshot projection and configured target identity before the engine. | Snapshot binding verifies profile/source provenance before the engine. | `validate_plan_metadata` checks required model/field semantics; `TargetCatalog` indexes captured rows and contains numeric Odoo IDs; `_resolve_records` emits portable `BusinessReference` values and grouped `ReferenceResolution` evidence. |
+| Comparison | Same engine. | Same engine. | `PreflightEngine.run` applies blocking precedence, indexes target business identities, then emits `Decision` classifications: `BLOCKED`, `AMBIGUOUS`, `CREATE`, `UPDATE`, or `UNCHANGED`, with portable `FieldDifference` evidence. |
+| Output | `_readiness_report` projects decisions; `PreflightRepository` atomically stores the header, paged rows, protected snapshots, current pointer, and audit event. A technical manifest is kept by `ArtifactStore`; the workbook is a disposable projection. | `write_preflight_outputs` writes the portable manifest and workbook directly; it does not create browser lifecycle records. | `PreflightResult` is the canonical portable result. Numeric Odoo IDs may exist in protected target snapshots but are recursively forbidden from portable manifests and reports. |
+
+The browser evidence chain is:
+
+```text
+FrozenPreflightInput
+-> PreflightRequirementPlan
+-> MetadataSnapshot + RecordSnapshot (protected)
+-> PreflightResult (portable)
+-> ReadinessReport header + paged ReadinessRow records
+-> technical manifest + optional review workbook projection
+```
+
+Important boundaries when navigating:
+
+- `PreflightService.compare` is the only browser service operation allowed to
+  call the supplied target reader. `_load_frozen_input` and request-domain
+  checks run first.
+- `connectors.py` is a closed read surface: remote JSON-2 supports the planned
+  `fields_get` and `search_read` operations, while the local reader runs only
+  fixed scripts and relies on transaction rollback.
+- `TargetCatalog` is the numeric-ID containment boundary. Engine decisions use
+  governed business keys and source trace IDs.
+- `reporting.py` projects canonical portable results. The workbook is never an
+  input to classification, approval, or persistence.
+
+## Future Stage I–K boundaries
+
+The current implementation ends after Stage-H read-only readiness evidence.
+The following objects and capability names reserve semantics; they do not make
+the later product stages available:
+
+| Future stage | Code that exists now | Missing integration that keeps the stage future |
+| --- | --- | --- |
+| I — Freeze an approved import plan | [`approvals.py`](../../src/impodo/approvals.py) defines reusable `ApprovalEvidence`, standalone `FrozenExportPlan`, and `ExportPlanApproval` value objects. `EXPORT_PLAN_APPROVE` is a reserved capability. | No clean-package certification service, action builder/hash authority, repository/current pointer, browser route, or lifecycle connects Stage-H results to `FrozenExportPlan`. A frozen normalization dataset is source-side approval, not an executable import plan. |
+| J — Controlled Odoo execution | `EXPORT_PLAN_EXECUTE` is a reserved capability and the product vision defines future safety requirements. | There is no Odoo writer port/adapter, application executor, write route/CLI command, idempotency ledger, execution journal, compensation policy, or write result contract. `OdooReadConnector` must remain closed to `fields_get`/`search_read`; a writer requires a separate boundary. |
+| K — Post-write reconciliation | Source accounting, staging reconciliation, quality counts, and Stage-H target snapshots exist. | None of these proves a write occurred. There is no post-write snapshot request, expected-versus-actual action reconciliation, target-result journal, rollback evidence, or closure workflow. |
+
+When future work begins, add new application ports/services and composition
+fields rather than broadening current readers or repurposing readiness reports.
+Update the product stage table, owning contracts, this map, and focused tests in
+the same change.
 
 ## Journey 6 — Compare approved rows with Odoo (Stage H)
 
@@ -533,9 +673,9 @@ Start verification in
 
 ## What to document next
 
-The A–H navigation spine and DOC-2 Stage A–D depth are complete. DOC-3 now
-deepens Stages E–G: compiled evaluation, canonical rows and lineage, staging
-reconciliation/control totals, quality and quarantine, transformation impact,
-normalization review, approval/freeze, and their repository ports. DOC-4 and
-DOC-5 then deepen preflight and cross-cutting infrastructure without losing
-these end-to-end journeys.
+The initial DOC-0 through DOC-6 rollout is complete. Documentation is now a
+continuous part of workflow changes: update the owning module/class/method
+docstrings, stage/evidence map, contract or active plan, and focused tests when
+a connection, prerequisite, side effect, invalidation, or implementation
+status changes. Use the advisory missing-symbol report during review and keep
+the module-docstring check in normal verification.

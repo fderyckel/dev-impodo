@@ -47,6 +47,21 @@ def build_preparation_router(context: WebContext) -> APIRouter:
             SecretStoreError,
             WorkspaceError,
         ) as error:
+            try:
+                resolution = context.resolution.current_review(project_id)
+            except (ReadinessError, WorkspaceError):
+                resolution = None
+            if (
+                resolution is not None
+                and resolution.summary.status == "REVIEW_REQUIRED"
+                and resolution.candidates
+            ):
+                request.session.pop("summary_error", None)
+                _flash(request, "Review the possible duplicate records before continuing.")
+                return RedirectResponse(
+                    f"/projects/{project_id}/resolution",
+                    status_code=303,
+                )
             request.session["summary_error"] = str(error)
             return RedirectResponse(
                 f"/projects/{project_id}/summary",

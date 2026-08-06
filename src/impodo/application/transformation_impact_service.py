@@ -27,38 +27,64 @@ from .preparation_service import stage_browser_mapping
 
 
 class TransformationImpactProjectRepository(Protocol):
-    def get(self, project_id: str) -> MigrationProject: ...
+    """Load project context for impact evaluation."""
+
+    def get(self, project_id: str) -> MigrationProject:
+        """Return project policy used for protected display and ownership."""
+        ...
 
 
 class TransformationImpactMappingRepository(Protocol):
+    """Read validated mapping evidence and detect unsaved draft drift."""
+
     def get_mapping_revision(
         self, project_id: str, version: int | None = None
-    ) -> MappingRevision | None: ...
+    ) -> MappingRevision | None:
+        """Return the current or requested immutable mapping revision."""
+        ...
     def get_mapping_validation(
         self, project_id: str, version: int
-    ) -> MappingValidationResult | None: ...
+    ) -> MappingValidationResult | None:
+        """Return validation evidence required before impact evaluation."""
+        ...
     def get_mapping_working_draft(
         self, project_id: str
-    ) -> MappingWorkingDraft | None: ...
+    ) -> MappingWorkingDraft | None:
+        """Return the draft used to reject unvalidated current edits."""
+        ...
 
 
 class TransformationImpactSourceRepository(Protocol):
-    def get_source_selection(self, project_id: str) -> SourceSelection | None: ...
+    """Read physical/effective selections and materialization catalogs."""
+
+    def get_source_selection(self, project_id: str) -> SourceSelection | None:
+        """Return the physical frozen source selection."""
+        ...
     def get_mapping_source_selection(
         self, project_id: str
-    ) -> SourceSelection | None: ...
+    ) -> SourceSelection | None:
+        """Return the effective selection after derived-dataset expansion."""
+        ...
     def get_source_catalogs(
         self, project_id: str
-    ) -> tuple[SourceFileCatalog, ...]: ...
+    ) -> tuple[SourceFileCatalog, ...]:
+        """Return inspected catalogs used to materialize source artifacts."""
+        ...
 
 
 class TransformationImpactDerivedRepository(Protocol):
+    """Read virtual-dataset rules used by impact evaluation."""
+
     def get_derived_entity_plan(
         self, project_id: str
-    ) -> DerivedEntityPlan | None: ...
+    ) -> DerivedEntityPlan | None:
+        """Return the current virtual-dataset plan, if present."""
+        ...
 
 
 class TransformationImpactRepository(Protocol):
+    """Atomically replace the durable, filterable impact snapshot."""
+
     def replace_transformation_impact_snapshot(
         self,
         project_id: str,
@@ -69,11 +95,15 @@ class TransformationImpactRepository(Protocol):
         ],
         *,
         actor: Actor,
-    ) -> TransformationImpactSnapshot: ...
+    ) -> TransformationImpactSnapshot:
+        """Stream a complete replacement and commit it atomically."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
 class TransformationImpactContext:
+    """All hash-bearing inputs required to re-evaluate prepared values."""
+
     project: MigrationProject
     revision: MappingRevision
     physical_selection: SourceSelection
@@ -82,6 +112,8 @@ class TransformationImpactContext:
 
     @property
     def identity(self) -> TransformationImpactIdentity:
+        """Fingerprint the exact source, mapping, schema, and derived inputs."""
+
         return TransformationImpactIdentity(
             physical_selection_hash=self.physical_selection.content_hash,
             source_selection_hash=self.effective_selection.content_hash,
@@ -111,6 +143,8 @@ class TransformationImpactService:
         self.artifacts = artifacts
 
     def context(self, project_id: str) -> TransformationImpactContext:
+        """Resolve current inputs and reject invalid or unsaved mapping state."""
+
         project = self.projects.get(project_id)
         revision = self.mappings.get_mapping_revision(project_id)
         if revision is None:
@@ -155,6 +189,12 @@ class TransformationImpactService:
         *,
         actor: Actor,
     ) -> TransformationImpactSnapshot:
+        """Re-evaluate every mapped value and atomically publish its impacts.
+
+        Impact details are streamed into the repository while the evaluator
+        builds complete aggregate counts, avoiding an unbounded in-memory list.
+        """
+
         context = self.context(project_id)
         catalogs = self.sources.get_source_catalogs(project_id)
 
@@ -195,6 +235,8 @@ class TransformationImpactService:
         *,
         actor: Actor,
     ) -> TransformationImpactSnapshot:
+        """Delegate one atomic snapshot replacement to the persistence port."""
+
         return self.impacts.replace_transformation_impact_snapshot(
             project_id,
             identity,

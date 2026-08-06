@@ -1,4 +1,9 @@
-"""DuckDB staging repository implementation."""
+"""DuckDB persistence for immutable Stage-E canonical staging evidence.
+
+Publication verifies the submitted mapping, frozen physical/effective sources,
+and derived plan in one transaction. A changed run advances the current pointer
+and invalidates quality and every later artifact; identical content is reused.
+"""
 
 from __future__ import annotations
 
@@ -30,6 +35,7 @@ from ...staging_contracts import (
 from ...workspace_contracts import SourceSelection
 from ...workspace_errors import WorkspaceError
 from ...domain.serialization import CanonicalJsonObjectHasher
+from ...domain.staging.preparation_session import StoredCanonicalStagingRun
 from .repository import DuckDbRepository
 
 
@@ -40,12 +46,12 @@ from .serialization import _canonical_json, _columnar_parameters
 
 
 class StagingRepository(DuckDbRepository):
-    """Persistence operations for staging repository."""
+    """Implement canonical publication, batched row storage, and reassembly."""
 
     def publish_canonical_staging(
         self,
         project_id: str,
-        run: CanonicalStagingRun,
+        run: CanonicalStagingRun | StoredCanonicalStagingRun,
         *,
         mapping_version: int,
         actor: Actor,
@@ -290,6 +296,8 @@ class StagingRepository(DuckDbRepository):
         self,
         project_id: str,
     ) -> StagingRunSummary | None:
+        """Return the summary selected by the current published-run pointer."""
+
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -318,6 +326,8 @@ class StagingRepository(DuckDbRepository):
         *,
         expected_content_hash: str | None = None,
     ) -> CanonicalStagingRun | None:
+        """Reassemble a full run and verify both stored and expected hashes."""
+
         try:
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
@@ -452,7 +462,7 @@ class StagingRepository(DuckDbRepository):
     def _insert_canonical_rows(
         connection: duckdb.DuckDBPyConnection,
         run_id: str,
-        run: CanonicalStagingRun,
+        run: CanonicalStagingRun | StoredCanonicalStagingRun,
     ) -> str:
         hasher = CanonicalJsonObjectHasher()
         hasher.add_value("compiled_plan_hash", run.compiled_plan_hash)

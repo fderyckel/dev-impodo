@@ -3,6 +3,11 @@
 The report deliberately counts public symbols without enforcing a target.
 Reviewers use it to find navigation gaps; documented exceptions such as
 obvious accessors or passive data carriers may remain without docstrings.
+
+``--check`` enforces only the package-wide module-docstring floor. Public
+symbol results remain advisory until the repository has a reviewed baseline
+of intentional exceptions; this avoids rewarding repetitive or misleading
+docstrings merely to satisfy a percentage.
 """
 
 from __future__ import annotations
@@ -133,6 +138,16 @@ def render_missing(modules: Sequence[ModuleDocumentation]) -> str:
     return "\n".join(lines)
 
 
+def undocumented_modules(
+    modules: Sequence[ModuleDocumentation],
+) -> tuple[Path, ...]:
+    """Return modules missing their editor-orientation docstring."""
+
+    return tuple(
+        module.path for module in modules if not module.has_module_docstring
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the advisory inventory command."""
 
@@ -150,11 +165,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also list undocumented public symbols by module",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "fail only when a Python module lacks a module docstring; "
+            "public-symbol gaps remain advisory"
+        ),
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Print the advisory inventory and return a non-error status."""
+    """Print the inventory and optionally enforce module-level orientation."""
 
     arguments = build_parser().parse_args(argv)
     package_root = arguments.package_root.resolve()
@@ -163,6 +186,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.missing:
         print()
         print(render_missing(modules))
+    missing_modules = undocumented_modules(modules)
+    if arguments.check and missing_modules:
+        print()
+        print("Modules missing docstrings:")
+        for path in missing_modules:
+            print(path)
+        return 1
     return 0
 
 

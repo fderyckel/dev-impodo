@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
 import json
@@ -18,12 +19,16 @@ from typing import Any, Iterable, Mapping
 
 from .models import LogicalReference, canonical_json_bytes, portable_value
 from .projects import MigrationProject
+from .domain.resolution import EffectiveDataset
+from .domain.coverage import ReferenceBundle
 from .staging_contracts import CanonicalIssue, CanonicalRow, CanonicalStagingRun, StagingDisposition
 
 
-QUALITY_CONTRACT_VERSION = 1
-QUALITY_EVALUATOR_VERSION = 1
-QUALITY_RULESET_CONTRACT_VERSION = 1
+QUALITY_CONTRACT_VERSION = 2
+QUALITY_EVALUATOR_VERSION = 2
+_SUPPORTED_QUALITY_VERSIONS = {(1, 1), (2, 2)}
+QUALITY_RULESET_CONTRACT_VERSION = 2
+_SUPPORTED_QUALITY_RULESET_VERSIONS = {1, 2}
 MAX_MANAGER_RULES_PER_DATASET = 3
 MANDATORY_QUALITY_FAMILIES = (
     "REQUIRED_VALUES",
@@ -39,6 +44,8 @@ class QualityError(ValueError):
 
 
 class QualityRuleFamily(StrEnum):
+    """Allowlisted automatic and manager-authored check algorithms."""
+
     REQUIRED_VALUES = "REQUIRED_VALUES"
     BOUNDED_VALUES = "BOUNDED_VALUES"
     GOVERNED_LOOKUPS = "GOVERNED_LOOKUPS"
@@ -49,9 +56,18 @@ class QualityRuleFamily(StrEnum):
     ORDERED_COMPARISON = "ORDERED_COMPARISON"
     EQUALITY = "EQUALITY"
     INEQUALITY = "INEQUALITY"
+    LUHN_CHECKSUM = "LUHN_CHECKSUM"
+    IBAN_MOD97 = "IBAN_MOD97"
+    POSTAL_FORMAT = "POSTAL_FORMAT"
+    DATE_WINDOW = "DATE_WINDOW"
+    APPROVED_CODE_LIST = "APPROVED_CODE_LIST"
+    METRIC_BOUNDARY = "METRIC_BOUNDARY"
+    IQR_OUTLIER = "IQR_OUTLIER"
 
 
 class QualityOutcomePolicy(StrEnum):
+    """Effect of a failed rule on review and dataset eligibility."""
+
     WARNING = "WARNING"
     BLOCK = "BLOCK"
     QUARANTINE = "QUARANTINE"
@@ -59,17 +75,24 @@ class QualityOutcomePolicy(StrEnum):
 
 
 class QualityRuleSource(StrEnum):
+    """Authority from which a quality rule was derived."""
+
     MAPPING_DERIVED = "MAPPING_DERIVED"
     SCHEMA_DERIVED = "SCHEMA_DERIVED"
     MANAGER_AUTHORED = "MANAGER_AUTHORED"
+    SCOPE_APPROVED = "SCOPE_APPROVED"
 
 
 class QualityOwnerRole(StrEnum):
+    """Project role accountable for resolving a quality finding."""
+
     DATA_MANAGER = "DATA_MANAGER"
     FUNCTIONAL_OWNER = "FUNCTIONAL_OWNER"
 
 
 class QualityDisposition(StrEnum):
+    """Stage-F eligibility state assigned to one canonical row."""
+
     CANDIDATE = "CANDIDATE"
     REFERENCE = "REFERENCE"
     BLOCKED = "BLOCKED"
@@ -78,6 +101,8 @@ class QualityDisposition(StrEnum):
 
 
 class SourceAccountingState(StrEnum):
+    """How one physical source row reconciles to canonical output."""
+
     REPRESENTED = "REPRESENTED"
     QUARANTINED_BEFORE_TRANSFORM = "QUARANTINED_BEFORE_TRANSFORM"
     EXCLUDED_BY_RULE = "EXCLUDED_BY_RULE"
@@ -85,6 +110,8 @@ class SourceAccountingState(StrEnum):
 
 
 class QualityRunStatus(StrEnum):
+    """Persistence lifecycle of a published quality run."""
+
     PUBLISHED = "PUBLISHED"
     SUPERSEDED = "SUPERSEDED"
     INVALIDATED = "INVALIDATED"
@@ -92,6 +119,13 @@ class QualityRunStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class QualityRule:
+    """One validated data check and its ownership/outcome policy.
+
+    Rules are immutable inputs to :func:`evaluate_quality`. Automatic rules
+    mirror mapping/schema constraints; guided manager rules add cross-field
+    business checks without permitting arbitrary executable expressions.
+    """
+
     rule_id: str
     dataset: str
     family: QualityRuleFamily
@@ -121,7 +155,20 @@ class QualityRule:
             raise ValueError("Quality review timing must be between 1 and 3650 days")
         if self.evidence_display not in {"masked", "plain"}:
             raise ValueError("Quality evidence display policy is unsupported")
-        if (
+        advanced_families = {
+            QualityRuleFamily.LUHN_CHECKSUM,
+            QualityRuleFamily.IBAN_MOD97,
+            QualityRuleFamily.POSTAL_FORMAT,
+            QualityRuleFamily.DATE_WINDOW,
+            QualityRuleFamily.APPROVED_CODE_LIST,
+            QualityRuleFamily.METRIC_BOUNDARY,
+            QualityRuleFamily.IQR_OUTLIER,
+        }
+        if self.source is QualityRuleSource.SCOPE_APPROVED:
+            if self.family not in advanced_families:
+                raise ValueError("Scope-approved checks must use an advanced family")
+            _validate_advanced_rule(self)
+        elif (
             self.source is not QualityRuleSource.MANAGER_AUTHORED
             and self.family.value not in MANDATORY_QUALITY_FAMILIES
         ):
@@ -144,6 +191,8 @@ class QualityRule:
                 raise ValueError("Required-if checks need a condition value")
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize the rule into deterministic, JSON-safe evidence."""
+
         return {
             "rule_id": self.rule_id,
             "dataset": self.dataset,
@@ -161,6 +210,8 @@ class QualityRule:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "QualityRule":
+        """Reconstruct and validate a rule from persisted evidence."""
+
         return cls(
             rule_id=str(payload["rule_id"]),
             dataset=str(payload["dataset"]),
@@ -179,6 +230,8 @@ class QualityRule:
 
 @dataclass(frozen=True, slots=True)
 class QualityRuleSet:
+    """Versioned rule contract bound to one mapping and schema hash."""
+
     ruleset_id: str
     project_id: str
     version: int
@@ -186,10 +239,12 @@ class QualityRuleSet:
     mapping_hash: str
     schema_hash: str
     rules: tuple[QualityRule, ...]
+    coverage_scope_hash: str | None = None
+    reference_bundle_hash: str | None = None
     contract_version: int = QUALITY_RULESET_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if self.contract_version != QUALITY_RULESET_CONTRACT_VERSION:
+        if self.contract_version not in _SUPPORTED_QUALITY_RULESET_VERSIONS:
             raise ValueError("Quality-rule contract version is unsupported")
         if not self.ruleset_id or not self.project_id or self.version < 1:
             raise ValueError("Quality-rule set identity is invalid")
@@ -203,7 +258,10 @@ class QualityRuleSet:
         automatic = [
             (item.dataset, item.family)
             for item in self.rules
-            if item.source is not QualityRuleSource.MANAGER_AUTHORED
+            if item.source in {
+                QualityRuleSource.MAPPING_DERIVED,
+                QualityRuleSource.SCHEMA_DERIVED,
+            }
         ]
         if len(set(automatic)) != len(automatic):
             raise ValueError("Automatic quality families must be unique per table")
@@ -213,24 +271,49 @@ class QualityRuleSet:
                 manager_counts[item.dataset] = manager_counts.get(item.dataset, 0) + 1
         if any(item > MAX_MANAGER_RULES_PER_DATASET for item in manager_counts.values()):
             raise ValueError("Too many optional business checks were configured")
+        advanced = any(
+            item.source is QualityRuleSource.SCOPE_APPROVED for item in self.rules
+        )
+        if advanced:
+            if self.contract_version < 2 or self.coverage_scope_hash is None:
+                raise ValueError("Advanced quality checks require an approved scope")
+            _require_hash(self.coverage_scope_hash, "quality coverage-scope hash")
+        if any(
+            item.family is QualityRuleFamily.APPROVED_CODE_LIST
+            for item in self.rules
+        ):
+            if self.reference_bundle_hash is None:
+                raise ValueError("Approved-code checks require a reference bundle")
+            _require_hash(
+                self.reference_bundle_hash,
+                "quality reference-bundle hash",
+            )
 
     @property
     def content_hash(self) -> str:
-        return _hash(
-            {
-                "contract_version": self.contract_version,
-                "project_id": self.project_id,
-                "mapping_hash": self.mapping_hash,
-                "schema_hash": self.schema_hash,
-                "rules": [item.to_portable_dict() for item in self.rules],
-            }
-        )
+        """Return the semantic hash used to bind evaluations to this ruleset."""
+
+        payload = {
+            "contract_version": self.contract_version,
+            "project_id": self.project_id,
+            "mapping_hash": self.mapping_hash,
+            "schema_hash": self.schema_hash,
+            "rules": [item.to_portable_dict() for item in self.rules],
+        }
+        if self.contract_version >= 2:
+            payload["coverage_scope_hash"] = self.coverage_scope_hash
+            payload["reference_bundle_hash"] = self.reference_bundle_hash
+        return _hash(payload)
 
     @property
     def manager_rules(self) -> tuple[QualityRule, ...]:
+        """Return only guided rules explicitly authored by a manager."""
+
         return tuple(item for item in self.rules if item.source is QualityRuleSource.MANAGER_AUTHORED)
 
     def to_portable_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
+        """Serialize the complete ruleset, optionally including its hash."""
+
         payload = {
             "contract_version": self.contract_version,
             "ruleset_id": self.ruleset_id,
@@ -241,15 +324,22 @@ class QualityRuleSet:
             "schema_hash": self.schema_hash,
             "rules": [item.to_portable_dict() for item in self.rules],
         }
+        if self.contract_version >= 2:
+            payload["coverage_scope_hash"] = self.coverage_scope_hash
+            payload["reference_bundle_hash"] = self.reference_bundle_hash
         if include_hash:
             payload["content_hash"] = self.content_hash
         return payload
 
     def to_json(self) -> str:
+        """Return canonical JSON suitable for durable storage."""
+
         return canonical_json_bytes(self.to_portable_dict()).decode("utf-8")
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "QualityRuleSet":
+        """Load a ruleset and verify its persisted content hash."""
+
         ruleset = cls(
             contract_version=int(payload.get("contract_version", 0)),
             ruleset_id=str(payload["ruleset_id"]),
@@ -259,6 +349,16 @@ class QualityRuleSet:
             mapping_hash=str(payload["mapping_hash"]),
             schema_hash=str(payload["schema_hash"]),
             rules=tuple(QualityRule.from_dict(item) for item in payload.get("rules", ())),
+            coverage_scope_hash=(
+                str(payload["coverage_scope_hash"])
+                if payload.get("coverage_scope_hash") is not None
+                else None
+            ),
+            reference_bundle_hash=(
+                str(payload["reference_bundle_hash"])
+                if payload.get("reference_bundle_hash") is not None
+                else None
+            ),
         )
         if payload.get("content_hash") != ruleset.content_hash:
             raise ValueError("Quality-rule content hash is invalid")
@@ -266,11 +366,15 @@ class QualityRuleSet:
 
     @classmethod
     def from_json(cls, value: str) -> "QualityRuleSet":
+        """Load and validate a ruleset from canonical JSON."""
+
         return cls.from_dict(json.loads(value))
 
 
 @dataclass(frozen=True, slots=True)
 class QualityIssue:
+    """One rule failure linked to a row or to run-level setup evidence."""
+
     issue_id: str
     rule_id: str
     family: QualityRuleFamily
@@ -298,6 +402,8 @@ class QualityIssue:
             raise ValueError("Quality issue fields must be unique and ordered")
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize the finding and its correction ownership."""
+
         return {
             "issue_id": self.issue_id,
             "rule_id": self.rule_id,
@@ -316,6 +422,8 @@ class QualityIssue:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "QualityIssue":
+        """Reconstruct a validated issue from persisted evidence."""
+
         return cls(
             issue_id=str(payload["issue_id"]),
             rule_id=str(payload["rule_id"]),
@@ -335,6 +443,8 @@ class QualityIssue:
 
 @dataclass(frozen=True, slots=True)
 class QualityRowResult:
+    """Stage-F disposition and finding links for one canonical row."""
+
     row_id: str
     dataset: str
     source_row: int
@@ -352,6 +462,8 @@ class QualityRowResult:
             raise ValueError("Quality row issue IDs must be unique and ordered")
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize one row-level eligibility decision."""
+
         return {
             "row_id": self.row_id,
             "dataset": self.dataset,
@@ -365,6 +477,8 @@ class QualityRowResult:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "QualityRowResult":
+        """Reconstruct a row decision from persisted evidence."""
+
         return cls(
             row_id=str(payload["row_id"]),
             dataset=str(payload["dataset"]),
@@ -379,6 +493,12 @@ class QualityRowResult:
 
 @dataclass(frozen=True, slots=True)
 class SourceAccountingEntry:
+    """Reconciliation link from one physical row to canonical row IDs.
+
+    This ledger proves that preparation did not silently lose input rows even
+    when a row was quarantined before transformation or explicitly excluded.
+    """
+
     physical_dataset_id: str
     source_row: int
     state: SourceAccountingState
@@ -395,6 +515,8 @@ class SourceAccountingEntry:
             raise ValueError("Unrepresented source states cannot contain canonical links")
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize the physical-to-canonical accounting entry."""
+
         return {
             "physical_dataset_id": self.physical_dataset_id,
             "source_row": self.source_row,
@@ -404,6 +526,8 @@ class SourceAccountingEntry:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "SourceAccountingEntry":
+        """Reconstruct and validate one accounting entry."""
+
         return cls(
             physical_dataset_id=str(payload["physical_dataset_id"]),
             source_row=int(payload["source_row"]),
@@ -414,6 +538,8 @@ class SourceAccountingEntry:
 
 @dataclass(frozen=True, slots=True)
 class QuarantineEntry:
+    """Actionable correction record for a quarantined canonical row."""
+
     entry_id: str
     row_id: str
     dataset: str
@@ -438,6 +564,8 @@ class QuarantineEntry:
             raise ValueError("Quarantine physical sources must be unique and ordered")
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize quarantine reason, owner, deadline, and correction route."""
+
         return {
             "entry_id": self.entry_id,
             "row_id": self.row_id,
@@ -457,6 +585,8 @@ class QuarantineEntry:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "QuarantineEntry":
+        """Reconstruct quarantine evidence from durable storage."""
+
         return cls(
             entry_id=str(payload["entry_id"]),
             row_id=str(payload["row_id"]),
@@ -477,6 +607,13 @@ class QuarantineEntry:
 
 @dataclass(frozen=True, slots=True)
 class QualityRun:
+    """Complete immutable Stage-F overlay on a canonical staging run.
+
+    ``row_results`` decides eligibility, ``source_accounting`` proves complete
+    coverage of physical input, ``issues`` explains every failure, and
+    ``quarantine`` routes correctable records. The run is the input to Stage G.
+    """
+
     project_id: str
     staging_content_hash: str
     ruleset_hash: str
@@ -487,12 +624,19 @@ class QualityRun:
     source_accounting: tuple[SourceAccountingEntry, ...]
     issues: tuple[QualityIssue, ...]
     quarantine: tuple[QuarantineEntry, ...]
+    effective_dataset_hash: str | None = None
     evaluator_version: int = QUALITY_EVALUATOR_VERSION
     contract_version: int = QUALITY_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if self.contract_version != QUALITY_CONTRACT_VERSION or self.evaluator_version != QUALITY_EVALUATOR_VERSION:
+        if (self.contract_version, self.evaluator_version) not in _SUPPORTED_QUALITY_VERSIONS:
             raise ValueError("Quality evidence version is unsupported")
+        if self.contract_version >= 2:
+            if self.effective_dataset_hash is None:
+                raise ValueError("Current quality evidence requires an effective dataset")
+            _require_hash(self.effective_dataset_hash, "quality effective-dataset hash")
+        elif self.effective_dataset_hash is not None:
+            raise ValueError("Legacy quality evidence cannot bind an effective dataset")
         if not self.project_id:
             raise ValueError("Quality evidence identity is incomplete")
         for value, label in ((self.staging_content_hash, "quality staging hash"), (self.ruleset_hash, "quality ruleset hash"), (self.mapping_hash, "quality mapping hash"), (self.schema_hash, "quality schema hash"), (self.retention_context_hash, "quality retention hash")):
@@ -524,41 +668,64 @@ class QualityRun:
 
     @property
     def content_hash(self) -> str:
+        """Hash all semantic quality evidence for downstream binding."""
+
         return _hash(self.to_portable_dict(include_hash=False))
 
     @property
     def ready_count(self) -> int:
+        """Count eligible rows that require no review."""
+
         return sum(item.effective_disposition in {QualityDisposition.CANDIDATE, QualityDisposition.REFERENCE} and not item.requires_review for item in self.row_results)
 
     @property
     def review_count(self) -> int:
-        return sum(item.requires_review for item in self.row_results)
+        """Count eligible rows carrying warning-level review findings."""
+
+        return sum(item.requires_review for item in self.row_results) + sum(
+            item.row_id is None and item.policy is QualityOutcomePolicy.WARNING
+            for item in self.issues
+        )
 
     @property
     def quarantined_count(self) -> int:
+        """Count rows removed from eligibility pending correction."""
+
         return sum(item.effective_disposition is QualityDisposition.QUARANTINED for item in self.row_results)
 
     @property
     def excluded_count(self) -> int:
+        """Count rows removed by an explicit manager-authored exclusion rule."""
+
         return sum(item.effective_disposition is QualityDisposition.EXCLUDED for item in self.row_results)
 
     @property
     def blocked_count(self) -> int:
+        """Count row, setup, and accounting failures that block comparison."""
+
         return sum(item.effective_disposition is QualityDisposition.BLOCKED for item in self.row_results) + sum(item.row_id is None and item.policy is QualityOutcomePolicy.BLOCK for item in self.issues) + sum(item.state is SourceAccountingState.UNREPRESENTED for item in self.source_accounting)
 
     @property
     def can_compare(self) -> bool:
+        """Whether Stage G may compare prepared values without setup blockers."""
+
         return self.blocked_count == 0
 
     @property
     def ready_for_package(self) -> bool:
+        """Whether no blocking or unresolved warning review remains."""
+
         return self.can_compare and self.review_count == 0
 
     @property
     def eligible_row_ids(self) -> frozenset[str]:
+        """Return canonical row IDs retained for normalization and packaging."""
+
         return frozenset(item.row_id for item in self.row_results if item.effective_disposition in {QualityDisposition.CANDIDATE, QualityDisposition.REFERENCE})
 
     def to_portable_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
+        """Serialize the complete quality run as portable evidence."""
+
         payload = {
             "contract_version": self.contract_version,
             "evaluator_version": self.evaluator_version,
@@ -573,15 +740,21 @@ class QualityRun:
             "issues": [item.to_portable_dict() for item in self.issues],
             "quarantine": [item.to_portable_dict() for item in self.quarantine],
         }
+        if self.contract_version >= 2:
+            payload["effective_dataset_hash"] = self.effective_dataset_hash
         if include_hash:
             payload["content_hash"] = self.content_hash
         return payload
 
     def to_json(self) -> str:
+        """Return the quality run as canonical JSON."""
+
         return canonical_json_bytes(self.to_portable_dict()).decode("utf-8")
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "QualityRun":
+        """Load a run, enforcing reconciliation and its content hash."""
+
         run = cls(
             contract_version=int(payload.get("contract_version", 0)),
             evaluator_version=int(payload.get("evaluator_version", 0)),
@@ -595,6 +768,11 @@ class QualityRun:
             source_accounting=tuple(SourceAccountingEntry.from_dict(item) for item in payload.get("source_accounting", ())),
             issues=tuple(QualityIssue.from_dict(item) for item in payload.get("issues", ())),
             quarantine=tuple(QuarantineEntry.from_dict(item) for item in payload.get("quarantine", ())),
+            effective_dataset_hash=(
+                str(payload["effective_dataset_hash"])
+                if payload.get("effective_dataset_hash") is not None
+                else None
+            ),
         )
         if payload.get("content_hash") != run.content_hash:
             raise ValueError("Quality content hash is invalid")
@@ -602,11 +780,15 @@ class QualityRun:
 
     @classmethod
     def from_json(cls, value: str) -> "QualityRun":
+        """Load and validate a quality run from canonical JSON."""
+
         return cls.from_dict(json.loads(value))
 
 
 @dataclass(frozen=True, slots=True)
 class QualityRunSummary:
+    """Small lifecycle/count projection for the currently published run."""
+
     run_id: str
     project_id: str
     content_hash: str
@@ -621,18 +803,26 @@ class QualityRunSummary:
     quarantined_count: int
     excluded_count: int
     blocked_count: int
+    effective_dataset_run_id: str | None = None
+    effective_dataset_hash: str | None = None
 
     @property
     def can_compare(self) -> bool:
+        """Mirror whether the persisted run has no comparison blockers."""
+
         return self.blocked_count == 0
 
     @property
     def ready_for_package(self) -> bool:
+        """Mirror whether the run has neither blockers nor pending reviews."""
+
         return self.can_compare and self.review_count == 0
 
 
 @dataclass(frozen=True, slots=True)
 class QualityReviewItem:
+    """One reviewable row with its resolved issue records and edit route."""
+
     row: QualityRowResult
     issues: tuple[QualityIssue, ...]
     correction_route: str = ""
@@ -640,6 +830,8 @@ class QualityReviewItem:
 
 @dataclass(frozen=True, slots=True)
 class QualityReviewPage:
+    """Bounded page of quality review items for browser navigation."""
+
     items: tuple[QualityReviewItem, ...]
     matching_count: int
     page: int
@@ -709,6 +901,8 @@ def manager_quality_rule(
     outcome: QualityOutcomePolicy = QualityOutcomePolicy.QUARANTINE,
     owner_role: QualityOwnerRole = QualityOwnerRole.DATA_MANAGER,
 ) -> QualityRule:
+    """Build one allowlisted guided business check with a stable identity."""
+
     if family.value in MANDATORY_QUALITY_FAMILIES:
         raise ValueError("Business checks must use a guided cross-field rule")
     fields = tuple(input_fields)
@@ -727,6 +921,8 @@ def manager_quality_rule(
 
 
 def retention_context_hash(project: MigrationProject) -> str:
+    """Hash project ownership, retention, and classification policy inputs."""
+
     return _hash(
         {
             "project_id": project.project_id,
@@ -745,6 +941,8 @@ def evaluate_quality(
     physical_rows: Mapping[str, tuple[int, ...]],
     ruleset: QualityRuleSet,
     published_staging_content_hash: str | None = None,
+    effective: EffectiveDataset | None = None,
+    reference_bundle: ReferenceBundle | None = None,
 ) -> QualityRun:
     """Evaluate a complete quality overlay without database or Odoo access."""
 
@@ -755,13 +953,30 @@ def evaluate_quality(
     staging_content_hash = (
         published_staging_content_hash or staging.content_hash
     )
+    if effective is not None and (
+        effective.project_id != project.project_id
+        or effective.staging_content_hash != staging_content_hash
+    ):
+        raise QualityError("Resolved data no longer matches current prepared data")
+    effective_dataset_hash = (
+        effective.content_hash if effective is not None else staging_content_hash
+    )
+    rows = tuple(
+        item.canonical_row for item in effective.rows
+    ) if effective is not None else staging.rows
     ruleset_hash = ruleset.content_hash
-    rows_by_id = {row.row_id: row for row in staging.rows}
+    if ruleset.reference_bundle_hash is not None and (
+        reference_bundle is None
+        or reference_bundle.project_id != project.project_id
+        or reference_bundle.content_hash != ruleset.reference_bundle_hash
+    ):
+        raise QualityError("Approved reference data is missing or has changed")
+    rows_by_id = {row.row_id: row for row in rows}
     canonical_by_coordinate: dict[
         tuple[str, int],
         CanonicalRow | tuple[CanonicalRow, ...],
     ] = {}
-    for row in staging.rows:
+    for row in rows:
         coordinate = (row.dataset, row.source_row)
         existing = canonical_by_coordinate.get(coordinate)
         if existing is None:
@@ -785,7 +1000,7 @@ def evaluate_quality(
         issue_map[issue.issue_id] = issue
     available_fields: dict[str, set[str]] = {}
     rows_by_dataset: dict[str, list[CanonicalRow]] = {}
-    for row in staging.rows:
+    for row in rows:
         available_fields.setdefault(row.dataset, set()).update(
             row.proposed_values
         )
@@ -794,6 +1009,12 @@ def evaluate_quality(
         rule.rule_id
         for rule in ruleset.manager_rules
         if set(rule.input_fields) - available_fields.get(rule.dataset, set())
+    }
+    invalid_advanced_rules = {
+        rule.rule_id
+        for rule in ruleset.rules
+        if rule.source is QualityRuleSource.SCOPE_APPROVED
+        and set(rule.input_fields) - available_fields.get(rule.dataset, set())
     }
     for rule in ruleset.manager_rules:
         if rule.rule_id not in invalid_manager_rules:
@@ -808,7 +1029,20 @@ def evaluate_quality(
         )
         issue_map[issue.issue_id] = issue
 
-    for row in staging.rows:
+    for rule in ruleset.rules:
+        if rule.rule_id not in invalid_advanced_rules:
+            continue
+        issue = _setup_issue(
+            project,
+            rule.dataset,
+            rule.family,
+            "QUALITY_RULE_FIELD_MISSING",
+            f"The approved check {rule.name!r} uses a field that is no longer prepared.",
+            rule_id=rule.rule_id,
+        )
+        issue_map[issue.issue_id] = issue
+
+    for row in rows:
         for item in row.issues:
             family = _family_for_issue(item)
             rule = rules_by_family.get((row.dataset, family))
@@ -845,7 +1079,7 @@ def evaluate_quality(
             issue_map[issue.issue_id] = issue
 
     collision_groups: dict[bytes, CanonicalRow | list[CanonicalRow]] = {}
-    for row in staging.rows:
+    for row in rows:
         identity = (*row.target_identity, *row.target_scope)
         if not identity or any(value is None or value == "" for value in identity):
             continue
@@ -882,11 +1116,102 @@ def evaluate_quality(
             issue_map[issue.issue_id] = issue
             row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
 
+    for rule in (
+        item
+        for item in ruleset.rules
+        if item.source is QualityRuleSource.SCOPE_APPROVED
+        and item.rule_id not in invalid_advanced_rules
+        and item.family not in {
+            QualityRuleFamily.METRIC_BOUNDARY,
+            QualityRuleFamily.IQR_OUTLIER,
+        }
+    ):
+        for row in rows_by_dataset.get(rule.dataset, ()):
+            failed, reason = _advanced_row_rule_failed(
+                rule,
+                row,
+                reference_bundle,
+            )
+            if not failed:
+                continue
+            issue = _quality_issue(
+                project,
+                rule,
+                row,
+                "ADVANCED_CHECK_FAILED",
+                reason,
+                rule.input_fields,
+                policy=rule.outcome,
+            )
+            issue_map[issue.issue_id] = issue
+            row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+
+    for rule in (
+        item
+        for item in ruleset.rules
+        if item.source is QualityRuleSource.SCOPE_APPROVED
+        and item.rule_id not in invalid_advanced_rules
+        and item.family is QualityRuleFamily.METRIC_BOUNDARY
+    ):
+        metric = _metric_value(rule, rows_by_dataset.get(rule.dataset, ()))
+        failed = (
+            "minimum" in rule.parameters
+            and metric < Decimal(rule.parameters["minimum"])
+        ) or (
+            "maximum" in rule.parameters
+            and metric > Decimal(rule.parameters["maximum"])
+        )
+        if failed:
+            issue = _run_quality_issue(
+                project,
+                rule,
+                "METRIC_BOUNDARY_FAILED",
+                f"The governed {rule.parameters['metric']} metric was {format(metric, 'f')}, outside its approved boundary.",
+            )
+            issue_map[issue.issue_id] = issue
+
+    for rule in (
+        item
+        for item in ruleset.rules
+        if item.source is QualityRuleSource.SCOPE_APPROVED
+        and item.rule_id not in invalid_advanced_rules
+        and item.family is QualityRuleFamily.IQR_OUTLIER
+    ):
+        numeric_rows = []
+        field = rule.input_fields[0]
+        for row in rows_by_dataset.get(rule.dataset, ()):
+            value = _finite_decimal(row.proposed_values.get(field))
+            if value is not None:
+                numeric_rows.append((row, value))
+        if len(numeric_rows) < 4:
+            continue
+        ordered_values = sorted(item[1] for item in numeric_rows)
+        q1 = _quartile(ordered_values, Decimal("0.25"))
+        q3 = _quartile(ordered_values, Decimal("0.75"))
+        spread = q3 - q1
+        multiplier = Decimal(rule.parameters["multiplier"])
+        lower = q1 - multiplier * spread
+        upper = q3 + multiplier * spread
+        for row, value in numeric_rows:
+            if lower <= value <= upper:
+                continue
+            issue = _quality_issue(
+                project,
+                rule,
+                row,
+                "IQR_OUTLIER",
+                "The value is outside the approved interquartile-range boundary.",
+                rule.input_fields,
+                policy=rule.outcome,
+            )
+            issue_map[issue.issue_id] = issue
+            row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+
     # Relationship checks use a dependency graph. Missing or ambiguous parents
     # are handled while the graph is built; a queue then visits each unsafe
     # parent and each parent-to-dependent edge at most once.
     source_index: dict[tuple[str, bytes], str | tuple[str, ...]] = {}
-    for row in staging.rows:
+    for row in rows:
         key = (
             row.dataset,
             canonical_json_bytes(portable_value(row.source_identity)),
@@ -908,12 +1233,12 @@ def evaluate_quality(
             row,
             (issue_map[item] for item in row_issue_ids.get(row.row_id, ())),
         )
-        for row in staging.rows
+        for row in rows
     }
     dependents_by_parent: dict[str, str | list[str]] = {}
     unresolved_dependents: set[str] = set()
     relationship_rule_by_row: dict[str, QualityRule] = {}
-    for row in staging.rows:
+    for row in rows:
         coordinate = (row.dataset, row.source_row)
         if isinstance(canonical_by_coordinate.get(coordinate), tuple):
             continue
@@ -979,13 +1304,13 @@ def evaluate_quality(
         )
         return not was_unsafe and dispositions[row_id] in unsafe_dispositions
 
-    for row in staging.rows:
+    for row in rows:
         if row.row_id in unresolved_dependents:
             attach_relationship_issue(row.row_id)
 
     queue = deque(
         row.row_id
-        for row in staging.rows
+        for row in rows
         if dispositions[row.row_id] in unsafe_dispositions
     )
     while queue:
@@ -1016,7 +1341,7 @@ def evaluate_quality(
                     issue_ids=tuple(sorted(row_issue_ids.get(row.row_id, ()))),
                     requires_review=any(issue_map[item].policy is QualityOutcomePolicy.WARNING for item in row_issue_ids.get(row.row_id, ())),
                 )
-                for row in staging.rows
+                for row in rows
             ),
             key=lambda item: (item.dataset, item.source_row, item.row_id),
         )
@@ -1024,12 +1349,13 @@ def evaluate_quality(
 
     known_physical = {(dataset_id, row_number) for dataset_id, row_numbers in physical_rows.items() for row_number in row_numbers}
     links: dict[tuple[str, int], set[str]] = {coordinate: set() for coordinate in known_physical}
-    for row in staging.rows:
-        for source_row in row.lineage.physical_source_rows:
-            coordinate = (row.lineage.physical_dataset_id, source_row)
-            if coordinate not in links:
-                raise QualityError("Canonical lineage points outside the frozen physical rows")
-            links[coordinate].add(row.row_id)
+    for row in rows:
+        for physical_dataset_id, source_rows in row.lineage.physical_sources.items():
+            for source_row in source_rows:
+                coordinate = (physical_dataset_id, source_row)
+                if coordinate not in links:
+                    raise QualityError("Canonical lineage points outside the frozen physical rows")
+                links[coordinate].add(row.row_id)
     source_accounting = tuple(
         SourceAccountingEntry(
             physical_dataset_id=dataset_id,
@@ -1041,8 +1367,14 @@ def evaluate_quality(
     )
 
     physical_by_row: dict[str, tuple[str, ...]] = {}
-    for row in staging.rows:
-        physical_by_row[row.row_id] = tuple(sorted(f"{row.lineage.physical_dataset_id}:{item}" for item in row.lineage.physical_source_rows))
+    for row in rows:
+        physical_by_row[row.row_id] = tuple(
+            sorted(
+                f"{dataset_id}:{source_row}"
+                for dataset_id, source_rows in row.lineage.physical_sources.items()
+                for source_row in source_rows
+            )
+        )
     quarantine = []
     for result in row_results:
         if result.effective_disposition is not QualityDisposition.QUARANTINED:
@@ -1052,7 +1384,7 @@ def evaluate_quality(
             if issue.policy is not QualityOutcomePolicy.QUARANTINE:
                 continue
             row = rows_by_id[result.row_id]
-            entry_id = _hash({"staging": staging_content_hash, "row_id": row.row_id, "issue_id": issue.issue_id})
+            entry_id = _hash({"effective_dataset": effective_dataset_hash, "row_id": row.row_id, "issue_id": issue.issue_id})
             quarantine.append(
                 QuarantineEntry(
                     entry_id=entry_id,
@@ -1083,6 +1415,7 @@ def evaluate_quality(
         source_accounting=source_accounting,
         issues=tuple(sorted(issue_map.values(), key=lambda item: item.issue_id)),
         quarantine=tuple(sorted(quarantine, key=lambda item: item.entry_id)),
+        effective_dataset_hash=effective_dataset_hash,
     )
 
 
@@ -1190,6 +1523,228 @@ def _business_rule_failed(rule: QualityRule, row: CanonicalRow) -> tuple[bool, s
     if rule.family is QualityRuleFamily.INEQUALITY:
         return len(values) == 2 and values[0] == values[1], "The selected fields must contain different values."
     raise QualityError("A manager-authored data check uses an unsupported rule")
+
+
+def _validate_advanced_rule(rule: QualityRule) -> None:
+    """Reject unsupported parameters before any data is evaluated."""
+
+    family = rule.family
+    parameters = set(rule.parameters)
+    if family in {QualityRuleFamily.LUHN_CHECKSUM, QualityRuleFamily.IBAN_MOD97}:
+        if len(rule.input_fields) != 1 or parameters:
+            raise ValueError("Checksum checks require one field and no parameters")
+    elif family is QualityRuleFamily.POSTAL_FORMAT:
+        if len(rule.input_fields) != 1 or parameters != {"jurisdiction"}:
+            raise ValueError("Postal checks require one field and one jurisdiction")
+        if rule.parameters["jurisdiction"].upper() not in {
+            "BE", "DE", "FR", "GB", "LU", "NL",
+        }:
+            raise ValueError("Postal-check jurisdiction is unsupported")
+    elif family is QualityRuleFamily.DATE_WINDOW:
+        if len(rule.input_fields) != 1 or not parameters or not parameters <= {"minimum", "maximum"}:
+            raise ValueError("Date-window parameters are invalid")
+        try:
+            for value in rule.parameters.values():
+                date.fromisoformat(value)
+        except ValueError as error:
+            raise ValueError("Date-window boundaries must be ISO dates") from error
+    elif family is QualityRuleFamily.APPROVED_CODE_LIST:
+        if not 1 <= len(rule.input_fields) <= 3 or parameters != {
+            "reference_id", "reference_content_hash",
+        }:
+            raise ValueError("Approved-code parameters are invalid")
+        _require_hash(
+            rule.parameters["reference_content_hash"],
+            "approved-code content hash",
+        )
+    elif family is QualityRuleFamily.METRIC_BOUNDARY:
+        metric = rule.parameters.get("metric", "")
+        if metric not in {
+            "count", "distinct_count", "null_rate", "duplicate_rate",
+            "minimum", "maximum", "sum",
+        }:
+            raise ValueError("Quality metric is unsupported")
+        expected_fields = 0 if metric == "count" else 1
+        if len(rule.input_fields) != expected_fields:
+            raise ValueError("Quality metric field count is invalid")
+        if not parameters <= {"metric", "minimum", "maximum"} or not (
+            {"minimum", "maximum"} & parameters
+        ):
+            raise ValueError("Quality metric boundaries are invalid")
+        try:
+            for key in {"minimum", "maximum"} & parameters:
+                value = Decimal(rule.parameters[key])
+                if not value.is_finite():
+                    raise InvalidOperation
+        except InvalidOperation as error:
+            raise ValueError("Quality metric boundaries must be finite decimals") from error
+        if rule.outcome not in {QualityOutcomePolicy.WARNING, QualityOutcomePolicy.BLOCK}:
+            raise ValueError("Dataset metrics may only warn or block")
+    elif family is QualityRuleFamily.IQR_OUTLIER:
+        if len(rule.input_fields) != 1 or parameters != {"multiplier"}:
+            raise ValueError("IQR checks require one field and one multiplier")
+        try:
+            multiplier = Decimal(rule.parameters["multiplier"])
+        except InvalidOperation as error:
+            raise ValueError("IQR multiplier must be numeric") from error
+        if not multiplier.is_finite() or multiplier <= 0 or multiplier > 10:
+            raise ValueError("IQR multiplier is outside the supported bound")
+
+
+def _advanced_row_rule_failed(
+    rule: QualityRule,
+    row: CanonicalRow,
+    reference_bundle: ReferenceBundle | None,
+) -> tuple[bool, str]:
+    values = tuple(row.proposed_values.get(field) for field in rule.input_fields)
+    if any(value is None or value == "" for value in values):
+        return False, ""
+    if rule.family is QualityRuleFamily.LUHN_CHECKSUM:
+        digits = "".join(character for character in str(values[0]) if character.isdigit())
+        if not digits or any(
+            not (character.isdigit() or character in " -")
+            for character in str(values[0])
+        ):
+            return True, "The value is not a valid Luhn-checksum input."
+        total = 0
+        parity = len(digits) % 2
+        for index, character in enumerate(digits):
+            number = int(character)
+            if index % 2 == parity:
+                number *= 2
+                if number > 9:
+                    number -= 9
+            total += number
+        return total % 10 != 0, "The value fails the configured Luhn checksum."
+    if rule.family is QualityRuleFamily.IBAN_MOD97:
+        compact = "".join(str(values[0]).split()).upper()
+        if (
+            not 15 <= len(compact) <= 34
+            or not compact[:2].isalpha()
+            or not compact[2:4].isdigit()
+            or not compact.isalnum()
+        ):
+            return True, "The value is not valid IBAN syntax."
+        rearranged = compact[4:] + compact[:4]
+        remainder = 0
+        for character in rearranged:
+            token = character if character.isdigit() else str(ord(character) - 55)
+            for digit in token:
+                remainder = (remainder * 10 + int(digit)) % 97
+        return remainder != 1, "The value fails the IBAN MOD-97 checksum."
+    if rule.family is QualityRuleFamily.POSTAL_FORMAT:
+        jurisdiction = rule.parameters["jurisdiction"].upper()
+        value = str(values[0]).strip().upper().replace(" ", "")
+        valid = {
+            "BE": len(value) == 4 and value.isdigit(),
+            "DE": len(value) == 5 and value.isdigit(),
+            "FR": len(value) == 5 and value.isdigit(),
+            "LU": len(value) == 4 and value.isdigit(),
+            "NL": len(value) == 6 and value[:4].isdigit() and value[4:].isalpha(),
+            "GB": 5 <= len(value) <= 7 and value.isalnum(),
+        }[jurisdiction]
+        return not valid, f"The value does not match the approved {jurisdiction} postal syntax."
+    if rule.family is QualityRuleFamily.DATE_WINDOW:
+        value = values[0]
+        try:
+            parsed = value if isinstance(value, date) else date.fromisoformat(str(value))
+        except ValueError:
+            return True, "The value is not an ISO date for the approved date-window check."
+        failed = (
+            "minimum" in rule.parameters
+            and parsed < date.fromisoformat(rule.parameters["minimum"])
+        ) or (
+            "maximum" in rule.parameters
+            and parsed > date.fromisoformat(rule.parameters["maximum"])
+        )
+        return failed, "The date is outside the approved window."
+    if rule.family is QualityRuleFamily.APPROVED_CODE_LIST:
+        dataset = next(
+            (
+                item
+                for item in (reference_bundle.datasets if reference_bundle else ())
+                if item.reference_id == rule.parameters["reference_id"]
+                and item.content_hash == rule.parameters["reference_content_hash"]
+            ),
+            None,
+        )
+        if dataset is None:
+            raise QualityError("The approved code list is missing or has changed")
+        return dataset.lookup(values) is None, "The value is absent from the approved code list."
+    raise QualityError("An approved row check uses an unsupported family")
+
+
+def _finite_decimal(value: object) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    try:
+        result = Decimal(str(value))
+    except InvalidOperation:
+        return None
+    return result if result.is_finite() else None
+
+
+def _metric_value(rule: QualityRule, rows: Iterable[CanonicalRow]) -> Decimal:
+    items = tuple(rows)
+    metric = rule.parameters["metric"]
+    if metric == "count":
+        return Decimal(len(items))
+    values = tuple(item.proposed_values.get(rule.input_fields[0]) for item in items)
+    present = tuple(item for item in values if item is not None and item != "")
+    if metric == "distinct_count":
+        return Decimal(len({canonical_json_bytes(portable_value(item)) for item in present}))
+    if metric == "null_rate":
+        return Decimal(sum(item is None or item == "" for item in values)) / Decimal(len(values) or 1)
+    if metric == "duplicate_rate":
+        distinct = len({canonical_json_bytes(portable_value(item)) for item in present})
+        return Decimal(max(len(present) - distinct, 0)) / Decimal(len(present) or 1)
+    numeric = tuple(item for value in present if (item := _finite_decimal(value)) is not None)
+    if not numeric:
+        return Decimal(0)
+    if metric == "minimum":
+        return min(numeric)
+    if metric == "maximum":
+        return max(numeric)
+    if metric == "sum":
+        return sum(numeric, Decimal(0))
+    raise QualityError("An approved dataset metric is unsupported")
+
+
+def _quartile(values: list[Decimal], fraction: Decimal) -> Decimal:
+    position = fraction * Decimal(len(values) - 1)
+    lower = int(position)
+    upper = min(lower + 1, len(values) - 1)
+    weight = position - Decimal(lower)
+    return values[lower] + (values[upper] - values[lower]) * weight
+
+
+def _run_quality_issue(
+    project: MigrationProject,
+    rule: QualityRule,
+    reason_code: str,
+    message: str,
+) -> QualityIssue:
+    return QualityIssue(
+        issue_id=_hash({
+            "rule_id": rule.rule_id,
+            "reason_code": reason_code,
+            "dataset": rule.dataset,
+            "message": message,
+            "policy": rule.outcome.value,
+        }),
+        rule_id=rule.rule_id,
+        family=rule.family,
+        reason_code=reason_code,
+        message=message,
+        dataset=rule.dataset,
+        row_id=None,
+        source_row=None,
+        affected_fields=tuple(sorted(rule.input_fields)),
+        policy=rule.outcome,
+        owner_role=rule.owner_role,
+        owner_label=_owner_label(project, rule.owner_role),
+        evidence_display=rule.evidence_display,
+    )
 
 
 def _logical_references(row: CanonicalRow) -> tuple[LogicalReference, ...]:

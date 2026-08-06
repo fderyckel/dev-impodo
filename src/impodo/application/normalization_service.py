@@ -6,6 +6,7 @@ from typing import Iterable
 
 from ..access import Actor, AuthorizationPolicy, Capability
 from ..domain.staging.transformation_impact import TransformationImpactRow
+from ..domain.resolution import EffectiveDataset
 from ..governance import DryRun
 from ..domain.mapping.artifacts import MappingRevision
 from ..normalization import (
@@ -37,12 +38,16 @@ class NormalizationService:
         self.authorization = authorization
 
     def current_summary(self, project_id: str) -> NormalizationRunSummary | None:
+        """Return the lifecycle/count projection for the current Stage-G run."""
+
         return self.repository.get_current_normalization_summary(project_id)
 
     def current_review(
         self,
         project_id: str,
     ) -> tuple[NormalizationRunSummary, NormalizationEvaluation, DryRun] | None:
+        """Load the current summary, immutable evaluation, and decision state."""
+
         summary = self.current_summary(project_id)
         if summary is None:
             return None
@@ -65,6 +70,8 @@ class NormalizationService:
         DryRun,
         int,
     ] | None:
+        """Load paginable groups with their shared governance decision state."""
+
         summary = self.current_summary(project_id)
         if summary is None:
             return None
@@ -89,6 +96,8 @@ class NormalizationService:
         actor: Actor,
         reason: str = "",
     ) -> NormalizationRunSummary:
+        """Authorize and record one approve/reject group decision."""
+
         self.authorization.require(
             actor,
             Capability.NORMALIZATION_DECIDE,
@@ -113,6 +122,8 @@ class NormalizationService:
         actor: Actor,
         reason: str = "",
     ) -> NormalizationRunSummary:
+        """Authorize final approval and freeze the eligible dataset identity."""
+
         self.authorization.require(
             actor,
             Capability.NORMALIZATION_APPROVE,
@@ -137,9 +148,17 @@ class NormalizationService:
         quality: QualityRunSummary,
         impact_rows: Iterable[TransformationImpactRow],
         source_hashes: dict[str, str],
+        effective: EffectiveDataset | None = None,
         *,
         actor: Actor,
     ) -> NormalizationRunSummary:
+        """Convert impact rows into Stage-G evidence and publish a review run.
+
+        The service joins effective dataset names to mapping definitions,
+        adapts streamed transformation impacts into candidates, and binds the
+        evaluation to the already published staging and quality hashes.
+        """
+
         effective_by_id = {item.dataset_id: item for item in selection.datasets}
         mappings = {
             effective_by_id[item.dataset_id].name: item
@@ -168,6 +187,7 @@ class NormalizationService:
                 candidates=candidates,
                 published_staging_content_hash=staging.content_hash,
                 published_quality_content_hash=quality.content_hash,
+                effective=effective,
             )
         except NormalizationError as error:
             raise ReadinessError(str(error)) from error

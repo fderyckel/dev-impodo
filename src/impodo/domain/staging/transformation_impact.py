@@ -57,6 +57,8 @@ class TransformationImpactReport:
 
     @property
     def impact_count(self) -> int:
+        """Count every evaluated value whose outcome was not unchanged."""
+
         return (
             self.changed_count
             + self.fallback_count
@@ -67,6 +69,8 @@ class TransformationImpactReport:
 
     @property
     def truncated(self) -> bool:
+        """Whether bounded display rows omit additional counted impacts."""
+
         return self.impact_count > len(self.rows)
 
 
@@ -84,6 +88,8 @@ class TransformationImpactIdentity:
 
     @property
     def content_hash(self) -> str:
+        """Hash every input/version that determines a reusable snapshot."""
+
         return "sha256:" + sha256(
             canonical_json_bytes(
                 {

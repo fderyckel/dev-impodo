@@ -1,4 +1,10 @@
-"""Loopback-browser security controls."""
+"""Loopback-browser host, origin, session, CSRF, and response controls.
+
+The middleware rejects proxy/forwarding ambiguity and cross-origin unsafe
+requests before a route runs. Route helpers then require the launch-token
+session and constant-time CSRF match. Capability authorization remains a
+separate application-service responsibility in ``access.py``.
+"""
 
 from __future__ import annotations
 
@@ -32,6 +38,8 @@ class LoopbackSecurityMiddleware(BaseHTTPMiddleware):
         self.expected_origin = f"http://{expected_host}"
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        """Reject untrusted request metadata, then secure every response."""
+
         if request.headers.get("host") != self.expected_host:
             return self._secure(PlainTextResponse("Invalid host", status_code=400))
         if any(header in request.headers for header in FORWARDED_HEADERS):
@@ -108,11 +116,15 @@ def _referer_origin(value: str | None) -> str | None:
 
 
 def require_session(request: Request) -> None:
+    """Require the browser session established by the local launch token."""
+
     if request.session.get("authenticated") is not True:
         raise HTTPException(status_code=401, detail="Launch Impodo again")
 
 
 def require_csrf(request: Request, submitted_token: str) -> None:
+    """Require an authenticated session and constant-time CSRF token match."""
+
     require_session(request)
     expected = request.session.get("csrf_token", "")
     if not expected or not compare_digest(str(expected), submitted_token):

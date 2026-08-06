@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..access import Actor
 from ..domain.mapping.artifacts import MappingRevision
+from ..domain.resolution import EffectiveDataset
+from ..domain.coverage import ReferenceBundle
 from ..projects import MigrationProject
 from ..quality import (
     QualityError,
@@ -30,6 +32,8 @@ from .readiness_ports import (
 
 @dataclass(frozen=True, slots=True)
 class QualityConfigurationContext:
+    """Validated mapping/source scope for editing one dataset's manager rules."""
+
     project_id: str
     revision: MappingRevision
     selection: SourceSelection
@@ -52,12 +56,18 @@ class QualityService:
         self.quality = quality
 
     def current_ruleset(self, project_id: str) -> QualityRuleSet | None:
+        """Return the currently published Stage-F rule contract."""
+
         return self.quality.get_current_quality_ruleset(project_id)
 
     def current_summary(self, project_id: str) -> QualityRunSummary | None:
+        """Return the lightweight projection of the current quality run."""
+
         return self.quality.get_current_quality_summary(project_id)
 
     def current_run(self, project_id: str) -> QualityRun | None:
+        """Load the complete current run referenced by its summary."""
+
         summary = self.current_summary(project_id)
         if summary is None:
             return None
@@ -70,6 +80,8 @@ class QualityService:
         *,
         actor: Actor,
     ) -> QualityRuleSet:
+        """Persist a complete immutable ruleset version."""
+
         return self.quality.publish_quality_ruleset(
             project_id,
             ruleset,
@@ -81,6 +93,12 @@ class QualityService:
         project_id: str,
         dataset_id: str,
     ) -> QualityConfigurationContext:
+        """Resolve a safe dataset editing scope from current saved evidence.
+
+        Unsaved mapping changes are rejected so manager rules cannot be bound
+        to field names that differ from the published mapping revision.
+        """
+
         revision = self.mappings.get_mapping_revision(project_id)
         selection = self.sources.get_mapping_source_selection(project_id)
         if revision is None or selection is None:
@@ -125,6 +143,8 @@ class QualityService:
         *,
         actor: Actor,
     ) -> QualityRuleSet:
+        """Replace one dataset's manager rules while preserving other datasets."""
+
         current = self.quality.get_current_quality_ruleset(context.project_id)
         combined = list(manager_rules)
         if (
@@ -146,6 +166,25 @@ class QualityService:
             parent_version=(current.version if current is not None else None),
             manager_rules=combined,
         )
+        if (
+            current is not None
+            and current.mapping_hash == context.revision.definition.content_hash
+            and current.schema_hash == context.revision.definition.schema_hash
+        ):
+            advanced = tuple(
+                item
+                for item in current.rules
+                if item.source.value == "SCOPE_APPROVED"
+            )
+            if advanced:
+                ruleset = replace(
+                    ruleset,
+                    rules=tuple(
+                        sorted((*ruleset.rules, *advanced), key=lambda item: item.rule_id)
+                    ),
+                    coverage_scope_hash=current.coverage_scope_hash,
+                    reference_bundle_hash=current.reference_bundle_hash,
+                )
         return self.publish_ruleset(context.project_id, ruleset, actor=actor)
 
     def evaluate_and_publish(
@@ -156,9 +195,19 @@ class QualityService:
         canonical_run: CanonicalStagingRun,
         physical_rows: dict[str, tuple[int, ...]],
         staging: StagingRunSummary,
+        effective: EffectiveDataset | None = None,
+        effective_dataset_run_id: str | None = None,
+        reference_bundle: ReferenceBundle | None = None,
         *,
         actor: Actor,
     ) -> tuple[QualityRun, QualityRunSummary]:
+        """Evaluate Stage F and publish its full run plus lifecycle summary.
+
+        A compatible ruleset is reused; otherwise automatic rules are rebuilt
+        from the current mapping/schema. The published staging content hash is
+        passed into evaluation so downstream evidence binds to durable Stage E.
+        """
+
         ruleset = self.quality.get_current_quality_ruleset(project.project_id)
         if (
             ruleset is None
@@ -185,6 +234,8 @@ class QualityService:
                 physical_rows=physical_rows,
                 ruleset=ruleset,
                 published_staging_content_hash=staging.content_hash,
+                effective=effective,
+                reference_bundle=reference_bundle,
             )
         except QualityError as error:
             raise ReadinessError(str(error)) from error
@@ -192,6 +243,7 @@ class QualityService:
             project.project_id,
             quality_run,
             staging_run_id=staging.run_id,
+            effective_dataset_run_id=effective_dataset_run_id,
             actor=actor,
         )
         if not summary.can_compare:

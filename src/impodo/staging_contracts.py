@@ -8,7 +8,7 @@ from every portable payload.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
@@ -29,10 +29,10 @@ from .domain.compiler.contracts import CompiledMigrationPlan
 from .source import PreparedBundle
 
 
-STAGING_CONTRACT_VERSION = 4
-BROWSER_EVALUATOR_VERSION = 2
-_SUPPORTED_STAGING_CONTRACT_VERSIONS = frozenset({2, 3, STAGING_CONTRACT_VERSION})
-_SUPPORTED_BROWSER_EVALUATOR_VERSIONS = frozenset({1, BROWSER_EVALUATOR_VERSION})
+STAGING_CONTRACT_VERSION = 5
+BROWSER_EVALUATOR_VERSION = 3
+_SUPPORTED_STAGING_CONTRACT_VERSIONS = frozenset({2, 3, 4, STAGING_CONTRACT_VERSION})
+_SUPPORTED_BROWSER_EVALUATOR_VERSIONS = frozenset({1, 2, BROWSER_EVALUATOR_VERSION})
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -53,6 +53,9 @@ class StagingDatasetRole(StrEnum):
     PARENT = "PARENT"
     CHILD = "CHILD"
     LOOKUP = "LOOKUP"
+    JOIN = "JOIN"
+    UNION = "UNION"
+    GROUP = "GROUP"
 
 
 def _count_dispositions(
@@ -98,6 +101,8 @@ class CanonicalControlTotal:
 
     @property
     def difference(self) -> str:
+        """Return ``actual - expected`` using canonical decimal formatting."""
+
         return format(
             Decimal(self.actual_total) - Decimal(self.expected_total),
             "f",
@@ -105,12 +110,16 @@ class CanonicalControlTotal:
 
     @property
     def passed(self) -> bool:
+        """Whether no values are empty and the difference is within tolerance."""
+
         return (
             self.empty_rows == 0
             and abs(Decimal(self.difference)) <= Decimal(self.tolerance)
         )
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize declared totals together with their derived result."""
+
         return {
             "control_id": self.control_id,
             "name": self.name,
@@ -128,6 +137,8 @@ class CanonicalControlTotal:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "CanonicalControlTotal":
+        """Load a control total and verify any persisted derived fields."""
+
         result = cls(
             control_id=str(payload["control_id"]),
             name=str(payload["name"]),
@@ -171,9 +182,13 @@ class CanonicalIssue:
 
     @property
     def blocking(self) -> bool:
+        """Whether this issue prevents the row/run from progressing."""
+
         return self.severity == "error"
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize issue coordinates and severity without runtime objects."""
+
         return {
             "code": self.code,
             "message": self.message,
@@ -186,6 +201,8 @@ class CanonicalIssue:
 
     @classmethod
     def from_issue(cls, issue: Issue) -> "CanonicalIssue":
+        """Adapt the preparation model's ``Issue`` into portable evidence."""
+
         payload = portable_issue(issue)
         return cls(
             code=str(payload["code"]),
@@ -199,6 +216,8 @@ class CanonicalIssue:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "CanonicalIssue":
+        """Reconstruct and validate an issue from persisted evidence."""
+
         return cls(
             code=str(payload["code"]),
             message=str(payload["message"]),
@@ -228,6 +247,7 @@ class CanonicalLineage:
     physical_dataset_id: str
     physical_source_rows: tuple[int, ...]
     field_sources: Mapping[str, tuple[str, ...]]
+    physical_sources: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.physical_dataset_id:
@@ -242,9 +262,36 @@ class CanonicalLineage:
             raise ValueError(
                 "Canonical physical source rows must be unique and ordered"
             )
+        sources = (
+            dict(self.physical_sources)
+            if self.physical_sources
+            else {self.physical_dataset_id: self.physical_source_rows}
+        )
+        if self.physical_dataset_id not in sources:
+            raise ValueError("Canonical primary source is absent from physical lineage")
+        if tuple(sources[self.physical_dataset_id]) != self.physical_source_rows:
+            # The primary fields remain the compatibility surface for callers
+            # using dataclasses.replace on legacy, single-source lineage.
+            # Keep the redundant map synchronized instead of retaining stale
+            # coordinates from the replaced value.
+            sources[self.physical_dataset_id] = self.physical_source_rows
+        normalized: dict[str, tuple[int, ...]] = {}
+        for dataset_id, source_rows in sorted(sources.items()):
+            ordered = tuple(sorted(set(source_rows)))
+            if (
+                not dataset_id
+                or not ordered
+                or ordered != tuple(source_rows)
+                or any(item < 1 for item in ordered)
+            ):
+                raise ValueError("Canonical physical source lineage is invalid")
+            normalized[dataset_id] = ordered
+        object.__setattr__(self, "physical_sources", normalized)
 
     def to_portable_dict(self) -> dict[str, Any]:
-        return {
+        """Serialize row- and field-level links back to frozen source input."""
+
+        payload = {
             "source_selection_hash": self.source_selection_hash,
             "source_hash": self.source_hash,
             "mapping_hash": self.mapping_hash,
@@ -259,9 +306,17 @@ class CanonicalLineage:
                 for field, sources in sorted(self.field_sources.items())
             },
         }
+        if len(self.physical_sources) > 1:
+            payload["physical_sources"] = {
+                dataset_id: list(source_rows)
+                for dataset_id, source_rows in sorted(self.physical_sources.items())
+            }
+        return payload
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "CanonicalLineage":
+        """Reconstruct lineage used by accounting, review, and audit."""
+
         return cls(
             source_selection_hash=str(payload["source_selection_hash"]),
             source_hash=str(payload["source_hash"]),
@@ -282,12 +337,23 @@ class CanonicalLineage:
                 str(field): tuple(str(item) for item in sources)
                 for field, sources in dict(payload.get("field_sources", {})).items()
             },
+            physical_sources={
+                str(dataset_id): tuple(int(item) for item in source_rows)
+                for dataset_id, source_rows in dict(
+                    payload.get("physical_sources", {})
+                ).items()
+            },
         )
 
 
 @dataclass(frozen=True, slots=True)
 class CanonicalRow:
-    """One target-independent canonical row with typed proposed values."""
+    """One target-independent canonical row with typed proposed values.
+
+    Stage E creates this record; Stage F overlays its quality disposition and
+    Stage G hashes eligible rows. References remain logical business keys—Odoo
+    numeric IDs are forbidden until the later target-resolution stage.
+    """
 
     row_id: str
     dataset: str
@@ -303,6 +369,8 @@ class CanonicalRow:
     lineage: CanonicalLineage
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize typed values, issues, references, and source lineage."""
+
         return {
             "row_id": self.row_id,
             "dataset": self.dataset,
@@ -320,6 +388,8 @@ class CanonicalRow:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "CanonicalRow":
+        """Restore portable values and reconstruct one canonical row."""
+
         source_identity = restore_portable_value(payload.get("source_identity", ()))
         target_identity = restore_portable_value(payload.get("target_identity", ()))
         target_scope = restore_portable_value(payload.get("target_scope", ()))
@@ -373,6 +443,8 @@ class StagingReconciliation:
             raise ValueError("Staging reconciliation does not account for every row")
 
     def to_portable_dict(self) -> dict[str, int]:
+        """Serialize the run-wide row-count equation."""
+
         return {
             "total_rows": self.total_rows,
             "candidate_rows": self.candidate_rows,
@@ -384,6 +456,8 @@ class StagingReconciliation:
 
     @classmethod
     def from_rows(cls, rows: Iterable[CanonicalRow]) -> "StagingReconciliation":
+        """Count each disposition and prove every canonical row is represented."""
+
         items = tuple(rows)
         counts = _count_dispositions(items)
         return cls(
@@ -397,6 +471,8 @@ class StagingReconciliation:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "StagingReconciliation":
+        """Reconstruct and validate the run-wide reconciliation equation."""
+
         return cls(
             total_rows=int(payload["total_rows"]),
             candidate_rows=int(payload["candidate_rows"]),
@@ -469,6 +545,8 @@ class StagingDatasetReconciliation:
             raise ValueError("Dataset reconciliation does not account for outputs")
 
     def to_portable_dict(self) -> dict[str, Any]:
+        """Serialize physical-input, lineage, output, and disposition counts."""
+
         return {
             "dataset": self.dataset,
             "target_model": self.target_model,
@@ -501,6 +579,8 @@ class StagingDatasetReconciliation:
         lineage_links: int,
         rows: Iterable[CanonicalRow],
     ) -> "StagingDatasetReconciliation":
+        """Build one dataset equation from canonical rows and lineage links."""
+
         items = tuple(rows)
         used = tuple(sorted(set(source_rows)))
         counts = _count_dispositions(items)
@@ -528,6 +608,8 @@ class StagingDatasetReconciliation:
         cls,
         payload: Mapping[str, Any],
     ) -> "StagingDatasetReconciliation":
+        """Reconstruct and validate one dataset reconciliation equation."""
+
         return cls(
             dataset=str(payload["dataset"]),
             target_model=str(payload["target_model"]),
@@ -550,7 +632,13 @@ class StagingDatasetReconciliation:
 
 @dataclass(frozen=True, slots=True)
 class CanonicalStagingRun:
-    """Deterministic, versioned result of one full-row source evaluation."""
+    """Deterministic, versioned result of one full-row source evaluation.
+
+    This is the durable Stage-E handoff: mapping compilation and preparation
+    have finished, but target lookup and execution have not begun. Its hashes,
+    rows, lineage, issues, reconciliations, and control totals are validated as
+    one immutable unit before quality evaluation can consume it.
+    """
 
     project_id: str
     mapping_id: str
@@ -590,6 +678,7 @@ class CanonicalStagingRun:
             (2, 1),
             (3, 2),
             (4, 2),
+            (5, 3),
         }:
             raise ValueError("Staging and evaluator versions are incompatible")
         if self.contract_version < 3 and self.control_totals:
@@ -652,11 +741,15 @@ class CanonicalStagingRun:
 
     @property
     def content_hash(self) -> str:
+        """Hash all semantic Stage-E evidence for downstream binding."""
+
         return "sha256:" + sha256(
             canonical_json_bytes(self.to_portable_dict(include_hash=False))
         ).hexdigest()
 
     def to_portable_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
+        """Serialize the complete portable staging contract."""
+
         payload: dict[str, Any] = {
             "contract_version": self.contract_version,
             "evaluator_version": self.evaluator_version,
@@ -683,10 +776,14 @@ class CanonicalStagingRun:
         return payload
 
     def to_json(self) -> str:
+        """Return the canonical staging run as canonical JSON."""
+
         return canonical_json_bytes(self.to_portable_dict()).decode("utf-8")
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "CanonicalStagingRun":
+        """Load a run and enforce versions, reconciliation, and content hash."""
+
         run = cls(
             contract_version=int(payload.get("contract_version", 0)),
             evaluator_version=int(payload.get("evaluator_version", 0)),
@@ -731,6 +828,8 @@ class CanonicalStagingRun:
 
     @classmethod
     def from_json(cls, value: str) -> "CanonicalStagingRun":
+        """Load and validate a canonical staging run from JSON."""
+
         return cls.from_dict(json.loads(value))
 
     @classmethod
@@ -748,18 +847,29 @@ class CanonicalStagingRun:
         prepared: PreparedBundle,
         field_sources: Mapping[str, Mapping[str, tuple[str, ...]]],
         source_lineage: Mapping[
-            tuple[str, int], tuple[str, tuple[int, ...]]
+            tuple[str, int],
+            tuple[str, tuple[int, ...]] | Mapping[str, tuple[int, ...]],
         ],
         dataset_evidence: Mapping[
             str, tuple[str, StagingDatasetRole, int]
         ],
         control_totals: tuple[CanonicalControlTotal, ...] = (),
     ) -> "CanonicalStagingRun":
+        """Convert compiler/preparation output into durable Stage-E evidence.
+
+        Each prepared record becomes a canonical row with logical references
+        and source lineage. Dataset/run reconciliation and compiled-plan hash
+        are assembled here so the resulting object can validate atomically.
+        """
+
         mode_by_dataset = {
             dataset.name: dataset.target.mode for dataset in plan.datasets
         }
         target_model_by_dataset = {
             dataset.name: dataset.target.model for dataset in plan.datasets
+        }
+        lineage_parts = {
+            key: _lineage_parts(value) for key, value in source_lineage.items()
         }
         rows = tuple(
             sorted(
@@ -773,12 +883,15 @@ class CanonicalStagingRun:
                         schema_hash=schema_hash,
                         derived_plan_hash=derived_plan_hash,
                         field_sources=field_sources.get(record.dataset, {}),
-                        physical_dataset_id=source_lineage[
+                        physical_dataset_id=lineage_parts[
                             (record.dataset, record.source_row)
                         ][0],
-                        physical_source_rows=source_lineage[
+                        physical_source_rows=lineage_parts[
                             (record.dataset, record.source_row)
                         ][1],
+                        physical_sources=lineage_parts[
+                            (record.dataset, record.source_row)
+                        ][2],
                     )
                     for record in prepared.records
                 ),
@@ -791,15 +904,21 @@ class CanonicalStagingRun:
         for item in rows:
             if item.dataset in rows_by_dataset:
                 rows_by_dataset[item.dataset].append(item)
-        source_rows_by_dataset: dict[str, set[int]] = {
+        source_coordinates_by_dataset: dict[str, set[tuple[str, int]]] = {
             dataset: set() for dataset in dataset_evidence
         }
         lineage_links_by_dataset = dict.fromkeys(dataset_evidence, 0)
-        for (dataset, _), (_, source_rows) in source_lineage.items():
-            if dataset not in source_rows_by_dataset:
+        for (dataset, _), (_, source_rows, all_sources) in lineage_parts.items():
+            if dataset not in source_coordinates_by_dataset:
                 continue
-            source_rows_by_dataset[dataset].update(source_rows)
-            lineage_links_by_dataset[dataset] += len(source_rows)
+            source_coordinates_by_dataset[dataset].update(
+                (physical_dataset_id, source_row)
+                for physical_dataset_id, physical_rows in all_sources.items()
+                for source_row in physical_rows
+            )
+            lineage_links_by_dataset[dataset] += sum(
+                len(physical_rows) for physical_rows in all_sources.values()
+            )
         datasets = tuple(
             sorted(
                 (
@@ -813,7 +932,10 @@ class CanonicalStagingRun:
                         physical_dataset_id=evidence[0],
                         role=evidence[1],
                         input_rows=evidence[2],
-                        source_rows=source_rows_by_dataset[dataset],
+                        source_rows=range(
+                            1,
+                            len(source_coordinates_by_dataset[dataset]) + 1,
+                        ),
                         lineage_links=lineage_links_by_dataset[dataset],
                         rows=items,
                     )
@@ -854,6 +976,7 @@ def _canonical_row(
     field_sources: Mapping[str, tuple[str, ...]],
     physical_dataset_id: str,
     physical_source_rows: tuple[int, ...],
+    physical_sources: Mapping[str, tuple[int, ...]] | None = None,
 ) -> CanonicalRow:
     disposition = (
         StagingDisposition.BLOCKED
@@ -875,6 +998,7 @@ def _canonical_row(
         physical_dataset_id=physical_dataset_id,
         physical_source_rows=physical_source_rows,
         field_sources=dict(sorted(field_sources.items())),
+        physical_sources=physical_sources or {},
     )
     row_id = "sha256:" + sha256(
         canonical_json_bytes(
@@ -901,17 +1025,88 @@ def _canonical_row(
     )
 
 
+def canonical_row_from_prepared(
+    record: PreparedRecord,
+    *,
+    mode: str,
+    source_hash: str,
+    source_selection_hash: str,
+    mapping_hash: str,
+    schema_hash: str,
+    derived_plan_hash: str | None,
+    field_sources: Mapping[str, tuple[str, ...]],
+    physical_dataset_id: str,
+    physical_source_rows: tuple[int, ...],
+    physical_sources: Mapping[str, tuple[int, ...]] | None = None,
+) -> CanonicalRow:
+    """Build one canonical row for either materialized or streamed staging."""
+
+    return _canonical_row(
+        record,
+        mode=mode,
+        source_hash=source_hash,
+        source_selection_hash=source_selection_hash,
+        mapping_hash=mapping_hash,
+        schema_hash=schema_hash,
+        derived_plan_hash=derived_plan_hash,
+        field_sources=field_sources,
+        physical_dataset_id=physical_dataset_id,
+        physical_source_rows=physical_source_rows,
+        physical_sources=physical_sources,
+    )
+
+
+def _lineage_parts(
+    value: tuple[str, tuple[int, ...]] | Mapping[str, tuple[int, ...]],
+) -> tuple[str, tuple[int, ...], dict[str, tuple[int, ...]]]:
+    if isinstance(value, Mapping):
+        sources = {
+            str(dataset_id): tuple(source_rows)
+            for dataset_id, source_rows in sorted(value.items())
+        }
+        if not sources:
+            raise ValueError("Canonical source lineage is empty")
+        primary = next(iter(sources))
+        return primary, sources[primary], sources
+    primary, source_rows = value
+    return primary, source_rows, {primary: source_rows}
+
+
 def _validate_row(row: CanonicalRow, run: CanonicalStagingRun) -> None:
+    validate_canonical_row_bindings(
+        row,
+        source_selection_hash=run.source_selection_hash,
+        mapping_hash=run.mapping_hash,
+        schema_hash=run.schema_hash,
+        derived_plan_hash=run.derived_plan_hash,
+    )
+
+
+def validate_canonical_row_bindings(
+    row: CanonicalRow,
+    *,
+    source_selection_hash: str,
+    mapping_hash: str,
+    schema_hash: str,
+    derived_plan_hash: str | None,
+) -> None:
+    """Validate one streamed row before it can enter publication storage."""
+
     _require_hash(row.row_id, "row_id")
     _require_hash(row.lineage.source_hash, "lineage.source_hash")
     if row.source_row < 1:
         raise ValueError("Canonical source rows must be positive")
     if row.dataset != row.lineage.dataset or row.source_row != row.lineage.source_row:
         raise ValueError("Canonical row and lineage coordinates do not match")
-    for label in ("source_selection_hash", "mapping_hash", "schema_hash"):
-        if getattr(row.lineage, label) != getattr(run, label):
+    expected = {
+        "source_selection_hash": source_selection_hash,
+        "mapping_hash": mapping_hash,
+        "schema_hash": schema_hash,
+    }
+    for label, value in expected.items():
+        if getattr(row.lineage, label) != value:
             raise ValueError(f"Canonical row lineage has a different {label}")
-    if row.lineage.derived_plan_hash != run.derived_plan_hash:
+    if row.lineage.derived_plan_hash != derived_plan_hash:
         raise ValueError("Canonical row lineage has a different derived plan")
     blocking = any(item.blocking for item in row.issues)
     if row.disposition is StagingDisposition.BLOCKED and not blocking:
@@ -923,6 +1118,7 @@ def _validate_row(row: CanonicalRow, run: CanonicalStagingRun) -> None:
         raise ValueError(
             "Blocking row issues require a blocked or quarantined disposition"
         )
+    assert_no_numeric_odoo_ids(row.to_portable_dict(), path="$.row")
 
 
 def _row_order(row: CanonicalRow) -> tuple[str, int, str]:

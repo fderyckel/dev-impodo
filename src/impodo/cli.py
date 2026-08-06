@@ -6,7 +6,8 @@ that precede offline comparison. Layer: CLI entry point.
 Unlike the browser workflow, this path starts from a strict YAML profile. It
 can prepare portable rows, capture narrowly planned read-only Odoo snapshots,
 and classify entirely offline. It does not share browser lifecycle persistence
-and exposes no Odoo write command.
+and exposes no Odoo write command. Future Stage-I–K work must not extend the
+existing snapshot connector into a generic executor.
 
 See ``docs/operations/04-cli.md``, ``docs/contracts/04-preflight.md``, and
 ``tests/test_reporting_cli.py``.

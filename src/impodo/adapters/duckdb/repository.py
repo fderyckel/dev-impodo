@@ -11,17 +11,26 @@ from .unit_of_work import DuckDbUnitOfWork
 
 
 class DuckDbRepository:
-    """Give one concrete repository access to the shared database boundary."""
+    """Give concrete repositories the one shared infrastructure boundary.
+
+    These methods deliberately forward rather than add business decisions.
+    Repository subclasses own SQL/evidence semantics; ``DuckDbDatabase`` owns
+    connection policy, migration, audit, invalidation, and unit-of-work setup.
+    """
 
     def __init__(self, database: DuckDbDatabase) -> None:
         self._database = database
 
     @property
     def root(self) -> Path:
+        """Return the secured root shared by database and artifact adapters."""
+
         return self._database.root
 
     @property
     def registry_path(self) -> Path:
+        """Return the path of the lightweight cross-project registry database."""
+
         return self._database.registry_path
 
     @property
@@ -29,9 +38,13 @@ class DuckDbRepository:
         return self._database._transformation_impact_lock
 
     def project_directory(self, project_id: str) -> Path:
+        """Delegate contained project-directory validation to the database."""
+
         return self._database.project_directory(project_id)
 
     def unit_of_work(self, project_id: str) -> DuckDbUnitOfWork:
+        """Return a project transaction reusable by collaborating repositories."""
+
         return self._database.unit_of_work(project_id)
 
     def _connect(self, path: Path):
@@ -120,6 +133,13 @@ class DuckDbRepository:
         **kwargs,
     ) -> None:
         self._database._invalidate_canonical_staging(connection, **kwargs)
+
+    def _invalidate_resolution(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+        **kwargs,
+    ) -> None:
+        self._database._invalidate_resolution(connection, **kwargs)
 
     @staticmethod
     def _project_revision(connection: duckdb.DuckDBPyConnection) -> int:

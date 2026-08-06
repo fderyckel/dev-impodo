@@ -28,9 +28,16 @@ from .workspace_contracts import (
     SourceSelection,
 )
 from .workspace_errors import WorkspaceError
+from .domain.structural import (
+    ExactJoinRule,
+    GroupAggregateRule,
+    StructuralRule,
+    UnionAllRule,
+    structural_mapping_selection,
+)
 
 
-DERIVED_ENTITY_CONTRACT_VERSION = 2
+DERIVED_ENTITY_CONTRACT_VERSION = 3
 _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _EXTERNAL_ID_NAMESPACE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _TECHNICAL_NAME = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
@@ -176,7 +183,7 @@ class RelatedDatasetRule:
         object.__setattr__(self, "blank_policy", blank_policy)
 
 
-SourcePreparationRule = DerivedEntityRule | RelatedDatasetRule
+SourcePreparationRule = DerivedEntityRule | RelatedDatasetRule | StructuralRule
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,7 +243,7 @@ class DerivedEntityPlan:
         contract_version = int(
             payload.get("contract_version", 1)
         )
-        if contract_version not in {1, DERIVED_ENTITY_CONTRACT_VERSION}:
+        if contract_version not in {1, 2, DERIVED_ENTITY_CONTRACT_VERSION}:
             raise ValueError("Derived-entity plan contract version is unsupported")
         result = cls(
             plan_id=str(payload["plan_id"]),
@@ -960,6 +967,12 @@ def mapping_source_selection(
 ) -> SourceSelection:
     """Expose every prepared logical dataset to the mapping workflow."""
 
+    structural_rules = tuple(
+        item
+        for item in (plan.rules if plan else ())
+        if isinstance(item, (ExactJoinRule, UnionAllRule, GroupAggregateRule))
+    )
+    prepared_selection = structural_mapping_selection(selection, structural_rules)
     split_rules = {
         item.source_dataset_id: item
         for item in (plan.rules if plan else ())
@@ -970,11 +983,11 @@ def mapping_source_selection(
         if isinstance(item, DerivedEntityRule):
             lookup_rules.setdefault(item.source_dataset_id, []).append(item)
     if not split_rules and not lookup_rules:
-        return selection
+        return prepared_selection
 
     catalog_set = tuple(catalogs)
     effective: list[SourceDataset] = []
-    for dataset in selection.datasets:
+    for dataset in prepared_selection.datasets:
         for lookup_rule in sorted(
             lookup_rules.get(dataset.dataset_id, ()),
             key=lambda item: item.output_dataset_name,
@@ -1060,7 +1073,7 @@ def mapping_source_selection(
 
     effective_hash = _content_hash(
         {
-            "source_selection_hash": selection.content_hash,
+            "source_selection_hash": prepared_selection.content_hash,
             "source_preparation_hash": plan.content_hash if plan else None,
             "datasets": [
                 {
@@ -1338,8 +1351,10 @@ def _rule_dataset_names(rules: Iterable[SourcePreparationRule]) -> set[str]:
     for rule in rules:
         if isinstance(rule, DerivedEntityRule):
             names.add(rule.output_dataset_name)
-        else:
+        elif isinstance(rule, RelatedDatasetRule):
             names.update((rule.parent_dataset_name, rule.child_dataset_name))
+        else:
+            names.add(rule.output_dataset_name)
     return names
 
 
@@ -1348,12 +1363,24 @@ def _rule_payload(
     *,
     contract_version: int,
 ) -> dict[str, object]:
-    payload = asdict(rule)
+    payload = (
+        rule.to_dict()
+        if isinstance(rule, (ExactJoinRule, UnionAllRule, GroupAggregateRule))
+        else asdict(rule)
+    )
     if contract_version >= 2:
+        if isinstance(rule, DerivedEntityRule):
+            kind = "lookup"
+        elif isinstance(rule, RelatedDatasetRule):
+            kind = "parent_child"
+        elif isinstance(rule, ExactJoinRule):
+            kind = "exact_join"
+        elif isinstance(rule, UnionAllRule):
+            kind = "union_all"
+        else:
+            kind = "group_aggregate"
         return {
-            "kind": (
-                "lookup" if isinstance(rule, DerivedEntityRule) else "parent_child"
-            ),
+            "kind": kind,
             **payload,
         }
     return payload
@@ -1366,6 +1393,12 @@ def _rule_from_payload(payload: dict[str, object]) -> SourcePreparationRule:
         return DerivedEntityRule(**values)
     if kind == "parent_child":
         return RelatedDatasetRule(**values)
+    if kind == "exact_join":
+        return ExactJoinRule.from_dict(values)
+    if kind == "union_all":
+        return UnionAllRule.from_dict(values)
+    if kind == "group_aggregate":
+        return GroupAggregateRule.from_dict(values)
     raise ValueError("Source-preparation rule kind is unsupported")
 
 

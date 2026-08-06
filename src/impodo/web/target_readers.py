@@ -1,4 +1,11 @@
-"""Target Readers web helpers."""
+"""Select project-bound read-only target adapters for browser workflows.
+
+Stage C helpers capture schema/model information. For Stage H,
+``_read_readiness_snapshots`` receives the already bounded planner requests and
+chooses either the fixed local Odoo-shell reader, the closed remote JSON-2
+reader, or an injected test reader. Credentials remain in the web composition
+boundary and are never passed into the preflight domain or report.
+"""
 
 from __future__ import annotations
 
@@ -159,7 +166,13 @@ def _read_readiness_snapshots(
     metadata_requests: tuple[MetadataRequest, ...],
     record_requests: tuple[RecordRequest, ...],
 ) -> tuple[MetadataSnapshot, RecordSnapshot]:
-    """Read one consistent target snapshot through the configured boundary."""
+    """Read one consistent snapshot using the project's configured boundary.
+
+    Local mode validates a selected ``odoo.conf`` and delegates the exact
+    requests to ``LocalOdooMetadataReader``. Remote mode retrieves the API key
+    and exposes only ``fields_get``/``search_read`` through
+    ``Json2ReadConnector``. This function does not widen planner domains.
+    """
 
     if context.readiness_reader is not None:
         return context.readiness_reader(

@@ -1,4 +1,9 @@
-"""DuckDB quality repository implementation."""
+"""DuckDB persistence for Stage-F rules, overlays, and quarantine evidence.
+
+Publication verifies current staging/mapping inputs inside one transaction,
+stores row evidence in batches, advances the current pointer, and invalidates
+normalization/preflight evidence when quality semantics change.
+"""
 
 from __future__ import annotations
 
@@ -48,7 +53,7 @@ from .serialization import _canonical_json, _columnar_parameters
 
 
 class QualityRepository(DuckDbRepository):
-    """Persistence operations for quality repository."""
+    """Implement the quality port with immutable revisions and current pointers."""
 
     def __init__(
         self,
@@ -62,6 +67,8 @@ class QualityRepository(DuckDbRepository):
         self,
         project_id: str,
     ) -> QualityRuleSet | None:
+        """Load and hash-validate the ruleset selected as current."""
+
         value = self._read_singleton_json(
             project_id,
             """
@@ -210,6 +217,7 @@ class QualityRepository(DuckDbRepository):
         run: QualityRun,
         *,
         staging_run_id: str,
+        effective_dataset_run_id: str | None = None,
         actor: Actor,
     ) -> QualityRunSummary:
         """Atomically publish a complete quality overlay and quarantine set."""
@@ -256,6 +264,32 @@ class QualityRepository(DuckDbRepository):
                     raise WorkspaceError(
                         "Quality evidence no longer matches current prepared data"
                     )
+                if effective_dataset_run_id is None:
+                    if run.effective_dataset_hash != run.staging_content_hash:
+                        raise WorkspaceError(
+                            "Quality evidence requires the current resolved dataset"
+                        )
+                else:
+                    effective = connection.execute(
+                        """
+                        SELECT resolution.run_id,
+                               resolution.effective_content_hash,
+                               resolution.staging_content_hash
+                          FROM effective_dataset_current AS current
+                          JOIN resolution_run AS resolution
+                            ON resolution.run_id = current.run_id
+                         WHERE current.singleton_id = 1
+                           AND resolution.status = 'FROZEN'
+                        """
+                    ).fetchone()
+                    if effective is None or (
+                        str(effective[0]) != effective_dataset_run_id
+                        or str(effective[1]) != run.effective_dataset_hash
+                        or str(effective[2]) != run.staging_content_hash
+                    ):
+                        raise WorkspaceError(
+                            "Quality evidence no longer matches current resolved data"
+                        )
                 ruleset = connection.execute(
                     """
                     SELECT revision.content_hash
@@ -274,7 +308,8 @@ class QualityRepository(DuckDbRepository):
                     """
                     SELECT run_id, content_hash, staging_run_id,
                            staging_content_hash, ruleset_hash, status,
-                           published_at, published_by, summary_json
+                           published_at, published_by, summary_json,
+                           effective_dataset_run_id, effective_dataset_hash
                       FROM quality_run
                      WHERE run_id = (
                          SELECT run_id FROM quality_current
@@ -302,9 +337,10 @@ class QualityRepository(DuckDbRepository):
                         schema_hash, retention_context_hash, contract_version,
                         evaluator_version, status, published_at, published_by,
                         row_count, source_count, issue_count, quarantine_count,
-                        summary_json, retired_at, retired_reason,
+                        summary_json, effective_dataset_run_id,
+                        effective_dataset_hash, retired_at, retired_reason,
                         successor_run_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                               NULL, NULL, NULL)
                     """,
                     [
@@ -326,6 +362,8 @@ class QualityRepository(DuckDbRepository):
                         len(run.issues),
                         len(run.quarantine),
                         _canonical_json(summary_counts),
+                        effective_dataset_run_id,
+                        run.effective_dataset_hash,
                     ],
                 )
                 stored = connection.execute(
@@ -334,24 +372,46 @@ class QualityRepository(DuckDbRepository):
                         (SELECT COUNT(*) FROM quality_row_result WHERE run_id = ?),
                         (SELECT COUNT(*) FROM source_accounting_entry WHERE run_id = ?),
                         (SELECT COUNT(*) FROM quality_issue WHERE run_id = ?),
-                        (SELECT COUNT(*) FROM quality_quarantine_entry WHERE run_id = ?),
-                        (SELECT COUNT(*)
-                           FROM quality_row_result AS quality
-                           JOIN canonical_staging_row AS staging
-                             ON staging.run_id = ?
-                            AND staging.row_id = quality.row_id
-                          WHERE quality.run_id = ?)
+                        (SELECT COUNT(*) FROM quality_quarantine_entry WHERE run_id = ?)
                     """,
-                    [run_id, run_id, run_id, run_id, staging_run_id, run_id],
+                    [run_id, run_id, run_id, run_id],
                 ).fetchone()
+                if effective_dataset_run_id is None:
+                    linked = connection.execute(
+                        """
+                        SELECT COUNT(*)
+                          FROM quality_row_result AS quality
+                          JOIN canonical_staging_row AS staging
+                            ON staging.run_id = ?
+                           AND staging.row_id = quality.row_id
+                         WHERE quality.run_id = ?
+                        """,
+                        [staging_run_id, run_id],
+                    ).fetchone()
+                else:
+                    linked = connection.execute(
+                        """
+                        SELECT COUNT(*)
+                          FROM quality_row_result AS quality
+                          JOIN effective_row AS effective
+                            ON effective.run_id = ?
+                           AND effective.row_id = quality.row_id
+                         WHERE quality.run_id = ?
+                        """,
+                        [effective_dataset_run_id, run_id],
+                    ).fetchone()
                 expected = (
                     len(run.row_results),
                     len(run.source_accounting),
                     len(run.issues),
                     len(run.quarantine),
-                    len(run.row_results),
                 )
-                if stored is None or tuple(int(item) for item in stored) != expected:
+                if (
+                    stored is None
+                    or tuple(int(item) for item in stored) != expected
+                    or linked is None
+                    or int(linked[0]) != len(run.row_results)
+                ):
                     raise WorkspaceError("Quality evidence was not stored completely")
                 if current is not None:
                     connection.execute(
@@ -419,11 +479,15 @@ class QualityRepository(DuckDbRepository):
             quarantined_count=summary_counts["quarantined_count"],
             excluded_count=summary_counts["excluded_count"],
             blocked_count=summary_counts["blocked_count"],
+            effective_dataset_run_id=effective_dataset_run_id,
+            effective_dataset_hash=run.effective_dataset_hash,
         )
     def get_current_quality_summary(
         self,
         project_id: str,
     ) -> QualityRunSummary | None:
+        """Return the current non-retired quality run's lifecycle projection."""
+
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -433,7 +497,9 @@ class QualityRepository(DuckDbRepository):
                 """
                 SELECT run.run_id, run.content_hash, run.staging_run_id,
                        run.staging_content_hash, run.ruleset_hash, run.status,
-                       run.published_at, run.published_by, run.summary_json
+                       run.published_at, run.published_by, run.summary_json,
+                       run.effective_dataset_run_id,
+                       run.effective_dataset_hash
                   FROM quality_current AS current
                   JOIN quality_run AS run ON run.run_id = current.run_id
                  WHERE current.singleton_id = 1
@@ -446,6 +512,8 @@ class QualityRepository(DuckDbRepository):
         project_id: str,
         run_id: str,
     ) -> QualityRun | None:
+        """Reassemble and validate a complete quality run from row tables."""
+
         try:
             canonical_run_id = str(UUID(run_id))
         except (ValueError, AttributeError) as error:
@@ -460,7 +528,8 @@ class QualityRepository(DuckDbRepository):
                 SELECT content_hash, staging_run_id, staging_content_hash,
                        ruleset_hash, mapping_hash, schema_hash,
                        retention_context_hash, contract_version,
-                       evaluator_version
+                       evaluator_version, effective_dataset_run_id,
+                       effective_dataset_hash
                   FROM quality_run
                  WHERE run_id = ?
                 """,
@@ -495,6 +564,9 @@ class QualityRepository(DuckDbRepository):
             "retention_context_hash": str(header[6]),
             "contract_version": int(header[7]),
             "evaluator_version": int(header[8]),
+            "effective_dataset_hash": (
+                str(header[10]) if header[10] is not None else None
+            ),
             "row_results": [json.loads(str(item[0])) for item in rows],
             "source_accounting": [json.loads(str(item[0])) for item in accounting],
             "issues": [json.loads(str(item[0])) for item in issues],
@@ -630,6 +702,11 @@ class QualityRepository(DuckDbRepository):
     ) -> str:
         hasher = CanonicalJsonObjectHasher()
         hasher.add_value("contract_version", run.contract_version)
+        if run.contract_version >= 2:
+            hasher.add_value(
+                "effective_dataset_hash",
+                run.effective_dataset_hash,
+            )
         hasher.add_value("evaluator_version", run.evaluator_version)
         hasher.start_array("issues")
         for start in range(0, len(run.issues), QUALITY_ROW_BATCH_SIZE):
@@ -780,6 +857,12 @@ class QualityRepository(DuckDbRepository):
             quarantined_count=int(counts["quarantined_count"]),
             excluded_count=int(counts["excluded_count"]),
             blocked_count=int(counts["blocked_count"]),
+            effective_dataset_run_id=(
+                str(row[9]) if len(row) > 9 and row[9] is not None else None
+            ),
+            effective_dataset_hash=(
+                str(row[10]) if len(row) > 10 and row[10] is not None else None
+            ),
         )
 
 
@@ -810,6 +893,10 @@ def _quality_summary_counts(run: QualityRun) -> dict[str, int]:
             counts["blocked_count"] += 1
     counts["blocked_count"] += sum(
         item.row_id is None and item.policy is QualityOutcomePolicy.BLOCK
+        for item in run.issues
+    )
+    counts["review_count"] += sum(
+        item.row_id is None and item.policy is QualityOutcomePolicy.WARNING
         for item in run.issues
     )
     counts["blocked_count"] += sum(

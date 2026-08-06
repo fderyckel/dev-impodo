@@ -1,4 +1,10 @@
-"""Read-only Odoo comparison over an already prepared application context."""
+"""Stage-H orchestration over approved, frozen source-side evidence.
+
+``PreflightService.compare`` verifies and adapts current Stages D–G evidence,
+builds bounded read requirements, invokes a caller-supplied read-only target
+reader, runs the shared comparison engine, and publishes a portable report plus
+protected snapshots. It never reloads source files and exposes no Odoo write.
+"""
 
 from __future__ import annotations
 
@@ -36,6 +42,7 @@ from ..planner import plan_preflight_requirements
 from ..staging import StagingRunSummary
 from .readiness_ports import (
     PreflightMappingRepository,
+    PreflightEffectiveRepository,
     PreflightNormalizationRepository,
     PreflightProjectRepository,
     PreflightQualityRepository,
@@ -54,7 +61,12 @@ ReadinessReader = Callable[
 
 
 class PreflightService:
-    """Plan batched Odoo reads and publish target-dependent classifications."""
+    """Plan batched Odoo reads and publish target-dependent classifications.
+
+    The service is the browser workflow's only point at which Odoo may be
+    contacted. Every source-side prerequisite and every record domain is
+    checked first; failures explicitly occur before calling ``reader``.
+    """
 
     def __init__(
         self,
@@ -67,6 +79,7 @@ class PreflightService:
         preflight: PreflightRepository,
         artifacts: ArtifactStore,
         authorization: AuthorizationPolicy,
+        effective: PreflightEffectiveRepository | None = None,
     ) -> None:
         self.staging = staging
         self.quality = quality
@@ -77,9 +90,17 @@ class PreflightService:
         self.preflight = preflight
         self.artifacts = artifacts
         self.authorization = authorization
+        self.effective = effective
         self.engine = PreflightEngine()
 
     def current_report(self, project_id: str) -> ReadinessReport | None:
+        """Return the report only if every current upstream/target binding matches.
+
+        A report is treated as absent when staging, quality, normalization,
+        mapping submission, lifecycle version, eligible hash, or configured
+        target identity moved since publication.
+        """
+
         staging = self.staging.get_current_staging_summary(project_id)
         if staging is None:
             return None
@@ -136,6 +157,8 @@ class PreflightService:
         return report if report.target_hash == expected_target else None
 
     def current_staging(self, project_id: str) -> StagingRunSummary | None:
+        """Return the current staging summary used by package eligibility UI."""
+
         return self.staging.get_current_staging_summary(project_id)
 
     def readiness_rows(
@@ -148,6 +171,8 @@ class PreflightService:
         page: int = 1,
         page_size: int = 100,
     ) -> ReadinessRowPage:
+        """Load one filtered, bounded page from a published readiness run."""
+
         return self.preflight.get_readiness_rows(
             project_id,
             run_id,
@@ -164,7 +189,14 @@ class PreflightService:
         reader: ReadinessReader,
         actor: Actor,
     ) -> ReadinessReport:
-        """Compare prepared rows without invoking preparation or source loading."""
+        """Compare approved rows without invoking preparation or source loading.
+
+        The fixed sequence is: authorize; verify frozen input; create narrowed
+        requests; read and hash one target snapshot; verify its projection and
+        target identity; run deterministic comparison; write the protected
+        manifest; and atomically publish report rows plus snapshots. A failed
+        database publication removes the otherwise orphaned manifest.
+        """
 
         self.authorization.require(
             actor,
@@ -316,6 +348,20 @@ class PreflightService:
             project_id, staging_summary.run_id
         )
         quality = self.quality.get_quality_run(project_id, quality_summary.run_id)
+        effective = None
+        if quality_summary.effective_dataset_run_id is not None:
+            if self.effective is None:
+                raise ReadinessError(
+                    "The approved resolved rows could not be loaded. Odoo was not contacted."
+                )
+            effective = self.effective.get_current_effective_dataset(project_id)
+            if (
+                effective is None
+                or effective.content_hash != quality_summary.effective_dataset_hash
+            ):
+                raise ReadinessError(
+                    "The approved resolved rows could not be verified. Odoo was not contacted."
+                )
         dry_run = self.normalization.get_normalization_dry_run(
             project_id, normalization.run_id
         )
@@ -345,6 +391,7 @@ class PreflightService:
             plan=plan,
             dataset_labels=dataset_labels,
             source_field_labels=source_field_labels,
+            effective=effective,
         )
 
 
@@ -354,7 +401,12 @@ def _validate_snapshot_projection(
     metadata: MetadataSnapshot,
     records: RecordSnapshot,
 ) -> None:
-    """Require the exact planned models and field projections."""
+    """Require exact planned models/fields before comparison.
+
+    Extra fields are rejected as well as omissions, proving that the protected
+    snapshot came from the bounded requirement plan rather than a broad target
+    export.
+    """
 
     expected_metadata = {item.model: item.fields for item in metadata_requests}
     if set(metadata.models) != set(expected_metadata):
