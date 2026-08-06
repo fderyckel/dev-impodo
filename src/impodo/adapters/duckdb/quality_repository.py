@@ -789,12 +789,14 @@ class QualityRepository(DuckDbRepository):
             if not callable(row_batch_reader):
                 raise WorkspaceError("Stored quality rows are not replayable")
             for batch in row_batch_reader(connection, QUALITY_ROW_BATCH_SIZE):
+                batch_start_ordinal = row_ordinal
+
                 def transport_rows():
                     for offset, item in enumerate(batch):
                         item_json = _canonical_json(item.to_portable_dict())
                         hasher.add_encoded_array_item(item_json)
                         yield {
-                            "ordinal": row_ordinal + offset,
+                            "ordinal": batch_start_ordinal + offset,
                             "row_id": item.row_id,
                             "dataset": item.dataset,
                             "source_row": item.source_row,

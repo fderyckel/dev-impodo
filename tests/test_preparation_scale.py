@@ -1053,6 +1053,18 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 transformation_impact_sink=legacy_impacts.append,
             )
 
+        from impodo.adapters.duckdb import quality_repository
+
+        quality_transport_batches: list[int] = []
+        original_quality_batches = (
+            quality_repository.iter_encoded_json_batches
+        )
+
+        def count_quality_batches(*args, **kwargs):
+            for batch in original_quality_batches(*args, **kwargs):
+                quality_transport_batches.append(batch.row_count)
+                yield batch
+
         with (
             patch.object(
                 self.context.preparation.sessions,
@@ -1081,11 +1093,23 @@ class BoundedPreparationParityTests(unittest.TestCase):
                     "bounded preparation must not materialize normalization"
                 ),
             ),
+            patch(
+                "impodo.adapters.duckdb.quality_repository."
+                "DUCKDB_JSON_BATCH_MAX_BYTES",
+                2_000,
+            ),
+            patch.object(
+                quality_repository,
+                "iter_encoded_json_batches",
+                count_quality_batches,
+            ),
         ):
             self.context.preparation.prepare(
                 project_id,
                 actor=self.context.actor,
             )
+        self.assertGreater(len(quality_transport_batches), 1)
+        self.assertEqual(sum(quality_transport_batches), 37)
 
         summary = self.context.preparation.staging.get_current_staging_summary(
             project_id

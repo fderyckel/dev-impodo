@@ -1,4 +1,4 @@
-"""Compare bounded Python-to-DuckDB transports with synthetic effect rows.
+"""Compare bounded Python-to-DuckDB transports for high-volume evidence.
 
 The timer includes construction of each transport payload and the database
 insert. Output contains only row counts, byte counts, and elapsed time.
@@ -494,7 +494,7 @@ def main() -> None:
         choices=("normalization-effects", "quality-row-results"),
         default="normalization-effects",
     )
-    parser.add_argument("--rows", type=int, default=15_873)
+    parser.add_argument("--rows", type=int)
     parser.add_argument("--batch-size", type=int, default=1_000)
     parser.add_argument("--rounds", type=int, default=3)
     arguments = parser.parse_args()
@@ -503,13 +503,21 @@ def main() -> None:
         if arguments.family == "quality-row-results"
         else run_benchmark
     )
+    row_count = arguments.rows
+    if row_count is None:
+        row_count = (
+            4_000
+            if arguments.family == "quality-row-results"
+            else 15_873
+        )
     observations = runner(
-        row_count=arguments.rows,
+        row_count=row_count,
         batch_size=arguments.batch_size,
         rounds=arguments.rounds,
     )
     for observation in observations:
         print(
+            f"family={arguments.family} "
             f"transport={observation.transport} "
             f"rows={observation.row_count} "
             f"batches={observation.batch_count} "
@@ -523,7 +531,8 @@ def main() -> None:
             if item.transport == transport
         ]
         print(
-            f"median transport={transport} rounds={len(samples)} "
+            f"median family={arguments.family} "
+            f"transport={transport} rounds={len(samples)} "
             f"elapsed={median(samples):.6f}s"
         )
 

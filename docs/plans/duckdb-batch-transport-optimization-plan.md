@@ -2,10 +2,12 @@
 
 ## Status and objective
 
-**Status:** Approved on 2026-08-06. P0 normalization subphase measurement and
-the P1 normalization transport are implemented locally. Exact-parity,
-type/byte-bound, and rollback tests pass. The three-run reference-Windows gate
-is still required before P2 is approved.
+**Status:** Approved on 2026-08-06. P0 now separates quality and normalization
+evaluation from persistence/hash time. P1 normalization transport and the
+first contained P2 family—stored quality row results—are implemented locally.
+Exact-parity, type/byte-bound, and rollback tests pass. The three-run
+reference-Windows gate is still required before extending P2 to another
+evidence family.
 
 Reduce the complete local preparation time for the observed 4,000-row XLSX
 workload from **5 minutes 38 seconds to less than 60 seconds** on the reference
@@ -91,6 +93,18 @@ seconds with a 282.4 MiB measured peak. Normalization took 0.655 seconds,
 including 0.410 seconds of aggregation and 0.153 seconds of persistence plus
 ordered hashing. It produced 4,000 effects, so it is a correctness and
 instrumentation check rather than a proxy for the 15,873-effect Windows run.
+
+After the quality-row slice, a fresh run of the same local synthetic shape
+completed in 3.979 seconds with a 282.2 MiB measured peak. Quality took 1.148
+seconds: 0.563 seconds evaluating rows and 0.419 seconds persisting all quality
+evidence plus its ordered hash. These are subphase measurements, not a claimed
+end-to-end speedup.
+
+The family-specific 4,000-row transport benchmark produced warmed medians of
+0.0363 seconds for column arrays and 0.0335 seconds for typed JSON. The test
+also validates complete field types. Exact evidence parity passes when the
+byte limit is deliberately reduced enough to split one quality reader batch
+across multiple JSON envelopes.
 
 ## Current design weaknesses
 
@@ -220,7 +234,7 @@ phases.
 
 After P1 passes, migrate one evidence family at a time:
 
-1. quality row results;
+1. quality row results — implemented locally with row and byte bounds;
 2. source-accounting entries and links;
 3. preparation transformation impacts;
 4. canonical staging rows;
@@ -234,6 +248,11 @@ Every destination keeps explicit casts and existing constraints.
 Benchmark each family before proceeding. A global mechanical replacement is
 not acceptable because small metadata tables do not need a bulk transport and
 different row shapes have different null, boolean, integer, and JSON rules.
+
+The quality-row change applies only to `StoredQualityRun`. The materialized
+quality path remains on the prior transport and serves as an independent
+semantic reference. Source accounting, issues, quarantine entries, and every
+staging family remain unchanged in this slice.
 
 **Gate:** The 4,000-row workflow completes in less than 60 seconds across three
 fresh-process Windows runs, with exact evidence parity. The existing 100,000-
@@ -368,14 +387,16 @@ customer values are not committed as fixtures.
 
 ## Delivery sequence
 
-1. Complete the remaining P0 phase instrumentation; normalization aggregation
-   and persistence/hash measurement plus the reproducible transport benchmark
-   are already present.
+1. Complete the remaining P0 phase instrumentation; quality and normalization
+   evaluation and persistence/hash measurement plus the reproducible transport
+   benchmark are already present.
 2. Keep P1 limited to normalization transport; its local implementation and
    parity tests are complete.
 3. Review three fresh-process Windows runs. The second-platform regression and
    workflow checks are complete, but are not substitutes for Windows evidence.
-4. Extend the proven adapter through P2 one evidence family at a time.
+4. Continue P2 one evidence family at a time. Stored quality row results are
+   complete locally; source accounting is next only after reviewing the
+   Windows evidence.
 5. Profile again before approving P3 or P4.
 6. Implement P5 progress reporting after stable subphase counters exist.
 7. Update the 100,000-row performance plan with comparable before-and-after
