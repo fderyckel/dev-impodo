@@ -531,7 +531,9 @@ Working drafts are bound to the exact frozen source and governed schema. If
 either changes, Impodo retains the earlier draft as recovery evidence but does
 not silently apply it to the new fields.
 
-Select **Check mapping** after a coherent group of changes.
+Select **Save progress** to keep incomplete work without checking it. Select
+**Check matches** after a coherent group of changes. Checking creates a new
+revision only when the mapping meaning changed.
 
 ![Validation and submission.](../images/impodo-local-browser-guide/08-validation-and-submit.png)
 
@@ -553,7 +555,8 @@ intentional changes before submitting the exact mapping.
 
 **Confirm field matches** binds the exact mapping, validation, source,
 schema, and business-key evidence. Submission is not functional approval,
-clean-package certification, an Odoo import, or a write action.
+clean-package certification, an Odoo import, or a write action. Confirmation
+does not save another draft or create another mapping revision.
 
 ## 6. Review every row
 

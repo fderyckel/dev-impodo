@@ -134,6 +134,7 @@ class MappingWorkspaceRepository(Protocol):
         validation: MappingValidationResult,
         expected_parent_version: int | None,
         expected_working_draft_version: int | None,
+        checked_draft: MappingWorkingDraft,
         actor: Actor,
     ) -> None:
         """Promote one expected draft state to a checked revision."""
@@ -324,6 +325,16 @@ class MappingWorkspaceService:
             current is not None
             and current.definition.content_hash == definition.content_hash
         ):
+            if (
+                working_draft is not None
+                and working_draft.content_hash != definition.content_hash
+            ):
+                self.save_working_draft(
+                    project_id,
+                    datasets=definition.datasets,
+                    expected_version=working_draft.version,
+                    actor=actor,
+                )
             self.mappings.save_mapping_validation(
                 project_id,
                 current.version,
@@ -343,12 +354,22 @@ class MappingWorkspaceService:
             created_at=datetime.now(timezone.utc),
             created_by=actor.identity.display_name,
         )
+        checked_draft = MappingWorkingDraft(
+            mapping_id=mapping_id,
+            version=(actual_working_version or 0) + 1,
+            project_id=project_id,
+            base_mapping_version=revision.version,
+            definition=definition,
+            updated_at=revision.created_at,
+            updated_by=actor.identity.display_name,
+        )
         self.mappings.save_mapping_revision(
             project_id,
             revision,
             validation=validation,
             expected_parent_version=expected_parent_version,
             expected_working_draft_version=expected_working_draft_version,
+            checked_draft=checked_draft,
             actor=actor,
         )
         return revision, validation

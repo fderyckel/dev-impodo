@@ -345,12 +345,19 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(draft.version, 1)
+        checked, _validation = self.mappings.check_definition(
+            self.project.project_id,
+            datasets=(dataset_mapping,),
+            expected_parent_version=None,
+            expected_working_draft_version=1,
+            actor=LOCAL_ACTOR,
+        )
         with self.assertRaisesRegex(WorkspaceError, "live Odoo schema"):
-            self.mappings.save_definition(
+            self.mappings.submit_current(
                 self.project.project_id,
                 datasets=(dataset_mapping,),
-                expected_parent_version=None,
-                submit=True,
+                expected_version=checked.version,
+                expected_working_draft_version=2,
                 actor=LOCAL_ACTOR,
             )
 
@@ -404,48 +411,54 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             ),
         )
 
-        first, validation, submission = self.mappings.save_definition(
+        first, validation = self.mappings.check_definition(
             self.project.project_id,
             datasets=(mapping,),
             expected_parent_version=None,
-            submit=False,
+            expected_working_draft_version=None,
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(first.version, 1)
         self.assertEqual(validation.status, MappingValidationStatus.VALID)
-        self.assertIsNone(submission)
 
-        second, validation, submission = self.mappings.save_definition(
+        second, repeated_validation = self.mappings.check_definition(
             self.project.project_id,
             datasets=(mapping,),
             expected_parent_version=1,
-            submit=True,
+            expected_working_draft_version=1,
             actor=LOCAL_ACTOR,
         )
-        self.assertEqual(second.parent_version, 1)
-        self.assertEqual(second.version, 2)
+        self.assertEqual(second, first)
+        self.assertEqual(repeated_validation, validation)
+        submission = self.mappings.submit_current(
+            self.project.project_id,
+            datasets=(mapping,),
+            expected_version=1,
+            expected_working_draft_version=1,
+            actor=LOCAL_ACTOR,
+        )
         self.assertEqual(
             submission.mapping_content_hash,
-            second.definition.content_hash,
+            first.definition.content_hash,
         )
         self.assertEqual(submission.validation_hash, validation.validation_hash)
         self.assertEqual(
             self.project_repository.get(self.project.project_id).mapping_version,
-            "2",
+            "1",
         )
         self.assertEqual(
             [item.version for item in self.mapping_repository.list_mapping_revisions(
                 self.project.project_id
             )],
-            [1, 2],
+            [1],
         )
 
         with self.assertRaisesRegex(WorkspaceError, "modified"):
-            self.mappings.save_definition(
+            self.mappings.check_definition(
                 self.project.project_id,
                 datasets=(mapping,),
-                expected_parent_version=1,
-                submit=False,
+                expected_parent_version=None,
+                expected_working_draft_version=1,
                 actor=LOCAL_ACTOR,
             )
 
@@ -463,15 +476,15 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             business_keys=governance.business_keys,
             actor=LOCAL_ACTOR,
         )
-        third, _validation, _submission = self.mappings.save_definition(
+        third, _validation = self.mappings.check_definition(
             self.project.project_id,
             datasets=(mapping,),
             expected_parent_version=None,
-            submit=False,
+            expected_working_draft_version=1,
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(next_governance.version, 1)
-        self.assertEqual(third.version, 3)
+        self.assertEqual(third.version, 2)
         self.assertIsNone(third.parent_version)
 
         warning_mapping = replace(
@@ -484,21 +497,26 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                 ),
             ),
         )
+        warning_revision, warning_validation = self.mappings.check_definition(
+            self.project.project_id,
+            datasets=(warning_mapping,),
+            expected_parent_version=2,
+            expected_working_draft_version=2,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(warning_revision.version, 3)
         with self.assertRaisesRegex(WorkspaceError, "Acknowledge"):
-            self.mappings.save_definition(
+            self.mappings.submit_current(
                 self.project.project_id,
                 datasets=(warning_mapping,),
-                expected_parent_version=3,
-                submit=True,
+                expected_version=3,
+                expected_working_draft_version=3,
                 actor=LOCAL_ACTOR,
             )
         warning_revision = self.mapping_repository.get_mapping_revision(
             self.project.project_id
         )
-        warning_validation = self.mapping_repository.get_mapping_validation(
-            self.project.project_id,
-            warning_revision.version,
-        )
+        self.assertEqual(warning_revision.version, 3)
         self.assertEqual(
             warning_validation.status,
             MappingValidationStatus.VALID_WITH_WARNINGS,
@@ -508,51 +526,60 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             for item in warning_validation.issues
             if item.severity == "warning"
         )
-        acknowledged, _validation, warning_submission = (
-            self.mappings.save_definition(
-                self.project.project_id,
-                datasets=(warning_mapping,),
-                expected_parent_version=warning_revision.version,
-                submit=True,
-                warning_acknowledgements=warning_fingerprints,
-                actor=LOCAL_ACTOR,
-            )
+        warning_submission = self.mappings.submit_current(
+            self.project.project_id,
+            datasets=(warning_mapping,),
+            expected_version=warning_revision.version,
+            expected_working_draft_version=3,
+            warning_acknowledgements=warning_fingerprints,
+            actor=LOCAL_ACTOR,
         )
-        self.assertEqual(acknowledged.version, 5)
         self.assertEqual(
             warning_submission.warning_acknowledgements,
             warning_fingerprints,
         )
+        repeated_submission = self.mappings.submit_current(
+            self.project.project_id,
+            datasets=(warning_mapping,),
+            expected_version=warning_revision.version,
+            expected_working_draft_version=3,
+            warning_acknowledgements=warning_fingerprints,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(repeated_submission, warning_submission)
 
         invalid = replace(mapping, target_identity=())
+        failed_revision, invalid_validation = self.mappings.check_definition(
+            self.project.project_id,
+            datasets=(invalid,),
+            expected_parent_version=3,
+            expected_working_draft_version=3,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(failed_revision.version, 4)
+        self.assertEqual(
+            invalid_validation.status,
+            MappingValidationStatus.INVALID,
+        )
         with self.assertRaisesRegex(WorkspaceError, "cannot be submitted"):
-            self.mappings.save_definition(
+            self.mappings.submit_current(
                 self.project.project_id,
                 datasets=(invalid,),
-                expected_parent_version=5,
-                submit=True,
+                expected_version=4,
+                expected_working_draft_version=4,
                 actor=LOCAL_ACTOR,
             )
-        failed_revision = self.mapping_repository.get_mapping_revision(
-            self.project.project_id
-        )
-        self.assertEqual(failed_revision.version, 6)
         self.assertEqual(
-            self.mapping_repository.get_mapping_validation(
-                self.project.project_id,
-                failed_revision.version,
-            ).status,
-            MappingValidationStatus.INVALID,
+            self.mapping_repository.get_mapping_revision(
+                self.project.project_id
+            ),
+            failed_revision,
         )
         self.assertIsNone(
             self.mapping_repository.get_mapping_submission(
                 self.project.project_id,
                 failed_revision.version,
             )
-        )
-        invalid_validation = self.mapping_repository.get_mapping_validation(
-            self.project.project_id,
-            failed_revision.version,
         )
         with self.assertRaisesRegex(WorkspaceError, "validation gate"):
             self.mapping_repository.save_mapping_submission(

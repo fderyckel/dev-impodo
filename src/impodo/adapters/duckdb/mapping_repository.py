@@ -274,6 +274,7 @@ class MappingRepository(DuckDbRepository):
         validation: MappingValidationResult,
         expected_parent_version: int | None,
         expected_working_draft_version: int | None,
+        checked_draft: MappingWorkingDraft,
         actor: Actor,
     ) -> None:
         """Promote an expected editor state to a checked immutable revision."""
@@ -285,6 +286,15 @@ class MappingRepository(DuckDbRepository):
         if validation.mapping_content_hash != revision.definition.content_hash:
             raise WorkspaceError(
                 "Mapping validation does not match its revision"
+            )
+        if (
+            checked_draft.project_id != project_id
+            or checked_draft.mapping_id != revision.mapping_id
+            or checked_draft.base_mapping_version != revision.version
+            or checked_draft.content_hash != revision.definition.content_hash
+        ):
+            raise WorkspaceError(
+                "Checked working draft does not match its revision"
             )
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
@@ -320,6 +330,7 @@ class MappingRepository(DuckDbRepository):
                     current_version != expected_parent_version
                     or revision.parent_version != expected_parent_version
                     or working_version != expected_working_draft_version
+                    or checked_draft.version != (working_version or 0) + 1
                     or revision.mapping_id != current_id
                     or revision.version != next_version
                 ):
@@ -365,7 +376,20 @@ class MappingRepository(DuckDbRepository):
                     ],
                 )
                 connection.execute(
-                    "DELETE FROM mapping_working_draft WHERE singleton_id = 1"
+                    """
+                    INSERT OR REPLACE INTO mapping_working_draft
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        1,
+                        checked_draft.mapping_id,
+                        checked_draft.version,
+                        checked_draft.definition.source_selection_hash,
+                        checked_draft.definition.schema_hash,
+                        checked_draft.content_hash,
+                        checked_draft.updated_at.isoformat(),
+                        checked_draft.to_json(),
+                    ],
                 )
                 self._invalidate_canonical_staging(
                     connection,

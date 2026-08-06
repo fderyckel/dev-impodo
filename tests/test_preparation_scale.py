@@ -74,6 +74,7 @@ from impodo.quality import (
 from impodo.preparation_jobs import PreparationJobStatus
 from impodo.value_rules import ScalarTransformPolicy
 from impodo.web.app import create_local_app
+from impodo.workspace_contracts import MappingWorkingDraft
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -741,6 +742,15 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             validation=validation,
             expected_parent_version=None,
             expected_working_draft_version=None,
+            checked_draft=MappingWorkingDraft(
+                mapping_id=definition.mapping_id,
+                version=1,
+                project_id=registered.project_id,
+                base_mapping_version=revision.version,
+                definition=definition,
+                updated_at=now,
+                updated_by=self.context.actor.identity.display_name,
+            ),
             actor=self.context.actor,
         )
         mapping_repository.save_mapping_submission(

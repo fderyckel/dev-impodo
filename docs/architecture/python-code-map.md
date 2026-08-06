@@ -394,30 +394,32 @@ sequenceDiagram
     participant Validator as "MappingSemanticValidator"
     participant Repo as "MappingRepository"
 
-    Route->>Service: save_working_draft(...)
-    Service->>Repo: replace recoverable draft with optimistic version
-    alt validate draft or submit
-        Route->>Service: save_definition(..., submit)
+    alt save progress
+        Route->>Service: save_working_draft(...)
+        Service->>Repo: replace recoverable draft with optimistic version
+    else check matches
+        Route->>Service: check_definition(...)
         Service->>Validator: validate canonical definition and current evidence
         Validator-->>Service: MappingValidationResult
-        Service->>Repo: append immutable revision + validation
-        opt submit
-            Service->>Repo: append exact MappingSubmission
-        end
+        Service->>Repo: append new revision + validation or reuse identical current revision
+    else confirm field matches
+        Route->>Service: submit_current(...)
+        Service->>Repo: append submission for the exact checked revision
     end
 ```
 
 ### Navigation chain
 
 1. [`build_mapping_router`](../../src/impodo/web/routers/mapping.py) parses the
-   mapping editor state. Its save route always preserves a working draft first,
-   then optionally creates a checked revision or exact submission.
+   mapping editor state and dispatches one explicit save, check, or confirmation
+   command without treating confirmation as another save.
 2. [`MappingWorkspaceService.save_working_draft`](../../src/impodo/application/mapping_workspace_service.py)
    stores incomplete recoverable work without claiming semantic validity.
-3. [`MappingWorkspaceService.save_definition`](../../src/impodo/application/mapping_workspace_service.py)
-   canonicalizes the full dataset mapping, invokes the validator, creates the
-   next immutable revision, and enforces invalid/warning gates before optional
-   submission.
+3. [`MappingWorkspaceService.check_definition`](../../src/impodo/application/mapping_workspace_service.py)
+   canonicalizes the full dataset mapping, invokes the validator, and creates a
+   revision only when its semantic content differs from the current revision.
+   `submit_current` confirms that exact checked revision after all invalid and
+   warning gates pass, without rewriting the draft or revision.
 4. [`MappingSemanticValidator`](../../src/impodo/domain/mapping/validation/validator.py)
    coordinates focused identity, scalar, relationship, dependency, and control-
    total validators and returns deterministic issues plus deferred runtime

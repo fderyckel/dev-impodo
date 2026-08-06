@@ -1655,6 +1655,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             mapping_script.text,
         )
         self.assertIn('window.addEventListener("beforeunload"', mapping_script.text)
+        self.assertIn("rememberMappingPosition", mapping_script.text)
+        self.assertIn("restoreMappingPosition", mapping_script.text)
+        self.assertIn("window.sessionStorage", mapping_script.text)
+        self.assertIn("preventScroll: true", mapping_script.text)
         self.assertIn("scheduleScalarCatalogSearch", mapping_script.text)
         self.assertIn("new AbortController()", mapping_script.text)
         self.assertIn("new DOMParser()", mapping_script.text)
@@ -1679,6 +1683,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("fetch(mappingForm.action", mapping_script.text)
         self.assertIn(
             "Your unsaved changes are still on this page",
+            mapping_script.text,
+        )
+        self.assertIn(
+            "Your checked matches are unchanged",
             mapping_script.text,
         )
         self.assertIn("hydrateSourceOptions", mapping_script.text)
@@ -1740,7 +1748,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             saved_progress.headers["location"]
         )
         self.assertIn(
-            "Saved your matching progress. The matches have not been checked yet.",
+            "Saved your matching progress. Check the matches when ready.",
             saved_progress_page.text,
         )
         self.assertIn("Saved changes need checking", saved_progress_page.text)
@@ -1762,13 +1770,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIsNone(
             self.app.state.context.mapping_workspace.mappings.get_mapping_revision(project_id)
         )
-        submitted = self.client.post(
-            f"/projects/{project_id}/mapping/save",
-            data={
+        mapping_data = {
                 "csrf_token": self.csrf,
-                "action": "submit",
-                "expected_parent_version": "",
-                "expected_working_draft_version": "1",
                 "target_model_0": "res.partner",
                 "mode_0": "upsert",
                 "source_identity_0": customer_code.stable_key,
@@ -1815,6 +1818,42 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "scalar_pattern_2_1": "[A-Z][a-z ]{15}",
                 "scalar_compare_2_1": "1",
                 "scalar_null_2_1": "distinct",
+        }
+        checked = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            data={
+                **mapping_data,
+                "action": "draft",
+                "expected_parent_version": "",
+                "expected_working_draft_version": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(checked.status_code, 303)
+        checked_page = self.client.get(checked.headers["location"])
+        self.assertIn("Matches checked and ready to confirm", checked_page.text)
+        self.assertIn("Ready to confirm", checked_page.text)
+        checked_draft = (
+            self.app.state.context.mapping_workspace.mappings.get_mapping_working_draft(
+                project_id
+            )
+        )
+        self.assertEqual(checked_draft.version, 2)
+        checked_revision = (
+            self.app.state.context.mapping_workspace.mappings.get_mapping_revision(
+                project_id
+            )
+        )
+        self.assertEqual(checked_revision.version, 1)
+
+        submitted = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            data={
+                **mapping_data,
+                "action": "submit",
+                "expected_parent_version": "1",
+                "expected_working_draft_version": "2",
             },
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -1826,6 +1865,16 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("valid", submitted_page.text.casefold())
         revision = (
             self.app.state.context.mapping_workspace.mappings.get_mapping_revision(project_id)
+        )
+        self.assertEqual(revision.version, 1)
+        self.assertEqual(
+            [
+                item.version
+                for item in self.app.state.context.mapping_workspace.mappings.list_mapping_revisions(
+                    project_id
+                )
+            ],
+            [1],
         )
         revision_by_dataset = {
             item.dataset_id: item for item in revision.definition.datasets
@@ -2518,7 +2567,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         self.assertEqual(saved.status_code, 200)
-        self.assertEqual(saved.json()["message"], "Saved working draft version 1.")
+        self.assertEqual(
+            saved.json()["message"],
+            "Progress saved. Check matches when ready.",
+        )
         working = context.mapping_workspace.mappings.get_mapping_working_draft(project_id)
         self.assertIsNotNone(working)
         self.assertEqual(working.version, 1)
@@ -3127,15 +3179,24 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         self.assertEqual(invalid.status_code, 422)
-        self.assertEqual(invalid.json()["expected_working_draft_version"], 3)
-        self.assertEqual(invalid.json()["expected_parent_version"], 1)
+        self.assertEqual(invalid.json()["expected_working_draft_version"], 2)
+        self.assertIsNone(invalid.json()["expected_parent_version"])
+        self.assertEqual(
+            context.mapping_workspace.mappings.get_mapping_working_draft(
+                project_id
+            ).version,
+            2,
+        )
+        self.assertIsNone(
+            context.mapping_workspace.mappings.get_mapping_revision(project_id)
+        )
 
         retry_entries = [list(item) for item in entries]
         for item in retry_entries:
             if item[0] == "expected_working_draft_version":
-                item[1] = "3"
+                item[1] = "2"
             elif item[0] == "expected_parent_version":
-                item[1] = "1"
+                item[1] = ""
         retried = self.client.post(
             f"/projects/{project_id}/mapping/save",
             json={"entries": retry_entries},
@@ -3147,7 +3208,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(retried.status_code, 200)
         self.assertEqual(
             context.mapping_workspace.mappings.get_mapping_working_draft(project_id).version,
-            4,
+            3,
         )
 
         oversized = b'{"entries":[["csrf_token","' + (
@@ -3165,7 +3226,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(rejected.status_code, 413)
         self.assertEqual(
             context.mapping_workspace.mappings.get_mapping_working_draft(project_id).version,
-            4,
+            3,
         )
 
         excessive_form = "&".join(
@@ -3230,27 +3291,31 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         context = self.app.state.context
         source_identity = dataset.columns[0]
-        _revision, validation, submission = (
-            context.mapping_workspace.save_definition(
-                project_id,
-                datasets=(
-                    DatasetMapping(
-                        dataset_id=dataset.dataset_id,
-                        target_model="res.partner",
-                        mode=MappingTargetMode.UPSERT,
-                        source_identity_column_keys=(source_identity.stable_key,),
-                        target_identity=(
-                            IdentityComponentMapping(
-                                source_column_keys=(source_identity.stable_key,),
-                                target_fields=business_key.key_fields,
-                            ),
-                        ),
-                    ),
+        mapping = DatasetMapping(
+            dataset_id=dataset.dataset_id,
+            target_model="res.partner",
+            mode=MappingTargetMode.UPSERT,
+            source_identity_column_keys=(source_identity.stable_key,),
+            target_identity=(
+                IdentityComponentMapping(
+                    source_column_keys=(source_identity.stable_key,),
+                    target_fields=business_key.key_fields,
                 ),
-                expected_parent_version=None,
-                submit=True,
-                actor=context.actor,
-            )
+            ),
+        )
+        revision, validation = context.mapping_workspace.check_definition(
+            project_id,
+            datasets=(mapping,),
+            expected_parent_version=None,
+            expected_working_draft_version=None,
+            actor=context.actor,
+        )
+        submission = context.mapping_workspace.submit_current(
+            project_id,
+            datasets=(mapping,),
+            expected_version=revision.version,
+            expected_working_draft_version=1,
+            actor=context.actor,
         )
         self.assertNotEqual(validation.status, MappingValidationStatus.INVALID)
         self.assertIsNotNone(submission)
@@ -3378,8 +3443,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         source_identity, source_value = dataset.columns
         context = self.app.state.context
-        _revision, validation, _submission = (
-            context.mapping_workspace.save_definition(
+        _revision, validation = (
+            context.mapping_workspace.check_definition(
                 project_id,
                 datasets=(
                     DatasetMapping(
@@ -3412,7 +3477,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     ),
                 ),
                 expected_parent_version=None,
-                submit=False,
+                expected_working_draft_version=None,
                 actor=context.actor,
             )
         )
@@ -3532,8 +3597,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         source_identity, source_value = dataset.columns
         context = self.app.state.context
-        revision, validation, _submission = (
-            context.mapping_workspace.save_definition(
+        revision, validation = (
+            context.mapping_workspace.check_definition(
                 project_id,
                 datasets=(
                     DatasetMapping(
@@ -3561,7 +3626,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     ),
                 ),
                 expected_parent_version=None,
-                submit=False,
+                expected_working_draft_version=None,
                 actor=context.actor,
             )
         )
