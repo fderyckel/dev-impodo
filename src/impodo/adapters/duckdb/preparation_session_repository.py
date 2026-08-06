@@ -333,6 +333,7 @@ class PreparationSessionRepository(DuckDbRepository):
             return
         canonical_session_id = self._session_id(session_id)
         row_values: list[list[object]] = []
+        identity_values: list[list[object]] = []
         lineage_values: list[list[object]] = []
         physical_values: list[list[object]] = []
         for item in rows:
@@ -358,6 +359,13 @@ class PreparationSessionRepository(DuckDbRepository):
                     item.target_model,
                     item.disposition.value,
                     item.row_json,
+                ]
+            )
+            identity_values.append(
+                [
+                    canonical_session_id,
+                    item.ordinal,
+                    item.dataset,
                     identity_hash,
                     item.disposition.value,
                     False,
@@ -413,14 +421,23 @@ class PreparationSessionRepository(DuckDbRepository):
                     """
                     INSERT INTO canonical_staging_row (
                         run_id, ordinal, row_id, dataset, source_row,
-                        target_model, disposition, row_json, identity_hash,
+                        target_model, disposition, row_json
+                    )
+                    SELECT unnest(?), unnest(?), unnest(?), unnest(?),
+                           unnest(?), unnest(?), unnest(?), unnest(?)
+                    """,
+                    _columnar_parameters(row_values),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO preparation_direct_identity (
+                        session_id, ordinal, dataset, identity_hash,
                         base_disposition, finalized_duplicate
                     )
                     SELECT unnest(?), unnest(?), unnest(?), unnest(?),
-                           unnest(?), unnest(?), unnest(?), unnest(?),
-                           unnest(?), unnest(?), unnest(?)
+                           unnest(?), unnest(?)
                     """,
-                    _columnar_parameters(row_values),
+                    _columnar_parameters(identity_values),
                 )
                 connection.execute(
                     """
@@ -671,36 +688,82 @@ class PreparationSessionRepository(DuckDbRepository):
         self._restart_direct_finalization(project_id, canonical_session_id)
         bindings = summary.bindings
         database_path = self.project_directory(project_id) / "project.duckdb"
+        with self._connect(database_path) as connection:
+            collision_counts = {
+                (str(dataset), str(identity_hash)): int(identity_count)
+                for dataset, identity_hash, identity_count
+                in connection.execute(
+                    """
+                    SELECT dataset, identity_hash, identity_count
+                      FROM preparation_identity_group
+                     WHERE session_id = ? AND identity_count > 1
+                    """,
+                    [canonical_session_id],
+                ).fetchall()
+            }
 
-        last_ordinal = -1
-        while True:
+        duplicate_rows: list[tuple[int, int]] = []
+        with self._connect(database_path) as connection:
+            cursor = connection.execute(
+                """
+                SELECT ordinal, dataset, identity_hash,
+                       finalized_duplicate
+                  FROM preparation_direct_identity
+                 WHERE session_id = ?
+                 ORDER BY ordinal
+                """,
+                [canonical_session_id],
+            )
+            while identity_batch := cursor.fetchmany(
+                PREPARATION_SESSION_ROW_BATCH_SIZE
+            ):
+                duplicate_rows.extend(
+                    (
+                        int(ordinal),
+                        collision_counts[
+                            (str(dataset), str(identity_hash))
+                        ],
+                    )
+                    for ordinal, dataset, identity_hash, finalized
+                    in identity_batch
+                    if not bool(finalized)
+                    and (
+                        str(dataset),
+                        str(identity_hash),
+                    ) in collision_counts
+                )
+
+        canonical_issues = [
+            CanonicalIssue.from_issue(item) for item in run_issues
+        ]
+        for start in range(
+            0,
+            len(duplicate_rows),
+            PREPARATION_SESSION_ROW_BATCH_SIZE,
+        ):
+            duplicate_batch = duplicate_rows[
+                start : start + PREPARATION_SESSION_ROW_BATCH_SIZE
+            ]
+            duplicate_counts_by_ordinal = dict(duplicate_batch)
+            ordinals = [item[0] for item in duplicate_batch]
             with self._connect(database_path) as connection:
                 batch = connection.execute(
                     """
-                    SELECT row.ordinal, row.row_json,
-                           identities.identity_count
-                      FROM canonical_staging_row AS row
-                      JOIN preparation_identity_group AS identities
-                        ON identities.session_id = row.run_id
-                       AND identities.dataset = row.dataset
-                       AND identities.identity_hash = row.identity_hash
-                     WHERE row.run_id = ?
-                       AND identities.identity_count > 1
-                       AND NOT row.finalized_duplicate
-                       AND row.ordinal > ?
-                     ORDER BY row.ordinal
-                     LIMIT ?
+                    SELECT ordinal, row_json
+                      FROM canonical_staging_row
+                     WHERE run_id = ?
+                       AND ordinal IN (SELECT unnest(?))
+                     ORDER BY ordinal
                     """,
-                    [
-                        canonical_session_id,
-                        last_ordinal,
-                        PREPARATION_SESSION_ROW_BATCH_SIZE,
-                    ],
+                    [canonical_session_id, ordinals],
                 ).fetchall()
-            if not batch:
-                break
+            if len(batch) != len(ordinals):
+                raise WorkspaceError(
+                    "Direct duplicate rows are incomplete"
+                )
             values: list[list[object]] = []
-            for ordinal, row_text, identity_count in batch:
+            for ordinal, row_text in batch:
+                identity_count = duplicate_counts_by_ordinal[int(ordinal)]
                 try:
                     row = CanonicalRow.from_dict(json.loads(str(row_text)))
                 except (TypeError, ValueError) as error:
@@ -718,6 +781,7 @@ class PreparationSessionRepository(DuckDbRepository):
                     affected_count=int(identity_count),
                 )
                 canonical_duplicate = CanonicalIssue.from_issue(duplicate)
+                canonical_issues.append(canonical_duplicate)
                 row = replace(
                     row,
                     disposition=StagingDisposition.BLOCKED,
@@ -743,7 +807,6 @@ class PreparationSessionRepository(DuckDbRepository):
                 canonical_session_id,
                 values,
             )
-            last_ordinal = int(batch[-1][0])
 
         reconciliation, datasets = self._reconciliation(
             project_id,
@@ -752,57 +815,6 @@ class PreparationSessionRepository(DuckDbRepository):
             row_table="canonical_staging_row",
             id_column="run_id",
         )
-        canonical_issues = [
-            CanonicalIssue.from_issue(item) for item in run_issues
-        ]
-        with self._connect(database_path) as connection:
-            next_ordinal = 0
-            while batch := connection.execute(
-                """
-                SELECT row.ordinal, row.row_json,
-                       identities.identity_count
-                  FROM canonical_staging_row AS row
-                  JOIN preparation_identity_group AS identities
-                    ON identities.session_id = row.run_id
-                   AND identities.dataset = row.dataset
-                   AND identities.identity_hash = row.identity_hash
-                 WHERE row.run_id = ?
-                   AND identities.identity_count > 1
-                   AND row.ordinal >= ?
-                 ORDER BY row.ordinal
-                 LIMIT ?
-                """,
-                [
-                    canonical_session_id,
-                    next_ordinal,
-                    PREPARATION_SESSION_ROW_BATCH_SIZE,
-                ],
-            ).fetchall():
-                for ordinal, row_text, identity_count in batch:
-                    try:
-                        row = CanonicalRow.from_dict(
-                            json.loads(str(row_text))
-                        )
-                    except (TypeError, ValueError) as error:
-                        raise WorkspaceError(
-                            "Stored direct preparation row is invalid"
-                        ) from error
-                    canonical_issues.append(
-                        CanonicalIssue.from_issue(
-                            Issue(
-                                code="SOURCE_IDENTITY_DUPLICATE",
-                                message=(
-                                    "source identity "
-                                    f"{row.source_identity!r} occurs "
-                                    f"{int(identity_count)} times"
-                                ),
-                                dataset=row.dataset,
-                                row=row.source_row,
-                                affected_count=int(identity_count),
-                            )
-                        )
-                    )
-                    next_ordinal = int(ordinal) + 1
         controls = tuple(
             sorted(control_totals, key=lambda item: item.control_id)
         )
@@ -926,25 +938,47 @@ class PreparationSessionRepository(DuckDbRepository):
         database_path = self.project_directory(project_id) / "project.duckdb"
         while True:
             with self._connect(database_path) as connection:
-                batch = connection.execute(
+                identity_batch = connection.execute(
                     """
-                    SELECT ordinal, base_disposition, row_json
-                      FROM canonical_staging_row
-                     WHERE run_id = ? AND finalized_duplicate
+                    SELECT ordinal, base_disposition
+                      FROM preparation_direct_identity
+                     WHERE session_id = ? AND finalized_duplicate
                      ORDER BY ordinal
                      LIMIT ?
                     """,
                     [session_id, PREPARATION_SESSION_ROW_BATCH_SIZE],
                 ).fetchall()
-            if not batch:
+            if not identity_batch:
                 break
+            base_by_ordinal = {
+                int(ordinal): str(base_disposition)
+                for ordinal, base_disposition in identity_batch
+            }
+            ordinals = list(base_by_ordinal)
+            with self._connect(database_path) as connection:
+                batch = connection.execute(
+                    """
+                    SELECT ordinal, row_json
+                      FROM canonical_staging_row
+                     WHERE run_id = ?
+                       AND ordinal IN (SELECT unnest(?))
+                     ORDER BY ordinal
+                    """,
+                    [session_id, ordinals],
+                ).fetchall()
+            if len(batch) != len(ordinals):
+                raise WorkspaceError(
+                    "Direct duplicate rows are incomplete"
+                )
             values: list[list[object]] = []
-            for ordinal, base_disposition, row_text in batch:
+            for ordinal, row_text in batch:
                 try:
                     row = CanonicalRow.from_dict(json.loads(str(row_text)))
                     row = replace(
                         row,
-                        disposition=StagingDisposition(str(base_disposition)),
+                        disposition=StagingDisposition(
+                            base_by_ordinal[int(ordinal)]
+                        ),
                         issues=tuple(
                             issue
                             for issue in row.issues
@@ -988,10 +1022,10 @@ class PreparationSessionRepository(DuckDbRepository):
                     INSERT INTO preparation_identity_group (
                         session_id, dataset, identity_hash, identity_count
                     )
-                    SELECT run_id, dataset, identity_hash, COUNT(*)
-                      FROM canonical_staging_row
-                     WHERE run_id = ? AND identity_hash IS NOT NULL
-                     GROUP BY run_id, dataset, identity_hash
+                    SELECT session_id, dataset, identity_hash, COUNT(*)
+                      FROM preparation_direct_identity
+                     WHERE session_id = ?
+                     GROUP BY session_id, dataset, identity_hash
                     """,
                     [session_id],
                 )
@@ -1029,8 +1063,7 @@ class PreparationSessionRepository(DuckDbRepository):
                     """
                     UPDATE canonical_staging_row AS target
                        SET disposition = updates.disposition,
-                           row_json = updates.row_json,
-                           finalized_duplicate = updates.finalized_duplicate
+                           row_json = updates.row_json
                       FROM (
                           SELECT unnest(?) AS ordinal,
                                  unnest(?) AS disposition,
@@ -1038,6 +1071,21 @@ class PreparationSessionRepository(DuckDbRepository):
                                  unnest(?) AS finalized_duplicate
                       ) AS updates
                      WHERE target.run_id = ?
+                       AND target.ordinal = updates.ordinal
+                    """,
+                    [*_columnar_parameters(values), run_id],
+                )
+                connection.execute(
+                    """
+                    UPDATE preparation_direct_identity AS target
+                       SET finalized_duplicate = updates.finalized_duplicate
+                      FROM (
+                          SELECT unnest(?) AS ordinal,
+                                 unnest(?) AS disposition,
+                                 unnest(?) AS row_json,
+                                 unnest(?) AS finalized_duplicate
+                      ) AS updates
+                     WHERE target.session_id = ?
                        AND target.ordinal = updates.ordinal
                     """,
                     [*_columnar_parameters(values), run_id],
@@ -1379,12 +1427,12 @@ class PreparationSessionRepository(DuckDbRepository):
             ).fetchone()
             direct = connection.execute(
                 """
-                SELECT 1
+                SELECT content_hash
                   FROM canonical_staging_run
                  WHERE run_id = ?
                 """,
                 [self._session_id(session_id)],
-            ).fetchone() is not None
+            ).fetchone()
         if row is None:
             raise WorkspaceError("Preparation session was not found")
         if PreparationSessionStatus(str(row[0])) is not PreparationSessionStatus.READY:
@@ -1422,7 +1470,7 @@ class PreparationSessionRepository(DuckDbRepository):
                 project_id,
                 session_id,
                 row_count,
-                direct=direct,
+                direct=direct is not None,
             ),
             issues=issues,
             reconciliation=reconciliation,
@@ -1430,6 +1478,9 @@ class PreparationSessionRepository(DuckDbRepository):
             control_totals=controls,
             evaluator_version=int(row[9]),
             contract_version=int(row[8]),
+            validated_content_hash=(
+                str(direct[0]) if direct is not None else None
+            ),
         )
 
     def get_session(
@@ -2177,6 +2228,7 @@ class PreparationSessionRepository(DuckDbRepository):
             "preparation_lineage",
             "preparation_finalization_row",
             "preparation_identity_group",
+            "preparation_direct_identity",
             "preparation_provisional_row",
         ):
             connection.execute(

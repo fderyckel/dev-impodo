@@ -94,8 +94,9 @@ business key invalidates the active mapping so it must be validated again.
 
 **Delivery status:** The bounded preparation, review, durable preflight,
 execution snapshot, practical local load, and read-back reconciliation path
-are implemented. The representative disposable-target run, broader/remote
-loading, and production controls remain later delivery scope.
+are implemented. A live 150-row disposable-target run verified every row and
+repeated with no proposed writes or duplicates. Broader/remote loading and
+production controls remain later delivery scope.
 
 ## Install and start
 

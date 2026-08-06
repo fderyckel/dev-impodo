@@ -150,16 +150,19 @@ def create_preparation_session_schema(
                 session_id, dataset, source_row, row_id
             );
 
-        ALTER TABLE canonical_staging_row
-            ADD COLUMN IF NOT EXISTS identity_hash VARCHAR;
-        ALTER TABLE canonical_staging_row
-            ADD COLUMN IF NOT EXISTS base_disposition VARCHAR;
-        ALTER TABLE canonical_staging_row
-            ADD COLUMN IF NOT EXISTS finalized_duplicate BOOLEAN DEFAULT FALSE;
+        CREATE TABLE IF NOT EXISTS preparation_direct_identity (
+            session_id VARCHAR NOT NULL,
+            ordinal BIGINT NOT NULL,
+            dataset VARCHAR NOT NULL,
+            identity_hash VARCHAR NOT NULL,
+            base_disposition VARCHAR NOT NULL,
+            finalized_duplicate BOOLEAN NOT NULL,
+            PRIMARY KEY (session_id, ordinal)
+        );
 
-        CREATE INDEX IF NOT EXISTS canonical_staging_identity_lookup
-            ON canonical_staging_row (
-                run_id, dataset, identity_hash
+        CREATE INDEX IF NOT EXISTS preparation_direct_identity_lookup
+            ON preparation_direct_identity (
+                session_id, dataset, identity_hash
             );
         """
     )

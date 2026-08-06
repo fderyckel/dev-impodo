@@ -5,6 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.access import LOCAL_ACTOR
@@ -404,10 +405,8 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             session.session_id,
             rows,
         )
-        stored = self.repository.finalize_direct_session(
-            self.project.project_id,
-            session.session_id,
-            dataset_evidence={
+        finalization_arguments = {
+            "dataset_evidence": {
                 "contacts": (
                     "dataset:contacts",
                     StagingDatasetRole.DIRECT,
@@ -415,9 +414,9 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
                     "res.partner",
                 )
             },
-            run_issues=(),
-            control_totals=(),
-            impact_report=TransformationImpactReport(
+            "run_issues": (),
+            "control_totals": (),
+            "impact_report": TransformationImpactReport(
                 mapping_content_hash=MAPPING_HASH,
                 evaluated_count=0,
                 changed_count=0,
@@ -429,12 +428,51 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
                 rows=(),
                 detail_limit=0,
             ),
+        }
+        original_update = self.repository._update_direct_rows
+        failed_once = False
+
+        def fail_after_first_update(*args, **kwargs):
+            nonlocal failed_once
+            original_update(*args, **kwargs)
+            if not failed_once:
+                failed_once = True
+                raise RuntimeError("injected interrupted finalization")
+
+        with patch.object(
+            self.repository,
+            "_update_direct_rows",
+            side_effect=fail_after_first_update,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "injected interrupted finalization",
+            ):
+                self.repository.finalize_direct_session(
+                    self.project.project_id,
+                    session.session_id,
+                    **finalization_arguments,
+                )
+
+        stored = self.repository.finalize_direct_session(
+            self.project.project_id,
+            session.session_id,
+            **finalization_arguments,
         )
 
         restored = tuple(stored.rows)
         self.assertEqual(len(restored), 2)
         self.assertTrue(
             all(row.disposition is StagingDisposition.BLOCKED for row in restored)
+        )
+        self.assertTrue(
+            all(
+                sum(
+                    issue.code == "SOURCE_IDENTITY_DUPLICATE"
+                    for issue in row.issues
+                ) == 1
+                for row in restored
+            )
         )
         database_path = (
             self.repository.project_directory(self.project.project_id)

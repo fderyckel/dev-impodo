@@ -1,0 +1,110 @@
+profile:
+  id: p4_representative
+  description: Sanitized disposable-Odoo rehearsal for the practical path
+
+datasets:
+  - name: categories
+    source:
+      file: categories.csv
+    target:
+      model: product.category
+      mode: upsert
+    source_identity:
+      fields: [category_code]
+    target_identity:
+      components:
+        - source_fields: [name]
+          target_fields: [name]
+          type: string
+          normalize: {trim: true, collapse_whitespace: true}
+    fields: {}
+    relations: {}
+
+  - name: contacts
+    source:
+      file: contacts.csv
+    target:
+      model: res.partner
+      mode: upsert
+    source_identity:
+      fields: [reference]
+    target_identity:
+      components:
+        - source_fields: [reference]
+          target_fields: [ref]
+          type: string
+          normalize: {trim: true}
+    fields:
+      name:
+        source: name
+        type: string
+        required: true
+        required_on_create: true
+        compare: true
+        normalize: {trim: true, collapse_whitespace: true}
+      email:
+        source: email
+        type: string
+        required: true
+        compare: true
+        normalize: {trim: true}
+      phone:
+        source: phone
+        type: string
+        required: true
+        compare: true
+        normalize: {trim: true}
+      city:
+        source: city
+        type: string
+        required: true
+        compare: true
+        normalize: {trim: true, collapse_whitespace: true}
+    relations: {}
+
+  - name: products
+    source:
+      file: products.csv
+    target:
+      model: product.template
+      mode: upsert
+    source_identity:
+      fields: [product_code]
+    target_identity:
+      components:
+        - source_fields: [product_code]
+          target_fields: [default_code]
+          type: string
+          normalize: {trim: true}
+    fields:
+      name:
+        source: name
+        type: string
+        required: true
+        required_on_create: true
+        compare: true
+        normalize: {trim: true, collapse_whitespace: true}
+      list_price:
+        source: list_price
+        type: decimal
+        required: true
+        compare: true
+        normalize: {decimal_places: 2}
+      active:
+        source: active
+        type: boolean
+        required: true
+        compare: true
+    relations:
+      categ_id:
+        kind: many2one
+        source_fields: [category_code]
+        resolve:
+          dataset: categories
+          target_source_fields: [category_code]
+        required: true
+        required_on_create: true
+        compare: true
+        on_missing: error
+        on_ambiguous: error
+        operation: replace

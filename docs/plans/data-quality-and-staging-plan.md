@@ -5,7 +5,8 @@
 **Status:** Active delivery plan. Slices 0 through 6 are complete for the
 bounded browser workflow. The separate practical path now has a narrow local
 Odoo loader with durable post-write reconciliation; the representative
-migration and optional clean-package certification remain later work.
+migration is proven idempotent, while optional clean-package certification
+remains later work.
 
 This plan owns the work that turns the implemented, transient all-row browser
 readiness path into durable canonical staging, governed normalization, and a
@@ -39,7 +40,7 @@ certifiable read-only preflight package. It does not redefine:
 | Quality and quarantine | Versioned automatic and guided checks, dual source/canonical accounting, immutable quarantine evidence, bounded review paging, and eligible-row filtering before Odoo comparison are integrated |
 | Staging and certification | Durable atomic canonical staging, row controls, opt-in named business totals, and normalization freeze are integrated. Clean-package certification remains absent |
 | Advanced coverage | Approved scope and reference revisions, bounded structural rules, deterministic duplicate candidates, reviewed survivor/correction evidence, effective rows, and advanced quality checks are integrated without Odoo writes |
-| Practical Odoo execution | The execution snapshot, explicit local load preview, allowlisted contacts/categories/products writer, bounded batches, durable row journal, exact read-back, uncertain-response re-matching, and downloadable fallout are integrated separately |
+| Practical Odoo execution | The execution snapshot, explicit local load preview, allowlisted contacts/categories/products writer, bounded batches, durable row journal, exact read-back, uncertain-response re-matching, and downloadable fallout are integrated; a live 150-row disposable-target run verified every row and repeated as all unchanged |
 
 Read-only preflight now runs directly from durable frozen effective rows
 instead of recomputing a transient prepared bundle. Slice 6 is complete. The
@@ -268,11 +269,13 @@ categories, and products in a disposable Odoo 19 database. Use native JSON-2,
 one explicit **Load** action, bounded batches, stable identities, a row journal,
 and automatic read-back.
 
-The practical path is complete through reconciliation: browser preflight emits
+The practical milestone is complete: browser preflight emits
 the hash-bound execution snapshot, one explicit action writes the bounded
 create/update set, every API outcome is journaled, and the written rows are
-read back into a durable result with actionable fallout. The next increment is
-to run the representative 100–300-row migration against disposable Odoo.
+read back into a durable result with actionable fallout. A live 150-row run
+then verified 125 creates, 20 updates, 5 unchanged rows, and an all-unchanged
+repeat without duplicates. See the
+[P4 result](../reports/p4-representative-run-2026-08-06.md).
 
 Do not require advanced coverage, a separate clean-package certificate, a
 custom Odoo module, dual approval, or production ceremony for this disposable

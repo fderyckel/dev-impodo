@@ -11,10 +11,12 @@ Do not copy a fixed test count into documentation. The discovered suite is the
 current executable inventory; optional environment-gated integrations must be
 reported separately.
 
-This is not yet live-target acceptance. The local 25,000-row preparation and
-durable-preflight scopes have measured workstation evidence. The required
-100–300-record sanitized slice, live target runs, Odoo-side ACL evidence, and
-representative production sizing remain pending.
+The disposable-local practical path now has live-target acceptance: a
+150-record sanitized run completed with every row verified and a repeat
+preview proposed no writes. The local 25,000-row preparation and durable-
+preflight scopes also have measured workstation evidence. Broader Odoo-side
+ACL/record-rule matrices, remote targets, and representative production sizing
+remain pending for later risk profiles.
 
 ## Validation command
 
@@ -193,9 +195,15 @@ certification remain pending.
 - reconciliation reports retain status, field names, and recovery guidance,
   but not source or target business values.
 
-Live representative Odoo write/read-back and repeat-run acceptance remains the
-P4 task; the protected P3 adapter, service, persistence, and browser path are
-covered automatically.
+The protected P3 adapter, service, persistence, and browser path are covered
+automatically. The live representative P4 acceptance is recorded separately
+because it requires an explicitly disposable local Odoo database.
+
+P4 passed on 2026-08-06 against the isolated `impodo_p4_20260806` database:
+125 creates, 20 updates, 5 unchanged, 145 committed writes, 150 verified by
+read-back, no fallout or unknown outcomes, and a fresh preview with all 150
+unchanged. The [P4 result](../reports/p4-representative-run-2026-08-06.md)
+records the target counts and reproduction boundary.
 
 ### Verified
 

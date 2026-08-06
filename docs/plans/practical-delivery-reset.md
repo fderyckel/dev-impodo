@@ -154,11 +154,20 @@ and can be retried manually if the read connection itself failed.
 
 ### P4 — Run the representative migration
 
-**Status:** Next.
+**Status:** Completed 2026-08-06.
 
 Load and review 100–300 sanitized records in a disposable Odoo 19 database.
 Fix the concrete product problems found during that run. Do not expand scope
 until every row has a clear outcome and a second run is idempotent.
+
+The live rehearsal used 150 sanitized rows in the isolated local database
+`impodo_p4_20260806`: 10 product categories, 100 contacts, and 40 products.
+The first preview contained 125 creates, 20 updates, and 5 unchanged rows. All
+145 writes committed, read-back verified all 150 rows with no fallout or
+unknown outcome, and a fresh preview classified all 150 rows as unchanged.
+The exact-key target capture retained precisely 10 categories, 100 contacts,
+and 40 products, so no duplicate was created. The reproducible evidence is in
+the [P4 representative result](../reports/p4-representative-run-2026-08-06.md).
 
 ## Definition of done
 
@@ -173,3 +182,7 @@ The practical milestone is complete when a non-technical data manager can:
 Production execution remains a later, risk-classified step. The practical
 milestone proves that Impodo can complete a migration; it does not claim that
 every migration shape or production control is already supported.
+
+The five criteria above are now met for the disposable-local representative
+scope. Broader models, remote targets, and production execution remain
+risk-triggered follow-on work rather than blockers for this milestone.

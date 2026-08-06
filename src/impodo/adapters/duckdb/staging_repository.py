@@ -424,6 +424,10 @@ class StagingRepository(DuckDbRepository):
         content_hash = str(header[0])
         if not content_hash.startswith("sha256:") or len(content_hash) != 71:
             raise WorkspaceError("Pending prepared-data hash is invalid")
+        if run.validated_content_hash != content_hash:
+            raise WorkspaceError(
+                "Pending prepared-data hash changed unexpectedly"
+            )
         return content_hash
     def get_current_staging_summary(
         self,

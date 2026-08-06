@@ -788,11 +788,13 @@ module, generic method surface, duplicate, or silent loss.
 
 ### Slice 1 — Routine migration MVP
 
-**Status:** In progress. The practical snapshot, local native writer, bounded
+**Status:** Complete for the disposable-local practical scope. The snapshot,
+local native writer, bounded
 dependency-ordered writes, durable row journal, uncertain-response stop,
 protected read-back, recovery classification, downloadable fallout, and
-preview/load UI are implemented. The representative disposable-target run
-remains.
+preview/load UI are implemented. A live 150-row representative run verified
+every row and repeated as all unchanged. Remote and production hardening remain
+in later slices.
 
 - Implement `MigrationSnapshotV1`, incremental row hashing,
   `ExecutionManifestV1`, DuckDB row-stream repositories, dependency ordering,

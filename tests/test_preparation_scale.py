@@ -1057,11 +1057,12 @@ class BoundedPreparationParityTests(unittest.TestCase):
                     (SELECT COUNT(*) FROM preparation_provisional_row),
                     (SELECT COUNT(*) FROM preparation_lineage),
                     (SELECT COUNT(*) FROM preparation_impact_row),
-                    (SELECT COUNT(*) FROM preparation_final_row)
+                    (SELECT COUNT(*) FROM preparation_final_row),
+                    (SELECT COUNT(*) FROM preparation_direct_identity)
                 """
             ).fetchone()
         self.assertEqual(sessions, [("PUBLISHED", 37, 37, 37)])
-        self.assertEqual(temporary_rows, (0, 0, 0, 0))
+        self.assertEqual(temporary_rows, (0, 0, 0, 0, 0))
 
         repeated = self.context.preparation.prepare(
             project_id,

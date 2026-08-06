@@ -111,6 +111,7 @@ class StoredCanonicalStagingRun:
     control_totals: tuple[CanonicalControlTotal, ...]
     evaluator_version: int
     contract_version: int
+    validated_content_hash: str | None = None
 
 
 def prepared_record_to_portable_dict(record: PreparedRecord) -> dict[str, Any]:
