@@ -29,9 +29,10 @@ behavior, and custom-module logic remain effective. Odoo's security guidance
 also warns that direct SQL bypasses ORM and security behavior.
 
 For ordinary master-data loads, Impodo uses Odoo 19 JSON-2 over HTTPS with a
-dedicated integration user. It calls a small allowlisted subset of native
-model operations through an `OdooWriteExecutor` port. This requires no custom
-Odoo module and keeps installation and upgrades straightforward.
+real Odoo user who is already allowed to import and modify the selected data.
+It calls a small allowlisted subset of native model operations through an
+`OdooWriteExecutor` port. This requires no custom Odoo module and keeps
+installation and upgrades straightforward.
 
 For higher-risk work, an optional reviewed `impodo_migration_gateway` add-on
 adds target-side batch receipts, manifest-bound grants, and atomic operations
@@ -100,8 +101,9 @@ Odoo 19 documentation establishes the following constraints:
 - each JSON-2 call is a separate SQL transaction. A native batch should fit in
   one call; related work that must be atomic across calls requires a named
   server-side method or the gateway profile;
-- JSON-2 uses Odoo access rights, record rules, and field access, and Odoo
-  recommends a dedicated bot user for automated integrations;
+- JSON-2 uses the acting Odoo user's access rights, record rules, company
+  scope, and field access. A dedicated bot is relevant only for later
+  unattended automation, not for the normal interactive migration;
 - API keys expire after at most three months, should be rotated, and should
   be shorter-lived for exposed or high-privilege use;
 - Odoo's older XML-RPC and JSON-RPC services are deprecated, so a new Impodo
@@ -405,16 +407,25 @@ Important invariants:
 ## Native Odoo API writer
 
 The native writer is the default for routine and standard master-data loads.
-It uses documented JSON-2 endpoints and a dedicated integration user. Its
-client-side allowlist permits only the required metadata/read operations and
-`create`/`write` operations for approved models and fields. It exposes no
-generic method-name, domain, context, or `sudo` escape hatch to the UI or
-migration rows.
+It uses documented JSON-2 endpoints as the Odoo user who initiated the
+migration. That user must already have Odoo's import capability and the
+required create/write access for the selected models, fields, companies, and
+records. Its client-side allowlist permits only the required metadata/read
+operations and `create`/`write` operations for approved models and fields. It
+exposes no generic method-name, domain, context, or `sudo` escape hatch to the
+UI or migration rows.
+
+Every write is executed as that user through Odoo's ORM. Odoo therefore
+applies access rights, record rules, company restrictions, model overrides,
+constraints, computed/inverse behavior, and audit fields such as `create_uid`
+and `write_uid`. Impodo treats any Odoo validation or permission error as a
+failed row or batch; it never falls back to `sudo`, direct SQL, or database
+credentials.
 
 The client allowlist prevents accidental or application-driven scope
-expansion; it is not presented as a target-side security boundary. The bot's
-Odoo ACLs, record rules, field access, and company scope remain the native
-profile's authorization boundary. A customer that requires method-level
+expansion; it is not presented as a target-side security boundary. The acting
+user's Odoo ACLs, record rules, field access, and company scope remain the
+native profile's authorization boundary. A customer that requires method-level
 enforcement on the target selects the gateway profile.
 
 Execution behavior:
@@ -473,7 +484,8 @@ hash, model, named operation, company scope, field set, and bounded rows.
 
 Within one Odoo transaction, the gateway:
 
-1. authenticates the dedicated service user and checks the run grant;
+1. authenticates the acting Odoo user and checks any controlled-profile run
+   grant;
 2. rejects an expired, closed, out-of-order, wrong-target, wrong-company, or
    wrong-manifest request;
 3. checks the configured model, field, operation, row-count, and byte limits;
@@ -687,8 +699,15 @@ defaults rather than steps repeated for every run.
   access after provisioning, and reject authenticated redirects.
 - Keep Odoo PostgreSQL private. If it is on another host, use a private path
   and certificate-verified TLS; never expose it for Impodo.
-- Use a dedicated, non-interactive Odoo bot with only the required groups,
-  model ACLs, record rules, field access, and companies.
+- Authenticate as the Odoo user performing the migration. The user must
+  already have Odoo's import capability plus the required model ACLs, record
+  rules, field access, and company access. Impodo never adds groups or elevates
+  that user.
+- Use the user's API key rather than their Odoo password. Resolve and display
+  the resulting Odoo identity during the connection test so the user can
+  confirm who will appear in Odoo's audit fields.
+- Store the API key per Impodo actor, not as a project-wide shared credential,
+  unless an organization explicitly configures an unattended connection.
 - Store keys only in the OS credential vault or managed secret service. Store
   a secret reference, never the key, in projects, snapshots, jobs, logs,
   reports, browser storage, or URLs.
@@ -713,12 +732,14 @@ status rather than a checklist.
   and use mTLS at the reverse proxy for controlled deployments.
 - Firewall the Odoo origin so it is not reachable around the approved proxy or
   private-network path.
-- Use separate read and execution credentials when policy or privilege level
-  warrants it. For controlled runs, issue a short-lived execution key or grant
-  and revoke it after the migration window.
+- An interactive native run normally uses the same acting user's API key for
+  preflight and execution. Separate credentials are optional for unattended
+  automation or a controlled customer policy. A controlled run may use a
+  short-lived key for the same acting user, or a scoped grant, and revoke it
+  after the migration window.
 - Sign and pin the optional gateway add-on release; deploy it through normal
   Odoo module change control. It downloads or evaluates no code at runtime.
-- Gateway business-model work runs as the bot user. Narrow elevated work for
+- Gateway business-model work runs as the acting user. Narrow elevated work for
   receipts or the `impodo_*` External-ID namespace must be locally
   implemented, allowlisted, and independently reviewed; it must not turn
   business creates/updates into superuser operations.
@@ -850,8 +871,8 @@ still no arbitrary RPC escape hatch.
 
 ### Security
 
-- For every profile, prove model/field/company allowlists, bot ACLs, record
-  rules, field access, target binding, TLS failure behavior, credential
+- For every profile, prove model/field/company allowlists, acting-user ACLs,
+  record rules, field access, target binding, TLS failure behavior, credential
   redaction, target locking, and rejection of caller-controlled
   method/context data.
 - For controlled profiles, additionally prove route filtering, approval/grant

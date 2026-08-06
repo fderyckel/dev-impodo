@@ -100,11 +100,25 @@ cutover, hosted workers, and a custom Odoo gateway are parked.
 
 ### P1 — Freeze the practical input
 
+**Status:** Completed 2026-08-06.
+
 Adapt the already approved normalization output and read-only preflight
 decisions into one internal execution snapshot. Generate it automatically
 from current evidence; do not add a certification screen.
 
+The read-only comparison now writes `impodo_execution_snapshot.json` beside
+its technical manifest. The snapshot binds the submitted mapping, compiled
+plan, staging, quality, frozen normalization, target fingerprint, protected
+target snapshots, and preflight result. It accounts for every compared row and
+stores explicit `OMIT`, `SET_NULL`, or `SET_VALUE` intentions only for rows
+classified `CREATE` or `UPDATE`. Row hashes, a root hash, and a semantic hash
+detect substitution or drift; proposed External IDs contain hashes rather
+than business values. Loading the current snapshot rechecks it against the
+current report. This is automatic internal evidence, not a new user approval.
+
 ### P2 — Preview and load a disposable target
+
+**Status:** Next.
 
 Add an allowlisted native writer for contacts, categories, and products. Show
 one preview, require one **Load** confirmation, execute bounded batches, and

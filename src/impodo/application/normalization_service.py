@@ -7,6 +7,7 @@ from typing import Iterable
 from ..access import Actor, AuthorizationPolicy, Capability
 from ..domain.staging.transformation_impact import TransformationImpactRow
 from ..domain.resolution import EffectiveDataset
+from ..domain.staging.preparation_session import StoredCanonicalStagingRun
 from ..governance import DryRun
 from ..domain.mapping.artifacts import MappingRevision
 from ..normalization import (
@@ -18,7 +19,7 @@ from ..normalization import (
     evaluate_normalization,
 )
 from ..projects import MigrationProject
-from ..quality import QualityRun, QualityRunSummary
+from ..quality import QualityRun, QualityRunSummary, StoredQualityRun
 from ..staging import StagingRunSummary
 from ..staging_contracts import CanonicalStagingRun
 from ..workspace_contracts import SourceSelection
@@ -142,9 +143,9 @@ class NormalizationService:
         project: MigrationProject,
         revision: MappingRevision,
         selection: SourceSelection,
-        canonical_run: CanonicalStagingRun,
+        canonical_run: CanonicalStagingRun | StoredCanonicalStagingRun,
         staging: StagingRunSummary,
-        quality_run: QualityRun,
+        quality_run: QualityRun | StoredQualityRun,
         quality: QualityRunSummary,
         impact_rows: Iterable[TransformationImpactRow],
         source_hashes: dict[str, str],

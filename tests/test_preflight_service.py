@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
-from types import SimpleNamespace
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -15,6 +16,7 @@ from impodo.access import (
     CapabilityAuthorizationPolicy,
 )
 from impodo.application.preflight_service import (
+    EXECUTION_SNAPSHOT_NAME,
     MANIFEST_NAME,
     PreflightService,
     _validate_snapshot_projection,
@@ -173,6 +175,14 @@ class PreflightPublicationTests(unittest.TestCase):
                 "impodo.application.preflight_service._readiness_report",
                 return_value=report,
             ),
+            patch(
+                "impodo.application.preflight_service.build_execution_snapshot",
+                return_value=SimpleNamespace(
+                    to_json=lambda: "{}",
+                    semantic_hash="sha256:" + "9" * 64,
+                    root_hash="sha256:" + "a" * 64,
+                ),
+            ),
             self.assertRaisesRegex(WorkspaceError, "injected persistence failure"),
         ):
             service.compare(
@@ -181,11 +191,21 @@ class PreflightPublicationTests(unittest.TestCase):
                 actor=actor,
             )
 
-        artifacts.write_report.assert_called_once()
-        artifacts.delete_report.assert_called_once()
+        self.assertEqual(artifacts.write_report.call_count, 2)
+        self.assertEqual(artifacts.delete_report.call_count, 2)
         self.assertEqual(
-            artifacts.delete_report.call_args.args,
-            artifacts.write_report.call_args.args[:3],
+            {call.args[2] for call in artifacts.delete_report.call_args_list},
+            {MANIFEST_NAME, EXECUTION_SNAPSHOT_NAME},
+        )
+        manifest_call = next(
+            call
+            for call in artifacts.write_report.call_args_list
+            if call.args[2] == MANIFEST_NAME
+        )
+        manifest = json.loads(manifest_call.args[3])
+        self.assertEqual(
+            manifest["preflight_evidence"]["execution_snapshot_hash"],
+            "sha256:" + "9" * 64,
         )
 
     def test_report_cleanup_removes_empty_unpublished_run_directory(self) -> None:

@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 from hashlib import sha256
+import json
 from typing import Callable
 from uuid import uuid4
 
 from ..access import Actor, AuthorizationPolicy, Capability
-from ..artifacts import ArtifactStore
+from ..artifacts import ArtifactStore, ArtifactStoreError
 from ..connectors import (
     MetadataRequest,
     MetadataSnapshot,
@@ -27,6 +28,10 @@ from ..domain.compiler.browser_mapping_compiler import (
     compile_browser_mapping,
 )
 from ..domain.errors import ReadinessError
+from ..domain.execution_snapshot import (
+    ExecutionSnapshot,
+    build_execution_snapshot,
+)
 from ..domain.preflight.frozen_input import (
     FrozenPreflightInput,
     build_frozen_preflight_input,
@@ -53,6 +58,7 @@ from .readiness_ports import (
 
 
 MANIFEST_NAME = "impodo_preflight_manifest.json"
+EXECUTION_SNAPSHOT_NAME = "impodo_execution_snapshot.json"
 
 ReadinessReader = Callable[
     [tuple[MetadataRequest, ...], tuple[RecordRequest, ...]],
@@ -161,6 +167,56 @@ class PreflightService:
 
         return self.staging.get_current_staging_summary(project_id)
 
+    def current_execution_snapshot(
+        self, project_id: str
+    ) -> ExecutionSnapshot | None:
+        """Load the automatically generated snapshot for current evidence.
+
+        The artifact is usable only while the current report still matches all
+        source, normalization, mapping, and target bindings.  Corrupt or
+        substituted content fails closed instead of silently rebuilding a
+        different execution input.
+        """
+
+        report = self.current_report(project_id)
+        if report is None:
+            return None
+        try:
+            with self.artifacts.materialize_report(
+                project_id,
+                report.run_id,
+                EXECUTION_SNAPSHOT_NAME,
+            ) as path:
+                snapshot = ExecutionSnapshot.from_json(path.read_text("utf-8"))
+            with self.artifacts.materialize_report(
+                project_id,
+                report.run_id,
+                MANIFEST_NAME,
+            ) as path:
+                manifest_content = path.read_bytes()
+            manifest = json.loads(manifest_content)
+            if not isinstance(manifest, dict) or not isinstance(
+                manifest.get("preflight_evidence"), dict
+            ):
+                raise ValueError("Preflight manifest evidence is invalid")
+            manifest_evidence = manifest["preflight_evidence"]
+        except (ArtifactStoreError, OSError, ValueError) as error:
+            raise ReadinessError(
+                "The execution snapshot is missing or invalid. Run the Odoo "
+                "comparison again."
+            ) from error
+        if not _snapshot_matches_report(snapshot, report) or not (
+            "sha256:" + sha256(manifest_content).hexdigest()
+            == report.manifest_hash
+            and manifest_evidence.get("execution_snapshot_hash")
+            == snapshot.semantic_hash
+        ):
+            raise ReadinessError(
+                "The execution snapshot no longer matches the current Odoo "
+                "comparison. Run the comparison again."
+            )
+        return snapshot
+
     def readiness_rows(
         self,
         project_id: str,
@@ -245,6 +301,14 @@ class PreflightService:
         if not result.metadata_snapshot_hash or not result.record_snapshot_hash:
             raise ReadinessError("Odoo snapshot evidence is incomplete")
         run_id = str(uuid4())
+        execution_snapshot = build_execution_snapshot(
+            preflight_run_id=run_id,
+            frozen=frozen,
+            result=result,
+        )
+        execution_snapshot_content = (
+            execution_snapshot.to_json().encode("utf-8") + b"\n"
+        )
         frozen_input_hash = frozen.content_hash
         requirement_plan_hash = requirements.semantic_hash
         manifest = result.to_portable_dict()
@@ -261,6 +325,8 @@ class PreflightService:
             "requirement_model_count": requirements.model_count,
             "requirement_chunk_count": requirements.chunk_count,
             "source_record_count": requirements.source_record_count,
+            "execution_snapshot_hash": execution_snapshot.semantic_hash,
+            "execution_snapshot_root_hash": execution_snapshot.root_hash,
         }
         manifest_content = canonical_json_bytes(manifest) + b"\n"
         del manifest
@@ -295,6 +361,12 @@ class PreflightService:
                 MANIFEST_NAME,
                 manifest_content,
             )
+            self.artifacts.write_report(
+                project_id,
+                run_id,
+                EXECUTION_SNAPSHOT_NAME,
+                execution_snapshot_content,
+            )
             self.preflight.save_readiness_report(
                 project_id,
                 report,
@@ -305,10 +377,11 @@ class PreflightService:
                 actor=actor,
             )
         except Exception:
-            try:
-                self.artifacts.delete_report(project_id, run_id, MANIFEST_NAME)
-            except Exception:
-                pass
+            for filename in (MANIFEST_NAME, EXECUTION_SNAPSHOT_NAME):
+                try:
+                    self.artifacts.delete_report(project_id, run_id, filename)
+                except Exception:
+                    pass
             raise
         return report
 
@@ -431,3 +504,46 @@ def _validate_snapshot_projection(
     for model, fields in expected_records.items():
         if tuple(records.requested_fields[model]) != tuple(fields):
             raise ReadinessError("Odoo record snapshot omitted requested fields")
+
+
+def _snapshot_matches_report(
+    snapshot: ExecutionSnapshot,
+    report: ReadinessReport,
+) -> bool:
+    """Bind a stored execution payload to the exact current readiness report."""
+
+    return (
+        snapshot.project_id == report.project_id
+        and snapshot.preflight_run_id == report.run_id
+        and snapshot.mapping_id == report.mapping_id
+        and snapshot.mapping_version == report.mapping_version
+        and snapshot.mapping_content_hash == report.mapping_content_hash
+        and snapshot.staging_run_id == report.staging_run_id
+        and snapshot.staging_content_hash == report.staging_content_hash
+        and snapshot.quality_run_id == report.quality_run_id
+        and snapshot.quality_content_hash == report.quality_content_hash
+        and snapshot.normalization_run_id == report.normalization_run_id
+        and snapshot.normalization_content_hash
+        == report.normalization_content_hash
+        and snapshot.normalization_lifecycle_version
+        == report.normalization_lifecycle_version
+        and snapshot.eligible_dataset_hash == report.eligible_dataset_hash
+        and snapshot.frozen_input_hash == report.frozen_input_hash
+        and snapshot.preflight_result_hash == report.result_hash
+        and snapshot.metadata_snapshot_hash == report.metadata_snapshot_hash
+        and snapshot.record_snapshot_hash == report.record_snapshot_hash
+        and snapshot.target_hash == report.target_hash
+        and snapshot.target_database == report.target_database
+        and snapshot.target_odoo_version == report.target_odoo_version
+        and snapshot.target_snapshot_at == report.target_snapshot_at
+        and dict(snapshot.target_module_versions)
+        == dict(report.target_module_versions)
+        and dict(snapshot.counts)
+        == {
+            "AMBIGUOUS": report.ambiguous_count,
+            "BLOCKED": report.blocked_count,
+            "CREATE": report.create_count,
+            "UNCHANGED": report.unchanged_count,
+            "UPDATE": report.update_count,
+        }
+    )

@@ -1235,17 +1235,29 @@ class PreparationSessionRepository(DuckDbRepository):
     ) -> Iterator[CanonicalRow]:
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            cursor = connection.execute(
+            canonical_session_id = self._session_id(session_id)
+            next_ordinal = 0
+            while batch := connection.execute(
                 """
-                SELECT row_json
+                SELECT ordinal, row_json
                   FROM preparation_final_row
                  WHERE session_id = ?
+                   AND ordinal >= ?
                  ORDER BY ordinal
+                 LIMIT ?
                 """,
-                [self._session_id(session_id)],
-            )
-            while batch := cursor.fetchmany(PREPARATION_SESSION_ROW_BATCH_SIZE):
-                for (row_text,) in batch:
+                [
+                    canonical_session_id,
+                    next_ordinal,
+                    PREPARATION_SESSION_ROW_BATCH_SIZE,
+                ],
+            ).fetchall():
+                for ordinal, row_text in batch:
+                    if int(ordinal) != next_ordinal:
+                        raise WorkspaceError(
+                            "Stored preparation final rows are not contiguous"
+                        )
+                    next_ordinal += 1
                     yield self._canonical_row(str(row_text))
 
     @staticmethod

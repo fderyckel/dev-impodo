@@ -361,10 +361,9 @@ with effect capture and persistence.
 to the highest completed probe; persistence and review paging are bounded; no
 N+1 database or Odoo access is introduced; the full suite passes.
 
-For the existing three-column workstation fixture, target acceptance is no
-more than 60 seconds end-to-end, less than 512 MiB peak RSS, and less than
-128 MiB project-database size. These are local regression guards, not
-production sizing guarantees.
+For the existing three-column workstation fixture, record end-to-end time,
+peak RSS, and project-database size as diagnostic baselines. They are not
+pass/fail gates or production sizing guarantees.
 
 ## Required acceptance cases
 

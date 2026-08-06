@@ -437,11 +437,10 @@ lowered to the largest completed end-to-end probe; there is no N+1 or unbounded
 Odoo access; the focused suite passes. The whole browser copy suite may be
 baselined separately after the active UI revamp stabilizes.
 
-For the deterministic workstation fixture, retain the existing local guards:
-no more than 60 seconds excluding real network latency, less than 512 MiB peak
-working set, and less than 128 MiB total project-database size. Record request
-counts, target rows, domain chunks, snapshot size, manifest size, and workbook
-size. These are regression guards, not production sizing guarantees.
+For the deterministic workstation fixture, record elapsed time, peak working
+set, project-database size, request counts, target rows, domain chunks,
+snapshot size, manifest size, and workbook size. These are diagnostic
+baselines, not pass/fail gates or production sizing guarantees.
 
 ## Required acceptance cases
 

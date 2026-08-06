@@ -14,7 +14,10 @@ from unittest.mock import patch
 import psutil
 
 from impodo.application import preflight_service as preflight_module
-from impodo.application.preflight_service import MANIFEST_NAME
+from impodo.application.preflight_service import (
+    EXECUTION_SNAPSHOT_NAME,
+    MANIFEST_NAME,
+)
 from impodo.connectors import MetadataSnapshot, RecordSnapshot
 from impodo.domain.preflight import frozen_input as frozen_input_module
 from impodo.models import (
@@ -246,6 +249,15 @@ def run(root: Path, project_id: str, row_count: int) -> dict[str, object]:
             project_id, report.run_id, WORKBOOK_NAME
         ) as workbook_path:
             workbook_bytes = workbook_path.stat().st_size
+    with context.artifacts.materialize_report(
+        project_id,
+        report.run_id,
+        EXECUTION_SNAPSHOT_NAME,
+    ) as execution_snapshot_path:
+        execution_snapshot_bytes = execution_snapshot_path.stat().st_size
+    execution_snapshot = context.preflight.current_execution_snapshot(project_id)
+    assert execution_snapshot is not None
+    assert execution_snapshot.preflight_run_id == report.run_id
 
     database_bytes = sum(
         path.stat().st_size
@@ -264,6 +276,8 @@ def run(root: Path, project_id: str, row_count: int) -> dict[str, object]:
         "result_pages": request_counts.get("records", 0),
         "snapshot_bytes": int(stored[2]),
         "manifest_bytes": manifest_bytes,
+        "execution_snapshot_bytes": execution_snapshot_bytes,
+        "execution_snapshot_hash": execution_snapshot.semantic_hash,
         "workbook_bytes": workbook_bytes,
         "persisted_decisions": int(stored[0]),
         "persisted_snapshots": int(stored[1]),

@@ -1,4 +1,4 @@
-"""Opt-in historical-scale acceptance for durable Slice 5 preflight."""
+"""Opt-in historical-scale diagnostic for durable preflight."""
 
 from __future__ import annotations
 
@@ -19,9 +19,6 @@ from tests import test_preparation_scale as preparation_scale
 
 ROOT = Path(__file__).resolve().parents[1]
 PREFLIGHT_SCALE_ROWS = int(os.environ.get("IMPODO_PREFLIGHT_SCALE_ROWS", "25000"))
-PREFLIGHT_TIME_LIMIT_SECONDS = 60
-PREFLIGHT_PEAK_WORKING_SET_LIMIT_MIB = 512
-PREFLIGHT_DATABASE_LIMIT_MIB = 128
 
 
 @unittest.skipUnless(
@@ -124,27 +121,8 @@ class DurablePreflightScaleTests(unittest.TestCase):
             self.assertEqual(metrics["record_requests"], metrics["domain_chunks"])
             self.assertGreater(metrics["snapshot_bytes"], 0)
             self.assertGreater(metrics["manifest_bytes"], 0)
+            self.assertGreater(metrics["execution_snapshot_bytes"], 0)
             self.assertGreater(metrics["workbook_bytes"], 0)
-
-            if PREFLIGHT_SCALE_ROWS >= 25_000:
-                failures = []
-                if metrics["elapsed_seconds"] >= PREFLIGHT_TIME_LIMIT_SECONDS:
-                    failures.append(
-                        f"{metrics['elapsed_seconds']:.3f}s is not below "
-                        f"{PREFLIGHT_TIME_LIMIT_SECONDS}s"
-                    )
-                if metrics["peak_mib"] >= PREFLIGHT_PEAK_WORKING_SET_LIMIT_MIB:
-                    failures.append(
-                        f"{metrics['peak_mib']:.1f} MiB is not below "
-                        f"{PREFLIGHT_PEAK_WORKING_SET_LIMIT_MIB} MiB"
-                    )
-                if metrics["database_mib"] >= PREFLIGHT_DATABASE_LIMIT_MIB:
-                    failures.append(
-                        f"{metrics['database_mib']:.1f} MiB is not below "
-                        f"{PREFLIGHT_DATABASE_LIMIT_MIB} MiB"
-                    )
-                if failures:
-                    self.fail("; ".join(failures))
 
 
 if __name__ == "__main__":

@@ -482,7 +482,8 @@ project, removes its source artifact, and launches a fresh comparison process.
 The measured interval starts with durable frozen-evidence retrieval and ends
 after the manifest, decision rows, protected target snapshots, and current
 preflight pointer are persisted. Workbook generation runs afterward so its
-size is recorded without changing the comparison-time guard.
+size is recorded separately. Runtime, working set, and artifact sizes are
+diagnostics rather than release gates.
 
 Command:
 
@@ -502,9 +503,8 @@ Result on the MacBook Air M5 on 2026-08-06:
 The protected snapshot was 2,915,076 bytes, the portable manifest was
 6,665,592 bytes, and the workbook was 688,774 bytes. All 25,000 decisions were
 persisted as `UNCHANGED`; two protected snapshot envelopes and one readiness
-run were stored. The run passed the Slice 5 guards of less than 60 seconds,
-less than 512 MiB peak working set, and less than 128 MiB project-database
-size.
+run were stored. These observations retain the Slice 5 baseline but no longer
+act as pass/fail thresholds under the practical delivery policy.
 
 The ordinary regression suite then ran 262 tests in 19.680 seconds: 252 passed
 and 10 environment-gated tests were skipped. There were no failures or errors.

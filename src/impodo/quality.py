@@ -9,13 +9,13 @@ hashes; numeric Odoo identifiers are forbidden by construction.
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
 import json
-from typing import Any, Iterable, Mapping
+from typing import AbstractSet, Any, Iterable, Mapping, Sequence
 
 from .models import LogicalReference, canonical_json_bytes, portable_value
 from .projects import MigrationProject
@@ -786,6 +786,104 @@ class QualityRun:
 
 
 @dataclass(frozen=True, slots=True)
+class StoredQualityRun:
+    """Validated Stage-F header backed by bounded evidence sequences.
+
+    This is the quality equivalent of a stored canonical staging run.  It is
+    intentionally not a second portable contract: repositories publish the
+    same row, accounting, issue, and quarantine objects in the same canonical
+    order while the application avoids retaining every object at once.
+    """
+
+    project_id: str
+    staging_content_hash: str
+    ruleset_hash: str
+    mapping_hash: str
+    schema_hash: str
+    retention_context_hash: str
+    row_results: Sequence[QualityRowResult]
+    source_accounting: Sequence[SourceAccountingEntry]
+    issues: Sequence[QualityIssue]
+    quarantine: Sequence[QuarantineEntry]
+    effective_dataset_hash: str
+    eligible_row_ids: AbstractSet[str]
+    summary_counts: Mapping[str, int]
+    published_content_hash: str | None = None
+    evaluator_version: int = QUALITY_EVALUATOR_VERSION
+    contract_version: int = QUALITY_CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        if (self.contract_version, self.evaluator_version) not in _SUPPORTED_QUALITY_VERSIONS:
+            raise ValueError("Quality evidence version is unsupported")
+        if not self.project_id:
+            raise ValueError("Quality evidence identity is incomplete")
+        for value, label in (
+            (self.staging_content_hash, "quality staging hash"),
+            (self.ruleset_hash, "quality ruleset hash"),
+            (self.mapping_hash, "quality mapping hash"),
+            (self.schema_hash, "quality schema hash"),
+            (self.retention_context_hash, "quality retention hash"),
+            (self.effective_dataset_hash, "quality effective-dataset hash"),
+        ):
+            _require_hash(value, label)
+        if self.published_content_hash is not None:
+            _require_hash(self.published_content_hash, "quality content hash")
+        expected_counts = {
+            "ready_count",
+            "review_count",
+            "quarantined_count",
+            "excluded_count",
+            "blocked_count",
+        }
+        if set(self.summary_counts) != expected_counts or any(
+            not isinstance(value, int) or value < 0
+            for value in self.summary_counts.values()
+        ):
+            raise ValueError("Quality summary counts are invalid")
+
+    @property
+    def content_hash(self) -> str:
+        """Return the hash calculated while the bounded evidence was stored."""
+
+        if self.published_content_hash is None:
+            raise ValueError("Stored quality evidence has not been published")
+        return self.published_content_hash
+
+    def with_content_hash(self, content_hash: str) -> "StoredQualityRun":
+        """Bind the exact repository-calculated hash after publication."""
+
+        return replace(self, published_content_hash=content_hash)
+
+    @property
+    def ready_count(self) -> int:
+        return self.summary_counts["ready_count"]
+
+    @property
+    def review_count(self) -> int:
+        return self.summary_counts["review_count"]
+
+    @property
+    def quarantined_count(self) -> int:
+        return self.summary_counts["quarantined_count"]
+
+    @property
+    def excluded_count(self) -> int:
+        return self.summary_counts["excluded_count"]
+
+    @property
+    def blocked_count(self) -> int:
+        return self.summary_counts["blocked_count"]
+
+    @property
+    def can_compare(self) -> bool:
+        return self.blocked_count == 0
+
+    @property
+    def ready_for_package(self) -> bool:
+        return self.can_compare and self.review_count == 0
+
+
+@dataclass(frozen=True, slots=True)
 class QualityRunSummary:
     """Small lifecycle/count projection for the currently published run."""
 
@@ -1080,10 +1178,9 @@ def evaluate_quality(
 
     collision_groups: dict[bytes, CanonicalRow | list[CanonicalRow]] = {}
     for row in rows:
-        identity = (*row.target_identity, *row.target_scope)
-        if not identity or any(value is None or value == "" for value in identity):
+        key = quality_identity_key(row)
+        if key is None:
             continue
-        key = canonical_json_bytes({"dataset": row.dataset, "model": row.target_model, "identity": portable_value(row.target_identity), "scope": portable_value(row.target_scope)})
         existing = collision_groups.get(key)
         if existing is None:
             collision_groups[key] = row
@@ -1489,6 +1586,44 @@ def _effective_disposition(row: CanonicalRow, issues: Iterable[QualityIssue]) ->
     if QualityOutcomePolicy.EXCLUDE in policies:
         return QualityDisposition.EXCLUDED
     return QualityDisposition(row.disposition.value)
+
+
+def clean_quality_row_result(row: CanonicalRow) -> QualityRowResult:
+    """Build the exact Stage-F result for a row with no quality findings."""
+
+    disposition = QualityDisposition(row.disposition.value)
+    return QualityRowResult(
+        row_id=row.row_id,
+        dataset=row.dataset,
+        source_row=row.source_row,
+        record_label=_record_label(row),
+        base_disposition=disposition,
+        effective_disposition=disposition,
+        issue_ids=(),
+        requires_review=False,
+    )
+
+
+def quality_identity_key(row: CanonicalRow) -> bytes | None:
+    """Return the collision key used by the complete quality evaluator."""
+
+    identity = (*row.target_identity, *row.target_scope)
+    if not identity or any(value is None or value == "" for value in identity):
+        return None
+    return canonical_json_bytes(
+        {
+            "dataset": row.dataset,
+            "model": row.target_model,
+            "identity": portable_value(row.target_identity),
+            "scope": portable_value(row.target_scope),
+        }
+    )
+
+
+def has_logical_references(row: CanonicalRow) -> bool:
+    """Whether relationship propagation requires the global graph evaluator."""
+
+    return bool(_logical_references(row))
 
 
 def _family_for_issue(issue: CanonicalIssue) -> QualityRuleFamily:

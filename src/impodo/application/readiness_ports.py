@@ -24,7 +24,12 @@ from ..normalization import (
     NormalizationRunSummary,
 )
 from ..projects import MigrationProject
-from ..quality import QualityRuleSet, QualityRun, QualityRunSummary
+from ..quality import (
+    QualityRuleSet,
+    QualityRun,
+    QualityRunSummary,
+    StoredQualityRun,
+)
 from ..staging import StagingRunSummary
 from ..staging_contracts import (
     CanonicalControlTotal,
@@ -241,7 +246,7 @@ class QualityRepository(Protocol):
     def publish_quality_run(
         self,
         project_id: str,
-        run: QualityRun,
+        run: QualityRun | StoredQualityRun,
         *,
         staging_run_id: str,
         effective_dataset_run_id: str | None = None,

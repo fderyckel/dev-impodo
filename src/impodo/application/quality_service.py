@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from ..access import Actor
 from ..domain.mapping.artifacts import MappingRevision
 from ..domain.resolution import EffectiveDataset
+from ..domain.staging.preparation_session import StoredCanonicalStagingRun
 from ..domain.coverage import ReferenceBundle
 from ..projects import MigrationProject
 from ..quality import (
@@ -15,6 +16,7 @@ from ..quality import (
     QualityRuleSet,
     QualityRun,
     QualityRunSummary,
+    StoredQualityRun,
     default_quality_ruleset,
     evaluate_quality,
 )
@@ -27,6 +29,11 @@ from .readiness_ports import (
     QualityMappingRepository,
     QualityRepository,
     QualitySourceRepository,
+)
+from .bounded_quality import (
+    BoundedQualityUnsupported,
+    build_bounded_quality_run,
+    materialize_staging_run,
 )
 
 
@@ -192,7 +199,7 @@ class QualityService:
         project: MigrationProject,
         revision: MappingRevision,
         selection: SourceSelection,
-        canonical_run: CanonicalStagingRun,
+        canonical_run: CanonicalStagingRun | StoredCanonicalStagingRun,
         physical_rows: dict[str, tuple[int, ...]],
         staging: StagingRunSummary,
         effective: EffectiveDataset | None = None,
@@ -200,7 +207,7 @@ class QualityService:
         reference_bundle: ReferenceBundle | None = None,
         *,
         actor: Actor,
-    ) -> tuple[QualityRun, QualityRunSummary]:
+    ) -> tuple[QualityRun | StoredQualityRun, QualityRunSummary]:
         """Evaluate Stage F and publish its full run plus lifecycle summary.
 
         A compatible ruleset is reused; otherwise automatic rules are rebuilt
@@ -228,15 +235,39 @@ class QualityService:
                 actor=actor,
             )
         try:
-            quality_run = evaluate_quality(
-                project=project,
-                staging=canonical_run,
-                physical_rows=physical_rows,
-                ruleset=ruleset,
-                published_staging_content_hash=staging.content_hash,
-                effective=effective,
-                reference_bundle=reference_bundle,
-            )
+            if (
+                isinstance(canonical_run, StoredCanonicalStagingRun)
+                and effective is None
+            ):
+                try:
+                    quality_run: QualityRun | StoredQualityRun = (
+                        build_bounded_quality_run(
+                            project=project,
+                            staging=canonical_run,
+                            physical_rows=physical_rows,
+                            ruleset=ruleset,
+                            published_staging_content_hash=staging.content_hash,
+                        )
+                    )
+                except BoundedQualityUnsupported:
+                    quality_run = evaluate_quality(
+                        project=project,
+                        staging=materialize_staging_run(canonical_run),
+                        physical_rows=physical_rows,
+                        ruleset=ruleset,
+                        published_staging_content_hash=staging.content_hash,
+                        reference_bundle=reference_bundle,
+                    )
+            else:
+                quality_run = evaluate_quality(
+                    project=project,
+                    staging=canonical_run,
+                    physical_rows=physical_rows,
+                    ruleset=ruleset,
+                    published_staging_content_hash=staging.content_hash,
+                    effective=effective,
+                    reference_bundle=reference_bundle,
+                )
         except QualityError as error:
             raise ReadinessError(str(error)) from error
         summary = self.quality.publish_quality_run(
@@ -251,4 +282,6 @@ class QualityService:
                 "Fix the data-check setup shown below, then check all rows again. "
                 "Odoo was not contacted."
             )
+        if isinstance(quality_run, StoredQualityRun):
+            quality_run = quality_run.with_content_hash(summary.content_hash)
         return quality_run, summary

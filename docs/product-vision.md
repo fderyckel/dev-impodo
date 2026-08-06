@@ -319,27 +319,28 @@ The browser path consumes the exact approved durable staging, quality, and
 normalization evidence. The expert profile path retains its declared-source
 adapter and feeds the same compiled plan, matcher, resolver, and classifier.
 
-### Stage I — Freeze an approved import plan
+### Stage I — Freeze exact execution input
 
 The write stage never executes directly from a mutable mapping or staging
-table. Approval freezes:
+table. For the practical disposable-target path, Impodo automatically freezes:
 
 - source hashes;
 - target schema and record snapshot hashes;
 - mapping ID, version, and hash;
 - validation-rule version;
 - canonical staged-data hash;
-- exact planned actions and dependency order;
-- exact target identity;
-- approver, time, scope, and expiry or staleness policy.
+- exact planned actions, row dispositions, field intentions, and dependency
+  order;
+- exact target identity.
 
-Any changed input invalidates approval and requires a new preflight.
+Any changed input invalidates the snapshot and requires a new preflight. The
+user reviews the resulting preview and makes one explicit **Load** choice; the
+snapshot itself is internal evidence, not a separate approval screen.
 
-For the first release, the **data manager** approves mapping versions and
-import plans. The approval record identifies that person, the approved scope,
-the exact target, and the expiry. Functional stakeholders may review
-business rules, but their review does not replace the data manager's recorded
-approval.
+For a later production or otherwise higher-risk profile, a **data manager** may
+also approve the import plan. That optional approval record identifies the
+person, scope, target, and expiry. Functional stakeholders may review business
+rules, but their review does not replace a required production approval.
 
 ### Stage J — Controlled Odoo execution
 

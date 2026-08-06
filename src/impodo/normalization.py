@@ -28,9 +28,11 @@ from .projects import DataClassification, MigrationProject
 from .quality import (
     QualityOutcomePolicy,
     QualityRun,
+    StoredQualityRun,
     retention_context_hash,
 )
 from .domain.resolution import EffectiveDataset
+from .domain.staging.preparation_session import StoredCanonicalStagingRun
 from .staging_contracts import CanonicalStagingRun
 
 
@@ -481,8 +483,8 @@ class NormalizationReviewPage:
 def evaluate_normalization(
     *,
     project: MigrationProject,
-    staging: CanonicalStagingRun,
-    quality: QualityRun,
+    staging: CanonicalStagingRun | StoredCanonicalStagingRun,
+    quality: QualityRun | StoredQualityRun,
     mappings: Mapping[str, DatasetMapping],
     candidates: Iterable[NormalizationCandidate],
     published_staging_content_hash: str | None = None,
@@ -516,18 +518,34 @@ def evaluate_normalization(
         raise NormalizationError("Resolve the known totals before reviewing prepared data")
 
     rows_by_coordinate: dict[tuple[str, int], list[Any]] = {}
-    for row in staging.rows:
-        rows_by_coordinate.setdefault((row.dataset, row.source_row), []).append(row)
-    effective_rows_by_id = (
-        {item.row_id: item.canonical_row for item in effective.rows}
-        if effective is not None
-        else {item.row_id: item for item in staging.rows}
-    )
-    effective_id_by_source = (
-        {item.source_row_id: item.effective_row_id for item in effective.accounting}
-        if effective is not None
-        else {item.row_id: item.row_id for item in staging.rows}
-    )
+    effective_rows_by_id: dict[str, Any]
+    effective_id_by_source: dict[str, str]
+    if effective is None:
+        # A stored staging sequence decodes each iteration. Build all indexes
+        # together so they share one canonical row object instead of retaining
+        # multiple complete decoded copies of the same evidence.
+        effective_rows_by_id = {}
+        effective_id_by_source = {}
+        for row in staging.rows:
+            rows_by_coordinate.setdefault(
+                (row.dataset, row.source_row),
+                [],
+            ).append(row)
+            effective_rows_by_id[row.row_id] = row
+            effective_id_by_source[row.row_id] = row.row_id
+    else:
+        for row in staging.rows:
+            rows_by_coordinate.setdefault(
+                (row.dataset, row.source_row),
+                [],
+            ).append(row)
+        effective_rows_by_id = {
+            item.row_id: item.canonical_row for item in effective.rows
+        }
+        effective_id_by_source = {
+            item.source_row_id: item.effective_row_id
+            for item in effective.accounting
+        }
     eligible_ids = quality.eligible_row_ids
     policy_hash = _hash(
         {
@@ -874,8 +892,8 @@ def _hash(value: object) -> str:
 
 
 def canonical_eligible_dataset_hash(
-    staging: CanonicalStagingRun,
-    quality: QualityRun,
+    staging: CanonicalStagingRun | StoredCanonicalStagingRun,
+    quality: QualityRun | StoredQualityRun,
     *,
     staging_content_hash: str | None = None,
     quality_content_hash: str | None = None,

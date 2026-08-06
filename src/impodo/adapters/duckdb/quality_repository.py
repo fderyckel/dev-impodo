@@ -37,6 +37,7 @@ from ...quality import (
     QualityRunSummary,
     QuarantineEntry,
     SourceAccountingState,
+    StoredQualityRun,
     retention_context_hash,
 )
 from ...workspace_errors import WorkspaceError
@@ -214,7 +215,7 @@ class QualityRepository(DuckDbRepository):
     def publish_quality_run(
         self,
         project_id: str,
-        run: QualityRun,
+        run: QualityRun | StoredQualityRun,
         *,
         staging_run_id: str,
         effective_dataset_run_id: str | None = None,
@@ -698,7 +699,7 @@ class QualityRepository(DuckDbRepository):
     def _insert_quality_evidence(
         connection: duckdb.DuckDBPyConnection,
         run_id: str,
-        run: QualityRun,
+        run: QualityRun | StoredQualityRun,
     ) -> str:
         hasher = CanonicalJsonObjectHasher()
         hasher.add_value("contract_version", run.contract_version)
@@ -764,14 +765,25 @@ class QualityRepository(DuckDbRepository):
         hasher.end_array()
         hasher.add_value("retention_context_hash", run.retention_context_hash)
         hasher.start_array("row_results")
-        for start in range(0, len(run.row_results), QUALITY_ROW_BATCH_SIZE):
-            batch = run.row_results[start : start + QUALITY_ROW_BATCH_SIZE]
+        row_batch_reader = getattr(run.row_results, "iter_batches", None)
+        row_batches = (
+            row_batch_reader(connection, QUALITY_ROW_BATCH_SIZE)
+            if callable(row_batch_reader)
+            else (
+                run.row_results[start : start + QUALITY_ROW_BATCH_SIZE]
+                for start in range(
+                    0, len(run.row_results), QUALITY_ROW_BATCH_SIZE
+                )
+            )
+        )
+        row_ordinal = 0
+        for batch in row_batches:
             values = []
             for offset, item in enumerate(batch):
                 item_json = _canonical_json(item.to_portable_dict())
                 hasher.add_encoded_array_item(item_json)
                 values.append([
-                    run_id, start + offset, item.row_id, item.dataset,
+                    run_id, row_ordinal + offset, item.row_id, item.dataset,
                     item.source_row, item.effective_disposition.value,
                     item.requires_review, item_json,
                 ])
@@ -789,18 +801,36 @@ class QualityRepository(DuckDbRepository):
                 """,
                 _columnar_parameters(values),
             )
+            row_ordinal += len(batch)
+        if row_ordinal != len(run.row_results):
+            raise WorkspaceError("Quality row evidence is incomplete")
         hasher.end_array()
         hasher.add_value("ruleset_hash", run.ruleset_hash)
         hasher.add_value("schema_hash", run.schema_hash)
         hasher.start_array("source_accounting")
-        for start in range(0, len(run.source_accounting), QUALITY_ROW_BATCH_SIZE):
-            batch = run.source_accounting[start : start + QUALITY_ROW_BATCH_SIZE]
+        accounting_batch_reader = getattr(
+            run.source_accounting,
+            "iter_batches",
+            None,
+        )
+        accounting_batches = (
+            accounting_batch_reader(connection, QUALITY_ROW_BATCH_SIZE)
+            if callable(accounting_batch_reader)
+            else (
+                run.source_accounting[start : start + QUALITY_ROW_BATCH_SIZE]
+                for start in range(
+                    0, len(run.source_accounting), QUALITY_ROW_BATCH_SIZE
+                )
+            )
+        )
+        accounting_ordinal = 0
+        for batch in accounting_batches:
             values = []
             for offset, item in enumerate(batch):
                 item_json = _canonical_json(item.to_portable_dict())
                 hasher.add_encoded_array_item(item_json)
                 values.append([
-                    run_id, start + offset, item.physical_dataset_id,
+                    run_id, accounting_ordinal + offset, item.physical_dataset_id,
                     item.source_row, item.state.value, item_json,
                 ])
             connection.execute(
@@ -817,7 +847,7 @@ class QualityRepository(DuckDbRepository):
                 _columnar_parameters(values),
             )
             links = [
-                [run_id, start + offset, row_id]
+                [run_id, accounting_ordinal + offset, row_id]
                 for offset, item in enumerate(batch)
                 for row_id in item.canonical_row_ids
             ]
@@ -833,6 +863,9 @@ class QualityRepository(DuckDbRepository):
                     """,
                     _columnar_parameters(links),
                 )
+            accounting_ordinal += len(batch)
+        if accounting_ordinal != len(run.source_accounting):
+            raise WorkspaceError("Quality source accounting is incomplete")
         hasher.end_array()
         hasher.add_value("staging_content_hash", run.staging_content_hash)
         return hasher.finish()
@@ -866,8 +899,13 @@ class QualityRepository(DuckDbRepository):
         )
 
 
-def _quality_summary_counts(run: QualityRun) -> dict[str, int]:
+def _quality_summary_counts(
+    run: QualityRun | StoredQualityRun,
+) -> dict[str, int]:
     """Accumulate publication counts without rescanning all evidence per field."""
+
+    if isinstance(run, StoredQualityRun):
+        return dict(run.summary_counts)
 
     counts = {
         "ready_count": 0,

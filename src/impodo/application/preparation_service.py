@@ -31,6 +31,7 @@ from ..domain.staging.scale import (
     require_supported_browser_scale,
 )
 from ..domain.staging.transformation_impact import TransformationImpactRow
+from ..domain.staging.preparation_session import StoredCanonicalStagingRun
 from ..inspection import SourceFileCatalog
 from ..domain.mapping.contracts import MappingDefinition
 from ..normalization import NormalizationRunSummary
@@ -146,6 +147,7 @@ class PreparationService:
 
         derived_plan = self.derived_entities.get_derived_entity_plan(project_id)
         bounded_session_id: str | None = None
+        bounded_canonical_run: StoredCanonicalStagingRun | None = None
         impact_rows: Iterable[TransformationImpactRow]
         if supports_bounded_direct_preparation(
             physical_selection,
@@ -166,6 +168,7 @@ class PreparationService:
             )
             bounded_session_id = bounded.session_id
             staging_input = bounded.run
+            bounded_canonical_run = bounded.run
             try:
                 staging = self.staging.publish_canonical_staging(
                     project_id,
@@ -214,16 +217,19 @@ class PreparationService:
             del staged
 
         try:
-            canonical_run = self.staging.get_canonical_staging_run(
-                project_id,
-                staging.run_id,
-                expected_content_hash=staging.content_hash,
-            )
-            if canonical_run is None:
-                raise ReadinessError(
-                    "The published prepared data could not be verified. "
-                    "Prepare the data again."
+            if bounded_canonical_run is not None:
+                canonical_run = bounded_canonical_run
+            else:
+                canonical_run = self.staging.get_canonical_staging_run(
+                    project_id,
+                    staging.run_id,
+                    expected_content_hash=staging.content_hash,
                 )
+                if canonical_run is None:
+                    raise ReadinessError(
+                        "The published prepared data could not be verified. "
+                        "Prepare the data again."
+                    )
             effective = None
             resolution_summary = None
             if self.resolution is not None:

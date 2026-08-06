@@ -79,7 +79,7 @@ Phase 2B describe when capabilities were built; they are not the same thing.
 | F — Store canonical staging data | Implemented with immutable canonical and effective rows plus current-run pointers | [`staging_contracts.py`](../../src/impodo/staging_contracts.py), [`domain/resolution.py`](../../src/impodo/domain/resolution.py), then [`adapters/duckdb/staging_repository.py`](../../src/impodo/adapters/duckdb/staging_repository.py) and [`adapters/duckdb/advanced_coverage_repository.py`](../../src/impodo/adapters/duckdb/advanced_coverage_repository.py) |
 | G — Resolve relationships | Implemented across mapping validation, structural preparation, exact references, reviewed duplicate resolution, and preflight lookup resolution | [`domain/mapping/validation/`](../../src/impodo/domain/mapping/validation), [`domain/structural.py`](../../src/impodo/domain/structural.py), [`application/resolution_service.py`](../../src/impodo/application/resolution_service.py), and [`engine.py`](../../src/impodo/engine.py) |
 | H — Read-only target preflight | Implemented from approved durable rows and for strict CLI profiles | [`application/preflight_service.py`](../../src/impodo/application/preflight_service.py), [`domain/preflight/frozen_input.py`](../../src/impodo/domain/preflight/frozen_input.py), [`planner.py`](../../src/impodo/planner.py), and [`engine.py`](../../src/impodo/engine.py) |
-| I — Freeze an approved import plan | Not integrated; standalone approval domain objects exist | [`approvals.py`](../../src/impodo/approvals.py) |
+| I — Freeze exact practical execution input | Implemented automatically after browser preflight; no extra certification or approval lifecycle | [`domain/execution_snapshot.py`](../../src/impodo/domain/execution_snapshot.py), emitted and revalidated by [`application/preflight_service.py`](../../src/impodo/application/preflight_service.py) |
 | J — Controlled Odoo execution | Not implemented; connectors are intentionally read-only | [`connectors.py`](../../src/impodo/connectors.py) for the boundary, not a writer |
 | K — Reconcile after writes | Not implemented | Source/staging accounting must not be mistaken for post-write reconciliation |
 
@@ -550,7 +550,7 @@ Stage H has two entry paths that converge on one comparison core:
 | Target capture | `_read_readiness_snapshots` chooses a fixed local shell reader or closed remote JSON-2 reader from project configuration. | Snapshot commands use `OdooReadConnector`; offline preflight uses `SnapshotConnector`. | Connectors expose only target fingerprint, metadata reads, and record reads. Metadata and record snapshots must share one fingerprint and receive deterministic content hashes. |
 | Validation and lookup | Browser verifies the exact planned snapshot projection and configured target identity before the engine. | Snapshot binding verifies profile/source provenance before the engine. | `validate_plan_metadata` checks required model/field semantics; `TargetCatalog` indexes captured rows and contains numeric Odoo IDs; `_resolve_records` emits portable `BusinessReference` values and grouped `ReferenceResolution` evidence. |
 | Comparison | Same engine. | Same engine. | `PreflightEngine.run` applies blocking precedence, indexes target business identities, then emits `Decision` classifications: `BLOCKED`, `AMBIGUOUS`, `CREATE`, `UPDATE`, or `UNCHANGED`, with portable `FieldDifference` evidence. |
-| Output | `_readiness_report` projects decisions; `PreflightRepository` atomically stores the header, paged rows, protected snapshots, current pointer, and audit event. A technical manifest is kept by `ArtifactStore`; the workbook is a disposable projection. | `write_preflight_outputs` writes the portable manifest and workbook directly; it does not create browser lifecycle records. | `PreflightResult` is the canonical portable result. Numeric Odoo IDs may exist in protected target snapshots but are recursively forbidden from portable manifests and reports. |
+| Output | `_readiness_report` projects decisions; `PreflightRepository` atomically stores the header, paged rows, protected snapshots, current pointer, and audit event. `PreflightService` also generates the practical `ExecutionSnapshot` automatically beside the technical manifest; the workbook is a disposable projection. | `write_preflight_outputs` writes the portable manifest and workbook directly; it does not create browser lifecycle records. | `PreflightResult` is the canonical portable comparison result. `ExecutionSnapshot` binds every row disposition and exact create/update field intentions for the practical writer. Numeric Odoo IDs may exist in protected target snapshots but are recursively forbidden from portable manifests, reports, and execution snapshots. |
 
 The browser evidence chain is:
 
@@ -576,22 +576,23 @@ Important boundaries when navigating:
 - `reporting.py` projects canonical portable results. The workbook is never an
   input to classification, approval, or persistence.
 
-## Future Stage I–K boundaries
+## Practical Stage I and future Stage J–K boundaries
 
-The current implementation ends after Stage-H read-only readiness evidence.
-The following objects and capability names reserve semantics; they do not make
-the later product stages available:
+The practical path now freezes Stage-H evidence automatically as an internal
+execution snapshot. It still ends before target writes. The following objects
+and capability names reserve the optional approval profile and later product
+stages; they do not make controlled execution or reconciliation available:
 
-| Future stage | Code that exists now | Missing integration that keeps the stage future |
+| Stage | Code that exists now | Remaining boundary |
 | --- | --- | --- |
-| I — Freeze an approved import plan | [`approvals.py`](../../src/impodo/approvals.py) defines reusable `ApprovalEvidence`, standalone `FrozenExportPlan`, and `ExportPlanApproval` value objects. `EXPORT_PLAN_APPROVE` is a reserved capability. | No clean-package certification service, action builder/hash authority, repository/current pointer, browser route, or lifecycle connects Stage-H results to `FrozenExportPlan`. A frozen normalization dataset is source-side approval, not an executable import plan. |
+| I — Freeze exact execution input | [`domain/execution_snapshot.py`](../../src/impodo/domain/execution_snapshot.py) automatically adapts frozen prepared rows and Stage-H decisions into a portable, row-hashed artifact. The database-bound preflight manifest anchors its semantic hash. [`approvals.py`](../../src/impodo/approvals.py) still defines standalone higher-governance approval values. | The practical snapshot needs no separate approval; the user will confirm **Load** in Stage J. Clean-package certification, dual approval, expiry, and signed grants remain unintegrated optional controls for higher-risk targets. |
 | J — Controlled Odoo execution | `EXPORT_PLAN_EXECUTE` is a reserved capability and the product vision defines future safety requirements. | There is no Odoo writer port/adapter, application executor, write route/CLI command, idempotency ledger, execution journal, compensation policy, or write result contract. `OdooReadConnector` must remain closed to `fields_get`/`search_read`; a writer requires a separate boundary. |
 | K — Post-write reconciliation | Source accounting, staging reconciliation, quality counts, and Stage-H target snapshots exist. | None of these proves a write occurred. There is no post-write snapshot request, expected-versus-actual action reconciliation, target-result journal, rollback evidence, or closure workflow. |
 
-When future work begins, add new application ports/services and composition
-fields rather than broadening current readers or repurposing readiness reports.
-Update the product stage table, owning contracts, this map, and focused tests in
-the same change.
+For Stage J–K, add new application ports/services and composition fields rather
+than broadening current readers or repurposing readiness reports. Update the
+product stage table, owning contracts, this map, and focused tests in the same
+change.
 
 ## Journey 6 — Compare approved rows with Odoo (Stage H)
 

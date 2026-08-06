@@ -266,6 +266,11 @@ categories, and products in a disposable Odoo 19 database. Use native JSON-2,
 one explicit **Load** action, bounded batches, stable identities, a row journal,
 and automatic read-back.
 
+The first practical increment is complete: each browser preflight now
+automatically emits a hash-bound execution snapshot with complete row
+accounting and exact create/update field intentions. The next increment is the
+single preview-and-load path for the disposable target.
+
 Do not require advanced coverage, a separate clean-package certificate, a
 custom Odoo module, dual approval, or production ceremony for this disposable
 target case. Those controls remain risk-triggered capabilities.
@@ -290,9 +295,10 @@ The integrated delivery is complete only when:
 - target access stays read-only and batched through the preflight boundary;
 - portable artifacts contain no credentials or numeric Odoo IDs;
 - fixed inputs produce deterministic manifests;
-- historical-scale runtime, memory, snapshot size, and workbook size meet
-  recorded limits;
-- all applicable coverage families and clean-package gates pass;
+- runtime, memory, snapshot size, and workbook size are recorded as diagnostic
+  evidence and optimized when they block the representative migration;
+- advanced coverage and clean-package gates apply only when that optional
+  profile is selected;
 - documentation continues to distinguish review evidence from Odoo write
   authorization.
 

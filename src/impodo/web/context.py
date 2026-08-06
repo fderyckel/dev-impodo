@@ -1,15 +1,14 @@
 """Name the dependencies available to every local browser route.
 
-Migration stages: cross-cutting A–H. Layer: web dependency container.
+Migration stages: cross-cutting A–J. Layer: web dependency container.
 
 :func:`impodo.web.app.create_local_app` constructs ``WebContext`` once and
 passes it to each router builder. Routes use the typed services and closed
 reader callables here rather than constructing repositories or connectors.
 The context contains no migration state of its own.
 
-All target callables are read boundaries. There is intentionally no import-plan
-approver, Odoo writer, execution journal, or post-write reconciliation service
-in the current context.
+Target reads and the tightly scoped Stage-J writer factory remain separate
+boundaries. Post-write read-back reconciliation is not in this context yet.
 
 See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
 """
@@ -24,6 +23,7 @@ from ..application.browser_queries import BrowserQueryService
 from ..application.mapping_workspace_service import MappingWorkspaceService
 from ..application.normalization_service import NormalizationService
 from ..application.preflight_service import PreflightService
+from ..application.execution_service import ExecutionService
 from ..application.preparation_service import PreparationService
 from ..application.quality_service import QualityService
 from ..application.resolution_service import ResolutionService
@@ -45,6 +45,7 @@ from ..local_odoo_reader import (
     LocalOdooMetadataReader,
 )
 from ..local_stack import LocalStackService
+from ..odoo_writer import OdooWriteExecutor
 from ..projects import MigrationProject, ProjectService
 from ..secrets import SecretStore
 
@@ -62,6 +63,8 @@ BrowserReadinessReader = Callable[
     ],
     tuple[MetadataSnapshot, RecordSnapshot],
 ]
+
+OdooWriteExecutorFactory = Callable[[MigrationProject, str], OdooWriteExecutor]
 
 
 @dataclass(slots=True)
@@ -88,6 +91,7 @@ class WebContext:
     resolution: ResolutionService
     normalization: NormalizationService
     preflight: PreflightService
+    execution: ExecutionService
     transformation_impacts: TransformationImpactService
     artifacts: ArtifactStore
     actor: Actor
@@ -99,5 +103,6 @@ class WebContext:
     schema_reader: SchemaReader
     model_catalog_reader: ModelCatalogReader
     readiness_reader: BrowserReadinessReader | None
+    write_executor_factory: OdooWriteExecutorFactory
     local_stack: LocalStackService
     local_odoo_reader: LocalOdooMetadataReader
