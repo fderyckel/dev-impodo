@@ -1084,6 +1084,9 @@ class BoundedPreparationParityTests(unittest.TestCase):
 
         preparation_transport_batches: dict[str, list[int]] = {
             "canonical_rows": [],
+            "identities": [],
+            "lineage": [],
+            "physical_rows": [],
             "impacts": [],
         }
         original_impact_batches = (
@@ -1097,6 +1100,12 @@ class BoundedPreparationParityTests(unittest.TestCase):
                     family = "canonical_rows"
                 elif "impact_json" in keys:
                     family = "impacts"
+                elif "identity_hash" in keys:
+                    family = "identities"
+                elif "physical_source_row" in keys:
+                    family = "lineage"
+                elif keys == {"physical_dataset_id", "source_row"}:
+                    family = "physical_rows"
                 else:
                     raise AssertionError(
                         "Unexpected preparation transport shape"
@@ -1152,7 +1161,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             patch.object(
                 preparation_session_repository,
                 "DUCKDB_JSON_BATCH_MAX_BYTES",
-                10_000,
+                2_000,
             ),
             patch.object(
                 preparation_session_repository,
@@ -1170,6 +1179,10 @@ class BoundedPreparationParityTests(unittest.TestCase):
         canonical_batches = preparation_transport_batches["canonical_rows"]
         self.assertGreater(len(canonical_batches), 1)
         self.assertEqual(sum(canonical_batches), 37)
+        for family in ("identities", "lineage", "physical_rows"):
+            family_batches = preparation_transport_batches[family]
+            self.assertGreater(len(family_batches), 1)
+            self.assertEqual(sum(family_batches), 37)
         impact_batches = preparation_transport_batches["impacts"]
         self.assertGreater(len(impact_batches), 1)
         self.assertEqual(
@@ -1465,6 +1478,63 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(staging.total_rows, 5)
         self.assertEqual(summary.project_id, project_id)
 
+    def test_compact_fact_transport_failure_cleans_direct_batch(self) -> None:
+        project_id, _source_hash, _source_size = (
+            PreparationWorkflowScaleTests._prepare_project_and_evidence(
+                self,
+                row_count=5,
+                column_count=5,
+                mapped_field_count=5,
+                dirty=True,
+            )
+        )
+        from impodo.adapters.duckdb import preparation_session_repository
+
+        original_batches = (
+            preparation_session_repository.iter_encoded_json_batches
+        )
+
+        def fail_after_first_physical_batch(*args, **kwargs):
+            for batch in original_batches(*args, **kwargs):
+                yield batch
+                keys = set(json.loads(batch.payload)[0])
+                if keys == {"physical_dataset_id", "source_row"}:
+                    raise RuntimeError("injected compact fact failure")
+
+        with (
+            patch.object(
+                preparation_session_repository,
+                "iter_encoded_json_batches",
+                fail_after_first_physical_batch,
+            ),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "injected compact fact failure",
+            ),
+        ):
+            self.context.preparation.prepare(
+                project_id,
+                actor=self.context.actor,
+            )
+
+        database_path = self.root / project_id / "project.duckdb"
+        with self.context.preparation.staging._connect(database_path) as connection:
+            session = connection.execute(
+                "SELECT status, failure_code FROM preparation_session"
+            ).fetchone()
+            counts = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM canonical_staging_row),
+                    (SELECT COUNT(*) FROM preparation_direct_identity),
+                    (SELECT COUNT(*) FROM preparation_lineage),
+                    (SELECT COUNT(*) FROM preparation_physical_row),
+                    (SELECT COUNT(*) FROM canonical_staging_run)
+                """
+            ).fetchone()
+        self.assertEqual(session, ("FAILED", "BOUNDED_PREPARATION_FAILED"))
+        self.assertEqual(counts, (0, 0, 0, 0, 0))
+
     def test_impact_transport_failure_cleans_pending_preparation(self) -> None:
         project_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
@@ -1484,7 +1554,8 @@ class BoundedPreparationParityTests(unittest.TestCase):
         def fail_after_first_impact_batch(*args, **kwargs):
             for batch in original_batches(*args, **kwargs):
                 yield batch
-                raise RuntimeError("injected impact transport failure")
+                if '"impact_json"' in batch.payload:
+                    raise RuntimeError("injected impact transport failure")
 
         with (
             patch.object(

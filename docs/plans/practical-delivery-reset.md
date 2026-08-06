@@ -15,6 +15,9 @@ The next product outcome is deliberately concrete:
 > a disposable Odoo 19 database, review the exact proposed changes, load them
 > once through the native Odoo API, and reconcile every row.
 
+Those models are the representative acceptance fixture, not a supported-model
+list or a product write boundary.
+
 This outcome replaces clean-package certification and broad coverage closure
 as the next delivery gate.
 
@@ -68,12 +71,13 @@ canonical staging, quality, normalization, and preflight path unchanged.
 
 ## Implementation boundary
 
-The active implementation is limited to:
+The active implementation is bounded to:
 
 - one company;
-- contacts, product categories, and products;
+- any standard, extension, or custom model and field present in the captured
+  schema and exact reviewed preview;
 - create and explicit update;
-- simple many2one relationships;
+- reviewed many2one and many2many relationships;
 - native Odoo 19 JSON-2;
 - a disposable or neutralized local target;
 - 100–300 representative rows;
@@ -121,10 +125,12 @@ current report. This is automatic internal evidence, not a new user approval.
 **Status:** Completed 2026-08-06.
 
 The local browser now shows one business-language preview and one explicit
-**Load into Odoo** action. A separate JSON-2 writer permits only contacts,
-product categories, products, exact business-key lookups, bounded list-create
-batches, and one-record updates. It resolves simple many2one dependencies in
-dataset order and exposes no generic method, delete, direct SQL, `sudo`, or
+**Load into Odoo** action. A separate JSON-2 writer derives its exact model,
+write-field, read-back-field, and business-key capability from that immutable
+preview. It supports captured standard, extension, and custom schema without a
+global business-model or field allowlist, uses bounded list-create batches and
+one-record updates, resolves reviewed many2one and many2many dependencies in
+dataset order, and exposes no generic method, delete, direct SQL, `sudo`, or
 caller-controlled context.
 
 Every proposed create/update row is journaled before target I/O and ends as

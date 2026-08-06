@@ -80,6 +80,26 @@ _CANONICAL_STAGING_ROW_JSON_STRUCTURE = """[{
     "row_json":"VARCHAR"
 }]"""
 
+_DIRECT_IDENTITY_JSON_STRUCTURE = """[{
+    "ordinal":"BIGINT",
+    "dataset":"VARCHAR",
+    "identity_hash":"VARCHAR",
+    "base_disposition":"VARCHAR",
+    "finalized_duplicate":"BOOLEAN"
+}]"""
+
+_DIRECT_LINEAGE_JSON_STRUCTURE = """[{
+    "dataset":"VARCHAR",
+    "output_source_row":"BIGINT",
+    "physical_dataset_id":"VARCHAR",
+    "physical_source_row":"BIGINT"
+}]"""
+
+_DIRECT_PHYSICAL_ROW_JSON_STRUCTURE = """[{
+    "physical_dataset_id":"VARCHAR",
+    "source_row":"BIGINT"
+}]"""
+
 # A canonical row can legally be much larger than the normal JSON envelope.
 # Route a conservative upper-bound estimate through one scalar insert instead
 # of rejecting valid source evidence or creating an oversized copied payload.
@@ -382,32 +402,10 @@ class PreparationSessionRepository(DuckDbRepository):
         if not rows:
             return
         canonical_session_id = self._session_id(session_id)
-        identity_values: list[list[object]] = []
-        lineage_values: list[list[object]] = []
-        physical_values: list[list[object]] = []
+        expected_lineage_count = 0
         for item in rows:
             if not item.physical_sources:
                 raise ValueError("Prepared session rows require physical lineage")
-            identity_hash = "sha256:" + sha256(
-                canonical_json_bytes(
-                    {
-                        "dataset": item.dataset,
-                        "source_identity": portable_value(
-                            item.source_identity
-                        ),
-                    }
-                )
-            ).hexdigest()
-            identity_values.append(
-                [
-                    canonical_session_id,
-                    item.ordinal,
-                    item.dataset,
-                    identity_hash,
-                    item.disposition.value,
-                    False,
-                ]
-            )
             for physical_dataset_id, source_rows in sorted(
                 item.physical_sources.items()
             ):
@@ -419,18 +417,7 @@ class PreparationSessionRepository(DuckDbRepository):
                         raise ValueError(
                             "Prepared session source rows must be positive"
                         )
-                    lineage_values.append(
-                        [
-                            canonical_session_id,
-                            item.dataset,
-                            item.source_row,
-                            physical_dataset_id,
-                            source_row,
-                        ]
-                    )
-                    physical_values.append(
-                        [canonical_session_id, physical_dataset_id, source_row]
-                    )
+                    expected_lineage_count += 1
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
@@ -528,36 +515,147 @@ class PreparationSessionRepository(DuckDbRepository):
                     raise WorkspaceError(
                         "Prepared canonical row batch is incomplete"
                     )
-                connection.execute(
-                    """
-                    INSERT INTO preparation_direct_identity (
-                        session_id, ordinal, dataset, identity_hash,
-                        base_disposition, finalized_duplicate
-                    )
-                    SELECT unnest(?), unnest(?), unnest(?), unnest(?),
-                           unnest(?), unnest(?)
-                    """,
-                    _columnar_parameters(identity_values),
+                identity_rows = (
+                    {
+                        "ordinal": item.ordinal,
+                        "dataset": item.dataset,
+                        "identity_hash": "sha256:" + sha256(
+                            canonical_json_bytes(
+                                {
+                                    "dataset": item.dataset,
+                                    "source_identity": portable_value(
+                                        item.source_identity
+                                    ),
+                                }
+                            )
+                        ).hexdigest(),
+                        "base_disposition": item.disposition.value,
+                        "finalized_duplicate": False,
+                    }
+                    for item in rows
                 )
-                connection.execute(
-                    """
-                    INSERT INTO preparation_lineage (
-                        session_id, dataset, output_source_row,
-                        physical_dataset_id, physical_source_row
+                identity_count = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    identity_rows,
+                    max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO preparation_direct_identity (
+                            session_id, ordinal, dataset, identity_hash,
+                            base_disposition, finalized_duplicate
+                        )
+                        SELECT
+                            ?, item.ordinal, item.dataset,
+                            item.identity_hash, item.base_disposition,
+                            item.finalized_duplicate
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
+                        [
+                            canonical_session_id,
+                            encoded_batch.payload,
+                            _DIRECT_IDENTITY_JSON_STRUCTURE,
+                        ],
                     )
-                    SELECT unnest(?), unnest(?), unnest(?), unnest(?), unnest(?)
-                    """,
-                    _columnar_parameters(lineage_values),
-                )
-                connection.execute(
-                    """
-                    INSERT OR IGNORE INTO preparation_physical_row (
-                        session_id, physical_dataset_id, source_row
+                    identity_count += encoded_batch.row_count
+                if identity_count != len(rows):
+                    raise WorkspaceError(
+                        "Prepared identity fact batch is incomplete"
                     )
-                    SELECT unnest(?), unnest(?), unnest(?)
-                    """,
-                    _columnar_parameters(physical_values),
+
+                lineage_rows = (
+                    {
+                        "dataset": item.dataset,
+                        "output_source_row": item.source_row,
+                        "physical_dataset_id": physical_dataset_id,
+                        "physical_source_row": source_row,
+                    }
+                    for item in rows
+                    for physical_dataset_id, source_rows in sorted(
+                        item.physical_sources.items()
+                    )
+                    for source_row in source_rows
                 )
+                lineage_count = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    lineage_rows,
+                    max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO preparation_lineage (
+                            session_id, dataset, output_source_row,
+                            physical_dataset_id, physical_source_row
+                        )
+                        SELECT
+                            ?, item.dataset, item.output_source_row,
+                            item.physical_dataset_id,
+                            item.physical_source_row
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
+                        [
+                            canonical_session_id,
+                            encoded_batch.payload,
+                            _DIRECT_LINEAGE_JSON_STRUCTURE,
+                        ],
+                    )
+                    lineage_count += encoded_batch.row_count
+                if lineage_count != expected_lineage_count:
+                    raise WorkspaceError(
+                        "Prepared lineage fact batch is incomplete"
+                    )
+
+                physical_rows = (
+                    {
+                        "physical_dataset_id": physical_dataset_id,
+                        "source_row": source_row,
+                    }
+                    for item in rows
+                    for physical_dataset_id, source_rows in sorted(
+                        item.physical_sources.items()
+                    )
+                    for source_row in source_rows
+                )
+                physical_count = 0
+                for encoded_batch in iter_encoded_json_batches(
+                    physical_rows,
+                    max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT OR IGNORE INTO preparation_physical_row (
+                            session_id, physical_dataset_id, source_row
+                        )
+                        SELECT
+                            ?, item.physical_dataset_id, item.source_row
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
+                        [
+                            canonical_session_id,
+                            encoded_batch.payload,
+                            _DIRECT_PHYSICAL_ROW_JSON_STRUCTURE,
+                        ],
+                    )
+                    physical_count += encoded_batch.row_count
+                if physical_count != expected_lineage_count:
+                    raise WorkspaceError(
+                        "Prepared physical-row fact batch is incomplete"
+                    )
                 connection.execute(
                     """
                     UPDATE preparation_session

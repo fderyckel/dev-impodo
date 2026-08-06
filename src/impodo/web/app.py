@@ -9,7 +9,7 @@ to the injected services and domain modules; this module owns construction and
 local deployment choices only.
 
 The Stage-J writer and Stage-K read-back reader remain separate from the
-preflight connectors and are limited to the practical local master-data path.
+preflight connectors and are bound to the exact reviewed local-load preview.
 
 See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
 """

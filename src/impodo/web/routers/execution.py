@@ -1,4 +1,4 @@
-"""Preview and execute the practical local Odoo master-data load."""
+"""Preview and execute a schema-bound local Odoo load."""
 
 from __future__ import annotations
 

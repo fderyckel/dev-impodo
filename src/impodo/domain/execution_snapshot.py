@@ -47,7 +47,7 @@ class ExecutionDataset:
 
 @dataclass(frozen=True, slots=True)
 class FieldIntent:
-    """Explicit field effect consumed by the practical allowlisted writer."""
+    """Explicit field effect consumed by the schema-bound Odoo writer."""
 
     field: str
     action: str

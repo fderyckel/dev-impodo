@@ -4,11 +4,12 @@
 
 **Status:** Approved on 2026-08-06. P0 now separates quality and normalization
 evaluation from persistence/hash time. P1 normalization transport and the
-first four contained P2 families—stored quality row results, source accounting,
-preparation impacts, and direct canonical rows—are implemented locally.
-Exact-parity, type/byte-bound, large-row fallback, cleanup, and rollback tests
-pass. The three-run reference-Windows gate is still required before extending
-P2 to another evidence family.
+P2 is complete for the active large direct-preparation path: stored quality row
+results, source accounting, preparation impacts, canonical rows, identities,
+lineage, and physical-row facts all use bounded typed transport. Exact-parity,
+type/byte-bound, large-row fallback, cleanup, and rollback tests pass. The
+three-run reference-Windows and large-row release gates are now the next step;
+no additional transport family should be changed without new profiling.
 
 Reduce the complete local preparation time for the observed 4,000-row XLSX
 workload from **5 minutes 38 seconds to less than 60 seconds** on the reference
@@ -132,6 +133,15 @@ seconds typed JSON versus 0.102 seconds arrays) but avoided the much larger
 first column-binding observation. Valid individual rows too large for the
 2 MiB envelope use a scalar insert, so the transport limit does not narrow the
 existing source contract.
+
+The final compact-fact slice removed the retained identity, lineage, and
+physical-row column arrays. These facts are generated from the existing
+bounded canonical batch and remain in the same atomic direct-append
+transaction. Three fresh-process 4,000-row runs completed in 4.003–4.090
+seconds, with direct append at 0.237–0.239 seconds and peak memory at
+262.6–265.5 MiB. A forced 2 KiB envelope test splits and verifies all five
+preparation families independently. Failure after a physical-row insert rolls
+back canonical rows, identities, lineage, physical rows, and the pending run.
 
 ## Current design weaknesses
 
@@ -268,8 +278,11 @@ After P1 passes, migrate one evidence family at a time:
    envelopes, contiguous ordinals, and failed-session cleanup;
 4. canonical staging rows — implemented locally with 2 MiB envelopes and a
    non-rejecting scalar fallback for unusually large valid rows;
-5. identity, lineage, and physical-row facts;
-6. remaining high-volume evidence tables.
+5. identity, lineage, and physical-row facts — implemented locally without
+   retained column arrays and with explicit attempted-fact counts;
+6. remaining high-volume evidence tables — none are currently demonstrated on
+   the active large direct path; profile before changing materialized or small
+   metadata families.
 
 Use responsibility-specific insert statements or a tightly allowlisted shared
 adapter. Do not accept arbitrary table or column names from application data.
@@ -426,10 +439,9 @@ customer values are not committed as fixtures.
    parity tests are complete.
 3. Review three fresh-process Windows runs. The second-platform regression and
    workflow checks are complete, but are not substitutes for Windows evidence.
-4. Continue P2 one evidence family at a time. Stored quality row results,
-   source accounting, preparation impacts, and direct canonical rows are
-   complete locally; identity, lineage, and physical-row facts are next only
-   after reviewing the Windows evidence.
+4. P2 transport work is complete locally for the active large direct path.
+   Review the Windows and 50,000/100,000-row evidence before approving any
+   additional persistence refactor.
 5. Profile again before approving P3 or P4.
 6. Implement P5 progress reporting after stable subphase counters exist.
 7. Update the 100,000-row performance plan with comparable before-and-after

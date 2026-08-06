@@ -30,9 +30,10 @@ also warns that direct SQL bypasses ORM and security behavior.
 
 For ordinary master-data loads, Impodo uses Odoo 19 JSON-2 over HTTPS with a
 real Odoo user who is already allowed to import and modify the selected data.
-It calls a small allowlisted subset of native model operations through an
-`OdooWriteExecutor` port. This requires no custom Odoo module and keeps
-installation and upgrades straightforward.
+It calls a fixed subset of native operations through an `OdooWriteExecutor`
+port and derives the exact model and field capability from the immutable
+reviewed preview. This requires no custom Odoo module and keeps installation
+and upgrades straightforward.
 
 For higher-risk work, an optional reviewed `impodo_migration_gateway` add-on
 adds target-side batch receipts, manifest-bound grants, and atomic operations
@@ -411,10 +412,10 @@ The native writer is the default for routine and standard master-data loads.
 It uses documented JSON-2 endpoints as the Odoo user who initiated the
 migration. That user must already have Odoo's import capability and the
 required create/write access for the selected models, fields, companies, and
-records. Its client-side allowlist permits only the required metadata/read
-operations and `create`/`write` operations for approved models and fields. It
-exposes no generic method-name, domain, context, or `sudo` escape hatch to the
-UI or migration rows.
+records. Its preview-derived capability permits only the required
+metadata/read operations and `create`/`write` operations for the model and
+fields frozen in the reviewed preview. It exposes no generic method-name,
+domain, context, or `sudo` escape hatch to the UI or migration rows.
 
 Every write is executed as that user through Odoo's ORM. Odoo therefore
 applies access rights, record rules, company restrictions, model overrides,
@@ -423,11 +424,11 @@ and `write_uid`. Impodo treats any Odoo validation or permission error as a
 failed row or batch; it never falls back to `sudo`, direct SQL, or database
 credentials.
 
-The client allowlist prevents accidental or application-driven scope
-expansion; it is not presented as a target-side security boundary. The acting
-user's Odoo ACLs, record rules, field access, and company scope remain the
-native profile's authorization boundary. A customer that requires method-level
-enforcement on the target selects the gateway profile.
+The preview-derived capability prevents accidental or application-driven
+scope expansion; it is not presented as a target-side security boundary. The
+acting user's Odoo ACLs, record rules, field access, and company scope remain
+the native profile's authorization boundary. A customer that requires
+method-level enforcement on the target selects the gateway profile.
 
 Execution behavior:
 
@@ -880,10 +881,10 @@ still no arbitrary RPC escape hatch.
 
 ### Security
 
-- For every profile, prove model/field/company allowlists, acting-user ACLs,
-  record rules, field access, target binding, TLS failure behavior, credential
-  redaction, target locking, and rejection of caller-controlled
-  method/context data.
+- For every profile, prove preview-derived model/field/company scope,
+  acting-user ACLs, record rules, field access, target binding, TLS failure
+  behavior, credential redaction, target locking, and rejection of
+  caller-controlled method/context data.
 - For controlled profiles, additionally prove route filtering, approval/grant
   expiry, credential separation, and the gateway's narrowly elevated internal
   operations.
