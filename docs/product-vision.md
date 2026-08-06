@@ -344,12 +344,15 @@ rules, but their review does not replace a required production approval.
 
 ### Stage J — Controlled Odoo execution
 
-The first implemented executor profile is deliberately narrow: a disposable
-Local Odoo 19 database, contacts/product categories/products, create and
-explicit update, simple many2one relations, an allowlisted native JSON-2
-writer, bounded dependency-ordered batches, and a durable row journal. One
-explicit **Load into Odoo** action consumes the current frozen snapshot. A lost
-write response is recorded as outcome unknown and is never blindly retried.
+The first implemented executor profile is deliberately environment-bounded: a
+disposable Local Odoo 19 database, create and explicit update, reviewed
+many2one/many2many relations, a native JSON-2 capability derived from the exact
+captured-schema-bound preview, bounded dependency-ordered batches, and a
+durable row journal. It has no global business-model or field allowlist, so
+standard, extension, and custom schema surfaces follow the same validated
+path. One explicit **Load into Odoo** action consumes the current frozen
+snapshot. A lost write response is recorded as outcome unknown and is never
+blindly retried.
 
 Broader or production execution remains a separate security milestone. It:
 
@@ -372,11 +375,12 @@ mapping, staging, approval, and review contracts.
 
 ### Stage K — Reconcile
 
-The practical disposable-local path implements this stage for contacts,
-product categories, and products: committed rows are read by saved target ID,
-uncertain responses are re-matched by governed keys, and a hash-bound result
-with downloadable fallout is retained. The broader package below remains the
-target for standard and controlled production profiles.
+The practical disposable-local path implements this stage for the exact
+standard or custom models and writable fields in the reviewed, schema-bound
+preview: committed rows are read by saved target ID, uncertain responses are
+re-matched by governed keys, and a hash-bound result with downloadable fallout
+is retained. The broader package below remains the target for controlled
+production profiles.
 
 Every import-candidate row ends as:
 

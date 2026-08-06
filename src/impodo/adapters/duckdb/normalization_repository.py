@@ -7,7 +7,10 @@ approval freezes the exact eligible-dataset hash for Stage H consumption.
 
 from __future__ import annotations
 
-from .constants import NORMALIZATION_ROW_BATCH_SIZE
+from .constants import (
+    DUCKDB_JSON_BATCH_MAX_BYTES,
+    NORMALIZATION_ROW_BATCH_SIZE,
+)
 
 from datetime import (
     datetime,
@@ -43,7 +46,23 @@ from .repository import DuckDbRepository
 
 
 
-from .serialization import _canonical_json, _columnar_parameters
+from .serialization import (
+    _canonical_json,
+    _columnar_parameters,
+    iter_encoded_json_batches,
+)
+
+
+_NORMALIZATION_EFFECT_JSON_STRUCTURE = """[{
+    "effect_id":"VARCHAR",
+    "group_id":"VARCHAR",
+    "row_id":"VARCHAR",
+    "dataset":"VARCHAR",
+    "source_row":"BIGINT",
+    "target_field":"VARCHAR",
+    "eligible":"BOOLEAN",
+    "effect_json":"VARCHAR"
+}]"""
 
 
 class NormalizationRepository(DuckDbRepository):
@@ -584,34 +603,50 @@ class NormalizationRepository(DuckDbRepository):
                 )
             effect_count = 0
             for batch in batch_reader(connection, NORMALIZATION_ROW_BATCH_SIZE):
-                values: list[list[object]] = []
-                for item in batch:
-                    values.append([
-                        item.effect_id,
-                        item.group_id,
-                        item.row_id,
-                        item.dataset,
-                        item.source_row,
-                        item.target_field,
-                        item.eligible,
-                        _canonical_json(item.to_portable_dict()),
-                    ])
-                connection.execute(
-                    """
-                    INSERT INTO normalization_pending_effect
-                    SELECT
-                        CAST(unnest(?) AS VARCHAR),
-                        CAST(unnest(?) AS VARCHAR),
-                        CAST(unnest(?) AS VARCHAR),
-                        CAST(unnest(?) AS VARCHAR),
-                        CAST(unnest(?) AS BIGINT),
-                        CAST(unnest(?) AS VARCHAR),
-                        CAST(unnest(?) AS BOOLEAN),
-                        CAST(unnest(?) AS VARCHAR)
-                    """,
-                    _columnar_parameters(values),
+                transport_rows = (
+                    {
+                        "effect_id": item.effect_id,
+                        "group_id": item.group_id,
+                        "row_id": item.row_id,
+                        "dataset": item.dataset,
+                        "source_row": item.source_row,
+                        "target_field": item.target_field,
+                        "eligible": item.eligible,
+                        "effect_json": _canonical_json(
+                            item.to_portable_dict()
+                        ),
+                    }
+                    for item in batch
                 )
-                effect_count += len(batch)
+                for encoded_batch in iter_encoded_json_batches(
+                    transport_rows,
+                    max_rows=NORMALIZATION_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO normalization_pending_effect
+                        SELECT
+                            item.effect_id,
+                            item.group_id,
+                            item.row_id,
+                            item.dataset,
+                            item.source_row,
+                            item.target_field,
+                            item.eligible,
+                            item.effect_json
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
+                        [
+                            encoded_batch.payload,
+                            _NORMALIZATION_EFFECT_JSON_STRUCTURE,
+                        ],
+                    )
+                    effect_count += encoded_batch.row_count
             if effect_count != evaluation.effect_count:
                 raise WorkspaceError("Stored normalization effects are incomplete")
             connection.execute(

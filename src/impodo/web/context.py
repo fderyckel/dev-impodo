@@ -49,6 +49,7 @@ from ..local_odoo_reader import (
 from ..local_stack import LocalStackService
 from ..odoo_writer import OdooWriteExecutor
 from ..odoo_readback import OdooReadbackReader
+from ..odoo_scope import OdooApiScope
 from ..projects import MigrationProject, ProjectService
 from ..secrets import SecretStore
 
@@ -67,8 +68,12 @@ BrowserReadinessReader = Callable[
     tuple[MetadataSnapshot, RecordSnapshot],
 ]
 
-OdooWriteExecutorFactory = Callable[[MigrationProject, str], OdooWriteExecutor]
-OdooReadbackReaderFactory = Callable[[MigrationProject, str], OdooReadbackReader]
+OdooWriteExecutorFactory = Callable[
+    [MigrationProject, str, OdooApiScope], OdooWriteExecutor
+]
+OdooReadbackReaderFactory = Callable[
+    [MigrationProject, str, OdooApiScope], OdooReadbackReader
+]
 
 
 @dataclass(slots=True)

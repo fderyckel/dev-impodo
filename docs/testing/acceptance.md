@@ -180,10 +180,12 @@ certification remain pending.
 ### Practical local execution verified
 
 - only the current hash-bound execution snapshot can be loaded;
-- only Local Odoo 19 contacts, product categories, and products can write;
+- only Local Odoo 19 can write, while the exact standard/custom models and
+  writable fields come from the current captured-schema-bound preview;
 - the native adapter exposes exact business-key lookup, bounded create, and
   single-record update rather than generic RPC;
-- dependency-ordered creates resolve incoming many2one IDs before dependants;
+- dependency-ordered creates resolve incoming relationship IDs before
+  dependants, including many2one and many2many fields;
 - every proposed write is journaled before target I/O and receives a terminal
   row outcome;
 - a lost write response is recorded as `OUTCOME_UNKNOWN`, is not retried, and

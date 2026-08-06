@@ -30,7 +30,7 @@ from ..domain.reconciliation import (
 from ..models import BusinessReference, LogicalReference
 from ..odoo_readback import MAX_READBACK_IDS, OdooReadbackReader, ReadbackRecord
 from ..workspace_errors import WorkspaceError
-from .execution_service import _identity_domain, _portable_key
+from .execution_service import _identity_domain, _portable_key, execution_api_scope
 from .preflight_service import PreflightService
 
 
@@ -109,6 +109,10 @@ class ReconciliationService:
             or reader.target_hash != run.target_hash
         ):
             raise WorkspaceError("The verification connection or preview changed")
+        if reader.scope_hash != execution_api_scope(snapshot).semantic_hash:
+            raise WorkspaceError(
+                "Verification is not bound to this reviewed load preview"
+            )
 
         report = self._read_back(run, snapshot, reader, actor)
         # Exercise the portable contract before it reaches durable storage.
@@ -342,7 +346,11 @@ class ReconciliationService:
                 )
                 actual_value = actual.values[intent.field]
                 if intent.kind != "scalar" and intent.action == "SET_VALUE":
-                    actual_value = _many2one_id(actual_value)
+                    actual_value = (
+                        _many2many_ids(actual_value)
+                        if isinstance(expected, tuple)
+                        else _many2one_id(actual_value)
+                    )
                 if not _values_equal(expected, actual_value):
                     differing.append(intent.field)
         except (KeyError, WorkspaceError) as error:
@@ -382,6 +390,42 @@ class ReconciliationService:
         if intent.kind == "scalar":
             return intent.value
         value = intent.value
+        if isinstance(value, tuple):
+            identifiers = tuple(
+                self._expected_reference_id(
+                    item,
+                    intent,
+                    metadata,
+                    by_source,
+                    resolved_ids,
+                    identity_cache,
+                    reader,
+                )
+                for item in value
+            )
+            return () if intent.relation_operation == "remove" else tuple(
+                sorted(set(identifiers))
+            )
+        return self._expected_reference_id(
+            value,
+            intent,
+            metadata,
+            by_source,
+            resolved_ids,
+            identity_cache,
+            reader,
+        )
+
+    def _expected_reference_id(
+        self,
+        value: object,
+        intent: FieldIntent,
+        metadata: Mapping[str, ExecutionDataset],
+        by_source: Mapping[tuple[str, str], ExecutionRow],
+        resolved_ids: Mapping[str, int],
+        identity_cache: dict[tuple[str, tuple[tuple[str, str, Any], ...]], int],
+        reader: OdooReadbackReader,
+    ) -> int:
         if isinstance(value, LogicalReference) and value.origin == "incoming":
             if value.dataset is None:
                 raise WorkspaceError("An incoming relationship is incomplete")
@@ -444,6 +488,16 @@ def _many2one_id(value: Any) -> int | None:
     if isinstance(value, (tuple, list)) and value and type(value[0]) is int:
         return int(value[0])
     return None
+
+
+def _many2many_ids(value: Any) -> tuple[int, ...]:
+    if value is None or value is False:
+        return ()
+    if not isinstance(value, (tuple, list)) or any(
+        type(item) is not int or item <= 0 for item in value
+    ):
+        raise WorkspaceError("Odoo returned an invalid many-to-many value")
+    return tuple(sorted(set(value)))
 
 
 def _values_equal(expected: Any, actual: Any) -> bool:

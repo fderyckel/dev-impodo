@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 from ..connectors import Json2Config
+from ..odoo_scope import OdooApiScope
 from ..odoo_writer import Json2WriteExecutor, OdooWriteExecutor
 from ..odoo_readback import Json2ReadbackReader, OdooReadbackReader
 from ..projects import MigrationProject, OdooConnectionMode, ProjectError
 
 
-def _write_executor(project: MigrationProject, api_key: str) -> OdooWriteExecutor:
-    """Bind the practical writer to the project's exact disposable target."""
+def _write_executor(
+    project: MigrationProject,
+    api_key: str,
+    scope: OdooApiScope,
+) -> OdooWriteExecutor:
+    """Bind the writer to the exact target and reviewed preview capability."""
 
     if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
-        raise ProjectError("The first load path is available only for Local Odoo")
+        raise ProjectError("Loading is currently available only for Local Odoo")
     if not api_key.strip():
         raise ProjectError("Enter an Odoo API key for this load")
     return Json2WriteExecutor(
@@ -22,13 +27,15 @@ def _write_executor(project: MigrationProject, api_key: str) -> OdooWriteExecuto
             api_key=api_key,
             connection_mode=project.odoo_connection_mode.value,
             retries=0,
-        )
+        ),
+        scope,
     )
 
 
 def _readback_reader(
     project: MigrationProject,
     api_key: str,
+    scope: OdooApiScope,
 ) -> OdooReadbackReader:
     """Bind post-write verification to the same exact local target."""
 
@@ -43,5 +50,6 @@ def _readback_reader(
             api_key=api_key,
             connection_mode=project.odoo_connection_mode.value,
             retries=0,
-        )
+        ),
+        scope,
     )

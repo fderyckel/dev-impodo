@@ -12,7 +12,9 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
+from impodo.application import normalization_service as normalization_module
 from impodo.application import preparation_service as preparation_module
+from impodo.application import quality_service as quality_module
 from impodo.artifacts import LocalArtifactStore
 from impodo.domain.coverage import (
     CoverageApplicability,
@@ -205,8 +207,19 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             self.context.preparation.staging.get_canonical_staging_run
         )
         original_quality = self.context.preparation.quality.evaluate_and_publish
+        original_quality_evaluation = quality_module.build_bounded_quality_run
+        original_quality_persistence = (
+            self.context.preparation.quality.quality._insert_quality_evidence
+        )
         original_normalization = (
             self.context.preparation.normalization.evaluate_and_publish
+        )
+        original_normalization_aggregation = (
+            normalization_module.build_bounded_normalization_evaluation
+        )
+        original_normalization_persistence = (
+            self.context.preparation.normalization.repository
+            ._insert_normalization_evidence
         )
         original_append_rows = (
             self.context.preparation.sessions.append_direct_rows
@@ -252,10 +265,39 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 "evaluate_and_publish",
                 timed("quality", original_quality),
             ),
+            patch(
+                "impodo.application.quality_service."
+                "build_bounded_quality_run",
+                timed("quality_evaluation", original_quality_evaluation),
+            ),
+            patch.object(
+                self.context.preparation.quality.quality,
+                "_insert_quality_evidence",
+                timed(
+                    "quality_persistence_and_hash",
+                    original_quality_persistence,
+                ),
+            ),
             patch.object(
                 self.context.preparation.normalization,
                 "evaluate_and_publish",
                 timed("normalization", original_normalization),
+            ),
+            patch(
+                "impodo.application.normalization_service."
+                "build_bounded_normalization_evaluation",
+                timed(
+                    "normalization_aggregation",
+                    original_normalization_aggregation,
+                ),
+            ),
+            patch.object(
+                self.context.preparation.normalization.repository,
+                "_insert_normalization_evidence",
+                timed(
+                    "normalization_persistence_and_hash",
+                    original_normalization_persistence,
+                ),
             ),
             patch.object(
                 self.context.preparation.sessions,
@@ -1182,6 +1224,97 @@ class BoundedPreparationParityTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(durable_runs, [("PUBLISHED", 1)])
         self.assertEqual(pending_rows, (0,))
+
+    def test_quality_row_transport_failure_rolls_back_pending_evidence(self) -> None:
+        project_id, _source_hash, _source_size = (
+            PreparationWorkflowScaleTests._prepare_project_and_evidence(
+                self,
+                row_count=5,
+                column_count=5,
+                mapped_field_count=5,
+                dirty=True,
+            )
+        )
+        from impodo.adapters.duckdb import quality_repository
+
+        original_batches = quality_repository.iter_encoded_json_batches
+
+        def fail_after_first_batch(*args, **kwargs):
+            for batch in original_batches(*args, **kwargs):
+                yield batch
+                raise RuntimeError("injected quality transport failure")
+
+        with (
+            patch.object(
+                quality_repository,
+                "iter_encoded_json_batches",
+                fail_after_first_batch,
+            ),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "injected quality transport failure",
+            ),
+        ):
+            self.context.preparation.prepare(
+                project_id,
+                actor=self.context.actor,
+            )
+
+        database_path = self.root / project_id / "project.duckdb"
+        with self.context.preparation.staging._connect(database_path) as connection:
+            counts = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM quality_row_result),
+                    (SELECT COUNT(*) FROM quality_run),
+                    (SELECT COUNT(*) FROM quality_current)
+                """
+            ).fetchone()
+        self.assertEqual(counts, (0, 0, 0))
+
+    def test_normalization_transport_failure_rolls_back_pending_evidence(self) -> None:
+        project_id, _source_hash, _source_size = (
+            PreparationWorkflowScaleTests._prepare_project_and_evidence(
+                self,
+                row_count=5,
+                column_count=5,
+                mapped_field_count=5,
+                dirty=True,
+            )
+        )
+        from impodo.adapters.duckdb import normalization_repository
+
+        original_batches = normalization_repository.iter_encoded_json_batches
+
+        def fail_after_first_batch(*args, **kwargs):
+            for batch in original_batches(*args, **kwargs):
+                yield batch
+                raise RuntimeError("injected transport failure")
+
+        with (
+            patch.object(
+                normalization_repository,
+                "iter_encoded_json_batches",
+                fail_after_first_batch,
+            ),
+            self.assertRaisesRegex(RuntimeError, "injected transport failure"),
+        ):
+            self.context.preparation.prepare(
+                project_id,
+                actor=self.context.actor,
+            )
+
+        database_path = self.root / project_id / "project.duckdb"
+        with self.context.preparation.staging._connect(database_path) as connection:
+            counts = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM normalization_effect),
+                    (SELECT COUNT(*) FROM normalization_run),
+                    (SELECT COUNT(*) FROM normalization_current)
+                """
+            ).fetchone()
+        self.assertEqual(counts, (0, 0, 0))
 
     def test_direct_publication_failure_preserves_current_run(self) -> None:
         project_id, _source_hash, _source_size = (

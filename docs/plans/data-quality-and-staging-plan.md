@@ -40,7 +40,7 @@ certifiable read-only preflight package. It does not redefine:
 | Quality and quarantine | Versioned automatic and guided checks, dual source/canonical accounting, immutable quarantine evidence, bounded review paging, and eligible-row filtering before Odoo comparison are integrated |
 | Staging and certification | Durable atomic canonical staging, row controls, opt-in named business totals, and normalization freeze are integrated. Clean-package certification remains absent |
 | Advanced coverage | Approved scope and reference revisions, bounded structural rules, deterministic duplicate candidates, reviewed survivor/correction evidence, effective rows, and advanced quality checks are integrated without Odoo writes |
-| Practical Odoo execution | The execution snapshot, explicit local load preview, allowlisted contacts/categories/products writer, bounded batches, durable row journal, exact read-back, uncertain-response re-matching, and downloadable fallout are integrated; a live 150-row disposable-target run verified every row and repeated as all unchanged |
+| Practical Odoo execution | The execution snapshot, explicit local load preview, per-preview schema-bound writer for standard/custom models and fields, bounded batches, durable row journal, exact read-back, uncertain-response re-matching, and downloadable fallout are integrated; a live 150-row disposable-target run verified every row and repeated as all unchanged |
 
 Read-only preflight now runs directly from durable frozen effective rows
 instead of recomputing a transient prepared bundle. Slice 6 is complete. The

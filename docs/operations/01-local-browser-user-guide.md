@@ -12,9 +12,9 @@ Project setup -> Source data -> Odoo fields -> Match fields -> Review
 Impodo registers and inspects CSV/XLSX evidence, freezes selected datasets,
 captures an Odoo 19 schema, and creates validated mapping revisions. After
 submission, it can check every frozen source row against read-only Odoo
-evidence. For contacts, product categories, and products on a disposable Local
-Odoo 19 target, it can then perform one explicitly confirmed native-API load.
-It does not yet read the written rows back or reconcile a completed load.
+evidence. On a disposable Local Odoo 19 target, it can then load the exact
+standard or custom models and writable fields captured from Odoo and confirmed
+in the mapping. It reads accepted rows back and reconciles the completed load.
 
 The [migration project contract](../contracts/01-migration-project.md) and
 [browser workspace contract](../contracts/02-workspace.md) define the exact
@@ -589,8 +589,12 @@ is not embedded as an Excel preview in the browser.
 
 When the current comparison has no blocked or ambiguous row, select **Preview
 Odoo load**. Confirm the exact target database and the create/update totals by
-dataset. This path is intentionally limited to Local Odoo 19 contacts, product
-categories, products, and simple many2one links.
+dataset. This path is currently limited to Local Odoo 19. Models and fields are
+not globally allowlisted: the native adapter is
+bound to the exact captured-schema fields frozen in this preview. Standard
+fields, extension fields, custom fields, custom models, many2one, and
+many2many mappings follow the same reviewed path. Odoo access rights and
+record rules still apply.
 
 Enter an Odoo API key and select **Load into Odoo**. Impodo sends bounded create
 batches in dependency order and uniquely re-matches every update by its

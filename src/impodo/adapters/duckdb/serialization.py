@@ -8,12 +8,13 @@ ingestion without changing semantic row order.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import (
     date,
     datetime,
 )
 import json
-from typing import Sequence
 
 
 from ...projects import (
@@ -135,6 +136,73 @@ def _canonical_json(value: object) -> str:
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class EncodedJsonBatch:
+    """One bounded transport envelope and its non-sensitive measurements."""
+
+    payload: str
+    row_count: int
+    byte_count: int
+
+
+def iter_encoded_json_batches(
+    rows: Iterable[Mapping[str, object]],
+    *,
+    max_rows: int,
+    max_bytes: int,
+) -> Iterator[EncodedJsonBatch]:
+    """Encode fixed-shape adapter rows with row and UTF-8 byte guardrails."""
+
+    if max_rows < 1:
+        raise ValueError("DuckDB JSON batch row limit must be positive")
+    if max_bytes < 3:
+        raise ValueError("DuckDB JSON batch byte limit is too small")
+    encoded_rows: list[str] = []
+    payload_bytes = 2  # Opening and closing array brackets.
+    for row in rows:
+        encoded = json.dumps(
+            dict(row),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        encoded_bytes = len(encoded.encode("utf-8"))
+        if encoded_bytes + 2 > max_bytes:
+            raise ValueError(
+                "One DuckDB JSON transport row exceeds the byte limit"
+            )
+        separator_bytes = 1 if encoded_rows else 0
+        if (
+            encoded_rows
+            and (
+                len(encoded_rows) >= max_rows
+                or payload_bytes + separator_bytes + encoded_bytes > max_bytes
+            )
+        ):
+            yield _encoded_json_batch(encoded_rows, payload_bytes)
+            encoded_rows = []
+            payload_bytes = 2
+            separator_bytes = 0
+        encoded_rows.append(encoded)
+        payload_bytes += separator_bytes + encoded_bytes
+    if encoded_rows:
+        yield _encoded_json_batch(encoded_rows, payload_bytes)
+
+
+def _encoded_json_batch(
+    encoded_rows: Sequence[str],
+    byte_count: int,
+) -> EncodedJsonBatch:
+    payload = f"[{','.join(encoded_rows)}]"
+    if len(payload.encode("utf-8")) != byte_count:
+        raise AssertionError("DuckDB JSON transport byte count is inconsistent")
+    return EncodedJsonBatch(
+        payload=payload,
+        row_count=len(encoded_rows),
+        byte_count=byte_count,
     )
 
 

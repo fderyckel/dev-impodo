@@ -1,4 +1,4 @@
-"""Orchestrate one confirmed practical load from the current P1 snapshot."""
+"""Orchestrate one confirmed schema-bound load from the current snapshot."""
 
 from __future__ import annotations
 
@@ -27,10 +27,9 @@ from ..models import (
     canonical_json_text,
     portable_value,
 )
+from ..odoo_scope import OdooApiScope, OdooModelScope
 from ..odoo_writer import (
     MAX_CREATE_BATCH_ROWS,
-    PRACTICAL_LOOKUP_FIELDS,
-    PRACTICAL_WRITE_FIELDS,
     OdooWriteExecutor,
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
@@ -86,6 +85,7 @@ class ExecutionPreview:
     snapshot: ExecutionSnapshot
     datasets: tuple[ExecutionDatasetPreview, ...]
     current_run: ExecutionRun | None
+    api_scope: OdooApiScope
     scope_error: str = ""
 
     @property
@@ -100,7 +100,7 @@ class ExecutionPreview:
 
 
 class ExecutionService:
-    """Validate, journal, and execute the disposable-target master-data load."""
+    """Validate, journal, and execute a reviewed disposable-target load."""
 
     def __init__(
         self,
@@ -120,6 +120,7 @@ class ExecutionService:
             return None
         project = self.projects.get(project_id)
         current = self.journal.get_current_run(project_id, snapshot.semantic_hash)
+        api_scope = execution_api_scope(snapshot)
         return ExecutionPreview(
             snapshot=snapshot,
             datasets=tuple(
@@ -146,7 +147,8 @@ class ExecutionService:
                 if any(row.dataset == dataset.dataset for row in snapshot.rows)
             ),
             current_run=current,
-            scope_error=_practical_snapshot_error(project, snapshot),
+            api_scope=api_scope,
+            scope_error=_execution_snapshot_error(project, snapshot),
         )
 
     def execute(
@@ -169,7 +171,7 @@ class ExecutionService:
         snapshot = preview.snapshot
         if snapshot.semantic_hash != expected_snapshot_hash:
             raise WorkspaceError("The load preview changed. Review it again.")
-        self._validate_practical_scope(project, preview, executor)
+        self._validate_execution_scope(project, preview, executor)
 
         write_rows = tuple(
             row
@@ -246,7 +248,6 @@ class ExecutionService:
                     try:
                         values = self._row_values(
                             row,
-                            snapshot,
                             metadata,
                             by_source,
                             source_cache,
@@ -336,7 +337,6 @@ class ExecutionService:
                     )
                     values = self._row_values(
                         row,
-                        snapshot,
                         metadata,
                         by_source,
                         source_cache,
@@ -410,7 +410,7 @@ class ExecutionService:
         )
 
     @staticmethod
-    def _validate_practical_scope(
+    def _validate_execution_scope(
         project: MigrationProject,
         preview: ExecutionPreview,
         executor: OdooWriteExecutor,
@@ -418,7 +418,7 @@ class ExecutionService:
         snapshot = preview.snapshot
         if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
             raise WorkspaceError(
-                "This first load path is limited to a disposable local Odoo target"
+                "Loading is currently limited to a disposable local Odoo target"
             )
         if preview.current_run is not None:
             raise WorkspaceError(
@@ -427,14 +427,21 @@ class ExecutionService:
         if preview.scope_error:
             raise WorkspaceError(preview.scope_error)
         if not preview.can_load:
-            raise WorkspaceError("Resolve every blocked or ambiguous row before loading")
+            raise WorkspaceError(
+                "Resolve every blocked or ambiguous row before loading"
+            )
         if executor.target_hash != snapshot.target_hash:
-            raise WorkspaceError("The load connection points to a different Odoo target")
+            raise WorkspaceError(
+                "The load connection points to a different Odoo target"
+            )
+        if executor.scope_hash != preview.api_scope.semantic_hash:
+            raise WorkspaceError(
+                "The writer is not bound to this reviewed load preview"
+            )
 
     def _row_values(
         self,
         row: ExecutionRow,
-        snapshot: ExecutionSnapshot,
         metadata: Mapping[str, ExecutionDataset],
         by_source: Mapping[tuple[str, str], ExecutionRow],
         source_cache: dict[tuple[str, str], int],
@@ -450,9 +457,8 @@ class ExecutionService:
             elif intent.kind == "scalar":
                 values[intent.field] = _odoo_scalar(intent.value)
             else:
-                values[intent.field] = self._relation_id(
+                values[intent.field] = self._relation_value(
                     intent,
-                    snapshot,
                     metadata,
                     by_source,
                     source_cache,
@@ -463,23 +469,65 @@ class ExecutionService:
             raise WorkspaceError("A planned write has no permitted field values")
         return values
 
-    def _relation_id(
+    def _relation_value(
         self,
         intent: FieldIntent,
-        snapshot: ExecutionSnapshot,
+        metadata: Mapping[str, ExecutionDataset],
+        by_source: Mapping[tuple[str, str], ExecutionRow],
+        source_cache: dict[tuple[str, str], int],
+        identity_cache: dict[str, int],
+        executor: OdooWriteExecutor,
+    ) -> object:
+        value = intent.value
+        if isinstance(value, tuple):
+            identifiers = tuple(
+                dict.fromkeys(
+                    self._relation_reference_id(
+                        item,
+                        intent,
+                        metadata,
+                        by_source,
+                        source_cache,
+                        identity_cache,
+                        executor,
+                    )
+                    for item in value
+                )
+            )
+            # Update snapshots already contain the final canonical set and use
+            # replace.  For creates, add starts from an empty relation and
+            # remove therefore also has a deterministic final empty set.
+            if intent.relation_operation in {"replace", "add"}:
+                return [[6, 0, list(identifiers)]]
+            if intent.relation_operation == "remove":
+                return [[6, 0, []]]
+            raise WorkspaceError(
+                f"Relationship field {intent.field} has an unsupported operation"
+            )
+        if intent.relation_operation != "replace":
+            raise WorkspaceError(
+                f"Relationship field {intent.field} must use replace"
+            )
+        return self._relation_reference_id(
+            value,
+            intent,
+            metadata,
+            by_source,
+            source_cache,
+            identity_cache,
+            executor,
+        )
+
+    def _relation_reference_id(
+        self,
+        value: object,
+        intent: FieldIntent,
         metadata: Mapping[str, ExecutionDataset],
         by_source: Mapping[tuple[str, str], ExecutionRow],
         source_cache: dict[tuple[str, str], int],
         identity_cache: dict[str, int],
         executor: OdooWriteExecutor,
     ) -> int:
-        if intent.relation_operation != "replace" or isinstance(
-            intent.value, tuple
-        ):
-            raise WorkspaceError(
-                "The practical load supports simple many-to-one relationships only"
-            )
-        value = intent.value
         if isinstance(value, LogicalReference) and value.origin == "incoming":
             if value.dataset is None:
                 raise WorkspaceError("An incoming relationship is incomplete")
@@ -510,7 +558,13 @@ class ExecutionService:
             scope,
         )
         cache_key = _domain_cache_key(intent.related_model, domain)
-        return self._find_unique(intent.related_model, domain, cache_key, identity_cache, executor)
+        return self._find_unique(
+            intent.related_model,
+            domain,
+            cache_key,
+            identity_cache,
+            executor,
+        )
 
     def _find_row_id(
         self,
@@ -595,46 +649,90 @@ def _identity_domain(
     )
 
 
-def _practical_snapshot_error(
+def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:
+    """Derive the exact native API capability from one frozen preview."""
+
+    write_fields: dict[str, set[str]] = {}
+    read_fields: dict[str, set[str]] = {}
+    lookup_fields: dict[str, set[str]] = {}
+    for dataset in snapshot.datasets:
+        lookup_fields.setdefault(dataset.target_model, set()).update(
+            (*dataset.identity_fields, *dataset.scope_fields)
+        )
+    for row in snapshot.rows:
+        if row.disposition not in {"CREATE", "UPDATE"}:
+            continue
+        for intent in row.fields:
+            if intent.action != "OMIT":
+                write_fields.setdefault(row.target_model, set()).add(intent.field)
+                read_fields.setdefault(row.target_model, set()).add(intent.field)
+            if intent.kind == "relation":
+                lookup_fields.setdefault(intent.related_model, set()).update(
+                    (
+                        *intent.related_identity_fields,
+                        *intent.related_scope_fields,
+                    )
+                )
+    model_names = sorted(set(write_fields) | set(read_fields) | set(lookup_fields))
+    return OdooApiScope(
+        preview_hash=snapshot.semantic_hash,
+        models=tuple(
+            OdooModelScope(
+                model=model,
+                write_fields=tuple(sorted(write_fields.get(model, set()))),
+                read_fields=tuple(sorted(read_fields.get(model, set()))),
+                lookup_fields=tuple(sorted(lookup_fields.get(model, set()))),
+            )
+            for model in model_names
+            if write_fields.get(model)
+            or read_fields.get(model)
+            or lookup_fields.get(model)
+        )
+    )
+
+
+def _execution_snapshot_error(
     project: MigrationProject,
     snapshot: ExecutionSnapshot,
 ) -> str:
-    """Explain unsupported scope before the user can press Load."""
+    """Explain an execution-shape problem before the user can press Load."""
 
     if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
-        return "This first load path is limited to a disposable local Odoo target"
+        return "Loading is currently limited to a disposable local Odoo target"
     if not snapshot.target_odoo_version.startswith("19."):
-        return "The practical load path requires Odoo 19"
+        return "The schema-bound load path requires Odoo 19"
     write_rows = tuple(row for row in snapshot.rows if row.fields)
     if not write_rows:
         return "This preview has no rows to create or update"
     datasets = {item.dataset: item for item in snapshot.datasets}
     for row in write_rows:
-        allowed = PRACTICAL_WRITE_FIELDS.get(row.target_model)
-        if allowed is None or any(
-            intent.field not in allowed for intent in row.fields
-        ):
-            return (
-                "The preview contains an Odoo model or field outside the "
-                "practical load scope"
-            )
         dataset = datasets.get(row.dataset)
-        lookup_fields = PRACTICAL_LOOKUP_FIELDS.get(row.target_model, frozenset())
-        if dataset is None or not set(
-            (*dataset.identity_fields, *dataset.scope_fields)
-        ).issubset(lookup_fields):
-            return "The preview uses a business key outside the practical load scope"
+        if dataset is None:
+            return f"Dataset {row.dataset} is missing from the reviewed load preview"
         for intent in row.fields:
             if intent.kind == "scalar" or intent.action != "SET_VALUE":
                 continue
-            if (
-                intent.relation_operation != "replace"
-                or isinstance(intent.value, tuple)
-                or intent.related_model not in PRACTICAL_LOOKUP_FIELDS
+            if isinstance(intent.value, tuple):
+                if intent.relation_operation not in {"replace", "add", "remove"}:
+                    return (
+                        f"{row.dataset}.{intent.field} uses unsupported relationship "
+                        f"operation {intent.relation_operation}"
+                    )
+                if not all(
+                    isinstance(item, BusinessReference | LogicalReference)
+                    for item in intent.value
+                ):
+                    return (
+                        f"{row.dataset}.{intent.field} contains an unsupported "
+                        "relationship value"
+                    )
+            elif not isinstance(
+                intent.value,
+                BusinessReference | LogicalReference,
             ):
                 return (
-                    "The first load path supports simple many-to-one "
-                    "relationships only"
+                    f"{row.dataset}.{intent.field} is not expressed by a reviewed "
+                    "business key"
                 )
     return ""
 
@@ -653,7 +751,7 @@ def _odoo_scalar(value: Any) -> Any:
         raise WorkspaceError("A relational business key cannot be used as a scalar")
     if value is None or type(value) in {str, int, bool, float}:
         return value
-    raise WorkspaceError("A prepared value is not supported by the practical load")
+    raise WorkspaceError("A prepared value is not supported by the Odoo API")
 
 
 def _portable_key(value: tuple[Any, ...]) -> str:

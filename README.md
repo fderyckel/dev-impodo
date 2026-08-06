@@ -7,8 +7,9 @@ considered.
 
 Impodo's normal preparation and comparison workflow is read-only. For a
 disposable local Odoo 19 target, it can now preview and explicitly load a
-narrow allowlist of contacts, product categories, and products through Odoo's
-native API, then read the written records back and show actionable fallout.
+reviewed, schema-bound set of standard or custom models and writable fields
+through Odoo's native API, then read the written records back and show
+actionable fallout.
 
 ## The platform
 
@@ -85,8 +86,9 @@ business key invalidates the active mapping so it must be validated again.
 - Freezes the exact compared rows and field intentions automatically.
 - Shows create, update, and unchanged totals before any write.
 - Requires one explicit **Load into Odoo** action.
-- Uses an allowlisted JSON-2 writer, dependency-ordered batches, exact
-  business-key updates, and no direct SQL or generic RPC.
+- Derives an exact per-preview JSON-2 capability from the captured schema and
+  confirmed mapping, uses dependency-ordered batches and exact business-key
+  updates, and exposes no direct SQL or generic RPC.
 - Journals every proposed write and stops without retrying after a lost write
   response.
 - Reads accepted rows back by Odoo ID, re-matches uncertain responses by the
@@ -95,8 +97,8 @@ business key invalidates the active mapping so it must be validated again.
 **Delivery status:** The bounded preparation, review, durable preflight,
 execution snapshot, practical local load, and read-back reconciliation path
 are implemented. A live 150-row disposable-target run verified every row and
-repeated with no proposed writes or duplicates. Broader/remote loading and
-production controls remain later delivery scope.
+repeated with no proposed writes or duplicates. Remote loading and production
+controls remain later delivery scope.
 
 ## Install and start
 

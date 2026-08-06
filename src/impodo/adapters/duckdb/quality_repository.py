@@ -7,7 +7,10 @@ normalization/preflight evidence when quality semantics change.
 
 from __future__ import annotations
 
-from .constants import QUALITY_ROW_BATCH_SIZE
+from .constants import (
+    DUCKDB_JSON_BATCH_MAX_BYTES,
+    QUALITY_ROW_BATCH_SIZE,
+)
 
 from datetime import (
     datetime,
@@ -50,7 +53,22 @@ from .repository import DuckDbRepository
 
 
 
-from .serialization import _canonical_json, _columnar_parameters
+from .serialization import (
+    _canonical_json,
+    _columnar_parameters,
+    iter_encoded_json_batches,
+)
+
+
+_QUALITY_ROW_RESULT_JSON_STRUCTURE = """[{
+    "ordinal":"BIGINT",
+    "row_id":"VARCHAR",
+    "dataset":"VARCHAR",
+    "source_row":"BIGINT",
+    "effective_disposition":"VARCHAR",
+    "requires_review":"BOOLEAN",
+    "row_json":"VARCHAR"
+}]"""
 
 
 class QualityRepository(DuckDbRepository):
@@ -765,43 +783,94 @@ class QualityRepository(DuckDbRepository):
         hasher.end_array()
         hasher.add_value("retention_context_hash", run.retention_context_hash)
         hasher.start_array("row_results")
-        row_batch_reader = getattr(run.row_results, "iter_batches", None)
-        row_batches = (
-            row_batch_reader(connection, QUALITY_ROW_BATCH_SIZE)
-            if callable(row_batch_reader)
-            else (
-                run.row_results[start : start + QUALITY_ROW_BATCH_SIZE]
-                for start in range(
-                    0, len(run.row_results), QUALITY_ROW_BATCH_SIZE
-                )
-            )
-        )
         row_ordinal = 0
-        for batch in row_batches:
-            values = []
-            for offset, item in enumerate(batch):
-                item_json = _canonical_json(item.to_portable_dict())
-                hasher.add_encoded_array_item(item_json)
-                values.append([
-                    run_id, row_ordinal + offset, item.row_id, item.dataset,
-                    item.source_row, item.effective_disposition.value,
-                    item.requires_review, item_json,
-                ])
-            connection.execute(
-                """
-                INSERT INTO quality_row_result (
-                    run_id, ordinal, row_id, dataset, source_row,
-                    effective_disposition, requires_review, row_json
+        if isinstance(run, StoredQualityRun):
+            row_batch_reader = getattr(run.row_results, "iter_batches", None)
+            if not callable(row_batch_reader):
+                raise WorkspaceError("Stored quality rows are not replayable")
+            for batch in row_batch_reader(connection, QUALITY_ROW_BATCH_SIZE):
+                def transport_rows():
+                    for offset, item in enumerate(batch):
+                        item_json = _canonical_json(item.to_portable_dict())
+                        hasher.add_encoded_array_item(item_json)
+                        yield {
+                            "ordinal": row_ordinal + offset,
+                            "row_id": item.row_id,
+                            "dataset": item.dataset,
+                            "source_row": item.source_row,
+                            "effective_disposition": (
+                                item.effective_disposition.value
+                            ),
+                            "requires_review": item.requires_review,
+                            "row_json": item_json,
+                        }
+
+                for encoded_batch in iter_encoded_json_batches(
+                    transport_rows(),
+                    max_rows=QUALITY_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO quality_row_result (
+                            run_id, ordinal, row_id, dataset, source_row,
+                            effective_disposition, requires_review, row_json
+                        )
+                        SELECT
+                            ?, item.ordinal, item.row_id, item.dataset,
+                            item.source_row, item.effective_disposition,
+                            item.requires_review, item.row_json
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
+                        [
+                            run_id,
+                            encoded_batch.payload,
+                            _QUALITY_ROW_RESULT_JSON_STRUCTURE,
+                        ],
+                    )
+                    row_ordinal += encoded_batch.row_count
+        else:
+            for start in range(
+                0,
+                len(run.row_results),
+                QUALITY_ROW_BATCH_SIZE,
+            ):
+                batch = run.row_results[
+                    start : start + QUALITY_ROW_BATCH_SIZE
+                ]
+                values = []
+                for offset, item in enumerate(batch):
+                    item_json = _canonical_json(item.to_portable_dict())
+                    hasher.add_encoded_array_item(item_json)
+                    values.append([
+                        run_id,
+                        row_ordinal + offset,
+                        item.row_id,
+                        item.dataset,
+                        item.source_row,
+                        item.effective_disposition.value,
+                        item.requires_review,
+                        item_json,
+                    ])
+                connection.execute(
+                    """
+                    INSERT INTO quality_row_result (
+                        run_id, ordinal, row_id, dataset, source_row,
+                        effective_disposition, requires_review, row_json
+                    )
+                    SELECT
+                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
+                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
+                        CAST(unnest(?) AS BIGINT), CAST(unnest(?) AS VARCHAR),
+                        CAST(unnest(?) AS BOOLEAN), CAST(unnest(?) AS VARCHAR)
+                    """,
+                    _columnar_parameters(values),
                 )
-                SELECT
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
-                    CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
-                    CAST(unnest(?) AS BIGINT), CAST(unnest(?) AS VARCHAR),
-                    CAST(unnest(?) AS BOOLEAN), CAST(unnest(?) AS VARCHAR)
-                """,
-                _columnar_parameters(values),
-            )
-            row_ordinal += len(batch)
+                row_ordinal += len(batch)
         if row_ordinal != len(run.row_results):
             raise WorkspaceError("Quality row evidence is incomplete")
         hasher.end_array()

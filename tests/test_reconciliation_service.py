@@ -8,6 +8,7 @@ import unittest
 from uuid import uuid4
 
 from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
+from impodo.application.execution_service import execution_api_scope
 from impodo.application.reconciliation_service import ReconciliationService
 from impodo.connectors import Json2Config
 from impodo.domain.execution import (
@@ -20,13 +21,16 @@ from impodo.domain.reconciliation import (
     ReconciliationRowStatus,
     ReconciliationRunStatus,
 )
+from impodo.domain.execution_snapshot import FieldIntent
+from impodo.models import BusinessReference
 from impodo.odoo_readback import (
     Json2ReadbackReader,
     OdooReadbackError,
     ReadbackRecord,
 )
+from impodo.odoo_scope import OdooApiScope, OdooModelScope
 
-from tests.test_execution_service import TARGET_HASH, _snapshot
+from tests.test_execution_service import HASH, TARGET_HASH, _snapshot
 
 
 class _Execution:
@@ -61,7 +65,8 @@ class _Results:
 class _Reader:
     target_hash = TARGET_HASH
 
-    def __init__(self):
+    def __init__(self, scope_hash):
+        self.scope_hash = scope_hash
         self.records = {
             ("product.category", 10): {"name": "Category"},
             ("product.template", 11): {
@@ -72,6 +77,7 @@ class _Reader:
             ("res.partner", 50): {"email": "new@example.test"},
         }
         self.uncertain = ()
+        self.references = {}
 
     def read_ids(self, model, identifiers, fields):
         return tuple(
@@ -84,7 +90,11 @@ class _Reader:
         )
 
     def find_records(self, model, domain, fields):
-        del model, domain, fields
+        if model in self.references and domain:
+            identifier = self.references[model].get(domain[0][2])
+            if identifier is not None:
+                return (ReadbackRecord(identifier, {}),)
+        del fields
         return self.uncertain
 
 
@@ -160,7 +170,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         report = service.reconcile(
             snapshot.project_id,
             expected_execution_run_id=run.run_id,
-            reader=_Reader(),
+            reader=_Reader(execution_api_scope(snapshot).semantic_hash),
             actor=LOCAL_ACTOR,
         )
 
@@ -182,7 +192,7 @@ class ReconciliationServiceTests(unittest.TestCase):
             ),
         )
         service, _results = self._service(snapshot, run)
-        reader = _Reader()
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
         reader.uncertain = (ReadbackRecord(10, {"name": "Category"}),)
 
         report = service.reconcile(
@@ -211,7 +221,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         report = service.reconcile(
             snapshot.project_id,
             expected_execution_run_id=run.run_id,
-            reader=_Reader(),
+            reader=_Reader(execution_api_scope(snapshot).semantic_hash),
             actor=LOCAL_ACTOR,
         )
 
@@ -223,7 +233,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         snapshot = _snapshot()
         run = _run(snapshot)
         service, _results = self._service(snapshot, run)
-        reader = _Reader()
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
         reader.records[("res.partner", 50)]["email"] = "different@example.test"
 
         report = service.reconcile(
@@ -238,15 +248,71 @@ class ReconciliationServiceTests(unittest.TestCase):
         self.assertEqual(contact.differing_fields, ("email",))
         self.assertNotIn("different@example.test", report.to_json())
 
+    def test_verifies_schema_bound_custom_many2many_fields(self):
+        snapshot = _snapshot()
+        contact = replace(
+            snapshot.rows[-1],
+            fields=(
+                FieldIntent(
+                    "x_tag_ids",
+                    "SET_VALUE",
+                    (
+                        BusinessReference("x.tag", ("BLUE",)),
+                        BusinessReference("x.tag", ("FOOD",)),
+                    ),
+                    kind="relation",
+                    relation_operation="replace",
+                    related_model="x.tag",
+                    related_identity_fields=("code",),
+                ),
+            ),
+        )
+        scoped = replace(snapshot, rows=(*snapshot.rows[:-1], contact))
+        run = _run(scoped)
+        service, _results = self._service(scoped, run)
+        reader = _Reader(execution_api_scope(scoped).semantic_hash)
+        reader.records[("res.partner", 50)] = {"x_tag_ids": [61, 60]}
+        reader.references["x.tag"] = {"BLUE": 60, "FOOD": 61}
+
+        report = service.reconcile(
+            scoped.project_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(report.rows[-1].status, ReconciliationRowStatus.VERIFIED)
+
 
 class Json2ReadbackReaderTests(unittest.TestCase):
     def setUp(self):
         self.calls = []
 
         def transport(url, headers, body, timeout, method):
-            self.calls.append((url, headers, json.loads(body), timeout, method))
-            return 200, [{"id": 42, "name": "Verified"}]
+            payload = json.loads(body)
+            self.calls.append((url, headers, payload, timeout, method))
+            return 200, [
+                {
+                    "id": 42,
+                    **{
+                        field: "Verified"
+                        for field in payload["fields"]
+                        if field != "id"
+                    },
+                }
+            ]
 
+        self.scope = OdooApiScope(
+            preview_hash=HASH,
+            models=(
+                OdooModelScope(
+                    "res.partner",
+                    write_fields=("customer_rank", "name", "x_impodo_note"),
+                    read_fields=("customer_rank", "name", "x_impodo_note"),
+                    lookup_fields=("ref",),
+                ),
+            )
+        )
         self.reader = Json2ReadbackReader(
             Json2Config(
                 base_url="http://127.0.0.1:8069",
@@ -255,6 +321,7 @@ class Json2ReadbackReaderTests(unittest.TestCase):
                 connection_mode="LOCAL",
                 retries=0,
             ),
+            self.scope,
             transport=transport,
         )
 
@@ -265,6 +332,16 @@ class Json2ReadbackReaderTests(unittest.TestCase):
         self.assertTrue(self.calls[0][0].endswith("/res.partner/search_read"))
         self.assertEqual(self.calls[0][2]["domain"], [["id", "in", [42]]])
         self.assertNotIn("secret", json.dumps(self.calls[0][2]))
+
+        custom = self.reader.read_ids(
+            "res.partner",
+            (42,),
+            ("customer_rank", "x_impodo_note"),
+        )
+        self.assertEqual(
+            set(custom[0].values),
+            {"customer_rank", "x_impodo_note"},
+        )
 
     def test_rejects_broad_or_out_of_scope_reads(self):
         with self.assertRaises(OdooReadbackError):

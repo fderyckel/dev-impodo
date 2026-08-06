@@ -1,4 +1,4 @@
-"""Closed Odoo JSON-2 reader for practical post-write verification."""
+"""Closed Odoo JSON-2 reader for reviewed post-write verification."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 from .connectors import Json2Config, Transport, _urllib_transport
 from .models import canonical_json_bytes, target_identity_hash
-from .odoo_writer import PRACTICAL_LOOKUP_FIELDS
+from .odoo_scope import OdooApiScope
 
 
 MAX_READBACK_IDS = 50
@@ -30,6 +30,9 @@ class ReadbackRecord:
 class OdooReadbackReader(Protocol):
     @property
     def target_hash(self) -> str: ...
+
+    @property
+    def scope_hash(self) -> str: ...
 
     def read_ids(
         self,
@@ -51,6 +54,7 @@ class Json2ReadbackReader:
     """Read only exact IDs or service-generated business keys."""
 
     config: Json2Config
+    scope: OdooApiScope
     transport: Transport = _urllib_transport
 
     @property
@@ -60,6 +64,10 @@ class Json2ReadbackReader:
             base_url=self.config.base_url,
             database=self.config.database,
         )
+
+    @property
+    def scope_hash(self) -> str:
+        return self.scope.semantic_hash
 
     def read_ids(
         self,
@@ -89,13 +97,15 @@ class Json2ReadbackReader:
         domain: Sequence[tuple[str, str, Any]],
         fields: Sequence[str],
     ) -> tuple[ReadbackRecord, ...]:
-        permitted = PRACTICAL_LOOKUP_FIELDS.get(model)
-        if permitted is None or not domain:
+        permitted = self.scope.lookup_fields(model)
+        if not permitted or not domain:
             raise OdooReadbackError("An exact Odoo read-back key is required")
         normalized = []
         for field, operator, value in domain:
             if field not in permitted or operator != "=":
-                raise OdooReadbackError("Odoo read-back key is outside the load scope")
+                raise OdooReadbackError(
+                    "Odoo read-back key is outside the reviewed load preview"
+                )
             normalized.append([field, "=", value])
         return self._search(
             model,
@@ -105,12 +115,13 @@ class Json2ReadbackReader:
             permitted_ids=None,
         )
 
-    @staticmethod
-    def _fields(model: str, fields: Sequence[str]) -> tuple[str, ...]:
-        permitted = PRACTICAL_LOOKUP_FIELDS.get(model)
+    def _fields(self, model: str, fields: Sequence[str]) -> tuple[str, ...]:
+        permitted = self.scope.read_fields(model)
         clean = tuple(dict.fromkeys(fields))
-        if permitted is None or not set(clean).issubset(permitted):
-            raise OdooReadbackError("Odoo read-back fields are outside the load scope")
+        if not set(clean).issubset(permitted):
+            raise OdooReadbackError(
+                "Odoo read-back fields are outside the reviewed load preview"
+            )
         return clean
 
     def _search(

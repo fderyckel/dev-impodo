@@ -2230,10 +2230,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(load_page.status_code, 200)
         self.assertIn("Review the Odoo load", load_page.text)
         self.assertIn("Load into Odoo", load_page.text)
-        self.assertIn("contacts, categories, and products only", load_page.text)
+        self.assertIn("reviewed captured Odoo fields", load_page.text)
 
         class FakeWriteExecutor:
             target_hash = load_preview.snapshot.target_hash
+            scope_hash = load_preview.api_scope.semantic_hash
 
             def __init__(self):
                 self.created = []
@@ -2262,6 +2263,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         class FakeReadbackReader:
             target_hash = load_preview.snapshot.target_hash
+            scope_hash = load_preview.api_scope.semantic_hash
 
             def __init__(self, writer):
                 self.writer = writer
@@ -2295,10 +2297,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         fake_writer = FakeWriteExecutor()
         self.app.state.context.write_executor_factory = (
-            lambda _project, _api_key: fake_writer
+            lambda _project, _api_key, _scope: fake_writer
         )
         self.app.state.context.readback_reader_factory = (
-            lambda _project, _api_key: FakeReadbackReader(fake_writer)
+            lambda _project, _api_key, _scope: FakeReadbackReader(fake_writer)
         )
         loaded = self.client.post(
             f"/projects/{project_id}/load",

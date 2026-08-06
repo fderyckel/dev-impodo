@@ -1,10 +1,11 @@
-"""Closed Odoo 19 JSON-2 write adapter for the practical master-data path.
+"""Closed Odoo 19 JSON-2 writer for one reviewed execution preview.
 
 This module is deliberately separate from the read connector.  Callers can
 only resolve an exact business key, create bounded rows, or update one known
-record for the initial contact/category/product model and field allowlists.
-There is no caller-controlled method name, context, delete, SQL, ``sudo``, or
-generic RPC surface.
+record within a per-preview capability derived from captured schema and the
+confirmed mapping.  There is no global model/field allowlist and no
+caller-controlled method name, context, delete, SQL, ``sudo``, or generic RPC
+surface.
 """
 
 from __future__ import annotations
@@ -17,85 +18,11 @@ from urllib.parse import quote
 
 from .connectors import Json2Config, Transport, _urllib_transport
 from .models import canonical_json_bytes, target_identity_hash
+from .odoo_scope import OdooApiScope
 
 
 MAX_CREATE_BATCH_ROWS = 50
 MAX_WRITE_BODY_BYTES = 1024 * 1024
-
-PRACTICAL_WRITE_FIELDS: Mapping[str, frozenset[str]] = {
-    "res.partner": frozenset(
-        {
-            "active",
-            "category_id",
-            "city",
-            "company_id",
-            "company_type",
-            "country_id",
-            "email",
-            "is_company",
-            "mobile",
-            "name",
-            "parent_id",
-            "phone",
-            "ref",
-            "state_id",
-            "street",
-            "street2",
-            "vat",
-            "zip",
-        }
-    ),
-    "product.category": frozenset(
-        {
-            "name",
-            "parent_id",
-            "property_cost_method",
-            "property_valuation",
-        }
-    ),
-    "product.template": frozenset(
-        {
-            "active",
-            "barcode",
-            "categ_id",
-            "company_id",
-            "default_code",
-            "list_price",
-            "name",
-            "purchase_ok",
-            "sale_ok",
-            "standard_price",
-            "supplier_taxes_id",
-            "taxes_id",
-            "type",
-            "uom_id",
-            "uom_po_id",
-        }
-    ),
-    "product.product": frozenset(
-        {
-            "active",
-            "barcode",
-            "categ_id",
-            "company_id",
-            "default_code",
-            "lst_price",
-            "name",
-            "product_tmpl_id",
-            "standard_price",
-            "uom_id",
-            "uom_po_id",
-        }
-    ),
-}
-
-PRACTICAL_LOOKUP_FIELDS: Mapping[str, frozenset[str]] = {
-    **PRACTICAL_WRITE_FIELDS,
-    "res.company": frozenset({"name"}),
-    "res.country": frozenset({"code", "name"}),
-    "res.country.state": frozenset({"code", "country_id", "name"}),
-    "uom.uom": frozenset({"name"}),
-}
 
 
 class OdooWriteError(RuntimeError):
@@ -115,6 +42,9 @@ class OdooWriteExecutor(Protocol):
 
     @property
     def target_hash(self) -> str: ...
+
+    @property
+    def scope_hash(self) -> str: ...
 
     def find_ids(
         self,
@@ -141,6 +71,7 @@ class Json2WriteExecutor:
     """Native JSON-2 create/write adapter with no automatic write retry."""
 
     config: Json2Config
+    scope: OdooApiScope
     transport: Transport = _urllib_transport
 
     @property
@@ -151,6 +82,10 @@ class Json2WriteExecutor:
             database=self.config.database,
         )
 
+    @property
+    def scope_hash(self) -> str:
+        return self.scope.semantic_hash
+
     def find_ids(
         self,
         model: str,
@@ -158,15 +93,19 @@ class Json2WriteExecutor:
     ) -> tuple[int, ...]:
         """Return at most two IDs for one exact service-generated key."""
 
-        permitted = PRACTICAL_LOOKUP_FIELDS.get(model)
-        if permitted is None:
-            raise OdooWriteRejected("Odoo lookup model is outside the load scope")
+        permitted = self.scope.lookup_fields(model)
+        if not permitted:
+            raise OdooWriteRejected(
+                "Odoo lookup model is outside the reviewed preview"
+            )
         normalized = []
         if not domain:
             raise OdooWriteRejected("An exact Odoo business key is required")
         for field, operator, value in domain:
             if field not in permitted or operator != "=":
-                raise OdooWriteRejected("Odoo business-key lookup is not allowed")
+                raise OdooWriteRejected(
+                    "Odoo business-key lookup is outside the reviewed preview"
+                )
             normalized.append([field, "=", value])
         response = self._post(
             model,
@@ -254,16 +193,11 @@ class Json2WriteExecutor:
             raise OdooWriteOutcomeUnknown("Odoo update returned an invalid receipt")
 
     def _validate_values(self, model: str, values: Mapping[str, Any]) -> None:
-        permitted = self._permitted_fields(model)
+        permitted = self.scope.write_fields(model)
         if not values or not set(values).issubset(permitted):
-            raise OdooWriteRejected("Odoo model or field is outside the load scope")
-
-    @staticmethod
-    def _permitted_fields(model: str) -> frozenset[str]:
-        permitted = PRACTICAL_WRITE_FIELDS.get(model)
-        if permitted is None:
-            raise OdooWriteRejected("Odoo model is outside the practical load scope")
-        return permitted
+            raise OdooWriteRejected(
+                "Odoo model or field is outside the reviewed load preview"
+            )
 
     def _post(
         self,
@@ -274,11 +208,15 @@ class Json2WriteExecutor:
         write: bool,
     ) -> Any:
         permitted_methods = {"create", "write"} if write else {"search_read"}
-        permitted_models = (
-            PRACTICAL_WRITE_FIELDS if write else PRACTICAL_LOOKUP_FIELDS
+        permitted_fields = (
+            self.scope.write_fields(model)
+            if write
+            else self.scope.lookup_fields(model)
         )
-        if method not in permitted_methods or model not in permitted_models:
-            raise OdooWriteRejected("Odoo operation is outside the load scope")
+        if method not in permitted_methods or not permitted_fields:
+            raise OdooWriteRejected(
+                "Odoo operation is outside the reviewed load preview"
+            )
         body = canonical_json_bytes(dict(payload))
         if len(body) > MAX_WRITE_BODY_BYTES:
             raise OdooWriteRejected("Odoo request is outside the safe size bound")

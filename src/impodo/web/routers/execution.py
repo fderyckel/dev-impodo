@@ -79,6 +79,9 @@ def build_execution_router(context: WebContext) -> APIRouter:
         )
         project = context.queries.get(project_id)
         try:
+            preview = context.execution.current_preview(project_id)
+            if preview is None:
+                raise WorkspaceError("Compare the prepared data with Odoo first")
             credential_id = _target_credential_id(project)
             submitted_key = _text(form, "api_key")
             if submitted_key:
@@ -88,7 +91,11 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     persistent="remember_api_key" in form,
                 )
             api_key = submitted_key or context.secret_store.get(credential_id) or ""
-            executor = context.write_executor_factory(project, api_key)
+            executor = context.write_executor_factory(
+                project,
+                api_key,
+                preview.api_scope,
+            )
             run = await run_in_threadpool(
                 context.execution.execute,
                 project_id,
@@ -111,7 +118,11 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 status_code=422,
             )
         try:
-            reader = context.readback_reader_factory(project, api_key)
+            reader = context.readback_reader_factory(
+                project,
+                api_key,
+                preview.api_scope,
+            )
             report = await run_in_threadpool(
                 context.reconciliation.reconcile,
                 project_id,
@@ -143,6 +154,9 @@ def build_execution_router(context: WebContext) -> APIRouter:
         )
         project = context.queries.get(project_id)
         try:
+            preview = context.execution.current_preview(project_id)
+            if preview is None:
+                raise WorkspaceError("Compare the prepared data with Odoo first")
             credential_id = _target_credential_id(project)
             submitted_key = _text(form, "api_key")
             if submitted_key:
@@ -152,7 +166,11 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     persistent="remember_api_key" in form,
                 )
             api_key = submitted_key or context.secret_store.get(credential_id) or ""
-            reader = context.readback_reader_factory(project, api_key)
+            reader = context.readback_reader_factory(
+                project,
+                api_key,
+                preview.api_scope,
+            )
             report = await run_in_threadpool(
                 context.reconciliation.reconcile,
                 project_id,

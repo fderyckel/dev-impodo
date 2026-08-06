@@ -2,8 +2,10 @@
 
 ## Status and objective
 
-**Status:** Proposed on 2026-08-06. No implementation has been approved or
-started.
+**Status:** Approved on 2026-08-06. P0 normalization subphase measurement and
+the P1 normalization transport are implemented locally. Exact-parity,
+type/byte-bound, and rollback tests pass. The three-run reference-Windows gate
+is still required before P2 is approved.
 
 Reduce the complete local preparation time for the observed 4,000-row XLSX
 workload from **5 minutes 38 seconds to less than 60 seconds** on the reference
@@ -66,6 +68,29 @@ ordinary JSON decoding.
 
 These are transport microbenchmarks, not end-to-end performance claims. The
 complete workflow must be measured again after each implementation slice.
+
+### Second-platform evidence (not a before/after comparison)
+
+The repository benchmark now includes transport construction as well as the
+insert, uses the production hardened DuckDB configuration, and alternates the
+candidate order. On the Mac development machine, three synthetic 15,873-row
+runs produced these medians:
+
+| Transport | Batches | Median elapsed time |
+| --- | ---: | ---: |
+| Typed Python arrays with `UNNEST` | 16 | 0.166 s |
+| Bounded typed JSON with `from_json_strict` | 16 | 0.173 s |
+
+Typed JSON is therefore effectively tied on this platform, not a universal
+speedup. This result must not be compared numerically with the Windows
+customer-shaped diagnostic: the machines, inputs, and runtime behavior differ.
+Its value is the absence of a material second-platform regression.
+
+A separate 4,000-row synthetic products workflow completed locally in 3.978
+seconds with a 282.4 MiB measured peak. Normalization took 0.655 seconds,
+including 0.410 seconds of aggregation and 0.153 seconds of persistence plus
+ordered hashing. It produced 4,000 effects, so it is a correctness and
+instrumentation check rather than a proxy for the 15,873-effect Windows run.
 
 ## Current design weaknesses
 
@@ -152,11 +177,17 @@ in-memory JSON relation:
 
 1. Build at most the configured normalization batch size in memory.
 2. Encode a transport-only JSON array with explicit field names.
-3. Pass it as one bound parameter to `json_each(?)`.
-4. Extract and explicitly cast every destination column in SQL.
+3. Pass it as one bound parameter to DuckDB `from_json_strict` with one fixed,
+   allowlisted structure declaration.
+4. Let DuckDB construct the complete typed row structure in one operation;
+   do not repeatedly extract individual fields with `json_each`.
 5. Insert into the existing pending table inside the existing transaction.
 6. Preserve the existing deterministic final ordering, encoded effect JSON,
    incremental content hash, count validation, and pointer promotion.
+
+Bound every envelope by both row count and UTF-8 byte count. Include JSON
+construction in transport benchmarks so the comparison measures the complete
+adapter cost rather than database execution alone.
 
 The outer JSON envelope is not durable evidence and must not participate in a
 content hash. Each existing `effect_json` document remains byte-for-byte the
@@ -171,10 +202,16 @@ measurement on the affected workstation.
 - inserted effect count, order, columns, `effect_json`, groups, summary, and
   normalization content hash are identical;
 - rollback and idempotency tests remain green;
-- normalization completes in less than 45 seconds in all three fresh-process
-  Windows runs;
+- normalization completes in less than 60 seconds in all three fresh-process
+  Windows runs, or the isolated persistence portion falls by at least 80%;
 - peak working set does not regress materially;
 - the same focused benchmark passes on a second supported operating system.
+
+The original 45-second gate was not supported by the measurements: replacing
+64.272 seconds of a 115.5-second phase with a 0.364-second insert still implies
+about 51.6 seconds before normal variance. The revised gate is demanding but
+mathematically reachable. The complete-workflow target remains a stretch goal
+until P2 is measured.
 
 ### P2 - Adopt the proven transport for quality and staging
 
@@ -316,9 +353,9 @@ customer values are not committed as fixtures.
 - The outer JSON envelope duplicates encoded item text temporarily. Batch size
   must remain bounded, and effect-heavy 100,000-row memory evidence remains a
   release gate.
-- `json_each(?)` extraction must distinguish JSON null from the strings
-  `"null"`, `"true"`, and `"false"`; explicit casts and edge-case tests are
-  mandatory.
+- Typed JSON conversion must distinguish JSON null from the strings `"null"`,
+  `"true"`, and `"false"`; strict fixed-shape conversion and edge-case tests
+  are mandatory.
 - DuckDB upgrades may change parameter-binding performance. Record and pin the
   tested DuckDB version, and rerun transport benchmarks before dependency
   updates.
@@ -331,9 +368,13 @@ customer values are not committed as fixtures.
 
 ## Delivery sequence
 
-1. Land P0 instrumentation and the reproducible transport benchmark.
-2. Implement P1 normalization transport only.
-3. Review three-run Windows and second-platform parity evidence.
+1. Complete the remaining P0 phase instrumentation; normalization aggregation
+   and persistence/hash measurement plus the reproducible transport benchmark
+   are already present.
+2. Keep P1 limited to normalization transport; its local implementation and
+   parity tests are complete.
+3. Review three fresh-process Windows runs. The second-platform regression and
+   workflow checks are complete, but are not substitutes for Windows evidence.
 4. Extend the proven adapter through P2 one evidence family at a time.
 5. Profile again before approving P3 or P4.
 6. Implement P5 progress reporting after stable subphase counters exist.
