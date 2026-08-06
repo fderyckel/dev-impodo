@@ -147,6 +147,78 @@ document.addEventListener("DOMContentLoaded", () => {
     pendingProjectDeleteForm = null;
   });
 
+  const mappingPositionStorageKey =
+    `impodo.mapping.position:${window.location.pathname}`;
+  const rememberMappingPosition = () => {
+    const active = document.activeElement;
+    const activeRow = active?.closest?.("[data-target-field]");
+    const horizontal = Array.from(
+      document.querySelectorAll("[data-scalar-table-scroll][id]")
+    ).map((element) => [element.id, element.scrollLeft]);
+    try {
+      window.sessionStorage.setItem(
+        mappingPositionStorageKey,
+        JSON.stringify({
+          scrollY: window.scrollY,
+          focusName: active?.name || "",
+          focusValue: active?.value || "",
+          targetField: activeRow?.dataset.targetField || "",
+          targetOffset: activeRow?.getBoundingClientRect().top ?? null,
+          horizontal,
+        })
+      );
+    } catch {
+      // Navigation remains usable when browser storage is unavailable.
+    }
+  };
+  const restoreMappingPosition = () => {
+    let stored = null;
+    try {
+      stored = JSON.parse(
+        window.sessionStorage.getItem(mappingPositionStorageKey) || "null"
+      );
+      window.sessionStorage.removeItem(mappingPositionStorageKey);
+    } catch {
+      stored = null;
+    }
+    if (!stored || !document.querySelector("[data-mapping-form]")) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const rows = Array.from(
+          document.querySelectorAll("[data-target-field]")
+        );
+        const row = rows.find(
+          (candidate) => candidate.dataset.targetField === stored.targetField
+        );
+        const targetTop =
+          row && Number.isFinite(stored.targetOffset)
+            ? window.scrollY +
+              row.getBoundingClientRect().top -
+              stored.targetOffset
+            : stored.scrollY;
+        window.scrollTo({
+          top: Math.max(0, targetTop || 0),
+          behavior: "instant",
+        });
+        for (const [id, scrollLeft] of stored.horizontal || []) {
+          const element = document.getElementById(id);
+          if (element) {
+            element.scrollLeft = scrollLeft;
+          }
+        }
+        const controls = Array.from(document.querySelectorAll("[name]"));
+        const focusTarget = controls.find(
+          (control) =>
+            control.name === stored.focusName &&
+            (!stored.focusValue || control.value === stored.focusValue)
+        );
+        focusTarget?.focus({ preventScroll: true });
+      });
+    });
+  };
+
   const targetModels = Array.from(
     document.querySelectorAll("[data-target-model]")
   );
@@ -156,6 +228,7 @@ document.addEventListener("DOMContentLoaded", () => {
       for (const targetModel of targetModels) {
         query.set(targetModel.name, targetModel.value);
       }
+      rememberMappingPosition();
       window.location.assign(`${window.location.pathname}?${query.toString()}`);
     });
   }
@@ -436,6 +509,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "[data-mapping-save-status]"
     );
     const saveError = mappingForm.querySelector("[data-mapping-save-error]");
+    const confirmMapping = mappingForm.querySelector("[data-confirm-mapping]");
     let dirty = false;
     let submitting = false;
 
@@ -443,7 +517,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (saveStatus && savedAt) {
       const savedDate = new Date(savedAt);
       if (!Number.isNaN(savedDate.getTime())) {
-        saveStatus.textContent = `Saved ${savedDate.toLocaleString()}.`;
+        saveStatus.textContent =
+          `Saved ${savedDate.toLocaleString()}. Check matches when ready.`;
       }
     }
 
@@ -479,6 +554,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (saveStatus) {
         saveStatus.textContent = "Unsaved changes.";
         saveStatus.classList.add("unsaved");
+      }
+      if (confirmMapping) {
+        confirmMapping.disabled = true;
+        confirmMapping.title = "Check the latest changes before confirming.";
       }
     };
     mappingForm.addEventListener("input", markMappingDirty);
@@ -549,6 +628,19 @@ document.addEventListener("DOMContentLoaded", () => {
       if (submitting) {
         return;
       }
+      const action = event.submitter?.value || "";
+      if (action === "submit" && dirty) {
+        if (saveError) {
+          saveError.textContent =
+            "These changes have not been checked yet. Check matches before confirming.";
+          saveError.hidden = false;
+        }
+        if (saveStatus) {
+          saveStatus.textContent = "Unsaved changes need checking.";
+          saveStatus.classList.add("unsaved");
+        }
+        return;
+      }
       submitting = true;
       mappingForm.setAttribute("aria-busy", "true");
       if (saveError) {
@@ -556,13 +648,12 @@ document.addEventListener("DOMContentLoaded", () => {
         saveError.textContent = "";
       }
       if (saveStatus) {
-        const action = event.submitter?.value || "";
         saveStatus.textContent =
           action === "save_progress"
             ? "Saving progress..."
             : action === "submit"
-              ? "Saving, validating, and submitting..."
-              : "Saving and validating...";
+              ? "Confirming checked matches..."
+              : "Checking matches...";
         saveStatus.classList.remove("unsaved");
       }
       let responseReceived = false;
@@ -621,10 +712,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (saveStatus) {
           saveStatus.textContent = payload.message || "Matches saved.";
         }
+        rememberMappingPosition();
         window.location.assign(payload.redirect_url || window.location.pathname);
       } catch (error) {
         submitting = false;
-        dirty = true;
         mappingForm.removeAttribute("aria-busy");
         const message =
           !responseReceived && error instanceof TypeError
@@ -633,12 +724,22 @@ document.addEventListener("DOMContentLoaded", () => {
             ? error.message
             : "The matches could not be saved.";
         if (saveError) {
-          saveError.textContent = `${message} Your unsaved changes are still on this page.`;
+          saveError.textContent =
+            action === "submit"
+              ? `${message} Your checked matches are unchanged.`
+              : `${message} Your unsaved changes are still on this page.`;
           saveError.hidden = false;
         }
         if (saveStatus) {
-          saveStatus.textContent = "Save failed. Unsaved changes are retained.";
-          saveStatus.classList.add("unsaved");
+          if (action === "submit") {
+            saveStatus.textContent =
+              "Confirmation was not completed. Checked matches are unchanged.";
+          } else {
+            dirty = true;
+            saveStatus.textContent =
+              "Save failed. Unsaved changes are retained.";
+            saveStatus.classList.add("unsaved");
+          }
         }
       }
     });
@@ -2157,5 +2258,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
   }
+
+  restoreMappingPosition();
 
 });

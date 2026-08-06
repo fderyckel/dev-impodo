@@ -503,7 +503,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/mapping/save")
     async def save_project_mapping(request: Request, project_id: str):
-        """Preserve progress, then optionally validate or submit exact evidence."""
+        """Run one explicit save, check, or confirmation command."""
 
         require_session(request)
         json_request = _is_json_request(request)
@@ -551,27 +551,22 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 selection,
                 schema,
             )
-            working_draft = await run_in_threadpool(
-                context.mapping_workspace.save_working_draft,
-                project_id,
-                datasets=datasets,
-                expected_version=expected_working_version,
-                actor=context.actor,
-            )
             if action == "save_progress":
+                working_draft = await run_in_threadpool(
+                    context.mapping_workspace.save_working_draft,
+                    project_id,
+                    datasets=datasets,
+                    expected_version=expected_working_version,
+                    actor=context.actor,
+                )
                 _flash(
                     request,
-                    (
-                        "Saved your matching progress. The matches have not been checked yet."
-                    ),
+                    "Saved your matching progress. Check the matches when ready.",
                 )
                 if json_request:
                     return JSONResponse(
                         {
-                            "message": (
-                                f"Saved working draft version "
-                                f"{working_draft.version}."
-                            ),
+                            "message": "Progress saved. Check matches when ready.",
                             "redirect_url": _mapping_return_url(
                                 request,
                                 project_id,
@@ -582,17 +577,38 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     _mapping_return_url(request, project_id),
                     status_code=303,
                 )
-            revision, validation, submission = await run_in_threadpool(
-                context.mapping_workspace.save_definition,
-                project_id,
-                datasets=datasets,
-                expected_parent_version=expected_parent,
-                submit=action == "submit",
-                warning_acknowledgements=_texts(
-                    form, "warning_acknowledgement"
-                ),
-                actor=context.actor,
-            )
+            if action == "draft":
+                revision, validation = await run_in_threadpool(
+                    context.mapping_workspace.check_definition,
+                    project_id,
+                    datasets=datasets,
+                    expected_parent_version=expected_parent,
+                    expected_working_draft_version=(
+                        expected_working_version
+                    ),
+                    actor=context.actor,
+                )
+                if validation.status.value == "INVALID":
+                    message = "Matches checked. Review the items that need attention."
+                else:
+                    message = "Matches checked and ready to confirm."
+                _flash(request, message)
+            else:
+                submission = await run_in_threadpool(
+                    context.mapping_workspace.submit_current,
+                    project_id,
+                    datasets=datasets,
+                    expected_version=expected_parent,
+                    expected_working_draft_version=(
+                        expected_working_version
+                    ),
+                    warning_acknowledgements=_texts(
+                        form, "warning_acknowledgement"
+                    ),
+                    actor=context.actor,
+                )
+                message = "Field matches confirmed."
+                _flash(request, message)
         except HTTPException as error:
             return _mapping_save_error_response(
                 request,
@@ -625,26 +641,10 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 _mapping_return_url(request, project_id),
                 status_code=303,
             )
-        if submission is not None:
-            _flash(
-                request,
-                "Field matches confirmed.",
-            )
-        else:
-            _flash(
-                request,
-                (
-                    "Saved and checked the field matches."
-                ),
-            )
         if json_request:
             return JSONResponse(
                 {
-                    "message": (
-                        f"Mapping submitted as version {revision.version}."
-                        if submission is not None
-                        else f"Saved mapping version {revision.version}."
-                    ),
+                    "message": message,
                     "redirect_url": _mapping_return_url(request, project_id),
                 }
             )

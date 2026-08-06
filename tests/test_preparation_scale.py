@@ -737,6 +737,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             revision,
             validation=validation,
             expected_parent_version=None,
+            expected_working_draft_version=None,
             actor=self.context.actor,
         )
         mapping_repository.save_mapping_submission(

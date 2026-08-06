@@ -11,8 +11,10 @@
       <span class="status">Saved changes need checking</span>
     {% elif submission %}
       <span class="status registered">Matches confirmed</span>
+    {% elif validation and validation.status.value == 'INVALID' %}
+      <span class="status review">Matches need attention</span>
     {% elif revision %}
-      <span class="status registered">Matches checked</span>
+      <span class="status ready">Ready to confirm</span>
     {% endif %}
   </div>
 
@@ -948,14 +950,18 @@
         <p
           class="mapping-save-state"
           data-mapping-save-status
-          data-saved-at="{{ working_draft.updated_at.isoformat() if working_draft_is_current else '' }}"
+          data-saved-at="{{ working_draft.updated_at.isoformat() if has_unvalidated_changes else '' }}"
           role="status"
           aria-live="polite"
         >
-          {% if working_draft_is_current %}
-            Saved progress is loaded.
+          {% if has_unvalidated_changes %}
+            Progress is saved. Check matches when ready.
+          {% elif submission %}
+            Field matches are confirmed.
+          {% elif validation and validation.status.value == 'INVALID' %}
+            Checked matches need attention.
           {% elif revision %}
-            Checked matches are loaded.
+            Checked matches are ready to confirm.
           {% else %}
             Changes are not saved yet.
           {% endif %}
@@ -965,8 +971,8 @@
         <button class="button secondary" name="action" value="draft" type="submit">Check matches</button>
         {% if submission %}
           <a class="button primary" href="/projects/{{ project.project_id }}/summary">Review prepared data</a>
-        {% elif schema.origin.value != 'LOCAL_MANUAL' %}
-          <button class="button primary" name="action" value="submit" type="submit">Confirm field matches</button>
+        {% elif schema.origin.value != 'LOCAL_MANUAL' and revision and validation and validation.status.value != 'INVALID' and not has_unvalidated_changes %}
+          <button class="button primary" name="action" value="submit" type="submit" data-confirm-mapping>Confirm field matches</button>
         {% endif %}
       </div>
     </form>

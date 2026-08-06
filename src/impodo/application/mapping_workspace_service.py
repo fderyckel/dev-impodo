@@ -103,6 +103,22 @@ class MappingWorkspaceRepository(Protocol):
         """Return the current or requested immutable mapping revision."""
         ...
 
+    def get_mapping_validation(
+        self,
+        project_id: str,
+        version: int,
+    ) -> MappingValidationResult | None:
+        """Return the stored validation for one checked mapping revision."""
+        ...
+
+    def get_mapping_submission(
+        self,
+        project_id: str,
+        version: int | None = None,
+    ) -> MappingSubmission | None:
+        """Return the newest submission globally or for one revision."""
+        ...
+
     def list_mapping_revisions(
         self,
         project_id: str,
@@ -117,9 +133,10 @@ class MappingWorkspaceRepository(Protocol):
         *,
         validation: MappingValidationResult,
         expected_parent_version: int | None,
+        expected_working_draft_version: int | None,
         actor: Actor,
     ) -> None:
-        """Append a revision/validation pair at the expected parent version."""
+        """Promote one expected draft state to a checked revision."""
         ...
 
     def save_mapping_validation(
@@ -201,15 +218,17 @@ class MappingWorkspaceService:
             mapping_id = current.mapping_id
         else:
             mapping_id = str(uuid4())
-        definition = MappingDefinition(
-            mapping_id=mapping_id,
-            source_selection_hash=selection.content_hash,
-            schema_hash=(
-                governance.content_hash
-                if governance is not None
-                else schema.content_hash
-            ),
-            datasets=tuple(datasets),
+        definition = canonicalize_mapping_definition(
+            MappingDefinition(
+                mapping_id=mapping_id,
+                source_selection_hash=selection.content_hash,
+                schema_hash=(
+                    governance.content_hash
+                    if governance is not None
+                    else schema.content_hash
+                ),
+                datasets=tuple(datasets),
+            )
         )
         draft = MappingWorkingDraft(
             mapping_id=mapping_id,
@@ -228,28 +247,20 @@ class MappingWorkspaceService:
         )
         return draft
 
-    def save_definition(
+    def check_definition(
         self,
         project_id: str,
         *,
         datasets: Iterable[DatasetMapping],
         expected_parent_version: int | None,
-        submit: bool,
-        warning_acknowledgements: Iterable[str] = (),
+        expected_working_draft_version: int | None,
         actor: Actor,
-    ) -> tuple[
-        MappingRevision,
-        MappingValidationResult,
-        MappingSubmission | None,
-    ]:
-        """Save and validate one immutable dataset-centric mapping revision."""
+    ) -> tuple[MappingRevision, MappingValidationResult]:
+        """Check one editor state and persist only new semantic content."""
 
-        capability = (
-            Capability.MAPPING_SUBMIT if submit else Capability.MAPPING_EDIT
-        )
         self.authorization.require(
             actor,
-            capability,
+            Capability.MAPPING_EDIT,
             project_id=project_id,
         )
         selection = self.sources.get_mapping_source_selection(project_id)
@@ -259,11 +270,6 @@ class MappingWorkspaceService:
             raise WorkspaceError(
                 "Freeze datasets and capture Odoo schema first"
             )
-        if submit and schema.origin is SchemaOrigin.LOCAL_MANUAL:
-            raise WorkspaceError(
-                "Capture the live Odoo schema before submitting a mapping; "
-                "the current local schema is unverified"
-            )
         current = self.mappings.get_mapping_revision(project_id)
         actual_parent = current.version if current else None
         if expected_parent_version != actual_parent:
@@ -271,6 +277,13 @@ class MappingWorkspaceService:
                 "The mapping was modified by another request; reload it"
             )
         working_draft = self.mappings.get_mapping_working_draft(project_id)
+        actual_working_version = (
+            working_draft.version if working_draft is not None else None
+        )
+        if expected_working_draft_version != actual_working_version:
+            raise WorkspaceError(
+                "The working draft was modified by another request; reload it"
+            )
         expected_schema_hash = (
             governance.content_hash
             if governance is not None
@@ -307,12 +320,17 @@ class MappingWorkspaceService:
             schema,
             governance,
         )
-        warning_fingerprints = {
-            mapping_issue_fingerprint(item)
-            for item in validation.issues
-            if item.severity == "warning"
-        }
-        acknowledgements = frozenset(warning_acknowledgements)
+        if (
+            current is not None
+            and current.definition.content_hash == definition.content_hash
+        ):
+            self.mappings.save_mapping_validation(
+                project_id,
+                current.version,
+                validation,
+                actor=actor,
+            )
+            return current, validation
         historical_versions = self.mappings.list_mapping_revisions(project_id)
         revision = MappingRevision(
             mapping_id=mapping_id,
@@ -330,9 +348,98 @@ class MappingWorkspaceService:
             revision,
             validation=validation,
             expected_parent_version=expected_parent_version,
+            expected_working_draft_version=expected_working_draft_version,
             actor=actor,
         )
-        if submit and validation.status is MappingValidationStatus.INVALID:
+        return revision, validation
+
+    def submit_current(
+        self,
+        project_id: str,
+        *,
+        datasets: Iterable[DatasetMapping],
+        expected_version: int | None,
+        expected_working_draft_version: int | None,
+        warning_acknowledgements: Iterable[str] = (),
+        actor: Actor,
+    ) -> MappingSubmission:
+        """Confirm the exact current checked revision without rewriting it."""
+
+        self.authorization.require(
+            actor,
+            Capability.MAPPING_SUBMIT,
+            project_id=project_id,
+        )
+        selection = self.sources.get_mapping_source_selection(project_id)
+        schema = self.schemas.get_odoo_schema_catalog(project_id)
+        governance = self.schemas.get_schema_governance(project_id)
+        revision = self.mappings.get_mapping_revision(project_id)
+        if selection is None or schema is None:
+            raise WorkspaceError(
+                "Freeze datasets and capture Odoo schema first"
+            )
+        if schema.origin is SchemaOrigin.LOCAL_MANUAL:
+            raise WorkspaceError(
+                "Capture the live Odoo schema before confirming field matches; "
+                "the current local schema is unverified"
+            )
+        if revision is None:
+            raise WorkspaceError(
+                "Check the field matches before confirming them"
+            )
+        if expected_version != revision.version:
+            raise WorkspaceError(
+                "The mapping was modified by another request; reload it"
+            )
+        working_draft = self.mappings.get_mapping_working_draft(project_id)
+        actual_working_version = (
+            working_draft.version if working_draft is not None else None
+        )
+        if expected_working_draft_version != actual_working_version:
+            raise WorkspaceError(
+                "The working draft was modified by another request; reload it"
+            )
+        expected_schema_hash = (
+            governance.content_hash
+            if governance is not None
+            else schema.content_hash
+        )
+        candidate = canonicalize_mapping_definition(
+            MappingDefinition(
+                mapping_id=revision.mapping_id,
+                source_selection_hash=selection.content_hash,
+                schema_hash=expected_schema_hash,
+                datasets=tuple(datasets),
+            )
+        )
+        if candidate.content_hash != revision.definition.content_hash:
+            raise WorkspaceError(
+                "These field matches changed after they were checked. "
+                "Check matches again before confirming."
+            )
+        if (
+            working_draft is not None
+            and working_draft.definition.source_selection_hash
+            == selection.content_hash
+            and working_draft.definition.schema_hash == expected_schema_hash
+            and working_draft.content_hash != revision.definition.content_hash
+        ):
+            raise WorkspaceError(
+                "Saved changes still need checking before confirmation"
+            )
+        validation = self.mappings.get_mapping_validation(
+            project_id,
+            revision.version,
+        )
+        if (
+            validation is None
+            or validation.mapping_content_hash
+            != revision.definition.content_hash
+        ):
+            raise WorkspaceError(
+                "Check the current field matches before confirming them"
+            )
+        if validation.status is MappingValidationStatus.INVALID:
             first = next(
                 item
                 for item in validation.issues
@@ -341,33 +448,47 @@ class MappingWorkspaceService:
             raise WorkspaceError(
                 f"Mapping cannot be submitted: {first.message}"
             )
-        if submit:
-            missing = warning_fingerprints.difference(acknowledgements)
-            if missing:
-                raise WorkspaceError(
-                    "Acknowledge every current validation warning before "
-                    "submitting"
-                )
-        submission = None
-        if submit:
-            submission = MappingSubmission(
-                submission_id=str(uuid4()),
-                mapping_id=mapping_id,
-                version=revision.version,
-                mapping_content_hash=definition.content_hash,
-                validation_hash=validation.validation_hash,
-                warning_acknowledgements=tuple(
-                    sorted(warning_fingerprints)
-                ),
-                submitted_at=datetime.now(timezone.utc),
-                submitted_by=actor.identity.display_name,
+        warning_fingerprints = tuple(
+            sorted(
+                mapping_issue_fingerprint(item)
+                for item in validation.issues
+                if item.severity == "warning"
             )
-            self.mappings.save_mapping_submission(
-                project_id,
-                submission,
-                actor=actor,
+        )
+        acknowledgements = frozenset(warning_acknowledgements)
+        if set(warning_fingerprints).difference(acknowledgements):
+            raise WorkspaceError(
+                "Acknowledge every current validation warning before "
+                "confirming"
             )
-        return revision, validation, submission
+        existing = self.mappings.get_mapping_submission(
+            project_id,
+            revision.version,
+        )
+        if (
+            existing is not None
+            and existing.mapping_content_hash
+            == revision.definition.content_hash
+            and existing.validation_hash == validation.validation_hash
+            and existing.warning_acknowledgements == warning_fingerprints
+        ):
+            return existing
+        submission = MappingSubmission(
+            submission_id=str(uuid4()),
+            mapping_id=revision.mapping_id,
+            version=revision.version,
+            mapping_content_hash=revision.definition.content_hash,
+            validation_hash=validation.validation_hash,
+            warning_acknowledgements=warning_fingerprints,
+            submitted_at=datetime.now(timezone.utc),
+            submitted_by=actor.identity.display_name,
+        )
+        self.mappings.save_mapping_submission(
+            project_id,
+            submission,
+            actor=actor,
+        )
+        return submission
 
     def validate_current(
         self,

@@ -273,9 +273,10 @@ class MappingRepository(DuckDbRepository):
         *,
         validation: MappingValidationResult,
         expected_parent_version: int | None,
+        expected_working_draft_version: int | None,
         actor: Actor,
     ) -> None:
-        """Append an exact revision/validation pair and advance the current pointer."""
+        """Promote an expected editor state to a checked immutable revision."""
 
         if revision.definition.mapping_id != revision.mapping_id:
             raise WorkspaceError(
@@ -290,31 +291,42 @@ class MappingRepository(DuckDbRepository):
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
             self._migrate_project_database(connection)
-            current = connection.execute(
-                """
-                SELECT mapping_id, version
-                  FROM mapping_current
-                 WHERE singleton_id = 1
-                """
-            ).fetchone()
-            current_version = int(current[1]) if current else None
-            current_id = str(current[0]) if current else revision.mapping_id
-            maximum = connection.execute(
-                "SELECT COALESCE(MAX(version), 0) FROM mapping_revision"
-            ).fetchone()
-            next_version = int(maximum[0]) + 1
-            if (
-                current_version != expected_parent_version
-                or revision.parent_version != expected_parent_version
-                or revision.mapping_id != current_id
-                or revision.version != next_version
-            ):
-                raise WorkspaceError(
-                    "The mapping was modified by another request"
-                )
-            revision_number = self._project_revision(connection)
             connection.begin()
             try:
+                current = connection.execute(
+                    """
+                    SELECT mapping_id, version
+                      FROM mapping_current
+                     WHERE singleton_id = 1
+                    """
+                ).fetchone()
+                current_version = int(current[1]) if current else None
+                current_id = (
+                    str(current[0]) if current else revision.mapping_id
+                )
+                working = connection.execute(
+                    """
+                    SELECT version
+                      FROM mapping_working_draft
+                     WHERE singleton_id = 1
+                    """
+                ).fetchone()
+                working_version = int(working[0]) if working else None
+                maximum = connection.execute(
+                    "SELECT COALESCE(MAX(version), 0) FROM mapping_revision"
+                ).fetchone()
+                next_version = int(maximum[0]) + 1
+                if (
+                    current_version != expected_parent_version
+                    or revision.parent_version != expected_parent_version
+                    or working_version != expected_working_draft_version
+                    or revision.mapping_id != current_id
+                    or revision.version != next_version
+                ):
+                    raise WorkspaceError(
+                        "The mapping or working draft was modified by another request"
+                    )
+                revision_number = self._project_revision(connection)
                 connection.execute(
                     """
                     INSERT INTO mapping_revision
@@ -351,6 +363,9 @@ class MappingRepository(DuckDbRepository):
                         revision.created_at.isoformat(),
                         validation.to_json(),
                     ],
+                )
+                connection.execute(
+                    "DELETE FROM mapping_working_draft WHERE singleton_id = 1"
                 )
                 self._invalidate_canonical_staging(
                     connection,
