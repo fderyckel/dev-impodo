@@ -59,7 +59,21 @@ class WorkbookIntegrationTests(unittest.TestCase):
             manifest_text = manifest_path.read_text()
             self.assertNotIn("odoo_id", manifest_text)
             with zipfile.ZipFile(workbook_path) as archive:
+                archive_names = archive.namelist()
                 workbook_xml = archive.read("xl/workbook.xml").decode()
+                worksheet_xml = [
+                    archive.read(name).decode()
+                    for name in archive_names
+                    if name.startswith("xl/worksheets/sheet")
+                    and name.endswith(".xml")
+                ]
+            self.assertFalse(
+                any(name.startswith("xl/tables/") for name in archive_names)
+            )
+            self.assertFalse(any("<tableParts" in xml for xml in worksheet_xml))
+            self.assertTrue(
+                all(xml.count("<autoFilter") <= 1 for xml in worksheet_xml)
+            )
             for sheet_name in (
                 "Dashboard",
                 "Target",
@@ -75,7 +89,7 @@ class WorkbookIntegrationTests(unittest.TestCase):
                 "Metadata Coverage",
             ):
                 self.assertIn(sheet_name, workbook_xml)
-            workbook = load_workbook(workbook_path, read_only=True, data_only=False)
+            workbook = load_workbook(workbook_path, data_only=False)
             self.assertEqual(
                 workbook["Field Differences"]["F3"].value,
                 "Existing Target",
@@ -84,9 +98,24 @@ class WorkbookIntegrationTests(unittest.TestCase):
                 workbook["Field Differences"]["G3"].value,
                 "Proposed Source",
             )
+            self.assertIsInstance(workbook["Dashboard"]["B5"].value, int)
+            self.assertEqual(workbook["Dashboard"]["A11"].value, "Start here")
             self.assertTrue(
-                str(workbook["Dashboard"]["B5"].value).startswith("=")
+                workbook["Dashboard"]["A1"].fill.fgColor.rgb.endswith("292C28")
             )
+            for sheet in workbook.worksheets[1:]:
+                self.assertEqual(len(sheet.tables), 0)
+                if sheet.max_row > 3:
+                    last_column = sheet.cell(
+                        3,
+                        sheet.max_column,
+                    ).column_letter
+                    self.assertEqual(
+                        sheet.auto_filter.ref,
+                        f"A3:{last_column}{sheet.max_row}",
+                    )
+                else:
+                    self.assertIsNone(sheet.auto_filter.ref)
             workbook.close()
 
     def test_workbook_csv_previews_need_no_external_runtime(self) -> None:

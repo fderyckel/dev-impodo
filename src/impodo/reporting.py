@@ -22,7 +22,6 @@ from openpyxl import Workbook
 from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from .models import PreflightResult, canonical_json_bytes
 
@@ -31,19 +30,31 @@ MANIFEST_NAME = "impodo_preflight_manifest.json"
 WORKBOOK_NAME = "impodo_preflight_report.xlsx"
 
 _COLORS = {
-    "navy": "17324D",
-    "blue": "2F6B9A",
-    "pale_blue": "E8F1F8",
-    "green": "2E7D5B",
-    "amber": "B7791F",
-    "red": "B43C3C",
-    "gray": "5E6B75",
+    "brand": "E8473F",
+    "brand_dark": "C93C35",
+    "charcoal": "494D46",
+    "charcoal_dark": "292C28",
+    "gray": "868981",
+    "paper": "F4F4F1",
+    "surface": "FFFFFF",
+    "soft": "EEEEEA",
+    "line": "D6D7D2",
+    "ready": "4D7C5B",
+    "ready_text": "315B3B",
+    "ready_bg": "EDF7EF",
+    "warning": "7D4F00",
+    "warning_bg": "FFF5DF",
+    "danger": "9F2F2F",
+    "danger_bg": "FCE8E7",
     "white": "FFFFFF",
-    "border": "CED6DC",
 }
 _THIN_BORDER = Border(
-    bottom=Side(style="thin", color=_COLORS["border"]),
+    bottom=Side(style="thin", color=_COLORS["line"]),
 )
+_BODY_FONT = Font(color=_COLORS["charcoal"])
+_SURFACE_FILL = PatternFill("solid", fgColor=_COLORS["surface"])
+_PAPER_FILL = PatternFill("solid", fgColor=_COLORS["paper"])
+_EXCEL_MAX_ROW = 1_048_576
 
 
 class ReportGenerationError(RuntimeError):
@@ -154,8 +165,7 @@ def _build_workbook(
         sheets["Dataset Summary"],
         ["Dataset", "Candidates", "CREATE", "UPDATE", "UNCHANGED", "AMBIGUOUS", "BLOCKED"],
         dataset_summary_rows,
-        "DatasetSummaryTable",
-        _COLORS["blue"],
+        _COLORS["brand"],
     )
 
     decision_headers = [
@@ -166,18 +176,17 @@ def _build_workbook(
         "Target Matches",
         "Issues",
     ]
-    for sheet_name, classification, table_name, accent in (
-        ("Proposed Creates", "CREATE", "CreatesTable", _COLORS["green"]),
-        ("Proposed Updates", "UPDATE", "UpdatesTable", _COLORS["amber"]),
-        ("Unchanged", "UNCHANGED", "UnchangedTable", _COLORS["gray"]),
-        ("Ambiguous Matches", "AMBIGUOUS", "AmbiguousTable", _COLORS["red"]),
-        ("Blocked Records", "BLOCKED", "BlockedTable", _COLORS["red"]),
+    for sheet_name, classification, accent in (
+        ("Proposed Creates", "CREATE", _COLORS["ready"]),
+        ("Proposed Updates", "UPDATE", _COLORS["warning"]),
+        ("Unchanged", "UNCHANGED", _COLORS["gray"]),
+        ("Ambiguous Matches", "AMBIGUOUS", _COLORS["danger"]),
+        ("Blocked Records", "BLOCKED", _COLORS["danger"]),
     ):
         _write_data_sheet(
             sheets[sheet_name],
             decision_headers,
             _decision_rows(decisions, classification),
-            table_name,
             accent,
         )
 
@@ -210,8 +219,7 @@ def _build_workbook(
             "Material",
         ],
         difference_rows,
-        "DifferencesTable",
-        _COLORS["amber"],
+        _COLORS["warning"],
     )
 
     reference_rows = [
@@ -229,8 +237,7 @@ def _build_workbook(
         sheets["Reference Resolution"],
         ["Dataset", "Field", "Business Reference", "Status", "Matches", "Affected Rows"],
         reference_rows,
-        "ReferenceTable",
-        _COLORS["blue"],
+        _COLORS["brand"],
     )
 
     issue_rows = [
@@ -249,8 +256,7 @@ def _build_workbook(
         sheets["Source Issues"],
         ["Severity", "Code", "Dataset", "Source Row", "Field", "Message", "Affected Rows"],
         issue_rows,
-        "IssuesTable",
-        _COLORS["red"],
+        _COLORS["danger"],
     )
 
     coverage_rows = [
@@ -267,8 +273,7 @@ def _build_workbook(
         sheets["Metadata Coverage"],
         ["Dataset", "Model", "Status", "Requested Fields", "Available Fields"],
         coverage_rows,
-        "MetadataCoverageTable",
-        _COLORS["blue"],
+        _COLORS["brand"],
     )
 
     target = manifest.get("target", {})
@@ -287,13 +292,10 @@ def _build_workbook(
             ["Module Versions", target.get("module_versions")],
             ["Source Hashes", manifest.get("source_hashes")],
         ],
-        "TargetTable",
-        _COLORS["blue"],
+        _COLORS["brand"],
     )
 
     _write_dashboard(dashboard, manifest)
-    workbook.calculation.fullCalcOnLoad = True
-    workbook.calculation.forceFullCalc = True
 
     temporary = workbook_path.with_name(f".{workbook_path.name}.partial")
     try:
@@ -311,25 +313,40 @@ def _build_workbook(
 def _write_dashboard(sheet, manifest: dict[str, Any]) -> None:
     _title_band(
         sheet,
-        "Impodo Odoo Read-only Preflight",
-        "Review evidence only - this workbook cannot write to Odoo",
+        "Impodo migration review",
+        "Read-only comparison evidence - this workbook cannot write to Odoo",
         8,
     )
     sheet.append([])
+    decisions = tuple(manifest.get("decisions", ()))
     rows = [
         ["Classification", "Count"],
-        ["CREATE", "=SUM('Dataset Summary'!C4:C1048576)"],
-        ["UPDATE", "=SUM('Dataset Summary'!D4:D1048576)"],
-        ["UNCHANGED", "=SUM('Dataset Summary'!E4:E1048576)"],
-        ["AMBIGUOUS", "=SUM('Dataset Summary'!F4:F1048576)"],
-        ["BLOCKED", "=SUM('Dataset Summary'!G4:G1048576)"],
+        ["CREATE", _classification_count(decisions, "CREATE")],
+        ["UPDATE", _classification_count(decisions, "UPDATE")],
+        ["UNCHANGED", _classification_count(decisions, "UNCHANGED")],
+        ["AMBIGUOUS", _classification_count(decisions, "AMBIGUOUS")],
+        ["BLOCKED", _classification_count(decisions, "BLOCKED")],
     ]
     for row_index, values in enumerate(rows, start=4):
         for column_index, value in enumerate(values, start=1):
             sheet.cell(row=row_index, column=column_index, value=value)
-    _style_header(sheet, 4, 1, 2, _COLORS["blue"])
+    _style_header(sheet, 4, 1, 2, _COLORS["brand"])
+    classification_styles = (
+        (_COLORS["ready_bg"], _COLORS["ready_text"]),
+        (_COLORS["warning_bg"], _COLORS["warning"]),
+        (_COLORS["soft"], _COLORS["charcoal"]),
+        (_COLORS["danger_bg"], _COLORS["danger"]),
+        (_COLORS["danger_bg"], _COLORS["danger"]),
+    )
     for row_index in range(5, 10):
-        sheet.cell(row=row_index, column=1).font = Font(bold=True)
+        fill_color, font_color = classification_styles[row_index - 5]
+        for column_index in range(1, 3):
+            cell = sheet.cell(row=row_index, column=column_index)
+            cell.fill = PatternFill("solid", fgColor=fill_color)
+            cell.font = Font(
+                bold=column_index == 1,
+                color=font_color,
+            )
         sheet.cell(row=row_index, column=2).number_format = "#,##0"
 
     target = manifest.get("target", {})
@@ -345,10 +362,30 @@ def _write_dashboard(sheet, manifest: dict[str, Any]) -> None:
         sheet.cell(row=row_index, column=4, value=values[0])
         sheet.cell(row=row_index, column=5, value=_safe_cell(values[1]))
         sheet.merge_cells(start_row=row_index, start_column=5, end_row=row_index, end_column=8)
-    _style_header(sheet, 4, 4, 8, _COLORS["navy"])
+    _style_header(sheet, 4, 4, 8, _COLORS["charcoal_dark"])
     for row_index in range(5, 10):
-        sheet.cell(row=row_index, column=4).fill = PatternFill("solid", fgColor=_COLORS["pale_blue"])
-        sheet.cell(row=row_index, column=4).font = Font(bold=True, color=_COLORS["navy"])
+        sheet.cell(row=row_index, column=4).fill = PatternFill(
+            "solid", fgColor=_COLORS["soft"]
+        )
+        sheet.cell(row=row_index, column=4).font = Font(
+            bold=True, color=_COLORS["charcoal_dark"]
+        )
+
+    sheet.merge_cells("A11:H11")
+    sheet["A11"] = "Start here"
+    sheet["A11"].fill = PatternFill("solid", fgColor=_COLORS["brand"])
+    sheet["A11"].font = Font(bold=True, color=_COLORS["white"])
+    sheet["A11"].alignment = Alignment(vertical="center")
+    sheet.merge_cells("A12:H12")
+    sheet["A12"] = (
+        "Review Proposed Creates and Proposed Updates first. "
+        "Use Field Differences to inspect every changed value."
+    )
+    sheet["A12"].fill = PatternFill("solid", fgColor=_COLORS["paper"])
+    sheet["A12"].font = Font(color=_COLORS["charcoal"])
+    sheet["A12"].alignment = Alignment(vertical="center", wrap_text=True)
+    sheet.row_dimensions[11].height = 24
+    sheet.row_dimensions[12].height = 34
 
     chart = BarChart()
     chart.title = "Preflight classifications"
@@ -357,21 +394,33 @@ def _write_dashboard(sheet, manifest: dict[str, Any]) -> None:
     chart.set_categories(Reference(sheet, min_col=1, min_row=5, max_row=9))
     chart.height = 8
     chart.width = 16
-    sheet.add_chart(chart, "A12")
+    chart.series[0].graphicalProperties.solidFill = _COLORS["brand"]
+    chart.series[0].graphicalProperties.line.solidFill = _COLORS["brand_dark"]
+    sheet.add_chart(chart, "A14")
     sheet.freeze_panes = "A3"
     for column in range(1, 9):
         sheet.column_dimensions[get_column_letter(column)].width = 18
     sheet.column_dimensions["D"].width = 24
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.print_area = "A1:H29"
     sheet.sheet_view.showGridLines = False
+    sheet.sheet_properties.tabColor = _COLORS["brand"]
 
 
 def _write_data_sheet(
     sheet,
     headers: Sequence[str],
     rows: Sequence[Sequence[Any]],
-    table_name: str,
     accent: str,
 ) -> None:
+    if len(rows) > _EXCEL_MAX_ROW - 3:
+        raise ReportGenerationError(
+            "Excel review workbook exceeds the supported rows on "
+            f"the {sheet.title} sheet"
+        )
     _title_band(
         sheet,
         sheet.title,
@@ -391,21 +440,13 @@ def _write_data_sheet(
             )
             cell.alignment = Alignment(vertical="top", wrap_text=True)
             cell.border = _THIN_BORDER
+            cell.font = _BODY_FONT
+            cell.fill = _SURFACE_FILL if row_index % 2 == 0 else _PAPER_FILL
 
     if rows:
-        table = Table(
-            displayName=table_name,
-            ref=f"A3:{get_column_letter(len(headers))}{len(rows) + 3}",
+        sheet.auto_filter.ref = (
+            f"A3:{get_column_letter(len(headers))}{len(rows) + 3}"
         )
-        table.tableStyleInfo = TableStyleInfo(
-            name="TableStyleMedium2",
-            showFirstColumn=False,
-            showLastColumn=False,
-            showRowStripes=True,
-            showColumnStripes=False,
-        )
-        sheet.add_table(table)
-        sheet.auto_filter.ref = table.ref
 
     for column_index, header in enumerate(headers, start=1):
         lengths = [len(header)]
@@ -419,7 +460,13 @@ def _write_data_sheet(
             max(13, max(lengths) + 3),
         )
     sheet.freeze_panes = "A4"
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.page_setup.orientation = "landscape" if len(headers) > 5 else "portrait"
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.print_title_rows = "1:3"
     sheet.sheet_view.showGridLines = False
+    sheet.sheet_properties.tabColor = accent
 
 
 def _title_band(sheet, title: str, subtitle: str, columns: int) -> None:
@@ -429,11 +476,11 @@ def _title_band(sheet, title: str, subtitle: str, columns: int) -> None:
     sheet.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_column)
     sheet.cell(row=2, column=1, value=subtitle)
     for cell in sheet[1]:
-        cell.fill = PatternFill("solid", fgColor=_COLORS["navy"])
+        cell.fill = PatternFill("solid", fgColor=_COLORS["charcoal_dark"])
         cell.font = Font(bold=True, color=_COLORS["white"], size=16)
     for cell in sheet[2]:
-        cell.fill = PatternFill("solid", fgColor=_COLORS["pale_blue"])
-        cell.font = Font(italic=True, color=_COLORS["gray"])
+        cell.fill = PatternFill("solid", fgColor=_COLORS["soft"])
+        cell.font = Font(italic=True, color=_COLORS["charcoal"])
     sheet.row_dimensions[1].height = 30
     sheet.row_dimensions[2].height = 24
 
@@ -444,10 +491,10 @@ def _style_header(sheet, row: int, start_column: int, end_column: int, color: st
         cell.fill = PatternFill("solid", fgColor=color)
         cell.font = Font(bold=True, color=_COLORS["white"])
         cell.border = Border(
-            left=Side(style="thin", color=_COLORS["border"]),
-            right=Side(style="thin", color=_COLORS["border"]),
-            top=Side(style="thin", color=_COLORS["border"]),
-            bottom=Side(style="thin", color=_COLORS["border"]),
+            left=Side(style="thin", color=_COLORS["line"]),
+            right=Side(style="thin", color=_COLORS["line"]),
+            top=Side(style="thin", color=_COLORS["line"]),
+            bottom=Side(style="thin", color=_COLORS["line"]),
         )
     sheet.row_dimensions[row].height = 30
 
