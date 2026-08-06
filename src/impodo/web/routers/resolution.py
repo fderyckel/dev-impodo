@@ -13,6 +13,7 @@ from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash, _render
 from ..security import require_session
+from .preparation import enqueue_preparation
 
 
 def build_resolution_router(context: WebContext) -> APIRouter:
@@ -194,16 +195,12 @@ def build_resolution_router(context: WebContext) -> APIRouter:
                 expected_lifecycle_version=int(str(form["lifecycle_version"])),
                 actor=context.actor,
             )
-            await run_in_threadpool(
-                context.preparation.prepare,
-                project_id,
-                actor=context.actor,
-            )
+            job = enqueue_preparation(context, project_id)
         except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
             return render(request, project_id, error=str(error), status_code=422)
-        _flash(request, "Duplicate review approved. Continue with prepared-data review.")
+        _flash(request, "Duplicate review approved. Preparation is continuing.")
         return RedirectResponse(
-            f"/projects/{project_id}/normalization",
+            f"/projects/{project_id}/preparation/{job.job_id}",
             status_code=303,
         )
 

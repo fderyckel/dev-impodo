@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Preparing data · Impodo{% endblock %}
+{% block content %}
+  {% set active = job.status.value in ('QUEUED', 'RUNNING') %}
+  <div
+    class="preparation-progress-page"
+    data-preparation-job
+    data-status-url="/projects/{{ job.project_id }}/preparation/{{ job.job_id }}/status"
+  >
+    <section class="page-heading">
+      <div>
+        <p class="eyebrow">Data preparation</p>
+        <h1>Preparing {{ project.name }}</h1>
+        <p>Impodo is working locally. You can leave this page and return without losing the job.</p>
+      </div>
+      <span class="status {% if job.status.value == 'FAILED' %}blocked{% elif job.status.value == 'CANCELLED' %}review{% elif active %}review{% else %}ready{% endif %}" data-preparation-state>
+        {% if job.status.value == 'SUCCEEDED' %}Ready{% elif job.status.value == 'REVIEW_REQUIRED' %}Review needed{% elif job.status.value == 'FAILED' %}Could not finish{% elif job.status.value == 'CANCELLED' %}Stopped{% else %}In progress{% endif %}
+      </span>
+    </section>
+
+    {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+
+    <section class="form-card preparation-progress-card" aria-labelledby="preparation-progress-title">
+      <div class="preparation-progress-heading">
+        <div>
+          <p class="eyebrow">Current step</p>
+          <h2 id="preparation-progress-title" data-preparation-message>{{ job.message }}</h2>
+        </div>
+        <span class="activity-spinner" aria-hidden="true" data-preparation-spinner {% if not active %}hidden{% endif %}></span>
+      </div>
+      <progress max="100" value="{{ job.progress_percent }}" data-preparation-progress>{{ job.progress_percent }}%</progress>
+      <div class="preparation-progress-numbers">
+        <strong data-preparation-percent>{{ job.progress_percent }}%</strong>
+        <span data-preparation-rows>
+          {% if job.total_rows %}{{ "{:,}".format(job.completed_rows) }} of {{ "{:,}".format(job.total_rows) }} source rows{% else %}Starting safely{% endif %}
+        </span>
+      </div>
+      <p class="muted">The source files remain unchanged, and nothing is sent to Odoo.</p>
+    </section>
+
+    <section class="next-action-card blocked" data-preparation-failed {% if job.status.value != 'FAILED' %}hidden{% endif %}>
+      <div>
+        <p class="eyebrow">Preparation stopped</p>
+        <h2>Review the message and try again</h2>
+        <p data-preparation-failure>{{ failure_message }}</p>
+      </div>
+      <div class="next-action-buttons">
+        <form method="post" action="/projects/{{ job.project_id }}/preparation/{{ job.job_id }}/retry">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button primary" type="submit">Try again</button>
+        </form>
+        <a class="button secondary" href="/projects/{{ job.project_id }}/summary">Return to summary</a>
+      </div>
+    </section>
+
+    <section class="next-action-card review" data-preparation-cancelled {% if job.status.value != 'CANCELLED' %}hidden{% endif %}>
+      <div>
+        <p class="eyebrow">Stopped safely</p>
+        <h2>No partial source batch was promoted</h2>
+        <p>Start a fresh preparation attempt when you are ready.</p>
+      </div>
+      <div class="next-action-buttons">
+        <form method="post" action="/projects/{{ job.project_id }}/preparation/{{ job.job_id }}/retry">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button primary" type="submit">Start again</button>
+        </form>
+        <a class="button secondary" href="/projects/{{ job.project_id }}/summary">Return to summary</a>
+      </div>
+    </section>
+
+    <section class="next-action-card ready" data-preparation-complete {% if job.status.value not in ('SUCCEEDED', 'REVIEW_REQUIRED') %}hidden{% endif %}>
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2>{% if job.status.value == 'REVIEW_REQUIRED' %}Review possible duplicates{% else %}Review prepared data{% endif %}</h2>
+        <p>The next page will open automatically. Use the button if it does not.</p>
+      </div>
+      <a class="button primary" data-preparation-continue href="{% if job.status.value == 'REVIEW_REQUIRED' %}/projects/{{ job.project_id }}/resolution{% else %}/projects/{{ job.project_id }}/normalization{% endif %}">Continue</a>
+    </section>
+
+    <div class="preparation-progress-actions" data-preparation-active {% if not active %}hidden{% endif %}>
+      <a class="button secondary" href="/projects">Work on another project</a>
+      <form method="post" action="/projects/{{ job.project_id }}/preparation/{{ job.job_id }}/cancel">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="button secondary" type="submit" {% if job.cancel_requested %}disabled{% endif %} data-preparation-cancel>
+          {% if job.cancel_requested %}Stopping safely…{% else %}Stop preparation{% endif %}
+        </button>
+      </form>
+    </div>
+
+    <details class="technical-details form-card">
+      <summary>Support details</summary>
+      <p>Attempt {{ job.attempt }} · Job <code>{{ job.job_id }}</code></p>
+    </details>
+  </div>
+{% endblock %}

@@ -5,7 +5,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 import os
 from pathlib import Path
-from time import perf_counter
+from time import perf_counter, sleep
 import tempfile
 from threading import Event, Thread
 import unittest
@@ -43,6 +43,7 @@ from impodo.domain.resolution import (
     ResolutionRule,
     SimilarityAlgorithm,
 )
+from impodo.domain.staging.scale import BROWSER_EVALUATION_ROW_LIMIT
 from impodo.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
@@ -68,6 +69,7 @@ from impodo.quality import (
     default_quality_ruleset,
     evaluate_quality,
 )
+from impodo.preparation_jobs import PreparationJobStatus
 from impodo.value_rules import ScalarTransformPolicy
 from impodo.web.app import create_local_app
 
@@ -442,6 +444,73 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             f"source_bytes={source_size_bytes}, source_sha256={source_sha256}, "
             f"session={bounded.session_id}"
         )
+
+    def test_background_worker_releases_its_working_memory(self) -> None:
+        """Verify the production job boundary with the representative workload."""
+
+        import psutil
+
+        if PREPARATION_SCALE_ROWS > BROWSER_EVALUATION_ROW_LIMIT:
+            self.skipTest(
+                "The production background probe honors the current "
+                f"{BROWSER_EVALUATION_ROW_LIMIT:,}-row browser safety limit"
+            )
+
+        project_id, _source_sha256, _source_size_bytes = (
+            self._prepare_project_and_evidence(
+                row_count=PREPARATION_SCALE_ROWS,
+                column_count=PREPARATION_SCALE_COLUMNS,
+                mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
+                dirty=PREPARATION_SCALE_DIRTY,
+            )
+        )
+        project = self.context.queries.get(project_id)
+        selection = self.context.queries.get_source_selection(project_id)
+        assert selection is not None
+        manager = self.context.preparation_jobs
+        assert manager is not None
+        job = manager.enqueue(
+            project_id,
+            project.name,
+            sum(item.row_count for item in selection.datasets),
+            actor=self.context.actor,
+        )
+        started = perf_counter()
+        peak_worker_bytes = 0
+        deadline = started + 600
+        while perf_counter() < deadline:
+            current = manager.get(project_id, job.job_id)
+            worker_pid = manager.worker_pid(job.job_id)
+            if worker_pid is not None:
+                try:
+                    peak_worker_bytes = max(
+                        peak_worker_bytes,
+                        psutil.Process(worker_pid).memory_info().rss,
+                    )
+                except psutil.NoSuchProcess:
+                    pass
+            if current.terminal:
+                break
+            sleep(0.05)
+        else:
+            self.fail("Background preparation did not finish within ten minutes")
+        self.assertEqual(
+            current.status,
+            PreparationJobStatus.SUCCEEDED,
+            msg=f"{current.failure_code}: {current.failure_message}",
+        )
+        worker_deadline = perf_counter() + 5
+        while manager.worker_alive(job.job_id) and perf_counter() < worker_deadline:
+            sleep(0.01)
+        self.assertFalse(manager.worker_alive(job.job_id))
+        print(
+            "Background preparation probe: "
+            f"rows={PREPARATION_SCALE_ROWS:,}, "
+            f"total={perf_counter() - started:.3f}s, "
+            f"worker_peak={peak_worker_bytes / (1024 * 1024):.1f} MiB, "
+            "worker_exited=yes"
+        )
+
     def _prepare_project_and_evidence(
         self,
         *,

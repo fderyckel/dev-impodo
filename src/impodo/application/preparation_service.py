@@ -35,6 +35,7 @@ from ..domain.staging.preparation_session import StoredCanonicalStagingRun
 from ..inspection import SourceFileCatalog
 from ..domain.mapping.contracts import MappingDefinition
 from ..normalization import NormalizationRunSummary
+from ..preparation_jobs import PreparationPhase
 from ..projects import MigrationProject
 from ..source import SourceTable, load_selected_source_table
 from ..workspace_contracts import SourceSelection
@@ -97,6 +98,8 @@ class PreparationService:
         project_id: str,
         *,
         actor: Actor,
+        progress: Callable[[PreparationPhase, int, int, str], None] | None = None,
+        cancellation_checkpoint: Callable[[], None] | None = None,
     ) -> NormalizationRunSummary:
         """Prepare every frozen row for review without contacting Odoo.
 
@@ -115,6 +118,15 @@ class PreparationService:
                 source bindings are absent, stale, or inconsistent.
         """
 
+        report_progress = progress or (lambda _phase, _completed, _total, _message: None)
+        check_cancelled = cancellation_checkpoint or (lambda: None)
+        report_progress(
+            PreparationPhase.VALIDATING,
+            0,
+            0,
+            "Checking the saved setup",
+        )
+        check_cancelled()
         self.authorization.require(
             actor,
             Capability.MAPPING_SUBMIT,
@@ -135,6 +147,7 @@ class PreparationService:
         physical_selection = self.sources.get_source_selection(project_id)
         if physical_selection is None:
             raise ReadinessError("Freeze the source datasets before checking data")
+        total_rows = sum(item.row_count for item in physical_selection.datasets)
         source_hashes = canonical_source_hashes(physical_selection)
         effective_selection = self.sources.get_mapping_source_selection(project_id)
         if effective_selection is None:
@@ -149,6 +162,23 @@ class PreparationService:
         bounded_session_id: str | None = None
         bounded_canonical_run: StoredCanonicalStagingRun | None = None
         impact_rows: Iterable[TransformationImpactRow]
+
+        def report_source_batch(completed: int, total: int) -> None:
+            check_cancelled()
+            report_progress(
+                PreparationPhase.TRANSFORMING,
+                completed,
+                total,
+                "Preparing source rows",
+            )
+
+        report_progress(
+            PreparationPhase.TRANSFORMING,
+            0,
+            total_rows,
+            "Preparing source rows",
+        )
+        check_cancelled()
         if supports_bounded_direct_preparation(
             physical_selection,
             effective_selection,
@@ -166,11 +196,19 @@ class PreparationService:
                 reference_bundle,
                 self.sessions,
                 actor=actor,
+                batch_progress=report_source_batch,
             )
             bounded_session_id = bounded.session_id
             staging_input = bounded.run
             bounded_canonical_run = bounded.run
             try:
+                check_cancelled()
+                report_progress(
+                    PreparationPhase.PUBLISHING,
+                    total_rows,
+                    total_rows,
+                    "Saving prepared data",
+                )
                 staging = self.staging.publish_canonical_staging(
                     project_id,
                     staging_input,
@@ -206,6 +244,13 @@ class PreparationService:
                 collect_transformation_impact=True,
                 transformation_detail_limit=0,
                 transformation_impact_sink=materialized_impacts.append,
+            )
+            check_cancelled()
+            report_progress(
+                PreparationPhase.PUBLISHING,
+                total_rows,
+                total_rows,
+                "Saving prepared data",
             )
             staging = self.staging.publish_canonical_staging(
                 project_id,
@@ -243,6 +288,12 @@ class PreparationService:
                         actor=actor,
                     )
                 )
+            report_progress(
+                PreparationPhase.QUALITY,
+                total_rows,
+                total_rows,
+                "Running data checks",
+            )
             quality_run, quality = self.quality.evaluate_and_publish(
                 project,
                 revision,
@@ -259,6 +310,12 @@ class PreparationService:
                 reference_bundle,
                 actor=actor,
             )
+            report_progress(
+                PreparationPhase.NORMALIZING,
+                total_rows,
+                total_rows,
+                "Organizing changes for review",
+            )
             normalization = self.normalization.evaluate_and_publish(
                 project,
                 revision,
@@ -274,6 +331,12 @@ class PreparationService:
             )
             if bounded_session_id is not None:
                 self.sessions.mark_published(project_id, bounded_session_id)
+            report_progress(
+                PreparationPhase.COMPLETE,
+                total_rows,
+                total_rows,
+                "Prepared data is ready for review",
+            )
             return normalization
         except Exception:
             if bounded_session_id is not None:

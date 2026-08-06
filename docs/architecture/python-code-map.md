@@ -484,13 +484,18 @@ evidence, and returns a summary. It performs no Odoo call.
 ```mermaid
 sequenceDiagram
     participant Route as "preparation router"
+    participant Jobs as "PreparationJobManager"
+    participant Worker as "child worker process"
     participant Service as "PreparationService"
     participant Eval as "staging evaluator"
     participant Stage as "StagingRepository"
     participant Quality as "QualityService"
     participant Normalize as "NormalizationService"
 
-    Route->>Service: prepare(project_id, actor)
+    Route->>Jobs: enqueue(project_id, actor)
+    Jobs-->>Route: durable job ID
+    Jobs->>Worker: start preparation
+    Worker->>Service: prepare(project_id, actor, progress)
     Service->>Service: verify authorization, mapping submission, and frozen source
     Service->>Eval: stage_browser_mapping(...)
     Eval-->>Service: StagedBrowserMapping
@@ -499,25 +504,32 @@ sequenceDiagram
     Service->>Quality: evaluate_and_publish(...)
     Quality-->>Service: quality run and summary
     Service->>Normalize: evaluate_and_publish(...)
-    Normalize-->>Route: NormalizationRunSummary
+    Normalize-->>Worker: NormalizationRunSummary
+    Worker-->>Jobs: progress and terminal result
+    Route->>Jobs: poll status from separate SQLite ledger
 ```
 
 ### Navigation chain
 
 1. [`build_preparation_router`](../../src/impodo/web/routers/preparation.py)
-   handles `POST /projects/{project_id}/summary/check` and delegates blocking
-   work to a thread pool.
-2. [`PreparationService.prepare`](../../src/impodo/application/preparation_service.py)
+   handles `POST /projects/{project_id}/summary/check`, durably enqueues the
+   work, and immediately redirects to a progress page.
+2. [`PreparationJobManager`](../../src/impodo/application/preparation_job_service.py)
+   supervises a child process, cancellation, retry, and crash completion. Its
+   small SQLite ledger stays readable while the worker writes project DuckDB.
+   The local default runs one heavy worker at a time so concurrent projects do
+   not multiply the preparation RAM peak; later jobs remain durably queued.
+3. [`PreparationService.prepare`](../../src/impodo/application/preparation_service.py)
    enforces the workflow order and owns the use-case transaction boundaries.
-3. [`stage_browser_mapping`](../../src/impodo/application/preparation_service.py)
+4. [`stage_browser_mapping`](../../src/impodo/application/preparation_service.py)
    materializes verified source tables, then calls the storage-independent
    [`evaluate_browser_mapping`](../../src/impodo/domain/staging/evaluator.py).
-4. [`StagingRepository.publish_canonical_staging`](../../src/impodo/adapters/duckdb/staging_repository.py)
+5. [`StagingRepository.publish_canonical_staging`](../../src/impodo/adapters/duckdb/staging_repository.py)
    atomically publishes immutable canonical rows and advances the current
    staging pointer. Changed content invalidates downstream evidence.
-5. [`QualityService.evaluate_and_publish`](../../src/impodo/application/quality_service.py)
+6. [`QualityService.evaluate_and_publish`](../../src/impodo/application/quality_service.py)
    creates the exact quality/quarantine overlay for that staging run.
-6. [`NormalizationService.evaluate_and_publish`](../../src/impodo/application/normalization_service.py)
+7. [`NormalizationService.evaluate_and_publish`](../../src/impodo/application/normalization_service.py)
    creates grouped normalization review evidence. A later explicit approval
    freezes the eligible dataset; preparation itself does not contact Odoo.
 

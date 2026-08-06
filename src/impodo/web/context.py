@@ -26,6 +26,7 @@ from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
 from ..application.reconciliation_service import ReconciliationService
 from ..application.preparation_service import PreparationService
+from ..application.preparation_job_service import PreparationJobManager
 from ..application.quality_service import QualityService
 from ..application.resolution_service import ResolutionService
 from ..application.schema_workspace_service import SchemaWorkspaceService
@@ -90,6 +91,7 @@ class WebContext:
     schema_workspace: SchemaWorkspaceService
     mapping_workspace: MappingWorkspaceService
     preparation: PreparationService
+    preparation_jobs: PreparationJobManager | None
     quality: QualityService
     resolution: ResolutionService
     normalization: NormalizationService

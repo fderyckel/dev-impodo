@@ -53,6 +53,13 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 raise ProjectConflictError(
                     "The project changed in another request; reload before deleting"
                 )
+            if (
+                context.preparation_jobs is not None
+                and context.preparation_jobs.active(project.project_id) is not None
+            ):
+                raise ProjectConflictError(
+                    "Preparation is still running. Stop it before deleting this project."
+                )
             context.authorization.require(
                 context.actor,
                 Capability.PROJECT_DELETE,
@@ -66,6 +73,10 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
                 expected_revision=expected_revision,
             )
+            if context.preparation_jobs is not None:
+                context.preparation_jobs.repository.delete_project_history(
+                    project.project_id
+                )
         except AuthorizationError as error:
             raise HTTPException(
                 status_code=403,

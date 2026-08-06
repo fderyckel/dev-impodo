@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Iterable
+from typing import Callable, Iterable
 
 from ..access import Actor
 from ..artifacts import ArtifactStore
@@ -109,6 +109,7 @@ def prepare_bounded_direct_session(
     sessions: PreparationSessionRepository,
     *,
     actor: Actor,
+    batch_progress: Callable[[int, int], None] | None = None,
 ) -> BoundedDirectPreparation:
     """Transform direct selected sources into one READY durable session."""
 
@@ -209,6 +210,8 @@ def prepare_bounded_direct_session(
     for dataset in sorted(effective_selection.datasets, key=lambda item: item.name):
         dataset_offsets[dataset.dataset_id] = next_offset
         next_offset += dataset.row_count
+    total_rows = sum(item.row_count for item in effective_selection.datasets)
+    completed_rows = 0
 
     try:
         for effective in effective_selection.datasets:
@@ -328,6 +331,9 @@ def prepare_bounded_direct_session(
                             prepared_batch,
                         )
                         row_count += len(source_batch)
+                        completed_rows += len(source_batch)
+                        if batch_progress is not None:
+                            batch_progress(completed_rows, total_rows)
             dataset_evidence[effective.name] = (
                 physical.dataset_id,
                 StagingDatasetRole.DIRECT,

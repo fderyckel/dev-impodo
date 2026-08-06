@@ -2069,4 +2069,93 @@ document.addEventListener("DOMContentLoaded", () => {
     initializeRelationRows();
   }
 
+  const preparationJob = document.querySelector("[data-preparation-job]");
+  if (preparationJob) {
+    const statusUrl = preparationJob.dataset.statusUrl;
+    const state = preparationJob.querySelector("[data-preparation-state]");
+    const message = preparationJob.querySelector("[data-preparation-message]");
+    const progress = preparationJob.querySelector("[data-preparation-progress]");
+    const percent = preparationJob.querySelector("[data-preparation-percent]");
+    const rows = preparationJob.querySelector("[data-preparation-rows]");
+    const spinner = preparationJob.querySelector("[data-preparation-spinner]");
+    const activeActions = preparationJob.querySelector("[data-preparation-active]");
+    const cancelButton = preparationJob.querySelector("[data-preparation-cancel]");
+    const failed = preparationJob.querySelector("[data-preparation-failed]");
+    const failure = preparationJob.querySelector("[data-preparation-failure]");
+    const cancelled = preparationJob.querySelector("[data-preparation-cancelled]");
+    const complete = preparationJob.querySelector("[data-preparation-complete]");
+    const continueLink = preparationJob.querySelector("[data-preparation-continue]");
+    let pollTimer;
+
+    const formatRows = (completed, total) => {
+      if (!total) {
+        return "Starting safely";
+      }
+      return `${Number(completed).toLocaleString()} of ${Number(total).toLocaleString()} source rows`;
+    };
+
+    const showStatus = (job) => {
+      const active = job.status === "QUEUED" || job.status === "RUNNING";
+      if (message) message.textContent = job.message;
+      if (progress) progress.value = job.progress_percent;
+      if (percent) percent.textContent = `${job.progress_percent}%`;
+      if (rows) rows.textContent = formatRows(job.completed_rows, job.total_rows);
+      if (spinner) spinner.hidden = !active;
+      if (activeActions) activeActions.hidden = !active;
+      if (cancelButton && job.cancel_requested) {
+        cancelButton.disabled = true;
+        cancelButton.textContent = "Stopping safely…";
+      }
+      if (state) {
+        state.classList.remove("ready", "review", "blocked");
+        state.textContent = active
+          ? "In progress"
+          : job.status === "FAILED"
+            ? "Could not finish"
+            : "Stopped";
+        state.classList.add(active ? "review" : "blocked");
+      }
+      if (job.status === "FAILED") {
+        if (failed) failed.hidden = false;
+        if (failure) failure.textContent = job.failure_message;
+      } else if (job.status === "CANCELLED") {
+        if (cancelled) cancelled.hidden = false;
+      } else if (
+        job.status === "SUCCEEDED" ||
+        job.status === "REVIEW_REQUIRED"
+      ) {
+        if (state) {
+          state.textContent = job.status === "REVIEW_REQUIRED" ? "Review needed" : "Ready";
+          state.classList.remove("blocked", "review");
+          state.classList.add(job.status === "REVIEW_REQUIRED" ? "review" : "ready");
+        }
+        if (complete) complete.hidden = false;
+        if (continueLink && job.redirect_url) continueLink.href = job.redirect_url;
+        if (job.redirect_url) window.location.assign(job.redirect_url);
+      }
+      return active;
+    };
+
+    const pollPreparation = async () => {
+      try {
+        const response = await fetch(statusUrl, {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error("Progress is temporarily unavailable");
+        if (showStatus(await response.json())) {
+          pollTimer = window.setTimeout(pollPreparation, 750);
+        }
+      } catch {
+        if (message) message.textContent = "Reconnecting to preparation…";
+        pollTimer = window.setTimeout(pollPreparation, 1500);
+      }
+    };
+
+    if (statusUrl) {
+      pollPreparation();
+    }
+    window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
+  }
+
 });

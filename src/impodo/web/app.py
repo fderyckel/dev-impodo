@@ -16,6 +16,7 @@ See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 import secrets
 
@@ -38,6 +39,7 @@ from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
 from ..application.reconciliation_service import ReconciliationService
 from ..application.preparation_service import PreparationService
+from ..application.preparation_job_service import PreparationJobManager
 from ..application.quality_service import QualityService
 from ..application.resolution_service import ResolutionService
 from ..application.schema_workspace_service import SchemaWorkspaceService
@@ -122,6 +124,7 @@ def create_local_app(
     job_dispatcher: JobDispatcher | None = None,
     local_stack_service: LocalStackService | None = None,
     local_odoo_reader: LocalOdooMetadataReader | None = None,
+    preparation_jobs_enabled: bool = True,
 ) -> FastAPI:
     """Construct the loopback FastAPI application for migration Stages A–K.
 
@@ -204,6 +207,9 @@ def create_local_app(
         reconciliation_repository,
         resolved_authorization,
     )
+    preparation_jobs = (
+        PreparationJobManager(project_root) if preparation_jobs_enabled else None
+    )
     context = WebContext(
         queries=BrowserQueryService(
             project_repository,
@@ -245,6 +251,7 @@ def create_local_app(
             resolved_authorization,
         ),
         preparation=preparation,
+        preparation_jobs=preparation_jobs,
         quality=quality,
         resolution=resolution,
         normalization=normalization,
@@ -277,11 +284,21 @@ def create_local_app(
 
     package_dir = Path(__file__).resolve().parent
     templates = Jinja2Templates(directory=package_dir / "templates")
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            yield
+        finally:
+            if context.preparation_jobs is not None:
+                context.preparation_jobs.shutdown()
+
     app = FastAPI(
         title="Impodo",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
+        lifespan=lifespan,
     )
     app.state.context = context
     app.state.server = None

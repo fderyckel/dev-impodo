@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import re
 import tempfile
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlsplit
@@ -84,6 +85,24 @@ POST_HEADERS = {
     "Origin": "http://testserver",
     "Sec-Fetch-Site": "same-origin",
 }
+
+
+def _wait_for_preparation(
+    client: TestClient,
+    progress_url: str,
+    *,
+    timeout: float = 20.0,
+) -> dict[str, object]:
+    deadline = time.monotonic() + timeout
+    status_url = f"{progress_url}/status"
+    while time.monotonic() < deadline:
+        response = client.get(status_url)
+        if response.status_code == 200:
+            payload = response.json()
+            if payload["status"] not in {"QUEUED", "RUNNING"}:
+                return payload
+        time.sleep(0.05)
+    raise AssertionError("background preparation did not finish in time")
 
 
 class LocalBrowserSecurityTests(unittest.TestCase):
@@ -1888,8 +1907,24 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(checked.status_code, 303)
-        self.assertIn("/normalization", checked.headers["location"])
-        review_page = self.client.get(checked.headers["location"])
+        self.assertIn("/preparation/", checked.headers["location"])
+        progress_page = self.client.get(checked.headers["location"])
+        self.assertIn("Data preparation", progress_page.text)
+        completed_job = _wait_for_preparation(
+            self.client,
+            checked.headers["location"],
+        )
+        self.assertEqual(completed_job["status"], "SUCCEEDED")
+        manager = self.app.state.context.preparation_jobs
+        assert manager is not None
+        worker_deadline = time.monotonic() + 2.0
+        while (
+            manager.worker_alive(str(completed_job["job_id"]))
+            and time.monotonic() < worker_deadline
+        ):
+            time.sleep(0.01)
+        self.assertFalse(manager.worker_alive(str(completed_job["job_id"])))
+        review_page = self.client.get(str(completed_job["redirect_url"]))
         self.assertIn("Review what Impodo prepared", review_page.text)
         self.assertIn("Nothing is sent to Odoo", review_page.text)
         self.assertEqual(len(self.readiness_calls), 0)
@@ -3248,10 +3283,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         self.assertEqual(failed.status_code, 303)
-        self.assertEqual(
+        self.assertIn(
+            f"/projects/{project_id}/preparation/",
             failed.headers["location"],
-            f"/projects/{project_id}/summary",
         )
+        completed_job = _wait_for_preparation(
+            self.client,
+            failed.headers["location"],
+        )
+        self.assertEqual(completed_job["status"], "FAILED")
         self.assertIsNone(context.preflight.current_staging(project_id))
         self.assertIsNone(context.quality.current_summary(project_id))
         self.assertIsNone(
@@ -3265,6 +3305,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "Impodo could not verify the registered source files",
             recovery.text,
         )
+        retried = self.client.post(
+            f"{failed.headers['location']}/retry",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(retried.status_code, 303)
+        self.assertNotEqual(retried.headers["location"], failed.headers["location"])
+        retried_job = _wait_for_preparation(
+            self.client,
+            retried.headers["location"],
+        )
+        self.assertEqual(retried_job["status"], "FAILED")
 
     def test_data_manager_can_save_an_optional_named_total(self) -> None:
         project_id, dataset, business_key = self._mapping_ready_project(
