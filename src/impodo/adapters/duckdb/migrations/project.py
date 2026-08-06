@@ -15,6 +15,7 @@ from .preflight import create_preflight_schema
 from .advanced_coverage import create_advanced_coverage_schema
 from .preparation_session import create_preparation_session_schema
 from .execution import create_execution_schema
+from .reconciliation import create_reconciliation_schema
 
 class ProjectMigrationsMixin:
     """Keep new databases and upgrades on one monotonic schema path.
@@ -514,6 +515,7 @@ class ProjectMigrationsMixin:
         create_advanced_coverage_schema(connection)
         create_preparation_session_schema(connection)
         create_execution_schema(connection)
+        create_reconciliation_schema(connection)
 
     def _migrate_project_database(
         self,
@@ -1215,6 +1217,9 @@ class ProjectMigrationsMixin:
                 if version == 23:
                     create_execution_schema(connection)
                     version = 24
+                if version == 24:
+                    create_reconciliation_schema(connection)
+                    version = 25
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

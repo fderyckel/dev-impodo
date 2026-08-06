@@ -182,12 +182,7 @@ class PreflightService:
         if report is None:
             return None
         try:
-            with self.artifacts.materialize_report(
-                project_id,
-                report.run_id,
-                EXECUTION_SNAPSHOT_NAME,
-            ) as path:
-                snapshot = ExecutionSnapshot.from_json(path.read_text("utf-8"))
+            snapshot = self.execution_snapshot(project_id, report.run_id)
             with self.artifacts.materialize_report(
                 project_id,
                 report.run_id,
@@ -215,6 +210,37 @@ class PreflightService:
                 "The execution snapshot no longer matches the current Odoo "
                 "comparison. Run the comparison again."
             )
+        return snapshot
+
+    def execution_snapshot(
+        self,
+        project_id: str,
+        preflight_run_id: str,
+    ) -> ExecutionSnapshot:
+        """Load one immutable execution snapshot by its preflight run.
+
+        Reconciliation uses the exact historical artifact named by the load
+        journal. It must not silently switch to a newer comparison while
+        checking an older write outcome.
+        """
+
+        try:
+            with self.artifacts.materialize_report(
+                project_id,
+                preflight_run_id,
+                EXECUTION_SNAPSHOT_NAME,
+            ) as path:
+                snapshot = ExecutionSnapshot.from_json(path.read_text("utf-8"))
+        except (ArtifactStoreError, OSError, ValueError) as error:
+            raise ReadinessError(
+                "The saved load preview is missing or invalid. Compare with "
+                "Odoo again before another load."
+            ) from error
+        if (
+            snapshot.project_id != project_id
+            or snapshot.preflight_run_id != preflight_run_id
+        ):
+            raise ReadinessError("The saved load preview does not match this project")
         return snapshot
 
     def readiness_rows(

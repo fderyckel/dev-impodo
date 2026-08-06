@@ -11,12 +11,19 @@ from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
 from impodo.adapters.duckdb.constants import SCHEMA_VERSION
 from impodo.adapters.duckdb.database import DuckDbDatabase
 from impodo.adapters.duckdb.execution_repository import ExecutionRepository
+from impodo.adapters.duckdb.reconciliation_repository import ReconciliationRepository
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.domain.execution import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
     ExecutionRun,
     ExecutionRunStatus,
+)
+from impodo.domain.reconciliation import (
+    ReconciliationRow,
+    ReconciliationRowStatus,
+    ReconciliationRun,
+    ReconciliationRunStatus,
 )
 from impodo.projects import ProjectService
 
@@ -33,6 +40,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
         self.database = DuckDbDatabase(self.temporary.name)
         self.projects = ProjectRepository(self.database)
         self.repository = ExecutionRepository(self.database)
+        self.reconciliation = ReconciliationRepository(self.database)
         self.project = ProjectService(
             self.projects,
             CapabilityAuthorizationPolicy(),
@@ -182,6 +190,92 @@ class ExecutionRepositoryTests(unittest.TestCase):
             tables,
             {"execution_current", "execution_row", "execution_run"},
         )
+
+    def test_publishes_one_hash_bound_readback_result(self) -> None:
+        run = self._run()
+        self.repository.start_run(self.project.project_id, run, actor=LOCAL_ACTOR)
+        committed = tuple(
+            replace(
+                row,
+                status=ExecutionRowStatus.COMMITTED,
+                attempt=1,
+                odoo_id=40 + index,
+            )
+            for index, row in enumerate(run.rows)
+        )
+        self.repository.record_outcomes(
+            self.project.project_id,
+            run.run_id,
+            committed,
+        )
+        self.repository.finish_run(
+            self.project.project_id,
+            run.run_id,
+            ExecutionRunStatus.COMPLETED,
+            actor=LOCAL_ACTOR,
+        )
+        report = ReconciliationRun(
+            reconciliation_id=str(uuid4()),
+            project_id=self.project.project_id,
+            execution_run_id=run.run_id,
+            snapshot_hash=run.snapshot_hash,
+            target_hash=run.target_hash,
+            target_database=run.target_database,
+            status=ReconciliationRunStatus.VERIFIED,
+            verified_at=datetime.now(timezone.utc),
+            verified_by="Test operator",
+            unchanged_count=1,
+            rows=tuple(
+                ReconciliationRow(
+                    row_id=row.row_id,
+                    dataset=row.dataset,
+                    source_row=row.source_row,
+                    target_model=row.target_model,
+                    operation=row.operation,
+                    execution_status="COMMITTED",
+                    status=ReconciliationRowStatus.VERIFIED,
+                    odoo_id=row.odoo_id,
+                    message="Odoo matches the confirmed load preview",
+                )
+                for row in committed
+            ),
+        )
+
+        self.reconciliation.publish(
+            self.project.project_id,
+            report,
+            actor=LOCAL_ACTOR,
+        )
+
+        restored = self.reconciliation.get_current(
+            self.project.project_id,
+            run.run_id,
+        )
+        self.assertEqual(restored.semantic_hash, report.semantic_hash)
+        self.assertEqual(restored.verified_count, 3)
+
+    def test_version_twenty_four_adds_reconciliation_tables(self) -> None:
+        path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
+        with self.projects._connect(path) as connection:
+            connection.execute("DROP TABLE reconciliation_current")
+            connection.execute("DROP TABLE reconciliation_run")
+            connection.execute("UPDATE schema_version SET version = 24")
+
+        self.projects.get(self.project.project_id)
+
+        with self.projects._connect(path) as connection:
+            version = connection.execute("SELECT version FROM schema_version").fetchone()
+            tables = {
+                str(item[0])
+                for item in connection.execute(
+                    """
+                    SELECT table_name FROM information_schema.tables
+                     WHERE table_name LIKE 'reconciliation_%'
+                    """
+                ).fetchall()
+            }
+        self.assertEqual(version, (SCHEMA_VERSION,))
+        self.assertEqual(tables, {"reconciliation_current", "reconciliation_run"})
 
 
 if __name__ == "__main__":

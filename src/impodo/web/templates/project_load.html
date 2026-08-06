@@ -8,8 +8,8 @@
       <p>This is the exact create-and-update set from the latest completed comparison.</p>
     </div>
     {% if preview.current_run %}
-      <span class="status {% if preview.current_run.unknown_count or preview.current_run.failed_count or preview.current_run.blocked_count %}review{% else %}ready{% endif %}">
-        {% if preview.current_run.unknown_count %}Outcome needs checking{% elif preview.current_run.failed_count or preview.current_run.blocked_count %}Completed with issues{% else %}Load accepted{% endif %}
+      <span class="status {% if reconciliation and reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}">
+        {% if not reconciliation %}Verification pending{% elif reconciliation.status.value == 'VERIFIED' %}Verified in Odoo{% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}Outcome needs checking{% else %}Verified with fallout{% endif %}
       </span>
     {% elif preview.can_load %}
       <span class="status review">Ready for your confirmation</span>
@@ -76,49 +76,107 @@
   </section>
 
   {% if preview.current_run %}
-    <section class="next-action-card {% if preview.current_run.unknown_count or preview.current_run.failed_count or preview.current_run.blocked_count %}review{% else %}ready{% endif %}" aria-labelledby="load-result-title">
-      <div>
-        <p class="eyebrow">Saved load outcome</p>
-        <h2 id="load-result-title">
-          {{ preview.current_run.committed_count }} accepted ·
-          {{ preview.current_run.failed_count }} rejected ·
-          {{ preview.current_run.unknown_count }} unknown
-        </h2>
-        {% if preview.current_run.unknown_count %}
-          <p>Impodo did not retry after losing an Odoo response. Check Odoo before preparing another comparison.</p>
-        {% elif preview.current_run.failed_count or preview.current_run.blocked_count %}
-          <p>Some rows were not written. Their outcomes remain saved below.</p>
-        {% else %}
-          <p>Odoo returned a successful API response for every attempted row.</p>
-        {% endif %}
-        <p class="muted">This is the API receipt. Read-back verification is the next slice.</p>
-      </div>
-      <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to review</a>
-    </section>
+    {% if reconciliation %}
+      <section class="next-action-card {% if reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}" aria-labelledby="load-result-title">
+        <div>
+          <p class="eyebrow">Odoo read-back complete</p>
+          <h2 id="load-result-title">
+            {{ reconciliation.verified_count }} verified ·
+            {{ reconciliation.fallout_count }} fallout ·
+            {{ reconciliation.unknown_count }} unknown
+          </h2>
+          {% if reconciliation.status.value == 'VERIFIED' %}
+            <p>Odoo now matches every field in the confirmed load preview. Rows needing no change are included in the verified total.</p>
+          {% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}
+            <p>Impodo re-matched uncertain writes where possible. The remaining unknown outcomes must not be retried blindly.</p>
+          {% else %}
+            <p>The load was checked against Odoo. Review the concise fallout below before preparing another comparison.</p>
+          {% endif %}
+          {% if reconciliation.retry_safe_count %}
+            <p>{{ reconciliation.retry_safe_count }} unapplied create row(s) can safely be planned again by a fresh comparison.</p>
+          {% endif %}
+        </div>
+        <div class="button-row">
+          {% if reconciliation.fallout_count %}
+            <a class="button secondary" href="/projects/{{ project.project_id }}/load/fallout.csv">Download fallout</a>
+          {% endif %}
+          <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to review</a>
+        </div>
+      </section>
 
-    <section class="form-card" aria-labelledby="row-outcomes-title">
-      <h2 id="row-outcomes-title">Row outcomes</h2>
-      <div class="table-scroll">
-        <table class="data-table">
-          <thead>
-            <tr><th>Prepared row</th><th>Odoo record</th><th>Action</th><th>Outcome</th></tr>
-          </thead>
-          <tbody>
-            {% for row in preview.current_run.rows %}
-              <tr data-load-row>
-                <td>{{ row.dataset }} · row {{ row.source_row }}</td>
-                <td><code>{{ row.target_model }}</code>{% if row.odoo_id %} · {{ row.odoo_id }}{% endif %}</td>
-                <td>{{ row.operation|lower }}</td>
-                <td>
-                  {{ row.status.value|replace('_', ' ')|lower }}
-                  {% if row.safe_error %}<small>{{ row.safe_error }}</small>{% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </section>
+      <section class="form-card" aria-labelledby="row-outcomes-title">
+        <h2 id="row-outcomes-title">Verified write rows</h2>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr><th>Prepared row</th><th>Odoo record</th><th>Action</th><th>Read-back result</th></tr>
+            </thead>
+            <tbody>
+              {% for row in reconciliation.rows %}
+                <tr data-load-row data-reconciliation-row>
+                  <td>{{ row.dataset }} · row {{ row.source_row }}</td>
+                  <td><code>{{ row.target_model }}</code>{% if row.odoo_id %} · {{ row.odoo_id }}{% endif %}</td>
+                  <td>{{ row.operation|lower }}</td>
+                  <td>
+                    {{ row.status.value|replace('_', ' ')|lower }}
+                    {% if row.differing_fields %}<small>Different: {{ row.differing_fields|join(', ') }}</small>{% endif %}
+                    {% if row.message %}<small>{{ row.message }}</small>{% endif %}
+                    {% if row.retry_safe %}<small>Safe to plan again after a fresh comparison.</small>{% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% else %}
+      <section class="next-action-card review" aria-labelledby="load-result-title">
+        <div>
+          <p class="eyebrow">Load outcome saved</p>
+          <h2 id="load-result-title">
+            {{ preview.current_run.committed_count }} accepted ·
+            {{ preview.current_run.failed_count + preview.current_run.blocked_count }} not written ·
+            {{ preview.current_run.unknown_count }} unknown
+          </h2>
+          <p>The API receipt is durable. Verify now to check the actual Odoo records and resolve uncertain responses without retrying them.</p>
+        </div>
+        <form method="post" action="/projects/{{ project.project_id }}/load/reconcile">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="execution_run_id" value="{{ preview.current_run.run_id }}">
+          <label>
+            Odoo API key
+            <input type="password" name="api_key" autocomplete="current-password" {% if not has_stored_key %}required{% endif %}>
+            <small>{% if has_stored_key %}Leave empty to use the saved key.{% else %}Required to read the written records back from Odoo.{% endif %}</small>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" name="remember_api_key">
+            <span>Remember this key on this computer</span>
+          </label>
+          <button class="button primary" type="submit">Verify in Odoo</button>
+        </form>
+      </section>
+
+      <section class="form-card" aria-labelledby="row-outcomes-title">
+        <h2 id="row-outcomes-title">Saved API receipt</h2>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr><th>Prepared row</th><th>Odoo record</th><th>Action</th><th>API outcome</th></tr>
+            </thead>
+            <tbody>
+              {% for row in preview.current_run.rows %}
+                <tr data-load-row>
+                  <td>{{ row.dataset }} · row {{ row.source_row }}</td>
+                  <td><code>{{ row.target_model }}</code>{% if row.odoo_id %} · {{ row.odoo_id }}{% endif %}</td>
+                  <td>{{ row.operation|lower }}</td>
+                  <td>{{ row.status.value|replace('_', ' ')|lower }}{% if row.safe_error %}<small>{{ row.safe_error }}</small>{% endif %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% endif %}
   {% elif preview.can_load %}
     <section class="next-action-card review" aria-labelledby="confirm-load-title">
       <div>

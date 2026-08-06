@@ -86,6 +86,9 @@ PREPARATION_SCALE_WORKLOAD = os.environ.get(
     "IMPODO_PREPARATION_SCALE_WORKLOAD",
     "products",
 ).casefold()
+PREPARATION_SCALE_DIRTY = (
+    os.environ.get("IMPODO_PREPARATION_SCALE_DIRTY") == "1"
+)
 
 
 class _PeakWorkingSetSampler:
@@ -155,6 +158,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 row_count=PREPARATION_SCALE_ROWS,
                 column_count=PREPARATION_SCALE_COLUMNS,
                 mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
+                dirty=PREPARATION_SCALE_DIRTY,
             )
         )
         if os.environ.get("IMPODO_PREPARATION_ADVANCED") == "1":
@@ -326,6 +330,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         print(
             "Complete preparation scale probe: "
             f"workload={PREPARATION_SCALE_WORKLOAD}, "
+            f"dirty={PREPARATION_SCALE_DIRTY}, "
             f"rows={PREPARATION_SCALE_ROWS:,}, "
             f"columns={PREPARATION_SCALE_COLUMNS}, "
             f"mapped_fields={PREPARATION_SCALE_MAPPED_FIELDS}, "
@@ -346,9 +351,18 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
 
         self.assertEqual(staging.total_rows, PREPARATION_SCALE_ROWS)
-        self.assertEqual(quality.ready_count, PREPARATION_SCALE_ROWS)
+        collision_groups = (
+            (PREPARATION_SCALE_ROWS + 98) // 100
+            if PREPARATION_SCALE_DIRTY and PREPARATION_SCALE_ROWS >= 2
+            else 0
+        )
+        expected_quarantine = collision_groups * 2
+        self.assertEqual(
+            quality.ready_count,
+            PREPARATION_SCALE_ROWS - expected_quarantine,
+        )
         self.assertEqual(quality.review_count, 0)
-        self.assertEqual(quality.quarantined_count, 0)
+        self.assertEqual(quality.quarantined_count, expected_quarantine)
         self.assertEqual(quality.blocked_count, 0)
         self.assertEqual(
             current_normalization.content_hash,
@@ -356,11 +370,15 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         self.assertEqual(
             normalization.eligible_record_count,
-            PREPARATION_SCALE_ROWS,
+            PREPARATION_SCALE_ROWS - expected_quarantine,
         )
         self.assertEqual(
             normalization.changed_record_count,
-            PREPARATION_SCALE_ROWS,
+            PREPARATION_SCALE_ROWS - expected_quarantine,
+        )
+        self.assertEqual(
+            current_normalization.set_aside_record_count,
+            expected_quarantine,
         )
         self.assertEqual(staging.failed_control_total_count, 0)
 
@@ -427,6 +445,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         row_count: int,
         column_count: int,
         mapped_field_count: int,
+        dirty: bool = False,
     ) -> tuple[str, str, int]:
         project = self.context.projects.create_project(
             actor=self.context.actor,
@@ -440,7 +459,12 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             writer.writerow(headers)
             for index in range(row_count):
                 writer.writerow(
-                    _source_values(index, column_count, PREPARATION_SCALE_WORKLOAD)
+                    _source_values(
+                        index,
+                        column_count,
+                        PREPARATION_SCALE_WORKLOAD,
+                        dirty=dirty,
+                    )
                 )
 
         file_id = str(uuid4())
@@ -1035,17 +1059,20 @@ def _source_values(
     index: int,
     column_count: int,
     workload: str,
+    *,
+    dirty: bool = False,
 ) -> tuple[str, ...]:
+    identity_index = index - 1 if dirty and index % 100 == 1 else index
     return (
         (
-            f"P{index:06d}"
+            f"P{identity_index:06d}"
             if workload == "products"
-            else f"BOM{index // 10:06d}"
+            else f"BOM{identity_index // 10:06d}"
         ),
         (
             f" Product {index:06d} "
             if workload == "products"
-            else f" L{index:06d} "
+            else f" L{identity_index:06d} "
         ),
         "1",
         *(

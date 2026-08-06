@@ -14,11 +14,16 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from impodo.access import LOCAL_ACTOR
+from impodo.application.bounded_normalization import (
+    build_bounded_normalization_evaluation,
+)
+from impodo.application.bounded_quality import build_bounded_quality_run
 from impodo.governance import DryRun, DryRunStatus
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     ScalarFieldMapping,
 )
+from impodo.domain.staging.transformation_impact import TransformationImpactRow
 from impodo.normalization import (
     NormalizationCandidate,
     NormalizationEvaluation,
@@ -34,6 +39,7 @@ from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.projects import DataClassification
 from impodo.quality import default_quality_ruleset, evaluate_quality
+from impodo.staging_contracts import CanonicalIssue
 from impodo.workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
@@ -51,6 +57,7 @@ from tests.test_quality import (
     _prepared,
     _project,
     _staging,
+    _stored_staging,
 )
 
 
@@ -80,7 +87,138 @@ def _quality(project, staging, rows):
     )
 
 
+class _ReplayableImpacts:
+    def __init__(
+        self,
+        rows: tuple[tuple[TransformationImpactRow, str], ...],
+    ) -> None:
+        self._rows = rows
+
+    def iter_bound_rows(self, *, connection=None):
+        del connection
+        yield from self._rows
+
+
 class NormalizationEvaluationTests(unittest.TestCase):
+    def test_bounded_dirty_evidence_matches_complete_evaluator(self) -> None:
+        project = _project()
+        rows = (
+            _canonical_row(
+                "5",
+                2,
+                source_identity=("A",),
+                target_identity=("SAME",),
+            ),
+            _canonical_row(
+                "6",
+                3,
+                source_identity=("B",),
+                target_identity=("SAME",),
+            ),
+            replace(
+                _canonical_row(
+                    "7",
+                    4,
+                    source_identity=("C",),
+                    target_identity=("SAFE",),
+                ),
+                issues=(
+                    CanonicalIssue(
+                        code="SOURCE_VALUE_REVIEW",
+                        message="Review this source value",
+                        severity="warning",
+                        dataset="contacts",
+                        source_row=4,
+                        field="name",
+                    ),
+                ),
+            ),
+        )
+        staging = _staging(project.project_id, rows)
+        stored_staging = _stored_staging(staging)
+        ruleset = default_quality_ruleset(
+            project_id=project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts",),
+        )
+        expected_quality = evaluate_quality(
+            project=project,
+            staging=staging,
+            physical_rows={"dataset:contacts": (2, 3, 4)},
+            ruleset=ruleset,
+        )
+        bounded_quality = build_bounded_quality_run(
+            project=project,
+            staging=stored_staging,
+            physical_rows={"dataset:contacts": (2, 3, 4)},
+            ruleset=ruleset,
+            published_staging_content_hash=staging.content_hash,
+        )
+        candidates = tuple(
+            NormalizationCandidate(
+                dataset="contacts",
+                source_row=row.source_row,
+                source_label="Name",
+                target_field="name",
+                raw_display=f" {row.source_row} ",
+                proposed_display=str(row.source_row),
+                rules="Source + Trim",
+                outcome="changed",
+            )
+            for row in rows
+        )
+        expected = evaluate_normalization(
+            project=project,
+            staging=staging,
+            quality=expected_quality,
+            mappings={"contacts": _mapping()},
+            candidates=candidates,
+        )
+        impacts = _ReplayableImpacts(
+            tuple(
+                (
+                    TransformationImpactRow(
+                        dataset=candidate.dataset,
+                        source_row=candidate.source_row,
+                        source_column=candidate.source_label,
+                        target_field=candidate.target_field,
+                        raw_value=candidate.raw_display,
+                        proposed_value=candidate.proposed_display,
+                        rules=candidate.rules,
+                        outcome=candidate.outcome,
+                    ),
+                    row.row_id,
+                )
+                for candidate, row in zip(candidates, rows, strict=True)
+            )
+        )
+        bounded = build_bounded_normalization_evaluation(
+            project=project,
+            staging=stored_staging,
+            quality=bounded_quality,
+            mappings={"contacts": _mapping()},
+            impact_rows=impacts,
+            staging_content_hash=staging.content_hash,
+            quality_content_hash=expected_quality.content_hash,
+            effective=None,
+        )
+        materialized = NormalizationEvaluation(
+            project_id=bounded.project_id,
+            staging_content_hash=bounded.staging_content_hash,
+            quality_content_hash=bounded.quality_content_hash,
+            mapping_hash=bounded.mapping_hash,
+            schema_hash=bounded.schema_hash,
+            policy_hash=bounded.policy_hash,
+            retention_context_hash=bounded.retention_context_hash,
+            eligible_dataset_hash=bounded.eligible_dataset_hash,
+            effects=tuple(sorted(bounded.effects, key=lambda item: item.effect_id)),
+            groups=bounded.groups,
+            effective_dataset_hash=bounded.effective_dataset_hash,
+        )
+
+        self.assertEqual(materialized.to_json(), expected.to_json())
+
     def test_no_change_still_requires_final_approval_and_unknown_policy_blocks(self) -> None:
         project = _project()
         rows = (_canonical_row("5", 2),)

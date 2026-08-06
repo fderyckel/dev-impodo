@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import Iterable, Iterator, Mapping
 
@@ -16,6 +17,7 @@ from ..normalization import (
     NormalizationEffect,
     NormalizationExample,
     NormalizationGroupKind,
+    NormalizationOutcome,
     NormalizationReviewGroup,
     StoredNormalizationEvaluation,
     _change_language,
@@ -27,7 +29,11 @@ from ..normalization import (
     canonical_eligible_dataset_hash,
 )
 from ..projects import DataClassification, MigrationProject
-from ..quality import StoredQualityRun, retention_context_hash
+from ..quality import (
+    QualityOutcomePolicy,
+    StoredQualityRun,
+    retention_context_hash,
+)
 
 
 class BoundedNormalizationUnsupported(ValueError):
@@ -72,7 +78,7 @@ class _BoundedNormalizationEffects(Iterable[NormalizationEffect]):
         mapping_hash: str,
         mappings: Mapping[str, DatasetMapping],
         impact_rows: object,
-        eligible_row_ids: frozenset[str],
+        eligible_row_ids: AbstractSet[str],
     ) -> None:
         self._project = project
         self._mapping_hash = mapping_hash
@@ -220,8 +226,6 @@ def build_bounded_normalization_evaluation(
 
     if (
         effective is not None
-        or quality.issues
-        or quality.quarantine
         or quality.blocked_count
         or not callable(getattr(impact_rows, "iter_bound_rows", None))
     ):
@@ -241,7 +245,7 @@ def build_bounded_normalization_evaluation(
         mapping_hash=staging.mapping_hash,
         mappings=mappings,
         impact_rows=impact_rows,
-        eligible_row_ids=frozenset(quality.eligible_row_ids),
+        eligible_row_ids=quality.eligible_row_ids,
     )
     accumulators: dict[str, _GroupAccumulator] = {}
     changed_row_ids: set[str] = set()
@@ -258,7 +262,7 @@ def build_bounded_normalization_evaluation(
         if effect.eligible:
             changed_row_ids.add(effect.row_id)
 
-    groups = tuple(
+    groups: list[NormalizationReviewGroup] = [
         NormalizationReviewGroup(
             group_id=group_id,
             dataset_label=_human_label(str(accumulator.metadata["dataset"])),
@@ -273,7 +277,56 @@ def build_bounded_normalization_evaluation(
             **accumulator.metadata,
         )
         for group_id, accumulator in sorted(accumulators.items())
-    )
+    ]
+    warning_rows: dict[str, set[str]] = {}
+    warning_metadata: dict[str, dict[str, object]] = {}
+    for issue in quality.issues:
+        if (
+            issue.policy is not QualityOutcomePolicy.WARNING
+            or issue.row_id is None
+            or issue.row_id not in quality.eligible_row_ids
+        ):
+            continue
+        target_field = (
+            issue.affected_fields[0] if issue.affected_fields else "review"
+        )
+        group_id = _hash(
+            {
+                "kind": NormalizationGroupKind.FINDING.value,
+                "rule_id": issue.rule_id,
+                "dataset": issue.dataset,
+                "field": target_field,
+                "reason": issue.reason_code,
+            }
+        )
+        warning_rows.setdefault(group_id, set()).add(issue.row_id)
+        warning_metadata.setdefault(
+            group_id,
+            {
+                "rule_id": issue.rule_id,
+                "kind": NormalizationGroupKind.FINDING,
+                "outcome": NormalizationOutcome.REVIEW_FINDING,
+                "dataset": issue.dataset,
+                "target_field": target_field,
+                "name": "Review this data finding",
+                "explanation": issue.message,
+                "owner_label": (
+                    issue.owner_label or project.data_manager or "Data manager"
+                ),
+            },
+        )
+    for group_id, metadata in sorted(warning_metadata.items()):
+        groups.append(
+            NormalizationReviewGroup(
+                group_id=group_id,
+                dataset_label=_human_label(str(metadata["dataset"])),
+                field_label=_human_label(str(metadata["target_field"])),
+                eligible_count=len(warning_rows[group_id]),
+                set_aside_count=0,
+                examples=(),
+                **metadata,
+            )
+        )
     eligible_dataset_hash = canonical_eligible_dataset_hash(
         staging,
         quality,
@@ -290,7 +343,7 @@ def build_bounded_normalization_evaluation(
         retention_context_hash=retention_context_hash(project),
         eligible_dataset_hash=eligible_dataset_hash,
         effects=effects,
-        groups=groups,
+        groups=tuple(sorted(groups, key=lambda item: item.group_id)),
         effect_count=effect_count,
         changed_record_count=len(changed_row_ids),
         effective_dataset_hash=staging_content_hash,

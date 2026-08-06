@@ -1,6 +1,6 @@
 """Assemble the local browser application and all concrete dependencies.
 
-Migration stages: cross-cutting A–J. Layer: composition root.
+Migration stages: cross-cutting A–K. Layer: composition root.
 
 ``create_local_app`` connects DuckDB repositories, filesystem artifacts,
 application services, closed Odoo readers and writer, security middleware, and route
@@ -8,9 +8,8 @@ modules through :class:`impodo.web.context.WebContext`. Business rules belong
 to the injected services and domain modules; this module owns construction and
 local deployment choices only.
 
-The Stage-J writer remains separate from the read connectors and is limited to
-the practical local master-data path. Stage-K read-back reconciliation is not
-composed here yet.
+The Stage-J writer and Stage-K read-back reader remain separate from the
+preflight connectors and are limited to the practical local master-data path.
 
 See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
 """
@@ -37,6 +36,7 @@ from ..application.mapping_workspace_service import MappingWorkspaceService
 from ..application.normalization_service import NormalizationService
 from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
+from ..application.reconciliation_service import ReconciliationService
 from ..application.preparation_service import PreparationService
 from ..application.quality_service import QualityService
 from ..application.resolution_service import ResolutionService
@@ -56,6 +56,7 @@ from ..adapters.duckdb.mapping_repository import MappingRepository
 from ..adapters.duckdb.normalization_repository import NormalizationRepository
 from ..adapters.duckdb.preflight_repository import PreflightRepository
 from ..adapters.duckdb.execution_repository import ExecutionRepository
+from ..adapters.duckdb.reconciliation_repository import ReconciliationRepository
 from ..adapters.duckdb.project_repository import ProjectRepository
 from ..adapters.duckdb.quality_repository import QualityRepository
 from ..adapters.duckdb.schema_repository import SchemaRepository
@@ -75,6 +76,7 @@ from .context import (
     ConnectionTester,
     ModelCatalogReader,
     OdooWriteExecutorFactory,
+    OdooReadbackReaderFactory,
     SchemaReader,
     WebContext,
 )
@@ -83,7 +85,7 @@ from .target_readers import (
     _read_schema,
     _test_connection,
 )
-from .target_writers import _write_executor
+from .target_writers import _readback_reader, _write_executor
 from .routers.derived_entities import build_derived_entities_router
 from .routers.lifecycle import build_lifecycle_router
 from .routers.mapping import build_mapping_router
@@ -113,6 +115,7 @@ def create_local_app(
     model_catalog_reader: ModelCatalogReader | None = None,
     readiness_reader: BrowserReadinessReader | None = None,
     write_executor_factory: OdooWriteExecutorFactory | None = None,
+    readback_reader_factory: OdooReadbackReaderFactory | None = None,
     actor: Actor = LOCAL_ACTOR,
     authorization: AuthorizationPolicy | None = None,
     artifact_store: ArtifactStore | None = None,
@@ -120,7 +123,7 @@ def create_local_app(
     local_stack_service: LocalStackService | None = None,
     local_odoo_reader: LocalOdooMetadataReader | None = None,
 ) -> FastAPI:
-    """Construct the loopback FastAPI application for migration Stages A–J.
+    """Construct the loopback FastAPI application for migration Stages A–K.
 
     Production defaults use per-project DuckDB repositories, local artifact
     storage, the credential vault, inline jobs, closed read-only Odoo adapters,
@@ -149,6 +152,7 @@ def create_local_app(
     )
     preflight_repository = PreflightRepository(database, project_repository)
     execution_repository = ExecutionRepository(database)
+    reconciliation_repository = ReconciliationRepository(database)
     transformation_impact_repository = TransformationImpactRepository(database)
     resolved_authorization = authorization or CapabilityAuthorizationPolicy()
     resolved_artifacts = artifact_store or LocalArtifactStore(project_root)
@@ -192,6 +196,12 @@ def create_local_app(
         project_repository,
         preflight,
         execution_repository,
+        resolved_authorization,
+    )
+    reconciliation = ReconciliationService(
+        preflight,
+        execution_repository,
+        reconciliation_repository,
         resolved_authorization,
     )
     context = WebContext(
@@ -240,6 +250,7 @@ def create_local_app(
         normalization=normalization,
         preflight=preflight,
         execution=execution,
+        reconciliation=reconciliation,
         transformation_impacts=TransformationImpactService(
             project_repository,
             mapping_repository,
@@ -259,6 +270,7 @@ def create_local_app(
         model_catalog_reader=model_catalog_reader or _read_model_catalog,
         readiness_reader=readiness_reader,
         write_executor_factory=write_executor_factory or _write_executor,
+        readback_reader_factory=readback_reader_factory or _readback_reader,
         local_stack=local_stack_service or LocalStackService(),
         local_odoo_reader=local_odoo_reader or LocalOdooMetadataReader(),
     )

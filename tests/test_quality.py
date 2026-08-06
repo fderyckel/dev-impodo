@@ -18,6 +18,7 @@ from impodo.adapters.duckdb.constants import SCHEMA_VERSION
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
+from impodo.application.bounded_quality import build_bounded_quality_run
 from impodo.domain.compiler import compile_profile_document
 from impodo.planner import plan_record_requests
 from impodo.domain.preflight.frozen_input import canonical_rows_to_prepared_bundle
@@ -29,6 +30,7 @@ from impodo.quality import (
     QualityOwnerRole,
     QualityRuleFamily,
     QualityRunStatus,
+    QualityRun,
     SourceAccountingState,
     default_quality_ruleset,
     evaluate_quality,
@@ -45,6 +47,7 @@ from impodo.staging_contracts import (
     StagingDisposition,
     StagingReconciliation,
 )
+from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
@@ -354,6 +357,129 @@ class QualityEvaluationTests(unittest.TestCase):
                 for issue in run.issues
             ),
             2,
+        )
+
+    def test_bounded_collision_evidence_matches_complete_evaluator(self) -> None:
+        rows = (
+            _canonical_row(
+                "5",
+                2,
+                source_identity=("A",),
+                target_identity=("SAME",),
+            ),
+            _canonical_row(
+                "6",
+                3,
+                source_identity=("B",),
+                target_identity=("SAME",),
+            ),
+            _canonical_row(
+                "7",
+                4,
+                source_identity=("C",),
+                target_identity=("SAFE",),
+            ),
+        )
+        staging = _staging(self.project.project_id, rows)
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts",),
+        )
+        expected = evaluate_quality(
+            project=self.project,
+            staging=staging,
+            physical_rows={"dataset:contacts": (2, 3, 4)},
+            ruleset=ruleset,
+        )
+        bounded = build_bounded_quality_run(
+            project=self.project,
+            staging=_stored_staging(staging),
+            physical_rows={"dataset:contacts": (2, 3, 4)},
+            ruleset=ruleset,
+            published_staging_content_hash=staging.content_hash,
+        )
+
+        self.assertEqual(
+            _materialized_bounded_quality(bounded).to_json(),
+            expected.to_json(),
+        )
+
+    def test_bounded_relationship_propagation_matches_complete_evaluator(
+        self,
+    ) -> None:
+        first = replace(
+            _canonical_row(
+                "5",
+                2,
+                dataset="categories",
+                source_identity=("A",),
+                target_identity=("A",),
+                physical_dataset_id="dataset:categories",
+            ),
+            disposition=StagingDisposition.BLOCKED,
+            issues=(
+                CanonicalIssue(
+                    code="SOURCE_TYPE_INVALID",
+                    message="invalid value",
+                    severity="error",
+                    dataset="categories",
+                    source_row=2,
+                ),
+            ),
+            references={
+                "parent_id": LogicalReference(
+                    origin="incoming",
+                    key=("B",),
+                    dataset="categories",
+                    target_fields=("name",),
+                )
+            },
+        )
+        second = replace(
+            _canonical_row(
+                "6",
+                3,
+                dataset="categories",
+                source_identity=("B",),
+                target_identity=("B",),
+                physical_dataset_id="dataset:categories",
+            ),
+            references={
+                "parent_id": LogicalReference(
+                    origin="incoming",
+                    key=("A",),
+                    dataset="categories",
+                    target_fields=("name",),
+                )
+            },
+        )
+        rows = (first, second)
+        staging = _staging(self.project.project_id, rows)
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("categories",),
+        )
+        expected = evaluate_quality(
+            project=self.project,
+            staging=staging,
+            physical_rows={"dataset:categories": (2, 3)},
+            ruleset=ruleset,
+        )
+        bounded = build_bounded_quality_run(
+            project=self.project,
+            staging=_stored_staging(staging),
+            physical_rows={"dataset:categories": (2, 3)},
+            ruleset=ruleset,
+            published_staging_content_hash=staging.content_hash,
+        )
+
+        self.assertEqual(
+            _materialized_bounded_quality(bounded).to_json(),
+            expected.to_json(),
         )
 
     def test_relationship_fan_out_and_duplicate_reference_are_processed_once(
@@ -1140,6 +1266,44 @@ def _staging(project_id: str, rows: tuple[CanonicalRow, ...]) -> CanonicalStagin
         issues=(),
         reconciliation=StagingReconciliation.from_rows(ordered),
         compiled_plan_hash=MAPPING_HASH,
+    )
+
+
+def _stored_staging(staging: CanonicalStagingRun) -> StoredCanonicalStagingRun:
+    return StoredCanonicalStagingRun(
+        project_id=staging.project_id,
+        mapping_id=staging.mapping_id,
+        physical_selection_hash=staging.physical_selection_hash,
+        source_selection_hash=staging.source_selection_hash,
+        mapping_hash=staging.mapping_hash,
+        schema_hash=staging.schema_hash,
+        derived_plan_hash=staging.derived_plan_hash,
+        datasets=staging.datasets,
+        rows=staging.rows,
+        issues=staging.issues,
+        reconciliation=staging.reconciliation,
+        compiled_plan_hash=staging.compiled_plan_hash,
+        control_totals=staging.control_totals,
+        evaluator_version=staging.evaluator_version,
+        contract_version=staging.contract_version,
+    )
+
+
+def _materialized_bounded_quality(run) -> QualityRun:
+    return QualityRun(
+        project_id=run.project_id,
+        staging_content_hash=run.staging_content_hash,
+        ruleset_hash=run.ruleset_hash,
+        mapping_hash=run.mapping_hash,
+        schema_hash=run.schema_hash,
+        retention_context_hash=run.retention_context_hash,
+        row_results=tuple(run.row_results),
+        source_accounting=tuple(run.source_accounting),
+        issues=tuple(run.issues),
+        quarantine=tuple(run.quarantine),
+        effective_dataset_hash=run.effective_dataset_hash,
+        evaluator_version=run.evaluator_version,
+        contract_version=run.contract_version,
     )
 
 
