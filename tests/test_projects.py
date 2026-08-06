@@ -573,6 +573,32 @@ class ProjectLifecycleTests(unittest.TestCase):
             ).fetchall()
         self.assertEqual(pending, [])
 
+    def test_registry_summary_does_not_regress_when_writes_finish_out_of_order(
+        self,
+    ) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Original summary",
+            source_system="CSV",
+        )
+        older = replace(
+            project,
+            name="Older summary",
+            revision=project.revision + 1,
+        )
+        newer = replace(
+            project,
+            name="Newest summary",
+            revision=project.revision + 2,
+        )
+
+        self.repository._update_registry(newer)
+        self.repository._update_registry(older)
+
+        summary = self.repository.list()[0]
+        self.assertEqual(summary.revision, newer.revision)
+        self.assertEqual(summary.name, newer.name)
+
     def test_version_ten_database_adds_working_mapping_draft(self) -> None:
         project = self.service.create_project(
             actor=LOCAL_ACTOR,

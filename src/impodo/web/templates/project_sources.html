@@ -95,8 +95,10 @@
         <div class="notice warning">{{ warning }}</div>
       {% endfor %}
 
+      {% set source_state = namespace(has_usable_table=false) %}
       {% for table in catalog.tables %}
         {% set unsafe_cells = table.formula_cell_count or table.error_cell_count %}
+        {% if not unsafe_cells %}{% set source_state.has_usable_table = true %}{% endif %}
         <article class="source-table">
           <div class="table-heading">
             <div>
@@ -232,7 +234,7 @@
         </label>
         <div class="actions">
           <button class="button secondary" type="submit" name="action" value="preview">Update preview</button>
-          <button class="button primary" type="submit" name="action" value="confirm">These tables look correct</button>
+          <button class="button primary" type="submit" name="action" value="confirm" {% if not source_state.has_usable_table %}disabled{% endif %}>These tables look correct</button>
         </div>
       </form>
     </section>
