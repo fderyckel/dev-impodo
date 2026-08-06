@@ -255,6 +255,7 @@ def prepare_bounded_direct_session(
                     delimiter=physical.delimiter,
                     header_row=physical.header_row,
                     named_table_range=named_range,
+                    source_display_name=source_file.display_name,
                     batch_size=BOUNDED_SOURCE_BATCH_SIZE,
                 ) as source:
                     expected_hash = (

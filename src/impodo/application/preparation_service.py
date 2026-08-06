@@ -414,5 +414,6 @@ def _load_browser_source_tables(
                 delimiter=physical.delimiter,
                 header_row=physical.header_row,
                 named_table_range=named_range,
+                source_display_name=source_file.display_name,
             )
     return loaded

@@ -124,8 +124,22 @@ class SourceTableCatalog:
     named_tables: tuple[NamedTableCatalog, ...] = ()
     formula_cell_count: int = 0
     error_cell_count: int = 0
+    first_formula_cell: str | None = None
+    first_formula_column: str | None = None
+    first_error_cell: str | None = None
+    first_error_column: str | None = None
     merged_range_count: int = 0
     warnings: tuple[str, ...] = ()
+
+    @property
+    def worksheet_name(self) -> str:
+        """Return the physical worksheet containing this selectable table."""
+
+        if self.kind == "WORKSHEET":
+            return self.name
+        if self.kind == "NAMED_TABLE" and self.table_key.startswith("table:"):
+            return self.table_key.removeprefix("table:").rsplit(":", 1)[0]
+        return ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -625,8 +639,6 @@ def _inspect_worksheet(
         warnings = ["No non-empty candidate header row was found"]
         if merged_range_count:
             warnings.append(f"{merged_range_count} merged range(s) detected")
-        if formula_cell_count:
-            warnings.append(f"{formula_cell_count} formula cell(s) detected")
         return SourceTableCatalog(
             table_key=f"sheet:{worksheet.title}",
             name=worksheet.title,
@@ -672,12 +684,42 @@ def _inspect_worksheet(
     ]
     preview_rows: list[tuple[str | None, ...]] = []
     row_count = 0
+    selected_formula_cell_count = 0
     error_cell_count = 0
+    first_formula_cell: str | None = None
+    first_formula_column: str | None = None
+    first_error_cell: str | None = None
+    first_error_column: str | None = None
     data_beyond_headers = 0
+
+    for index, cell in enumerate(header_cells, start=1):
+        column_name = headers[index - 1] if index <= len(headers) else None
+        if cell.data_type == "f":
+            selected_formula_cell_count += 1
+            if first_formula_cell is None:
+                first_formula_cell = cell.coordinate
+                first_formula_column = column_name
+        elif cell.data_type == "e":
+            error_cell_count += 1
+            if first_error_cell is None:
+                first_error_cell = cell.coordinate
+                first_error_column = column_name
 
     for cells in worksheet.iter_rows(min_row=header_row + 1):
         values = [cell.value for cell in cells[: len(headers)]]
         overflow_cells = cells[len(headers) :]
+        for index, cell in enumerate(cells, start=1):
+            column_name = headers[index - 1] if index <= len(headers) else None
+            if cell.data_type == "f":
+                selected_formula_cell_count += 1
+                if first_formula_cell is None:
+                    first_formula_cell = cell.coordinate
+                    first_formula_column = column_name
+            elif cell.data_type == "e":
+                error_cell_count += 1
+                if first_error_cell is None:
+                    first_error_cell = cell.coordinate
+                    first_error_column = column_name
         if any(cell.value is not None for cell in overflow_cells):
             data_beyond_headers += 1
         if not any(value is not None and value != "" for value in values):
@@ -689,9 +731,6 @@ def _inspect_worksheet(
                 f"{MAX_SOURCE_ROWS} data rows"
             )
         padded = [*values, *([None] * (len(headers) - len(values)))]
-        for cell in cells[: len(headers)]:
-            if cell.data_type == "e":
-                error_cell_count += 1
         for accumulator, value in zip(accumulators, padded, strict=True):
             if isinstance(value, str) and len(value) > MAX_CELL_STRING_LENGTH:
                 raise SourceInspectionError(
@@ -705,10 +744,6 @@ def _inspect_worksheet(
     warnings = list(header_warnings)
     if merged_range_count:
         warnings.append(f"{merged_range_count} merged range(s) detected")
-    if formula_cell_count:
-        warnings.append(f"{formula_cell_count} formula cell(s) detected")
-    if error_cell_count:
-        warnings.append(f"{error_cell_count} Excel error cell(s) detected")
     if data_beyond_headers:
         warnings.append(
             f"{data_beyond_headers} data row(s) contain cells beyond the "
@@ -731,8 +766,12 @@ def _inspect_worksheet(
         ),
         preview_rows=tuple(preview_rows),
         named_tables=named_tables,
-        formula_cell_count=formula_cell_count,
+        formula_cell_count=selected_formula_cell_count,
         error_cell_count=error_cell_count,
+        first_formula_cell=first_formula_cell,
+        first_formula_column=first_formula_column,
+        first_error_cell=first_error_cell,
+        first_error_column=first_error_column,
         merged_range_count=merged_range_count,
         warnings=tuple(warnings),
     )
@@ -785,6 +824,21 @@ def _inspect_named_table(
     row_count = 0
     formula_count = 0
     error_count = 0
+    first_formula_cell: str | None = None
+    first_formula_column: str | None = None
+    first_error_cell: str | None = None
+    first_error_column: str | None = None
+    for index, cell in enumerate(header_cells):
+        if cell.data_type == "f":
+            formula_count += 1
+            if first_formula_cell is None:
+                first_formula_cell = cell.coordinate
+                first_formula_column = headers[index]
+        elif cell.data_type == "e":
+            error_count += 1
+            if first_error_cell is None:
+                first_error_cell = cell.coordinate
+                first_error_column = headers[index]
     for cells in worksheet.iter_rows(
         min_row=header_row + 1,
         max_row=maximum_row,
@@ -795,18 +849,22 @@ def _inspect_named_table(
         if not any(value is not None and value != "" for value in values):
             continue
         row_count += 1
-        for cell in cells:
-            formula_count += int(cell.data_type == "f")
-            error_count += int(cell.data_type == "e")
+        for index, cell in enumerate(cells):
+            if cell.data_type == "f":
+                formula_count += 1
+                if first_formula_cell is None:
+                    first_formula_cell = cell.coordinate
+                    first_formula_column = headers[index]
+            elif cell.data_type == "e":
+                error_count += 1
+                if first_error_cell is None:
+                    first_error_cell = cell.coordinate
+                    first_error_column = headers[index]
         for accumulator, value in zip(accumulators, values, strict=True):
             accumulator.observe(value)
         if len(preview_rows) < PREVIEW_ROW_LIMIT:
             preview_rows.append(tuple(_display_value(value) for value in values))
     warnings = list(header_warnings)
-    if formula_count:
-        warnings.append(f"{formula_count} formula cell(s) detected")
-    if error_count:
-        warnings.append(f"{error_count} Excel error cell(s) detected")
     return SourceTableCatalog(
         table_key=(
             f"table:{worksheet.title}:{named_table.display_name}"
@@ -828,6 +886,10 @@ def _inspect_named_table(
         named_tables=(named_table,),
         formula_cell_count=formula_count,
         error_cell_count=error_count,
+        first_formula_cell=first_formula_cell,
+        first_formula_column=first_formula_column,
+        first_error_cell=first_error_cell,
+        first_error_column=first_error_column,
         warnings=tuple(warnings),
     )
 
@@ -1357,6 +1419,26 @@ def _table_from_payload(payload: dict[str, Any]) -> SourceTableCatalog:
         ),
         formula_cell_count=int(payload.get("formula_cell_count", 0)),
         error_cell_count=int(payload.get("error_cell_count", 0)),
+        first_formula_cell=(
+            str(payload["first_formula_cell"])
+            if payload.get("first_formula_cell") is not None
+            else None
+        ),
+        first_formula_column=(
+            str(payload["first_formula_column"])
+            if payload.get("first_formula_column") is not None
+            else None
+        ),
+        first_error_cell=(
+            str(payload["first_error_cell"])
+            if payload.get("first_error_cell") is not None
+            else None
+        ),
+        first_error_column=(
+            str(payload["first_error_column"])
+            if payload.get("first_error_column") is not None
+            else None
+        ),
         merged_range_count=int(payload.get("merged_range_count", 0)),
         warnings=tuple(str(item) for item in payload.get("warnings", ())),
     )

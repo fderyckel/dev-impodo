@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.access import (
@@ -82,10 +83,10 @@ class ProjectLifecycleTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        database = DuckDbDatabase(self.temporary.name)
-        self.repository = ProjectRepository(database)
-        self.schemas = SchemaRepository(database)
-        self.transformation_impacts = TransformationImpactRepository(database)
+        self.database = DuckDbDatabase(self.temporary.name)
+        self.repository = ProjectRepository(self.database)
+        self.schemas = SchemaRepository(self.database)
+        self.transformation_impacts = TransformationImpactRepository(self.database)
         self.service = ProjectService(
             self.repository,
             CapabilityAuthorizationPolicy(),
@@ -498,26 +499,79 @@ class ProjectLifecycleTests(unittest.TestCase):
             event_detail="",
             actor=LOCAL_ACTOR,
         )
+        scoped = self.service.update_schema_scope(
+            registered.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=registered.revision,
+            permitted_models=("res.partner",),
+        )
+        summary = self.repository.list()[0]
+        self.assertEqual(summary.revision, scoped.revision)
+        self.assertEqual(summary.updated_at, scoped.updated_at)
 
         with self.assertRaisesRegex(ProjectConflictError, "reload before deleting"):
             self.service.delete_project(
                 project.project_id,
                 actor=LOCAL_ACTOR,
-                expected_revision=project.revision,
+                expected_revision=registered.revision,
             )
         self.assertTrue(project_dir.is_dir())
 
         deleted = self.service.delete_project(
-            registered.project_id,
+            scoped.project_id,
             actor=LOCAL_ACTOR,
-            expected_revision=registered.revision,
+            expected_revision=scoped.revision,
         )
 
-        self.assertEqual(deleted, registered)
+        self.assertEqual(deleted, scoped)
         self.assertFalse(project_dir.exists())
         self.assertEqual(self.repository.list(), ())
         with self.assertRaises(ProjectNotFoundError):
-            self.repository.get(registered.project_id)
+            self.repository.get(scoped.project_id)
+
+    def test_pending_registry_summary_is_recovered_after_interrupted_write(
+        self,
+    ) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Interrupted summary",
+            source_system="CSV",
+        )
+
+        with patch.object(
+            self.repository,
+            "_update_registry",
+            side_effect=RuntimeError("simulated registry interruption"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "registry interruption"):
+                self.service.update_details(
+                    project.project_id,
+                    actor=LOCAL_ACTOR,
+                    expected_revision=project.revision,
+                    name="Recovered summary",
+                    source_system="CSV",
+                    export_status="PLANNED",
+                    export_date="",
+                    description="",
+                )
+
+        committed = self.repository.get(project.project_id)
+        self.assertEqual(committed.revision, project.revision + 1)
+        self.assertEqual(self.repository.list()[0].revision, project.revision)
+        with self.repository._connect(self.repository.registry_path) as connection:
+            pending = connection.execute(
+                "SELECT project_id FROM project_registry_sync_pending"
+            ).fetchall()
+        self.assertEqual(pending, [(project.project_id,)])
+
+        recovered = ProjectRepository(self.database)
+
+        self.assertEqual(recovered.list()[0].revision, committed.revision)
+        with recovered._connect(recovered.registry_path) as connection:
+            pending = connection.execute(
+                "SELECT project_id FROM project_registry_sync_pending"
+            ).fetchall()
+        self.assertEqual(pending, [])
 
     def test_version_ten_database_adds_working_mapping_draft(self) -> None:
         project = self.service.create_project(

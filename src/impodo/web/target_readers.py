@@ -296,6 +296,7 @@ def _source_value_choices(
             delimiter=dataset.delimiter,
             header_row=dataset.header_row,
             named_table_range=named_range,
+            source_display_name=source_file.display_name,
         )
     expected_hash = f"sha256:{dataset.source_sha256.removeprefix('sha256:')}"
     if table.content_hash != expected_hash:

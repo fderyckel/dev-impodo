@@ -96,6 +96,7 @@
       {% endfor %}
 
       {% for table in catalog.tables %}
+        {% set unsafe_cells = table.formula_cell_count or table.error_cell_count %}
         <article class="source-table">
           <div class="table-heading">
             <div>
@@ -110,7 +111,8 @@
                   type="checkbox"
                   name="selected_{{ loop.index0 }}"
                   value="1"
-                  {% if (configuration and table.table_key in configuration.selected_table_keys) or not configuration %}checked{% endif %}
+                  {% if not unsafe_cells and ((configuration and table.table_key in configuration.selected_table_keys) or not configuration) %}checked{% endif %}
+                  {% if unsafe_cells %}disabled{% endif %}
                 >
                 Include this table in the project
               </label>
@@ -143,6 +145,16 @@
           {% for warning in table.warnings %}
             <div class="notice warning">{{ warning }}</div>
           {% endfor %}
+
+          {% if table.formula_cell_count %}
+            <div class="notice error">
+              This table cannot be included. Excel formula found{% if table.first_formula_column %} in <strong>{{ table.first_formula_column }}</strong>{% endif %}{% if table.first_formula_cell and table.worksheet_name %} at {{ table.worksheet_name }}!{{ table.first_formula_cell }}{% endif %}. Remove the formula cells or replace them with fixed values, then use the cleaned workbook.
+            </div>
+          {% elif table.error_cell_count %}
+            <div class="notice error">
+              This table cannot be included. Excel error found{% if table.first_error_column %} in <strong>{{ table.first_error_column }}</strong>{% endif %}{% if table.first_error_cell and table.worksheet_name %} at {{ table.worksheet_name }}!{{ table.first_error_cell }}{% endif %}. Correct the error cells, then use the cleaned workbook.
+            </div>
+          {% endif %}
 
           {% if table.columns %}
             <h4>Preview</h4>

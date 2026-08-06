@@ -240,7 +240,10 @@ class PreparedRecordTests(unittest.TestCase):
             worksheet.append(["P-001", "BE", "=1+1", True, "UNIT"])
             workbook.save(target / "products.xlsx")
 
-            with self.assertRaisesRegex(SourceLoadError, "formula cell rejected"):
+            with self.assertRaisesRegex(
+                SourceLoadError,
+                'Excel formula found in "description" at Products!C2 in products.xlsx',
+            ):
                 prepare_sources(xlsx_profile, target)
 
     def test_xlsx_missing_sheet_and_arbitrary_zip_are_rejected(self) -> None:

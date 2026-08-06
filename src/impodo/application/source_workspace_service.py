@@ -22,7 +22,11 @@ from typing import Iterable, Mapping, Protocol
 from uuid import uuid4
 
 from ..access import Actor, AuthorizationPolicy, Capability
-from ..inspection import SourceFileCatalog, SourceInspectionError
+from ..inspection import (
+    SourceFileCatalog,
+    SourceInspectionError,
+    SourceTableCatalog,
+)
 from ..projects import MigrationProject, ProjectStatus
 from ..workspace_contracts import (
     SourceConfiguration,
@@ -131,6 +135,16 @@ class SourceWorkspaceService:
         if not selected or any(key not in available for key in selected):
             raise WorkspaceError("Select at least one available source table")
         selected_tables = tuple(available[key] for key in selected)
+        unsafe_cell_problem = next(
+            (
+                problem
+                for table in selected_tables
+                if (problem := _unsafe_cell_problem(catalog, table)) is not None
+            ),
+            None,
+        )
+        if unsafe_cell_problem is not None:
+            raise WorkspaceError(unsafe_cell_problem)
         blocking = [
             warning
             for table in selected_tables
@@ -282,6 +296,37 @@ class SourceWorkspaceService:
             actor=actor,
         )
         return selection
+
+
+def _unsafe_cell_problem(
+    catalog: SourceFileCatalog,
+    table: SourceTableCatalog,
+) -> str | None:
+    """Explain non-passive spreadsheet cells before they can be confirmed."""
+
+    if table.formula_cell_count:
+        kind = "Excel formula"
+        count = table.formula_cell_count
+        cell = table.first_formula_cell
+        column = table.first_formula_column
+    elif table.error_cell_count:
+        kind = "Excel error"
+        count = table.error_cell_count
+        cell = table.first_error_cell
+        column = table.first_error_column
+    else:
+        return None
+
+    sheet = table.worksheet_name
+    detail = f' in "{column}"' if column else ""
+    if cell and sheet:
+        detail += f" at {sheet}!{cell}"
+    noun = "cell" if count == 1 else "cells"
+    return (
+        f'{kind} found{detail} in {catalog.display_name}. '
+        f"This table contains {count} unsupported {noun}. Remove the formulas "
+        "or errors, or replace them with fixed values before including this table."
+    )
 
 
 def _catalog(

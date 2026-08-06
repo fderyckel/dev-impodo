@@ -260,6 +260,7 @@ def load_selected_source_table(
     delimiter: str | None,
     header_row: int,
     named_table_range: str | None = None,
+    source_display_name: str | None = None,
 ) -> SourceTable:
     """Load one frozen browser dataset through the strict source reader.
 
@@ -276,6 +277,7 @@ def load_selected_source_table(
         delimiter=delimiter,
         header_row=header_row,
         named_table_range=named_table_range,
+        source_display_name=source_display_name,
     ) as source:
         return SourceTable(
             dataset=source.dataset,
@@ -300,6 +302,7 @@ def open_selected_source_batches(
     delimiter: str | None,
     header_row: int,
     named_table_range: str | None = None,
+    source_display_name: str | None = None,
     batch_size: int = 1_000,
 ) -> Iterator[SelectedSourceBatchStream]:
     """Open one frozen browser dataset and yield validated bounded batches.
@@ -357,6 +360,7 @@ def open_selected_source_batches(
             sheet=sheet,
             header_row=header_row,
             cell_range=cell_range,
+            source_display_name=source_display_name,
         ) as (headers, rows):
             yield SelectedSourceBatchStream(
                 dataset=dataset,
@@ -477,6 +481,7 @@ def _open_xlsx_rows(
     sheet: str,
     header_row: int,
     cell_range: str | None = None,
+    source_display_name: str | None = None,
 ) -> Iterator[tuple[tuple[str, ...], Iterator[SourceRow]]]:
     """Open one worksheet and expose validated selected rows lazily.
 
@@ -560,7 +565,13 @@ def _open_xlsx_rows(
             raise SourceLoadError(
                 f"worksheet {sheet!r} has no header row {header_row}"
             ) from exc
-        _reject_unsafe_cells(header_cells, path.name, header_row)
+        source_label = source_display_name or path.name
+        _reject_unsafe_cells(
+            header_cells,
+            source_label,
+            header_row,
+            sheet=sheet,
+        )
         headers = _validate_headers(
             [cell.value for cell in header_cells],
             f"{path.name}#{sheet}",
@@ -570,7 +581,13 @@ def _open_xlsx_rows(
             data_rows = 0
             for cells in iterator:
                 row_number = cells[0].row if cells else header_row + data_rows + 1
-                _reject_unsafe_cells(cells, path.name, row_number)
+                _reject_unsafe_cells(
+                    cells,
+                    source_label,
+                    row_number,
+                    sheet=sheet,
+                    headers=headers,
+                )
                 values = [cell.value for cell in cells[: len(headers)]]
                 if cell_range is None and len(cells) > len(headers) and any(
                     cell.value is not None for cell in cells[len(headers) :]
@@ -636,19 +653,39 @@ def _validate_cell_lengths(values: Iterable[Any], label: str, row_number: int) -
             )
 
 
-def _reject_unsafe_cells(cells: Iterable[Any], label: str, row_number: int) -> None:
+def _reject_unsafe_cells(
+    cells: Iterable[Any],
+    label: str,
+    row_number: int,
+    *,
+    sheet: str | None = None,
+    headers: tuple[str, ...] | None = None,
+) -> None:
     """Reject formula and Excel-error cells before extracting their values."""
 
     for column_number, cell in enumerate(cells, start=1):
+        column_name = (
+            headers[column_number - 1]
+            if headers is not None and column_number <= len(headers)
+            else None
+        )
+        column_detail = f' in "{column_name}"' if column_name else ""
+        coordinate = getattr(cell, "coordinate", None)
+        location = (
+            f" at {sheet}!{coordinate}"
+            if sheet and coordinate
+            else f" at row {row_number}, column {column_number}"
+        )
         if cell.data_type == "f":
             raise SourceLoadError(
-                f"formula cell rejected at row {row_number}, column "
-                f"{column_number}: {label}"
+                f"Excel formula found{column_detail}{location} in {label}. "
+                "Remove the formula or replace it with a fixed value before "
+                "using this source."
             )
         if cell.data_type == "e":
             raise SourceLoadError(
-                f"Excel error cell rejected at row {row_number}, column "
-                f"{column_number}: {label}"
+                f"Excel error found{column_detail}{location} in {label}. "
+                "Correct the cell before using this source."
             )
 
 

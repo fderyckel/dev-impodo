@@ -6,7 +6,7 @@ import duckdb
 
 
 def ensure_registry_schema(connection: duckdb.DuckDBPyConnection) -> None:
-    """Create the registry schema without changing existing rows."""
+    """Create registry projections and their bounded recovery journal."""
 
     connection.execute(
         """
@@ -16,6 +16,13 @@ def ensure_registry_schema(connection: duckdb.DuckDBPyConnection) -> None:
             status VARCHAR NOT NULL,
             revision INTEGER NOT NULL,
             updated_at VARCHAR NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS project_registry_sync_pending (
+            project_id VARCHAR PRIMARY KEY
         )
         """
     )

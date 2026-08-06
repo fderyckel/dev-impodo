@@ -246,6 +246,41 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             draft,
         )
 
+    def test_formula_cells_block_source_confirmation_instead_of_warning(self) -> None:
+        table = replace(
+            self.catalog.tables[0],
+            table_key="sheet:Sheet1",
+            name="Sheet1",
+            kind="WORKSHEET",
+            formula_cell_count=4_003,
+            first_formula_cell="M2",
+            first_formula_column="Country Count",
+        )
+        catalog = replace(
+            self.catalog,
+            display_name="AX2012 - PLW - ClientsV4.xlsx",
+            format="XLSX",
+            tables=(table,),
+        )
+        self.source_repository.save_source_catalog(
+            self.project.project_id,
+            catalog,
+            actor=LOCAL_ACTOR,
+        )
+
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            'Excel formula found in "Country Count" at Sheet1!M2 in '
+            "AX2012 - PLW - ClientsV4.xlsx",
+        ):
+            self.sources.confirm_source(
+                self.project.project_id,
+                self.source.file_id,
+                selected_table_keys=("sheet:Sheet1",),
+                warnings_acknowledged=True,
+                actor=LOCAL_ACTOR,
+            )
+
     def test_local_manual_schema_draft_needs_no_odoo_credential(self) -> None:
         self.sources.confirm_source(
             self.project.project_id,

@@ -28,6 +28,7 @@ from ...projects import (
     ProjectSummary,
     SourceFile,
 )
+from .database import DuckDbDatabase
 from .repository import DuckDbRepository
 
 
@@ -43,9 +44,14 @@ from .serialization import (
 class ProjectRepository(DuckDbRepository):
     """Own durable project state and project-level invalidation transactions."""
 
+    def __init__(self, database: DuckDbDatabase) -> None:
+        super().__init__(database)
+        self._recover_pending_registry_sync()
+
     def create(self, project: MigrationProject, *, actor: Actor) -> None:
         """Create the contained project directory, database, audit, and registry row."""
 
+        self._mark_registry_sync_pending(project.project_id)
         project_dir = self.project_directory(project.project_id)
         project_dir.mkdir(parents=False, exist_ok=False)
         for child in ("inbox", "staging", "snapshots", "reports", "audit"):
@@ -61,19 +67,7 @@ class ProjectRepository(DuckDbRepository):
                 detail="",
                 actor=actor,
             )
-        with self._connect(self.registry_path) as connection:
-            connection.execute(
-                """
-                INSERT INTO project_registry VALUES (?, ?, ?, ?, ?)
-                """,
-                [
-                    project.project_id,
-                    project.name,
-                    project.status.value,
-                    project.revision,
-                    project.updated_at.isoformat(),
-                ],
-            )
+        self._update_registry(project)
     def get(self, project_id: str) -> MigrationProject:
         """Load one complete project aggregate from its contained database."""
 
@@ -169,6 +163,13 @@ class ProjectRepository(DuckDbRepository):
                     "DELETE FROM project_registry WHERE project_id = ?",
                     [canonical_project_id],
                 )
+                connection.execute(
+                    """
+                    DELETE FROM project_registry_sync_pending
+                     WHERE project_id = ?
+                    """,
+                    [canonical_project_id],
+                )
                 registry_deleted = True
             shutil.rmtree(staged)
         except Exception:
@@ -214,6 +215,7 @@ class ProjectRepository(DuckDbRepository):
                     raise ProjectConflictError(
                         "The project was modified by another request"
                     )
+                self._mark_registry_sync_pending(project.project_id)
                 target_changed = event_type == "PROJECT_TARGET_UPDATED" and (
                     str(current[1] or "")
                     != (
@@ -288,6 +290,7 @@ class ProjectRepository(DuckDbRepository):
                     raise ProjectConflictError(
                         "The project was modified by another request"
                     )
+                self._mark_registry_sync_pending(project.project_id)
                 self._update_project(connection, project)
                 self._invalidate_canonical_staging(
                     connection,
@@ -343,6 +346,7 @@ class ProjectRepository(DuckDbRepository):
                     raise ProjectConflictError(
                         "The project was modified by another request"
                     )
+                self._mark_registry_sync_pending(project.project_id)
                 self._update_project(connection, project)
                 connection.execute("DELETE FROM odoo_schema_catalog")
                 connection.execute("DELETE FROM schema_governance_current")
@@ -365,6 +369,9 @@ class ProjectRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
+        self._update_registry(project)
+        if project.status is ProjectStatus.REGISTERED:
+            self._write_registration_manifest(project)
 
     def synchronize_registration_artifacts(self, project_id: str) -> None:
         """Refresh registry and manifest after another repository updates status."""
@@ -376,19 +383,93 @@ class ProjectRepository(DuckDbRepository):
 
     def _update_registry(self, project: MigrationProject) -> None:
         with self._connect(self.registry_path) as connection:
+            connection.begin()
+            try:
+                connection.execute(
+                    """
+                    UPDATE project_registry
+                       SET name = ?, status = ?, revision = ?, updated_at = ?
+                     WHERE project_id = ?
+                       AND revision <= ?
+                    """,
+                    [
+                        project.name,
+                        project.status.value,
+                        project.revision,
+                        project.updated_at.isoformat(),
+                        project.project_id,
+                        project.revision,
+                    ],
+                )
+                connection.execute(
+                    """
+                    INSERT INTO project_registry
+                    SELECT ?, ?, ?, ?, ?
+                     WHERE NOT EXISTS (
+                           SELECT 1
+                             FROM project_registry
+                            WHERE project_id = ?
+                     )
+                    """,
+                    [
+                        project.project_id,
+                        project.name,
+                        project.status.value,
+                        project.revision,
+                        project.updated_at.isoformat(),
+                        project.project_id,
+                    ],
+                )
+                connection.execute(
+                    """
+                    DELETE FROM project_registry_sync_pending
+                     WHERE project_id = ?
+                    """,
+                    [project.project_id],
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def _mark_registry_sync_pending(self, project_id: str) -> None:
+        """Journal a cross-database summary write before project mutation."""
+
+        with self._connect(self.registry_path) as connection:
             connection.execute(
                 """
-                UPDATE project_registry
-                   SET name = ?, status = ?, revision = ?, updated_at = ?
+                INSERT OR IGNORE INTO project_registry_sync_pending VALUES (?)
+                """,
+                [project_id],
+            )
+
+    def _recover_pending_registry_sync(self) -> None:
+        """Finish only project-summary writes journaled before interruption."""
+
+        with self._connect(self.registry_path) as connection:
+            pending = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT project_id FROM project_registry_sync_pending"
+                ).fetchall()
+            }
+
+        for project_id in sorted(pending):
+            try:
+                project = self.get(project_id)
+            except ProjectNotFoundError:
+                self._clear_registry_sync_pending(project_id)
+                continue
+            self._update_registry(project)
+
+    def _clear_registry_sync_pending(self, project_id: str) -> None:
+        with self._connect(self.registry_path) as connection:
+            connection.execute(
+                """
+                DELETE FROM project_registry_sync_pending
                  WHERE project_id = ?
                 """,
-                [
-                    project.name,
-                    project.status.value,
-                    project.revision,
-                    project.updated_at.isoformat(),
-                    project.project_id,
-                ],
+                [project_id],
             )
     def _insert_project(
         self,
