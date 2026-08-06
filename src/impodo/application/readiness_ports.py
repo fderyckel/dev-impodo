@@ -140,6 +140,14 @@ class PreparationSessionRepository(Protocol):
         bindings: PreparationSessionBindings,
     ) -> PreparationSessionSummary: ...
 
+    def begin_direct_session(
+        self,
+        project_id: str,
+        bindings: PreparationSessionBindings,
+        *,
+        actor: Actor,
+    ) -> PreparationSessionSummary: ...
+
     def append_provisional_rows(
         self,
         project_id: str,
@@ -162,6 +170,13 @@ class PreparationSessionRepository(Protocol):
         impacts: Sequence[TransformationImpactRow],
     ) -> None: ...
 
+    def append_direct_rows(
+        self,
+        project_id: str,
+        session_id: str,
+        rows: Sequence[CanonicalPreparedSessionRow],
+    ) -> None: ...
+
     def finalize_session(
         self,
         project_id: str,
@@ -169,6 +184,20 @@ class PreparationSessionRepository(Protocol):
         *,
         modes: Mapping[str, str],
         field_sources: Mapping[str, Mapping[str, tuple[str, ...]]],
+        dataset_evidence: Mapping[
+            str,
+            tuple[str, StagingDatasetRole, int, str],
+        ],
+        run_issues: Sequence[Issue],
+        control_totals: Sequence[CanonicalControlTotal],
+        impact_report: TransformationImpactReport,
+    ) -> StoredCanonicalStagingRun: ...
+
+    def finalize_direct_session(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
         dataset_evidence: Mapping[
             str,
             tuple[str, StagingDatasetRole, int, str],

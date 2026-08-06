@@ -72,7 +72,16 @@ class StagingRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         published_at = datetime.now(timezone.utc)
-        run_id = str(uuid4())
+        pending_run_id = getattr(run.rows, "canonical_run_id", None)
+        if pending_run_id is None:
+            run_id = str(uuid4())
+        else:
+            try:
+                run_id = str(UUID(str(pending_run_id)))
+            except (ValueError, AttributeError) as error:
+                raise WorkspaceError(
+                    "Pending prepared-data run identifier is invalid"
+                ) from error
         with self._connect(database_path) as connection:
             self._migrate_project_database(connection)
             connection.begin()
@@ -157,10 +166,19 @@ class StagingRepository(DuckDbRepository):
                      WHERE active.singleton_id = 1
                     """
                 ).fetchone()
-                run_content_hash = self._insert_canonical_rows(
-                    connection,
-                    run_id,
-                    run,
+                run_content_hash = (
+                    self._pending_canonical_content_hash(
+                        connection,
+                        run_id,
+                        run,
+                        mapping_version=mapping_version,
+                    )
+                    if pending_run_id is not None
+                    else self._insert_canonical_rows(
+                        connection,
+                        run_id,
+                        run,
+                    )
                 )
                 if (
                     current is not None
@@ -176,8 +194,29 @@ class StagingRepository(DuckDbRepository):
                     reason="CANONICAL_STAGING_CHANGED",
                 )
 
-                connection.execute(
-                    """
+                if pending_run_id is not None:
+                    promoted = connection.execute(
+                        """
+                        UPDATE canonical_staging_run
+                           SET status = ?, published_at = ?, published_by = ?
+                         WHERE run_id = ? AND status = ?
+                        RETURNING run_id
+                        """,
+                        [
+                            StagingRunStatus.PUBLISHED.value,
+                            published_at.isoformat(),
+                            actor.identity.display_name,
+                            run_id,
+                            StagingRunStatus.PENDING.value,
+                        ],
+                    ).fetchone()
+                    if promoted is None:
+                        raise WorkspaceError(
+                            "Pending prepared data could not be published"
+                        )
+                else:
+                    connection.execute(
+                        """
                     INSERT INTO canonical_staging_run (
                         run_id, content_hash, mapping_id, mapping_version,
                         physical_selection_hash, source_selection_hash,
@@ -191,8 +230,8 @@ class StagingRepository(DuckDbRepository):
                         retired_reason, successor_run_id
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                               NULL, NULL, NULL)
-                    """,
-                    [
+                        """,
+                        [
                         run_id,
                         run_content_hash,
                         run.mapping_id,
@@ -222,8 +261,8 @@ class StagingRepository(DuckDbRepository):
                                 for item in run.control_totals
                             ]
                         ),
-                    ],
-                )
+                        ],
+                    )
                 stored_count = connection.execute(
                     """
                     SELECT COUNT(*)
@@ -293,6 +332,99 @@ class StagingRepository(DuckDbRepository):
             datasets=run.datasets,
             control_totals=run.control_totals,
         )
+
+    @staticmethod
+    def _pending_canonical_content_hash(
+        connection: duckdb.DuckDBPyConnection,
+        run_id: str,
+        run: StoredCanonicalStagingRun,
+        *,
+        mapping_version: int,
+    ) -> str:
+        """Validate a finalized pending header without reinserting row JSON."""
+
+        header = connection.execute(
+            """
+            SELECT content_hash, mapping_id, mapping_version,
+                   physical_selection_hash, source_selection_hash,
+                   mapping_hash, schema_hash, derived_plan_hash,
+                   compiled_plan_hash, contract_version, evaluator_version,
+                   status, row_count, run_issues_json,
+                   reconciliation_json, dataset_reconciliation_json,
+                   control_totals_json
+              FROM canonical_staging_run
+             WHERE run_id = ?
+            """,
+            [run_id],
+        ).fetchone()
+        if header is None or str(header[11]) != StagingRunStatus.PENDING.value:
+            raise WorkspaceError("Direct prepared data is not pending")
+        expected = (
+            run.mapping_id,
+            mapping_version,
+            run.physical_selection_hash,
+            run.source_selection_hash,
+            run.mapping_hash,
+            run.schema_hash,
+            run.derived_plan_hash,
+            run.compiled_plan_hash,
+            run.contract_version,
+            run.evaluator_version,
+            len(run.rows),
+            _canonical_json(
+                [item.to_portable_dict() for item in run.issues]
+            ),
+            _canonical_json(run.reconciliation.to_portable_dict()),
+            _canonical_json(
+                [item.to_portable_dict() for item in run.datasets]
+            ),
+            _canonical_json(
+                [item.to_portable_dict() for item in run.control_totals]
+            ),
+        )
+        actual = (
+            str(header[1]),
+            int(header[2]),
+            str(header[3]),
+            str(header[4]),
+            str(header[5]),
+            str(header[6]),
+            str(header[7]) if header[7] else None,
+            str(header[8]),
+            int(header[9]),
+            int(header[10]),
+            int(header[12]),
+            str(header[13]),
+            str(header[14]),
+            str(header[15]),
+            str(header[16]),
+        )
+        if actual != expected:
+            raise WorkspaceError(
+                "Pending prepared-data evidence is inconsistent"
+            )
+        stored = connection.execute(
+            """
+            SELECT COUNT(*), COUNT(DISTINCT ordinal),
+                   MIN(ordinal), MAX(ordinal)
+              FROM canonical_staging_row
+             WHERE run_id = ?
+            """,
+            [run_id],
+        ).fetchone()
+        row_count = len(run.rows)
+        expected_bounds = (
+            row_count,
+            row_count,
+            0 if row_count else None,
+            row_count - 1 if row_count else None,
+        )
+        if stored is None or tuple(stored) != expected_bounds:
+            raise WorkspaceError("Pending prepared rows are incomplete")
+        content_hash = str(header[0])
+        if not content_hash.startswith("sha256:") or len(content_hash) != 71:
+            raise WorkspaceError("Pending prepared-data hash is invalid")
+        return content_hash
     def get_current_staging_summary(
         self,
         project_id: str,

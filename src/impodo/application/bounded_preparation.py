@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Iterable
 
+from ..access import Actor
 from ..artifacts import ArtifactStore
 from ..derived_entities import DerivedEntityPlan
 from ..domain.compiler.browser_mapping_compiler import compile_browser_mapping
@@ -106,6 +107,8 @@ def prepare_bounded_direct_session(
     artifacts: ArtifactStore,
     reference_bundle: ReferenceBundle | None,
     sessions: PreparationSessionRepository,
+    *,
+    actor: Actor,
 ) -> BoundedDirectPreparation:
     """Transform direct selected sources into one READY durable session."""
 
@@ -162,7 +165,7 @@ def prepare_bounded_direct_session(
         definition,
         effective_selection,
     )
-    session = sessions.begin_session(
+    session = sessions.begin_direct_session(
         project.project_id,
         PreparationSessionBindings(
             mapping_id=definition.mapping_id,
@@ -177,6 +180,7 @@ def prepare_bounded_direct_session(
             evaluator_version=BROWSER_EVALUATOR_VERSION,
             source_hashes=source_hashes,
         ),
+        actor=actor,
     )
     impact_sink = _ImpactBatchSink(
         sessions,
@@ -318,7 +322,7 @@ def prepare_bounded_direct_session(
                                     physical_sources=physical_sources,
                                 )
                             )
-                        sessions.append_provisional_rows(
+                        sessions.append_direct_rows(
                             project.project_id,
                             session.session_id,
                             prepared_batch,
@@ -332,11 +336,9 @@ def prepare_bounded_direct_session(
             )
 
         impact_sink.flush()
-        run = sessions.finalize_session(
+        run = sessions.finalize_direct_session(
             project.project_id,
             session.session_id,
-            modes=modes,
-            field_sources=field_sources,
             dataset_evidence=dataset_evidence,
             run_issues=run_issues,
             control_totals=totals.report(),

@@ -24,7 +24,7 @@ from ..target_readers import _target_credential_id
 
 
 def build_execution_router(context: WebContext) -> APIRouter:
-    """Build the single preview and explicit load action for Stage J."""
+    """Build the Stage-J load action and Stage-K read-back result flow."""
 
     router = APIRouter()
 

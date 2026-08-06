@@ -184,12 +184,18 @@ certification remain pending.
   row outcome;
 - a lost write response is recorded as `OUTCOME_UNKNOWN`, is not retried, and
   blocks the remaining work;
-- schema version 23 migrates to the durable execution tables; and
-- the browser end-to-end test previews, confirms, journals, and renders a load
-  without exposing the submitted API key.
+- schema version 23 migrates to the durable execution tables and version 24
+  migrates to the durable reconciliation tables;
+- committed rows are checked by exact saved ID and uncertain creates are
+  re-matched by the governed business key before retry safety is classified;
+- the browser end-to-end test previews, confirms, journals, reads back, and
+  renders a verified load without exposing the submitted API key; and
+- reconciliation reports retain status, field names, and recovery guidance,
+  but not source or target business values.
 
-Live Odoo write/read-back acceptance remains part of P3/P4, not this automated
-adapter proof.
+Live representative Odoo write/read-back and repeat-run acceptance remains the
+P4 task; the protected P3 adapter, service, persistence, and browser path are
+covered automatically.
 
 ### Verified
 

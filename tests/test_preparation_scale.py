@@ -204,10 +204,12 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             self.context.preparation.normalization.evaluate_and_publish
         )
         original_append_rows = (
-            self.context.preparation.sessions.append_provisional_rows
+            self.context.preparation.sessions.append_direct_rows
         )
         original_append_impacts = self.context.preparation.sessions.append_impacts
-        original_finalize_session = self.context.preparation.sessions.finalize_session
+        original_finalize_session = (
+            self.context.preparation.sessions.finalize_direct_session
+        )
 
         process = psutil.Process()
         started = perf_counter()
@@ -252,8 +254,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             ),
             patch.object(
                 self.context.preparation.sessions,
-                "append_provisional_rows",
-                accumulated("session_row_append", original_append_rows),
+                "append_direct_rows",
+                accumulated("direct_canonical_append", original_append_rows),
             ),
             patch.object(
                 self.context.preparation.sessions,
@@ -262,8 +264,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             ),
             patch.object(
                 self.context.preparation.sessions,
-                "finalize_session",
-                timed("session_finalization", original_finalize_session),
+                "finalize_direct_session",
+                timed("direct_finalization", original_finalize_session),
             ),
         ):
             normalization = self.context.preparation.prepare(
@@ -421,6 +423,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 self.artifacts,
                 reference_bundle,
                 self.context.preparation.sessions,
+                actor=self.context.actor,
             )
         elapsed = perf_counter() - started
         peak_mib = memory_sampler.peak_bytes / (1024 * 1024)
@@ -891,6 +894,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 row_count=37,
                 column_count=8,
                 mapped_field_count=5,
+                dirty=True,
             )
         )
         project = self.context.preparation.projects.get(project_id)
@@ -925,6 +929,20 @@ class BoundedPreparationParityTests(unittest.TestCase):
             )
 
         with (
+            patch.object(
+                self.context.preparation.sessions,
+                "append_provisional_rows",
+                side_effect=AssertionError(
+                    "direct preparation must not copy canonical rows into provisional storage"
+                ),
+            ),
+            patch.object(
+                self.context.preparation.sessions,
+                "finalize_session",
+                side_effect=AssertionError(
+                    "direct preparation must not copy canonical rows into final-session storage"
+                ),
+            ),
             patch.object(
                 self.context.preparation.staging,
                 "get_canonical_staging_run",
@@ -1044,6 +1062,135 @@ class BoundedPreparationParityTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(sessions, [("PUBLISHED", 37, 37, 37)])
         self.assertEqual(temporary_rows, (0, 0, 0, 0))
+
+        repeated = self.context.preparation.prepare(
+            project_id,
+            actor=self.context.actor,
+        )
+        repeated_staging = (
+            self.context.preparation.staging.get_current_staging_summary(
+                project_id
+            )
+        )
+        self.assertIsNotNone(repeated_staging)
+        assert repeated_staging is not None
+        self.assertEqual(repeated_staging.run_id, summary.run_id)
+        self.assertEqual(
+            repeated.content_hash,
+            normalization_summary.content_hash,
+        )
+        with self.context.preparation.staging._connect(database_path) as connection:
+            durable_runs = connection.execute(
+                """
+                SELECT status, COUNT(*)
+                  FROM canonical_staging_run
+                 GROUP BY status
+                 ORDER BY status
+                """
+            ).fetchall()
+            pending_rows = connection.execute(
+                """
+                SELECT COUNT(*)
+                  FROM canonical_staging_row AS row
+                  JOIN canonical_staging_run AS run ON run.run_id = row.run_id
+                 WHERE run.status = 'PENDING'
+                """
+            ).fetchone()
+        self.assertEqual(durable_runs, [("PUBLISHED", 1)])
+        self.assertEqual(pending_rows, (0,))
+
+    def test_direct_publication_failure_preserves_current_run(self) -> None:
+        project_id, _source_hash, _source_size = (
+            PreparationWorkflowScaleTests._prepare_project_and_evidence(
+                self,
+                row_count=17,
+                column_count=8,
+                mapped_field_count=5,
+            )
+        )
+        self.context.preparation.prepare(
+            project_id,
+            actor=self.context.actor,
+        )
+        current = self.context.preparation.staging.get_current_staging_summary(
+            project_id
+        )
+        self.assertIsNotNone(current)
+        assert current is not None
+
+        with patch.object(
+            self.context.preparation.staging,
+            "publish_canonical_staging",
+            side_effect=RuntimeError("injected publication failure"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "injected publication failure",
+            ):
+                self.context.preparation.prepare(
+                    project_id,
+                    actor=self.context.actor,
+                )
+
+        unchanged = self.context.preparation.staging.get_current_staging_summary(
+            project_id
+        )
+        self.assertIsNotNone(unchanged)
+        assert unchanged is not None
+        self.assertEqual(unchanged.run_id, current.run_id)
+        database_path = self.root / project_id / "project.duckdb"
+        with self.context.preparation.staging._connect(database_path) as connection:
+            state = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM canonical_staging_run WHERE status = 'PENDING'),
+                    (SELECT COUNT(*) FROM canonical_staging_run WHERE status = 'PUBLISHED'),
+                    (SELECT COUNT(*) FROM canonical_staging_row),
+                    (SELECT COUNT(*) FROM preparation_session WHERE status = 'FAILED')
+                """
+            ).fetchone()
+        self.assertEqual(state, (0, 1, 17, 1))
+
+    def test_direct_promotion_rolls_back_atomically(self) -> None:
+        project_id, _source_hash, _source_size = (
+            PreparationWorkflowScaleTests._prepare_project_and_evidence(
+                self,
+                row_count=13,
+                column_count=8,
+                mapped_field_count=5,
+            )
+        )
+        with patch.object(
+            self.context.preparation.staging,
+            "_insert_workspace_audit",
+            side_effect=RuntimeError("injected commit failure"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "injected commit failure",
+            ):
+                self.context.preparation.prepare(
+                    project_id,
+                    actor=self.context.actor,
+                )
+
+        self.assertIsNone(
+            self.context.preparation.staging.get_current_staging_summary(
+                project_id
+            )
+        )
+        database_path = self.root / project_id / "project.duckdb"
+        with self.context.preparation.staging._connect(database_path) as connection:
+            state = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM canonical_staging_current),
+                    (SELECT COUNT(*) FROM canonical_staging_run),
+                    (SELECT COUNT(*) FROM canonical_staging_row),
+                    (SELECT COUNT(*) FROM preparation_session WHERE status = 'FAILED')
+                """
+            ).fetchone()
+        self.assertEqual(state, (0, 0, 0, 1))
 
 
 def _headers(column_count: int, workload: str) -> tuple[str, ...]:

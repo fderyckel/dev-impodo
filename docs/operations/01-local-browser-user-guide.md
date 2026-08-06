@@ -41,8 +41,8 @@ The screenshots use fictional training data at a desktop viewport.
 13. Optionally create the review workbook when every row is ready.
 14. For a disposable Local Odoo target, open **Preview Odoo load**, review the
     totals, enter the Odoo API key, and select **Load into Odoo** once.
-15. Review the saved row outcomes. Treat them as API receipts until read-back
-    reconciliation is implemented.
+15. Review the Odoo read-back result. Download the fallout list when any row
+    differs, was not applied, is missing, or remains unknown.
 16. Use **Quit Impodo** when finished.
 
 ## Before starting
@@ -592,9 +592,11 @@ categories, products, and simple many2one links.
 Enter an Odoo API key and select **Load into Odoo**. Impodo sends bounded create
 batches in dependency order and uniquely re-matches every update by its
 business key. It never retries a write whose response was lost. The result
-page records accepted, rejected, blocked, and unknown rows, but it is not yet
-read-back reconciliation. If any outcome is unknown, inspect Odoo before
-running a new comparison.
+page then reads accepted rows back by saved Odoo ID and re-matches uncertain
+responses by the governed business key. It reports verified rows and concise
+fallout without exposing source values. If verification could not contact
+Odoo, use **Verify in Odoo** to try the read again. If an outcome remains
+unknown, do not retry it blindly; download the fallout and inspect Odoo first.
 
 ## Use Impodo safely today
 

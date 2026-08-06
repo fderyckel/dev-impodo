@@ -135,13 +135,26 @@ gate; runtime and memory remain diagnostics.
 
 ### P3 — Reconcile and recover
 
-**Status:** Next.
+**Status:** Completed 2026-08-06.
 
 Read the written rows back by External ID or governed business key. Produce a
 plain result page and downloadable fallout list. On uncertain responses,
 re-match before deciding whether a retry is safe.
 
+The practical browser now verifies committed rows by their journaled Odoo ID
+and re-matches uncertain responses with the exact governed business key. The
+result is hash-bound to the execution snapshot, target, and completed load run
+and is published atomically with one current pointer. The load page reports
+verified rows, fallout, unknown outcomes, differing field names, and a concise
+recovery action without storing source values or credentials in the report.
+Fallout is downloadable as CSV. An uncertain create is marked safe to plan
+again only when an exact read-back finds no matching record; Impodo never
+automatically replays the write. Verification runs automatically after a load
+and can be retried manually if the read connection itself failed.
+
 ### P4 — Run the representative migration
+
+**Status:** Next.
 
 Load and review 100–300 sanitized records in a disposable Odoo 19 database.
 Fix the concrete product problems found during that run. Do not expand scope

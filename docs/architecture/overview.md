@@ -116,8 +116,9 @@ current Impodo session.
 The reader has no create, write, unlink, import, arbitrary model method, or SQL
 surface. The practical disposable-local path uses a separate writer limited to
 allowlisted master-data models, fields, exact lookups, create, and write. Its
-frozen snapshot, authorization, and journal are independent of the reader;
-post-write reconciliation is still pending.
+frozen snapshot, authorization, and journal are independent of the reader. A
+second closed adapter performs exact-ID and governed-key `search_read` after
+the write; the hash-bound result and concise fallout are persisted separately.
 
 ## Performance invariants
 

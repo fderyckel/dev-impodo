@@ -149,5 +149,17 @@ def create_preparation_session_schema(
             ON preparation_final_row (
                 session_id, dataset, source_row, row_id
             );
+
+        ALTER TABLE canonical_staging_row
+            ADD COLUMN IF NOT EXISTS identity_hash VARCHAR;
+        ALTER TABLE canonical_staging_row
+            ADD COLUMN IF NOT EXISTS base_disposition VARCHAR;
+        ALTER TABLE canonical_staging_row
+            ADD COLUMN IF NOT EXISTS finalized_duplicate BOOLEAN DEFAULT FALSE;
+
+        CREATE INDEX IF NOT EXISTS canonical_staging_identity_lookup
+            ON canonical_staging_row (
+                run_id, dataset, identity_hash
+            );
         """
     )

@@ -372,6 +372,12 @@ mapping, staging, approval, and review contracts.
 
 ### Stage K — Reconcile
 
+The practical disposable-local path implements this stage for contacts,
+product categories, and products: committed rows are read by saved target ID,
+uncertain responses are re-matched by governed keys, and a hash-bound result
+with downloadable fallout is retained. The broader package below remains the
+target for standard and controlled production profiles.
+
 Every import-candidate row ends as:
 
 - created;

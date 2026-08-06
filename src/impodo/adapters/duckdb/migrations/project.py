@@ -1220,6 +1220,9 @@ class ProjectMigrationsMixin:
                 if version == 24:
                     create_reconciliation_schema(connection)
                     version = 25
+                if version == 25:
+                    create_preparation_session_schema(connection)
+                    version = 26
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

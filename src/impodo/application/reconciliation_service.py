@@ -448,7 +448,7 @@ def _many2one_id(value: Any) -> int | None:
 
 def _values_equal(expected: Any, actual: Any) -> bool:
     if expected is None:
-        return actual in {None, False, ""}
+        return actual is None or actual is False or actual == ""
     if type(expected) is bool:
         return actual is expected
     if isinstance(expected, datetime):

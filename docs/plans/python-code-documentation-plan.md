@@ -34,10 +34,10 @@ Current progress:
   credential storage, idempotent jobs, local-stack process ownership, hardened
   DuckDB connections/unit-of-work/migrations, downstream invalidation, stable
   serialization/hashing, transactional audit, composition, and error translation.
-- DOC-6: complete and maintained through the practical Stage-J addition.
-  Standalone higher-risk approvals remain separate; the narrow local writer,
-  execution journal, and preview/load route are documented as implemented,
-  while post-write reconciliation remains future work.
+- DOC-6: complete and maintained through the practical Stage-J and Stage-K
+  additions. Standalone higher-risk approvals remain separate; the narrow
+  local writer, execution journal, protected read-back, durable result, and
+  preview/load route are documented as implemented.
 
 This plan makes `src/impodo/` understandable from inside the Python files.
 Its success criterion is practical: after opening a module, a maintainer should
@@ -109,7 +109,7 @@ the authority for current implementation status.
 | H — Read-only target preflight | Implemented durable-input loading, bounded target-read planning, metadata validation, comparison, classifications, and reports | `application/preflight_service.py`, `domain/preflight/`, `planner.py`, `metadata.py`, `catalog.py`, `engine.py`, `reporting.py`, connectors and preflight repositories/routes |
 | I — Freeze exact execution input | The practical browser path automatically emits and revalidates a hash-bound execution snapshot; optional clean-package certification and approval remain unintegrated | `domain/execution_snapshot.py`, `application/preflight_service.py`, plus `approvals.py` as a future higher-risk boundary |
 | J — Controlled Odoo execution | Implemented only for the practical disposable-local master-data scope through a separate closed writer and durable journal | `application/execution_service.py`, `domain/execution.py`, `odoo_writer.py`, DuckDB execution repository/migration, load router/template, and composition |
-| K — Reconcile | Not implemented as a post-write workflow | document as a future boundary; do not imply that source/staging accounting is post-write reconciliation |
+| K — Reconcile | Implemented for the practical disposable-local scope with exact-ID read-back, business-key recovery, immutable results, and fallout | `application/reconciliation_service.py`, `domain/reconciliation.py`, `odoo_readback.py`, DuckDB reconciliation repository/migration, and the load route/template |
 
 This table belongs in a shorter, navigable form in the eventual code map. A
 module may serve several stages, but it should name one primary stage and list
@@ -374,9 +374,10 @@ continuous.
 - Document `approvals.py` as standalone domain behavior, not an integrated
   executable import plan.
 - Mark the practical execution snapshot, narrow local writer, execution
-  journal, and load route as implemented without implying production support.
-- Keep clean-package certification, higher-risk approval, and post-write
-  reconciliation as future boundaries.
+  journal, protected read-back, durable reconciliation result, and load route
+  as implemented without implying production support.
+- Keep clean-package certification, higher-risk approval, and broader
+  production reconciliation as future boundaries.
 - State the read-only restriction on reader connectors and point to the
   separate allowlisted writer where write behavior might otherwise be inferred.
 - Add an advisory documentation report to normal verification, then consider
@@ -386,9 +387,9 @@ continuous.
   binding, side effect, or migration-stage status changes, update the owning
   docstring, code map, contract/plan, and focused tests together.
 
-**Exit gate:** current code claims only the Stage I–J scope it actually
-implements, keeps Stage K explicit, and documents every new public workflow
-boundary as it is added.
+**Exit gate:** current code claims only the practical Stage I–K scope it
+actually implements, keeps broader production boundaries explicit, and
+documents every new public workflow boundary as it is added.
 
 ## Review and delivery rules
 

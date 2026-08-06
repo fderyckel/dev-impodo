@@ -26,6 +26,10 @@ class ReconciliationRepository(DuckDbRepository):
         actor: Actor,
     ) -> None:
         try:
+            report = ReconciliationRun.from_json(report.to_json())
+        except (KeyError, TypeError, ValueError) as error:
+            raise WorkspaceError("Verification result is invalid") from error
+        try:
             reconciliation_id = str(UUID(report.reconciliation_id))
             execution_run_id = str(UUID(report.execution_run_id))
         except (ValueError, AttributeError) as error:

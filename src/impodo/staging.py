@@ -20,6 +20,7 @@ from .domain.staging.preparation_session import StoredCanonicalStagingRun
 class StagingRunStatus(StrEnum):
     """Lifecycle metadata kept outside immutable canonical evidence."""
 
+    PENDING = "PENDING"
     PUBLISHED = "PUBLISHED"
     SUPERSEDED = "SUPERSEDED"
     INVALIDATED = "INVALIDATED"

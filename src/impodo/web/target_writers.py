@@ -1,4 +1,4 @@
-"""Construct the closed native writer for one confirmed local Odoo load."""
+"""Construct closed native write and read-back ports for a local Odoo load."""
 
 from __future__ import annotations
 

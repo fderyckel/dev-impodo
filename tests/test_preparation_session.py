@@ -352,6 +352,128 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             )
         )
 
+    def test_direct_rows_finalize_in_place_and_failed_pending_run_is_removed(
+        self,
+    ) -> None:
+        session = self.repository.begin_direct_session(
+            self.project.project_id,
+            self.bindings,
+            actor=LOCAL_ACTOR,
+        )
+        rows: list[CanonicalPreparedSessionRow] = []
+        for ordinal, source_row in enumerate((2, 3)):
+            record = PreparedRecord(
+                dataset="contacts",
+                source_row=source_row,
+                target_model="res.partner",
+                source_identity=("C001",),
+                target_identity=("C001",),
+                target_scope=(),
+                scalar_values={"name": "Alice"},
+                references={},
+            )
+            canonical = canonical_row_from_prepared(
+                record,
+                mode="upsert",
+                source_hash=SOURCE_HASH,
+                source_selection_hash=SELECTION_HASH,
+                mapping_hash=MAPPING_HASH,
+                schema_hash=SCHEMA_HASH,
+                derived_plan_hash=None,
+                field_sources={"name": ("column:name",)},
+                physical_dataset_id="dataset:contacts",
+                physical_source_rows=(source_row,),
+            )
+            rows.append(
+                CanonicalPreparedSessionRow(
+                    row_id=canonical.row_id,
+                    ordinal=ordinal,
+                    dataset=canonical.dataset,
+                    source_row=canonical.source_row,
+                    target_model=canonical.target_model,
+                    disposition=canonical.disposition,
+                    source_identity=canonical.source_identity,
+                    row_json=canonical_json_bytes(
+                        canonical.to_portable_dict()
+                    ).decode("utf-8"),
+                    physical_sources={"dataset:contacts": (source_row,)},
+                )
+            )
+        self.repository.append_direct_rows(
+            self.project.project_id,
+            session.session_id,
+            rows,
+        )
+        stored = self.repository.finalize_direct_session(
+            self.project.project_id,
+            session.session_id,
+            dataset_evidence={
+                "contacts": (
+                    "dataset:contacts",
+                    StagingDatasetRole.DIRECT,
+                    2,
+                    "res.partner",
+                )
+            },
+            run_issues=(),
+            control_totals=(),
+            impact_report=TransformationImpactReport(
+                mapping_content_hash=MAPPING_HASH,
+                evaluated_count=0,
+                changed_count=0,
+                fallback_count=0,
+                null_count=0,
+                invalid_count=0,
+                provided_count=0,
+                unchanged_count=0,
+                rows=(),
+                detail_limit=0,
+            ),
+        )
+
+        restored = tuple(stored.rows)
+        self.assertEqual(len(restored), 2)
+        self.assertTrue(
+            all(row.disposition is StagingDisposition.BLOCKED for row in restored)
+        )
+        database_path = (
+            self.repository.project_directory(self.project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            counts = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM canonical_staging_row WHERE run_id = ?),
+                    (SELECT COUNT(*) FROM preparation_provisional_row WHERE session_id = ?),
+                    (SELECT COUNT(*) FROM preparation_final_row WHERE session_id = ?),
+                    (SELECT status FROM canonical_staging_run WHERE run_id = ?)
+                """,
+                [
+                    session.session_id,
+                    session.session_id,
+                    session.session_id,
+                    session.session_id,
+                ],
+            ).fetchone()
+        self.assertEqual(counts, (2, 0, 0, "PENDING"))
+
+        self.repository.fail_session(
+            self.project.project_id,
+            session.session_id,
+            "DIRECT_PUBLICATION_FAILED",
+        )
+        with self.repository._connect(database_path) as connection:
+            remaining = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM canonical_staging_row WHERE run_id = ?),
+                    (SELECT COUNT(*) FROM canonical_staging_run WHERE run_id = ?)
+                """,
+                [session.session_id, session.session_id],
+            ).fetchone()
+        self.assertEqual(remaining, (0, 0))
+
 
 if __name__ == "__main__":
     unittest.main()

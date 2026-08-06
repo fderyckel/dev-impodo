@@ -165,6 +165,7 @@ class PreparationService:
                 self.artifacts,
                 reference_bundle,
                 self.sessions,
+                actor=actor,
             )
             bounded_session_id = bounded.session_id
             staging_input = bounded.run

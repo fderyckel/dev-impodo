@@ -53,6 +53,7 @@ from impodo.models import (
     target_identity_hash,
 )
 from impodo.models import canonical_json_text
+from impodo.odoo_readback import ReadbackRecord
 from impodo.projects import OdooConnectionMode, ProjectStatus
 from impodo.quality import (
     QualityOutcomePolicy,
@@ -2120,6 +2121,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             def __init__(self):
                 self.created = []
                 self.updated = []
+                self.records = {}
                 self.next_id = 100
 
             def find_ids(self, model, domain):
@@ -2133,14 +2135,53 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     range(self.next_id, self.next_id + len(rows))
                 )
                 self.next_id += len(rows)
+                for identifier, row in zip(identifiers, rows, strict=True):
+                    self.records[(model, identifier)] = dict(row)
                 return identifiers
 
             def update_row(self, model, record_id, values):
                 self.updated.append((model, record_id, dict(values)))
+                self.records.setdefault((model, record_id), {}).update(values)
+
+        class FakeReadbackReader:
+            target_hash = load_preview.snapshot.target_hash
+
+            def __init__(self, writer):
+                self.writer = writer
+
+            def read_ids(self, model, identifiers, fields):
+                return tuple(
+                    ReadbackRecord(
+                        identifier,
+                        {
+                            field: self.writer.records[(model, identifier)][field]
+                            for field in fields
+                        },
+                    )
+                    for identifier in identifiers
+                    if (model, identifier) in self.writer.records
+                )
+
+            def find_records(self, model, domain, fields):
+                del domain
+                matches = [
+                    ReadbackRecord(
+                        identifier,
+                        {field: values[field] for field in fields},
+                    )
+                    for (stored_model, identifier), values in self.writer.records.items()
+                    if stored_model == model and all(field in values for field in fields)
+                ]
+                if matches:
+                    return tuple(matches[:2])
+                return (ReadbackRecord(42, {}),) if not fields else ()
 
         fake_writer = FakeWriteExecutor()
         self.app.state.context.write_executor_factory = (
             lambda _project, _api_key: fake_writer
+        )
+        self.app.state.context.readback_reader_factory = (
+            lambda _project, _api_key: FakeReadbackReader(fake_writer)
         )
         loaded = self.client.post(
             f"/projects/{project_id}/load",
@@ -2154,8 +2195,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(loaded.status_code, 303, loaded.text)
         outcome_page = self.client.get(loaded.headers["location"])
-        self.assertIn("Saved load outcome", outcome_page.text)
-        self.assertIn("Odoo returned a successful API response", outcome_page.text)
+        self.assertIn("Odoo read-back complete", outcome_page.text)
+        self.assertIn("Verified in Odoo", outcome_page.text)
+        self.assertIn("Odoo now matches every field", outcome_page.text)
         self.assertEqual(
             outcome_page.text.count("data-load-row"),
             repeated_report.create_count + repeated_report.update_count,

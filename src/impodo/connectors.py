@@ -11,7 +11,8 @@ connector.  This closed method surface is a deliberate safety control: the
 profiler can inspect an authorised target but cannot create, update, delete,
 or execute an arbitrary Odoo model method. The practical Stage-J writer lives
 in :mod:`impodo.odoo_writer` behind a separate port and durable journal; it is
-not added to ``OdooReadConnector``. Read-back reconciliation remains separate.
+not added to ``OdooReadConnector``. Post-write checks use the separate closed
+:mod:`impodo.odoo_readback` adapter.
 """
 
 from __future__ import annotations

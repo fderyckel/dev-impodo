@@ -11,6 +11,8 @@ import re
 from typing import overload
 from uuid import UUID, uuid4
 
+from ...access import Actor
+from ...domain.serialization import CanonicalJsonObjectHasher
 from ...domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
     PreparationSessionBindings,
@@ -30,6 +32,7 @@ from ...domain.staging.transformation_impact import (
 )
 from ...models import Issue, PreparedRecord, canonical_json_bytes, portable_value
 from ...projects import ProjectNotFoundError
+from ...staging import StagingRunStatus
 from ...staging_contracts import (
     CanonicalControlTotal,
     CanonicalIssue,
@@ -62,11 +65,15 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         project_id: str,
         session_id: str,
         row_count: int,
+        *,
+        direct: bool = False,
     ) -> None:
         self._repository = repository
         self._project_id = project_id
         self._session_id = session_id
         self._row_count = row_count
+        self._direct = direct
+        self.canonical_run_id = session_id if direct else None
 
     def __len__(self) -> int:
         return self._row_count
@@ -90,6 +97,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
                 self._session_id,
                 start,
                 stop,
+                direct=self._direct,
             )
         normalized = index + self._row_count if index < 0 else index
         if normalized < 0 or normalized >= self._row_count:
@@ -99,6 +107,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
             self._session_id,
             normalized,
             normalized + 1,
+            direct=self._direct,
         )
         if not rows:
             raise IndexError(index)
@@ -108,18 +117,25 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         yield from self._repository._iter_final_rows(
             self._project_id,
             self._session_id,
+            direct=self._direct,
         )
 
     def iter_encoded_batches(self, connection, batch_size: int):
         """Read exact stored JSON through the publication transaction."""
 
+        table = (
+            "canonical_staging_row"
+            if self._direct
+            else "preparation_final_row"
+        )
+        id_column = "run_id" if self._direct else "session_id"
         start = 0
         while batch := connection.execute(
-            """
+            f"""
             SELECT ordinal, row_id, dataset, source_row, target_model,
                    disposition, row_json
-              FROM preparation_final_row
-             WHERE session_id = ?
+              FROM {table}
+             WHERE {id_column} = ?
                AND ordinal >= ?
              ORDER BY ordinal
              LIMIT ?
@@ -185,6 +201,28 @@ class PreparationSessionRepository(DuckDbRepository):
     ) -> PreparationSessionSummary:
         """Create an unpublished session bound to immutable preparation inputs."""
 
+        return self._begin_session(project_id, bindings, actor=None)
+
+    def begin_direct_session(
+        self,
+        project_id: str,
+        bindings: PreparationSessionBindings,
+        *,
+        actor: Actor,
+    ) -> PreparationSessionSummary:
+        """Create a session whose UUID is also a pending canonical run ID."""
+
+        return self._begin_session(project_id, bindings, actor=actor)
+
+    def _begin_session(
+        self,
+        project_id: str,
+        bindings: PreparationSessionBindings,
+        *,
+        actor: Actor | None,
+    ) -> PreparationSessionSummary:
+        """Create session metadata and, for direct runs, its pending header."""
+
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -192,8 +230,10 @@ class PreparationSessionRepository(DuckDbRepository):
         now = datetime.now(timezone.utc).isoformat()
         with self._connect(database_path) as connection:
             self._migrate_project_database(connection)
-            connection.execute(
-                """
+            connection.begin()
+            try:
+                connection.execute(
+                    """
                 INSERT INTO preparation_session (
                     session_id, status, mapping_id, mapping_version,
                     physical_selection_hash, source_selection_hash,
@@ -206,8 +246,8 @@ class PreparationSessionRepository(DuckDbRepository):
                     updated_at, failure_code
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]',
                           NULL, NULL, NULL, 0, 0, 0, ?, ?, NULL)
-                """,
-                [
+                    """,
+                    [
                     session_id,
                     PreparationSessionStatus.BUILDING.value,
                     bindings.mapping_id,
@@ -223,8 +263,48 @@ class PreparationSessionRepository(DuckDbRepository):
                     _canonical_json(dict(sorted(bindings.source_hashes.items()))),
                     now,
                     now,
-                ],
-            )
+                    ],
+                )
+                if actor is not None:
+                    zero_hash = "sha256:" + "0" * 64
+                    connection.execute(
+                        """
+                        INSERT INTO canonical_staging_run (
+                            run_id, content_hash, mapping_id, mapping_version,
+                            physical_selection_hash, source_selection_hash,
+                            mapping_hash, schema_hash, derived_plan_hash,
+                            compiled_plan_hash, contract_version,
+                            evaluator_version, status, published_at,
+                            published_by, row_count, run_issues_json,
+                            reconciliation_json,
+                            dataset_reconciliation_json,
+                            control_totals_json, retired_at,
+                            retired_reason, successor_run_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                                  0, '[]', '{}', '[]', '[]', NULL, NULL, NULL)
+                        """,
+                        [
+                            session_id,
+                            zero_hash,
+                            bindings.mapping_id,
+                            bindings.mapping_version,
+                            bindings.physical_selection_hash,
+                            bindings.source_selection_hash,
+                            bindings.mapping_hash,
+                            bindings.schema_hash,
+                            bindings.derived_plan_hash,
+                            bindings.compiled_plan_hash,
+                            bindings.contract_version,
+                            bindings.evaluator_version,
+                            StagingRunStatus.PENDING.value,
+                            now,
+                            actor.identity.display_name,
+                        ],
+                    )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
         return PreparationSessionSummary(
             session_id=session_id,
             status=PreparationSessionStatus.BUILDING,
@@ -240,6 +320,144 @@ class PreparationSessionRepository(DuckDbRepository):
         """Append one bounded row batch and its normalized lineage facts."""
 
         self.append_session_batch(project_id, session_id, rows, ())
+
+    def append_direct_rows(
+        self,
+        project_id: str,
+        session_id: str,
+        rows: Sequence[CanonicalPreparedSessionRow],
+    ) -> None:
+        """Write one encoded batch directly into its pending canonical run."""
+
+        if not rows:
+            return
+        canonical_session_id = self._session_id(session_id)
+        row_values: list[list[object]] = []
+        lineage_values: list[list[object]] = []
+        physical_values: list[list[object]] = []
+        for item in rows:
+            if not item.physical_sources:
+                raise ValueError("Prepared session rows require physical lineage")
+            identity_hash = "sha256:" + sha256(
+                canonical_json_bytes(
+                    {
+                        "dataset": item.dataset,
+                        "source_identity": portable_value(
+                            item.source_identity
+                        ),
+                    }
+                )
+            ).hexdigest()
+            row_values.append(
+                [
+                    canonical_session_id,
+                    item.ordinal,
+                    item.row_id,
+                    item.dataset,
+                    item.source_row,
+                    item.target_model,
+                    item.disposition.value,
+                    item.row_json,
+                    identity_hash,
+                    item.disposition.value,
+                    False,
+                ]
+            )
+            for physical_dataset_id, source_rows in sorted(
+                item.physical_sources.items()
+            ):
+                ordered = tuple(sorted(set(source_rows)))
+                if not physical_dataset_id or ordered != tuple(source_rows):
+                    raise ValueError("Prepared session lineage is invalid")
+                for source_row in ordered:
+                    if source_row < 1:
+                        raise ValueError(
+                            "Prepared session source rows must be positive"
+                        )
+                    lineage_values.append(
+                        [
+                            canonical_session_id,
+                            item.dataset,
+                            item.source_row,
+                            physical_dataset_id,
+                            source_row,
+                        ]
+                    )
+                    physical_values.append(
+                        [canonical_session_id, physical_dataset_id, source_row]
+                    )
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            connection.begin()
+            try:
+                self._require_status(
+                    connection,
+                    canonical_session_id,
+                    PreparationSessionStatus.BUILDING,
+                )
+                pending = connection.execute(
+                    """
+                    SELECT 1
+                      FROM canonical_staging_run
+                     WHERE run_id = ? AND status = ?
+                    """,
+                    [canonical_session_id, StagingRunStatus.PENDING.value],
+                ).fetchone()
+                if pending is None:
+                    raise WorkspaceError(
+                        "Direct preparation run is not pending"
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO canonical_staging_row (
+                        run_id, ordinal, row_id, dataset, source_row,
+                        target_model, disposition, row_json, identity_hash,
+                        base_disposition, finalized_duplicate
+                    )
+                    SELECT unnest(?), unnest(?), unnest(?), unnest(?),
+                           unnest(?), unnest(?), unnest(?), unnest(?),
+                           unnest(?), unnest(?), unnest(?)
+                    """,
+                    _columnar_parameters(row_values),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO preparation_lineage (
+                        session_id, dataset, output_source_row,
+                        physical_dataset_id, physical_source_row
+                    )
+                    SELECT unnest(?), unnest(?), unnest(?), unnest(?), unnest(?)
+                    """,
+                    _columnar_parameters(lineage_values),
+                )
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO preparation_physical_row (
+                        session_id, physical_dataset_id, source_row
+                    )
+                    SELECT unnest(?), unnest(?), unnest(?)
+                    """,
+                    _columnar_parameters(physical_values),
+                )
+                connection.execute(
+                    """
+                    UPDATE preparation_session
+                       SET provisional_row_count = provisional_row_count + ?,
+                           updated_at = ?
+                     WHERE session_id = ?
+                    """,
+                    [
+                        len(row_values),
+                        datetime.now(timezone.utc).isoformat(),
+                        canonical_session_id,
+                    ],
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
     def append_impacts(
         self,
@@ -422,6 +640,407 @@ class PreparationSessionRepository(DuckDbRepository):
                         datetime.now(timezone.utc).isoformat(),
                         session_id,
                     ],
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def finalize_direct_session(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        dataset_evidence: Mapping[
+            str,
+            tuple[str, StagingDatasetRole, int, str],
+        ],
+        run_issues: Sequence[Issue],
+        control_totals: Sequence[CanonicalControlTotal],
+        impact_report: TransformationImpactReport,
+    ) -> StoredCanonicalStagingRun:
+        """Finalize rows already stored under a pending canonical run ID."""
+
+        summary = self.get_session(project_id, session_id)
+        if summary.status not in {
+            PreparationSessionStatus.BUILDING,
+            PreparationSessionStatus.FINALIZING,
+        }:
+            raise WorkspaceError("Preparation session cannot be finalized")
+        canonical_session_id = self._session_id(session_id)
+        self._restart_direct_finalization(project_id, canonical_session_id)
+        bindings = summary.bindings
+        database_path = self.project_directory(project_id) / "project.duckdb"
+
+        last_ordinal = -1
+        while True:
+            with self._connect(database_path) as connection:
+                batch = connection.execute(
+                    """
+                    SELECT row.ordinal, row.row_json,
+                           identities.identity_count
+                      FROM canonical_staging_row AS row
+                      JOIN preparation_identity_group AS identities
+                        ON identities.session_id = row.run_id
+                       AND identities.dataset = row.dataset
+                       AND identities.identity_hash = row.identity_hash
+                     WHERE row.run_id = ?
+                       AND identities.identity_count > 1
+                       AND NOT row.finalized_duplicate
+                       AND row.ordinal > ?
+                     ORDER BY row.ordinal
+                     LIMIT ?
+                    """,
+                    [
+                        canonical_session_id,
+                        last_ordinal,
+                        PREPARATION_SESSION_ROW_BATCH_SIZE,
+                    ],
+                ).fetchall()
+            if not batch:
+                break
+            values: list[list[object]] = []
+            for ordinal, row_text, identity_count in batch:
+                try:
+                    row = CanonicalRow.from_dict(json.loads(str(row_text)))
+                except (TypeError, ValueError) as error:
+                    raise WorkspaceError(
+                        "Stored direct preparation row is invalid"
+                    ) from error
+                duplicate = Issue(
+                    code="SOURCE_IDENTITY_DUPLICATE",
+                    message=(
+                        f"source identity {row.source_identity!r} occurs "
+                        f"{int(identity_count)} times"
+                    ),
+                    dataset=row.dataset,
+                    row=row.source_row,
+                    affected_count=int(identity_count),
+                )
+                canonical_duplicate = CanonicalIssue.from_issue(duplicate)
+                row = replace(
+                    row,
+                    disposition=StagingDisposition.BLOCKED,
+                    issues=(*row.issues, canonical_duplicate),
+                )
+                validate_canonical_row_bindings(
+                    row,
+                    source_selection_hash=bindings.source_selection_hash,
+                    mapping_hash=bindings.mapping_hash,
+                    schema_hash=bindings.schema_hash,
+                    derived_plan_hash=bindings.derived_plan_hash,
+                )
+                values.append(
+                    [
+                        int(ordinal),
+                        row.disposition.value,
+                        _canonical_json(row.to_portable_dict()),
+                        True,
+                    ]
+                )
+            self._update_direct_rows(
+                project_id,
+                canonical_session_id,
+                values,
+            )
+            last_ordinal = int(batch[-1][0])
+
+        reconciliation, datasets = self._reconciliation(
+            project_id,
+            canonical_session_id,
+            dataset_evidence,
+            row_table="canonical_staging_row",
+            id_column="run_id",
+        )
+        canonical_issues = [
+            CanonicalIssue.from_issue(item) for item in run_issues
+        ]
+        with self._connect(database_path) as connection:
+            next_ordinal = 0
+            while batch := connection.execute(
+                """
+                SELECT row.ordinal, row.row_json,
+                       identities.identity_count
+                  FROM canonical_staging_row AS row
+                  JOIN preparation_identity_group AS identities
+                    ON identities.session_id = row.run_id
+                   AND identities.dataset = row.dataset
+                   AND identities.identity_hash = row.identity_hash
+                 WHERE row.run_id = ?
+                   AND identities.identity_count > 1
+                   AND row.ordinal >= ?
+                 ORDER BY row.ordinal
+                 LIMIT ?
+                """,
+                [
+                    canonical_session_id,
+                    next_ordinal,
+                    PREPARATION_SESSION_ROW_BATCH_SIZE,
+                ],
+            ).fetchall():
+                for ordinal, row_text, identity_count in batch:
+                    try:
+                        row = CanonicalRow.from_dict(
+                            json.loads(str(row_text))
+                        )
+                    except (TypeError, ValueError) as error:
+                        raise WorkspaceError(
+                            "Stored direct preparation row is invalid"
+                        ) from error
+                    canonical_issues.append(
+                        CanonicalIssue.from_issue(
+                            Issue(
+                                code="SOURCE_IDENTITY_DUPLICATE",
+                                message=(
+                                    "source identity "
+                                    f"{row.source_identity!r} occurs "
+                                    f"{int(identity_count)} times"
+                                ),
+                                dataset=row.dataset,
+                                row=row.source_row,
+                                affected_count=int(identity_count),
+                            )
+                        )
+                    )
+                    next_ordinal = int(ordinal) + 1
+        controls = tuple(
+            sorted(control_totals, key=lambda item: item.control_id)
+        )
+        content_hash, row_count = self._hash_direct_run(
+            project_id=project_id,
+            run_id=canonical_session_id,
+            bindings=bindings,
+            datasets=datasets,
+            issues=tuple(canonical_issues),
+            reconciliation=reconciliation,
+            control_totals=controls,
+        )
+        if row_count != summary.provisional_row_count:
+            raise WorkspaceError(
+                "Direct preparation rows were not finalized completely"
+            )
+        with self._connect(database_path) as connection:
+            connection.begin()
+            try:
+                self._require_status(
+                    connection,
+                    canonical_session_id,
+                    PreparationSessionStatus.FINALIZING,
+                )
+                pending = connection.execute(
+                    """
+                    SELECT COUNT(*)
+                      FROM canonical_staging_row
+                     WHERE run_id = ?
+                    """,
+                    [canonical_session_id],
+                ).fetchone()
+                if pending is None or int(pending[0]) != row_count:
+                    raise WorkspaceError(
+                        "Direct preparation rows are incomplete"
+                    )
+                now = datetime.now(timezone.utc).isoformat()
+                connection.execute(
+                    """
+                    UPDATE preparation_session
+                       SET status = ?, canonical_row_count = ?,
+                           run_issues_json = ?, control_totals_json = ?,
+                           reconciliation_json = ?,
+                           dataset_reconciliation_json = ?,
+                           impact_report_json = ?, updated_at = ?,
+                           failure_code = NULL
+                     WHERE session_id = ?
+                    """,
+                    [
+                        PreparationSessionStatus.READY.value,
+                        row_count,
+                        _canonical_json(
+                            [
+                                item.to_portable_dict()
+                                for item in canonical_issues
+                            ]
+                        ),
+                        _canonical_json(
+                            [item.to_portable_dict() for item in controls]
+                        ),
+                        _canonical_json(reconciliation.to_portable_dict()),
+                        _canonical_json(
+                            [item.to_portable_dict() for item in datasets]
+                        ),
+                        _canonical_json(
+                            transformation_report_to_portable_dict(
+                                impact_report
+                            )
+                        ),
+                        now,
+                        canonical_session_id,
+                    ],
+                )
+                updated = connection.execute(
+                    """
+                    UPDATE canonical_staging_run
+                       SET content_hash = ?, row_count = ?,
+                           run_issues_json = ?, reconciliation_json = ?,
+                           dataset_reconciliation_json = ?,
+                           control_totals_json = ?
+                     WHERE run_id = ? AND status = ?
+                    RETURNING run_id
+                    """,
+                    [
+                        content_hash,
+                        row_count,
+                        _canonical_json(
+                            [
+                                item.to_portable_dict()
+                                for item in canonical_issues
+                            ]
+                        ),
+                        _canonical_json(reconciliation.to_portable_dict()),
+                        _canonical_json(
+                            [item.to_portable_dict() for item in datasets]
+                        ),
+                        _canonical_json(
+                            [item.to_portable_dict() for item in controls]
+                        ),
+                        canonical_session_id,
+                        StagingRunStatus.PENDING.value,
+                    ],
+                ).fetchone()
+                if updated is None:
+                    raise WorkspaceError(
+                        "Direct preparation run is not pending"
+                    )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return self.load_stored_run(project_id, canonical_session_id)
+
+    def _restart_direct_finalization(
+        self,
+        project_id: str,
+        session_id: str,
+    ) -> None:
+        """Rebuild compact identity groups and safely resume duplicate edits."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        while True:
+            with self._connect(database_path) as connection:
+                batch = connection.execute(
+                    """
+                    SELECT ordinal, base_disposition, row_json
+                      FROM canonical_staging_row
+                     WHERE run_id = ? AND finalized_duplicate
+                     ORDER BY ordinal
+                     LIMIT ?
+                    """,
+                    [session_id, PREPARATION_SESSION_ROW_BATCH_SIZE],
+                ).fetchall()
+            if not batch:
+                break
+            values: list[list[object]] = []
+            for ordinal, base_disposition, row_text in batch:
+                try:
+                    row = CanonicalRow.from_dict(json.loads(str(row_text)))
+                    row = replace(
+                        row,
+                        disposition=StagingDisposition(str(base_disposition)),
+                        issues=tuple(
+                            issue
+                            for issue in row.issues
+                            if issue.code != "SOURCE_IDENTITY_DUPLICATE"
+                        ),
+                    )
+                except (TypeError, ValueError) as error:
+                    raise WorkspaceError(
+                        "Stored direct preparation row is invalid"
+                    ) from error
+                values.append(
+                    [
+                        int(ordinal),
+                        row.disposition.value,
+                        _canonical_json(row.to_portable_dict()),
+                        False,
+                    ]
+                )
+            self._update_direct_rows(project_id, session_id, values)
+
+        with self._connect(database_path) as connection:
+            connection.begin()
+            try:
+                status = connection.execute(
+                    "SELECT status FROM preparation_session WHERE session_id = ?",
+                    [session_id],
+                ).fetchone()
+                if status is None or str(status[0]) not in {
+                    PreparationSessionStatus.BUILDING.value,
+                    PreparationSessionStatus.FINALIZING.value,
+                }:
+                    raise WorkspaceError(
+                        "Preparation session cannot be finalized"
+                    )
+                connection.execute(
+                    "DELETE FROM preparation_identity_group WHERE session_id = ?",
+                    [session_id],
+                )
+                connection.execute(
+                    """
+                    INSERT INTO preparation_identity_group (
+                        session_id, dataset, identity_hash, identity_count
+                    )
+                    SELECT run_id, dataset, identity_hash, COUNT(*)
+                      FROM canonical_staging_row
+                     WHERE run_id = ? AND identity_hash IS NOT NULL
+                     GROUP BY run_id, dataset, identity_hash
+                    """,
+                    [session_id],
+                )
+                connection.execute(
+                    """
+                    UPDATE preparation_session
+                       SET status = ?, canonical_row_count = 0,
+                           updated_at = ?, failure_code = NULL
+                     WHERE session_id = ?
+                    """,
+                    [
+                        PreparationSessionStatus.FINALIZING.value,
+                        datetime.now(timezone.utc).isoformat(),
+                        session_id,
+                    ],
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def _update_direct_rows(
+        self,
+        project_id: str,
+        run_id: str,
+        values: Sequence[Sequence[object]],
+    ) -> None:
+        if not values:
+            return
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        with self._connect(database_path) as connection:
+            connection.begin()
+            try:
+                connection.execute(
+                    """
+                    UPDATE canonical_staging_row AS target
+                       SET disposition = updates.disposition,
+                           row_json = updates.row_json,
+                           finalized_duplicate = updates.finalized_duplicate
+                      FROM (
+                          SELECT unnest(?) AS ordinal,
+                                 unnest(?) AS disposition,
+                                 unnest(?) AS row_json,
+                                 unnest(?) AS finalized_duplicate
+                      ) AS updates
+                     WHERE target.run_id = ?
+                       AND target.ordinal = updates.ordinal
+                    """,
+                    [*_columnar_parameters(values), run_id],
                 )
                 connection.commit()
             except Exception:
@@ -758,6 +1377,14 @@ class PreparationSessionRepository(DuckDbRepository):
                 """,
                 [self._session_id(session_id)],
             ).fetchone()
+            direct = connection.execute(
+                """
+                SELECT 1
+                  FROM canonical_staging_run
+                 WHERE run_id = ?
+                """,
+                [self._session_id(session_id)],
+            ).fetchone() is not None
         if row is None:
             raise WorkspaceError("Preparation session was not found")
         if PreparationSessionStatus(str(row[0])) is not PreparationSessionStatus.READY:
@@ -790,7 +1417,13 @@ class PreparationSessionRepository(DuckDbRepository):
             schema_hash=str(row[5]),
             derived_plan_hash=str(row[6]) if row[6] else None,
             datasets=datasets,
-            rows=_SessionCanonicalRows(self, project_id, session_id, row_count),
+            rows=_SessionCanonicalRows(
+                self,
+                project_id,
+                session_id,
+                row_count,
+                direct=direct,
+            ),
             issues=issues,
             reconciliation=reconciliation,
             compiled_plan_hash=str(row[7]),
@@ -957,13 +1590,21 @@ class PreparationSessionRepository(DuckDbRepository):
             return
 
         canonical_session_id = self._session_id(session_id)
+        direct = connection.execute(
+            "SELECT 1 FROM canonical_staging_run WHERE run_id = ?",
+            [canonical_session_id],
+        ).fetchone() is not None
+        canonical_table = (
+            "canonical_staging_row" if direct else "preparation_final_row"
+        )
+        canonical_id = "run_id" if direct else "session_id"
         next_ordinal = 0
         while batch := connection.execute(
-            """
+            f"""
             SELECT impact.ordinal, impact.impact_json, canonical.row_id
               FROM preparation_impact_row AS impact
-              JOIN preparation_final_row AS canonical
-                ON canonical.session_id = impact.session_id
+              JOIN {canonical_table} AS canonical
+                ON canonical.{canonical_id} = impact.session_id
                AND canonical.dataset = impact.dataset
                AND canonical.source_row = impact.source_row
              WHERE impact.session_id = ?
@@ -1233,14 +1874,22 @@ class PreparationSessionRepository(DuckDbRepository):
             str,
             tuple[str, StagingDatasetRole, int, str],
         ],
+        *,
+        row_table: str = "preparation_final_row",
+        id_column: str = "session_id",
     ) -> tuple[StagingReconciliation, tuple[StagingDatasetReconciliation, ...]]:
+        if (row_table, id_column) not in {
+            ("preparation_final_row", "session_id"),
+            ("canonical_staging_row", "run_id"),
+        }:
+            raise ValueError("Preparation reconciliation source is invalid")
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
             disposition_rows = connection.execute(
-                """
+                f"""
                 SELECT dataset, disposition, COUNT(*)
-                  FROM preparation_final_row
-                 WHERE session_id = ?
+                  FROM {row_table}
+                 WHERE {id_column} = ?
                  GROUP BY dataset, disposition
                 """,
                 [session_id],
@@ -1314,22 +1963,137 @@ class PreparationSessionRepository(DuckDbRepository):
             tuple(datasets),
         )
 
+    def _hash_direct_run(
+        self,
+        *,
+        project_id: str,
+        run_id: str,
+        bindings: PreparationSessionBindings,
+        datasets: tuple[StagingDatasetReconciliation, ...],
+        issues: tuple[CanonicalIssue, ...],
+        reconciliation: StagingReconciliation,
+        control_totals: tuple[CanonicalControlTotal, ...],
+    ) -> tuple[str, int]:
+        """Validate and hash pending rows without copying their JSON payloads."""
+
+        hasher = CanonicalJsonObjectHasher()
+        hasher.add_value("compiled_plan_hash", bindings.compiled_plan_hash)
+        hasher.add_value("contract_version", bindings.contract_version)
+        hasher.add_value(
+            "control_totals",
+            [item.to_portable_dict() for item in control_totals],
+        )
+        hasher.add_value(
+            "datasets",
+            [item.to_portable_dict() for item in datasets],
+        )
+        hasher.add_value("derived_plan_hash", bindings.derived_plan_hash)
+        hasher.add_value("evaluator_version", bindings.evaluator_version)
+        hasher.add_value(
+            "issues",
+            [item.to_portable_dict() for item in issues],
+        )
+        hasher.add_value("mapping_hash", bindings.mapping_hash)
+        hasher.add_value("mapping_id", bindings.mapping_id)
+        hasher.add_value(
+            "physical_selection_hash",
+            bindings.physical_selection_hash,
+        )
+        hasher.add_value("project_id", project_id)
+        hasher.add_value(
+            "reconciliation",
+            reconciliation.to_portable_dict(),
+        )
+        hasher.start_array("rows")
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        expected_ordinal = 0
+        with self._connect(database_path) as connection:
+            while batch := connection.execute(
+                """
+                SELECT ordinal, row_id, dataset, source_row, target_model,
+                       disposition, row_json
+                  FROM canonical_staging_row
+                 WHERE run_id = ? AND ordinal >= ?
+                 ORDER BY ordinal
+                 LIMIT ?
+                """,
+                [
+                    run_id,
+                    expected_ordinal,
+                    PREPARATION_SESSION_ROW_BATCH_SIZE,
+                ],
+            ).fetchall():
+                for (
+                    ordinal,
+                    row_id,
+                    dataset,
+                    source_row,
+                    target_model,
+                    disposition,
+                    row_text,
+                ) in batch:
+                    if int(ordinal) != expected_ordinal:
+                        raise WorkspaceError(
+                            "Stored direct preparation rows are not contiguous"
+                        )
+                    encoded = str(row_text)
+                    try:
+                        row = CanonicalRow.from_dict(json.loads(encoded))
+                        validate_canonical_row_bindings(
+                            row,
+                            source_selection_hash=(
+                                bindings.source_selection_hash
+                            ),
+                            mapping_hash=bindings.mapping_hash,
+                            schema_hash=bindings.schema_hash,
+                            derived_plan_hash=bindings.derived_plan_hash,
+                        )
+                    except (TypeError, ValueError) as error:
+                        raise WorkspaceError(
+                            "Stored direct preparation row is invalid"
+                        ) from error
+                    if (
+                        row.row_id != str(row_id)
+                        or row.dataset != str(dataset)
+                        or row.source_row != int(source_row)
+                        or row.target_model != str(target_model)
+                        or row.disposition.value != str(disposition)
+                    ):
+                        raise WorkspaceError(
+                            "Stored direct preparation row metadata is inconsistent"
+                        )
+                    hasher.add_encoded_array_item(encoded)
+                    expected_ordinal += 1
+        hasher.end_array()
+        hasher.add_value("schema_hash", bindings.schema_hash)
+        hasher.add_value(
+            "source_selection_hash",
+            bindings.source_selection_hash,
+        )
+        return hasher.finish(), expected_ordinal
+
     def _load_final_row_range(
         self,
         project_id: str,
         session_id: str,
         start: int,
         stop: int,
+        *,
+        direct: bool = False,
     ) -> tuple[CanonicalRow, ...]:
         if stop <= start:
             return ()
         database_path = self.project_directory(project_id) / "project.duckdb"
+        table = (
+            "canonical_staging_row" if direct else "preparation_final_row"
+        )
+        id_column = "run_id" if direct else "session_id"
         with self._connect(database_path) as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT row_json
-                  FROM preparation_final_row
-                 WHERE session_id = ?
+                  FROM {table}
+                 WHERE {id_column} = ?
                    AND ordinal >= ?
                    AND ordinal < ?
                  ORDER BY ordinal
@@ -1342,16 +2106,22 @@ class PreparationSessionRepository(DuckDbRepository):
         self,
         project_id: str,
         session_id: str,
+        *,
+        direct: bool = False,
     ) -> Iterator[CanonicalRow]:
         database_path = self.project_directory(project_id) / "project.duckdb"
+        table = (
+            "canonical_staging_row" if direct else "preparation_final_row"
+        )
+        id_column = "run_id" if direct else "session_id"
         with self._connect(database_path) as connection:
             canonical_session_id = self._session_id(session_id)
             next_ordinal = 0
             while batch := connection.execute(
-                """
+                f"""
                 SELECT ordinal, row_json
-                  FROM preparation_final_row
-                 WHERE session_id = ?
+                  FROM {table}
+                 WHERE {id_column} = ?
                    AND ordinal >= ?
                  ORDER BY ordinal
                  LIMIT ?
@@ -1411,6 +2181,23 @@ class PreparationSessionRepository(DuckDbRepository):
         ):
             connection.execute(
                 f"DELETE FROM {table} WHERE session_id = ?",
+                [canonical],
+            )
+        pending = connection.execute(
+            """
+            SELECT 1
+              FROM canonical_staging_run
+             WHERE run_id = ? AND status = ?
+            """,
+            [canonical, StagingRunStatus.PENDING.value],
+        ).fetchone()
+        if pending is not None:
+            connection.execute(
+                "DELETE FROM canonical_staging_row WHERE run_id = ?",
+                [canonical],
+            )
+            connection.execute(
+                "DELETE FROM canonical_staging_run WHERE run_id = ?",
                 [canonical],
             )
 

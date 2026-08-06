@@ -8,7 +8,7 @@ considered.
 Impodo's normal preparation and comparison workflow is read-only. For a
 disposable local Odoo 19 target, it can now preview and explicitly load a
 narrow allowlist of contacts, product categories, and products through Odoo's
-native API. Post-write read-back reconciliation is the next product slice.
+native API, then read the written records back and show actionable fallout.
 
 ## The platform
 
@@ -89,12 +89,13 @@ business key invalidates the active mapping so it must be validated again.
   business-key updates, and no direct SQL or generic RPC.
 - Journals every proposed write and stops without retrying after a lost write
   response.
-- Shows the saved API outcome without claiming read-back verification.
+- Reads accepted rows back by Odoo ID, re-matches uncertain responses by the
+  governed business key, and shows verified rows or downloadable fallout.
 
 **Delivery status:** The bounded preparation, review, durable preflight,
-execution snapshot, and practical local load path are implemented. Read-back
-reconciliation, broader/remote loading, and production controls remain later
-delivery scope.
+execution snapshot, practical local load, and read-back reconciliation path
+are implemented. The representative disposable-target run, broader/remote
+loading, and production controls remain later delivery scope.
 
 ## Install and start
 
