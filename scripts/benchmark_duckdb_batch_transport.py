@@ -18,6 +18,9 @@ from impodo.adapters.duckdb.constants import DUCKDB_JSON_BATCH_MAX_BYTES
 from impodo.adapters.duckdb.normalization_repository import (
     _NORMALIZATION_EFFECT_JSON_STRUCTURE,
 )
+from impodo.adapters.duckdb.quality_repository import (
+    _QUALITY_ROW_RESULT_JSON_STRUCTURE,
+)
 from impodo.adapters.duckdb.serialization import (
     _canonical_json,
     _columnar_parameters,
@@ -35,6 +38,16 @@ _EFFECT_FIELDS = (
     "target_field",
     "eligible",
     "effect_json",
+)
+_QUALITY_ROW_FIELDS = (
+    "run_id",
+    "ordinal",
+    "row_id",
+    "dataset",
+    "source_row",
+    "effective_disposition",
+    "requires_review",
+    "row_json",
 )
 
 
@@ -73,6 +86,37 @@ class SyntheticEffect:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class SyntheticQualityRow:
+    """One deterministic, non-customer quality-row benchmark input."""
+
+    ordinal: int
+
+    def transport_row(self) -> dict[str, object]:
+        """Construct the fixed quality row shape before adapter transport."""
+
+        row_id = f"row-{self.ordinal:08d}"
+        dataset = "products"
+        portable = {
+            "dataset": dataset,
+            "effective_disposition": (
+                "QUARANTINED" if self.ordinal % 23 == 0 else "CANDIDATE"
+            ),
+            "issues": [],
+            "requires_review": self.ordinal % 17 == 0,
+            "row_id": row_id,
+            "source_row": self.ordinal + 1,
+        }
+        return {
+            "run_id": "benchmark-run",
+            "ordinal": self.ordinal,
+            "row_id": row_id,
+            "dataset": dataset,
+            "source_row": self.ordinal + 1,
+            "effective_disposition": portable["effective_disposition"],
+            "requires_review": portable["requires_review"],
+            "row_json": _canonical_json(portable),
+        }
 @dataclass(frozen=True, slots=True)
 class TransportObservation:
     """Non-sensitive result of one transport benchmark round."""
@@ -226,6 +270,157 @@ def _typed_json(
     )
 
 
+def _quality_connection() -> duckdb.DuckDBPyConnection:
+    connection = duckdb.connect(":memory:", config=dict(DUCKDB_CONFIG))
+    connection.execute(
+        """
+        CREATE TABLE quality_row_transport (
+            run_id VARCHAR NOT NULL,
+            ordinal BIGINT NOT NULL,
+            row_id VARCHAR NOT NULL,
+            dataset VARCHAR NOT NULL,
+            source_row BIGINT NOT NULL,
+            effective_disposition VARCHAR NOT NULL,
+            requires_review BOOLEAN NOT NULL,
+            row_json VARCHAR NOT NULL
+        )
+        """
+    )
+    return connection
+
+
+def _validate_quality_insert(
+    connection: duckdb.DuckDBPyConnection,
+    rows: Sequence[SyntheticQualityRow],
+) -> int:
+    """Check quality-row count and types without printing synthetic values."""
+
+    row_count = int(
+        connection.execute(
+            "SELECT COUNT(*) FROM quality_row_transport"
+        ).fetchone()[0]
+    )
+    expected = rows[0].transport_row()
+    actual = connection.execute(
+        """
+        SELECT run_id, ordinal, row_id, dataset, source_row,
+               effective_disposition, requires_review, row_json
+          FROM quality_row_transport
+         ORDER BY ordinal
+         LIMIT 1
+        """
+    ).fetchone()
+    if actual != tuple(expected[field] for field in _QUALITY_ROW_FIELDS):
+        raise RuntimeError("Quality benchmark changed the typed row shape")
+    return row_count
+
+
+def _quality_column_arrays(
+    quality_rows: Sequence[SyntheticQualityRow],
+    batch_size: int,
+) -> TransportObservation:
+    connection = _quality_connection()
+    batch_count = 0
+    transport_bytes = 0
+    started = perf_counter()
+    try:
+        for start in range(0, len(quality_rows), batch_size):
+            rows = [
+                tuple(row[field] for field in _QUALITY_ROW_FIELDS)
+                for item in quality_rows[start : start + batch_size]
+                for row in (item.transport_row(),)
+            ]
+            transport_bytes += sum(
+                len(str(value).encode("utf-8"))
+                for row in rows
+                for value in row
+            )
+            connection.execute(
+                """
+                INSERT INTO quality_row_transport
+                SELECT
+                    CAST(UNNEST(?) AS VARCHAR),
+                    CAST(UNNEST(?) AS BIGINT),
+                    CAST(UNNEST(?) AS VARCHAR),
+                    CAST(UNNEST(?) AS VARCHAR),
+                    CAST(UNNEST(?) AS BIGINT),
+                    CAST(UNNEST(?) AS VARCHAR),
+                    CAST(UNNEST(?) AS BOOLEAN),
+                    CAST(UNNEST(?) AS VARCHAR)
+                """,
+                _columnar_parameters(rows),
+            )
+            batch_count += 1
+        elapsed_seconds = perf_counter() - started
+        row_count = _validate_quality_insert(connection, quality_rows)
+    finally:
+        connection.close()
+    return TransportObservation(
+        transport="column_arrays",
+        row_count=row_count,
+        batch_count=batch_count,
+        transport_bytes=transport_bytes,
+        elapsed_seconds=elapsed_seconds,
+    )
+
+
+def _quality_typed_json(
+    quality_rows: Sequence[SyntheticQualityRow],
+    batch_size: int,
+) -> TransportObservation:
+    connection = _quality_connection()
+    batch_count = 0
+    transport_bytes = 0
+    started = perf_counter()
+    try:
+        rows = (
+            {
+                field: row[field]
+                for field in _QUALITY_ROW_FIELDS
+                if field != "run_id"
+            }
+            for item in quality_rows
+            for row in (item.transport_row(),)
+        )
+        for batch in iter_encoded_json_batches(
+            rows,
+            max_rows=batch_size,
+            max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+        ):
+            connection.execute(
+                """
+                INSERT INTO quality_row_transport
+                SELECT
+                    ?, item.ordinal, item.row_id, item.dataset,
+                    item.source_row, item.effective_disposition,
+                    item.requires_review, item.row_json
+                  FROM (
+                    SELECT UNNEST(
+                        from_json_strict(CAST(? AS JSON), ?)
+                    ) AS item
+                  )
+                """,
+                [
+                    "benchmark-run",
+                    batch.payload,
+                    _QUALITY_ROW_RESULT_JSON_STRUCTURE,
+                ],
+            )
+            batch_count += 1
+            transport_bytes += batch.byte_count
+        elapsed_seconds = perf_counter() - started
+        row_count = _validate_quality_insert(connection, quality_rows)
+    finally:
+        connection.close()
+    return TransportObservation(
+        transport="typed_json",
+        row_count=row_count,
+        batch_count=batch_count,
+        transport_bytes=transport_bytes,
+        elapsed_seconds=elapsed_seconds,
+    )
+
+
 def run_benchmark(
     *,
     row_count: int = 15_873,
@@ -255,13 +450,60 @@ def run_benchmark(
     return tuple(observations)
 
 
+def run_quality_row_benchmark(
+    *,
+    row_count: int = 4_000,
+    batch_size: int = 1_000,
+    rounds: int = 3,
+) -> tuple[TransportObservation, ...]:
+    """Run current and typed transports for the quality-row family."""
+
+    if row_count < 1 or batch_size < 1 or rounds < 1:
+        raise ValueError("Benchmark rows, batch size, and rounds must be positive")
+    quality_rows = tuple(SyntheticQualityRow(index) for index in range(row_count))
+    runners: tuple[
+        tuple[
+            str,
+            Callable[
+                [Sequence[SyntheticQualityRow], int],
+                TransportObservation,
+            ],
+        ],
+        ...,
+    ] = (
+        ("column_arrays", _quality_column_arrays),
+        ("typed_json", _quality_typed_json),
+    )
+    observations: list[TransportObservation] = []
+    for round_index in range(rounds):
+        ordered = runners if round_index % 2 == 0 else tuple(reversed(runners))
+        for _name, runner in ordered:
+            observation = runner(quality_rows, batch_size)
+            if observation.row_count != row_count:
+                raise RuntimeError(
+                    "Quality transport benchmark inserted an incomplete row set"
+                )
+            observations.append(observation)
+    return tuple(observations)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--family",
+        choices=("normalization-effects", "quality-row-results"),
+        default="normalization-effects",
+    )
     parser.add_argument("--rows", type=int, default=15_873)
     parser.add_argument("--batch-size", type=int, default=1_000)
     parser.add_argument("--rounds", type=int, default=3)
     arguments = parser.parse_args()
-    observations = run_benchmark(
+    runner = (
+        run_quality_row_benchmark
+        if arguments.family == "quality-row-results"
+        else run_benchmark
+    )
+    observations = runner(
         row_count=arguments.rows,
         batch_size=arguments.batch_size,
         rounds=arguments.rounds,

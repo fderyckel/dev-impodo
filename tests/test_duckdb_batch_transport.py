@@ -7,7 +7,10 @@ import math
 import unittest
 
 from impodo.adapters.duckdb.serialization import iter_encoded_json_batches
-from scripts.benchmark_duckdb_batch_transport import run_benchmark
+from scripts.benchmark_duckdb_batch_transport import (
+    run_benchmark,
+    run_quality_row_benchmark,
+)
 
 
 class EncodedJsonBatchTests(unittest.TestCase):
@@ -84,6 +87,21 @@ class EncodedJsonBatchTests(unittest.TestCase):
 class DuckDbTransportBenchmarkTests(unittest.TestCase):
     def test_benchmark_transports_insert_the_complete_typed_shape(self) -> None:
         observations = run_benchmark(
+            row_count=25,
+            batch_size=7,
+            rounds=1,
+        )
+
+        self.assertEqual(
+            {item.transport for item in observations},
+            {"column_arrays", "typed_json"},
+        )
+        self.assertTrue(all(item.row_count == 25 for item in observations))
+        self.assertTrue(all(item.batch_count == 4 for item in observations))
+        self.assertTrue(all(item.transport_bytes > 0 for item in observations))
+
+    def test_quality_benchmark_preserves_count_batches_and_types(self) -> None:
+        observations = run_quality_row_benchmark(
             row_count=25,
             batch_size=7,
             rounds=1,
