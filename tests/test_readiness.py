@@ -72,6 +72,7 @@ from impodo.domain.errors import ReadinessError
 from impodo.domain.staging.evaluator import evaluate_browser_mapping
 from impodo.domain.staging.transformation_impact import _display_values_equal
 from impodo.domain.staging.scale import (
+    BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     BROWSER_EVALUATION_ROW_LIMIT,
     browser_evaluation_scale,
     require_supported_browser_scale,
@@ -629,6 +630,42 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             "Split the source into smaller projects",
         ):
             require_supported_browser_scale(oversized)
+
+    def test_bounded_direct_scale_accepts_fifty_thousand_rows(self) -> None:
+        physical = self._evidence((("BOM-A", "1", "COMP-1"),))[2]
+        supported = replace(
+            physical,
+            datasets=(
+                replace(
+                    physical.datasets[0],
+                    row_count=BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+                ),
+            ),
+        )
+        oversized = replace(
+            supported,
+            datasets=(
+                replace(
+                    supported.datasets[0],
+                    row_count=BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT + 1,
+                ),
+            ),
+        )
+
+        scale = browser_evaluation_scale(
+            supported,
+            supported_limit=BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+        )
+        self.assertTrue(scale.supported)
+        require_supported_browser_scale(
+            supported,
+            supported_limit=BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+        )
+        with self.assertRaisesRegex(ReadinessError, "50,000"):
+            require_supported_browser_scale(
+                oversized,
+                supported_limit=BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+            )
 
     def test_product_category_column_stages_categories_and_product_links(
         self,

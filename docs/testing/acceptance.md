@@ -13,10 +13,11 @@ reported separately.
 
 The disposable-local practical path now has live-target acceptance: a
 150-record sanitized run completed with every row verified and a repeat
-preview proposed no writes. The local 25,000-row preparation and durable-
-preflight scopes also have measured workstation evidence. Broader Odoo-side
-ACL/record-rule matrices, remote targets, and representative production sizing
-remain pending for later risk profiles.
+preview proposed no writes. The local bounded direct-table preparation path is
+supported through 50,000 physical rows; derived/materialized preparation and
+durable preflight retain their separate 25,000-row boundaries. Broader
+Odoo-side ACL/record-rule matrices, remote targets, and representative
+production sizing remain pending for later risk profiles.
 
 ## Validation command
 
@@ -123,8 +124,9 @@ runtime is installed and that integration is part of the acceptance run.
   deleting historical rows;
 - readiness reports bind the exact staging run and content hash;
 - the browser uses a plain saved/retry state and collapses technical evidence;
-- projects above 25,000 physical rows block before artifact materialization
-  with a plain split-the-source instruction;
+- bounded direct projects above 50,000 physical rows, and materialized or
+  derived projects above 25,000, block before artifact materialization with a
+  plain split-the-source instruction;
 - explicitly named expected sums use only user-selected mapped numeric fields,
   retain unit/tolerance evidence, persist atomically, and block package creation
   when they differ or contain empty values.
@@ -664,13 +666,31 @@ This is workstation evidence, not a production sizing guarantee. Wide sources,
 saved snapshots, workbooks, and Odoo transport still require representative
 measurement.
 
-The next performance target is complete local preparation of 100,000 physical
-rows in less than 120 seconds and less than 900 MiB peak working set. It is not
-yet implemented or verified, and the supported browser limit remains 25,000
-rows until the gates in the
+The next performance target remains complete local preparation of 100,000
+physical rows in less than 120 seconds and less than 900 MiB peak working set.
+The supported limit is now 50,000 rows for bounded direct projects and 25,000
+for derived/materialized projects. The gates in the
 [100,000-row performance refactor plan](../plans/100k-performance-refactor-plan.md)
-pass. Every optimization must append comparable before-and-after evidence here
-rather than replacing the historical results above.
+must pass before either path promises 100,000 rows. Every optimization must
+append comparable evidence here rather than replacing historical results.
+
+### 50,000-row bounded-direct background release evidence
+
+On 2026-08-06 the production background path was exercised on the MacBook Air
+M5 with dirty 50,000-row, 30-source-column, 20-mapped-field fixtures. These are
+standalone workstation measurements, not comparisons with the Lenovo runs.
+
+| Workload | Complete preparation | Worker peak | Worker exited | Result |
+| --- | ---: | ---: | --- | --- |
+| Products | 46.431 s | 570.5 MiB | Yes | Passed |
+| BOM | 58.073 s | 590.7 MiB | Yes | Passed |
+
+Both jobs used the session-scoped background manager and actual child-process
+preparation path without patching the production scale check. Progress state
+was held in memory; completed preparation evidence remained in DuckDB. The
+bounded direct limit is therefore 50,000 physical rows. Derived/materialized
+projects remain capped at 25,000 rows, and 100,000 rows remains a separate
+qualification target.
 
 Structural requirements already apply:
 
@@ -696,7 +716,7 @@ Structural requirements already apply:
 | Relational comparison | verified locally | real target relationships |
 | 100–300 sanitized records | not complete | build and review |
 | Live authorised target | not complete | execute smoke tests |
-| Historical-scale memory | 25,000-row browser preparation and durable preflight verified | 100,000-row expansion remains separate |
+| Historical-scale memory | 50,000-row bounded direct preparation and 25,000-row durable preflight verified | 100,000-row expansion remains separate |
 
 ## Acceptance gate
 

@@ -4,15 +4,17 @@
 
 **Status:** In progress on 2026-08-06. Increments 1-3 are implemented for
 direct datasets. Increment 4 remains open for related/derived BOM behavior,
-so P3 is not yet complete. This is the implementation plan for P3 of the
+so P3 is not yet complete. The supported product boundary is now 50,000 rows
+for bounded direct projects and 25,000 rows for derived/materialized projects.
+This is the implementation plan for P3 of the
 [100,000-row performance refactor plan](100k-performance-refactor-plan.md).
 It is a cross-cutting performance work package, not the product's numbered
 Slice 6.
 
 P3 is complete only when the Products and BOM fixtures prepare source evidence
 without retaining complete physical, prepared, canonical, and transformation-
-impact object graphs at the same time. The supported browser limit remains
-25,000 physical source rows until P5 closes every 100,000-row release gate.
+impact object graphs at the same time. A 100,000-row product promise remains
+blocked until P5 closes every release gate.
 
 ## Outcome
 
@@ -85,7 +87,8 @@ The complete workflow still fails the RAM gate. After bounded publication,
 `get_canonical_staging_run` reconstructs all canonical rows into a tuple and
 `evaluate_quality` builds complete row, coordinate, dataset, issue, and result
 collections. That Stage E-to-F handoff, not P3 source preparation, is the next
-measured memory blocker. The browser limit therefore remains 25,000 rows.
+measured memory blocker. The later bounded direct release gate advances that
+path to 50,000 rows while derived/materialized projects remain at 25,000.
 
 The BOM scale fixture exercises BOM-shaped direct data. It does not close
 Increment 4: persisted parent grouping, relationship edges, derived hierarchy,
@@ -114,7 +117,7 @@ This work package does not include:
 - changing mapping, quality, normalization, or canonical hash semantics;
 - expressing mapping rules or business decisions in SQL;
 - streaming all quality and normalization evidence, which remains P4;
-- raising the browser limit, which remains P5;
+- raising either path to 100,000 rows, which remains P5;
 - changing file-size, cell-size, formula, archive, or workbook security limits;
 - adding Odoo reads or writes to preparation.
 
@@ -405,8 +408,8 @@ The ultimate P5 gate remains stricter: the complete Products, BOM, and mixed
 fixtures must each finish below 120 seconds and below 900 MiB true observed
 peak in three fresh-process runs. If P3 makes the source phase bounded but the
 complete workflow still exceeds 900 MiB in quality or normalization, P3 may be
-closed with that evidence and P4 remains the blocker. The browser limit must
-still remain 25,000.
+closed with that evidence and P4 remains the blocker. Neither path may promise
+100,000 rows before that gate passes.
 
 ## Telemetry and diagnostics
 
@@ -473,4 +476,5 @@ P3 is done when all of the following are true:
 - the full ordinary suite and opt-in scale suite pass;
 - P3 status and acceptance evidence are updated without comparing measurements
   from different machines;
-- the browser limit remains 25,000 unless P4 and P5 independently pass.
+- the bounded direct limit remains 50,000 and the derived/materialized limit
+  remains 25,000 unless the applicable P4 and P5 gates independently pass.

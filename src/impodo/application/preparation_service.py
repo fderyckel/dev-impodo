@@ -28,6 +28,7 @@ from ..domain.staging.evaluator import (
     evaluate_browser_mapping,
 )
 from ..domain.staging.scale import (
+    BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     require_supported_browser_scale,
 )
 from ..domain.staging.transformation_impact import TransformationImpactRow
@@ -184,7 +185,10 @@ class PreparationService:
             effective_selection,
             derived_plan,
         ):
-            require_supported_browser_scale(physical_selection)
+            require_supported_browser_scale(
+                physical_selection,
+                supported_limit=BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+            )
             bounded = prepare_bounded_direct_session(
                 project,
                 revision.definition,

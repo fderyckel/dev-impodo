@@ -1,4 +1,4 @@
-"""Supported scale boundary for the in-memory browser evaluator."""
+"""Supported scale boundaries for bounded-direct and materialized preparation."""
 
 from __future__ import annotations
 
@@ -8,12 +8,15 @@ from ...workspace_contracts import SourceSelection
 from ..errors import ReadinessError
 
 
-BROWSER_EVALUATION_ROW_LIMIT = 25_000
+MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT = 25_000
+BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT = 50_000
+# Backward-compatible name for callers using the materializing evaluator.
+BROWSER_EVALUATION_ROW_LIMIT = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
 
 
 @dataclass(frozen=True, slots=True)
 class BrowserEvaluationScale:
-    """Plain-language supported-size decision for the in-memory evaluator."""
+    """Plain-language supported-size decision for one preparation path."""
 
     physical_rows: int
     supported_limit: int = BROWSER_EVALUATION_ROW_LIMIT
@@ -25,18 +28,32 @@ class BrowserEvaluationScale:
         return self.physical_rows <= self.supported_limit
 
 
-def browser_evaluation_scale(selection: SourceSelection) -> BrowserEvaluationScale:
+def browser_evaluation_scale(
+    selection: SourceSelection,
+    *,
+    supported_limit: int = BROWSER_EVALUATION_ROW_LIMIT,
+) -> BrowserEvaluationScale:
     """Count frozen physical rows once, before derived datasets expand them."""
 
+    if supported_limit < 1:
+        raise ValueError("supported_limit must be positive")
     return BrowserEvaluationScale(
-        physical_rows=sum(item.row_count for item in selection.datasets)
+        physical_rows=sum(item.row_count for item in selection.datasets),
+        supported_limit=supported_limit,
     )
 
 
-def require_supported_browser_scale(selection: SourceSelection) -> None:
+def require_supported_browser_scale(
+    selection: SourceSelection,
+    *,
+    supported_limit: int = BROWSER_EVALUATION_ROW_LIMIT,
+) -> None:
     """Stop Stage E before loading data when the project exceeds the limit."""
 
-    scale = browser_evaluation_scale(selection)
+    scale = browser_evaluation_scale(
+        selection,
+        supported_limit=supported_limit,
+    )
     if scale.supported:
         return
     raise ReadinessError(

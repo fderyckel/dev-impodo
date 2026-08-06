@@ -24,10 +24,13 @@ Artifact materialization remains an adapter responsibility. The evaluator
 accepts already loaded physical tables and has no repository, connector,
 credential, or Odoo dependency.
 
-The current browser path accepts at most **25,000 physical source rows per
-project**. It checks that limit before materializing an artifact and gives the
-data manager a plain instruction to split a larger source. This is an explicit
-interim boundary, not a claim that source evaluation is streaming.
+The bounded direct-table browser path accepts at most **50,000 physical source
+rows per project**. Projects that require derived entities or the legacy
+materializing evaluator retain the **25,000-row** limit. Impodo selects the
+limit from the actual preparation path before starting work and gives the data
+manager a plain instruction to split a larger source. The 50,000-row boundary
+is supported for the bounded direct path; it is not a claim that every derived
+evaluation is streaming.
 
 ## Bound inputs
 

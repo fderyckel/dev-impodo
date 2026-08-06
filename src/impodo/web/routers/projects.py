@@ -74,9 +74,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 expected_revision=expected_revision,
             )
             if context.preparation_jobs is not None:
-                context.preparation_jobs.repository.delete_project_history(
-                    project.project_id
-                )
+                context.preparation_jobs.delete_project_history(project.project_id)
         except AuthorizationError as error:
             raise HTTPException(
                 status_code=403,

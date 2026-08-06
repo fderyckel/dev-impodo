@@ -1,4 +1,4 @@
-"""Responsive browser routes for durable background preparation jobs."""
+"""Responsive browser routes for session-scoped background preparation jobs."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from ...adapters.sqlite.preparation_job_repository import (
+from ...application.preparation_job_registry import (
     PreparationJobNotFoundError,
     PreparationJobStateError,
 )

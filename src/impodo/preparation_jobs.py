@@ -1,9 +1,4 @@
-"""Durable control-plane records for background data preparation.
-
-Preparation evidence remains in each project's DuckDB database.  These small
-records deliberately live outside that database so a browser can read progress
-while the worker process owns the project's database write lock.
-"""
+"""Session-scoped control-plane records for background data preparation."""
 
 from __future__ import annotations
 
@@ -61,7 +56,7 @@ PHASE_LABELS: dict[PreparationPhase, str] = {
 
 @dataclass(frozen=True, slots=True)
 class PreparationJob:
-    """One durable preparation attempt and its latest progress snapshot."""
+    """One preparation attempt and its latest in-memory progress snapshot."""
 
     job_id: str
     project_id: str

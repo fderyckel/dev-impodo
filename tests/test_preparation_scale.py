@@ -43,7 +43,9 @@ from impodo.domain.resolution import (
     ResolutionRule,
     SimilarityAlgorithm,
 )
-from impodo.domain.staging.scale import BROWSER_EVALUATION_ROW_LIMIT
+from impodo.domain.staging.scale import (
+    BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+)
 from impodo.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
@@ -450,10 +452,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
         import psutil
 
-        if PREPARATION_SCALE_ROWS > BROWSER_EVALUATION_ROW_LIMIT:
+        if PREPARATION_SCALE_ROWS > BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:
             self.skipTest(
                 "The production background probe honors the current "
-                f"{BROWSER_EVALUATION_ROW_LIMIT:,}-row browser safety limit"
+                f"{BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:,}-row "
+                "bounded-direct safety limit"
             )
 
         project_id, _source_sha256, _source_size_bytes = (

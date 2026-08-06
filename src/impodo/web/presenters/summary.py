@@ -7,8 +7,13 @@ from urllib.parse import urlencode
 from fastapi import HTTPException, Request
 
 from ...access import AuthorizationError, Capability
+from ...application.bounded_preparation import supports_bounded_direct_preparation
 from ...domain.errors import ReadinessError
-from ...domain.staging.scale import browser_evaluation_scale
+from ...domain.staging.scale import (
+    BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+    BROWSER_EVALUATION_ROW_LIMIT,
+    browser_evaluation_scale,
+)
 from ...local_stack import LocalStackError
 from ...projects import MigrationProject, OdooConnectionMode
 from ...reporting import WORKBOOK_NAME
@@ -140,8 +145,26 @@ def _render_summary(
         error = session_error
     project = context.queries.get(project_id)
     source_selection = context.queries.get_source_selection(project_id)
+    effective_selection = context.queries.get_mapping_source_selection(project_id)
+    derived_plan = context.queries.get_derived_entity_plan(project_id)
+    bounded_direct = (
+        source_selection is not None
+        and effective_selection is not None
+        and supports_bounded_direct_preparation(
+            source_selection,
+            effective_selection,
+            derived_plan,
+        )
+    )
     evaluation_scale = (
-        browser_evaluation_scale(source_selection)
+        browser_evaluation_scale(
+            source_selection,
+            supported_limit=(
+                BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
+                if bounded_direct
+                else BROWSER_EVALUATION_ROW_LIMIT
+            ),
+        )
         if source_selection is not None
         else None
     )

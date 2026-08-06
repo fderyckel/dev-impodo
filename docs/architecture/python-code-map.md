@@ -493,7 +493,7 @@ sequenceDiagram
     participant Normalize as "NormalizationService"
 
     Route->>Jobs: enqueue(project_id, actor)
-    Jobs-->>Route: durable job ID
+    Jobs-->>Route: session-scoped job ID
     Jobs->>Worker: start preparation
     Worker->>Service: prepare(project_id, actor, progress)
     Service->>Service: verify authorization, mapping submission, and frozen source
@@ -506,19 +506,22 @@ sequenceDiagram
     Service->>Normalize: evaluate_and_publish(...)
     Normalize-->>Worker: NormalizationRunSummary
     Worker-->>Jobs: progress and terminal result
-    Route->>Jobs: poll status from separate SQLite ledger
+    Route->>Jobs: poll live status from memory
 ```
 
 ### Navigation chain
 
 1. [`build_preparation_router`](../../src/impodo/web/routers/preparation.py)
-   handles `POST /projects/{project_id}/summary/check`, durably enqueues the
-   work, and immediately redirects to a progress page.
+   handles `POST /projects/{project_id}/summary/check`, registers the work for
+   the current application session, and immediately redirects to a progress
+   page.
 2. [`PreparationJobManager`](../../src/impodo/application/preparation_job_service.py)
    supervises a child process, cancellation, retry, and crash completion. Its
-   small SQLite ledger stays readable while the worker writes project DuckDB.
-   The local default runs one heavy worker at a time so concurrent projects do
-   not multiply the preparation RAM peak; later jobs remain durably queued.
+   small progress snapshots stay in application memory while the worker writes
+   project DuckDB. The local default runs one heavy worker at a time so
+   concurrent projects do not multiply the preparation RAM peak; later jobs
+   remain queued for this application session. Restarting Impodo clears these
+   transient snapshots without affecting completed evidence in DuckDB.
 3. [`PreparationService.prepare`](../../src/impodo/application/preparation_service.py)
    enforces the workflow order and owns the use-case transaction boundaries.
 4. [`stage_browser_mapping`](../../src/impodo/application/preparation_service.py)

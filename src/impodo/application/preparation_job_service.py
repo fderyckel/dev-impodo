@@ -1,4 +1,4 @@
-"""Run heavy preparation in a child process and supervise durable progress."""
+"""Run heavy preparation in a child process and supervise live progress."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from threading import RLock, Thread
 from typing import Any
 
 from ..access import Actor
-from ..adapters.sqlite.preparation_job_repository import (
-    PreparationJobRepository,
+from .preparation_job_registry import (
+    PreparationJobRegistry,
     PreparationJobStateError,
 )
 from ..connectors import ConnectorError
@@ -47,7 +47,7 @@ class PreparationJobManager:
         import multiprocessing
 
         self.root = Path(root).resolve()
-        self.repository = PreparationJobRepository(self.root)
+        self.registry = PreparationJobRegistry()
         self._process_context = process_context or multiprocessing.get_context("spawn")
         if max_workers < 1:
             raise ValueError("max_workers must be at least one")
@@ -64,9 +64,9 @@ class PreparationJobManager:
         *,
         actor: Actor,
     ) -> PreparationJob:
-        """Persist one attempt and start it without holding the HTTP request."""
+        """Register one attempt and start it without holding the HTTP request."""
 
-        job, created = self.repository.enqueue(
+        job, created = self.registry.enqueue(
             project_id,
             project_name,
             total_rows,
@@ -89,7 +89,7 @@ class PreparationJobManager:
     ) -> PreparationJob:
         """Create a fresh attempt after a failed or cancelled job."""
 
-        previous = self.repository.get(project_id, job_id)
+        previous = self.registry.get(project_id, job_id)
         if previous.status not in {
             PreparationJobStatus.FAILED,
             PreparationJobStatus.CANCELLED,
@@ -105,20 +105,23 @@ class PreparationJobManager:
         )
 
     def get(self, project_id: str, job_id: str) -> PreparationJob:
-        return self.repository.get(project_id, job_id)
+        return self.registry.get(project_id, job_id)
 
     def active(self, project_id: str) -> PreparationJob | None:
-        return self.repository.active(project_id)
+        return self.registry.active(project_id)
+
+    def delete_project_history(self, project_id: str) -> None:
+        self.registry.delete_project_history(project_id)
 
     def cancel(self, project_id: str, job_id: str) -> PreparationJob:
-        job = self.repository.request_cancel(project_id, job_id)
+        job = self.registry.request_cancel(project_id, job_id)
         with self._lock:
             worker = self._workers.get(job_id)
             if worker is not None:
                 worker.cancel.set()
                 return job
             if self._pending.pop(job_id, None) is not None:
-                stopped = self.repository.mark_cancelled(job_id)
+                stopped = self.registry.mark_cancelled(job_id)
                 self._schedule_locked()
                 return stopped
         return job
@@ -148,7 +151,7 @@ class PreparationJobManager:
             self._pending.clear()
         for job_id in pending_ids:
             try:
-                self.repository.mark_cancelled(job_id)
+                self.registry.mark_cancelled(job_id)
             except PreparationJobStateError:
                 pass
         for worker in workers:
@@ -199,7 +202,7 @@ class PreparationJobManager:
         except Exception:
             with self._lock:
                 self._workers.pop(job.job_id, None)
-            self.repository.mark_failed(
+            self.registry.mark_failed(
                 job.job_id,
                 "WORKER_START_FAILED",
                 "Impodo could not start preparation. Try again.",
@@ -223,9 +226,9 @@ class PreparationJobManager:
                     break
                 terminal_received = self._handle_event(job_id, event) or terminal_received
             if not terminal_received:
-                current = self.repository.get_by_id(job_id)
+                current = self.registry.get_by_id(job_id)
                 if current.active:
-                    self.repository.mark_failed(
+                    self.registry.mark_failed(
                         job_id,
                         "WORKER_EXITED",
                         "Preparation stopped unexpectedly. Your previous saved "
@@ -240,10 +243,10 @@ class PreparationJobManager:
     def _handle_event(self, job_id: str, event: tuple[Any, ...]) -> bool:
         kind = str(event[0])
         if kind == "started":
-            self.repository.mark_running(job_id)
+            self.registry.mark_running(job_id)
             return False
         if kind == "progress":
-            self.repository.update_progress(
+            self.registry.update_progress(
                 job_id,
                 PreparationPhase(str(event[1])),
                 completed_rows=int(event[2]),
@@ -252,16 +255,16 @@ class PreparationJobManager:
             )
             return False
         if kind == "succeeded":
-            self.repository.mark_succeeded(job_id, str(event[1]))
+            self.registry.mark_succeeded(job_id, str(event[1]))
             return True
         if kind == "review_required":
-            self.repository.mark_review_required(job_id)
+            self.registry.mark_review_required(job_id)
             return True
         if kind == "cancelled":
-            self.repository.mark_cancelled(job_id)
+            self.registry.mark_cancelled(job_id)
             return True
         if kind == "failed":
-            self.repository.mark_failed(job_id, str(event[1]), str(event[2]))
+            self.registry.mark_failed(job_id, str(event[1]), str(event[2]))
             return True
         return False
 
