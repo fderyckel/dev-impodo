@@ -78,6 +78,7 @@ class CanonicalPreparedSessionRow:
     """Compact already-encoded canonical payload for the direct fast path."""
 
     row_id: str
+    ordinal: int
     dataset: str
     source_row: int
     target_model: str

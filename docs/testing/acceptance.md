@@ -41,7 +41,7 @@ runtime is installed and that integration is part of the acceptance run.
 | Area | Current test modules |
 | --- | --- |
 | Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_web_app` |
-| Mapping, preparation, staging, and quality | `test_mapping_validation`, `test_derived_entities`, `test_readiness`, `test_staging_store`, `test_quality` |
+| Mapping, preparation, staging, and quality | `test_mapping_validation`, `test_derived_entities`, `test_advanced_coverage`, `test_preparation_session`, `test_readiness`, `test_staging_store`, `test_quality` |
 | Profile-driven and durable preflight | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_preflight_service`, `test_preflight_scale`, `test_reporting_cli` |
 | Local Odoo lifecycle | `test_local_odoo_reader`, `test_local_stack` |
 | Security, governance, hosting, and release | `test_project_security`, `test_governance`, `test_hosting_contracts`, `test_internal_release` |
@@ -508,6 +508,28 @@ size.
 
 The ordinary regression suite then ran 262 tests in 19.680 seconds: 252 passed
 and 10 environment-gated tests were skipped. There were no failures or errors.
+
+### Slice 6 advanced preparation diagnostic
+
+The opt-in complete-preparation fixture can install an approved scope,
+versioned reference list, governed code-list and metric checks, deterministic
+resolution policy, compact effective-row persistence, and downstream
+normalization by setting `IMPODO_PREPARATION_ADVANCED=1`.
+
+On 2026-08-06 the 25,000-row products fixture completed in 92.811 seconds with
+an observed 1,133.8 MiB peak working set, 910.0 MiB ending RSS, and a 108.5 MiB
+project database. It published 25,000 canonical rows, 25,000 effective quality
+rows, 25,000 normalization effects, no quality issue, no quarantine, and no
+failed control total. Its staging, quality, and normalization hashes were
+`sha256:a9cdbdca9c738a0514661f994172c5105d42dadee937324f950bb6adcdc1cd5c`,
+`sha256:fa64b9c405d035b837ec91ecf5c1d962c3839c352db73939f3e4cece46179977`,
+and
+`sha256:e9b937f7bb77327e40c7460659d1bdd63857ad988d66c488953653d921028b21`.
+
+Slice 6 treats elapsed time, working set, and database size as retained
+operational diagnostics rather than correctness release gates. The supported
+browser limit remains 25,000 rows; the separate 100,000-row plan owns any
+increase.
 
 Results after the contained CPU and encoded-once publication changes on the
 MacBook Air M5 on 2026-08-06:

@@ -25,10 +25,15 @@ controlled loading, and reconciliation.
 
 The current product provides local-browser project setup, CSV/XLSX source
 discovery and frozen datasets, read-only target-schema capture, governed
-mapping authoring, durable canonical staging, and integrated quality and
-quarantine before read-only Odoo comparison. It does not yet provide the
-integrated normalization approval, clean-package certification, controlled
-Odoo loading, or reconciliation workflow.
+mapping authoring, durable canonical and effective staging, integrated quality
+and normalization approval, and read-only Odoo comparison. It does not yet
+provide controlled Odoo loading or write reconciliation.
+
+The active roadmap follows the
+[practical delivery reset](plans/practical-delivery-reset.md): complete one
+100–300-record migration in a disposable Odoo database before expanding
+optional governance or production controls. Advanced coverage capabilities
+remain available but are not prerequisites for the ordinary path.
 
 ## 2. User workflow
 

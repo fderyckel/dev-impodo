@@ -1184,7 +1184,32 @@ class ProjectMigrationsMixin:
                     version = 21
                 if version == 21:
                     create_preparation_session_schema(connection)
+                    create_advanced_coverage_schema(connection)
                     version = 22
+                if version == 22:
+                    create_preparation_session_schema(connection)
+                    for table in (
+                        "preparation_final_row",
+                        "preparation_impact_row",
+                        "preparation_physical_row",
+                        "preparation_lineage",
+                        "preparation_finalization_row",
+                        "preparation_identity_group",
+                        "preparation_provisional_row",
+                    ):
+                        connection.execute(f"DELETE FROM {table}")
+                    connection.execute(
+                        """
+                        UPDATE preparation_session
+                           SET status = 'FAILED',
+                               failure_code = 'SESSION_SCHEMA_UPGRADED',
+                               provisional_row_count = 0,
+                               canonical_row_count = 0,
+                               impact_row_count = 0
+                         WHERE status IN ('BUILDING', 'FINALIZING', 'READY')
+                        """
+                    )
+                    version = 23
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

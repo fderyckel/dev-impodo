@@ -14,6 +14,7 @@ from impodo.adapters.duckdb.preparation_session_repository import (
 )
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.domain.staging.preparation_session import (
+    CanonicalPreparedSessionRow,
     PreparationSessionBindings,
     PreparationSessionStatus,
     PreparedSessionRow,
@@ -22,13 +23,14 @@ from impodo.domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
 )
-from impodo.models import LogicalReference, PreparedRecord
+from impodo.models import LogicalReference, PreparedRecord, canonical_json_bytes
 from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
 from impodo.staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
     StagingDatasetRole,
     StagingDisposition,
+    canonical_row_from_prepared,
 )
 
 
@@ -257,6 +259,98 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
                 [session.session_id],
             ).fetchone()
         self.assertEqual(stored, (0,))
+
+    def test_encoded_canonical_duplicates_use_exception_finalization(self) -> None:
+        session = self.repository.begin_session(
+            self.project.project_id,
+            self.bindings,
+        )
+        rows: list[CanonicalPreparedSessionRow] = []
+        for ordinal, source_row in enumerate((2, 3)):
+            record = PreparedRecord(
+                dataset="contacts",
+                source_row=source_row,
+                target_model="res.partner",
+                source_identity=("C001",),
+                target_identity=("C001",),
+                target_scope=(),
+                scalar_values={"name": "Alice"},
+                references={},
+            )
+            canonical = canonical_row_from_prepared(
+                record,
+                mode="upsert",
+                source_hash=SOURCE_HASH,
+                source_selection_hash=SELECTION_HASH,
+                mapping_hash=MAPPING_HASH,
+                schema_hash=SCHEMA_HASH,
+                derived_plan_hash=None,
+                field_sources={"name": ("column:name",)},
+                physical_dataset_id="dataset:contacts",
+                physical_source_rows=(source_row,),
+            )
+            rows.append(
+                CanonicalPreparedSessionRow(
+                    row_id=canonical.row_id,
+                    ordinal=ordinal,
+                    dataset=canonical.dataset,
+                    source_row=canonical.source_row,
+                    target_model=canonical.target_model,
+                    disposition=canonical.disposition,
+                    source_identity=canonical.source_identity,
+                    row_json=canonical_json_bytes(
+                        canonical.to_portable_dict()
+                    ).decode("utf-8"),
+                    physical_sources={"dataset:contacts": (source_row,)},
+                )
+            )
+        self.repository.append_session_batch(
+            self.project.project_id,
+            session.session_id,
+            rows,
+            (),
+        )
+
+        stored = self.repository.finalize_session(
+            self.project.project_id,
+            session.session_id,
+            modes={"contacts": "upsert"},
+            field_sources={"contacts": {"name": ("column:name",)}},
+            dataset_evidence={
+                "contacts": (
+                    "dataset:contacts",
+                    StagingDatasetRole.DIRECT,
+                    2,
+                    "res.partner",
+                )
+            },
+            run_issues=(),
+            control_totals=(),
+            impact_report=TransformationImpactReport(
+                mapping_content_hash=MAPPING_HASH,
+                evaluated_count=0,
+                changed_count=0,
+                fallback_count=0,
+                null_count=0,
+                invalid_count=0,
+                provided_count=0,
+                unchanged_count=0,
+                rows=(),
+                detail_limit=0,
+            ),
+        )
+
+        restored = tuple(stored.rows)
+        self.assertEqual(len(restored), 2)
+        self.assertTrue(
+            all(row.disposition is StagingDisposition.BLOCKED for row in restored)
+        )
+        self.assertTrue(
+            all(
+                any(issue.code == "SOURCE_IDENTITY_DUPLICATE" for issue in row.issues)
+                for row in restored
+            )
+        )
 
 
 if __name__ == "__main__":

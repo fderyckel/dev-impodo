@@ -110,6 +110,25 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
             self._session_id,
         )
 
+    def iter_encoded_batches(self, connection, batch_size: int):
+        """Read exact stored JSON through the publication transaction."""
+
+        start = 0
+        while batch := connection.execute(
+            """
+            SELECT ordinal, row_id, dataset, source_row, target_model,
+                   disposition, row_json
+              FROM preparation_final_row
+             WHERE session_id = ?
+               AND ordinal >= ?
+             ORDER BY ordinal
+             LIMIT ?
+            """,
+            [self._session_id, start, batch_size],
+        ).fetchall():
+            yield batch
+            start += len(batch)
+
 
 class PreparationSessionRepository(DuckDbRepository):
     """Persist provisional rows and expose a bounded canonical publication."""
@@ -120,6 +139,8 @@ class PreparationSessionRepository(DuckDbRepository):
         return self._database.connection_factory.connect(
             path,
             memory_limit=PREPARATION_SESSION_MEMORY_LIMIT,
+            threads="1",
+            preserve_insertion_order=False,
         )
 
     def begin_session(
@@ -241,6 +262,7 @@ class PreparationSessionRepository(DuckDbRepository):
             provisional_values.append(
                 [
                     session_id,
+                    canonical.ordinal if canonical is not None else None,
                     dataset,
                     source_row_number,
                     target_model,
@@ -287,17 +309,22 @@ class PreparationSessionRepository(DuckDbRepository):
                     session_id,
                     PreparationSessionStatus.BUILDING,
                 )
+                start = int(current[1])
+                for offset, values in enumerate(provisional_values):
+                    if values[1] is None:
+                        values[1] = start + offset
                 if provisional_values:
                     connection.execute(
                         """
                         INSERT INTO preparation_provisional_row (
-                            session_id, dataset, source_row, target_model,
+                            session_id, ordinal, dataset, source_row,
+                            target_model,
                             identity_hash, payload_kind, row_id,
                             disposition, record_json
                         )
                         SELECT unnest(?), unnest(?), unnest(?), unnest(?),
                                unnest(?), unnest(?), unnest(?), unnest(?),
-                               unnest(?)
+                               unnest(?), unnest(?)
                         """,
                         _columnar_parameters(provisional_values),
                     )
@@ -975,10 +1002,7 @@ class PreparationSessionRepository(DuckDbRepository):
                            target_model, disposition, record_json
                       FROM (
                           SELECT provisional.session_id,
-                                 row_number() OVER (
-                                     ORDER BY provisional.dataset,
-                                              provisional.source_row
-                                 ) - 1 AS ordinal,
+                                 provisional.ordinal,
                                  provisional.row_id,
                                  provisional.dataset,
                                  provisional.source_row,
@@ -1036,10 +1060,7 @@ class PreparationSessionRepository(DuckDbRepository):
                                      AS physical_source_rows
                             FROM (
                                 SELECT provisional.session_id,
-                                       row_number() OVER (
-                                           ORDER BY provisional.dataset,
-                                                    provisional.source_row
-                                       ) - 1 AS ordinal,
+                                       provisional.ordinal,
                                        provisional.dataset,
                                        provisional.source_row,
                                        COALESCE(

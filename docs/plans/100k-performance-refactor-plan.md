@@ -2,10 +2,12 @@
 
 ## Status and outcome
 
-**Status:** In progress since 2026-08-05. P1 CPU work, encoded-once
-publication, and the durable typed-row quality boundary are implemented. The
-corrected 2026-08-06 complete 100,000-row probes pass the time gate but peak at
-more than 1.6 GiB, so bounded source preparation remains the release blocker.
+**Status:** In progress since 2026-08-05. P1 CPU work and the direct-dataset P3
+bounded source/session path are implemented. Direct 100,000-row Products and
+BOM-shaped source phases pass their 120-second and 900-MiB gates. The complete
+Products workflow takes 88.661 seconds but peaks at 1,608.6 MiB because P4
+still materializes the canonical and quality object graphs. Related/derived
+BOM P3 behavior and P4 remain release blockers.
 
 This plan raises the supported browser preparation scope from 25,000 to
 100,000 physical source rows without weakening deterministic evidence,
@@ -398,7 +400,11 @@ evidence is stale or incomplete.
 
 ### P3 - Stream source preparation into temporary durable staging
 
-**Status:** Pending. This is now the next material performance phase.
+**Status:** Partial. Bounded CSV/XLSX readers, compiled row transformers,
+durable preparation sessions, batched impacts and lineage, duplicate-identity
+finalization, exact encoded publication, failure cleanup, and the direct
+Products/BOM-shaped path are implemented. Related/derived BOM behavior remains
+on the materializing path.
 
 The implementation-ready scope, sequencing, failure model, and gates are in
 the [100,000-row bounded preparation implementation plan](100k-bounded-preparation-plan.md).
@@ -437,9 +443,15 @@ become a second mapping language.
 lineage, totals, or issue evidence. Peak memory stays bounded as row count
 increases from 25,000 to 100,000.
 
+Current controlled evidence: direct Products completed source/session work in
+44.384 seconds at 750.6 MiB peak, and direct BOM-shaped input completed in
+50.555 seconds at 744.0 MiB peak. The ordinary focused suite and exact direct
+parity checks pass. The product limit remains unchanged because Increment 4
+and the complete P4 gate are still open.
+
 ### P4 - Stream quality and normalization evidence
 
-**Status:** Partial. Single-use upstream hashes, exact incremental document
+**Status:** Next measured RAM blocker. Single-use upstream hashes, exact incremental document
 hashing, encode-once row persistence, typed `UNNEST` batches, and removal of
 the normalization-candidate tuple copy are implemented. Quality now consumes
 verified durable typed canonical rows without `PreparedBundle`, and durable

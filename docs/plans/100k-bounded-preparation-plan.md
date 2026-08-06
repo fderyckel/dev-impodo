@@ -2,8 +2,10 @@
 
 ## Status and authority
 
-**Status:** Planned on 2026-08-06. This is the implementation plan for P3 of
-the [100,000-row performance refactor plan](100k-performance-refactor-plan.md).
+**Status:** In progress on 2026-08-06. Increments 1-3 are implemented for
+direct datasets. Increment 4 remains open for related/derived BOM behavior,
+so P3 is not yet complete. This is the implementation plan for P3 of the
+[100,000-row performance refactor plan](100k-performance-refactor-plan.md).
 It is a cross-cutting performance work package, not the product's numbered
 Slice 6.
 
@@ -55,6 +57,40 @@ Both pass the 120-second time gate and fail the 900-MiB peak-memory gate. The
 peak occurs during source evaluation, when several row-proportional Python
 representations coexist. Releasing the prepared bundle before quality lowered
 later residency but could not address that peak.
+
+## 2026-08-06 implementation evidence
+
+Controlled fresh-process probes on the same MacBook Air M5, repository,
+fixture generator, Python environment, 5,000-row source/session batch, and
+96-MiB session DuckDB limit produced:
+
+| Fixture and scope | Rows | Time | Peak working set | Ending RSS | Database |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Direct Products, source through session finalization | 100,000 | 44.384 s | 750.6 MiB | 602.2 MiB | 296.5 MiB |
+| Direct BOM, source through session finalization | 100,000 | 50.555 s | 744.0 MiB | 737.2 MiB | 314.5 MiB |
+| Products, complete Stage E-G workflow | 100,000 | 88.661 s | 1,608.6 MiB | 664.2 MiB | 374.3 MiB |
+
+All results in the table use the final 96-MiB session setting. The Products
+source duration inside the complete run was 43.695 seconds, consistent with
+the isolated result.
+
+The direct source phase now passes both phase gates with meaningful margin.
+Exact small-fixture canonical bytes and hashes match the materializing oracle;
+CSV/XLSX batch sizes `1`, `17`, and the production default preserve reader and
+transformer behavior; duplicate identities spanning batches pass through the
+bounded exception finalizer; and failure cleanup retains only a safe status
+code.
+
+The complete workflow still fails the RAM gate. After bounded publication,
+`get_canonical_staging_run` reconstructs all canonical rows into a tuple and
+`evaluate_quality` builds complete row, coordinate, dataset, issue, and result
+collections. That Stage E-to-F handoff, not P3 source preparation, is the next
+measured memory blocker. The browser limit therefore remains 25,000 rows.
+
+The BOM scale fixture exercises BOM-shaped direct data. It does not close
+Increment 4: persisted parent grouping, relationship edges, derived hierarchy,
+and multi-source lineage must still be routed through the bounded session and
+proved against the materializing oracle.
 
 ## Scope
 

@@ -41,6 +41,7 @@ def create_preparation_session_schema(
 
         CREATE TABLE IF NOT EXISTS preparation_provisional_row (
             session_id VARCHAR NOT NULL,
+            ordinal BIGINT NOT NULL,
             dataset VARCHAR NOT NULL,
             source_row BIGINT NOT NULL,
             target_model VARCHAR NOT NULL,
@@ -77,6 +78,8 @@ def create_preparation_session_schema(
         );
 
         ALTER TABLE preparation_provisional_row
+            ADD COLUMN IF NOT EXISTS ordinal BIGINT;
+        ALTER TABLE preparation_provisional_row
             ADD COLUMN IF NOT EXISTS payload_kind VARCHAR DEFAULT 'PREPARED';
         ALTER TABLE preparation_provisional_row
             ADD COLUMN IF NOT EXISTS row_id VARCHAR;
@@ -84,6 +87,9 @@ def create_preparation_session_schema(
             ADD COLUMN IF NOT EXISTS disposition VARCHAR;
         ALTER TABLE preparation_finalization_row
             ADD COLUMN IF NOT EXISTS payload_kind VARCHAR DEFAULT 'PREPARED';
+
+        CREATE UNIQUE INDEX IF NOT EXISTS preparation_provisional_ordinal
+            ON preparation_provisional_row (session_id, ordinal);
 
         CREATE TABLE IF NOT EXISTS preparation_lineage (
             session_id VARCHAR NOT NULL,

@@ -40,9 +40,10 @@ certifiable read-only preflight package. It does not redefine:
 | Advanced coverage | Approved scope and reference revisions, bounded structural rules, deterministic duplicate candidates, reviewed survivor/correction evidence, effective rows, and advanced quality checks are integrated without Odoo writes |
 
 Read-only preflight now runs directly from durable frozen effective rows
-instead of recomputing a transient prepared bundle. Slice 6 is complete; the
-next delivery slice is Slice 7 clean-package certification and authorized
-target rehearsal.
+instead of recomputing a transient prepared bundle. Slice 6 is complete. The
+next delivery milestone is the narrow end-to-end migration in the
+[practical delivery reset](practical-delivery-reset.md), not another broad
+coverage or certification layer.
 
 The cross-cutting
 [100,000-row performance refactor plan](100k-performance-refactor-plan.md)
@@ -257,18 +258,25 @@ storage. The local suite is green. A 25,000-row advanced diagnostic completed
 with all rows reconciled; its time and memory are retained as observations,
 not Slice 6 release gates.
 
-### Slice 7 — Certify a clean package and rehearse
+### Practical milestone — Complete the first routine migration
 
-Evaluate every applicable clean-package gate, freeze the complete package
-manifest, and bind any approval to that exact content. Validate Odoo selection
-technical keys, External ID strategy, company boundaries, currencies, units,
-languages, readonly/computed fields, defaults, and deferred custom constraints.
+Use the existing approved normalization and read-only comparison evidence to
+preview, load, and reconcile 100–300 representative contacts, product
+categories, and products in a disposable Odoo 19 database. Use native JSON-2,
+one explicit **Load** action, bounded batches, stable identities, a row journal,
+and automatic read-back.
 
-Target rehearsal requires a separately authorized Odoo 19 environment and
-adapter. Production execution remains outside this plan.
+Do not require advanced coverage, a separate clean-package certificate, a
+custom Odoo module, dual approval, or production ceremony for this disposable
+target case. Those controls remain risk-triggered capabilities.
 
-**Gate:** the exact package passes the coverage ledger and authorized target
-rehearsal; any changed input invalidates the certificate and approval.
+**Gate:** every representative row is verified or has an explicit failure or
+unknown outcome, and repeating the migration creates no duplicate.
+
+The implementation sequence is owned by the
+[practical delivery reset](practical-delivery-reset.md). The broader
+[Odoo controlled-load plan](odoo-controlled-load-plan.md) remains a reference
+for later standard and controlled profiles.
 
 ## Acceptance requirements
 

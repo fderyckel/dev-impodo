@@ -200,6 +200,11 @@ def prepare_bounded_direct_session(
         str,
         tuple[str, StagingDatasetRole, int, str],
     ] = {}
+    dataset_offsets: dict[str, int] = {}
+    next_offset = 0
+    for dataset in sorted(effective_selection.datasets, key=lambda item: item.name):
+        dataset_offsets[dataset.dataset_id] = next_offset
+        next_offset += dataset.row_count
 
     try:
         for effective in effective_selection.datasets:
@@ -296,6 +301,11 @@ def prepare_bounded_direct_session(
                             prepared_batch.append(
                                 CanonicalPreparedSessionRow(
                                     row_id=canonical.row_id,
+                                    ordinal=(
+                                        dataset_offsets[effective.dataset_id]
+                                        + row_count
+                                        + len(prepared_batch)
+                                    ),
                                     dataset=canonical.dataset,
                                     source_row=canonical.source_row,
                                     target_model=canonical.target_model,

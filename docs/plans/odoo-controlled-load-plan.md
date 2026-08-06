@@ -2,9 +2,10 @@
 
 ## Status and decision
 
-**Status:** Proposed architecture and delivery plan for the first Odoo write
-capability. It extends the implemented preparation and read-only preflight
-pipeline; it does not grant the current application permission to write.
+**Status:** Reference architecture. Only the routine migration MVP is active
+under the [practical delivery reset](practical-delivery-reset.md). Standard,
+controlled, gateway, hosted, and production-hardening slices are parked until
+the representative disposable-target migration succeeds.
 
 The governing principle is **progressive assurance**: keep routine migrations
 easy, automate evidence collection, and add ceremony only when the target or

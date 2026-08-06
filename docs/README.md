@@ -56,6 +56,9 @@ Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
 - [Slice 6 advanced coverage plan](plans/slice-6-advanced-coverage-plan.md)
   — scoped structural, reference, domain, anomaly, fuzzy-resolution,
   survivorship, and effective-dataset work before clean-package certification.
+- [Practical delivery reset](plans/practical-delivery-reset.md) — active path
+  to one 100–300-record disposable-target migration before expanding optional
+  governance or production controls.
 - [Python code documentation plan](plans/python-code-documentation-plan.md) —
   phased module, class, method, and call-flow documentation for `src/impodo/`,
   organized around migration Stages A–K.

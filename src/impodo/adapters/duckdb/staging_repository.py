@@ -31,6 +31,7 @@ from ...staging_contracts import (
     CanonicalStagingRun,
     StagingDatasetReconciliation,
     StagingReconciliation,
+    validate_canonical_row_bindings,
 )
 from ...workspace_contracts import SourceSelection
 from ...workspace_errors import WorkspaceError
@@ -487,6 +488,80 @@ class StagingRepository(DuckDbRepository):
         hasher.add_value("project_id", run.project_id)
         hasher.add_value("reconciliation", run.reconciliation.to_portable_dict())
         hasher.start_array("rows")
+        encoded_batches = getattr(run.rows, "iter_encoded_batches", None)
+        if callable(encoded_batches):
+            expected_ordinal = 0
+            for batch in encoded_batches(connection, STAGING_ROW_BATCH_SIZE):
+                values: list[list[object]] = []
+                for (
+                    ordinal,
+                    row_id,
+                    dataset,
+                    source_row,
+                    target_model,
+                    disposition,
+                    row_json,
+                ) in batch:
+                    if int(ordinal) != expected_ordinal:
+                        raise WorkspaceError(
+                            "Stored preparation rows are not contiguous"
+                        )
+                    try:
+                        row = CanonicalRow.from_dict(json.loads(str(row_json)))
+                        validate_canonical_row_bindings(
+                            row,
+                            source_selection_hash=run.source_selection_hash,
+                            mapping_hash=run.mapping_hash,
+                            schema_hash=run.schema_hash,
+                            derived_plan_hash=run.derived_plan_hash,
+                        )
+                    except (TypeError, ValueError) as error:
+                        raise WorkspaceError(
+                            "Stored preparation row is invalid"
+                        ) from error
+                    if (
+                        row.row_id != str(row_id)
+                        or row.dataset != str(dataset)
+                        or row.source_row != int(source_row)
+                        or row.target_model != str(target_model)
+                        or row.disposition.value != str(disposition)
+                    ):
+                        raise WorkspaceError(
+                            "Stored preparation row metadata is inconsistent"
+                        )
+                    encoded = str(row_json)
+                    hasher.add_encoded_array_item(encoded)
+                    values.append(
+                        [
+                            run_id,
+                            expected_ordinal,
+                            row.row_id,
+                            row.dataset,
+                            row.source_row,
+                            row.target_model,
+                            row.disposition.value,
+                            encoded,
+                        ]
+                    )
+                    expected_ordinal += 1
+                connection.execute(
+                    """
+                    INSERT INTO canonical_staging_row (
+                        run_id, ordinal, row_id, dataset, source_row,
+                        target_model, disposition, row_json
+                    )
+                    SELECT
+                        unnest(?), unnest(?), unnest(?), unnest(?),
+                        unnest(?), unnest(?), unnest(?), unnest(?)
+                    """,
+                    _columnar_parameters(values),
+                )
+            if expected_ordinal != len(run.rows):
+                raise WorkspaceError("Stored preparation rows are incomplete")
+            hasher.end_array()
+            hasher.add_value("schema_hash", run.schema_hash)
+            hasher.add_value("source_selection_hash", run.source_selection_hash)
+            return hasher.finish()
         for start in range(0, len(run.rows), STAGING_ROW_BATCH_SIZE):
             batch = run.rows[start : start + STAGING_ROW_BATCH_SIZE]
             values: list[list[object]] = []
