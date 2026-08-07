@@ -1,668 +1,506 @@
-# Impodo local-browser user guide
+# Impodo end-to-end local-browser guide
 
-## Audience and current boundary
+## Who this guide is for
 
-This guide is for data analysts and data managers using the current local
-browser workflow:
+This guide is for a data manager who understands customers, products, product
+categories, bills of materials (BoMs), and other ERP records, but does not need
+to know how Impodo is designed internally.
 
-```text
-Project setup -> Source data -> Odoo fields -> Match fields -> Review
-```
+It follows one complete fictional project from source files to a reviewed local
+Odoo 19 load. The same pattern applies to standard and approved custom Odoo
+record types.
 
-Impodo registers and inspects CSV/XLSX evidence, freezes selected datasets,
-captures an Odoo 19 schema, and creates validated mapping revisions. After
-submission, it can check every frozen source row against read-only Odoo
-evidence. On a disposable Local Odoo 19 target, it can then load the exact
-standard or custom models and writable fields captured from Odoo and confirmed
-in the mapping. It reads accepted rows back and reconciles the completed load.
+## Confidentiality and safety
 
-The [migration project contract](../contracts/01-migration-project.md) and
-[browser workspace contract](../contracts/02-workspace.md) define the exact
-persistence, invalidation, and submission rules.
+Every name, email address, reference, filename, quantity, database name, and
+value in this guide was invented for training. The screenshots were captured
+from a separate local project containing only this dummy data. No corporate
+source data was copied into the guide or its images.
 
-The screenshots use fictional training data at a desktop viewport.
+The screenshots show representative checkpoints from this one fictional
+scenario. Counts and examples are deliberately small enough to review by eye.
 
-## Quick safe route
+Use the examples as templates, not as production data.
 
-1. Start Impodo from the approved shortcut.
-2. Create one project for the complete migration scope.
-3. Add every related source file before registering the project.
-4. Configure an authorised `LOCAL` or `REMOTE` Odoo target.
-5. Inspect and confirm every file, then freeze the selected datasets.
-6. Choose the Odoo record types and load their fields.
-7. Confirm how Impodo should find existing records.
-8. Match source values, ordinary fields, and linked records.
-9. Save progress regularly, then select **Check mapping**.
-10. Select **Review transformation impact** and inspect the raw-to-proposed
-    results across the frozen source.
-11. Resolve blocking findings, review warnings, and submit the exact revision.
-12. Open **Review**, select **Check all rows**, and fix or review every row
-    Impodo identifies.
-13. Optionally create the review workbook when every row is ready.
-14. For a disposable Local Odoo target, open **Preview Odoo load**, review the
-    totals, enter the Odoo API key, and select **Load into Odoo** once.
-15. Review the Odoo read-back result. Download the fallout list when any row
-    differs, was not applied, is missing, or remains unknown.
-16. Use **Quit Impodo** when finished.
+Impodo has two different safety boundaries:
 
-## Before starting
+- Source inspection, preparation, transformation review, and Odoo comparison
+  are read-only. They do not change the registered files or Odoo.
+- **Load into Odoo** is a separate, explicit action. It is currently available
+  only for an approved disposable Local Odoo target, not a remote or production
+  target.
 
-Prepare:
+## The training project
 
-- final `.csv` or `.xlsx` exports with clear headers;
-- stable source and target business identifiers;
-- the source export date, data owner, classification, and retention decision;
-- the exact authorised Odoo 19 URL, database, models, and business keys;
-- a dedicated read-only API key for `REMOTE`, or the selected local
-  `odoo.conf` for `LOCAL` inspection;
-- an Odoo API key with the required model/field permissions if the approved
-  disposable-local load will be used.
+The fictional project migrates:
 
-Keep the original export unchanged. When the source owner issues a correction,
-register it as new governed evidence rather than editing a registered project
-file.
+- three customers;
+- four products and services;
+- four product categories extracted from the product file;
+- one BoM header and two BoM component lines.
 
-## Start Impodo
+Copyable starter files are included with this guide:
 
-Use the shortcut supplied with the accepted installation. Developers may run:
+- [customers_training.csv](../examples/impodo-end-to-end-training/customers_training.csv)
+- [products_training.csv](../examples/impodo-end-to-end-training/products_training.csv)
+- [bom_lines_training.csv](../examples/impodo-end-to-end-training/bom_lines_training.csv)
 
-```powershell
+The files demonstrate two ways of organizing related information:
+
+~~~text
+Product Category column -> product_categories -> products
+
+Repeated BoM rows -> bom_headers (one per BoM)
+                  -> bom_components (every component line)
+~~~
+
+The Odoo load order follows the relationships:
+
+~~~text
+Existing countries -> customers
+
+product_categories -> products -> bom_headers -> bom_components
+~~~
+
+Impodo keeps the whole migration in one project. It prepares and loads tables
+in dependency order; the data manager does not create unrelated projects for
+each Odoo model.
+
+## Before you start
+
+Have these decisions ready:
+
+- the final CSV or XLSX exports;
+- the source export date and source-system name;
+- the data manager and functional owner;
+- the classification, purpose, and retention period;
+- the Local or Remote Odoo URL and database;
+- the Odoo record types included in the migration;
+- one stable business key for each record type;
+- an Odoo API key only if an approved disposable-local load will be performed.
+
+Do not use Odoo's numeric database IDs as source keys. Use portable business
+values such as customer reference, internal product reference, country code,
+or BoM reference.
+
+## 1. Start Impodo and create one project
+
+Start Impodo from the approved shortcut. A developer installation may be
+started from PowerShell with:
+
+~~~powershell
 .\.venv\Scripts\impodo.exe
-```
+~~~
 
-Impodo opens a random `http://127.0.0.1:<port>` address. Do not bookmark or
-share it: the launch URL contains a short-lived, single-use sign-in token.
+Impodo opens a local 127.0.0.1 address with a short-lived sign-in token. Do not
+bookmark or share that address.
 
-## 1. Project setup
+Select **New project** and enter:
 
-The first page lists projects stored on this computer.
+- Project name: **Odoo 19 training migration**
+- Source system: **Northstar ERP (fictional)**
+- Export status: **Files received**
+- Export date: the date of the governed export
+- Data manager: **Alex Morgan**
+- Functional owner: **Jamie Laurent**
+- Classification: **Confidential**
+- Retention: **30 days** for this rehearsal
 
-![Project list with an existing project and New project action.](../images/impodo-local-browser-guide/01-project-list.png)
+Add all related files before selecting **Register project**. Registration
+freezes the file list; it does not yet freeze the individual tables.
 
-Select an existing project or **New project**. One project may contain many
-related files, datasets, and Odoo models, but it must not combine unrelated
-customers, target databases, or approval chains.
+![Project overview showing the six data-manager stages in one fictional migration project.](../images/impodo-local-browser-guide/01-project-overview.png)
 
-![New project page.](../images/impodo-local-browser-guide/02-create-project.png)
+The six stages are the data manager's main route:
 
-Record:
+1. Source data
+2. Odoo data
+3. Match data
+4. Prepare data
+5. Final review
+6. Load into Odoo
 
-- recognizable project name and source system;
-- export status and source export date;
-- responsible data manager and functional owner;
-- data classification, purpose, and retention after acceptance;
-- every required source file;
-- `LOCAL` or `REMOTE` target, exact URL, and database.
+Use the next action shown on the overview. Avoid jumping ahead through sidebar
+links when an earlier stage still needs attention.
 
-Registration requires **Files received**, an export date, and at least one
-source file. Add related files one at a time while the project is still a
-draft. **Continue** changes the setup page; it does not register the project.
+## 2. Check and confirm the source files
 
-Selecting **Register project** freezes the source-file list. Afterward, files
-can be inspected but not added, removed, or replaced. If the source set is
-incomplete, create a new project or rehearsal rather than modifying stored
-files or DuckDB directly.
+Open **Source data** and select **Check source files**. Impodo verifies the
+stored file hash before reading it and shows a bounded preview.
 
-### Choose the target
+For every CSV, review:
 
-- **Local Odoo** accepts only a literal loopback target and does not need an
-  API key when Impodo uses the selected local workspace.
-- **Remote / on-premises Odoo** requires HTTPS and a dedicated read-only API
-  key. The key may be kept in the operating-system credential vault, never in
-  the project database.
+- text format and column separator;
+- the row containing column names;
+- included table;
+- row and column counts;
+- preview values;
+- likely data types, blanks, distinct values, and repeated values;
+- structural warnings.
 
-For local discovery, readiness, Start/Stop/Restart, and ownership rules, use
-the [local Odoo runbook](02-local-odoo.md).
+For every XLSX, also review the worksheet, named-table, and range choices.
 
-The migration-application selection is reviewer context. The technical model
-allowlist configured later is the enforced schema-read boundary.
+![Confirmed fictional product source with Product Type, Product Category, and decimal-price examples.](../images/impodo-local-browser-guide/02-source-products.png)
 
-## 2. Source discovery
+In the product example, notice that two source columns have different business
+meanings:
 
-Impodo verifies every stored file against its registered size and SHA-256 hash
-before inspection.
-
-![Registered source files and inspection status.](../images/impodo-local-browser-guide/03-source-inspection.png)
-
-For every file, review:
-
-- CSV encoding, delimiter, and proposed header;
-- XLSX worksheets, named tables, and ranges;
-- bounded preview and candidate column types;
-- null, distinct, minimum, maximum, and length statistics;
-- duplicate/blank headers, formulas, errors, and structural warnings.
-
-![Source preview and column statistics.](../images/impodo-local-browser-guide/03-source-preview.png)
-
-Correct supported parsing choices, such as delimiter or header row, and
-inspect again. Confirm only when the preview represents the intended table.
-Blank or duplicate headers block confirmation; other warnings require explicit
-acknowledgement.
-
-Acknowledgement proves review, not data readiness. Inspection never trims,
-replaces, deduplicates, recalculates, or rewrites source values.
-
-### Choose tables
-
-After confirming every source, select the exact CSV table, worksheet, or named
-table to map. Assign stable snake-case names such as `companies`, `contacts`,
-or `product_categories`.
-
-![Frozen dataset selection.](../images/impodo-local-browser-guide/04-freeze-datasets.png)
-
-Freezing creates a versioned, hash-bound selection. Reinspection,
-reconfirmation, or refreezing keeps history but invalidates the active mapping
-pointer.
-
-Use **Prepare related datasets** when one denormalized source field represents
-reusable related records or when repeated parent/line data needs a governed
-split. For one related-record field, preview the unique candidates and create
-the related dataset. Mapping then shows both the new related dataset and the
-original rows, and suggests a compatible incoming many2one relationship.
-Readiness repeats the rule over every frozen row; the page preview remains
-bounded evidence. See
-[derived-entity authoring](../derived-entity-authoring.md).
-
-## 3. Odoo fields
-
-Open **Odoo fields**, select only approved Odoo record types, and load their
-effective fields. Schema capture is read-only and uses stored, hash-bound
-snapshots for later mapping.
-
-Review field type, required/readonly state, relation, inverse field, and
-selection values. Do not substitute a similarly named field without
-functional confirmation.
-
-The schema origin is visible:
-
-- `LIVE_API` is verified evidence captured from the selected target;
-- `LOCAL_MANUAL` is an unverified local draft.
-
-A manual draft may support mapping experiments when local access is not ready,
-but submission remains blocked until live capture replaces it. Changing the
-permitted models or recapturing schema invalidates governed keys and the active
-mapping.
-
-## 4. Match fields
-
-### Confirm business keys
-
-A business key is the stable value used to find one Odoo record. It is never
-the internal numeric `id`.
-
-For each permitted model, Impodo keeps the page simple:
-
-1. If Odoo exposes one safe uniqueness rule, review the suggested matching
-   field and choose **Use suggestion**.
-2. If there is no single safe suggestion, choose a field by its business label.
-   The technical name remains visible in brackets.
-3. Add **Within** only when the same value may exist in several companies or
-   organizational scopes.
-4. Use **Combined key or technical entry** only for a genuinely composite key.
-5. Select **Confirm matching rules**, then continue to field matching.
-
-This works for standard and custom models. For example, a custom model with an
-Odoo uniqueness rule on `code` and `company_id` can be presented as **Code,
-within Company** without requiring the data manager to remember either
-technical name.
-
-Some standard examples still need judgment:
-
-| Target | Page behavior | Important limitation |
+| Source column | Example values | Odoo meaning |
 | --- | --- | --- |
-| Country | Suggest Country Code (`code`) | Odoo enforces uniqueness |
-| Product variant | Suggest Internal Reference (`default_code`) | Odoo permits duplicates |
-| Product template | Suggest Internal Reference (`default_code`) | Multi-variant templates may have no template-level reference |
-| Contact | Ask the owner to choose | Odoo has no universally safe contact key |
-| Account | Ask the owner to choose | Odoo 19 account codes depend on company context; do not invent a `company_id` field |
+| Type de produit | Article, Service | Product Type choice on product.template.type |
+| Product Category | Bottles, Design services | Related Product Category through product.template.categ_id |
 
-Avoid mutable names, guessed fields, sample-only uniqueness, or numeric IDs.
-Confirmation records the intended rule; **Check all rows** later applies
-it across the frozen rows and the captured target evidence.
+These columns must not be treated as interchangeable.
 
-### Map each dataset
+Select **Confirm this file** only when the preview represents the intended
+table. Confirmation records the review; it does not trim, deduplicate, repair,
+or rewrite the source.
 
-Choose:
+## 3. Freeze the physical tables
 
-- `upsert` to compare one business-key match or propose a create when absent;
-- `create` for controlled new records with an explicit existing-key policy;
-- `reference` for supporting relationship data without an import decision.
+After all files are confirmed, open **Choose tables** and assign stable table
+names:
 
-The page keeps the first two choices side by side so you can compare source and
-Odoo directly. Work in this order:
-
-1. **Source**: choose the column or combination that identifies each source row.
-2. **Odoo**: choose how the matching Odoo record is identified, including any
-   company, tenant, or parent scope.
-3. **Fields to fill in Odoo**: choose where ordinary values come from.
-4. **Links to other Odoo records**: connect categories, units, companies,
-   parents, and other related records.
-
-### Fields to fill in Odoo
-
-A scalar field is an ordinary Odoo value such as a name, code, date, amount,
-checkbox, note, or selection. The page calls these **Fields to fill in Odoo**;
-you do not need to know the technical term. Each row answers four questions:
-
-1. Where should the value come from?
-2. What consistent value type should Impodo produce?
-3. Which transformations should be applied?
-4. How should the value be checked and compared?
-
-Only three fields are shown at first. Search by business label or technical
-name, or use the **3**, **10**, **20**, and **50** controls to show more. Start
-with the Odoo field you want to populate, then work from left to right. Use
-**Show only fields already mapped** after the first save to focus on the
-choices you have made.
-
-#### Choose where the value comes from
-
-![Value source and cleanup controls in the Odoo field mapping table.](../images/impodo-local-browser-guide/06-scalar-value-providers.png)
-
-Each row represents one Odoo field:
-
-| Column | What it tells you |
+| File | Table name in Impodo |
 | --- | --- |
-| **Value comes from** | Where the proposed value comes from |
-| **Format and cleanup** | How Impodo normalizes and interprets that value |
-| **Odoo field** | The business label and technical field name |
-| **Odoo details** | The captured Odoo type and whether the field is required or read-only |
-| **Preview** | One source example before and after the current rules |
-| **Checks** | Whether and when the field is compared or required |
+| customers_training.csv | customers |
+| products_training.csv | products |
+| bom_lines_training.csv | bom_source_rows |
 
-A read-only Odoo field may appear as useful target context, but it cannot be
-proposed for writing. **Not mapped** excludes the field even when default
-policy controls remain visible.
+Select **Freeze selected tables**. The selection is now bound to the confirmed
+source hashes.
 
-| Value provider | What Impodo does | Good use |
-| --- | --- | --- |
-| **Not mapped** | Provides no value for this Odoo field | The field is outside this migration scope |
-| **Source column** | Reads the value from the selected CSV/XLSX column | Names, codes, dates, amounts, and other supplied data |
-| **Constant value** | Uses the same declared value for every row | A controlled value such as one company, country, language, or status |
-| **Source + fallback** | Uses the source value when present; otherwise uses the declared fallback | A governed replacement such as `Unnamed contact` when the source is empty |
-| **Leave unset / Odoo default** | Sends no proposed value and leaves the runtime choice to Odoo | A field with an intentionally accepted Odoo default |
+If the source owner sends a corrected export, register and confirm it as new
+evidence. Do not edit a registered source file or the project database.
 
-With **Source + fallback**, a blank text cell uses the fallback when **Empty →
-null** is selected. A genuinely missing/null source value also uses the
-fallback. The fallback passes through the same transformations and type check
-as a source value.
+## 4. Create additional tables from source data
 
-**Leave unset / Odoo default** cannot also be compared, validated, or marked
-required. Impodo keeps a visible warning because captured field metadata does
-not prove which value Odoo will choose at runtime.
+Open **Prepare related datasets** from Source data. This optional step organizes
+denormalized files without changing the original files.
 
-#### Choose the canonical value
+### 4.1 Create product_categories from one column
 
-The canonical value is Impodo's consistent representation of the proposed
-value. It makes validation and later comparison predictable even when the
-source file uses a different display format.
+Choose **One field contains reusable values** and enter:
 
-| Type | What Impodo accepts | Example result |
-| --- | --- | --- |
-| `string` | Text after the selected transformations | `"  Acme  SA "` can become `"Acme SA"` |
-| `integer` | Whole digits with an optional leading `+` or `-` | `"0012"` becomes `12` |
-| `decimal` | A strict number using the selected decimal locale | `"1.234,50"` with `de_DE` becomes `1234.50` |
-| `boolean` | `true`, `1`, `yes`, `y` or `false`, `0`, `no`, `n`, ignoring letter case | `"No"` becomes false |
-| `date` | The selected ISO, slash, or dot date format | `"31/08/2026"` becomes 31 August 2026 |
-| `datetime` | ISO or the selected date format with a time; stored in UTC | An ISO value with an offset is converted to the same UTC instant |
-
-Impodo proposes the type suggested by the captured Odoo field. Change it only
-when the business meaning and Odoo compatibility are clear.
-
-For decimals, choose the source convention deliberately:
-
-| Decimal locale | Example |
+| Choice | Training value |
 | --- | --- |
-| `invariant` | `1234.50` |
-| `en_US` | `1,234.50` |
-| `de_DE` | `1.234,50` |
-| `fr_FR` | `1 234,50` |
+| Use values from | products - Product Category |
+| Name shown in Impodo | product_categories |
+| Type of Odoo record | Product Category (product.category) |
+| Odoo name field | Name (name) |
+| If a source value is blank | Stop and ask me to correct it |
 
-For dates, select the exact source format: `YYYY-MM-DD`, `DD/MM/YYYY`,
-`MM/DD/YYYY`, or `DD.MM.YYYY`. Datetimes use the same selected date order and
-include a time. The browser's governed timezone is currently UTC.
+Select **Preview**, review the unique values and counts, then select **Create
+this related table**.
 
-When Odoo exposes a choice field, use its technical value—the stored code—not
-only its translated display label. Constants and fallbacks use a closed list
-showing `label — code`, so an arbitrary value cannot be entered. For a source
-column, select **Review source choices**. The dialog shows every distinct
-non-empty source choice and its row count, suggests exact code matches, and
-lets you map the remaining values to captured Odoo choices. You can save a
-partial match and return to finish it.
+![Saved product_categories rule showing four unique values extracted from the Product Category column.](../images/impodo-local-browser-guide/03-derived-category-table.png)
 
-The helper is not the final safety boundary. During the read-only Odoo
-comparison, Impodo fetches the current field metadata once per model and
-checks every non-null final value after transformations. A code that is no
-longer available blocks the affected row. If the available code set changed
-since mapping, the comparison records drift; labels may change without
-changing the authoritative codes. This same rule covers Language and every
-other Odoo `selection` field.
+Impodo now presents product_categories beside products during matching. It
+retains the original product rows and repeats the extraction over every frozen
+row during preparation.
 
-#### Apply transformations
+This training file uses flat, globally unique category names. In a real Odoo
+hierarchy, the same category name may appear under different parents. Preserve
+the parent path and agree a compound matching rule instead of merging records
+only because their final labels are equal.
 
-Impodo applies the chosen value in a fixed order. For **Source + fallback**, it
-first uses the selected basic text cleanup to decide whether the source is
-empty and the fallback is needed.
+Do not create categories from Type de produit. For this example, match its
+choices instead:
 
-```text
-selected source, constant, or governed fallback
--> optional exact source-choice to Odoo-choice match
--> optional safe formula
--> trim
--> collapse spaces
--> find and replace
--> casing
--> empty to null
--> canonical type parsing
--> decimal rounding
--> final value checks
--> preview
-```
-
-| Control | What it changes | Example |
+| Source choice | Odoo choice | Stored Odoo value |
 | --- | --- | --- |
-| **Trim** | Removes whitespace before and after the value | `"  ACME "` → `"ACME"` |
-| **Collapse spaces** | Replaces each internal run of whitespace with one space | `"Acme   Europe"` → `"Acme Europe"` |
-| **Case: preserve** | Keeps the source letter case | `"eBay"` remains `"eBay"` |
-| **Case: uppercase** | Converts letters to uppercase | `"be-001"` → `"BE-001"` |
-| **Case: lowercase** | Converts letters to lowercase | `"USER@EXAMPLE.COM"` → `"user@example.com"` |
-| **Empty → null** | Treats an empty transformed value as no value | A cell containing only spaces becomes null when Trim is also selected |
-| **Sentence case** | Capitalizes the first letter and preserves the remaining text | `"customer note"` becomes `"Customer note"` |
-| **Title Case** | Capitalizes each word | `"acme europe"` becomes `"Acme Europe"` |
+| Article | Goods | consu |
+| Service | Service | service |
 
-Use transformations to express an agreed business rule, especially for keys.
-For names and free text, preserve case unless the data owner has approved a
-different convention.
+### 4.2 Split repeated BoM rows into parent and child tables
 
-#### Add value rules
+Choose **Several rows describe the same record** for bom_source_rows and enter:
 
-Open **Value rules** only for a field that needs an additional business rule.
-The everyday controls use plain language:
-
-| Business requirement | What to select |
+| Choice | Training value |
 | --- | --- |
-| Exactly three digits | **Must be exactly:** `3`; **Characters to check:** The whole value; **They must be:** Digits 0-9 |
-| Seven characters of any kind | **Must be exactly:** `7`; leave the character check off |
-| First three characters are capital letters | **Characters to check:** The first characters; **How many:** `3`; **They must be:** Capital letters A-Z |
-| Last four characters are digits | **Characters to check:** The last characters; **How many:** `4`; **They must be:** Digits 0-9 |
-| Remove an old prefix or separator | Enter ordinary text under **Find**, enter the new text under **Replace with**, and keep **Plain text (recommended)** |
-| Round an amount | Choose the decimal type, enter the number of decimal places, and choose the explicit rounding method |
+| Table with one row per group | bom_headers |
+| Table that keeps every source row | bom_components |
+| Which field groups rows together? | BOM Reference |
+| Which field identifies each row within its group? | Line No |
+| If required information is missing | Stop and ask |
 
-Impodo checks the final proposed value, after the selected transformations.
-Empty/null values are still governed by **Required**; a format check does not
-silently make a field required. Character rules use the explicit ASCII ranges
-`A-Z`, `a-z`, and `0-9`, which keeps identifiers and leading-zero codes
-predictable.
+Preview the grouping. The training result is one BoM header and two retained
+component rows. Select **Create these separate tables**.
 
-Use **Advanced: custom pattern** when an approved format cannot be expressed
-with the guided length and character controls. Impodo validates and bounds the
-pattern before checking any row.
+![Prepared one-to-many source structure with one bom_headers row and every bom_components row retained.](../images/impodo-local-browser-guide/04-derived-bom-tables.png)
 
-Use **Advanced: formula or custom calculation** for a reviewed calculation.
-The panel lists row aliases such as `column_2` beside their source column
-names. Safe formulas support arithmetic, comparisons, conditions, and the
-listed helper functions. They cannot import or execute arbitrary Python, open
-files, access the network, contact Odoo, or run loops.
+This source split prepares the data shape. It does not create an Odoo BoM.
+Here, BOM Reference deliberately equals the finished product's Internal
+Reference. When the source uses different references, include a separate
+Finished Product Reference column rather than inferring the product from its
+name.
 
-Title and sentence casing can damage acronyms, product names, or personal
-names. Review the preview and obtain data-owner agreement before using them.
-For monetary rounding, confirm the currency precision and later reconcile the
-rounded totals.
+## 5. Choose Odoo records and matching rules
 
-#### Decide how the field participates
+Open **Odoo data**. Show the available Odoo record types, select only the
+approved scope, and load the selected Odoo details.
 
-![A configured scalar field with transformations, preview, and policies.](../images/impodo-local-browser-guide/06-scalar-mapping-example.png)
+For the training project, the scope is:
 
-| Policy | Meaning in Impodo | When to select it |
+| Business record | Odoo model | Matching rule |
 | --- | --- | --- |
-| **Compare** | Include the proposed value when Impodo compares a source row with its matching Odoo record | The migration should identify whether this field is unchanged or needs an update |
-| **Validate only** | Check the governed value without proposing that the field be changed | The value is useful for control or review but is not part of the proposed update |
-| **Required** | Every row must provide a value after provider and transformation rules | The business process does not permit an empty value |
-| **Required on create** | Require the value only when no target match exists and a new record would be created | Odoo needs the field for new records, while existing records may already carry it |
+| Customer | res.partner | Customer reference (ref) |
+| Country | res.country | Country code (code) |
+| Product Category | product.category | Category name (name) |
+| Product | product.template | Internal reference (default_code) |
+| Product Variant | product.product | Internal reference (default_code) |
+| Bill of Materials | mrp.bom | BoM reference (code) |
+| BoM Component | mrp.bom.line | BoM plus line sequence (bom_id, sequence) |
 
-**Compare** and **Validate only** are mutually exclusive. A validate-only field
-can still be required, but it never produces a proposed field difference.
+![Confirmed business-key rules for the fictional BoM header and component records.](../images/impodo-local-browser-guide/05-business-keys.png)
 
-**Required** is checked for every staged row. **Required on create** is checked
-after target matching, because Impodo must first know whether the row represents
-a create or an existing record.
+A matching rule answers: “How can Impodo find exactly one existing Odoo
+record?” It does not guarantee uniqueness merely because a sample looks
+unique. Confirm the rule with the functional owner.
 
-#### Choose how null values compare
+Changing the Odoo model scope, recapturing fields, or changing a business key
+invalidates dependent matching work and requires a new check.
 
-The null policy matters when the governed source value is null:
+## 6. Match every prepared table to Odoo
 
-| Null policy | Meaning | Typical choice |
+Open **Match data**. Work through one table at a time.
+
+The training mapping is:
+
+| Impodo table | Odoo record | Main choices |
 | --- | --- | --- |
-| **distinct** | Null and an empty target value are different | Use when absence and an explicitly empty value have different business meaning |
-| **equivalent** | Null and an empty target value may be treated as equal | Use when the source and Odoo represent the same absence differently |
-| **ignore_source_null** | A null source value leaves the existing target value unchanged | Use for partial updates where a blank source cell means “no instruction” |
+| customers | Contact | Upsert by Customer Ref; fill Name and Email; link Country by Country Code |
+| product_categories | Product Category | Upsert by Category Name |
+| products | Product | Upsert by Internal Reference; fill Name, Product Type, and Sales Price; link Product Category |
+| bom_headers | Bill of Materials | Upsert by BoM Reference; link the finished Product |
+| bom_components | BoM Component | Upsert by BoM Reference plus Line No; link the parent BoM and component variant |
 
-`ignore_source_null` is not a fallback and does not invent a value. It tells
-comparison to preserve an existing target value when the source provides none.
+### Save behavior
 
-#### Read the preview and validate the complete mapping
+Typing, searching, filtering, and opening a field do not save or validate.
 
-The preview shows one bounded source example as **raw value → proposed value**.
-It helps you catch an incorrect provider, locale, date format, or transformation
-while editing. A red proposed value explains why the displayed sample cannot be
-converted.
+- **Save progress** stores the current choices without checking them.
+- **Check matches** runs the semantic mapping check.
+- **Confirm field matches** confirms the exact checked revision.
 
-The preview is a working aid, not the complete dataset result. Select **Save
-progress** to keep unfinished work without validation. Select **Check mapping**
-to check the complete mapping definition. When that definition is valid, select
-**Review transformation impact** before submission. Impodo then reloads every
-frozen source row locally and reports each affected raw source value beside its
-proposed value without contacting Odoo.
+Use **Save progress** before leaving the page. A checked or confirmed mapping
+does not load Odoo.
 
-The transformation page first prepares one local snapshot for the exact frozen
-source, related-record plan, schema, evaluator, and validated mapping. Complete
-counts cover changed, fallback, null, invalid, constant-provided, and unchanged
-values. The browser then loads at most 100 affected values at a time. Dataset,
-result, target-field, and text filters run against the complete snapshot rather
-than only the visible page. Select **Download matching rows (.csv)** for every
-row matching the current filters or **Download all affected rows (.csv)** for
-complete row-level evidence. Preparing and reviewing this snapshot does not
-contact or write to Odoo.
+### 6.1 Map the Product Type choice
 
-After confirming the exact checked revision, open **Review** and select **Check
-all rows**. That step repeats the mapping over every frozen row, checks linked
-records and target matches, and groups the result as **Ready**, **Review**, or
-**Fix** without changing Odoo.
+Find **Product Type** in products and choose:
 
-#### Worked example
+- Value comes from: **Source value**
+- Source column: **Type de produit**
+- Value type: **Text**
+- **Review source choices**: Article to Goods, Service to Service
 
-For the Odoo field **Name**:
+![Product Type mapping from Type de produit with two governed source choices matched to Odoo choices.](../images/impodo-local-browser-guide/06-product-type-transform.png)
 
-```text
-Provider: Source + fallback
-Source column: company_name
-Fallback: Unnamed company
-Canonical value: string
-Transformations: Trim + Collapse spaces + Empty → null
-Case: preserve
-Policies: Compare + Required on create
-Null policy: distinct
-```
+The Odoo label is shown to the data manager, while Impodo retains the stable
+Odoo code. If a new source choice appears later, it must be reviewed; Impodo
+does not guess.
 
-The source value `"  Acme   Europe  "` previews as `"Acme Europe"`. A blank
-cell becomes null after trimming, so Impodo uses `"Unnamed company"`. During
-the row-level readiness check, an existing contact can be compared normally;
-a new contact must have the resulting name before it can be marked ready.
+For the training price column, choose decimal format **French** so 1,25 becomes
+the numeric value 1.25. For Product Name, enable removal of outer spaces and
+repeated-space cleanup.
 
-### Link to other Odoo records
+### 6.2 Handle a Many2one relationship
 
-![Relationship mapping.](../images/impodo-local-browser-guide/07-relationship-mapping.png)
+A Many2one means one row points to one related Odoo record. The product's
+categ_id points to one Product Category.
 
-Open **Links to other Odoo records** when a source value must point to a
-category, unit of measure, company, parent, or another Odoo record. For example,
-the `Category` value on a product row can be matched to a category in another
-incoming dataset or to an existing category in Odoo.
+For **Product Category** on products, choose:
 
-These links use confirmed matching rules:
+- Use values from: **Product Category**
+- Find the matching choice in: **Another table in this project**
+- Project table: **product_categories**
+- Matching rule: **Category name**
+- If missing or several match: **Stop and ask**
 
-- **Another incoming dataset** when the related record is part of this project;
-- **Existing Odoo records** when it must already exist in the target.
+![Many2one Product Category mapping resolved through the incoming product_categories table and its business key.](../images/impodo-local-browser-guide/07-many2one-category.png)
 
-For a many2one link to existing records, **Match values** provides the same
-simple source-choice-to-Odoo-choice dialog. Choose one source column and one
-matching rule first. Standard Odoo reference lists use reviewed portable rules
-when available, even when the related model is not a target record type in the
-project. Current examples are **Country code**, **Language code**, and
-**Currency code**. Other linked models use the same dialog after their business
-key is confirmed. For example, match source country `FRA` to the existing Odoo
-country key `FR`. Impodo stores `FRA -> FR`, resolves `FR` during the readiness
-check, and never stores the Odoo numeric record ID.
-Duplicate Odoo key values are omitted and reported instead of guessed. The
-dialog is read-only: it does not create or change Odoo records.
+For a relationship to records that already exist in Odoo, choose **Existing
+Odoo choices** and the related model's confirmed matching rule. The customer
+Country example uses source Country Code against res.country.code.
 
-The page shows three linked fields at first. Search the complete captured model
-by business label, technical field name, or related Odoo model; for example,
-`Category`, `categ_id`, or `product.category`. Use **3**, **10**, **20**, or
-**50** to change the number shown. Existing mappings appear first, followed by
-Impodo's prepared-dataset suggestions and then the remaining fields in
-alphabetical order. Searching and paging use the cached schema and do not
-reconnect to Odoo.
+Impodo stores the source business value and resolver—not an Odoo numeric ID.
 
-For many2many fields, declare the separator and `replace`, `add`, or `remove`.
-Do not map a parent's one2many list directly; map the inverse many2one on each
-child row. Required missing/ambiguous references and dependency cycles must
-block validation.
+### 6.3 Handle a One2many relationship
 
-## 5. Save, validate, and submit
+A One2many list is owned by its child rows in Odoo. Do not write the parent
+mrp.bom.bom_line_ids list directly.
 
-Select **Save progress** regularly while mapping. This stores the complete
-working page without semantic validation, including incomplete scalar-field
-choices. The saved working draft is restored after Impodo or the computer is
-restarted. `Ctrl+S` performs the same action, and the page warns before leaving
-with unsaved changes.
+Impodo shows this instruction on the parent:
 
-Working drafts are bound to the exact frozen source and governed schema. If
-either changes, Impodo retains the earlier draft as recovery evidence but does
-not silently apply it to the new fields.
+![One2many Components field explaining that the list is filled from line items and must be mapped from the child table.](../images/impodo-local-browser-guide/08-one2many-guidance.png)
 
-Select **Save progress** to keep incomplete work without checking it. Select
-**Check matches** after a coherent group of changes. Checking creates a new
-revision only when the mapping meaning changed.
+Instead, map bom_components to mrp.bom.line:
 
-![Validation and submission.](../images/impodo-local-browser-guide/08-validation-and-submit.png)
+- source identity: BOM Reference plus Line No;
+- Odoo matching rule: Bill of Materials plus Sequence;
+- connect BOM Reference to the incoming bom_headers table;
+- connect Component Ref to product.product.default_code;
+- map Quantity to product_qty.
 
-| Result | Meaning | Action |
+The owning inverse field is the child's Many2one mrp.bom.line.bom_id.
+
+![Prepared BoM child table using BoM Reference and Line No to resolve the parent and line sequence.](../images/impodo-local-browser-guide/09-bom-child-mapping.png)
+
+If the parent BoM, finished product, or component variant is missing or
+ambiguous, the affected row is blocked. Never choose the first match.
+If line numbers can be reordered, use a stable source line reference as part
+of the identity; do not assume a display sequence is permanent.
+
+## 7. Review transformations before confirming
+
+After **Check matches** succeeds, select **Preview rule effects**.
+
+This read-only report compares original source values with the values Impodo
+will prepare. It does not contact or change Odoo.
+
+![Transformation-impact overview showing four changed values and thirty-eight unchanged values.](../images/impodo-local-browser-guide/10-transformation-report.png)
+
+Review the outcome cards and use the filters for table, result, Odoo field, or
+text. Download all affected rows when the review needs to be shared or signed
+off.
+
+![Transformation-impact detail showing Product Name cleanup, Article to consu, French decimal conversion, and Service choice mapping.](../images/impodo-local-browser-guide/10b-transformation-detail.png)
+
+For each affected value, verify:
+
+- source row and source column;
+- original value;
+- prepared value;
+- field rules;
+- result and any message.
+
+Return to Match data and select **Confirm field matches** only after the report
+is acceptable.
+
+## 8. Prepare all rows and resolve findings
+
+Select **Prepare data**. Impodo applies the confirmed rules to every frozen
+source row, materializes derived tables, evaluates data-quality checks, and
+records row lineage.
+
+Review every decision that needs attention. Do not continue while a required
+relationship, identity, value conversion, or business rule is unresolved.
+
+Then open **Final review** and select **Check all rows**. Impodo compares the
+prepared data with read-only Odoo evidence and classifies each row:
+
+- **Create** — no existing record matched;
+- **Update** — exactly one existing record matched and values differ;
+- **No change** — exactly one existing record matched and values agree;
+- **Blocked** — a required value or relationship cannot be resolved;
+- **Ambiguous** — more than one target record matched.
+
+Generate the review workbook when the run is ready and a durable reviewer
+package is required. The workbook and browser report are evidence; neither is
+an Odoo import.
+
+## 9. Plan BoM loading in the right sequence
+
+Products and BoMs have an important Odoo dependency: a BoM component points to
+product.product, while the product file normally maps to product.template.
+Odoo creates the variant record for a new product template.
+
+Therefore use one of these safe cases:
+
+1. Referenced product variants already exist and are uniquely found by Internal
+   Reference; or
+2. Load new categories and products first, run a fresh Odoo comparison after
+   Odoo has created the variants, then load the BoM headers and components.
+
+Do not assume a product variant exists during a preflight performed before its
+new template was loaded. A fresh comparison is the evidence boundary.
+
+The two passes remain inside the same migration project. Each pass has its own
+frozen comparison and explicit load confirmation.
+
+## 10. Preview and submit the local Odoo load
+
+The current load action is limited to an approved disposable Local Odoo 19
+target. Remote and production loading require a separate controlled process.
+
+Open **Load into Odoo** only after the latest comparison is complete. Review:
+
+- exact database and Odoo version;
+- total Create, Update, and No change counts;
+- per-table Odoo record type and counts;
+- the current preview identity under Support details when support asks for it.
+
+![Odoo load preview showing exact per-table create, update, and no-change totals for the training database.](../images/impodo-local-browser-guide/11-odoo-load-preview.png)
+
+The fictional preview shows the table dependency order. Product records are
+updates or unchanged in this BoM pass, so their variants are already available
+for component resolution.
+
+When every total and the destination are correct:
+
+1. Enter the Odoo API key.
+2. Optionally store it in the operating-system credential vault.
+3. Select **Load into Odoo** once.
+4. Keep the page open until Impodo records the API outcome and read-back result.
+
+![Explicit local-load confirmation with the dependency-order warning, API-key field, and Load into Odoo button.](../images/impodo-local-browser-guide/12-odoo-load-confirmation.png)
+
+Do not refresh, repeat, or start another load when the response is uncertain.
+Impodo deliberately stops without blindly retrying a lost write response.
+
+## 11. Review the Odoo read-back result
+
+After the API accepts the writes, Impodo reads the affected records back from
+Odoo and compares them with the confirmed preview.
+
+Review:
+
+- verified rows;
+- fallout rows and differing fields;
+- unknown outcomes;
+- rows marked safe to plan again after a fresh comparison.
+
+Download the fallout CSV when any row is not verified. Correct the cause, run a
+new preparation and comparison, and approve a new preview. Do not edit stored
+evidence or replay an uncertain row manually through Impodo.
+
+## Relation quick reference
+
+| Odoo relationship | What it means | Impodo handling |
 | --- | --- | --- |
-| Invalid | Unsafe or incomplete mapping definition | Resolve every blocking finding |
-| Valid with warnings | Structurally valid but requires conscious review | Read and acknowledge each warning |
-| Valid | No semantic finding for the current evidence | Perform final review and submit |
+| Many2one | This row points to one related record | Resolve one business key in an incoming table or existing Odoo data |
+| One2many | This parent displays its child rows | Map the child table's inverse Many2one; do not write the parent list |
+| Many2many | This row links to a set of records | Resolve every business key and explicitly choose replace, add, or remove |
 
-Validation checks the mapping structure and meaning. Row-level values,
-uniqueness, relationship resolution, and target matches are checked after
-confirmation through **Check all rows**.
+Every required relationship must resolve to exactly one record. Missing and
+ambiguous matches are review findings, not opportunities to guess.
 
-For a valid or valid-with-warnings revision, select **Review transformation
-impact** before submission. This is the normalization and transformation review:
-it compares the raw scalar input with the locally proposed value across every
-frozen row. Resolve invalid results and obtain the data owner's agreement on
-intentional changes before submitting the exact mapping.
+## Completion checklist
 
-**Confirm field matches** binds the exact mapping, validation, source,
-schema, and business-key evidence. Submission is not functional approval,
-clean-package certification, an Odoo import, or a write action. Confirmation
-does not save another draft or create another mapping revision.
+- [ ] All source files are final, checked, and confirmed.
+- [ ] Physical tables are frozen with clear names.
+- [ ] Category extraction uses Product Category, not Type de produit.
+- [ ] BoM parent and child tables retain every source row.
+- [ ] Odoo record types and fields come from the intended Odoo 19 database.
+- [ ] Every model has a functionally confirmed business key.
+- [ ] Article and Service are matched to valid Odoo Product Type codes.
+- [ ] Many2one relationships use portable business keys.
+- [ ] One2many relationships are owned through the child inverse Many2one.
+- [ ] Save progress was selected explicitly before leaving Match data.
+- [ ] The transformation-impact report and export were reviewed.
+- [ ] Every prepared row passed quality and Odoo comparison checks.
+- [ ] New product variants exist before BoM component preflight.
+- [ ] The exact local database and Create/Update/No change totals were approved.
+- [ ] **Load into Odoo** was selected once for the approved preview.
+- [ ] Odoo read-back and any fallout were reviewed.
 
-## 6. Review every row
+## Stop Impodo
 
-Open **Review** and select **Check all rows**. Impodo reloads every
-frozen row, applies the submitted providers, transformations, types, and
-policies, resolves relationships, and compares candidates with the captured
-read-only Odoo target evidence.
+Use **Quit Impodo** in the browser. This ends the local session; it does not
+delete project evidence. Apply the agreed retention process after migration
+acceptance and reconciliation.
 
-| Result | Meaning | Next action |
-| --- | --- | --- |
-| **Ready** | The row is classified as create, update, or unchanged without a blocking issue | Review the proposed result |
-| **Review** | Impodo needs a governed decision | Review the displayed reason and complete the decision |
-| **Fix** | A key, value, relationship, or target condition prevents the row from continuing | Correct the governing source or mapping evidence, then recheck |
-
-Use the status cards and dataset totals to filter the row list. Impodo shows a
-plain-language reason and recommended action first; expand **Technical
-details** only when you need the classification or issue code.
-
-After every relevant source, mapping, schema, or target-evidence change, run
-the check again. When every row is ready, create the review workbook if useful.
-The row check and workbook remain read-only. Only the separate load preview's
-explicit **Load into Odoo** button starts writes.
-
-The downloadable Excel review workbook is created by Impodo's controlled Python
-runtime using the same `openpyxl` dependency already used for governed XLSX
-intake. It does not require Node.js. The workbook is downloaded for review; it
-is not embedded as an Excel preview in the browser.
-
-## 7. Preview and load the disposable local target
-
-When the current comparison has no blocked or ambiguous row, select **Preview
-Odoo load**. Confirm the exact target database and the create/update totals by
-dataset. This path is currently limited to Local Odoo 19. Models and fields are
-not globally allowlisted: the native adapter is
-bound to the exact captured-schema fields frozen in this preview. Standard
-fields, extension fields, custom fields, custom models, many2one, and
-many2many mappings follow the same reviewed path. Odoo access rights and
-record rules still apply.
-
-Enter an Odoo API key and select **Load into Odoo**. Impodo sends bounded create
-batches in dependency order and uniquely re-matches every update by its
-business key. It never retries a write whose response was lost. The result
-page then reads accepted rows back by saved Odoo ID and re-matches uncertain
-responses by the governed business key. It reports verified rows and concise
-fallout without exposing source values. If verification could not contact
-Odoo, use **Verify in Odoo** to try the read again. If an outcome remains
-unknown, do not retry it blindly; download the fallout and inspect Odoo first.
-
-## Use Impodo safely today
-
-- Preserve the registered source and prefer a new source-owner export for
-  corrections.
-- Configure each visible provider, transformation, type, and policy so its
-  intent is retained with the mapping hash.
-- Use the one-value preview while authoring, **Review transformation impact**
-  after validation, and **Check all rows** after confirmation.
-- Recheck business keys, transformations, and relationships after any source
-  or mapping revision.
-- Treat **Valid**, **Submitted**, and **Ready** as review states. Only the
-  separate explicit **Load into Odoo** action authorizes this local test load.
-
-## Final review
-
-Before submission confirm:
-
-- the complete registered source set and intended tables are frozen;
-- every dataset has a stable source identity and governed target key/scope;
-- only permitted writable fields are mapped once;
-- providers, transformations, null policies, and required-on-create behavior
-  are deliberate;
-- relationships use incoming datasets or confirmed target keys;
-- dependency cycles and blocking findings are absent;
-- every warning is understood and acknowledged;
-- the exact displayed evidence belongs to the intended project and target;
-- everyone understands that submission is followed by a row-level readiness
-  check and does not authorize an Odoo write.
-
-## Common problems
-
-| Symptom | Action |
-| --- | --- |
-| Session unavailable | Restart Impodo from its launcher |
-| Need another source file after registration | Create a new project/rehearsal with the complete source set |
-| Source no longer confirmed | Reinspect and reconfirm it |
-| Mapping no longer active | Review the changed source/schema/key evidence and create a new revision |
-| Missing source column | Freeze the intended table/dataset |
-| Missing target field | Review the permitted model scope and Odoo access |
-| Business key not confirmed | Obtain functional approval and confirm key plus scope |
-| Relationship unresolved or ambiguous | Correct the resolver/key/scope; do not ignore ambiguity |
-| Preview result is unexpected | Recheck provider, type, transformation order, locale, and date format |
-| Mapping is valid but rows need fixes | Open **Review**, filter **Fix**, and follow the reason and recommended action |
-
-## End the session
-
-If the local Odoo runbook shows services managed by this session, stop them
-before quitting. Then select **Quit Impodo**. Closing only the browser tab does
-not stop the Impodo process or managed Odoo/PostgreSQL services.
-
-Retain or dispose of project data according to the recorded policy and the
-organization's approved process.
+For workstation startup and local Odoo assistance, see the
+[local Odoo runbook](02-local-odoo.md). For the exact persistence and
+invalidation rules, see the [browser workspace contract](../contracts/02-workspace.md).
