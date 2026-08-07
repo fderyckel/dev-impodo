@@ -575,17 +575,19 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     expected_version=expected_working_version,
                     actor=context.actor,
                 )
-                _flash(
-                    request,
-                    "Saved your matching progress. Check the matches when ready.",
-                )
                 if json_request:
                     return JSONResponse(
                         {
                             "message": "Progress saved. Check matches when ready.",
                             "redirect_url": mapping_return_url,
+                            "expected_working_draft_version": working_draft.version,
+                            "saved_at": working_draft.updated_at.isoformat(),
                         }
                     )
+                _flash(
+                    request,
+                    "Saved your matching progress. Check the matches when ready.",
+                )
                 return RedirectResponse(
                     mapping_return_url,
                     status_code=303,

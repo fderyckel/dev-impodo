@@ -34,16 +34,22 @@ Impodo has two different safety boundaries:
 
 The fictional project migrates:
 
-- three customers;
-- four products and services;
-- four product categories extracted from the product file;
-- one BoM header and two BoM component lines.
+- nine customers;
+- ten products and services;
+- seven product categories extracted from the product file;
+- three BoM headers and eight BoM component lines.
 
 Copyable starter files are included with this guide:
 
 - [customers_training.csv](../examples/impodo-end-to-end-training/customers_training.csv)
 - [products_training.csv](../examples/impodo-end-to-end-training/products_training.csv)
 - [bom_lines_training.csv](../examples/impodo-end-to-end-training/bom_lines_training.csv)
+
+The downloadable files are an expanded practice set. The screenshots use a
+smaller core slice so labels and controls remain readable. Your row counts,
+transformation totals, and Odoo comparison totals will therefore be larger
+than the example screenshots. Always approve the totals shown for your own
+current run.
 
 The files demonstrate two ways of organizing related information:
 
@@ -147,10 +153,38 @@ meanings:
 
 | Source column | Example values | Odoo meaning |
 | --- | --- | --- |
-| Type de produit | Article, Service | Product Type choice on product.template.type |
+| Type de produit | Article, Service, Ensemble | Product Type choice on product.template.type |
 | Product Category | Bottles, Design services | Related Product Category through product.template.categ_id |
 
 These columns must not be treated as interchangeable.
+
+### What the expanded customer rows teach
+
+| Row | Case | How to handle it |
+| --- | --- | --- |
+| CUST-004 | Outer spaces around the customer name | Preview a trim rule and confirm that only the outer spaces disappear. |
+| CUST-005 | Blank email | Decide whether blank means leave unchanged, clear the field, or block. Never invent an address. |
+| CUST-006 | Accented character in Mistral Café | Preserve the UTF-8 name. Do not remove accents merely to simplify matching. |
+| CUST-007 | Uppercase email | Use lowercase conversion only if the functional owner approves that normalization. |
+| CUST-008 | Lowercase country code lu | Convert or match it explicitly to LU, then resolve exactly one res.country record by code. |
+| CUST-009 | Same email as CUST-001 | Do not merge automatically. Customer Ref is the identity; the repeated email is a separate business-review finding. |
+
+For a blank value on an update, clearing an existing Odoo value is materially
+different from leaving it unchanged. If the selected rule cannot express the
+owner's decision, stop and correct the source or mapping.
+
+### What the expanded product and BoM rows teach
+
+| Row or group | Case | How to handle it |
+| --- | --- | --- |
+| PROD-100 | Padded name and French decimal 1,25 | Trim the name and parse the price with French decimal rules. |
+| PROD-100 and PROD-110 | Repeated Bottles category | Extract one category row and link both products to it. Do not create duplicates. |
+| SERV-210 | Blank Sales Price | Confirm whether to retain an existing value, use a verified Odoo default on create, set a constant, or block. Blank is not zero. |
+| COMP-040 | Explicit price 0,00 | Preserve numeric zero unless an approved business rule rejects it. |
+| PACK-400 | New source choice Ensemble | Match it explicitly to Odoo Combo, stored as combo. Never let a new choice pass silently. |
+| SUB-300 | A subassembly used by another BoM | Load products first, then BoM headers, then child lines in dependency order. |
+| Fractional quantities | 0,10, 0,25 and 0,50 | Parse with the declared French decimal format and verify the prepared numeric values. |
+| PROD-110 lines 20 and 30 | The same component occurs twice | Keep both when intentional because their line identities differ; otherwise request corrected source data. |
 
 Select **Confirm this file** only when the preview represents the intended
 table. Confirmation records the review; it does not trim, deduplicate, repair,
@@ -193,11 +227,15 @@ Choose **One field contains reusable values** and enter:
 Select **Preview**, review the unique values and counts, then select **Create
 this related table**.
 
-![Saved product_categories rule showing four unique values extracted from the Product Category column.](../images/impodo-local-browser-guide/03-derived-category-table.png)
+![Core-slice product_categories rule showing unique values extracted from the Product Category column.](../images/impodo-local-browser-guide/03-derived-category-table.png)
 
 Impodo now presents product_categories beside products during matching. It
 retains the original product rows and repeats the extraction over every frozen
 row during preparation.
+
+The expanded products file should preview seven unique category values from
+ten product rows. Repeated values such as Bottles and Raw materials become one
+related category row each.
 
 This training file uses flat, globally unique category names. In a real Odoo
 hierarchy, the same category name may appear under different parents. Preserve
@@ -211,6 +249,7 @@ choices instead:
 | --- | --- | --- |
 | Article | Goods | consu |
 | Service | Service | service |
+| Ensemble | Combo | combo |
 
 ### 4.2 Split repeated BoM rows into parent and child tables
 
@@ -224,10 +263,10 @@ Choose **Several rows describe the same record** for bom_source_rows and enter:
 | Which field identifies each row within its group? | Line No |
 | If required information is missing | Stop and ask |
 
-Preview the grouping. The training result is one BoM header and two retained
-component rows. Select **Create these separate tables**.
+Preview the grouping. The expanded training result is three BoM headers and
+eight retained component rows. Select **Create these separate tables**.
 
-![Prepared one-to-many source structure with one bom_headers row and every bom_components row retained.](../images/impodo-local-browser-guide/04-derived-bom-tables.png)
+![Core-slice one-to-many source structure with one bom_headers row and every bom_components row retained.](../images/impodo-local-browser-guide/04-derived-bom-tables.png)
 
 This source split prepares the data shape. It does not create an Odoo BoM.
 Here, BOM Reference deliberately equals the finished product's Internal
@@ -293,9 +332,10 @@ Find **Product Type** in products and choose:
 - Value comes from: **Source value**
 - Source column: **Type de produit**
 - Value type: **Text**
-- **Review source choices**: Article to Goods, Service to Service
+- **Review source choices**: Article to Goods, Service to Service, Ensemble to
+  Combo
 
-![Product Type mapping from Type de produit with two governed source choices matched to Odoo choices.](../images/impodo-local-browser-guide/06-product-type-transform.png)
+![Core-slice Product Type mapping from Type de produit with governed source choices matched to Odoo choices.](../images/impodo-local-browser-guide/06-product-type-transform.png)
 
 The Odoo label is shown to the data manager, while Impodo retains the stable
 Odoo code. If a new source choice appears later, it must be reviewed; Impodo
@@ -359,13 +399,13 @@ After **Check matches** succeeds, select **Preview rule effects**.
 This read-only report compares original source values with the values Impodo
 will prepare. It does not contact or change Odoo.
 
-![Transformation-impact overview showing four changed values and thirty-eight unchanged values.](../images/impodo-local-browser-guide/10-transformation-report.png)
+![Core-slice transformation-impact overview showing changed and unchanged values.](../images/impodo-local-browser-guide/10-transformation-report.png)
 
 Review the outcome cards and use the filters for table, result, Odoo field, or
 text. Download all affected rows when the review needs to be shared or signed
 off.
 
-![Transformation-impact detail showing Product Name cleanup, Article to consu, French decimal conversion, and Service choice mapping.](../images/impodo-local-browser-guide/10b-transformation-detail.png)
+![Core-slice transformation-impact detail showing Product Name cleanup, Article to consu, French decimal conversion, and Service choice mapping.](../images/impodo-local-browser-guide/10b-transformation-detail.png)
 
 For each affected value, verify:
 
@@ -435,7 +475,8 @@ Open **Load into Odoo** only after the latest comparison is complete. Review:
 
 The fictional preview shows the table dependency order. Product records are
 updates or unchanged in this BoM pass, so their variants are already available
-for component resolution.
+for component resolution. Its totals illustrate the confirmation screen; they
+are not the expected totals for the expanded practice files.
 
 When every total and the destination are correct:
 
@@ -484,7 +525,7 @@ ambiguous matches are review findings, not opportunities to guess.
 - [ ] BoM parent and child tables retain every source row.
 - [ ] Odoo record types and fields come from the intended Odoo 19 database.
 - [ ] Every model has a functionally confirmed business key.
-- [ ] Article and Service are matched to valid Odoo Product Type codes.
+- [ ] Article, Service, and Ensemble are matched to valid Odoo Product Type codes.
 - [ ] Many2one relationships use portable business keys.
 - [ ] One2many relationships are owned through the child inverse Many2one.
 - [ ] Save progress was selected explicitly before leaving Match data.

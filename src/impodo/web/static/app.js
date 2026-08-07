@@ -761,6 +761,48 @@ document.addEventListener("DOMContentLoaded", () => {
     let dirty = false;
     let submitting = false;
 
+    const updateMappingVersionFields = (payload) => {
+      let workingVersionUpdated = false;
+      const workingVersion = mappingForm.querySelector(
+        'input[name="expected_working_draft_version"]'
+      );
+      const parentVersion = mappingForm.querySelector(
+        'input[name="expected_parent_version"]'
+      );
+      if (
+        workingVersion &&
+        Object.hasOwn(payload, "expected_working_draft_version")
+      ) {
+        workingVersion.value = payload.expected_working_draft_version ?? "";
+        workingVersionUpdated = true;
+      }
+      if (
+        parentVersion &&
+        Object.hasOwn(payload, "expected_parent_version")
+      ) {
+        parentVersion.value = payload.expected_parent_version ?? "";
+      }
+      return workingVersionUpdated;
+    };
+
+    const navigateToMappingResult = (redirectUrl) => {
+      const target = new URL(
+        redirectUrl || window.location.pathname,
+        window.location.href
+      );
+      const current = new URL(window.location.href);
+      const samePage =
+        target.origin === current.origin &&
+        target.pathname === current.pathname &&
+        target.search === current.search;
+      if (samePage) {
+        window.history.replaceState(window.history.state, "", target);
+        window.location.reload();
+        return;
+      }
+      window.location.assign(target);
+    };
+
     mappingForm.addEventListener("focusin", (event) => {
       rememberMappingInteraction(event.target);
     });
@@ -943,35 +985,37 @@ document.addEventListener("DOMContentLoaded", () => {
           payload = {};
         }
         if (!response.ok) {
-          const workingVersion = mappingForm.querySelector(
-            'input[name="expected_working_draft_version"]'
-          );
-          const parentVersion = mappingForm.querySelector(
-            'input[name="expected_parent_version"]'
-          );
-          if (
-            workingVersion &&
-            Object.hasOwn(payload, "expected_working_draft_version")
-          ) {
-            workingVersion.value =
-              payload.expected_working_draft_version ?? "";
-          }
-          if (
-            parentVersion &&
-            Object.hasOwn(payload, "expected_parent_version")
-          ) {
-            parentVersion.value = payload.expected_parent_version ?? "";
-          }
+          updateMappingVersionFields(payload);
           throw new Error(
             payload.detail ||
               "The matches could not be saved. Please try again."
           );
         }
+        const workingVersionUpdated = updateMappingVersionFields(payload);
         dirty = false;
         if (saveStatus) {
           saveStatus.textContent = payload.message || "Matches saved.";
         }
-        window.location.assign(payload.redirect_url || window.location.pathname);
+        if (action === "save_progress") {
+          if (!workingVersionUpdated) {
+            const workingVersion = mappingForm.querySelector(
+              'input[name="expected_working_draft_version"]'
+            );
+            const currentVersion = Number.parseInt(
+              workingVersion?.value || "0",
+              10
+            );
+            if (workingVersion) {
+              workingVersion.value = String(
+                (Number.isFinite(currentVersion) ? currentVersion : 0) + 1
+              );
+            }
+          }
+          submitting = false;
+          mappingForm.removeAttribute("aria-busy");
+          return;
+        }
+        navigateToMappingResult(payload.redirect_url);
       } catch (error) {
         submitting = false;
         mappingForm.removeAttribute("aria-busy");

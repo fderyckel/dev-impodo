@@ -2,3 +2,9 @@ Customer Ref,Customer Name,Email,Country Code
 CUST-001,Northstar Bakery,orders@northstar.example,BE
 CUST-002,Blue Meadow Stores,buying@bluemeadow.example,LU
 CUST-003,Solstice Kitchen,hello@solstice.example,FR
+CUST-004,"  Cedar & Finch SARL  ",contact@cedar-finch.example,DE
+CUST-005,Riverstone Atelier,,NL
+CUST-006,Mistral Café,bonjour@mistral-cafe.example,FR
+CUST-007,Aurora Field Services,OPS@AURORA-FIELD.EXAMPLE,DE
+CUST-008,Juniper Home,hello@juniper-home.example,lu
+CUST-009,Northstar Bakery Annex,orders@northstar.example,BE

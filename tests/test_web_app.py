@@ -1848,6 +1848,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertNotIn("fetch(mappingForm.action", mapping_script.text)
         self.assertIn(
+            "updateMappingVersionFields(payload)",
+            mapping_script.text,
+        )
+        self.assertIn("workingVersionUpdated", mapping_script.text)
+        self.assertIn('if (action === "save_progress")', mapping_script.text)
+        self.assertIn("navigateToMappingResult", mapping_script.text)
+        self.assertIn(
             "Your unsaved changes are still on this page",
             mapping_script.text,
         )
@@ -3366,18 +3373,42 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(saved.status_code, 200)
         self.assertIn("redirect_url", saved.json())
+        self.assertEqual(saved.json()["expected_working_draft_version"], 2)
+        self.assertIn("saved_at", saved.json())
         self.assertEqual(
             saved.json()["redirect_url"],
             f"/projects/{project_id}/mapping#mapping-dataset-0",
         )
+        saved_again_entries = [list(entry) for entry in entries]
+        for entry in saved_again_entries:
+            if entry[0] == "expected_working_draft_version":
+                entry[1] = "2"
+            elif entry[0] == "scalar_literal_0_1":
+                entry[1] = "Updated safely again"
+        saved_again = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            json={"entries": saved_again_entries},
+            headers={
+                **POST_HEADERS,
+                "X-CSRF-Token": self.csrf,
+            },
+        )
+        self.assertEqual(saved_again.status_code, 200)
+        self.assertEqual(
+            saved_again.json()["expected_working_draft_version"],
+            3,
+        )
         working = context.mapping_workspace.mappings.get_mapping_working_draft(project_id)
-        self.assertEqual(working.version, 2)
+        self.assertEqual(working.version, 3)
         self.assertEqual(len(working.definition.datasets[0].fields), 1500)
         updated = {
             item.target_field: item
             for item in working.definition.datasets[0].fields
         }
-        self.assertEqual(updated["field_0000"].literal_value, "Updated safely")
+        self.assertEqual(
+            updated["field_0000"].literal_value,
+            "Updated safely again",
+        )
         self.assertEqual(
             updated["field_1499"].source_column_key,
             source_value.stable_key,
@@ -3394,7 +3425,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(denied.status_code, 403)
         self.assertEqual(
             context.mapping_workspace.mappings.get_mapping_working_draft(project_id).version,
-            2,
+            3,
         )
 
         invalid_entries = [
@@ -3406,7 +3437,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             if item[0] == "action":
                 item[1] = "submit"
             elif item[0] == "expected_working_draft_version":
-                item[1] = "2"
+                item[1] = "3"
         invalid = self.client.post(
             f"/projects/{project_id}/mapping/save",
             json={"entries": invalid_entries},
@@ -3416,13 +3447,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         self.assertEqual(invalid.status_code, 422)
-        self.assertEqual(invalid.json()["expected_working_draft_version"], 2)
+        self.assertEqual(invalid.json()["expected_working_draft_version"], 3)
         self.assertIsNone(invalid.json()["expected_parent_version"])
         self.assertEqual(
             context.mapping_workspace.mappings.get_mapping_working_draft(
                 project_id
             ).version,
-            2,
+            3,
         )
         self.assertIsNone(
             context.mapping_workspace.mappings.get_mapping_revision(project_id)
@@ -3431,7 +3462,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         retry_entries = [list(item) for item in entries]
         for item in retry_entries:
             if item[0] == "expected_working_draft_version":
-                item[1] = "2"
+                item[1] = "3"
             elif item[0] == "expected_parent_version":
                 item[1] = ""
         retried = self.client.post(
@@ -3445,7 +3476,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(retried.status_code, 200)
         self.assertEqual(
             context.mapping_workspace.mappings.get_mapping_working_draft(project_id).version,
-            3,
+            4,
         )
 
         oversized = b'{"entries":[["csrf_token","' + (
@@ -3463,7 +3494,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(rejected.status_code, 413)
         self.assertEqual(
             context.mapping_workspace.mappings.get_mapping_working_draft(project_id).version,
-            3,
+            4,
         )
 
         excessive_form = "&".join(
