@@ -1018,6 +1018,43 @@ document.addEventListener("DOMContentLoaded", () => {
       );
       const existing = parseValueMatches(activeValueMatch.storage);
       let suggested = 0;
+      let ambiguousCount = 0;
+
+      const targetChoiceLabel = (choice) => {
+        const value = String(choice.value);
+        const label = String(choice.label || choice.value);
+        return label === value ? value : `${label} — ${value}`;
+      };
+
+      const updateValueMatchProgress = () => {
+        const matched = Array.from(
+          valueMatchRows.querySelectorAll("select[data-source-value]")
+        ).filter((select) => select.value).length;
+        const remaining = Math.max(0, sourceChoices.length - matched);
+        if (valueMatchStatus) {
+          const progress = remaining
+            ? `${matched} matched. ${remaining} populated source choice(s) still need an Odoo choice.`
+            : `All ${sourceChoices.length} populated source choice(s) are matched.`;
+          const details = [
+            `${suggested} exact code match(es) suggested.`,
+          ];
+          if (ambiguousCount) {
+            details.push(
+              `${ambiguousCount} duplicate Odoo key value(s) were left out.`
+            );
+          }
+          valueMatchStatus.textContent = `${progress} ${details.join(" ")}`;
+        }
+        if (useValueMatches) {
+          useValueMatches.disabled = matched === 0 && existing.size === 0;
+          useValueMatches.textContent =
+            matched === 0 && existing.size
+              ? "Clear saved matches"
+              : remaining
+                ? `Use ${matched} partial match(es)`
+                : "Use complete matches";
+        }
+      };
 
       const hydrateTargetSelect = (select) => {
         if (select.dataset.choicesLoaded === "true") {
@@ -1031,7 +1068,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
           const option = document.createElement("option");
           option.value = value;
-          option.textContent = String(choice.label || choice.value);
+          option.textContent = targetChoiceLabel(choice);
           select.append(option);
         }
         select.dataset.choicesLoaded = "true";
@@ -1074,9 +1111,9 @@ document.addEventListener("DOMContentLoaded", () => {
           );
           const selectedOption = document.createElement("option");
           selectedOption.value = selectedTarget;
-          selectedOption.textContent = String(
-            choice?.label || choice?.value || selectedTarget
-          );
+          selectedOption.textContent = choice
+            ? targetChoiceLabel(choice)
+            : selectedTarget;
           selectedOption.selected = true;
           select.append(selectedOption);
           if (!savedTarget && suggestedTarget) {
@@ -1088,9 +1125,10 @@ document.addEventListener("DOMContentLoaded", () => {
         );
         select.addEventListener("focus", () => hydrateTargetSelect(select));
         select.addEventListener("keydown", () => hydrateTargetSelect(select));
-        select.addEventListener("change", () =>
-          window.queueMicrotask(() => releaseTargetSelect(select))
-        );
+        select.addEventListener("change", () => {
+          updateValueMatchProgress();
+          window.queueMicrotask(() => releaseTargetSelect(select));
+        });
         select.addEventListener("blur", () => releaseTargetSelect(select));
 
         sourceCell.textContent = sourceValue;
@@ -1103,6 +1141,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const ambiguousValues = Array.isArray(payload.ambiguous_values)
         ? payload.ambiguous_values
         : [];
+      ambiguousCount = ambiguousValues.length;
       if (valueMatchStatus) {
         const parts = [
           `${sourceChoices.length} source choice(s) found.`,
@@ -1122,6 +1161,7 @@ document.addEventListener("DOMContentLoaded", () => {
         useValueMatches.disabled = sourceChoices.length === 0;
       }
       activeValueMatch.sourceCount = sourceChoices.length;
+      updateValueMatchProgress();
     };
 
     for (const trigger of mappingForm.querySelectorAll(
@@ -1264,7 +1304,10 @@ document.addEventListener("DOMContentLoaded", () => {
         .closest("[data-scalar-mapping-row], [data-relation-mapping-row]")
         ?.querySelector("[data-value-match-summary]");
       if (summary) {
-        summary.textContent = `${mappings.length} of ${activeValueMatch.sourceCount} source choice(s) matched`;
+        const remaining = activeValueMatch.sourceCount - mappings.length;
+        summary.textContent = remaining
+          ? `${mappings.length} matched · ${remaining} still need review`
+          : `All ${mappings.length} populated source choice(s) matched`;
       }
       const trigger = activeValueMatch.trigger;
       activeValueMatch = null;

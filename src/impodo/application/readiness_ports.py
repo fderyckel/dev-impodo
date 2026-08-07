@@ -13,6 +13,7 @@ from typing import Iterable, Mapping, Protocol, Sequence
 from ..access import Actor
 from ..derived_entities import DerivedEntityPlan
 from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
+from ..domain.schema.governance import SchemaGovernance
 from ..connectors import MetadataSnapshot, RecordSnapshot
 from ..domain.preflight.reports import ReadinessReport, ReadinessRow, ReadinessRowPage
 from ..domain.resolution import EffectiveDataset
@@ -37,7 +38,11 @@ from ..staging_contracts import (
     CanonicalStagingRun,
     StagingDatasetRole,
 )
-from ..workspace_contracts import MappingWorkingDraft, SourceSelection
+from ..workspace_contracts import (
+    MappingWorkingDraft,
+    OdooSchemaCatalog,
+    SourceSelection,
+)
 from ..domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
     PreparationSessionBindings,
@@ -438,6 +443,22 @@ class PreflightSourceRepository(Protocol):
         self, project_id: str
     ) -> SourceSelection | None:
         """Return stable dataset/column identities used to compile Stage H."""
+        ...
+
+
+class PreflightSchemaRepository(Protocol):
+    """Load the captured target field contract used during mapping."""
+
+    def get_odoo_schema_catalog(
+        self, project_id: str
+    ) -> OdooSchemaCatalog | None:
+        """Return the exact captured Odoo field metadata."""
+        ...
+
+    def get_schema_governance(
+        self, project_id: str
+    ) -> SchemaGovernance | None:
+        """Return governance binding the mapping to the schema catalog."""
         ...
 
 

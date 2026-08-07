@@ -142,6 +142,13 @@ numeric IDs. Quick matching is bounded to 500 source choices and 2,000 target
 records; composite or scoped keys continue through the normal governed mapping
 workflow.
 
+Captured selection codes are metadata evidence, not a second transformation
+language. Constants and fallbacks are closed to those codes, while
+source-based matches remain portable `source_value -> target_value` pairs.
+Full-row preflight reuses the compiled migration plan, indexes freshly fetched
+choice codes once per mapped field, and validates final prepared values
+without an Odoo call inside the row loop.
+
 End-user explanations of every scalar provider, type, transformation, policy,
 and preview belong in the
 [local-browser scalar mapping reference](../operations/01-local-browser-user-guide.md#scalar-fields-choose-what-impodo-should-do).

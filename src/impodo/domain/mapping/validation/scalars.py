@@ -311,7 +311,7 @@ def _validate_scalar(
                     )
                 )
             if (
-                selection_keys
+                metadata.type == "selection"
                 and proposed is not None
                 and str(proposed) not in selection_keys
             ):

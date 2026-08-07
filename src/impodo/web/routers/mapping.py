@@ -144,9 +144,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 raise WorkspaceError("Choose one current Odoo field")
             ambiguous_values: tuple[str, ...] = ()
             if kind == "scalar":
+                if field.type != "selection":
+                    raise WorkspaceError(
+                        "This Odoo field is not a choice field"
+                    )
                 if not field.selection:
                     raise WorkspaceError(
-                        "This Odoo field does not provide a list of choices"
+                        "This Odoo field currently has no available choices; "
+                        "refresh the Odoo fields before matching values"
                     )
                 target_choices = tuple(
                     {

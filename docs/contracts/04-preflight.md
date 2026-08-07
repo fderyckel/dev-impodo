@@ -96,6 +96,15 @@ snapshots contain exact requested fields and captured Odoo records. Numeric
 Odoo IDs are permitted only in target-specific record snapshots and internal
 indexes so relationships can be reverse-resolved to business keys.
 
+For every mapped Odoo `selection` field, metadata includes the current
+`(code, label)` choices returned by `fields_get`. Codes are authoritative;
+labels are display-only. Preflight indexes the live codes once, then requires
+every non-null final scalar, identity, or scope value to match exactly. It also
+compares the captured mapping-time field contract with the live metadata: a
+transition to or from `selection` blocks, a changed code set is reported, and
+use of a removed code blocks the affected row. Language is handled by this
+generic rule, including its runtime-dependent choices.
+
 Saved evidence must satisfy:
 
 - matching metadata/record fingerprints;

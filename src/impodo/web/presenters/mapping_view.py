@@ -556,6 +556,17 @@ def _mapping_dataset_views(
                     if field.name in scalar_by_target
                     else ()
                 ),
+                "selection_choice_count": (
+                    len(field.selection)
+                    if field.type == "selection"
+                    else 0
+                ),
+                "literal_selection_available": (
+                    field.name not in scalar_by_target
+                    or scalar_by_target[field.name].literal_value is None
+                    or str(scalar_by_target[field.name].literal_value)
+                    in {str(value) for value, _label in field.selection}
+                ),
                 "canonical_type": _canonical_mapping_type(field.type),
                 "source_samples": source_samples,
                 "recommended_source_column": (

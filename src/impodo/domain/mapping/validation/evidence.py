@@ -18,7 +18,7 @@ from ...serialization import content_hash as _content_hash
 from ...serialization import portable as _portable
 
 
-MAPPING_VALIDATOR_VERSION = "6.0.0"
+MAPPING_VALIDATOR_VERSION = "7.0.0"
 
 
 class MappingValidationStatus(StrEnum):

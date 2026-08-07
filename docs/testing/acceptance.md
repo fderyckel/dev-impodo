@@ -233,9 +233,12 @@ records the target counts and reproduction boundary.
 - selection value outside the captured selection list;
 - target value that cannot be normalized.
 
-Selection metadata is captured, but the proof of concept does not validate source values
-against the Odoo selection list. That should be an explicit policy decision,
-not an assumed passing case.
+Selection fields use Odoo's technical choice codes as the authoritative
+domain. Constants and fallbacks are checked against the captured choices;
+preflight checks every non-null final prepared value against freshly fetched
+Odoo choices. A removed code blocks its affected rows, an empty live choice
+set blocks every non-null proposal, and null remains governed by the separate
+required/null policies. Choice labels are display-only.
 
 ## Snapshot requirements
 

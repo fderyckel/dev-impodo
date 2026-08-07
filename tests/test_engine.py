@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import unittest
 
-from impodo.connectors import SnapshotConnector
+from impodo.connectors import MetadataSnapshot, SnapshotConnector
 from impodo.domain.compiler import CompiledMigrationPlan, compile_profile_document
 from impodo.engine import PreflightEngine, _relation_difference
 from impodo.models import (
     BusinessReference,
     Classification,
+    FieldMetadata,
+    ModelMetadata,
     assert_no_numeric_odoo_ids,
     canonical_json_bytes,
 )
@@ -19,6 +23,11 @@ from impodo.planner import (
 )
 from impodo.profile import RelationSpec, ResolveSpec, load_profile
 from impodo.source import prepare_sources
+from impodo.workspace_contracts import (
+    OdooSchemaCatalog,
+    SchemaField,
+    SchemaModel,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -200,6 +209,180 @@ class PreflightClassificationTests(unittest.TestCase):
         first = canonical_json_bytes(self.result.to_portable_dict())
         second = canonical_json_bytes(golden_result().to_portable_dict())
         self.assertEqual(first, second)
+
+    def test_final_selection_value_must_exist_in_fresh_odoo_choices(self) -> None:
+        plan, prepared, metadata, records = self._selection_evidence(
+            allowed_names={"New product name"}
+        )
+        changed_records = tuple(
+            replace(
+                record,
+                scalar_values={**record.scalar_values, "name": "Legacy label"},
+            )
+            if record.dataset == "products"
+            and record.target_identity == ("P-UPDATE",)
+            else record
+            for record in prepared.records
+        )
+
+        result = PreflightEngine().run(
+            plan,
+            replace(prepared, records=changed_records),
+            metadata,
+            records,
+        )
+
+        rejected = next(
+            item
+            for item in result.decisions
+            if item.dataset == "products"
+            and item.business_identity == ("P-UPDATE",)
+        )
+        self.assertEqual(rejected.classification, Classification.BLOCKED)
+        issue = next(
+            item
+            for item in rejected.issues
+            if item.code == "TARGET_SELECTION_VALUE_UNAVAILABLE"
+        )
+        self.assertEqual(issue.field, "name")
+        self.assertIn("current Odoo choices", issue.message)
+
+    def test_null_selection_value_does_not_require_a_choice_code(self) -> None:
+        plan, prepared, metadata, records = self._selection_evidence(
+            allowed_names=set()
+        )
+        changed_records = tuple(
+            replace(
+                record,
+                scalar_values={**record.scalar_values, "name": None},
+            )
+            if record.dataset == "products"
+            and record.target_identity == ("P-UPDATE",)
+            else record
+            for record in prepared.records
+        )
+
+        result = PreflightEngine().run(
+            plan,
+            replace(prepared, records=changed_records),
+            metadata,
+            records,
+        )
+
+        decision = next(
+            item
+            for item in result.decisions
+            if item.dataset == "products"
+            and item.business_identity == ("P-UPDATE",)
+        )
+        self.assertNotEqual(decision.classification, Classification.BLOCKED)
+        self.assertNotIn(
+            "TARGET_SELECTION_VALUE_UNAVAILABLE",
+            {item.code for item in decision.issues},
+        )
+
+    def test_selection_choice_drift_warns_and_removed_used_code_blocks(self) -> None:
+        plan, prepared, metadata, records = self._selection_evidence(
+            allowed_names={"Other product"}
+        )
+        captured = OdooSchemaCatalog(
+            project_id="project:test",
+            target_hash="sha256:target",
+            captured_at=datetime(2026, 8, 7, tzinfo=timezone.utc),
+            captured_by="Test operator",
+            connection_mode="LOCAL",
+            database="odoo19_test",
+            odoo_version="19.0",
+            models=(
+                SchemaModel(
+                    name="product.template",
+                    label="Product",
+                    fields=(
+                        SchemaField(
+                            name="name",
+                            label="Name",
+                            type="selection",
+                            required=True,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(
+                                ("New product name", "New product"),
+                                ("Other product", "Other product"),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            content_hash="sha256:captured-schema",
+        )
+
+        result = PreflightEngine().run(
+            plan,
+            prepared,
+            metadata,
+            records,
+            captured_schema=captured,
+        )
+
+        update = next(
+            item
+            for item in result.decisions
+            if item.dataset == "products"
+            and item.business_identity == ("P-UPDATE",)
+        )
+        self.assertEqual(update.classification, Classification.BLOCKED)
+        self.assertIn(
+            "TARGET_SELECTION_VALUE_UNAVAILABLE",
+            {item.code for item in update.issues},
+        )
+        drift = next(
+            item
+            for item in result.issues
+            if item.code == "TARGET_SELECTION_CHOICES_CHANGED"
+        )
+        self.assertEqual(drift.severity.value, "warning")
+
+    @staticmethod
+    def _selection_evidence(*, allowed_names: set[str]):
+        plan = compile_profile_document(
+            load_profile(ROOT / "profiles/examples/golden_slice.yaml")
+        )
+        prepared = prepare_sources(plan, ROOT / "examples/golden")
+        connector = SnapshotConnector(
+            combined_path=ROOT / "fixtures/golden/target_snapshot.json"
+        )
+        metadata = connector.get_model_metadata(plan_metadata_requests(plan))
+        model = metadata.models["product.template"]
+        fields = dict(model.fields)
+        original = fields["name"]
+        fields["name"] = FieldMetadata(
+            name=original.name,
+            type="selection",
+            label=original.label,
+            required=original.required,
+            readonly=original.readonly,
+            relation=original.relation,
+            relation_field=original.relation_field,
+            selection=tuple((value, value) for value in sorted(allowed_names)),
+        )
+        models = dict(metadata.models)
+        models["product.template"] = ModelMetadata(
+            model=model.model,
+            description=model.description,
+            fields=fields,
+            unique_constraints=model.unique_constraints,
+        )
+        live_metadata = MetadataSnapshot(
+            fingerprint=metadata.fingerprint,
+            models=models,
+            complete=metadata.complete,
+            limitations=metadata.limitations,
+        )
+        records = connector.get_records(
+            plan_record_requests(plan, prepared.records)
+        )
+        return plan, prepared, live_metadata, records
 
     def test_create_only_dataset_blocks_existing_identity(self) -> None:
         profile = compile_profile_document(

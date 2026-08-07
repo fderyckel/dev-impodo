@@ -20,6 +20,7 @@ from ..contracts import (
     DatasetMapping,
     MappingDefinition,
     MappingTargetMode,
+    ScalarValueSource,
 )
 from .common import _issue
 from .context import (
@@ -338,6 +339,35 @@ class MappingSemanticValidator:
                     "identity_components": len(dataset.target_identity),
                     "scope_components": len(dataset.target_scope),
                 }
+            )
+            runtime_selection_fields = {
+                field_mapping.target_field
+                for field_mapping in dataset.fields
+                if field_mapping.value_source is not ScalarValueSource.ODOO_DEFAULT
+                and fields.get(field_mapping.target_field) is not None
+                and fields[field_mapping.target_field].type == "selection"
+            }
+            runtime_selection_fields.update(
+                target_field
+                for component in (
+                    *dataset.target_identity,
+                    *dataset.target_scope,
+                )
+                if component.resolver is None
+                for target_field in component.target_fields
+                if fields.get(target_field) is not None
+                and fields[target_field].type == "selection"
+            )
+            deferred.extend(
+                DeferredRuntimeCheck(
+                    code="SELECTION_VALUE_AVAILABLE",
+                    dataset_id=dataset.dataset_id,
+                    message=(
+                        f"Verify every final {target_field} value against the "
+                        "fresh Odoo choice codes before loading."
+                    ),
+                )
+                for target_field in sorted(runtime_selection_fields)
             )
             deferred.extend(
                 (

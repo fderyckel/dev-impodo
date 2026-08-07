@@ -47,7 +47,13 @@ from .profile import (
     RelationSpec,
     ResolveSpec,
 )
+from .selection_domains import (
+    apply_live_selection_domains,
+    live_selection_metadata_issues,
+    validate_selection_metadata_drift,
+)
 from .source import PreparedBundle
+from .workspace_contracts import OdooSchemaCatalog
 
 
 class PreflightEngine:
@@ -59,6 +65,8 @@ class PreflightEngine:
         prepared: PreparedBundle,
         metadata_snapshot: MetadataSnapshot,
         record_snapshot: RecordSnapshot,
+        *,
+        captured_schema: OdooSchemaCatalog | None = None,
     ) -> PreflightResult:
         """Execute one deterministic, read-only preflight.
 
@@ -83,12 +91,26 @@ class PreflightEngine:
         metadata_issues, coverage = validate_plan_metadata(
             plan, metadata_snapshot
         )
+        metadata_issues = (
+            *metadata_issues,
+            *live_selection_metadata_issues(plan, metadata_snapshot),
+            *validate_selection_metadata_drift(
+                plan,
+                metadata_snapshot,
+                captured_schema,
+            ),
+        )
         catalog = TargetCatalog(record_snapshot.records)
         with_metadata_issues = _apply_dataset_issues(
             prepared.records, metadata_issues
         )
+        with_selection_issues = apply_live_selection_domains(
+            plan,
+            with_metadata_issues,
+            metadata_snapshot,
+        )
         resolved_records, resolution_evidence = _resolve_records(
-            plan, with_metadata_issues, catalog
+            plan, with_selection_issues, catalog
         )
 
         decisions: list[Decision] = []

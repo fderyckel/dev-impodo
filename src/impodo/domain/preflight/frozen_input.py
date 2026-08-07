@@ -35,13 +35,13 @@ from ..resolution import EffectiveDataset
 from ...source import PreparedBundle
 from ...staging import StagingRunSummary
 from ...staging_contracts import CanonicalRow, CanonicalStagingRun
-from ...workspace_contracts import SourceSelection
+from ...workspace_contracts import OdooSchemaCatalog, SourceSelection
 from ..compiler.contracts import CompiledMigrationPlan
 from ..errors import ReadinessError
 from ..mapping.artifacts import MappingRevision
 
 
-FROZEN_PREFLIGHT_INPUT_VERSION = 3
+FROZEN_PREFLIGHT_INPUT_VERSION = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +64,7 @@ class FrozenPreflightInput:
     dataset_labels: Mapping[str, str]
     source_field_labels: Mapping[tuple[str, str], str]
     eligible_row_ids: tuple[str, ...]
+    captured_schema: OdooSchemaCatalog | None = None
     contract_version: int = FROZEN_PREFLIGHT_INPUT_VERSION
 
     @property
@@ -89,6 +90,11 @@ class FrozenPreflightInput:
             "eligible_row_ids": list(self.eligible_row_ids),
             "source_hashes": dict(sorted(self.prepared.source_hashes.items())),
             "compiled_plan_hash": self.plan.semantic_hash,
+            "captured_schema_hash": (
+                self.captured_schema.content_hash
+                if self.captured_schema is not None
+                else None
+            ),
             "dataset_labels": dict(sorted(self.dataset_labels.items())),
             "source_field_labels": [
                 [dataset, field, label]
@@ -115,6 +121,7 @@ def build_frozen_preflight_input(
     dataset_labels: Mapping[str, str],
     source_field_labels: Mapping[tuple[str, str], str],
     effective: EffectiveDataset | None = None,
+    captured_schema: OdooSchemaCatalog | None = None,
 ) -> FrozenPreflightInput:
     """Validate current durable evidence and build the preflight envelope.
 
@@ -217,6 +224,7 @@ def build_frozen_preflight_input(
         dataset_labels=dict(dataset_labels),
         source_field_labels=dict(source_field_labels),
         eligible_row_ids=eligible_row_ids,
+        captured_schema=captured_schema,
     )
     assert_no_numeric_odoo_ids(
         {

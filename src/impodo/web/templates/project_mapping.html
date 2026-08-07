@@ -290,23 +290,31 @@
                         </label>
                       </div>
                       <div class="provider-control" data-provider-literal {% if value_source not in ('constant', 'source_with_fallback') %}hidden{% endif %}>
+                        {% set literal_value = mapping.literal_value if mapping and mapping.literal_value is not none else '' %}
                         <label><span data-literal-label>{% if value_source == 'source_with_fallback' %}Backup value{% else %}Value for every row{% endif %}</span>
-                          <input
-                            name="scalar_literal_{{ dataset_index }}_{{ field_index }}"
-                            value="{{ mapping.literal_value if mapping and mapping.literal_value is not none else '' }}"
-                            {% if row.metadata.selection %}list="selection-values-{{ dataset_index }}-{{ field_index }}"{% endif %}
-                            data-literal-value
-                          >
+                          {% if row.metadata.type == 'selection' %}
+                            <select
+                              name="scalar_literal_{{ dataset_index }}_{{ field_index }}"
+                              data-literal-value
+                            >
+                              <option value="" {% if not literal_value %}selected{% endif %}>Choose an Odoo choice</option>
+                              {% if literal_value and not row.literal_selection_available %}
+                                <option value="{{ literal_value }}" selected>Unavailable in captured Odoo choices — {{ literal_value }}</option>
+                              {% endif %}
+                              {% for selection_key, selection_label in row.metadata.selection %}
+                                <option value="{{ selection_key }}" {% if literal_value == selection_key|string %}selected{% endif %}>{{ selection_label }} — {{ selection_key }}</option>
+                              {% endfor %}
+                            </select>
+                          {% else %}
+                            <input
+                              name="scalar_literal_{{ dataset_index }}_{{ field_index }}"
+                              value="{{ literal_value }}"
+                              data-literal-value
+                            >
+                          {% endif %}
                         </label>
-                        {% if row.metadata.selection %}
-                          <datalist id="selection-values-{{ dataset_index }}-{{ field_index }}">
-                            {% for selection_key, selection_label in row.metadata.selection %}
-                              <option value="{{ selection_key }}">{{ selection_label }}</option>
-                            {% endfor %}
-                          </datalist>
-                        {% endif %}
                       </div>
-                      {% if row.metadata.selection %}
+                      {% if row.metadata.type == 'selection' %}
                         <input
                           type="hidden"
                           name="scalar_value_matches_{{ dataset_index }}_{{ field_index }}"
@@ -314,6 +322,7 @@
                           data-value-match-storage
                         >
                         <div class="value-match-entry">
+                          <small>Choice field · {{ row.selection_choice_count }} choice(s) captured from Odoo.</small>
                           <button
                             class="button secondary compact"
                             type="button"
@@ -323,9 +332,10 @@
                             data-target-model="{{ view.selected_model }}"
                             data-target-field="{{ row.metadata.name }}"
                             data-target-label="{{ row.metadata.label }}"
-                          >Match values</button>
+                            {% if not row.selection_choice_count %}disabled{% endif %}
+                          >Review source choices</button>
                           <small data-value-match-summary>
-                            {% if row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Use when source and Odoo choices differ{% endif %}
+                            {% if not row.selection_choice_count %}Refresh the Odoo fields to load the available choices{% elif row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Exact Odoo codes pass; match every other populated source choice{% endif %}
                           </small>
                         </div>
                       {% endif %}

@@ -86,7 +86,7 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         )
         self.assertEqual(
             first.validation_hash,
-            "sha256:bacbf28af1e7c1ff27b09d6344cbcfbd838426bd78292b8513755c3912571b86",
+            "sha256:6f8f18ca517eb2addfc70f9d80ede52738b3750c326df1df1f38ab5440cbd1de",
         )
         reversed_definition = replace(
             definition,
@@ -446,6 +446,58 @@ class MappingSemanticValidatorTests(unittest.TestCase):
                 for item in self.schema.models
             ),
         )
+        result = self.validator.validate(
+            replace(
+                definition,
+                datasets=(company, replace(partner, fields=(language,))),
+            ),
+            self.selection,
+            schema,
+            self.governance,
+        )
+
+        self.assertEqual(result.status, MappingValidationStatus.INVALID)
+        self.assertIn(
+            "MAPPING_SELECTION_VALUE_INVALID",
+            {item.code for item in result.issues},
+        )
+
+    def test_selection_literal_fails_when_odoo_exposes_no_choices(self) -> None:
+        definition = _valid_definition(self.selection, self.governance)
+        company, partner = definition.datasets
+        language = ScalarFieldMapping(
+            target_field="lang",
+            value_source=ScalarValueSource.CONSTANT,
+            literal_value="fr_FR",
+        )
+        partner_model = next(
+            item for item in self.schema.models if item.name == "res.partner"
+        )
+        schema = replace(
+            self.schema,
+            models=tuple(
+                replace(
+                    item,
+                    fields=(
+                        *item.fields,
+                        SchemaField(
+                            name="lang",
+                            label="Language",
+                            type="selection",
+                            required=False,
+                            readonly=False,
+                            relation=None,
+                            relation_field=None,
+                            selection=(),
+                        ),
+                    ),
+                )
+                if item is partner_model
+                else item
+                for item in self.schema.models
+            ),
+        )
+
         result = self.validator.validate(
             replace(
                 definition,

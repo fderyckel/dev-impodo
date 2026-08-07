@@ -52,6 +52,7 @@ from .readiness_ports import (
     PreflightProjectRepository,
     PreflightQualityRepository,
     PreflightRepository,
+    PreflightSchemaRepository,
     PreflightSourceRepository,
     PreflightStagingRepository,
 )
@@ -86,6 +87,7 @@ class PreflightService:
         artifacts: ArtifactStore,
         authorization: AuthorizationPolicy,
         effective: PreflightEffectiveRepository | None = None,
+        schemas: PreflightSchemaRepository | None = None,
     ) -> None:
         self.staging = staging
         self.quality = quality
@@ -97,6 +99,7 @@ class PreflightService:
         self.artifacts = artifacts
         self.authorization = authorization
         self.effective = effective
+        self.schemas = schemas
         self.engine = PreflightEngine()
 
     def current_report(self, project_id: str) -> ReadinessReport | None:
@@ -323,6 +326,7 @@ class PreflightService:
             frozen.prepared,
             metadata,
             records,
+            captured_schema=getattr(frozen, "captured_schema", None),
         )
         if not result.metadata_snapshot_hash or not result.record_snapshot_hash:
             raise ReadinessError("Odoo snapshot evidence is incomplete")
@@ -428,6 +432,31 @@ class PreflightService:
             raise ReadinessError(
                 "Submit the current mapping before comparing with Odoo"
             )
+        captured_schema = None
+        if self.schemas is not None:
+            captured_schema = self.schemas.get_odoo_schema_catalog(project_id)
+            governance = self.schemas.get_schema_governance(project_id)
+            expected_schema_hash = (
+                governance.content_hash
+                if governance is not None
+                else (
+                    captured_schema.content_hash
+                    if captured_schema is not None
+                    else None
+                )
+            )
+            if (
+                captured_schema is None
+                or expected_schema_hash != revision.definition.schema_hash
+                or (
+                    governance is not None
+                    and governance.catalog_hash != captured_schema.content_hash
+                )
+            ):
+                raise ReadinessError(
+                    "The captured Odoo fields no longer match the submitted "
+                    "mapping. Odoo was not contacted."
+                )
         selection = self.sources.get_mapping_source_selection(project_id)
         staging_summary = self.staging.get_current_staging_summary(project_id)
         quality_summary = self.quality.get_current_quality_summary(project_id)
@@ -491,6 +520,7 @@ class PreflightService:
             dataset_labels=dataset_labels,
             source_field_labels=source_field_labels,
             effective=effective,
+            captured_schema=captured_schema,
         )
 
 

@@ -194,6 +194,7 @@ def create_local_app(
         resolved_artifacts,
         resolved_authorization,
         advanced_coverage_repository,
+        schema_repository,
     )
     execution = ExecutionService(
         project_repository,

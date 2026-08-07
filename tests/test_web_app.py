@@ -2707,6 +2707,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn("data-value-match-dialog", page.text)
         self.assertIn("Match values", page.text)
+        self.assertIn("Choice field · 2 choice(s) captured from Odoo", page.text)
+        self.assertIn("Review source choices", page.text)
+        self.assertIn("French (France) — fr_FR", page.text)
+        self.assertNotIn("datalist", page.text)
         with patch(
             "impodo.web.routers.mapping._source_value_choices",
             return_value=(

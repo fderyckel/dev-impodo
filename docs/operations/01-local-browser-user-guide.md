@@ -322,12 +322,21 @@ For dates, select the exact source format: `YYYY-MM-DD`, `DD/MM/YYYY`,
 `MM/DD/YYYY`, or `DD.MM.YYYY`. Datetimes use the same selected date order and
 include a time. The browser's governed timezone is currently UTC.
 
-When Odoo exposes a selection list, use its technical value—the stored key—not
-only its translated display label. The field control offers the captured
-technical choices for constants and fallbacks. When a source column uses
-different choices, select **Match values**. The dialog shows each distinct
-source choice and its row count; choose the corresponding Odoo choice, then
-select **Use matches**. You can save a partial match and return to finish it.
+When Odoo exposes a choice field, use its technical value—the stored code—not
+only its translated display label. Constants and fallbacks use a closed list
+showing `label — code`, so an arbitrary value cannot be entered. For a source
+column, select **Review source choices**. The dialog shows every distinct
+non-empty source choice and its row count, suggests exact code matches, and
+lets you map the remaining values to captured Odoo choices. You can save a
+partial match and return to finish it.
+
+The helper is not the final safety boundary. During the read-only Odoo
+comparison, Impodo fetches the current field metadata once per model and
+checks every non-null final value after transformations. A code that is no
+longer available blocks the affected row. If the available code set changed
+since mapping, the comparison records drift; labels may change without
+changing the authoritative codes. This same rule covers Language and every
+other Odoo `selection` field.
 
 #### Apply transformations
 
