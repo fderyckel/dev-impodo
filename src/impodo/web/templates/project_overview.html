@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Overview · {{ project.name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading project-overview-heading">
+    <div>
+      <p class="eyebrow">Project overview</p>
+      <h1>{{ project.name }}</h1>
+      <p>See what is complete, what needs attention and what to do next.</p>
+    </div>
+    {% if project_navigation.current_stage %}
+      <span class="status {{ project_navigation.current_stage.status }}">
+        {{ project_navigation.current_stage.status_label }}
+      </span>
+    {% endif %}
+  </div>
+
+  {% set current_stage = project_navigation.current_stage %}
+  {% if current_stage and current_stage.status != "complete" %}
+    <section class="next-action-card {{ current_stage.status }}" aria-labelledby="overview-next-title">
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2 id="overview-next-title">{{ current_stage.label }}</h2>
+        <p>
+          {% if current_stage.stage_id == "source" %}
+            Ready for source check. Confirm the files and tables Impodo should prepare.
+          {% elif current_stage.stage_id == "odoo" %}
+            Choose the Odoo records and matching keys needed for this project.
+          {% elif current_stage.stage_id == "match" %}
+            Match each source value to its destination in Odoo.
+          {% elif current_stage.stage_id == "prepare" %}
+            Prepare all source rows and approve any decisions that need your review.
+          {% elif current_stage.stage_id == "review" %}
+            Compare the approved data with Odoo and resolve any remaining findings.
+          {% else %}
+            Review the exact load, confirm it explicitly and verify the result.
+          {% endif %}
+        </p>
+      </div>
+      {% if current_stage.href %}
+        <a class="button primary" href="{{ current_stage.href }}">
+          {% if current_stage.stage_id == "source" %}Check source data{% else %}Continue to {{ current_stage.label|lower }}{% endif %}
+        </a>
+      {% endif %}
+    </section>
+  {% else %}
+    <section class="next-action-card ready" aria-labelledby="overview-complete-title">
+      <div>
+        <p class="eyebrow">Project complete</p>
+        <h2 id="overview-complete-title">The migration outcome is verified</h2>
+        <p>Every stage below is complete. The saved review and load evidence remains available.</p>
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="overview-stage-list" aria-labelledby="overview-stages-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Migration process</p>
+        <h2 id="overview-stages-title">Six stages from source to Odoo</h2>
+      </div>
+    </div>
+    <ol class="overview-stages">
+      {% for stage in project_navigation.stages %}
+        <li class="overview-stage {{ stage.status }}">
+          <div class="overview-stage-number" aria-hidden="true">{{ stage.number }}</div>
+          <div class="overview-stage-copy">
+            <h3>{{ stage.label }}</h3>
+            <p>{{ stage.status_label }}</p>
+          </div>
+          {% if stage.href %}
+            <a class="button secondary small" href="{{ stage.href }}">
+              {% if stage.status == "complete" %}View{% elif stage.status == "attention" %}Review{% else %}Open{% endif %}
+            </a>
+          {% else %}
+            <span class="overview-stage-locked">Complete the previous stage first</span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+{% endblock %}

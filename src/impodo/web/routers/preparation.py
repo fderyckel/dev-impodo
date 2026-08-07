@@ -23,6 +23,51 @@ def build_preparation_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
+    @router.get("/projects/{project_id}/prepare", response_class=HTMLResponse)
+    async def prepare_project_data(request: Request, project_id: str):
+        require_session(request)
+        project = context.queries.get(project_id)
+        active = (
+            context.preparation_jobs.active(project_id)
+            if context.preparation_jobs is not None
+            else None
+        )
+        if active is not None:
+            return RedirectResponse(
+                _progress_url(project_id, active.job_id),
+                status_code=303,
+            )
+        resolution = context.resolution.current_summary(project_id)
+        if resolution is not None and resolution.status != "FROZEN":
+            return RedirectResponse(
+                f"/projects/{project_id}/resolution",
+                status_code=303,
+            )
+        normalization = context.normalization.current_summary(project_id)
+        if normalization is not None:
+            return RedirectResponse(
+                f"/projects/{project_id}/normalization",
+                status_code=303,
+            )
+        revision = context.queries.get_mapping_revision(project_id)
+        submission = (
+            context.queries.get_mapping_submission(project_id, revision.version)
+            if revision is not None
+            else None
+        )
+        can_prepare = bool(
+            revision is not None
+            and submission is not None
+            and submission.mapping_content_hash
+            == revision.definition.content_hash
+        )
+        return _render(
+            request,
+            "project_prepare.html",
+            project=project,
+            can_prepare=can_prepare,
+        )
+
     @router.post("/projects/{project_id}/summary/check")
     async def check_project_data(request: Request, project_id: str):
         form = await request.form()

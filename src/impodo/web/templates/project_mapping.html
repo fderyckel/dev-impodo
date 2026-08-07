@@ -3,7 +3,7 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Step 4 · Match data</p>
+      <p class="eyebrow">Stage 3 of 6 · Match data</p>
       <h1>Match your data to Odoo</h1>
       <p>Choose where each source value belongs and how existing records are found.</p>
     </div>
@@ -935,7 +935,7 @@
           {% endif %}
           {% if validation.status.value != 'INVALID' and revision and not has_unvalidated_changes %}
             <div class="actions">
-              <a class="button secondary" href="/projects/{{ project.project_id }}/mapping/transformation-impact">Review changed values</a>
+              <a class="button secondary" href="/projects/{{ project.project_id }}/mapping/transformation-impact">Preview rule effects</a>
             </div>
             <p class="muted">Shows how the confirmed rules prepare every source row. This does not contact or change Odoo.</p>
           {% endif %}
@@ -980,7 +980,7 @@
         <button class="button secondary" name="action" value="save_progress" type="submit" data-save-mapping-progress>Save progress</button>
         <button class="button secondary" name="action" value="draft" type="submit">Check matches</button>
         {% if submission %}
-          <a class="button primary" href="/projects/{{ project.project_id }}/summary">Review prepared data</a>
+          <a class="button primary" href="/projects/{{ project.project_id }}/prepare">Prepare data</a>
         {% elif schema.origin.value != 'LOCAL_MANUAL' and revision and validation and validation.status.value != 'INVALID' and not has_unvalidated_changes %}
           <button class="button primary" name="action" value="submit" type="submit" data-confirm-mapping>Confirm field matches</button>
         {% endif %}

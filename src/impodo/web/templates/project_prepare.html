@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Prepare data · {{ project.name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Stage 4 of 6 · Prepare data</p>
+      <h1>Prepare all source rows</h1>
+      <p>Impodo will apply the confirmed field rules, run data checks and pause for any decisions that need you.</p>
+    </div>
+    <span class="status {% if can_prepare %}ready{% else %}review{% endif %}">
+      {% if can_prepare %}Ready to prepare{% else %}Finish matching first{% endif %}
+    </span>
+  </div>
+
+  <section class="form-card narrow">
+    {% if can_prepare %}
+      <h2>Start preparation</h2>
+      <p>This work happens locally. You can leave the progress page and return without losing the job.</p>
+      <form method="post" action="/projects/{{ project.project_id }}/summary/check">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="button primary" type="submit">Prepare data</button>
+      </form>
+    {% else %}
+      <h2>Confirm the field matches first</h2>
+      <p>Preparation starts only from explicitly confirmed matching rules.</p>
+      <a class="button primary" href="/projects/{{ project.project_id }}/mapping">Continue field matching</a>
+    {% endif %}
+  </section>
+{% endblock %}

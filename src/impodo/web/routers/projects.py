@@ -133,11 +133,26 @@ def build_projects_router(context: WebContext) -> APIRouter:
         require_session(request)
         project = context.queries.get(project_id)
         destination = (
-            "summary" if project.status is ProjectStatus.REGISTERED else "details"
+            "overview" if project.status is ProjectStatus.REGISTERED else "details"
         )
         return RedirectResponse(
             f"/projects/{project.project_id}/{destination}",
             status_code=303,
+        )
+
+    @router.get("/projects/{project_id}/overview", response_class=HTMLResponse)
+    async def project_overview(request: Request, project_id: str):
+        require_session(request)
+        project = context.queries.get(project_id)
+        if project.status is not ProjectStatus.REGISTERED:
+            return RedirectResponse(
+                f"/projects/{project.project_id}/details",
+                status_code=303,
+            )
+        return _render(
+            request,
+            "project_overview.html",
+            project=project,
         )
 
     @router.get("/projects/{project_id}/details", response_class=HTMLResponse)
@@ -340,7 +355,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 ),
             )
         return RedirectResponse(
-            f"/projects/{project.project_id}/summary",
+            f"/projects/{project.project_id}/overview",
             status_code=303,
         )
 

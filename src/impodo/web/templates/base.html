@@ -6,26 +6,7 @@
     </svg>
   {%- endmacro %}
   {% set current_path = request.url.path %}
-  {% set has_project = project is defined %}
-  {% if has_project %}
-    {% set project_id = project.project_id %}
-    {% set workspace_ready = project.registered_at %}
-  {% else %}
-    {% set project_id = "" %}
-    {% set workspace_ready = false %}
-  {% endif %}
-  {% set nav_active = "projects" %}
-  {% if "/sources" in current_path %}
-    {% set nav_active = "source" %}
-  {% elif "/datasets" in current_path %}
-    {% set nav_active = "datasets" %}
-  {% elif "/schema" in current_path %}
-    {% set nav_active = "schema" %}
-  {% elif "/mapping" in current_path %}
-    {% set nav_active = "mapping" %}
-  {% elif "/summary" in current_path or "/preparation" in current_path or "/normalization" in current_path or "/load" in current_path %}
-    {% set nav_active = "summary" %}
-  {% endif %}
+  {% set navigation = project_navigation if project_navigation is defined else none %}
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -75,78 +56,107 @@
         </div>
         <nav class="sidebar-nav" aria-label="Impodo workflow">
           <a
-            class="sidebar-link{% if nav_active == 'projects' %} active{% endif %}"
+            class="sidebar-link{% if not navigation %} active{% endif %}"
             href="/projects"
-            title="Projects"
-            {% if nav_active == "projects" %}aria-current="page"{% endif %}
+            title="All projects"
+            {% if not navigation %}aria-current="page"{% endif %}
           >
             {{ app_icon("folder") }}
-            <span class="nav-label">Projects</span>
+            <span class="nav-label">All projects</span>
           </a>
 
-          {% if workspace_ready %}
-            <a
-              class="sidebar-link{% if nav_active == 'source' %} active{% endif %}"
-              href="/projects/{{ project_id }}/sources"
-              title="Source data"
-              {% if nav_active == "source" %}aria-current="page"{% endif %}
-            >
-              {{ app_icon("database") }}
-              <span class="nav-label">Source data</span>
-            </a>
-            <a
-              class="sidebar-link{% if nav_active == 'datasets' %} active{% endif %}"
-              href="/projects/{{ project_id }}/datasets"
-              title="Select tables"
-              {% if nav_active == "datasets" %}aria-current="page"{% endif %}
-            >
-              {{ app_icon("grid-3x3-gap") }}
-              <span class="nav-label">Select tables</span>
-            </a>
-            <a
-              class="sidebar-link{% if nav_active == 'schema' %} active{% endif %}"
-              href="/projects/{{ project_id }}/schema"
-              title="Odoo data"
-              {% if nav_active == "schema" %}aria-current="page"{% endif %}
-            >
-              {{ app_icon("diagram-3") }}
-              <span class="nav-label">Odoo data</span>
-            </a>
-            <a
-              class="sidebar-link{% if nav_active == 'mapping' %} active{% endif %}"
-              href="/projects/{{ project_id }}/mapping"
-              title="Match data"
-              {% if nav_active == "mapping" %}aria-current="page"{% endif %}
-            >
-              {{ app_icon("link-45deg") }}
-              <span class="nav-label">Match data</span>
-            </a>
-            <a
-              class="sidebar-link{% if nav_active == 'summary' %} active{% endif %}"
-              href="/projects/{{ project_id }}/summary"
-              title="Review"
-              {% if nav_active == "summary" %}aria-current="page"{% endif %}
-            >
-              {{ app_icon("clipboard-check") }}
-              <span class="nav-label">Review</span>
-            </a>
-          {% else %}
-            {% for item in (
-              ("database", "Source data"),
-              ("grid-3x3-gap", "Select tables"),
-              ("diagram-3", "Odoo data"),
-              ("link-45deg", "Match data"),
-              ("clipboard-check", "Review")
-            ) %}
-              <span
-                class="sidebar-link disabled"
-                aria-disabled="true"
-                title="Open a registered project to use {{ item[1] }}"
+          {% if navigation %}
+            <div class="sidebar-project-context">
+              <span class="sidebar-project-label">Current project</span>
+              <strong title="{{ navigation.project_name }}">{{ navigation.project_name }}</strong>
+            </div>
+
+            {% if not navigation.registered %}
+              <a
+                class="sidebar-link workflow-stage-link active"
+                href="{{ navigation.setup_href }}"
+                aria-current="step"
+                title="Set up project"
               >
-                {{ app_icon(item[0]) }}
-                <span class="nav-label">{{ item[1] }}</span>
-              </span>
-            {% endfor %}
+                {{ app_icon("sliders") }}
+                <span class="nav-label">
+                  <strong>Set up project</strong>
+                  <small>Current</small>
+                </span>
+              </a>
+            {% else %}
+              <a
+                class="sidebar-link{% if navigation.overview_active %} active{% endif %}"
+                href="{{ navigation.overview_href }}"
+                {% if navigation.overview_active %}aria-current="page"{% endif %}
+                title="Project overview"
+              >
+                {{ app_icon("speedometer2") }}
+                <span class="nav-label">Overview</span>
+              </a>
+            {% endif %}
+
+            <ol class="sidebar-workflow">
+              {% for stage in navigation.stages %}
+                <li class="sidebar-stage {{ stage.status }}{% if stage.active %} active{% endif %}">
+                  {% if stage.href %}
+                    <a
+                      class="sidebar-link workflow-stage-link{% if stage.active %} active{% endif %}"
+                      href="{{ stage.href }}"
+                      {% if stage.active %}aria-current="step"{% endif %}
+                      title="Stage {{ stage.number }}: {{ stage.label }} — {{ stage.status_label }}"
+                    >
+                  {% else %}
+                    <span
+                      class="sidebar-link workflow-stage-link disabled{% if stage.active %} active{% endif %}"
+                      aria-disabled="true"
+                      title="Stage {{ stage.number }}: {{ stage.label }} — {{ stage.status_label }}"
+                    >
+                  {% endif %}
+                      <span class="stage-number" aria-hidden="true">{{ stage.number }}</span>
+                      <span class="nav-label workflow-stage-copy">
+                        <strong>{{ stage.label }}</strong>
+                        <small>{{ stage.status_label }}</small>
+                      </span>
+                      {% if stage.status == "complete" %}
+                        {{ app_icon("check-circle-fill", "stage-status-icon") }}
+                      {% elif stage.status == "attention" %}
+                        {{ app_icon("exclamation-circle-fill", "stage-status-icon") }}
+                      {% elif stage.status == "locked" %}
+                        {{ app_icon("lock-fill", "stage-status-icon") }}
+                      {% else %}
+                        {{ app_icon("circle-fill", "stage-status-icon") }}
+                      {% endif %}
+                  {% if stage.href %}</a>{% else %}</span>{% endif %}
+
+                  {% if stage.active and stage.pages|length > 1 %}
+                    <ol class="sidebar-subnav" aria-label="{{ stage.label }} pages">
+                      {% for page in stage.pages %}
+                        <li>
+                          <a
+                            class="sidebar-subnav-link{% if page.current %} active{% endif %}"
+                            href="{{ page.href }}"
+                            {% if page.current %}aria-current="page"{% endif %}
+                          >
+                            <span>{{ page.label }}</span>
+                            <small>{{ page.status_label }}</small>
+                          </a>
+                        </li>
+                      {% endfor %}
+                    </ol>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ol>
+          {% else %}
+            <a
+              class="sidebar-link"
+              href="/projects/new"
+              title="Create project"
+            >
+              {{ app_icon("plus-circle") }}
+              <span class="nav-label">Create project</span>
+            </a>
           {% endif %}
         </nav>
       </aside>
@@ -159,6 +169,27 @@
       ></button>
       <main class="app-main">
         <div class="page-shell">
+          {% if navigation and navigation.registered %}
+            <nav class="project-breadcrumb" aria-label="Current location">
+              <a href="/projects">Projects</a>
+              <span aria-hidden="true">/</span>
+              <a href="{{ navigation.overview_href }}">{{ navigation.project_name }}</a>
+              {% if navigation.viewed_stage %}
+                <span aria-hidden="true">/</span>
+                <span>{{ navigation.viewed_stage.label }}</span>
+              {% endif %}
+              {% if navigation.viewed_page_label and navigation.viewed_stage %}
+                <span aria-hidden="true">/</span>
+                <span aria-current="page">{{ navigation.viewed_page_label }}</span>
+              {% endif %}
+            </nav>
+            {% if navigation.viewed_stage and navigation.current_stage and navigation.viewed_stage_id != navigation.current_stage_id %}
+              <div class="workflow-location-notice" role="status">
+                You are viewing {{ navigation.viewed_stage.label }}.
+                Current project work: <a href="{{ navigation.current_stage.href }}">Stage {{ navigation.current_stage.number }} · {{ navigation.current_stage.label }}</a>.
+              </div>
+            {% endif %}
+          {% endif %}
           {% if flash %}
             <div class="notice success" role="status">{{ flash }}</div>
           {% endif %}

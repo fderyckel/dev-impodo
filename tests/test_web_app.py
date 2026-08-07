@@ -1278,8 +1278,23 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(registered.status_code, 303)
         summary = self.client.get(registered.headers["location"])
+        self.assertEqual(
+            registered.headers["location"],
+            f"/projects/{project_id}/overview",
+        )
+        self.assertIn("Project overview", summary.text)
         self.assertIn("Ready for source check", summary.text)
         self.assertIn("Check source data", summary.text)
+        self.assertIn(
+            '<div class="overview-stage-number" aria-hidden="true">1</div>',
+            summary.text,
+        )
+        self.assertIn(
+            '<div class="overview-stage-number" aria-hidden="true">6</div>',
+            summary.text,
+        )
+        self.assertIn("Source data", summary.text)
+        self.assertIn("Load into Odoo", summary.text)
         self.assertIn(
             f'href="/projects/{project_id}/sources"',
             summary.text,
@@ -1308,7 +1323,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         source_discovery = self.client.get(f"/projects/{project_id}/sources")
         self.assertEqual(source_discovery.status_code, 200)
-        self.assertIn("Step 1 · Source data", source_discovery.text)
+        self.assertIn("Stage 1 of 6 · Source data", source_discovery.text)
+        self.assertIn('aria-current="step"', source_discovery.text)
+        self.assertIn('aria-current="page"', source_discovery.text)
+        self.assertIn("Check source files", source_discovery.text)
         self.assertIn("Your files have not been checked yet", source_discovery.text)
         self.assertIn("data-source-review-page", source_discovery.text)
         self.assertIn("data-source-review-form", source_discovery.text)
@@ -1386,7 +1404,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         datasets = self.client.get(f"/projects/{project_id}/datasets")
         self.assertEqual(datasets.status_code, 200)
-        self.assertIn("Step 2 · Select tables", datasets.text)
+        self.assertIn("Stage 1 of 6 · Source data", datasets.text)
+        self.assertIn('aria-current="step"', datasets.text)
+        self.assertIn('aria-current="page"', datasets.text)
         self.assertIn("Choose the tables to prepare", datasets.text)
         self.assertNotIn(
             f" · {catalogs[0].tables[0].name}</strong>",
@@ -1405,14 +1425,29 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(frozen.status_code, 303)
         self.assertEqual(
             frozen.headers["location"],
-            f"/projects/{project_id}/derived-entities",
+            f"/projects/{project_id}/schema",
         )
-        derived_page = self.client.get(frozen.headers["location"])
+        derived_page = self.client.get(
+            f"/projects/{project_id}/derived-entities"
+        )
         self.assertIn("Separate combined information", derived_page.text)
+        self.assertIn("Stage 1 of 6 · Optional source organization", derived_page.text)
+        self.assertIn("You are viewing Source data", derived_page.text)
+        self.assertIn("Current project work:", derived_page.text)
+        self.assertIn("Stage 2 · Odoo data", derived_page.text)
         self.assertIn(
             "Saved rules are repeated consistently for every row",
             derived_page.text,
         )
+        self.assertIn("Create two related tables", derived_page.text)
+        self.assertIn("Which field groups rows together?", derived_page.text)
+        self.assertIn(
+            "Which field identifies each row within its group?",
+            derived_page.text,
+        )
+        self.assertNotIn("BOMId", derived_page.text)
+        self.assertNotIn("dataAreaId", derived_page.text)
+        self.assertNotIn("LineNum", derived_page.text)
         self.assertIn("Show available Odoo record types", derived_page.text)
         self.assertNotIn(
             f'action="/projects/{project_id}/derived-entities/lookup/preview"',
@@ -1535,6 +1570,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
             lookup_model_page.text,
         )
         self.assertIn('value="res.partner" label="Contact"', lookup_model_page.text)
+        self.assertIn("Start typing an Odoo record type", lookup_model_page.text)
+        self.assertNotIn('placeholder="product_categories"', lookup_model_page.text)
+        self.assertNotIn("Article and Service", lookup_model_page.text)
 
         rejected_lookup_model = self.client.post(
             f"/projects/{project_id}/derived-entities/lookup/preview",
@@ -1594,7 +1632,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
             ],
         )
         model_page = self.client.get(refreshed_models.headers["location"])
-        self.assertIn("Step 3 · Odoo data", model_page.text)
+        self.assertIn("Stage 2 of 6 · Odoo data", model_page.text)
+        self.assertIn('aria-current="step"', model_page.text)
+        self.assertIn('aria-current="page"', model_page.text)
         self.assertIn("Choose the Odoo data you need", model_page.text)
         self.assertIn(
             "Odoo areas included: <strong>Contacts</strong>",
@@ -1686,7 +1726,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(governed.status_code, 303)
         mapping_page = self.client.get(governed.headers["location"])
-        self.assertIn("<p class=\"eyebrow\">Step 4 · Match data</p>", mapping_page.text)
+        self.assertIn(
+            '<p class="eyebrow">Stage 3 of 6 · Match data</p>',
+            mapping_page.text,
+        )
+        self.assertIn('aria-current="step"', mapping_page.text)
+        self.assertIn('aria-current="page"', mapping_page.text)
         self.assertIn("Match your data to Odoo", mapping_page.text)
         self.assertIn('<details class="technical-evidence">', mapping_page.text)
         self.assertNotIn("Evidence binding", mapping_page.text)
@@ -1995,10 +2040,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
         impact_link = (
             f"/projects/{project_id}/mapping/transformation-impact"
         )
-        self.assertIn("Review changed values", submitted_page.text)
+        self.assertIn("Preview rule effects", submitted_page.text)
         impact_page = self.client.get(impact_link)
         self.assertEqual(impact_page.status_code, 200)
-        self.assertIn("Review changed values", impact_page.text)
+        self.assertIn("Preview rule effects", impact_page.text)
+        self.assertIn("Stage 3 of 6 · Optional preview", impact_page.text)
+        self.assertIn('aria-current="step"', impact_page.text)
+        self.assertIn('aria-current="page"', impact_page.text)
         self.assertIn("Prepare the comparison", impact_page.text)
         self.assertIn("your confirmed preparation choices", impact_page.text)
         self.assertNotIn("data-impact-row", impact_page.text)
@@ -2041,7 +2089,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(checked.status_code, 303)
         self.assertIn("/preparation/", checked.headers["location"])
         progress_page = self.client.get(checked.headers["location"])
-        self.assertIn("Data preparation", progress_page.text)
+        self.assertIn("Stage 4 of 6 · Prepare data", progress_page.text)
+        self.assertIn('aria-current="step"', progress_page.text)
+        self.assertIn('aria-current="page"', progress_page.text)
         completed_job = _wait_for_preparation(
             self.client,
             checked.headers["location"],

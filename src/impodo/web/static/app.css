@@ -25,7 +25,7 @@
   --danger: var(--impodo-danger);
   --danger-bg: var(--impodo-danger-bg);
   --warning-bg: var(--impodo-warning-bg);
-  --sidebar-width: 260px;
+  --sidebar-width: 280px;
   --sidebar-collapsed-width: 72px;
   font-family:
     "Avenir Next",
@@ -227,6 +227,52 @@ body.sidebar-collapsed .app-shell {
   padding: 0 .75rem 1rem;
 }
 
+.sidebar-project-context {
+  min-width: 0;
+  margin: .15rem .45rem .55rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: .8rem .55rem;
+}
+
+.sidebar-project-context span,
+.sidebar-project-context strong {
+  display: block;
+}
+
+.sidebar-project-label {
+  color: var(--muted);
+  font-size: .68rem;
+  font-weight: 750;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.sidebar-project-context strong {
+  overflow: hidden;
+  margin-top: .2rem;
+  color: var(--impodo-charcoal-dark);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-workflow,
+.sidebar-subnav,
+.overview-stages {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sidebar-workflow {
+  display: grid;
+  gap: .2rem;
+}
+
+.sidebar-stage {
+  min-width: 0;
+}
+
 .sidebar-link {
   display: flex;
   align-items: center;
@@ -244,6 +290,94 @@ body.sidebar-collapsed .app-shell {
 .sidebar-link .ui-icon {
   width: 1.35rem;
   height: 1.35rem;
+}
+
+.workflow-stage-link {
+  gap: .7rem;
+  min-height: 60px;
+}
+
+.stage-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: .76rem;
+  font-weight: 800;
+}
+
+.workflow-stage-copy {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.workflow-stage-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workflow-stage-copy small {
+  margin-top: .25rem;
+  font-size: .7rem;
+  font-weight: 650;
+}
+
+.sidebar-link.active .workflow-stage-copy small {
+  color: rgba(255, 255, 255, .82);
+}
+
+.stage-status-icon {
+  flex: 0 0 auto;
+  width: 1rem !important;
+  height: 1rem !important;
+}
+
+.sidebar-stage.complete > .workflow-stage-link:not(.active) .stage-status-icon {
+  color: #4d7c5b;
+}
+
+.sidebar-stage.attention > .workflow-stage-link:not(.active) .stage-status-icon {
+  color: #9a650b;
+}
+
+.sidebar-subnav {
+  display: grid;
+  gap: .15rem;
+  margin: .1rem 0 .45rem 2rem;
+  border-left: 2px solid var(--line);
+  padding-left: .65rem;
+}
+
+.sidebar-subnav-link {
+  display: grid;
+  border-radius: 3px;
+  color: var(--impodo-charcoal);
+  font-size: .82rem;
+  line-height: 1.25;
+  padding: .55rem .65rem;
+  text-decoration: none;
+}
+
+.sidebar-subnav-link:hover,
+.sidebar-subnav-link.active {
+  background: var(--impodo-soft);
+  color: var(--impodo-charcoal-dark);
+}
+
+.sidebar-subnav-link.active {
+  box-shadow: inset 3px 0 0 var(--impodo-red);
+  font-weight: 750;
+}
+
+.sidebar-subnav-link small {
+  margin-top: .18rem;
+  font-size: .68rem;
 }
 
 .sidebar-link:hover {
@@ -282,6 +416,12 @@ body.sidebar-collapsed .nav-label {
   clip: rect(0, 0, 0, 0);
 }
 
+body.sidebar-collapsed .sidebar-project-context,
+body.sidebar-collapsed .sidebar-subnav,
+body.sidebar-collapsed .stage-status-icon {
+  display: none;
+}
+
 body.sidebar-collapsed .sidebar-icon-collapse {
   display: none;
 }
@@ -316,6 +456,32 @@ body.sidebar-collapsed .sidebar-link {
   min-height: 100%;
   margin: 0 auto;
   padding: 3.1rem 0 4.5rem;
+}
+
+.project-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  margin: -1.7rem 0 1.5rem;
+  color: var(--muted);
+  font-size: .82rem;
+}
+
+.project-breadcrumb a {
+  color: var(--muted);
+}
+
+.workflow-location-notice {
+  margin: -.5rem 0 1.5rem;
+  border-left: 4px solid #c08018;
+  background: var(--warning-bg);
+  color: #593d0f;
+  padding: .75rem 1rem;
+}
+
+.workflow-location-notice a {
+  color: inherit;
+  font-weight: 750;
 }
 
 .projects-home .app-main {
@@ -630,6 +796,85 @@ label small,
   border-color: #f0aaa6;
   background: #fff9f8;
   color: var(--impodo-red-dark);
+}
+
+.status.complete {
+  border-color: #a6c6ad;
+  background: #edf7ef;
+  color: #315b3b;
+}
+
+.status.current {
+  border-color: #f0aaa6;
+  background: #fff9f8;
+  color: var(--impodo-red-dark);
+}
+
+.status.attention {
+  border-color: #e5c37f;
+  background: var(--warning-bg);
+  color: var(--impodo-warning);
+}
+
+.overview-stage-list {
+  margin-top: 2rem;
+}
+
+.overview-stages {
+  display: grid;
+  gap: .75rem;
+}
+
+.overview-stage {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--impodo-grey);
+  border-radius: 5px;
+  background: var(--surface);
+  padding: 1rem 1.15rem;
+}
+
+.overview-stage.complete {
+  border-left-color: #4d7c5b;
+}
+
+.overview-stage.current {
+  border-left-color: var(--impodo-red);
+}
+
+.overview-stage.attention {
+  border-left-color: #c08018;
+}
+
+.overview-stage.locked {
+  background: var(--impodo-soft);
+  color: var(--muted);
+}
+
+.overview-stage-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: .86rem;
+  font-weight: 800;
+}
+
+.overview-stage-copy h3,
+.overview-stage-copy p {
+  margin: 0;
+}
+
+.overview-stage-copy p,
+.overview-stage-locked {
+  color: var(--muted);
+  font-size: .82rem;
 }
 
 .form-grid,
@@ -2152,6 +2397,14 @@ label.model-choice input {
   border-left-color: #4d7c5b;
 }
 
+.next-action-card.current {
+  border-left-color: var(--impodo-red);
+}
+
+.next-action-card.attention {
+  border-left-color: #c08018;
+}
+
 .next-action-card h2,
 .next-action-card p {
   margin-bottom: .45rem;
@@ -2675,6 +2928,18 @@ a.impact-card:focus-visible,
     clip: auto;
   }
 
+  body.sidebar-collapsed .sidebar-project-context {
+    display: block;
+  }
+
+  body.sidebar-collapsed .sidebar-subnav {
+    display: grid;
+  }
+
+  body.sidebar-collapsed .stage-status-icon {
+    display: inline-block;
+  }
+
   body.sidebar-collapsed .sidebar-icon-collapse {
     display: inline-block;
   }
@@ -2695,6 +2960,17 @@ a.impact-card:focus-visible,
 }
 
 @media (max-width: 720px) {
+  .overview-stage {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .overview-stage > .button,
+  .overview-stage-locked {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    text-align: center;
+  }
+
   .readiness-cards {
     grid-template-columns: 1fr;
   }

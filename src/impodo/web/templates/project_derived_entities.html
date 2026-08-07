@@ -3,7 +3,7 @@
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Optional · Combined information</p>
+      <p class="eyebrow">Stage 1 of 6 · Optional source organization</p>
       <h1>Separate combined information</h1>
       <p>Use this when one source table contains more than one kind of business record.</p>
     </div>
@@ -38,10 +38,10 @@
     <section class="form-card">
       <h2>What does your source contain?</h2>
       <div class="actions">
-        <a class="button primary" href="#lookup-extraction">One field contains a separate list</a>
-        <a class="button secondary" href="#create-related-datasets">One table contains main records and line items</a>
+        <a class="button primary" href="#lookup-extraction">One field contains reusable values</a>
+        <a class="button secondary" href="#create-related-datasets">Several rows describe the same record</a>
       </div>
-      <p class="muted">For a product category column, choose the first option.</p>
+      <p class="muted">Choose the first option when values from one field should become their own records. Choose the second when repeated information connects several rows.</p>
     </section>
 
     {% if pending_related %}
@@ -52,22 +52,22 @@
           <div>
             <p class="eyebrow">Review before creating</p>
             <h2>{{ pending_rule.parent_dataset_name }} and {{ pending_rule.child_dataset_name }}</h2>
-            <p>Check that Impodo understood the repeated parent and its lines correctly.</p>
+            <p>Check that Impodo grouped the source rows correctly.</p>
           </div>
           <span class="status registered">PREVIEW</span>
         </div>
 
         <div class="notice success">
-          Impodo will create one <strong>{{ pending_rule.parent_dataset_name }}</strong> main record for each unique identifier and keep every source row in <strong>{{ pending_rule.child_dataset_name }}</strong>.
+          Impodo will create one row in <strong>{{ pending_rule.parent_dataset_name }}</strong> for each group and keep every source row in <strong>{{ pending_rule.child_dataset_name }}</strong>.
         </div>
 
         <div class="metric-grid">
           <div><span>Source rows</span><strong>{{ pending_preview.source_rows }}</strong></div>
           <div>
-            <span>Main records found</span>
+            <span>Groups found</span>
             <strong>{{ pending_preview.parent_candidate_count }}{% if not pending_preview.parent_candidate_count_is_exact %} estimate{% endif %}</strong>
           </div>
-          <div><span>Line items kept</span><strong>{{ pending_preview.child_rows }}</strong></div>
+          <div><span>Source rows retained</span><strong>{{ pending_preview.child_rows }}</strong></div>
           <div><span>Example groups checked</span><strong>{{ pending_preview.sampled_parent_groups }}</strong></div>
         </div>
 
@@ -78,7 +78,7 @@
         {% endif %}
         {% if pending_preview.duplicate_child_key_sample_rows %}
           <div class="notice error">
-            {{ pending_preview.duplicate_child_key_sample_rows }} sampled line(s) repeat the same parent, scope, and line key. Choose a better line key or correct the source rule before continuing.
+            {{ pending_preview.duplicate_child_key_sample_rows }} sampled row(s) repeat the same group, separation value, and row identifier. Choose a better row identifier or correct the source rule before continuing.
           </div>
         {% endif %}
         {% if pending_preview.normalized_key_sample_rows %}
@@ -90,12 +90,12 @@
         {% if pending_preview.parent_samples %}
           <div class="table-scroll">
             <table class="data-table">
-              <thead><tr><th>Main record</th><th>Company or site</th><th>Example lines</th><th>Line identifiers</th></tr></thead>
+              <thead><tr><th>Group value</th><th>Additional separation</th><th>Example rows</th><th>Row identifiers</th></tr></thead>
               <tbody>
                 {% for sample in pending_preview.parent_samples %}
                   <tr>
                     <th>{{ sample.parent_key }}</th>
-                    <td>{{ sample.scope or "No separate scope" }}</td>
+                    <td>{{ sample.scope or "Not used" }}</td>
                     <td>{{ sample.sampled_child_rows }}</td>
                     <td>{{ sample.sampled_child_keys|join(', ') }}</td>
                   </tr>
@@ -129,7 +129,7 @@
       <section class="form-card related-rule-card">
         <div class="page-heading compact">
           <div>
-            <p class="eyebrow">Main records and line items prepared</p>
+            <p class="eyebrow">Related tables prepared</p>
             <h2>{{ rule.parent_dataset_name }} + {{ rule.child_dataset_name }}</h2>
             <p>Generated from <strong>{{ preview.source_dataset_name if preview else rule.source_dataset_id }}</strong>.</p>
           </div>
@@ -141,31 +141,31 @@
         </div>
 
         <div class="relationship-summary">
-          <div><span>Main records</span><strong>{{ rule.parent_dataset_name }}</strong><small>one row per main record</small></div>
+          <div><span>One row per group</span><strong>{{ rule.parent_dataset_name }}</strong><small>repeated information kept once</small></div>
           <div class="relationship-connector" aria-hidden="true">1 to many</div>
-          <div><span>Line items</span><strong>{{ rule.child_dataset_name }}</strong><small>every original source row</small></div>
+          <div><span>Every source row</span><strong>{{ rule.child_dataset_name }}</strong><small>original row detail retained</small></div>
         </div>
 
         <div class="definition-list">
-          <div><dt>Main record identifier</dt><dd>{{ rule.parent_key_column_key }}</dd></div>
-          <div><dt>Company or site</dt><dd>{{ rule.scope_column_key or "No separate company or site" }}</dd></div>
-          <div><dt>Line identifier</dt><dd>{{ rule.child_key_column_key }}</dd></div>
+          <div><dt>Group identifier</dt><dd>{{ rule.parent_key_column_key }}</dd></div>
+          <div><dt>Additional separation</dt><dd>{{ rule.scope_column_key or "Not used" }}</dd></div>
+          <div><dt>Row identifier</dt><dd>{{ rule.child_key_column_key }}</dd></div>
           <div><dt>If information is missing</dt><dd>{% if rule.blank_policy == 'quarantine' %}Set rows aside{% else %}Stop and ask{% endif %}</dd></div>
         </div>
         {% if view.preview_error %}
           <div class="notice error">{{ view.preview_error }}</div>
         {% elif preview %}
           <p class="muted">
-            Impodo found {{ preview.parent_candidate_count }} possible main record(s){% if not preview.parent_candidate_count_is_exact %} in the available preview{% endif %} and kept {{ preview.child_rows }} line item(s). These tables will be suggested when you match data to Odoo.
+            Impodo found {{ preview.parent_candidate_count }} possible group(s){% if not preview.parent_candidate_count_is_exact %} in the available preview{% endif %} and retained {{ preview.child_rows }} source row(s). These tables will be suggested when you match data to Odoo.
           </p>
         {% endif %}
       </section>
     {% endfor %}
 
     <section class="form-card" id="create-related-datasets">
-      <p class="eyebrow">Recommended for BOMs and line-based files</p>
-      <h2>Separate main records and line items</h2>
-      <p class="lead-instruction">Choose the value repeated on every line, an optional company or site, and the field that distinguishes each line.</p>
+      <p class="eyebrow">For files where information repeats across rows</p>
+      <h2>Create two related tables</h2>
+      <p class="lead-instruction">Use this when several source rows describe the same record. Impodo will create one table with one row per group and another that keeps every source row.</p>
 
       {% for source_view in related_source_views %}
         {% set dataset = source_view.dataset %}
@@ -175,7 +175,7 @@
             {% if source_view.has_split %}<span class="status registered">SPLIT READY</span>{% endif %}
           </summary>
           {% if source_view.has_split %}
-            <div class="notice success">This source already has a reviewed parent/child split. Remove that split above before replacing it.</div>
+            <div class="notice success">This source already has a reviewed related-table setup. Remove that setup above before replacing it.</div>
           {% else %}
             <form method="post" action="/projects/{{ project.project_id }}/derived-entities/related/preview">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -185,18 +185,18 @@
               <div class="guided-step">
                 <span class="step-number">1</span>
                 <div>
-                  <h3>Name the two tables</h3>
-                  <p class="muted">Use names that describe one main record and one line item.</p>
+                  <h3>Name the resulting tables</h3>
+                  <p class="muted">Name each table after what one row in that table will represent.</p>
                   <div class="form-grid">
                     <label>
-                      Main records
+                      Table with one row per group
                       <input name="parent_dataset_name" value="{{ source_view.parent_name_default }}" pattern="[a-z][a-z0-9_]{0,62}" required>
-                      <small>Example: <code>boms</code> or <code>orders</code>.</small>
+                      <small>Name this table after what each group represents. For example, if each group represents a document, use <code>documents</code>.</small>
                     </label>
                     <label>
-                      Line items
+                      Table that keeps every source row
                       <input name="child_dataset_name" value="{{ source_view.child_name_default }}" pattern="[a-z][a-z0-9_]{0,62}" required>
-                      <small>Example: <code>bom_components</code> or <code>order_lines</code>.</small>
+                      <small>Name this table after what each retained row represents. For example, use <code>document_rows</code> when each row belongs to a document.</small>
                     </label>
                   </div>
                 </div>
@@ -205,45 +205,46 @@
               <div class="guided-step">
                 <span class="step-number">2</span>
                 <div>
-                  <h3>Tell Impodo how rows belong together</h3>
+                  <h3>Define how rows belong together</h3>
                   <div class="form-grid">
                     <label>
-                      Which field identifies the main record?
+                      Which field groups rows together?
                       <select name="parent_key_column_key" required>
-                        <option value="">Choose the repeated main value</option>
+                        <option value="">Choose the grouping field</option>
                         {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }}</option>{% endfor %}
                       </select>
-                      <small>For the sample BOM file, choose <code>BOMId</code>.</small>
+                      <small>Choose a field whose repeated value means the rows describe the same record. For example, rows with the same document reference belong together.</small>
                     </label>
                     <label>
-                      Should records be kept separate by company or site?
+                      Should another field keep identical group values separate?
                       <select name="scope_column_key">
-                        <option value="">No, keep them together</option>
+                        <option value="">No additional separation</option>
                         {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }}</option>{% endfor %}
                       </select>
-                      <small>For the sample BOM file, choose <code>dataAreaId</code>.</small>
+                      <small>Use this only when the same group value can occur in different contexts. For example, two companies may use the same document reference.</small>
                     </label>
                     <label>
-                      Which field distinguishes each line item?
+                      Which field identifies each row within its group?
                       <select name="child_key_column_key" required>
-                        <option value="">Choose the line identity</option>
+                        <option value="">Choose the row identifier</option>
                         {% for column in dataset.columns %}<option value="{{ column.stable_key }}">{{ column.source_name }}</option>{% endfor %}
                       </select>
-                      <small>For the sample BOM file, choose <code>LineNum</code>.</small>
+                      <small>Choose a value that is unique inside each group. For example, a sequence number can distinguish the individual rows in one document.</small>
                     </label>
                     <label>
-                      If a required key is missing
+                      If required identity information is missing
                       <select name="blank_policy">
                         <option value="block">Stop and ask me to correct them</option>
                         <option value="quarantine">Set those rows aside for review</option>
                       </select>
+                      <small>Choose whether Impodo should stop for correction or set the affected rows aside.</small>
                     </label>
                   </div>
                 </div>
               </div>
 
               <div class="actions">
-                <button class="button primary" type="submit">Preview the separated tables</button>
+                <button class="button primary" type="submit">Preview the related tables</button>
               </div>
             </form>
           {% endif %}
@@ -253,7 +254,7 @@
 
     <details class="form-card secondary-preparation" id="lookup-extraction" open>
       <summary>
-        <span><strong>Create related records from one field</strong><small>For a category, payment term, or other Odoo record that exists as one column in the old system.</small></span>
+        <span><strong>Create related records from one field</strong><small>Use this when values from one source field should become their own Odoo records.</small></span>
       </summary>
 
       {% if pending_lookup %}
@@ -406,11 +407,12 @@
             </label>
             <label>
               Name shown in Impodo
-              <input name="output_dataset_name" placeholder="product_categories" pattern="[a-z][a-z0-9_]{0,62}" required>
+              <input name="output_dataset_name" pattern="[a-z][a-z0-9_]{0,62}" required>
+              <small>Use a short plural name that describes the values. For example, if the field contains regions, use <code>regions</code>.</small>
             </label>
             <label>
               Type of Odoo record
-              <input name="target_model" list="derived-target-models" placeholder="Start typing, for example Product Categories" autocomplete="off" aria-describedby="derived-target-model-help" required>
+              <input name="target_model" list="derived-target-models" placeholder="Start typing an Odoo record type" autocomplete="off" aria-describedby="derived-target-model-help" required>
               <datalist id="derived-target-models">
                 {% for model in model_choices %}<option value="{{ model.name }}" label="{{ model.label }}">{{ model.label }}</option>{% endfor %}
               </datalist>
@@ -429,7 +431,7 @@
               <label>
                 Optional parent separator
                 <input name="parent_separator" maxlength="10" placeholder="/">
-                <small>Leave empty for a flat list such as Article and Service.</small>
+                <small>Use this only when values contain levels, such as <code>Parent / Child</code>. Leave it empty for a flat list.</small>
               </label>
             </details>
             <label>
