@@ -1347,6 +1347,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("C001", inspection_page.text)
         self.assertIn("products.xlsx", inspection_page.text)
         self.assertIn("ProductTable", inspection_page.text)
+        self.assertIn('class="source-table-summary"', inspection_page.text)
+        self.assertIn('class="source-table-title"', inspection_page.text)
         self.assertIn("covers the same data", inspection_page.text)
         self.assertNotIn("Use separate Excel tables instead", inspection_page.text)
         self.assertIn("Likely content", inspection_page.text)
@@ -1859,6 +1861,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn(".scalar-table-scroll-top", mapping_styles.text)
         self.assertIn("overflow-x: scroll", mapping_styles.text)
         self.assertIn(".mapping-save-state.unsaved", mapping_styles.text)
+        self.assertIn(".source-table-summary", mapping_styles.text)
+        self.assertIn(".source-table-title", mapping_styles.text)
 
         selection = (
             self.app.state.context.sources.sources.get_source_selection(project_id)

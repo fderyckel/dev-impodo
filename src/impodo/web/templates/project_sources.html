@@ -96,45 +96,58 @@
       {% endfor %}
 
       {% set source_state = namespace(has_usable_table=false) %}
+      {% set warning_state = namespace(has_warning=catalog.warnings|length > 0) %}
       {% for group in source_groups.get(catalog.file_id, ()) %}
         {% set table = group.primary %}
         {% set unsafe_cells = table.formula_cell_count or table.error_cell_count %}
         {% if not unsafe_cells %}{% set source_state.has_usable_table = true %}{% endif %}
         <article class="source-table" {% if table.kind == "WORKSHEET" %}data-source-choice-group{% endif %}>
-          <div class="table-heading">
-            <div>
+          <div class="source-table-summary">
+            <div class="source-table-title">
               <h3>{% if table.kind == "CSV" %}Data in {{ catalog.display_name }}{% else %}{{ table.name }}{% endif %}</h3>
               <p class="muted">
                 {% if table.header_row %}Column names on row {{ table.header_row }} ·{% endif %}
                 {{ table.row_count }} data row(s) · {{ table.column_count }} column(s)
                 {% if table.hidden %}· hidden{% endif %}
               </p>
-              <label class="inline-choice">
-                <input
-                  type="checkbox"
-                  name="selected_{{ group.primary_index }}"
-                  value="1"
-                  {% if not unsafe_cells and ((configuration and table.table_key in configuration.selected_table_keys) or not configuration) %}checked{% endif %}
-                  {% if unsafe_cells %}disabled{% endif %}
-                  {% if table.kind == "WORKSHEET" %}data-source-whole{% endif %}
-                >
-                Include this data in the project
-              </label>
-              {% if table.kind in ["CSV", "WORKSHEET"] %}
-                <label class="header-row-control">
-                  <span>Which row contains the column names?</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="25"
-                    name="header_row_{{ group.primary_index }}"
-                    value="{{ table.header_row or 1 }}"
-                  >
-                </label>
-              {% else %}
-                <input type="hidden" name="header_row_{{ group.primary_index }}" value="{{ table.header_row or 1 }}">
-              {% endif %}
             </div>
+            <label class="inline-choice">
+              <input
+                type="checkbox"
+                name="selected_{{ group.primary_index }}"
+                value="1"
+                {% if not unsafe_cells and ((configuration and table.table_key in configuration.selected_table_keys) or not configuration) %}checked{% endif %}
+                {% if unsafe_cells %}disabled{% endif %}
+                {% if table.kind == "WORKSHEET" %}data-source-whole{% endif %}
+              >
+              Include this data in the project
+            </label>
+            {% if table.kind in ["CSV", "WORKSHEET"] %}
+              <label class="header-row-control">
+                <span>Which row contains the column names?</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="25"
+                  name="header_row_{{ group.primary_index }}"
+                  value="{{ table.header_row or 1 }}"
+                >
+              </label>
+            {% else %}
+              <input type="hidden" name="header_row_{{ group.primary_index }}" value="{{ table.header_row or 1 }}">
+            {% endif %}
+            {% if table.named_tables %}
+              <details class="technical-details excel-details">
+                <summary>Excel details</summary>
+                {% for named_table in table.named_tables %}
+                  {% if named_table.message %}
+                    <p class="{% if named_table.disposition == 'INVALID' %}notice{% else %}muted{% endif %}">{{ named_table.message }}</p>
+                  {% elif named_table.disposition == "DISTINCT" %}
+                    <p class="muted">Excel table <code>{{ named_table.display_name }}</code> defines a separate data area at {{ named_table.cell_range }}.</p>
+                  {% endif %}
+                {% endfor %}
+              </details>
+            {% endif %}
           </div>
 
           {% if group.regions %}
@@ -169,23 +182,15 @@
                 {% elif region_table.error_cell_count %}
                   <div class="notice error">This Excel table cannot be included because it contains Excel errors.</div>
                 {% endif %}
+                {% if region_table.warnings %}{% set warning_state.has_warning = true %}{% endif %}
+                {% for warning in region_table.warnings %}
+                  <div class="notice warning">{{ warning }}</div>
+                {% endfor %}
               {% endfor %}
             </details>
           {% endif %}
 
-          {% if table.named_tables %}
-            <details class="technical-details excel-details">
-              <summary>Excel details</summary>
-              {% for named_table in table.named_tables %}
-                {% if named_table.message %}
-                  <p class="{% if named_table.disposition == 'INVALID' %}notice warning{% else %}muted{% endif %}">{{ named_table.message }}</p>
-                {% elif named_table.disposition == "DISTINCT" %}
-                  <p class="muted">Excel table <code>{{ named_table.display_name }}</code> defines a separate data area at {{ named_table.cell_range }}.</p>
-                {% endif %}
-              {% endfor %}
-            </details>
-          {% endif %}
-
+          {% if table.warnings %}{% set warning_state.has_warning = true %}{% endif %}
           {% for warning in table.warnings %}
             <div class="notice warning">{{ warning }}</div>
           {% endfor %}
@@ -265,15 +270,17 @@
           {% endif %}
         </article>
       {% endfor %}
-        <label class="inline-choice warning-ack">
-          <input
-            type="checkbox"
-            name="warnings_acknowledged"
-            value="1"
-            {% if configuration and configuration.warnings_acknowledged %}checked{% endif %}
-          >
-          I reviewed the warnings shown for the selected tables.
-        </label>
+        {% if warning_state.has_warning %}
+          <label class="inline-choice warning-ack">
+            <input
+              type="checkbox"
+              name="warnings_acknowledged"
+              value="1"
+              {% if configuration and configuration.warnings_acknowledged %}checked{% endif %}
+            >
+            I reviewed the warnings shown for the selected tables.
+          </label>
+        {% endif %}
         <div class="actions">
           <button class="button secondary" type="submit" name="action" value="preview">Update preview</button>
           <button class="button primary" type="submit" name="action" value="confirm" {% if not source_state.has_usable_table %}disabled{% endif %}>These tables look correct</button>

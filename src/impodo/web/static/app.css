@@ -1577,6 +1577,67 @@ label.model-choice input {
   margin-top: 1.4rem;
 }
 
+.source-table-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .65rem 1.25rem;
+}
+
+.source-table-title {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 28rem;
+  gap: .75rem;
+  min-width: 18rem;
+}
+
+.source-table-title h3,
+.source-table-title p {
+  margin: 0;
+}
+
+.source-table-title h3 {
+  flex: 0 0 auto;
+}
+
+.source-table-summary .inline-choice,
+.source-table-summary .header-row-control,
+.source-table-summary .excel-details {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.source-table-summary .inline-choice,
+.source-table-summary .header-row-control {
+  white-space: nowrap;
+}
+
+.source-table-summary .inline-choice input {
+  margin: 0;
+}
+
+.source-table-summary .header-row-control {
+  align-items: center;
+  gap: .55rem;
+  max-width: none;
+}
+
+.source-table-summary .header-row-control input {
+  width: 4rem;
+  margin: 0;
+  padding: .55rem .65rem;
+}
+
+.source-table-summary .excel-details summary {
+  white-space: nowrap;
+}
+
+.source-table-summary .excel-details[open] {
+  flex-basis: 100%;
+  margin-top: .25rem;
+}
+
 .named-table-list {
   display: flex;
   flex-wrap: wrap;
@@ -3017,6 +3078,27 @@ a.impact-card:focus-visible,
   .projects-hero {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .source-table-summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: .75rem;
+  }
+
+  .source-table-title {
+    align-items: flex-start;
+    flex: 0 1 auto;
+    flex-direction: column;
+    gap: .2rem;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .source-table-summary .header-row-control {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    white-space: normal;
   }
 
   .site-header {
