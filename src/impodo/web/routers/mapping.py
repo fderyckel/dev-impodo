@@ -515,6 +515,17 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         selection = context.queries.get_mapping_source_selection(project_id)
         if selection is None:
             raise HTTPException(status_code=422, detail="Source selection missing")
+        requested_dataset = _optional_nonnegative_query_int(
+            request.query_params.get("mapping_dataset")
+        )
+        active_dataset = min(
+            requested_dataset if requested_dataset is not None else 0,
+            max(len(selection.datasets) - 1, 0),
+        )
+        mapping_return_url = (
+            f"{_mapping_return_url(request, project_id)}"
+            f"#mapping-dataset-{active_dataset}"
+        )
 
         schema = context.queries.get_odoo_schema_catalog(project_id)
         governance = context.queries.get_schema_governance(project_id)
@@ -572,14 +583,11 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     return JSONResponse(
                         {
                             "message": "Progress saved. Check matches when ready.",
-                            "redirect_url": _mapping_return_url(
-                                request,
-                                project_id,
-                            ),
+                            "redirect_url": mapping_return_url,
                         }
                     )
                 return RedirectResponse(
-                    _mapping_return_url(request, project_id),
+                    mapping_return_url,
                     status_code=303,
                 )
             if action == "draft":
@@ -643,18 +651,18 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
             request.session["mapping_error"] = str(error)
             return RedirectResponse(
-                _mapping_return_url(request, project_id),
+                mapping_return_url,
                 status_code=303,
             )
         if json_request:
             return JSONResponse(
                 {
                     "message": message,
-                    "redirect_url": _mapping_return_url(request, project_id),
+                    "redirect_url": mapping_return_url,
                 }
             )
         return RedirectResponse(
-            _mapping_return_url(request, project_id),
+            mapping_return_url,
             status_code=303,
         )
 

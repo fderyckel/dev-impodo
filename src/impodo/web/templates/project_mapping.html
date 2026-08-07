@@ -63,7 +63,11 @@
 
       {% for view in dataset_views %}
         {% set dataset_index = view.index %}
-        <section class="form-card mapping-dataset">
+        <section
+          class="form-card mapping-dataset"
+          id="mapping-dataset-{{ dataset_index }}"
+          data-mapping-dataset="{{ view.source.dataset_id }}"
+        >
           <div class="page-heading compact">
             <div>
               <p class="eyebrow">

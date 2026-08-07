@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from hashlib import sha256
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -63,6 +64,33 @@ class SourceInspectionTests(unittest.TestCase):
         restored = SourceFileCatalog.from_json(catalog.to_json())
         self.assertEqual(restored, catalog)
 
+    def test_legacy_catalog_json_keeps_its_original_hash_shape(self) -> None:
+        path = self.directory / "legacy.xlsx"
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.append(["code", "name"])
+        worksheet.append(["C1", "First"])
+        worksheet.add_table(Table(displayName="Customers", ref="A1:B2"))
+        workbook.save(path)
+        workbook.close()
+        catalog = inspect_source_file(path, source_file=_source_evidence(path))
+        payload = json.loads(catalog.to_json())
+        payload["contract_version"] = 1
+        for table in payload["tables"]:
+            for named_table in table["named_tables"]:
+                named_table.pop("disposition")
+                named_table.pop("message")
+        legacy_json = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+
+        restored = SourceFileCatalog.from_json(legacy_json)
+
+        self.assertEqual(restored.to_json(), legacy_json)
+
     def test_xlsx_inventory_finds_sheets_named_tables_and_warnings(self) -> None:
         path = self.directory / "products.xlsx"
         workbook = Workbook()
@@ -86,28 +114,22 @@ class SourceInspectionTests(unittest.TestCase):
         self.assertEqual(catalog.format, "XLSX")
         self.assertEqual(
             [table.name for table in catalog.tables],
-            ["Products", "ProductTable", "Reference"],
+            ["Products", "Reference"],
         )
         products = catalog.tables[0]
         self.assertEqual(products.header_row, 3)
         self.assertEqual(products.row_count, 2)
         self.assertEqual(products.named_tables[0].display_name, "ProductTable")
         self.assertEqual(products.named_tables[0].cell_range, "A3:D5")
+        self.assertEqual(products.named_tables[0].disposition, "EQUIVALENT")
+        self.assertIn("combined", products.named_tables[0].message or "")
         self.assertEqual(products.merged_range_count, 1)
         self.assertEqual(products.formula_cell_count, 2)
         self.assertEqual(products.first_formula_cell, "D4")
         self.assertEqual(products.first_formula_column, "Calculated")
         self.assertTrue(any("merged range" in warning for warning in products.warnings))
         self.assertFalse(any("formula cell" in warning for warning in products.warnings))
-        named_table = catalog.tables[1]
-        self.assertEqual(named_table.kind, "NAMED_TABLE")
-        self.assertEqual(named_table.header_row, 3)
-        self.assertEqual(named_table.row_count, 2)
-        self.assertEqual(named_table.preview_rows[0][0], "001")
-        self.assertEqual(named_table.formula_cell_count, 2)
-        self.assertEqual(named_table.first_formula_cell, "D4")
-        self.assertEqual(named_table.first_formula_column, "Calculated")
-        self.assertTrue(catalog.tables[2].hidden)
+        self.assertTrue(catalog.tables[1].hidden)
         self.assertTrue(any("is hidden" in warning for warning in catalog.warnings))
 
         overridden = inspect_source_file(
@@ -118,6 +140,41 @@ class SourceInspectionTests(unittest.TestCase):
             ),
         )
         self.assertEqual(overridden.tables[0].header_row, 3)
+
+    def test_xlsx_inventory_keeps_a_distinct_named_table_as_an_option(self) -> None:
+        path = self.directory / "distinct-table.xlsx"
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Data"
+        worksheet.append(["Code", "Name", "Comment"])
+        worksheet.append(["001", "First", "Outside the Excel table"])
+        worksheet.add_table(Table(displayName="CoreData", ref="A1:B2"))
+        workbook.save(path)
+
+        catalog = inspect_source_file(path, source_file=_source_evidence(path))
+
+        self.assertEqual([table.name for table in catalog.tables], ["Data", "CoreData"])
+        self.assertEqual(catalog.tables[0].named_tables[0].disposition, "DISTINCT")
+        self.assertEqual(catalog.tables[1].kind, "NAMED_TABLE")
+        self.assertEqual(catalog.tables[1].column_count, 2)
+
+    def test_xlsx_inventory_ignores_an_oversized_named_table_before_scan(self) -> None:
+        path = self.directory / "oversized-table.xlsx"
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "PLW"
+        worksheet.append(["Code", "Name", "Type"])
+        worksheet.append(["001", "First", "Bottle"])
+        worksheet.add_table(Table(displayName="Table34", ref="A1:B1048576"))
+        workbook.save(path)
+
+        catalog = inspect_source_file(path, source_file=_source_evidence(path))
+
+        self.assertEqual([table.name for table in catalog.tables], ["PLW"])
+        ignored = catalog.tables[0].named_tables[0]
+        self.assertEqual(ignored.disposition, "INVALID")
+        self.assertIn("1,048,575 possible data rows", ignored.message or "")
+        self.assertEqual(catalog.tables[0].column_count, 3)
 
     def test_inspection_rejects_changed_registered_bytes(self) -> None:
         path = self.directory / "customers.csv"

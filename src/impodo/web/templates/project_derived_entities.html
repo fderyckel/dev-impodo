@@ -323,7 +323,7 @@
       {% for view in rule_views %}
         {% set rule = view.rule %}
         {% set preview = view.preview %}
-        <section class="nested-rule-card">
+        <section class="nested-rule-card" id="lookup-rule-{{ rule.rule_id }}">
           <div class="page-heading compact">
             <div>
               <p class="eyebrow">Prepared related records</p>
@@ -392,7 +392,7 @@
           </form>
         {% endif %}
         {% if model_catalog %}
-        <form method="post" action="/projects/{{ project.project_id }}/derived-entities/lookup/preview">
+        <form method="post" action="/projects/{{ project.project_id }}/derived-entities/lookup/preview#lookup-preview">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
           <div class="form-grid">

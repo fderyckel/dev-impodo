@@ -1347,6 +1347,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("C001", inspection_page.text)
         self.assertIn("products.xlsx", inspection_page.text)
         self.assertIn("ProductTable", inspection_page.text)
+        self.assertIn("covers the same data", inspection_page.text)
+        self.assertNotIn("Use separate Excel tables instead", inspection_page.text)
         self.assertIn("Likely content", inspection_page.text)
         self.assertIn("data-source-review-card", inspection_page.text)
         catalogs = self.app.state.context.sources.sources.get_source_catalogs(project_id)
@@ -1387,8 +1389,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "encoding": "",
                 "delimiter": "",
                 "header_row_0": "1",
-                "header_row_1": "1",
-                "selected_1": "1",
+                "selected_0": "1",
             },
             headers=POST_HEADERS,
             follow_redirects=False,
@@ -1450,7 +1451,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("LineNum", derived_page.text)
         self.assertIn("Show available Odoo record types", derived_page.text)
         self.assertNotIn(
-            f'action="/projects/{project_id}/derived-entities/lookup/preview"',
+            (
+                f'action="/projects/{project_id}/derived-entities/'
+                'lookup/preview#lookup-preview"'
+            ),
             derived_page.text,
         )
         selection = (
@@ -1566,7 +1570,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn("Odoo record types are ready", lookup_model_page.text)
         self.assertIn(
-            f'action="/projects/{project_id}/derived-entities/lookup/preview"',
+            (
+                f'action="/projects/{project_id}/derived-entities/'
+                'lookup/preview#lookup-preview"'
+            ),
             lookup_model_page.text,
         )
         self.assertIn('value="res.partner" label="Contact"', lookup_model_page.text)
@@ -1601,6 +1608,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(lookup_preview.status_code, 200)
         self.assertIn("Review before creating", lookup_preview.text)
+        self.assertIn('id="lookup-preview"', lookup_preview.text)
         self.assertIn("Create this related table", lookup_preview.text)
         saved_derived = self.client.post(
             f"/projects/{project_id}/derived-entities/save",
@@ -1609,7 +1617,29 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(saved_derived.status_code, 303)
+        saved_plan = (
+            self.app.state.context.derived_entities.derived_entities.get_derived_entity_plan(
+                project_id
+            )
+        )
+        self.assertIsNotNone(saved_plan)
+        saved_rule = next(
+            rule
+            for rule in saved_plan.rules
+            if getattr(rule, "output_dataset_name", None) == "product_names"
+        )
+        self.assertEqual(
+            saved_derived.headers["location"],
+            (
+                f"/projects/{project_id}/derived-entities"
+                f"#lookup-rule-{saved_rule.rule_id}"
+            ),
+        )
         derived_preview = self.client.get(saved_derived.headers["location"])
+        self.assertIn(
+            f'id="lookup-rule-{saved_rule.rule_id}"',
+            derived_preview.text,
+        )
         self.assertIn("Created the related table product_names", derived_preview.text)
         self.assertIn("Example product", derived_preview.text)
         self.assertIn("impodo_dynamics_ax_2012.res_partner_", derived_preview.text)
@@ -1779,6 +1809,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('window.addEventListener("beforeunload"', mapping_script.text)
         self.assertIn("rememberMappingPosition", mapping_script.text)
         self.assertIn("restoreMappingPosition", mapping_script.text)
+        self.assertIn("rememberMappingInteraction", mapping_script.text)
+        self.assertIn("visibleMappingRow", mapping_script.text)
+        self.assertIn(
+            'mappingForm.addEventListener("pointerdown"',
+            mapping_script.text,
+        )
         self.assertIn("window.sessionStorage", mapping_script.text)
         self.assertIn("preventScroll: true", mapping_script.text)
         self.assertIn("rememberNormalizationPosition", mapping_script.text)
@@ -1848,8 +1884,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(mapped_customer.dataset_id, customer.dataset_id)
         self.assertEqual(mapped_product.dataset_id, product.dataset_id)
         business_key_id = schema_governance.business_keys[0].key_id
+        mapping_filter_query = (
+            "scalar_page=1&field_query=nam&mapping_dataset=1&relation_page=1"
+        )
         saved_progress = self.client.post(
-            f"/projects/{project_id}/mapping/save",
+            f"/projects/{project_id}/mapping/save?{mapping_filter_query}",
             data={
                 "csrf_token": self.csrf,
                 "action": "save_progress",
@@ -1872,9 +1911,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(saved_progress.status_code, 303)
+        self.assertEqual(
+            saved_progress.headers["location"],
+            (
+                f"/projects/{project_id}/mapping?{mapping_filter_query}"
+                "#mapping-dataset-1"
+            ),
+        )
         saved_progress_page = self.client.get(
             saved_progress.headers["location"]
         )
+        self.assertIn('id="mapping-dataset-1"', saved_progress_page.text)
+        self.assertIn("data-mapping-dataset", saved_progress_page.text)
         self.assertIn(
             "Saved your matching progress. Check the matches when ready.",
             saved_progress_page.text,
@@ -2077,6 +2125,17 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Proposed value", impact_csv.text)
         mapping_script = self.client.get("/static/app.js")
         self.assertNotIn("data-impact-export", mapping_script.text)
+
+        prepare_page = self.client.get(f"/projects/{project_id}/prepare")
+        self.assertEqual(prepare_page.status_code, 200)
+        self.assertIn("Stage 4 of 6 · Prepare data", prepare_page.text)
+        self.assertIn("Prepare all source rows", prepare_page.text)
+        self.assertIn(
+            f'action="/projects/{project_id}/summary/check"',
+            prepare_page.text,
+        )
+        self.assertIn('aria-current="step"', prepare_page.text)
+        self.assertIn('aria-current="page"', prepare_page.text)
 
         summary = self.client.get(f"/projects/{project_id}/summary")
         self.assertIn("Prepare and review data", summary.text)
@@ -3303,6 +3362,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(saved.status_code, 200)
         self.assertIn("redirect_url", saved.json())
+        self.assertEqual(
+            saved.json()["redirect_url"],
+            f"/projects/{project_id}/mapping#mapping-dataset-0",
+        )
         working = context.mapping_workspace.mappings.get_mapping_working_draft(project_id)
         self.assertEqual(working.version, 2)
         self.assertEqual(len(working.definition.datasets[0].fields), 1500)

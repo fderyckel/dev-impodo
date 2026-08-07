@@ -135,6 +135,21 @@ class SourceWorkspaceService:
         if not selected or any(key not in available for key in selected):
             raise WorkspaceError("Select at least one available source table")
         selected_tables = tuple(available[key] for key in selected)
+        selected_keys = set(selected)
+        overlapping = next(
+            (
+                table
+                for table in selected_tables
+                if table.kind == "NAMED_TABLE"
+                and f"sheet:{table.worksheet_name}" in selected_keys
+            ),
+            None,
+        )
+        if overlapping is not None:
+            raise WorkspaceError(
+                f"Choose either worksheet {overlapping.worksheet_name!r} or its "
+                "Excel tables, not both"
+            )
         unsafe_cell_problem = next(
             (
                 problem

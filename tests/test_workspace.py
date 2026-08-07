@@ -281,6 +281,45 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             )
 
+    def test_source_confirmation_rejects_a_worksheet_and_its_excel_table(self) -> None:
+        worksheet = replace(
+            self.catalog.tables[0],
+            table_key="sheet:Sheet1",
+            name="Sheet1",
+            kind="WORKSHEET",
+        )
+        excel_table = replace(
+            worksheet,
+            table_key="table:Sheet1:Customers",
+            name="Customers",
+            kind="NAMED_TABLE",
+        )
+        catalog = replace(
+            self.catalog,
+            format="XLSX",
+            tables=(worksheet, excel_table),
+        )
+        self.source_repository.save_source_catalog(
+            self.project.project_id,
+            catalog,
+            actor=LOCAL_ACTOR,
+        )
+
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "Choose either worksheet 'Sheet1' or its Excel tables, not both",
+        ):
+            self.sources.confirm_source(
+                self.project.project_id,
+                self.source.file_id,
+                selected_table_keys=(
+                    "sheet:Sheet1",
+                    "table:Sheet1:Customers",
+                ),
+                warnings_acknowledged=False,
+                actor=LOCAL_ACTOR,
+            )
+
     def test_local_manual_schema_draft_needs_no_odoo_credential(self) -> None:
         self.sources.confirm_source(
             self.project.project_id,

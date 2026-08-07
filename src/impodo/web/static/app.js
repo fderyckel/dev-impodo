@@ -149,9 +149,53 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const mappingPositionStorageKey =
     `impodo.mapping.position:${window.location.pathname}`;
+  let lastMappingRow = null;
+  let lastMappingControl = null;
+  const rememberMappingInteraction = (target) => {
+    const row = target?.closest?.("[data-target-field]");
+    if (!row) {
+      return;
+    }
+    lastMappingRow = row;
+    if (target.name) {
+      lastMappingControl = target;
+    }
+  };
+  const visibleMappingRow = () => {
+    const visibleRows = Array.from(
+      document.querySelectorAll("[data-target-field]")
+    )
+      .map((row) => ({ row, bounds: row.getBoundingClientRect() }))
+      .filter(
+        ({ bounds }) =>
+          bounds.height > 0 &&
+          bounds.bottom > 0 &&
+          bounds.top < window.innerHeight
+      );
+    return visibleRows.reduce((nearest, candidate) => {
+      if (!nearest) {
+        return candidate;
+      }
+      const viewportReference = Math.min(160, window.innerHeight / 4);
+      return Math.abs(candidate.bounds.top - viewportReference) <
+        Math.abs(nearest.bounds.top - viewportReference)
+        ? candidate
+        : nearest;
+    }, null)?.row;
+  };
   const rememberMappingPosition = () => {
     const active = document.activeElement;
     const activeRow = active?.closest?.("[data-target-field]");
+    const rememberedRow = lastMappingRow?.isConnected
+      ? lastMappingRow
+      : null;
+    const row = activeRow || rememberedRow || visibleMappingRow();
+    const focusControl = activeRow
+      ? active
+      : lastMappingControl?.isConnected
+        ? lastMappingControl
+        : active;
+    const dataset = row?.closest("[data-mapping-dataset]");
     const horizontal = Array.from(
       document.querySelectorAll("[data-scalar-table-scroll][id]")
     ).map((element) => [element.id, element.scrollLeft]);
@@ -160,10 +204,11 @@ document.addEventListener("DOMContentLoaded", () => {
         mappingPositionStorageKey,
         JSON.stringify({
           scrollY: window.scrollY,
-          focusName: active?.name || "",
-          focusValue: active?.value || "",
-          targetField: activeRow?.dataset.targetField || "",
-          targetOffset: activeRow?.getBoundingClientRect().top ?? null,
+          focusName: focusControl?.name || "",
+          focusValue: focusControl?.value || "",
+          datasetId: dataset?.dataset.mappingDataset || "",
+          targetField: row?.dataset.targetField || "",
+          targetOffset: row?.getBoundingClientRect().top ?? null,
           horizontal,
         })
       );
@@ -190,7 +235,11 @@ document.addEventListener("DOMContentLoaded", () => {
           document.querySelectorAll("[data-target-field]")
         );
         const row = rows.find(
-          (candidate) => candidate.dataset.targetField === stored.targetField
+          (candidate) =>
+            candidate.dataset.targetField === stored.targetField &&
+            (!stored.datasetId ||
+              candidate.closest("[data-mapping-dataset]")?.dataset
+                .mappingDataset === stored.datasetId)
         );
         const targetTop =
           row && Number.isFinite(stored.targetOffset)
@@ -200,7 +249,7 @@ document.addEventListener("DOMContentLoaded", () => {
             : stored.scrollY;
         window.scrollTo({
           top: Math.max(0, targetTop || 0),
-          behavior: "instant",
+          behavior: "auto",
         });
         for (const [id, scrollLeft] of stored.horizontal || []) {
           const element = document.getElementById(id);
@@ -208,7 +257,9 @@ document.addEventListener("DOMContentLoaded", () => {
             element.scrollLeft = scrollLeft;
           }
         }
-        const controls = Array.from(document.querySelectorAll("[name]"));
+        const controls = Array.from(
+          (row || document).querySelectorAll("[name]")
+        );
         const focusTarget = controls.find(
           (control) =>
             control.name === stored.focusName &&
@@ -399,6 +450,21 @@ document.addEventListener("DOMContentLoaded", () => {
     form.addEventListener("submit", () => {
       rememberSourceReviewPosition(form);
     });
+  }
+  for (const group of document.querySelectorAll("[data-source-choice-group]")) {
+    const wholeWorksheet = group.querySelector("[data-source-whole]");
+    const separateRegions = Array.from(
+      group.querySelectorAll("[data-source-region]")
+    );
+    wholeWorksheet?.addEventListener("change", () => {
+      if (!wholeWorksheet.checked) return;
+      for (const region of separateRegions) region.checked = false;
+    });
+    for (const region of separateRegions) {
+      region.addEventListener("change", () => {
+        if (region.checked && wholeWorksheet) wholeWorksheet.checked = false;
+      });
+    }
   }
 
   const targetModels = Array.from(
@@ -695,6 +761,15 @@ document.addEventListener("DOMContentLoaded", () => {
     let dirty = false;
     let submitting = false;
 
+    mappingForm.addEventListener("focusin", (event) => {
+      rememberMappingInteraction(event.target);
+    });
+    mappingForm.addEventListener("pointerdown", (event) => {
+      if (event.target?.closest?.('button[type="submit"]')) {
+        rememberMappingPosition();
+      }
+    });
+
     const savedAt = saveStatus?.dataset.savedAt;
     if (saveStatus && savedAt) {
       const savedDate = new Date(savedAt);
@@ -724,6 +799,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!marksMappingDirty(event.target)) {
         return;
       }
+      rememberMappingInteraction(event.target);
       dirty = true;
       const scalarRow = event.target.closest("[data-scalar-mapping-row]");
       if (scalarRow) {
@@ -807,6 +883,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     mappingForm.addEventListener("submit", async (event) => {
       event.preventDefault();
+      rememberMappingPosition();
       if (submitting) {
         return;
       }
@@ -894,7 +971,6 @@ document.addEventListener("DOMContentLoaded", () => {
         if (saveStatus) {
           saveStatus.textContent = payload.message || "Matches saved.";
         }
-        rememberMappingPosition();
         window.location.assign(payload.redirect_url || window.location.pathname);
       } catch (error) {
         submitting = false;

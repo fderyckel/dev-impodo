@@ -24,6 +24,7 @@ from impodo.source import (
     load_selected_source_table,
     open_selected_source_batches,
     prepare_sources,
+    validated_xlsx_table_bounds,
 )
 
 
@@ -31,6 +32,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PreparedRecordTests(unittest.TestCase):
+    def test_named_table_bounds_share_the_source_row_limit(self) -> None:
+        self.assertEqual(
+            validated_xlsx_table_bounds("A1:F16101"),
+            (1, 1, 6, 16101),
+        )
+        with self.assertRaisesRegex(
+            SourceLoadError,
+            "1,048,575 possible data rows",
+        ):
+            validated_xlsx_table_bounds("A1:F1048576")
+
     def test_selected_csv_batches_match_materialized_reader(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "products.csv"

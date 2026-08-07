@@ -1588,6 +1588,31 @@ label.model-choice input {
   color: var(--muted);
 }
 
+.source-region-choices,
+.excel-details {
+  margin-top: 1rem;
+}
+
+.source-region-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: .65rem;
+  margin-top: .8rem;
+  padding: .8rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.source-region-choice span,
+.source-region-choice small {
+  display: block;
+}
+
+.source-region-choice small {
+  margin-top: .2rem;
+  color: var(--muted);
+}
+
 .table-scroll {
   overflow-x: auto;
   border: 0;

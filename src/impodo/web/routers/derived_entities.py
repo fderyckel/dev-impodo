@@ -134,7 +134,10 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             f"Created the related table {rule.output_dataset_name}.",
         )
         return RedirectResponse(
-            f"/projects/{project_id}/derived-entities",
+            (
+                f"/projects/{project_id}/derived-entities"
+                f"#lookup-rule-{rule.rule_id}"
+            ),
             status_code=303,
         )
 

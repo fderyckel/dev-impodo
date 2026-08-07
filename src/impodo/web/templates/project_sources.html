@@ -96,10 +96,11 @@
       {% endfor %}
 
       {% set source_state = namespace(has_usable_table=false) %}
-      {% for table in catalog.tables %}
+      {% for group in source_groups.get(catalog.file_id, ()) %}
+        {% set table = group.primary %}
         {% set unsafe_cells = table.formula_cell_count or table.error_cell_count %}
         {% if not unsafe_cells %}{% set source_state.has_usable_table = true %}{% endif %}
-        <article class="source-table">
+        <article class="source-table" {% if table.kind == "WORKSHEET" %}data-source-choice-group{% endif %}>
           <div class="table-heading">
             <div>
               <h3>{% if table.kind == "CSV" %}Data in {{ catalog.display_name }}{% else %}{{ table.name }}{% endif %}</h3>
@@ -111,12 +112,13 @@
               <label class="inline-choice">
                 <input
                   type="checkbox"
-                  name="selected_{{ loop.index0 }}"
+                  name="selected_{{ group.primary_index }}"
                   value="1"
                   {% if not unsafe_cells and ((configuration and table.table_key in configuration.selected_table_keys) or not configuration) %}checked{% endif %}
                   {% if unsafe_cells %}disabled{% endif %}
+                  {% if table.kind == "WORKSHEET" %}data-source-whole{% endif %}
                 >
-                Include this table in the project
+                Include this data in the project
               </label>
               {% if table.kind in ["CSV", "WORKSHEET"] %}
                 <label class="header-row-control">
@@ -125,23 +127,63 @@
                     type="number"
                     min="1"
                     max="25"
-                    name="header_row_{{ loop.index0 }}"
+                    name="header_row_{{ group.primary_index }}"
                     value="{{ table.header_row or 1 }}"
                   >
                 </label>
               {% else %}
-                <input type="hidden" name="header_row_{{ loop.index0 }}" value="{{ table.header_row or 1 }}">
+                <input type="hidden" name="header_row_{{ group.primary_index }}" value="{{ table.header_row or 1 }}">
               {% endif %}
             </div>
           </div>
 
-          {% if table.named_tables %}
-            <div class="named-table-list">
-              <strong>Named tables</strong>
-              {% for named_table in table.named_tables %}
-                <span><code>{{ named_table.display_name }}</code> · {{ named_table.cell_range }}</span>
+          {% if group.regions %}
+            {% set region_state = namespace(selected=false) %}
+            {% for region in group.regions %}
+              {% if configuration and region.table.table_key in configuration.selected_table_keys %}{% set region_state.selected = true %}{% endif %}
+            {% endfor %}
+            <details class="technical-details source-region-choices" {% if region_state.selected %}open{% endif %}>
+              <summary>Use separate Excel tables instead</summary>
+              <p>Choose these only when this worksheet contains separate sets of business data.</p>
+              {% for region in group.regions %}
+                {% set region_table = region.table %}
+                {% set region_unsafe = region_table.formula_cell_count or region_table.error_cell_count %}
+                {% if not region_unsafe %}{% set source_state.has_usable_table = true %}{% endif %}
+                <label class="source-region-choice">
+                  <input
+                    type="checkbox"
+                    name="selected_{{ region.index }}"
+                    value="1"
+                    {% if not region_unsafe and configuration and region_table.table_key in configuration.selected_table_keys %}checked{% endif %}
+                    {% if region_unsafe %}disabled{% endif %}
+                    data-source-region
+                  >
+                  <span>
+                    <strong>{{ region_table.name }}</strong>
+                    <small>{{ region_table.row_count }} data row(s) · {{ region_table.column_count }} column(s) · {{ region_table.named_tables[0].cell_range }}</small>
+                  </span>
+                </label>
+                <input type="hidden" name="header_row_{{ region.index }}" value="{{ region_table.header_row or 1 }}">
+                {% if region_table.formula_cell_count %}
+                  <div class="notice error">This Excel table cannot be included because it contains formula cells.</div>
+                {% elif region_table.error_cell_count %}
+                  <div class="notice error">This Excel table cannot be included because it contains Excel errors.</div>
+                {% endif %}
               {% endfor %}
-            </div>
+            </details>
+          {% endif %}
+
+          {% if table.named_tables %}
+            <details class="technical-details excel-details">
+              <summary>Excel details</summary>
+              {% for named_table in table.named_tables %}
+                {% if named_table.message %}
+                  <p class="{% if named_table.disposition == 'INVALID' %}notice warning{% else %}muted{% endif %}">{{ named_table.message }}</p>
+                {% elif named_table.disposition == "DISTINCT" %}
+                  <p class="muted">Excel table <code>{{ named_table.display_name }}</code> defines a separate data area at {{ named_table.cell_range }}.</p>
+                {% endif %}
+              {% endfor %}
+            </details>
           {% endif %}
 
           {% for warning in table.warnings %}

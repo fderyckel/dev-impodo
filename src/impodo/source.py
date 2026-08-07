@@ -186,6 +186,41 @@ MAX_SOURCE_COLUMNS = 2_048
 MAX_CELL_STRING_LENGTH = 1_000_000
 
 
+def validated_xlsx_table_bounds(cell_range: str) -> tuple[int, int, int, int]:
+    """Return a bounded Excel-table range before any worksheet scan begins."""
+
+    try:
+        from openpyxl.utils.cell import range_boundaries
+
+        minimum_column, header_row, maximum_column, maximum_row = range_boundaries(
+            cell_range
+        )
+    except (TypeError, ValueError) as error:
+        raise SourceLoadError("range is invalid") from error
+    bounds = (minimum_column, header_row, maximum_column, maximum_row)
+    if (
+        not all(isinstance(value, int) for value in bounds)
+        or minimum_column < 1
+        or header_row < 1
+        or maximum_column < minimum_column
+        or maximum_row < header_row
+    ):
+        raise SourceLoadError("range is invalid")
+    column_count = maximum_column - minimum_column + 1
+    possible_data_rows = maximum_row - header_row
+    if column_count > MAX_SOURCE_COLUMNS:
+        raise SourceLoadError(
+            f"range exceeds {MAX_SOURCE_COLUMNS} columns"
+        )
+    if possible_data_rows > MAX_SOURCE_ROWS:
+        raise SourceLoadError(
+            "range contains "
+            f"{possible_data_rows:,} possible data rows; "
+            f"the limit is {MAX_SOURCE_ROWS:,}"
+        )
+    return minimum_column, header_row, maximum_column, maximum_row
+
+
 def load_source_tables(
     plan: CompiledMigrationPlan,
     input_directory: str | Path,
@@ -527,17 +562,15 @@ def _open_xlsx_rows(
         maximum_row: int | None = None
         if cell_range is not None:
             try:
-                from openpyxl.utils.cell import range_boundaries
-
                 (
                     minimum_column,
                     selected_header_row,
                     maximum_column,
                     maximum_row,
-                ) = range_boundaries(cell_range)
-            except (TypeError, ValueError) as error:
+                ) = validated_xlsx_table_bounds(cell_range)
+            except SourceLoadError as error:
                 raise SourceLoadError(
-                    f"named table has an invalid range: {path.name}#{sheet}"
+                    f"named table {error}: {path.name}#{sheet}"
                 ) from error
             if selected_header_row != header_row:
                 raise SourceLoadError(

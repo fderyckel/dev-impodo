@@ -16,7 +16,7 @@ See ``docs/architecture/python-code-map.md`` and
 from __future__ import annotations
 
 import csv
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
@@ -39,11 +39,12 @@ from .source import (
     MAX_XLSX_METADATA_BYTES,
     MAX_XLSX_WORKSHEETS,
     SourceLoadError,
+    validated_xlsx_table_bounds,
     validate_source_file,
 )
 
 
-CATALOG_CONTRACT_VERSION = 1
+CATALOG_CONTRACT_VERSION = 2
 PREVIEW_ROW_LIMIT = 20
 HEADER_SCAN_ROW_LIMIT = 25
 DISTINCT_VALUE_LIMIT = 10_000
@@ -88,6 +89,12 @@ class NamedTableCatalog:
     name: str
     display_name: str
     cell_range: str
+    disposition: str = "DISTINCT"
+    message: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.disposition not in {"DISTINCT", "EQUIVALENT", "INVALID"}:
+            raise ValueError("Excel-table disposition is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +175,11 @@ class SourceFileCatalog:
         """Return deterministic JSON suitable for DuckDB and portable evidence."""
 
         payload = asdict(self)
+        if self.contract_version < 2:
+            for table in payload["tables"]:
+                for named_table in table.get("named_tables", ()):
+                    named_table.pop("disposition", None)
+                    named_table.pop("message", None)
         payload["inspected_at"] = self.inspected_at.isoformat()
         return json.dumps(
             payload,
@@ -599,8 +611,19 @@ def _inspect_xlsx(
                     else None
                 ),
             )
+            classified_named_tables = tuple(
+                _classify_named_table(
+                    worksheet,
+                    worksheet_table=table,
+                    named_table=named_table,
+                )
+                for named_table in sheet_metadata.named_tables
+            )
+            table = replace(table, named_tables=classified_named_tables)
             tables.append(table)
-            for named_table in sheet_metadata.named_tables:
+            for named_table in classified_named_tables:
+                if named_table.disposition != "DISTINCT":
+                    continue
                 tables.append(
                     _inspect_named_table(
                         worksheet,
@@ -615,6 +638,44 @@ def _inspect_xlsx(
         return tuple(tables), tuple(workbook_warnings)
     finally:
         workbook.close()
+
+
+def _classify_named_table(
+    worksheet: Any,
+    *,
+    worksheet_table: SourceTableCatalog,
+    named_table: NamedTableCatalog,
+) -> NamedTableCatalog:
+    """Classify an Excel table without profiling redundant or unsafe ranges."""
+
+    try:
+        bounds = validated_xlsx_table_bounds(named_table.cell_range)
+    except SourceLoadError as error:
+        return replace(
+            named_table,
+            disposition="INVALID",
+            message=(
+                f"Excel table {named_table.display_name!r} was ignored because "
+                f"its {error}."
+            ),
+        )
+    minimum_column, header_row, maximum_column, maximum_row = bounds
+    if (
+        worksheet_table.header_row is not None
+        and minimum_column == 1
+        and header_row == worksheet_table.header_row
+        and maximum_column == worksheet_table.column_count
+        and maximum_row == worksheet.max_row
+    ):
+        return replace(
+            named_table,
+            disposition="EQUIVALENT",
+            message=(
+                f"Excel table {named_table.display_name!r} covers the same data "
+                "and was combined with this worksheet."
+            ),
+        )
+    return named_table
 
 
 def _inspect_worksheet(
@@ -786,20 +847,13 @@ def _inspect_named_table(
     """Profile an Excel named-table range as an independently selectable table."""
 
     try:
-        from openpyxl.utils.cell import range_boundaries
-
-        minimum_column, header_row, maximum_column, maximum_row = range_boundaries(
-            named_table.cell_range
+        minimum_column, header_row, maximum_column, maximum_row = (
+            validated_xlsx_table_bounds(named_table.cell_range)
         )
-    except (TypeError, ValueError) as error:
+    except SourceLoadError as error:
         raise SourceInspectionError(
-            f"Named table {named_table.display_name!r} has an invalid range"
+            f"Named table {named_table.display_name!r} cannot be inspected: {error}"
         ) from error
-    if maximum_column - minimum_column + 1 > MAX_SOURCE_COLUMNS:
-        raise SourceInspectionError(
-            f"Named table {named_table.display_name!r} exceeds "
-            f"{MAX_SOURCE_COLUMNS} columns"
-        )
     try:
         header_cells = next(
             worksheet.iter_rows(
@@ -860,6 +914,12 @@ def _inspect_named_table(
                 if first_error_cell is None:
                     first_error_cell = cell.coordinate
                     first_error_column = headers[index]
+        for value in values:
+            if isinstance(value, str) and len(value) > MAX_CELL_STRING_LENGTH:
+                raise SourceInspectionError(
+                    f"Named table {named_table.display_name!r} contains a cell "
+                    f"exceeding {MAX_CELL_STRING_LENGTH} characters"
+                )
         for accumulator, value in zip(accumulators, values, strict=True):
             accumulator.observe(value)
         if len(preview_rows) < PREVIEW_ROW_LIMIT:
@@ -1414,6 +1474,12 @@ def _table_from_payload(payload: dict[str, Any]) -> SourceTableCatalog:
                 name=str(table["name"]),
                 display_name=str(table["display_name"]),
                 cell_range=str(table["cell_range"]),
+                disposition=str(table.get("disposition", "DISTINCT")),
+                message=(
+                    str(table["message"])
+                    if table.get("message") is not None
+                    else None
+                ),
             )
             for table in payload.get("named_tables", ())
         ),

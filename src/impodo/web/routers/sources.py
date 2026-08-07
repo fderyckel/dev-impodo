@@ -37,15 +37,17 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 f"/projects/{project.project_id}/details",
                 status_code=303,
             )
+        catalogs = context.queries.get_source_catalogs(project_id)
         return _render(
             request,
             "project_sources.html",
             project=project,
-            catalogs=context.queries.get_source_catalogs(project_id),
+            catalogs=catalogs,
             configurations={
                 item.file_id: item
                 for item in context.queries.get_source_configurations(project_id)
             },
+            source_groups=_source_groups(catalogs),
         )
 
     @router.post("/projects/{project_id}/sources/inspect")
@@ -71,6 +73,9 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     item.file_id: item
                     for item in context.queries.get_source_configurations(project_id)
                 },
+                source_groups=_source_groups(
+                    context.queries.get_source_catalogs(project_id)
+                ),
                 error=str(error),
                 status_code=422,
             )
@@ -155,6 +160,9 @@ def build_sources_router(context: WebContext) -> APIRouter:
                     item.file_id: item
                     for item in context.queries.get_source_configurations(project_id)
                 },
+                source_groups=_source_groups(
+                    context.queries.get_source_catalogs(project_id)
+                ),
                 error=str(error),
                 status_code=422,
             )
@@ -218,3 +226,42 @@ def build_sources_router(context: WebContext) -> APIRouter:
         )
 
     return router
+
+
+def _source_groups(catalogs):
+    """Group selectable Excel regions under their physical worksheet."""
+
+    result = {}
+    for catalog in catalogs:
+        indexed = tuple(enumerate(catalog.tables))
+        groups = []
+        claimed: set[int] = set()
+        for index, table in indexed:
+            if table.kind == "NAMED_TABLE":
+                continue
+            regions = tuple(
+                {"index": candidate_index, "table": candidate}
+                for candidate_index, candidate in indexed
+                if candidate.kind == "NAMED_TABLE"
+                and candidate.worksheet_name == table.name
+            )
+            claimed.update(item["index"] for item in regions)
+            claimed.add(index)
+            groups.append(
+                {
+                    "primary_index": index,
+                    "primary": table,
+                    "regions": regions,
+                }
+            )
+        for index, table in indexed:
+            if index not in claimed:
+                groups.append(
+                    {
+                        "primary_index": index,
+                        "primary": table,
+                        "regions": (),
+                    }
+                )
+        result[catalog.file_id] = tuple(groups)
+    return result
