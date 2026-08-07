@@ -366,6 +366,31 @@
       <section class="nested-rule-card">
         <h2>Create a related table</h2>
         <p>Choose the column that contains related records. Impodo will keep one row per unique value, keep the original product or line rows, and suggest the relationship in Mapping.</p>
+        {% if model_catalog %}
+          <div class="notice stack-ready" role="status">
+            <strong>Odoo record types are ready.</strong>
+            Choose one of the {{ model_catalog.models|length }} existing record types loaded from this Odoo database.
+          </div>
+          <form method="post" action="/projects/{{ project.project_id }}/derived-entities/models/refresh">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="actions">
+              <button class="button secondary" type="submit">Refresh Odoo record types</button>
+            </div>
+          </form>
+        {% else %}
+          <div class="notice warning">
+            <strong>Load the existing Odoo record types first.</strong>
+            Impodo will read the available record names from the configured Odoo database so this choice can be checked.
+          </div>
+          <form method="post" action="/projects/{{ project.project_id }}/derived-entities/models/refresh">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="actions">
+              <button class="button primary" type="submit">Show available Odoo record types</button>
+              <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Review the Odoo connection</a>
+            </div>
+          </form>
+        {% endif %}
+        {% if model_catalog %}
         <form method="post" action="/projects/{{ project.project_id }}/derived-entities/lookup/preview">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
@@ -385,10 +410,11 @@
             </label>
             <label>
               Type of Odoo record
-              <input name="target_model" list="derived-target-models" placeholder="product.category" required>
+              <input name="target_model" list="derived-target-models" placeholder="Start typing, for example Product Categories" autocomplete="off" aria-describedby="derived-target-model-help" required>
               <datalist id="derived-target-models">
-                {% for model in model_choices %}<option value="{{ model.name }}">{{ model.label }}</option>{% endfor %}
+                {% for model in model_choices %}<option value="{{ model.name }}" label="{{ model.label }}">{{ model.label }}</option>{% endfor %}
               </datalist>
+              <small id="derived-target-model-help">Choose an existing record type from this Odoo database. Impodo checks the choice before previewing.</small>
             </label>
             <details class="technical-details">
               <summary>Support options</summary>
@@ -418,6 +444,7 @@
             <button class="button primary" type="submit">Preview related records</button>
           </div>
         </form>
+        {% endif %}
       </section>
     </details>
 

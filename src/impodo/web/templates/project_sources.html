@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Source inspection · {{ project.name }} · Impodo{% endblock %}
 {% block content %}
-  <div class="page-heading">
+  <div class="page-heading" data-source-review-page data-source-position-key="{{ project.project_id }}">
     <div>
       <p class="eyebrow">Step 1 · Source data</p>
       <h1>Check your source files</h1>
@@ -10,7 +10,7 @@
     <span class="status registered">{{ catalogs|length }}/{{ project.source_files|length }} checked</span>
   </div>
 
-  <section class="form-card">
+  <section class="form-card" id="source-files">
     <h2>Files in this project</h2>
     <p>Impodo checks each file without changing the original.</p>
     <div class="file-list">
@@ -30,7 +30,7 @@
         </div>
       {% endfor %}
     </div>
-    <form method="post" action="/projects/{{ project.project_id }}/sources/inspect">
+    <form method="post" action="/projects/{{ project.project_id }}/sources/inspect" data-source-review-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to review</a>
@@ -50,7 +50,7 @@
 
   {% for catalog in catalogs %}
     {% set configuration = configurations.get(catalog.file_id) %}
-    <section class="form-card catalog-card">
+    <section class="form-card catalog-card" id="source-{{ catalog.file_id }}" data-source-review-card="{{ catalog.file_id }}">
       <div class="catalog-heading">
         <div>
           <p class="eyebrow">{{ catalog.format }} source</p>
@@ -62,7 +62,7 @@
         </span>
       </div>
 
-      <form method="post" action="/projects/{{ project.project_id }}/sources/{{ catalog.file_id }}/configure">
+      <form method="post" action="/projects/{{ project.project_id }}/sources/{{ catalog.file_id }}/configure" data-source-review-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         {% if catalog.format == "CSV" %}
           <details class="technical-details" {% if catalog.warnings %}open{% endif %}>

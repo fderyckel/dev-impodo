@@ -191,21 +191,19 @@ def _render_derived_entities(
     project = context.queries.get(project_id)
     selection = context.queries.get_source_selection(project_id)
     plan = context.queries.get_derived_entity_plan(project_id)
-    schema = context.queries.get_odoo_schema_catalog(project_id)
+    model_catalog = context.queries.get_odoo_model_catalog(project_id)
     model_choices = tuple(
         sorted(
             (
                 {"name": item.name, "label": item.label}
-                for item in (schema.models if schema else ())
+                for item in (model_catalog.models if model_catalog else ())
             ),
-            key=lambda item: str(item["name"]),
+            key=lambda item: (
+                str(item["label"]).casefold(),
+                str(item["name"]),
+            ),
         )
     )
-    if not model_choices:
-        model_choices = tuple(
-            {"name": name, "label": name}
-            for name in sorted(project.intended_models)
-        )
     source_choices = tuple(
         {
             "value": f"{dataset.dataset_id}|{column.stable_key}",
@@ -273,6 +271,7 @@ def _render_derived_entities(
         project=project,
         selection=selection,
         plan=plan,
+        model_catalog=model_catalog,
         source_choices=source_choices,
         model_choices=model_choices,
         rule_views=tuple(rule_views),

@@ -12,6 +12,8 @@ from __future__ import annotations
 from collections import Counter
 import hashlib
 
+from starlette.concurrency import run_in_threadpool
+
 from ..connectors import (
     Json2Config,
     Json2ReadConnector,
@@ -27,7 +29,7 @@ from ..projects import MigrationProject, OdooConnectionMode, ProjectError
 from ..reference_keys import standard_reference_key
 from ..secrets import SecretStoreError
 from ..source import load_selected_source_table
-from ..workspace_contracts import SchemaField, SchemaOrigin
+from ..workspace_contracts import OdooModelCatalog, SchemaField, SchemaOrigin
 from ..workspace_errors import WorkspaceError
 from .constants import (
     VALUE_MATCH_MAX_SOURCE_CHOICES,
@@ -158,6 +160,77 @@ def _read_model_catalog(
             ),
         )
     )
+
+
+async def _refresh_model_catalog(
+    context: WebContext,
+    project: MigrationProject,
+) -> OdooModelCatalog:
+    """Refresh persistent model choices through the configured read-only target."""
+
+    local_profile = _selected_local_profile(context, project)
+    if local_profile is not None:
+        snapshot = await run_in_threadpool(
+            context.local_odoo_reader.get_model_catalog,
+            project,
+            local_profile,
+        )
+    else:
+        api_key = context.secret_store.get(_target_credential_id(project))
+        if not api_key:
+            raise WorkspaceError(_missing_schema_reader_message(project))
+        snapshot = await run_in_threadpool(
+            context.model_catalog_reader,
+            project,
+            api_key,
+        )
+    catalog = context.schema_workspace.discover_models(
+        project.project_id,
+        snapshot,
+        actor=context.actor,
+    )
+    if local_profile is not None:
+        context.local_stack.mark_metadata_ready(
+            project.project_id,
+            database=catalog.database,
+            odoo_version=catalog.odoo_version,
+            model_count=len(catalog.models),
+        )
+    return catalog
+
+
+def _existing_catalog_model(
+    context: WebContext,
+    project: MigrationProject,
+    model_name: str,
+) -> str:
+    """Require one model advertised by the current exact Odoo target."""
+
+    catalog = context.queries.get_odoo_model_catalog(project.project_id)
+    if catalog is None:
+        raise WorkspaceError(
+            "Show the available Odoo record types before choosing one"
+        )
+    expected_target_hash = target_identity_hash(
+        connection_mode=(
+            project.odoo_connection_mode.value
+            if project.odoo_connection_mode is not None
+            else ""
+        ),
+        base_url=project.odoo_base_url,
+        database=project.odoo_database,
+    )
+    if catalog.target_hash != expected_target_hash:
+        raise WorkspaceError(
+            "The saved Odoo record list belongs to a different target; "
+            "refresh it before choosing a record type"
+        )
+    selected = model_name.strip()
+    if selected not in {model.name for model in catalog.models}:
+        raise WorkspaceError(
+            "Choose an existing Odoo record type from the loaded list"
+        )
+    return selected
 
 
 def _read_readiness_snapshots(

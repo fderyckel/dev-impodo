@@ -79,7 +79,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             f"Checked {len(catalogs)} source file(s).",
         )
         return RedirectResponse(
-            f"/projects/{project_id}/sources",
+            f"/projects/{project_id}/sources#source-files",
             status_code=303,
         )
 
@@ -159,7 +159,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 status_code=422,
             )
         return RedirectResponse(
-            f"/projects/{project_id}/sources",
+            f"/projects/{project_id}/sources#source-{file_id}",
             status_code=303,
         )
 

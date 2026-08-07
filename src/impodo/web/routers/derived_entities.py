@@ -9,15 +9,21 @@ See ``docs/derived-entity-authoring.md`` and ``tests/test_web_app.py``.
 """
 
 from __future__ import annotations
-from fastapi import Request
+
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+
+from ...connectors import ConnectorError
+from ...local_stack import LocalStackError
+from ...projects import ProjectError
+from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
-from ..security import require_session
-from fastapi import APIRouter
 from ..context import WebContext
 from ..forms import _optional_int, _secure_form, _text
 from ..presenters.common import _flash
 from ..presenters.schema import _render_derived_entities
+from ..security import require_session
+from ..target_readers import _existing_catalog_model, _refresh_model_catalog
 
 
 def build_derived_entities_router(context: WebContext) -> APIRouter:
@@ -32,6 +38,38 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
     async def project_derived_entities(request: Request, project_id: str):
         require_session(request)
         return _render_derived_entities(request, context, project_id)
+
+    @router.post("/projects/{project_id}/derived-entities/models/refresh")
+    async def refresh_derived_entity_models(request: Request, project_id: str):
+        """Load existing Odoo record types and return to lookup extraction."""
+
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        project = context.queries.get(project_id)
+        try:
+            catalog = await _refresh_model_catalog(context, project)
+        except (
+            ConnectorError,
+            LocalStackError,
+            ProjectError,
+            SecretStoreError,
+            WorkspaceError,
+        ) as error:
+            return _render_derived_entities(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            f"Loaded {len(catalog.models)} existing Odoo record type(s).",
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/derived-entities#lookup-extraction",
+            status_code=303,
+        )
 
     @router.post("/projects/{project_id}/derived-entities/save")
     async def save_project_derived_entity(request: Request, project_id: str):
@@ -62,12 +100,18 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             )
         source_dataset_id, source_column_key = source_binding.split("|", 1)
         try:
+            project = context.queries.get(project_id)
+            target_model = _existing_catalog_model(
+                context,
+                project,
+                _text(form, "target_model"),
+            )
             plan, rule = context.derived_entities.save_rule(
                 project_id,
                 output_dataset_name=_text(form, "output_dataset_name"),
                 source_dataset_id=source_dataset_id,
                 source_column_key=source_column_key,
-                target_model=_text(form, "target_model"),
+                target_model=target_model,
                 target_name_field=_text(form, "target_name_field"),
                 external_id_namespace=_text(form, "external_id_namespace"),
                 parent_separator=_text(form, "parent_separator") or None,
@@ -123,12 +167,18 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             )
         source_dataset_id, source_column_key = source_binding.split("|", 1)
         try:
+            project = context.queries.get(project_id)
+            target_model = _existing_catalog_model(
+                context,
+                project,
+                _text(form, "target_model"),
+            )
             rule, preview = context.derived_entities.preview_lookup(
                 project_id,
                 output_dataset_name=_text(form, "output_dataset_name"),
                 source_dataset_id=source_dataset_id,
                 source_column_key=source_column_key,
-                target_model=_text(form, "target_model"),
+                target_model=target_model,
                 target_name_field=_text(form, "target_name_field"),
                 external_id_namespace=_text(form, "external_id_namespace"),
                 parent_separator=_text(form, "parent_separator") or None,

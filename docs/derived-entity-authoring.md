@@ -62,6 +62,12 @@ For a reusable value stored only as a source field, choose the source field,
 derived dataset name, target model, stable source-system namespace, blank
 policy, and optional hierarchy separator.
 
+Before the target model can be selected, the browser loads the persistent
+record types advertised by the project's configured Odoo database through the
+same read-only model-catalogue boundary used by schema selection. Preview and
+save both reject a technical model name that is absent from that current,
+target-bound catalogue.
+
 Impodo normalizes Unicode, whitespace, case-insensitive identity, and optional
 hierarchy paths. The bounded preview shows deterministic Impodo and Odoo
 External IDs without borrowing a contributing product or row identity.
@@ -108,7 +114,9 @@ generated dataset identifiers behind the UI.
 - Freezing a new source selection invalidates the active preparation plan.
 - Saving or removing a preparation rule invalidates the current mapping.
 - Historical plan revisions remain available in project storage.
-- Preview and authoring never contact or write to Odoo.
+- Loading or refreshing the available record types performs one explicit,
+  read-only Odoo catalogue request. Source-value preview and authoring never
+  write to Odoo and do not query Odoo once that catalogue is loaded.
 - Mapping and relationship checks must operate in batches, not one Odoo request
   per source row.
 

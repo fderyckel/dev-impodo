@@ -1310,6 +1310,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(source_discovery.status_code, 200)
         self.assertIn("Step 1 · Source data", source_discovery.text)
         self.assertIn("Your files have not been checked yet", source_discovery.text)
+        self.assertIn("data-source-review-page", source_discovery.text)
+        self.assertIn("data-source-review-form", source_discovery.text)
         inspected = self.client.post(
             f"/projects/{project_id}/sources/inspect",
             data={"csrf_token": self.csrf},
@@ -1317,6 +1319,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(inspected.status_code, 303)
+        self.assertEqual(
+            inspected.headers["location"],
+            f"/projects/{project_id}/sources#source-files",
+        )
         inspection_page = self.client.get(inspected.headers["location"])
         self.assertIn("Checked 2 source file", inspection_page.text)
         self.assertIn("customers.csv", inspection_page.text)
@@ -1324,6 +1330,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("products.xlsx", inspection_page.text)
         self.assertIn("ProductTable", inspection_page.text)
         self.assertIn("Likely content", inspection_page.text)
+        self.assertIn("data-source-review-card", inspection_page.text)
         catalogs = self.app.state.context.sources.sources.get_source_catalogs(project_id)
         self.assertEqual(len(catalogs), 2)
         self.assertEqual(catalogs[0].source_sha256, project.source_files[0].sha256)
@@ -1347,6 +1354,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(configured.status_code, 303)
+        self.assertEqual(
+            configured.headers["location"],
+            f"/projects/{project_id}/sources#source-{catalogs[0].file_id}",
+        )
         configured_page = self.client.get(configured.headers["location"])
         self.assertIn("Confirmed customers.csv", configured_page.text)
 
@@ -1365,6 +1376,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(workbook_configured.status_code, 303)
+        self.assertEqual(
+            workbook_configured.headers["location"],
+            f"/projects/{project_id}/sources#source-{catalogs[1].file_id}",
+        )
         configured_page = self.client.get(workbook_configured.headers["location"])
         self.assertIn("Confirmed products.xlsx", configured_page.text)
         self.assertIn("Choose tables", configured_page.text)
@@ -1396,6 +1411,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Separate combined information", derived_page.text)
         self.assertIn(
             "Saved rules are repeated consistently for every row",
+            derived_page.text,
+        )
+        self.assertIn("Show available Odoo record types", derived_page.text)
+        self.assertNotIn(
+            f'action="/projects/{project_id}/derived-entities/lookup/preview"',
             derived_page.text,
         )
         selection = (
@@ -1481,6 +1501,61 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "parent_separator": "",
             "blank_policy": "block",
         }
+        blocked_without_models = self.client.post(
+            f"/projects/{project_id}/derived-entities/lookup/preview",
+            data=derived_rule_data,
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(blocked_without_models.status_code, 422)
+        self.assertIn(
+            "Show the available Odoo record types before choosing one",
+            blocked_without_models.text,
+        )
+
+        project = self.app.state.context.projects.repository.get(project_id)
+        refreshed_lookup_models = self._post(
+            f"/projects/{project_id}/derived-entities/models/refresh",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(refreshed_lookup_models.status_code, 303)
+        self.assertEqual(
+            refreshed_lookup_models.headers["location"],
+            f"/projects/{project_id}/derived-entities#lookup-extraction",
+        )
+        self.assertEqual(
+            self.model_catalog_calls,
+            [(project_id, "super-secret-token")],
+        )
+        lookup_model_page = self.client.get(
+            refreshed_lookup_models.headers["location"]
+        )
+        self.assertIn("Odoo record types are ready", lookup_model_page.text)
+        self.assertIn(
+            f'action="/projects/{project_id}/derived-entities/lookup/preview"',
+            lookup_model_page.text,
+        )
+        self.assertIn('value="res.partner" label="Contact"', lookup_model_page.text)
+
+        rejected_lookup_model = self.client.post(
+            f"/projects/{project_id}/derived-entities/lookup/preview",
+            data={**derived_rule_data, "target_model": "x.not.available"},
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(rejected_lookup_model.status_code, 422)
+        self.assertIn(
+            "Choose an existing Odoo record type from the loaded list",
+            rejected_lookup_model.text,
+        )
+        rejected_lookup_save = self.client.post(
+            f"/projects/{project_id}/derived-entities/save",
+            data={**derived_rule_data, "target_model": "x.not.available"},
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(rejected_lookup_save.status_code, 422)
+        self.assertIn(
+            "Choose an existing Odoo record type from the loaded list",
+            rejected_lookup_save.text,
+        )
         lookup_preview = self.client.post(
             f"/projects/{project_id}/derived-entities/lookup/preview",
             data=derived_rule_data,
@@ -1506,7 +1581,6 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertNotIn("entity:P001", derived_preview.text)
 
-        project = self.app.state.context.projects.repository.get(project_id)
         refreshed_models = self._post(
             f"/projects/{project_id}/schema/models/refresh",
             {"csrf_token": self.csrf},
@@ -1514,7 +1588,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(refreshed_models.status_code, 303)
         self.assertEqual(
             self.model_catalog_calls,
-            [(project_id, "super-secret-token")],
+            [
+                (project_id, "super-secret-token"),
+                (project_id, "super-secret-token"),
+            ],
         )
         model_page = self.client.get(refreshed_models.headers["location"])
         self.assertIn("Step 3 · Odoo data", model_page.text)
@@ -1662,6 +1739,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("rememberNormalizationPosition", mapping_script.text)
         self.assertIn("restoreNormalizationPosition", mapping_script.text)
         self.assertIn("data-normalization-decision-form", mapping_script.text)
+        self.assertIn("rememberSourceReviewPosition", mapping_script.text)
+        self.assertIn("restoreSourceReviewPosition", mapping_script.text)
+        self.assertIn("data-source-review-form", mapping_script.text)
         self.assertIn("scheduleScalarCatalogSearch", mapping_script.text)
         self.assertIn("new AbortController()", mapping_script.text)
         self.assertIn("new DOMParser()", mapping_script.text)

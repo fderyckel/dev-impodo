@@ -37,6 +37,7 @@ from ..presenters.schema import _manual_schema_models, _render_schema
 from ..presenters.summary import _require_local_stack_access
 from ..target_readers import (
     _missing_schema_reader_message,
+    _refresh_model_catalog,
     _selected_local_profile,
     _target_credential_id,
 )
@@ -98,38 +99,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
         _secure_form(request, form, {"csrf_token"})
         project = context.queries.get(project_id)
         try:
-            local_profile = _selected_local_profile(context, project)
-            if local_profile is not None:
-                snapshot = await run_in_threadpool(
-                    context.local_odoo_reader.get_model_catalog,
-                    project,
-                    local_profile,
-                )
-            else:
-                api_key = context.secret_store.get(
-                    _target_credential_id(project)
-                )
-                if not api_key:
-                    raise WorkspaceError(
-                        _missing_schema_reader_message(project)
-                    )
-                snapshot = await run_in_threadpool(
-                    context.model_catalog_reader,
-                    project,
-                    api_key,
-                )
-            catalog = context.schema_workspace.discover_models(
-                project_id,
-                snapshot,
-                actor=context.actor,
-            )
-            if local_profile is not None:
-                context.local_stack.mark_metadata_ready(
-                    project_id,
-                    database=catalog.database,
-                    odoo_version=catalog.odoo_version,
-                    model_count=len(catalog.models),
-                )
+            catalog = await _refresh_model_catalog(context, project)
         except (
             ConnectorError,
             ProjectError,
