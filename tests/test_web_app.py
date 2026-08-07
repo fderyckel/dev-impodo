@@ -2831,6 +2831,20 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Review source choices", page.text)
         self.assertIn("French (France) — fr_FR", page.text)
         self.assertNotIn("datalist", page.text)
+        mapping_script = self.client.get("/static/app.js")
+        self.assertIn(
+            'event.target.closest?.("[data-open-value-match]")',
+            mapping_script.text,
+        )
+        self.assertIn(
+            'mappingForm.addEventListener("change", (event) => {',
+            mapping_script.text,
+        )
+        self.assertNotIn(
+            'for (const trigger of mappingForm.querySelectorAll(\n'
+            '      "[data-open-value-match]"',
+            mapping_script.text,
+        )
         with patch(
             "impodo.web.routers.mapping._source_value_choices",
             return_value=(

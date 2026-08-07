@@ -1284,125 +1284,134 @@ document.addEventListener("DOMContentLoaded", () => {
       updateValueMatchProgress();
     };
 
-    for (const trigger of mappingForm.querySelectorAll(
-      "[data-open-value-match]"
-    )) {
-      trigger.addEventListener("click", async () => {
-        if (!valueMatchDialog) {
-          return;
-        }
-        resetValueMatchDialog();
-        valueMatchRequest?.abort();
-        const kind = trigger.dataset.valueMatchKind || "";
-        const row = trigger.closest(
-          kind === "scalar"
-            ? "[data-scalar-mapping-row]"
-            : "[data-relation-mapping-row]"
-        );
-        const storage = row?.querySelector("[data-value-match-storage]");
-        activeValueMatch = null;
-        if (!(storage instanceof HTMLInputElement) || !row) {
-          return;
-        }
-        if (valueMatchTitle) {
-          valueMatchTitle.textContent = `Match source choices to ${
-            trigger.dataset.targetLabel || "Odoo"
-          }`;
-        }
-        valueMatchDialog.showModal();
+    const openValueMatch = async (trigger) => {
+      if (!valueMatchDialog) {
+        return;
+      }
+      resetValueMatchDialog();
+      valueMatchRequest?.abort();
+      const kind = trigger.dataset.valueMatchKind || "";
+      const row = trigger.closest(
+        kind === "scalar"
+          ? "[data-scalar-mapping-row]"
+          : "[data-relation-mapping-row]"
+      );
+      const storage = row?.querySelector("[data-value-match-storage]");
+      activeValueMatch = null;
+      if (!(storage instanceof HTMLInputElement) || !row) {
+        return;
+      }
+      if (valueMatchTitle) {
+        valueMatchTitle.textContent = `Match source choices to ${
+          trigger.dataset.targetLabel || "Odoo"
+        }`;
+      }
+      valueMatchDialog.showModal();
 
-        let sourceColumnKey = "";
-        let businessKeyId = "";
-        if (kind === "scalar") {
-          const provider = row.querySelector("[data-value-source]")?.value;
-          sourceColumnKey =
-            row.querySelector('[name^="scalar_source_"]')?.value || "";
-          if (!["source", "source_with_fallback"].includes(provider)) {
-            showValueMatchError("Choose Source value first.");
-            return;
-          }
-        } else {
-          const origin = row.querySelector('[name^="relation_origin_"]')?.value;
-          const source = row.querySelector('[name^="relation_source_"]');
-          const selectedSources = source
-            ? Array.from(source.selectedOptions, (option) => option.value)
-            : [];
-          sourceColumnKey = selectedSources[0] || "";
-          businessKeyId =
-            row.querySelector('[name^="relation_key_"]')?.value || "";
-          if (origin !== "target_catalog") {
-            showValueMatchError(
-              "Choose Existing Odoo records before matching these choices."
-            );
-            return;
-          }
-          if (selectedSources.length !== 1) {
-            showValueMatchError("Choose exactly one source column first.");
-            return;
-          }
-          if (!businessKeyId) {
-            showValueMatchError(
-              "Choose how the related Odoo record is identified first."
-            );
-            return;
-          }
-        }
-        if (!sourceColumnKey) {
-          showValueMatchError("Choose one source column first.");
+      let sourceColumnKey = "";
+      let businessKeyId = "";
+      if (kind === "scalar") {
+        const provider = row.querySelector("[data-value-source]")?.value;
+        sourceColumnKey =
+          row.querySelector('[name^="scalar_source_"]')?.value || "";
+        if (!["source", "source_with_fallback"].includes(provider)) {
+          showValueMatchError("Choose Source value first.");
           return;
         }
-
-        activeValueMatch = {
-          trigger,
-          storage,
-          sourceCount: 0,
-        };
-        const csrfToken =
-          mappingForm.querySelector('input[name="csrf_token"]')?.value || "";
-        const body = new FormData();
-        body.set("csrf_token", csrfToken);
-        body.set("kind", kind);
-        body.set("dataset_id", trigger.dataset.datasetId || "");
-        body.set("source_column_key", sourceColumnKey);
-        body.set("target_model", trigger.dataset.targetModel || "");
-        body.set("target_field", trigger.dataset.targetField || "");
-        body.set("business_key_id", businessKeyId);
-        valueMatchRequest = new AbortController();
-        try {
-          const response = await fetch(
-            valueMatchDialog.dataset.valueMatchEndpoint || "",
-            {
-              method: "POST",
-              headers: { Accept: "application/json" },
-              body,
-              signal: valueMatchRequest.signal,
-            }
-          );
-          let payload = {};
-          try {
-            payload = await response.json();
-          } catch (_error) {
-            payload = {};
-          }
-          if (!response.ok) {
-            throw new Error(
-              payload.detail ||
-                "The Odoo choices could not be loaded. Check the connection and try again."
-            );
-          }
-          renderValueMatchRows(payload);
-        } catch (error) {
-          if (error?.name === "AbortError") {
-            return;
-          }
+      } else {
+        const origin = row.querySelector('[name^="relation_origin_"]')?.value;
+        const source = row.querySelector('[name^="relation_source_"]');
+        const selectedSources = source
+          ? Array.from(source.selectedOptions, (option) => option.value)
+          : [];
+        sourceColumnKey = selectedSources[0] || "";
+        businessKeyId =
+          row.querySelector('[name^="relation_key_"]')?.value || "";
+        if (origin !== "target_catalog") {
           showValueMatchError(
-            error instanceof Error
-              ? error.message
-              : "The choices could not be loaded."
+            "Choose Existing Odoo records before matching these choices."
+          );
+          return;
+        }
+        if (selectedSources.length !== 1) {
+          showValueMatchError("Choose exactly one source column first.");
+          return;
+        }
+        if (!businessKeyId) {
+          showValueMatchError(
+            "Choose how the related Odoo record is identified first."
+          );
+          return;
+        }
+      }
+      if (!sourceColumnKey) {
+        showValueMatchError("Choose one source column first.");
+        return;
+      }
+
+      activeValueMatch = {
+        trigger,
+        storage,
+        sourceCount: 0,
+      };
+      const csrfToken =
+        mappingForm.querySelector('input[name="csrf_token"]')?.value || "";
+      const body = new FormData();
+      body.set("csrf_token", csrfToken);
+      body.set("kind", kind);
+      body.set("dataset_id", trigger.dataset.datasetId || "");
+      body.set("source_column_key", sourceColumnKey);
+      body.set("target_model", trigger.dataset.targetModel || "");
+      body.set("target_field", trigger.dataset.targetField || "");
+      body.set("business_key_id", businessKeyId);
+      const activeRequest = new AbortController();
+      valueMatchRequest = activeRequest;
+      try {
+        const response = await fetch(
+          valueMatchDialog.dataset.valueMatchEndpoint || "",
+          {
+            method: "POST",
+            headers: { Accept: "application/json" },
+            body,
+            signal: activeRequest.signal,
+          }
+        );
+        let payload = {};
+        try {
+          payload = await response.json();
+        } catch (_error) {
+          payload = {};
+        }
+        if (!response.ok) {
+          throw new Error(
+            payload.detail ||
+              "The Odoo choices could not be loaded. Check the connection and try again."
           );
         }
-      });
-    }
+        renderValueMatchRows(payload);
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          return;
+        }
+        showValueMatchError(
+          error instanceof Error
+            ? error.message
+            : "The choices could not be loaded."
+        );
+      } finally {
+        if (valueMatchRequest === activeRequest) {
+          valueMatchRequest = null;
+        }
+      }
+    };
+
+    mappingForm.addEventListener("click", (event) => {
+      const trigger = event.target.closest?.("[data-open-value-match]");
+      if (!trigger || !mappingForm.contains(trigger)) {
+        return;
+      }
+      void openValueMatch(trigger);
+    });
 
     useValueMatches?.addEventListener("click", () => {
       if (!activeValueMatch || !valueMatchRows) {
@@ -1447,30 +1456,30 @@ document.addEventListener("DOMContentLoaded", () => {
       activeValueMatch = null;
     });
 
-    for (const storage of mappingForm.querySelectorAll(
-      "[data-value-match-storage]"
-    )) {
-      const row = storage.closest(
+    mappingForm.addEventListener("change", (event) => {
+      const row = event.target?.closest?.(
         "[data-scalar-mapping-row], [data-relation-mapping-row]"
       );
-      row?.addEventListener("change", (event) => {
-        const name = event.target?.name || "";
-        const changesValueIdentity =
-          name.startsWith("scalar_source_") ||
-          name.startsWith("scalar_value_source_") ||
-          name.startsWith("relation_source_") ||
-          name.startsWith("relation_origin_") ||
-          name.startsWith("relation_key_");
-        if (!changesValueIdentity || storage.value === "[]") {
-          return;
-        }
-        storage.value = "[]";
-        const summary = row.querySelector("[data-value-match-summary]");
-        if (summary) {
-          summary.textContent = "Use when source and Odoo choices differ";
-        }
-      });
-    }
+      const storage = row?.querySelector("[data-value-match-storage]");
+      if (!(storage instanceof HTMLInputElement)) {
+        return;
+      }
+      const name = event.target?.name || "";
+      const changesValueIdentity =
+        name.startsWith("scalar_source_") ||
+        name.startsWith("scalar_value_source_") ||
+        name.startsWith("relation_source_") ||
+        name.startsWith("relation_origin_") ||
+        name.startsWith("relation_key_");
+      if (!changesValueIdentity || storage.value === "[]") {
+        return;
+      }
+      storage.value = "[]";
+      const summary = row.querySelector("[data-value-match-summary]");
+      if (summary) {
+        summary.textContent = "Use when source and Odoo choices differ";
+      }
+    });
 
     window.addEventListener("beforeunload", (event) => {
       if (!dirty || submitting) {
