@@ -656,8 +656,120 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             else None
         )
         process = psutil.Process()
+        force_python_oracle = (
+            os.environ.get("IMPODO_PREPARATION_FORCE_PYTHON") == "1"
+        )
+        source_snapshots = (
+            None
+            if force_python_oracle
+            else self.context.preparation.sources.get_current_source_snapshots(
+                project_id
+            )
+        )
+        phase_seconds: dict[str, float] = {}
+
+        def timed_call(name, callback):
+            def invoke(*args, **kwargs):
+                phase_started = perf_counter()
+                try:
+                    return callback(*args, **kwargs)
+                finally:
+                    phase_seconds[name] = phase_seconds.get(name, 0.0) + (
+                        perf_counter() - phase_started
+                    )
+
+            return invoke
+
+        original_columnar_batches = (
+            bounded_preparation_module.iter_polars_transformation_batches
+        )
+        original_project_row = (
+            evaluator_module.CompiledBrowserRowTransformer.project
+        )
+        original_finish_row = (
+            evaluator_module.CompiledBrowserRowTransformer.finish
+        )
+        original_prepare_row = (
+            source_module.CompiledPreparedRowTransformer.transform
+        )
+        original_canonical_adapter = (
+            bounded_preparation_module._canonical_session_row
+        )
+
+        def timed_columnar_batches(*args, **kwargs):
+            iterator = original_columnar_batches(*args, **kwargs)
+            while True:
+                phase_started = perf_counter()
+                try:
+                    batch = next(iterator)
+                except StopIteration:
+                    return
+                finally:
+                    phase_seconds["columnar_transform_and_adapt"] = (
+                        phase_seconds.get("columnar_transform_and_adapt", 0.0)
+                        + perf_counter()
+                        - phase_started
+                    )
+                yield batch
+
         started = perf_counter()
-        with _PeakWorkingSetSampler(process) as memory_sampler:
+        with ExitStack() as stack:
+            memory_sampler = stack.enter_context(_PeakWorkingSetSampler(process))
+            stack.enter_context(
+                patch.object(
+                    bounded_preparation_module,
+                    "iter_polars_transformation_batches",
+                    timed_columnar_batches,
+                )
+            )
+            stack.enter_context(
+                patch.object(
+                    evaluator_module.CompiledBrowserRowTransformer,
+                    "project",
+                    timed_call("python_row_projection", original_project_row),
+                )
+            )
+            stack.enter_context(
+                patch.object(
+                    evaluator_module.CompiledBrowserRowTransformer,
+                    "finish",
+                    timed_call("python_row_transformation", original_finish_row),
+                )
+            )
+            stack.enter_context(
+                patch.object(
+                    source_module.CompiledPreparedRowTransformer,
+                    "transform",
+                    timed_call("python_prepared_record", original_prepare_row),
+                )
+            )
+            stack.enter_context(
+                patch.object(
+                    bounded_preparation_module,
+                    "_canonical_session_row",
+                    timed_call("canonical_adaptation", original_canonical_adapter),
+                )
+            )
+            stack.enter_context(
+                patch.object(
+                    self.context.preparation.sessions,
+                    "append_direct_rows",
+                    timed_call(
+                        "canonical_append",
+                        self.context.preparation.sessions.append_direct_rows,
+                    ),
+                )
+            )
+            stack.enter_context(
+                patch.object(
+                    self.context.preparation.sessions,
+                    "finalize_direct_session",
+                    timed_call(
+                        "session_finalization",
+                        self.context.preparation.sessions.finalize_direct_session,
+                    ),
+                )
+            )
             bounded = preparation_module.prepare_bounded_direct_session(
                 project,
                 revision.definition,
@@ -669,11 +781,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 reference_bundle,
                 self.context.preparation.sessions,
                 actor=self.context.actor,
-                source_snapshots=(
-                    self.context.preparation.sources.get_current_source_snapshots(
-                        project_id
-                    )
-                ),
+                source_snapshots=source_snapshots,
             )
         elapsed = perf_counter() - started
         peak_mib = memory_sampler.peak_bytes / (1024 * 1024)
@@ -683,12 +791,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         self.assertEqual(len(bounded.run.rows), PREPARATION_SCALE_ROWS)
         print(
             "Bounded source preparation probe: "
+            f"backend={'python' if force_python_oracle else 'polars'}, "
             f"workload={PREPARATION_SCALE_WORKLOAD}, "
             f"rows={PREPARATION_SCALE_ROWS:,}, "
             f"columns={PREPARATION_SCALE_COLUMNS}, "
             f"mapped_fields={PREPARATION_SCALE_MAPPED_FIELDS}, "
             f"total={elapsed:.3f}s, peak={peak_mib:.1f} MiB, "
             f"ending_rss={ending_mib:.1f} MiB, database={database_mib:.1f} MiB, "
+            f"phases={json.dumps(phase_seconds, sort_keys=True)}, "
             f"source_bytes={source_size_bytes}, source_sha256={source_sha256}, "
             f"session={bounded.session_id}"
         )

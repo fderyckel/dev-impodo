@@ -1,0 +1,495 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from hashlib import sha256
+from pathlib import Path
+import tempfile
+import unittest
+
+import polars as pl
+
+from impodo.adapters.polars_transformation import (
+    POLARS_TRANSFORMATION_BATCH_ROWS,
+    iter_polars_transformation_batches,
+)
+from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
+from impodo.domain.compiler.columnar_transformation import (
+    ColumnarSupport,
+    compile_columnar_transformation_program,
+)
+from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
+from impodo.domain.mapping.contracts import (
+    DatasetMapping,
+    IdentityComponentMapping,
+    MappingDefinition,
+    ScalarFieldMapping,
+    ScalarValueSource,
+    ValueMapping,
+)
+from impodo.domain.source_snapshot import (
+    EncodedSourceCell,
+    SOURCE_ROW_COLUMN,
+    SourceSnapshot,
+    SourceSnapshotColumn,
+    SourceSnapshotSchema,
+)
+from impodo.domain.staging.evaluator import compile_browser_row_transformer
+from impodo.domain.staging.transformation_impact import (
+    TransformationImpactCounts,
+    _TransformationImpactCollector,
+)
+from impodo.source import CompiledPreparedRowTransformer, SourceRow
+from impodo.value_rules import ScalarTransformPolicy, ScalarValidationPolicy
+from impodo.workspace_contracts import (
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
+)
+
+
+HASH_A = "sha256:" + "a" * 64
+HASH_B = "sha256:" + "b" * 64
+DATASET_ID = "dataset:0123456789abcdef01234567"
+NOW = datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
+
+
+class PolarsTransformationParityTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.selection = _selection()
+        self.definition = _definition(self.selection)
+        self.rows = _rows()
+        self.path, self.snapshot = _write_snapshot(
+            self.root,
+            self.selection,
+            self.rows,
+        )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_native_batches_match_python_oracle_for_all_chunk_sizes(self) -> None:
+        expected_records, expected_report = _python_oracle(
+            self.definition,
+            self.selection,
+            self.rows,
+        )
+        decision = compile_columnar_transformation_program(
+            self.definition,
+            self.selection,
+            DATASET_ID,
+        )
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        assert decision.program is not None
+
+        for chunk_size in (1, 17, POLARS_TRANSFORMATION_BATCH_ROWS):
+            with self.subTest(chunk_size=chunk_size):
+                records = []
+                collector = _TransformationImpactCollector(
+                    mapping_content_hash=self.definition.content_hash,
+                    detail_limit=10_000,
+                )
+                observed_batch_sizes = []
+                for batch in iter_polars_transformation_batches(
+                    self.path,
+                    self.snapshot,
+                    decision.program,
+                    batch_size=chunk_size,
+                ):
+                    observed_batch_sizes.append(len(batch.records))
+                    records.extend(batch.records)
+                    collector.record_precomputed(
+                        batch.impact_counts,
+                        batch.impacts,
+                    )
+
+                self.assertEqual(tuple(records), expected_records)
+                self.assertEqual(collector.report(), expected_report)
+                self.assertTrue(observed_batch_sizes)
+                self.assertLessEqual(max(observed_batch_sizes), chunk_size)
+
+    def test_snapshot_row_count_and_program_binding_fail_closed(self) -> None:
+        decision = compile_columnar_transformation_program(
+            self.definition,
+            self.selection,
+            DATASET_ID,
+        )
+        assert decision.program is not None
+        short_path = self.root / "short.parquet"
+        pl.read_parquet(self.path).head(3).write_parquet(short_path)
+        other_program = replace(decision.program, dataset_name="other")
+
+        with self.assertRaisesRegex(ValueError, "row count"):
+            tuple(
+                iter_polars_transformation_batches(
+                    short_path,
+                    self.snapshot,
+                    decision.program,
+                )
+            )
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            tuple(
+                iter_polars_transformation_batches(
+                    self.path,
+                    self.snapshot,
+                    other_program,
+                )
+            )
+
+    def test_precomputed_impact_counts_reject_incomplete_sparse_rows(self) -> None:
+        collector = _TransformationImpactCollector(
+            mapping_content_hash=self.definition.content_hash,
+            detail_limit=0,
+        )
+        counts = TransformationImpactCounts(
+            evaluated_count=2,
+            changed_count=1,
+            unchanged_count=1,
+        )
+
+        with self.assertRaisesRegex(ValueError, "does not reconcile"):
+            collector.record_precomputed(counts, ())
+
+    def test_native_adapter_has_no_python_udf_or_complete_collect_escape_hatch(
+        self,
+    ) -> None:
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "src"
+            / "impodo"
+            / "adapters"
+            / "polars_transformation.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("scan_parquet(", source)
+        self.assertIn("collect_batches(", source)
+        for forbidden in (
+            ".map_elements(",
+            ".map_batches(",
+            ".collect(",
+            ".to_dicts(",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, source)
+
+
+def _selection() -> SourceSelection:
+    names = (
+        ("id", "string"),
+        ("sku", "string"),
+        ("scope", "string"),
+        ("name", "string"),
+        ("quantity", "integer"),
+        ("price", "decimal"),
+        ("active", "boolean"),
+        ("ordered_on", "date"),
+        ("updated_at", "datetime"),
+        ("category", "string"),
+        ("fixed_code", "string"),
+        ("optional_text", "string"),
+        ("required_text", "string"),
+        ("validated_required", "string"),
+    )
+    dataset = SourceDataset(
+        dataset_id=DATASET_ID,
+        name="products",
+        file_id="file-products",
+        table_key="csv",
+        source_sha256=HASH_A,
+        catalog_hash=HASH_B,
+        encoding="utf-8",
+        delimiter=",",
+        header_row=1,
+        row_count=4,
+        columns=tuple(
+            SourceDatasetColumn(
+                ordinal=index,
+                source_name=name,
+                stable_key=f"product.{name}",
+                candidate_type=candidate,
+            )
+            for index, (name, candidate) in enumerate(names, start=1)
+        ),
+    )
+    return SourceSelection(
+        selection_id="selection-polars",
+        version=1,
+        project_id="project-polars",
+        created_at=NOW,
+        created_by="tester",
+        datasets=(dataset,),
+        content_hash=HASH_A,
+    )
+
+
+def _definition(selection: SourceSelection) -> MappingDefinition:
+    definition = MappingDefinition(
+        mapping_id="mapping-polars",
+        source_selection_hash=selection.content_hash,
+        schema_hash=HASH_B,
+        datasets=(
+            DatasetMapping(
+                dataset_id=DATASET_ID,
+                target_model="product.template",
+                source_identity_column_keys=("product.id",),
+                target_identity=(
+                    IdentityComponentMapping(
+                        source_column_keys=("product.sku",),
+                        target_fields=("default_code",),
+                    ),
+                ),
+                target_scope=(
+                    IdentityComponentMapping(
+                        source_column_keys=("product.scope",),
+                        target_fields=("company_code",),
+                    ),
+                ),
+                fields=(
+                    ScalarFieldMapping(
+                        target_field="name",
+                        source_column_key="product.name",
+                        value_source=ScalarValueSource.SOURCE_WITH_FALLBACK,
+                        literal_value="missing-name",
+                        transform=ScalarTransformPolicy(
+                            trim=True,
+                            collapse_whitespace=True,
+                            empty_as_null=True,
+                            search_value="-",
+                            replacement_value=" ",
+                            case_mode="lowercase",
+                        ),
+                        required=True,
+                    ),
+                    ScalarFieldMapping(
+                        target_field="quantity",
+                        source_column_key="product.quantity",
+                        value_type="integer",
+                        required=True,
+                    ),
+                    ScalarFieldMapping(
+                        target_field="list_price",
+                        source_column_key="product.price",
+                        value_type="decimal",
+                        transform=ScalarTransformPolicy(decimal_locale="fr_FR"),
+                    ),
+                    ScalarFieldMapping(
+                        target_field="active",
+                        source_column_key="product.active",
+                        value_type="boolean",
+                    ),
+                    ScalarFieldMapping(
+                        target_field="ordered_on",
+                        source_column_key="product.ordered_on",
+                        value_type="date",
+                        transform=ScalarTransformPolicy(date_format="dmy_slash"),
+                    ),
+                    ScalarFieldMapping(
+                        target_field="updated_at",
+                        source_column_key="product.updated_at",
+                        value_type="datetime",
+                        transform=ScalarTransformPolicy(date_format="dmy_slash"),
+                    ),
+                    ScalarFieldMapping(
+                        target_field="category",
+                        source_column_key="product.category",
+                        value_mappings=(
+                            ValueMapping("Retail", "retail"),
+                            ValueMapping("Wholesale", "wholesale"),
+                        ),
+                        transform=ScalarTransformPolicy(case_mode="uppercase"),
+                    ),
+                    ScalarFieldMapping(
+                        target_field="fixed_code",
+                        source_column_key="product.fixed_code",
+                        validation=ScalarValidationPolicy(
+                            exact_length=3,
+                            segment_location="entire",
+                            character_class="uppercase",
+                        ),
+                    ),
+                    ScalarFieldMapping(
+                        target_field="origin",
+                        value_source=ScalarValueSource.CONSTANT,
+                        literal_value="LOCAL",
+                    ),
+                    ScalarFieldMapping(
+                        target_field="optional_text",
+                        source_column_key="product.optional_text",
+                    ),
+                    ScalarFieldMapping(
+                        target_field="required_text",
+                        source_column_key="product.required_text",
+                        required=True,
+                    ),
+                    ScalarFieldMapping(
+                        target_field="validated_required",
+                        source_column_key="product.validated_required",
+                        required=True,
+                        validation=ScalarValidationPolicy(exact_length=3),
+                    ),
+                ),
+            ),
+        ),
+    )
+    return canonicalize_mapping_definition(definition)
+
+
+def _rows() -> tuple[SourceRow, ...]:
+    values = (
+        {
+            "id": " P-1 ",
+            "sku": " SKU   1 ",
+            "scope": " BE ",
+            "name": "  Alpha-One  ",
+            "quantity": 1,
+            "price": "1 234,500",
+            "active": True,
+            "ordered_on": "09/08/2026",
+            "updated_at": "09/08/2026 14:30:15",
+            "category": " Retail ",
+            "fixed_code": "ABC",
+            "optional_text": "",
+            "required_text": "",
+            "validated_required": "",
+        },
+        {
+            "id": "P-2",
+            "sku": "SKU-2",
+            "scope": "BE",
+            "name": "Beta",
+            "quantity": "1.5",
+            "price": Decimal("10.2500"),
+            "active": "no",
+            "ordered_on": "31/02/2026",
+            "updated_at": "invalid",
+            "category": "Other",
+            "fixed_code": "Ab1",
+            "optional_text": None,
+            "required_text": "ok",
+            "validated_required": "ABC",
+        },
+        {
+            "id": "P-3",
+            "sku": "SKU-3",
+            "scope": "BE",
+            "name": "   ",
+            "quantity": "+0007",
+            "price": "1\u202f234,50",
+            "active": "YES",
+            "ordered_on": None,
+            "updated_at": None,
+            "category": "Wholesale",
+            "fixed_code": "XY",
+            "optional_text": "",
+            "required_text": "x",
+            "validated_required": "XYZ",
+        },
+        {
+            "id": None,
+            "sku": "  SKU-4  ",
+            "scope": "BE",
+            "name": None,
+            "quantity": "1234567890123456789012345678901234567890",
+            "price": "1234567890123456789012345678901234567890,00100",
+            "active": "maybe",
+            "ordered_on": "10/08/2026",
+            "updated_at": "10/08/2026 00:00:00",
+            "category": "Retail",
+            "fixed_code": "１２３",
+            "optional_text": " ",
+            "required_text": "y",
+            "validated_required": "QQQ",
+        },
+    )
+    return tuple(
+        SourceRow(number=index, values=item)
+        for index, item in enumerate(values, start=2)
+    )
+
+
+def _python_oracle(
+    definition: MappingDefinition,
+    selection: SourceSelection,
+    rows: tuple[SourceRow, ...],
+):
+    dataset = selection.datasets[0]
+    mapping = definition.datasets[0]
+    transformer = compile_browser_row_transformer(
+        dataset,
+        dataset,
+        mapping,
+        None,
+        "source",
+    )
+    compiled = compile_browser_mapping(definition, selection).datasets[0]
+    preparer = CompiledPreparedRowTransformer.compile(compiled, transformer.headers)
+    collector = _TransformationImpactCollector(
+        mapping_content_hash=definition.content_hash,
+        detail_limit=10_000,
+    )
+    records = []
+    for row in rows:
+        staged, issues = transformer.finish(
+            transformer.project(row),
+            impact_collector=collector,
+        )
+        record = preparer.transform(staged)
+        if issues:
+            record = replace(record, issues=(*record.issues, *issues))
+        records.append(record)
+    return tuple(records), collector.report()
+
+
+def _write_snapshot(
+    root: Path,
+    selection: SourceSelection,
+    rows: tuple[SourceRow, ...],
+) -> tuple[Path, SourceSnapshot]:
+    dataset = selection.datasets[0]
+    schema = SourceSnapshotSchema.create(
+        SourceSnapshotColumn.create(
+            ordinal=item.ordinal,
+            stable_key=item.stable_key,
+            source_name=item.source_name,
+            candidate_type=item.candidate_type,
+        )
+        for item in dataset.columns
+    )
+    data: dict[str, list[object]] = {
+        SOURCE_ROW_COLUMN: [row.number for row in rows]
+    }
+    polars_schema: dict[str, pl.DataType] = {SOURCE_ROW_COLUMN: pl.Int64}
+    for column in schema.columns:
+        encoded = [
+            EncodedSourceCell.from_python(row.values.get(column.source_name))
+            for row in rows
+        ]
+        data[column.value_column] = [item.text for item in encoded]
+        data[column.kind_column] = [int(item.kind) for item in encoded]
+        polars_schema[column.value_column] = pl.String
+        polars_schema[column.kind_column] = pl.UInt8
+    path = root / "source.parquet"
+    pl.DataFrame(data, schema=polars_schema, strict=True).write_parquet(path)
+    parquet_hash = "sha256:" + sha256(path.read_bytes()).hexdigest()
+    snapshot = SourceSnapshot.create(
+        project_id=selection.project_id,
+        dataset_id=dataset.dataset_id,
+        dataset_name=dataset.name,
+        file_id=dataset.file_id,
+        table_key=dataset.table_key,
+        source_sha256=dataset.source_sha256,
+        catalog_hash=dataset.catalog_hash,
+        physical_selection_hash=selection.content_hash,
+        schema=schema,
+        row_count=len(rows),
+        parquet_sha256=parquet_hash,
+        created_at=selection.created_at,
+    )
+    return path, snapshot
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -506,10 +506,50 @@ class ExecutionService:
         identity_cache: dict[str, int],
         executor: OdooWriteExecutor,
     ) -> tuple[str, object]:
-        """Choose one exact Odoo import identity for a remote many2one."""
+        """Choose exact Odoo import identities for one remote relation field."""
 
         value = intent.value
-        if intent.relation_operation != "replace" or isinstance(value, tuple):
+        if isinstance(value, tuple):
+            if intent.relation_operation not in {"replace", "add"}:
+                raise WorkspaceError(
+                    f"Relationship field {intent.field} is outside the remote "
+                    "many2many import slice"
+                )
+            for item in value:
+                if isinstance(item, BusinessReference):
+                    if item.model != intent.related_model:
+                        raise WorkspaceError(
+                            f"Relationship field {intent.field} targets another "
+                            "Odoo model"
+                        )
+                elif not (
+                    isinstance(item, LogicalReference)
+                    and item.origin == "incoming"
+                    and item.dataset is not None
+                ):
+                    raise WorkspaceError(
+                        f"Relationship field {intent.field} is outside the remote "
+                        "many2many import slice"
+                    )
+            identifiers = tuple(
+                dict.fromkeys(
+                    self._relation_reference_id(
+                        item,
+                        intent,
+                        metadata,
+                        by_source,
+                        source_cache,
+                        identity_cache,
+                        executor,
+                    )
+                    for item in value
+                )
+            )
+            return (
+                f"{intent.field}/.id",
+                ",".join(str(identifier) for identifier in identifiers),
+            )
+        if intent.relation_operation != "replace":
             raise WorkspaceError(
                 f"Relationship field {intent.field} is outside the remote "
                 "many2one import slice"
@@ -544,7 +584,7 @@ class ExecutionService:
         intent: FieldIntent,
         by_source: Mapping[tuple[str, str], ExecutionRow],
     ) -> str:
-        """Resolve the first remote slice's incoming many2one External ID."""
+        """Resolve an earlier remote import's many2one External ID."""
 
         value = intent.value
         if (
@@ -815,6 +855,53 @@ def _execution_snapshot_error(
         (row.dataset, _portable_key(row.source_identity)): row
         for row in snapshot.rows
     }
+
+    def incoming_reference_error(
+        value: LogicalReference,
+        intent: FieldIntent,
+        dataset: ExecutionDataset,
+        *,
+        require_created: bool = True,
+    ) -> str:
+        if value.origin != "incoming" or value.dataset is None:
+            return (
+                f"{dataset.dataset}.{intent.field} is not an imported "
+                "relationship reference"
+            )
+        related_dataset = datasets.get(value.dataset)
+        if (
+            related_dataset is None
+            or value.dataset not in dataset.dependencies
+            or related_dataset.sequence >= dataset.sequence
+        ):
+            return (
+                f"{dataset.dataset}.{intent.field} must reference an earlier "
+                "dependency dataset"
+            )
+        referenced = rows_by_source.get(
+            (value.dataset, _portable_key(value.key))
+        )
+        if referenced is None or referenced.target_model != intent.related_model:
+            return (
+                f"{dataset.dataset}.{intent.field} has no earlier imported record"
+            )
+        if require_created and (
+            referenced.disposition != "CREATE"
+            or not referenced.proposed_external_id
+        ):
+            return (
+                f"{dataset.dataset}.{intent.field} has no earlier imported record"
+            )
+        if not require_created and referenced.disposition not in {
+            "CREATE",
+            "UPDATE",
+            "UNCHANGED",
+        }:
+            return (
+                f"{dataset.dataset}.{intent.field} has no usable earlier record"
+            )
+        return ""
+
     remote_create_field_sets: dict[str, tuple[str, ...]] = {}
     for row in write_rows:
         dataset = datasets.get(row.dataset)
@@ -824,19 +911,44 @@ def _execution_snapshot_error(
             project.odoo_connection_mode is OdooConnectionMode.REMOTE
             and row.disposition == "UPDATE"
         ):
-            unsupported = next(
-                (
-                    intent.field
-                    for intent in row.fields
-                    if intent.action != "OMIT" and intent.kind != "scalar"
-                ),
-                None,
-            )
-            if unsupported is not None:
-                return (
-                    "The remote-update slice supports reviewed scalar fields; "
-                    f"{row.dataset}.{unsupported} is outside it"
-                )
+            for intent in row.fields:
+                if (
+                    intent.action == "OMIT"
+                    or intent.kind == "scalar"
+                    or intent.action == "SET_NULL"
+                ):
+                    continue
+                value = intent.value
+                if (
+                    intent.action != "SET_VALUE"
+                    or intent.relation_operation != "replace"
+                ):
+                    return (
+                        "The remote-update slice supports exact relationship "
+                        f"replacement; {row.dataset}.{intent.field} is outside it"
+                    )
+                references = value if isinstance(value, tuple) else (value,)
+                for reference in references:
+                    if isinstance(reference, LogicalReference):
+                        error = incoming_reference_error(
+                            reference,
+                            intent,
+                            dataset,
+                            require_created=False,
+                        )
+                        if error:
+                            return error
+                    elif isinstance(reference, BusinessReference):
+                        if reference.model != intent.related_model:
+                            return (
+                                f"{row.dataset}.{intent.field} targets another "
+                                "Odoo model"
+                            )
+                    else:
+                        return (
+                            f"{row.dataset}.{intent.field} is not expressed by a "
+                            "reviewed business key"
+                        )
         if (
             project.odoo_connection_mode is OdooConnectionMode.REMOTE
             and row.disposition == "CREATE"
@@ -851,44 +963,51 @@ def _execution_snapshot_error(
                     import_fields.append(intent.field)
                     continue
                 value = intent.value
+                if isinstance(value, tuple):
+                    if (
+                        intent.action != "SET_VALUE"
+                        or intent.relation_operation not in {"replace", "add"}
+                    ):
+                        return (
+                            "The remote-import slice supports replace/add for "
+                            f"many2many creates; {row.dataset}.{intent.field} is "
+                            "outside it"
+                        )
+                    for item in value:
+                        if isinstance(item, LogicalReference):
+                            error = incoming_reference_error(
+                                item,
+                                intent,
+                                dataset,
+                                require_created=False,
+                            )
+                            if error:
+                                return error
+                        elif isinstance(item, BusinessReference):
+                            if item.model != intent.related_model:
+                                return (
+                                    f"{row.dataset}.{intent.field} targets another "
+                                    "Odoo model"
+                                )
+                        else:
+                            return (
+                                f"{row.dataset}.{intent.field} contains an "
+                                "unsupported relationship value"
+                            )
+                    import_fields.append(f"{intent.field}/.id")
+                    continue
                 if (
                     intent.action != "SET_VALUE"
                     or intent.relation_operation != "replace"
-                    or isinstance(value, tuple)
                 ):
                     return (
                         "The remote-import slice supports only one reviewed "
                         f"many2one create; {row.dataset}.{intent.field} is outside it"
                     )
                 if isinstance(value, LogicalReference):
-                    if value.origin != "incoming" or value.dataset is None:
-                        return (
-                            f"{row.dataset}.{intent.field} is not an imported "
-                            "many2one reference"
-                        )
-                    related_dataset = datasets.get(value.dataset)
-                    if (
-                        related_dataset is None
-                        or value.dataset not in dataset.dependencies
-                        or related_dataset.sequence >= dataset.sequence
-                    ):
-                        return (
-                            f"{row.dataset}.{intent.field} must reference an earlier "
-                            "dependency dataset"
-                        )
-                    referenced = rows_by_source.get(
-                        (value.dataset, _portable_key(value.key))
-                    )
-                    if (
-                        referenced is None
-                        or referenced.disposition != "CREATE"
-                        or not referenced.proposed_external_id
-                        or referenced.target_model != intent.related_model
-                    ):
-                        return (
-                            f"{row.dataset}.{intent.field} has no earlier imported "
-                            "External ID"
-                        )
+                    error = incoming_reference_error(value, intent, dataset)
+                    if error:
+                        return error
                     import_fields.append(f"{intent.field}/id")
                 elif isinstance(value, BusinessReference):
                     if value.model != intent.related_model:
@@ -907,7 +1026,7 @@ def _execution_snapshot_error(
             expected = remote_create_field_sets.setdefault(row.dataset, field_set)
             if field_set != expected:
                 return (
-                    "The first remote-import slice requires one create field set "
+                    "The remote-import path requires one create field set "
                     f"for dataset {row.dataset}"
                 )
         for intent in row.fields:

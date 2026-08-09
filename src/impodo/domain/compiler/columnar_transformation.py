@@ -90,10 +90,12 @@ class ColumnarOperationKind(StrEnum):
     ROUND_DECIMAL = "round_decimal"
     PARSE_BOOLEAN = "parse_boolean"
     PARSE_DATE = "parse_date"
+    PARSE_ISO_DATE = "parse_iso_date"
     PARSE_DATETIME = "parse_datetime"
     PARSE_ISO_DATETIME = "parse_iso_datetime"
     VALIDATE_EXACT_LENGTH = "validate_exact_length"
     VALIDATE_CHARACTER_CLASS = "validate_character_class"
+    VALIDATE_TYPED_VALUE = "validate_typed_value"
     VALIDATE_PATTERN = "validate_pattern"
     SOURCE_IDENTITY_NORMALIZATION = "source_identity_normalization"
     TARGET_IDENTITY_NORMALIZATION = "target_identity_normalization"
@@ -195,11 +197,7 @@ COLUMNAR_CAPABILITY_MATRIX = (
     _native(ColumnarOperationKind.REQUIRE_VALUE),
     _native(ColumnarOperationKind.PARSE_STRING),
     _native(ColumnarOperationKind.PARSE_INTEGER),
-    _oracle(
-        ColumnarOperationKind.PARSE_DECIMAL,
-        "COLUMNAR_DECIMAL_UNSUPPORTED",
-        "Arbitrary-precision decimal parsing still requires the Python oracle.",
-    ),
+    _native(ColumnarOperationKind.PARSE_DECIMAL),
     _oracle(
         ColumnarOperationKind.ROUND_DECIMAL,
         "COLUMNAR_DECIMAL_ROUNDING_UNSUPPORTED",
@@ -207,6 +205,14 @@ COLUMNAR_CAPABILITY_MATRIX = (
     ),
     _native(ColumnarOperationKind.PARSE_BOOLEAN),
     _native(ColumnarOperationKind.PARSE_DATE),
+    _oracle(
+        ColumnarOperationKind.PARSE_ISO_DATE,
+        "COLUMNAR_ISO_DATE_UNSUPPORTED",
+        (
+            "Python ISO-date identity grammar is broader than the currently "
+            "proven native parser."
+        ),
+    ),
     _native(ColumnarOperationKind.PARSE_DATETIME),
     _oracle(
         ColumnarOperationKind.PARSE_ISO_DATETIME,
@@ -218,6 +224,14 @@ COLUMNAR_CAPABILITY_MATRIX = (
     ),
     _native(ColumnarOperationKind.VALIDATE_EXACT_LENGTH),
     _native(ColumnarOperationKind.VALIDATE_CHARACTER_CLASS),
+    _oracle(
+        ColumnarOperationKind.VALIDATE_TYPED_VALUE,
+        "COLUMNAR_TYPED_VALIDATION_UNSUPPORTED",
+        (
+            "Validation of converted non-string values still requires the "
+            "Python oracle."
+        ),
+    ),
     _oracle(
         ColumnarOperationKind.VALIDATE_PATTERN,
         "COLUMNAR_CUSTOM_PATTERN_UNSUPPORTED",
@@ -764,7 +778,10 @@ def _identity_component(
         )
         conversion_steps: tuple[ColumnarExpressionStep, ...] = ()
     else:
-        conversion = _conversion_operation(component.value_type)
+        conversion = _conversion_operation(
+            component.value_type,
+            identity_semantics=True,
+        )
         draft.use(
             conversion,
             f"{path}/parse",
@@ -1038,6 +1055,12 @@ def _validation_steps(
 ) -> tuple[ColumnarExpressionStep, ...]:
     policy = field.validation
     result: list[ColumnarExpressionStep] = []
+    if policy.configured and field.value_type != "string":
+        draft.use(
+            ColumnarOperationKind.VALIDATE_TYPED_VALUE,
+            f"{path}/validation/typed_value",
+            target_field=field.target_field,
+        )
     if policy.exact_length is not None:
         result.append(
             ColumnarExpressionStep(
@@ -1096,6 +1119,7 @@ def _conversion_operation(
     value_type: str,
     *,
     date_format: str = "iso",
+    identity_semantics: bool = False,
 ) -> ColumnarOperationKind:
     try:
         return {
@@ -1103,7 +1127,11 @@ def _conversion_operation(
             "integer": ColumnarOperationKind.PARSE_INTEGER,
             "decimal": ColumnarOperationKind.PARSE_DECIMAL,
             "boolean": ColumnarOperationKind.PARSE_BOOLEAN,
-            "date": ColumnarOperationKind.PARSE_DATE,
+            "date": (
+                ColumnarOperationKind.PARSE_ISO_DATE
+                if identity_semantics
+                else ColumnarOperationKind.PARSE_DATE
+            ),
             "datetime": (
                 ColumnarOperationKind.PARSE_ISO_DATETIME
                 if date_format == "iso"

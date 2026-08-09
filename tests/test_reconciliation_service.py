@@ -31,7 +31,12 @@ from impodo.odoo_readback import (
 )
 from impodo.odoo_scope import OdooApiScope, OdooModelScope
 
-from tests.test_execution_service import HASH, TARGET_HASH, _snapshot
+from tests.test_execution_service import (
+    HASH,
+    TARGET_HASH,
+    _remote_many2many_snapshot,
+    _snapshot,
+)
 
 
 class _Execution:
@@ -335,6 +340,28 @@ class ReconciliationServiceTests(unittest.TestCase):
 
         report = service.reconcile(
             scoped.project_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(report.status, ReconciliationRunStatus.VERIFIED)
+        self.assertEqual(report.rows[1].status, ReconciliationRowStatus.VERIFIED)
+
+    def test_verifies_remote_many2many_imported_and_existing_members(self):
+        snapshot = _remote_many2many_snapshot()
+        run = _run(snapshot)
+        service, _results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.records[("product.template", 11)] = {
+            "default_code": "P1",
+            "name": "Product",
+            "x_category_ids": [50, 10],
+        }
+        reader.references["product.category"] = {"Existing Category": 50}
+
+        report = service.reconcile(
+            snapshot.project_id,
             expected_execution_run_id=run.run_id,
             reader=reader,
             actor=LOCAL_ACTOR,

@@ -6,9 +6,9 @@ encodes its accepted Python scalars into the tagged physical schema defined by
 with Polars streaming execution, validates the completed artifact, and only
 then asks the artifact store to atomically publish it.
 
-Preparation consumes the verified Parquet file through a bounded compatibility
-adapter until the native columnar transformation backend replaces ``SourceRow``
-construction in Slice 4.
+Preparation routes supported direct datasets to the native columnar adapter.
+Preview and unsupported mappings retain the bounded ``SourceRow`` compatibility
+adapter as the Python semantic oracle.
 """
 
 from __future__ import annotations
@@ -265,6 +265,19 @@ def validate_snapshot_for_dataset(
         raise SourceLoadError(
             "Current source snapshot does not match the frozen dataset"
         )
+
+
+def validate_source_snapshot_path(
+    path: str | Path,
+    snapshot: SourceSnapshot,
+) -> Path:
+    """Validate one materialized snapshot's contained physical schema."""
+
+    snapshot_path = Path(path).resolve()
+    if snapshot_path.is_symlink() or not snapshot_path.is_file():
+        raise SourceLoadError("stored source snapshot is unavailable")
+    _validate_physical_schema(snapshot_path, snapshot.schema)
+    return snapshot_path
 
 
 def _write_snapshot_candidate(

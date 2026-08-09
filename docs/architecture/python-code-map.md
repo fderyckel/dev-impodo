@@ -178,9 +178,14 @@ snapshot; they do not reopen registered CSV/XLSX bytes.
 now compiles each direct browser mapping into a backend-neutral, hashable
 `ColumnarTransformationProgram` or deterministic whole-dataset Python-fallback
 reasons. Its complete capability matrix and ordered program contain no Polars
-types or expressions. The existing preparation evaluator remains the only
-production executor until the native adapter is introduced and passes exact
-canonical parity.
+types or expressions.
+[`adapters/polars_transformation.py`](../../src/impodo/adapters/polars_transformation.py)
+compiles supported programs into streaming native expressions, projects only
+required snapshot columns, and yields bounded typed records plus sparse issue
+and impact evidence. Bounded preparation routes once per dataset: supported
+direct snapshots use this adapter, while unsupported semantics use the Python
+oracle for the complete dataset. Both routes share the same canonical
+publication helper and evidence contracts.
 
 The important port-to-adapter connections are:
 
@@ -623,7 +628,7 @@ boundary:
 | Stage | Code that exists now | Remaining boundary |
 | --- | --- | --- |
 | I — Freeze exact execution input | [`domain/execution_snapshot.py`](../../src/impodo/domain/execution_snapshot.py) automatically adapts frozen prepared rows and Stage-H decisions into a portable, row-hashed artifact. The database-bound preflight manifest anchors its semantic hash. [`approvals.py`](../../src/impodo/approvals.py) still defines standalone higher-governance approval values. | The practical snapshot needs no separate approval; the user will confirm **Load** in Stage J. Clean-package certification, dual approval, expiry, and signed grants remain unintegrated optional controls for higher-risk targets. |
-| J — Controlled Odoo execution | [`application/execution_service.py`](../../src/impodo/application/execution_service.py) validates the current snapshot, derives its exact model/field capability through [`odoo_scope.py`](../../src/impodo/odoo_scope.py), resolves relationships, and orders writes; [`odoo_writer.py`](../../src/impodo/odoo_writer.py) owns the separate closed JSON-2 write surface; [`adapters/duckdb/execution_repository.py`](../../src/impodo/adapters/duckdb/execution_repository.py) journals every proposed write; and the load route/template expose one explicit action and saved outcome. | Local Odoo 19 supports creates, explicit updates, and reviewed many2one/many2many relationships. The remote Odoo 19 slice supports bounded scalar creates, many2one references to earlier imports or exact-key existing records, and exact-key single-record scalar updates. Remote relationship updates, many2many imports, cycles, and production cutover remain outside the current boundary. |
+| J — Controlled Odoo execution | [`application/execution_service.py`](../../src/impodo/application/execution_service.py) validates the current snapshot, derives its exact model/field capability through [`odoo_scope.py`](../../src/impodo/odoo_scope.py), resolves relationships, and orders writes; [`odoo_writer.py`](../../src/impodo/odoo_writer.py) owns the separate closed JSON-2 write surface; [`adapters/duckdb/execution_repository.py`](../../src/impodo/adapters/duckdb/execution_repository.py) journals every proposed write; and the load route/template expose one explicit action and saved outcome. | Local Odoo 19 supports creates, explicit updates, and reviewed many2one/many2many relationships. The remote Odoo 19 slice supports bounded scalar and many2many creates, many2one references to earlier imports or exact-key existing records, and exact-key single-record scalar or relationship replacement. Incremental relationship commands, create-time cycles, and production cutover remain outside the current boundary. |
 | K — Post-write reconciliation | [`application/reconciliation_service.py`](../../src/impodo/application/reconciliation_service.py) binds a completed run to its historical snapshot, [`odoo_readback.py`](../../src/impodo/odoo_readback.py) exposes only exact-ID, exact-External-ID, and exact-key `search_read`, and [`adapters/duckdb/reconciliation_repository.py`](../../src/impodo/adapters/duckdb/reconciliation_repository.py) atomically stores the hash-bound result. The load page shows the plain result and serves fallout CSV. | Committed rows are checked by journaled ID; remote creates also prove their External-ID binding, and uncertain responses are re-matched by business key. Only an absent uncertain create is marked safe to plan again. There is no blind replay, automatic rollback, or production closure workflow. |
 
 Stage K deliberately uses a separate read-back service and reconciliation

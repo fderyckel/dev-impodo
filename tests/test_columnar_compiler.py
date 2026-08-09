@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 from dataclasses import replace
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 import unittest
 
@@ -262,8 +263,12 @@ class ColumnarCompilerTests(unittest.TestCase):
                 "COLUMNAR_REFERENCE_LOOKUP_UNSUPPORTED",
             ),
             (
-                replace(base, value_type="decimal"),
-                "COLUMNAR_DECIMAL_UNSUPPORTED",
+                replace(
+                    base,
+                    value_type="decimal",
+                    transform=ScalarTransformPolicy(decimal_places=2),
+                ),
+                "COLUMNAR_DECIMAL_ROUNDING_UNSUPPORTED",
             ),
             (
                 replace(base, value_type="datetime"),
@@ -275,6 +280,14 @@ class ColumnarCompilerTests(unittest.TestCase):
                     validation=ScalarValidationPolicy(pattern=r"[A-Z]+"),
                 ),
                 "COLUMNAR_CUSTOM_PATTERN_UNSUPPORTED",
+            ),
+            (
+                replace(
+                    base,
+                    value_type="integer",
+                    validation=ScalarValidationPolicy(exact_length=3),
+                ),
+                "COLUMNAR_TYPED_VALIDATION_UNSUPPORTED",
             ),
             (
                 replace(
@@ -357,6 +370,7 @@ class ColumnarCompilerTests(unittest.TestCase):
             target_field="quantity",
             source_column_key="product.quantity",
             value_type="decimal",
+            transform=ScalarTransformPolicy(decimal_places=2),
         )
 
         decision = _compile_fields(self.selection, (supported, unsupported))
@@ -477,6 +491,31 @@ class ColumnarOperationParityTests(unittest.TestCase):
                     "1.5",
                     "yes",
                 ),
+            ),
+            (
+                ScalarFieldMapping(
+                    target_field="quantity",
+                    source_column_key="product.quantity",
+                    value_type="decimal",
+                ),
+                (
+                    None,
+                    "0",
+                    "+17.2500",
+                    "-4.00",
+                    "1234567890123456789012345678901234567890.00100",
+                    "1,234.50",
+                    "1.5.0",
+                ),
+            ),
+            (
+                ScalarFieldMapping(
+                    target_field="quantity",
+                    source_column_key="product.quantity",
+                    value_type="decimal",
+                    transform=ScalarTransformPolicy(decimal_locale="fr_FR"),
+                ),
+                (None, "1 234,50", "1\u202f234,50", "1234,50", "1,234.50"),
             ),
             (
                 ScalarFieldMapping(
@@ -843,6 +882,12 @@ def _evaluate_polars_prototype(
                 # the bounded canonical adapter constructs Python's arbitrary-
                 # precision integer without imposing an Int64 range.
                 value = int(value, 10)
+            elif (
+                value is not None
+                and field.conversion_step.operation
+                is ColumnarOperationKind.PARSE_DECIMAL
+            ):
+                value = Decimal(value)
             portable.append(("ok", value))
     return tuple(portable)
 
@@ -896,6 +941,28 @@ def _convert_expression(expression: pl.Expr, step) -> pl.Expr:
     if operation is ColumnarOperationKind.PARSE_INTEGER:
         valid = expression.str.contains(r"^[+-]?\d+$")
         return pl.when(valid).then(expression).otherwise(None)
+    if operation is ColumnarOperationKind.PARSE_DECIMAL:
+        locale = step.text
+        patterns = {
+            "invariant": r"^[+-]?\d+(?:\.\d+)?$",
+            "en_US": r"^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$",
+            "de_DE": r"^[+-]?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d+)?$",
+            "fr_FR": (
+                r"^[+-]?(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)"
+                r"(?:,\d+)?$"
+            ),
+        }
+        valid = expression.str.contains(patterns[locale])
+        normalized = expression
+        if locale == "en_US":
+            normalized = normalized.str.replace_all(",", "", literal=True)
+        elif locale == "de_DE":
+            normalized = normalized.str.replace_all(".", "", literal=True)
+            normalized = normalized.str.replace_all(",", ".", literal=True)
+        elif locale == "fr_FR":
+            normalized = normalized.str.replace_all(r"[ \u00a0\u202f]", "")
+            normalized = normalized.str.replace_all(",", ".", literal=True)
+        return pl.when(valid).then(normalized).otherwise(None)
     if operation is ColumnarOperationKind.PARSE_BOOLEAN:
         token = expression.str.to_lowercase()
         return (

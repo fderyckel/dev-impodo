@@ -23,8 +23,6 @@ from ..contracts import (
 )
 
 
-
-
 @dataclass(frozen=True, slots=True)
 class TransformationImpactRow:
     """One visible raw-to-proposed scalar value change."""
@@ -72,6 +70,47 @@ class TransformationImpactReport:
         """Whether bounded display rows omit additional counted impacts."""
 
         return self.impact_count > len(self.rows)
+
+
+@dataclass(frozen=True, slots=True)
+class TransformationImpactCounts:
+    """Complete outcome accounting for one bounded native result batch."""
+
+    evaluated_count: int = 0
+    changed_count: int = 0
+    fallback_count: int = 0
+    null_count: int = 0
+    invalid_count: int = 0
+    provided_count: int = 0
+    unchanged_count: int = 0
+
+    def __post_init__(self) -> None:
+        if any(
+            value < 0
+            for value in (
+                self.evaluated_count,
+                self.changed_count,
+                self.fallback_count,
+                self.null_count,
+                self.invalid_count,
+                self.provided_count,
+                self.unchanged_count,
+            )
+        ):
+            raise ValueError("Transformation outcome counts cannot be negative")
+        if self.evaluated_count != (
+            self.changed_count
+            + self.fallback_count
+            + self.null_count
+            + self.invalid_count
+            + self.provided_count
+            + self.unchanged_count
+        ):
+            raise ValueError("Transformation outcomes do not reconcile")
+
+    @property
+    def impact_count(self) -> int:
+        return self.evaluated_count - self.unchanged_count
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +230,48 @@ class _TransformationImpactCollector:
             return
         assert self.rows is not None
         self.rows.append(impact)
+
+    def record_precomputed(
+        self,
+        counts: TransformationImpactCounts,
+        impacts: tuple[TransformationImpactRow, ...],
+    ) -> None:
+        """Merge one native batch without replaying unchanged scalar cells."""
+
+        if len(impacts) != counts.impact_count:
+            raise ValueError("Transformation impact batch does not reconcile")
+        actual = {
+            outcome: sum(1 for row in impacts if row.outcome == outcome)
+            for outcome in (
+                "changed",
+                "fallback",
+                "null",
+                "invalid",
+                "provided",
+            )
+        }
+        for outcome, expected in (
+            ("changed", counts.changed_count),
+            ("fallback", counts.fallback_count),
+            ("null", counts.null_count),
+            ("invalid", counts.invalid_count),
+            ("provided", counts.provided_count),
+        ):
+            if actual[outcome] != expected:
+                raise ValueError("Transformation impact outcomes are incomplete")
+        self.evaluated_count += counts.evaluated_count
+        self.changed_count += counts.changed_count
+        self.fallback_count += counts.fallback_count
+        self.null_count += counts.null_count
+        self.invalid_count += counts.invalid_count
+        self.provided_count += counts.provided_count
+        self.unchanged_count += counts.unchanged_count
+        assert self.rows is not None
+        for impact in impacts:
+            if self.sink is not None:
+                self.sink(impact)
+            if len(self.rows) < self.detail_limit:
+                self.rows.append(impact)
 
     def report(self) -> TransformationImpactReport:
         return TransformationImpactReport(

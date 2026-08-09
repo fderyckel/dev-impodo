@@ -163,6 +163,18 @@ Slice 4.
 portable evidence and demonstrate a material transformation-time improvement
 without a higher unbounded memory slope.
 
+**Implemented in Slice 4.** Supported direct snapshots now route through
+streaming native expressions in 1,000-row execution batches, while canonical
+DuckDB writes retain their measured 5,000-row transport batch. Exact Python
+oracle parity covers typed records, issues, identities, sparse impacts,
+canonical rows, and validated run hashes across several execution chunk sizes;
+unsupported semantics fall back once for the complete dataset. A fresh-process
+100,000-row/30-column/20-field diagnostic completed bounded preparation in
+20.7 seconds versus 26.8 seconds for the Python control. Peak working set was
+848 MiB versus 830 MiB, with lower ending RSS; the remaining peak-memory
+closure belongs to Slice 5. The documented multi-run parent benchmark remains
+the release-grade performance gate.
+
 #### Slice 5 — Columnar prepared publication and memory closure
 
 - Add the prepared columnar snapshot/sink and its transactional manifest.

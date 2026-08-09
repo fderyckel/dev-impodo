@@ -41,6 +41,7 @@ from impodo.source_snapshot_io import (
     open_source_snapshot_batches,
     source_snapshot_batch_rows,
 )
+from impodo.value_rules import ScalarTransformPolicy
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,6 +92,20 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         snapshots = self.repository.get_current_source_snapshots(project.project_id)
         self.assertEqual(len(snapshots), 1)
         self.assertEqual(snapshots[0].row_count, 2)
+        definition = _direct_mapping(selection)
+        sessions = PreparationSessionRepository(self.database)
+        python_bounded = prepare_bounded_direct_session(
+            self.projects.get(project.project_id),
+            definition,
+            1,
+            selection,
+            selection,
+            (catalog,),
+            self.artifacts,
+            None,
+            sessions,
+            actor=LOCAL_ACTOR,
+        )
 
         self.artifacts.delete_source(project.project_id, source_file.stored_name)
         with self.assertRaises(ArtifactStoreError):
@@ -100,7 +115,6 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             ):
                 pass
 
-        definition = _direct_mapping(selection)
         staged = stage_browser_mapping(
             self.projects.get(project.project_id),
             definition,
@@ -119,22 +133,40 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             [record.scalar_values["name"] for record in staged.prepared.records],
             [" Alpha ", None],
         )
-        sessions = PreparationSessionRepository(self.database)
-        bounded = prepare_bounded_direct_session(
-            self.projects.get(project.project_id),
-            definition,
-            1,
-            selection,
-            selection,
-            (catalog,),
-            self.artifacts,
-            None,
-            sessions,
-            actor=LOCAL_ACTOR,
-            source_snapshots=snapshots,
-        )
+        with patch(
+            "impodo.application.bounded_preparation.compile_browser_row_transformer",
+            side_effect=AssertionError("supported snapshot used the Python oracle"),
+        ):
+            bounded = prepare_bounded_direct_session(
+                self.projects.get(project.project_id),
+                definition,
+                1,
+                selection,
+                selection,
+                (catalog,),
+                self.artifacts,
+                None,
+                sessions,
+                actor=LOCAL_ACTOR,
+                source_snapshots=snapshots,
+                columnar_batch_size=1,
+            )
         self.assertEqual(len(bounded.run.rows), 2)
         self.assertIsNotNone(bounded.run.validated_content_hash)
+        self.assertEqual(tuple(bounded.run.rows), tuple(python_bounded.run.rows))
+        self.assertEqual(
+            tuple(sessions.iter_impacts(project.project_id, bounded.session_id)),
+            tuple(
+                sessions.iter_impacts(
+                    project.project_id,
+                    python_bounded.session_id,
+                )
+            ),
+        )
+        self.assertEqual(
+            bounded.run.validated_content_hash,
+            python_bounded.run.validated_content_hash,
+        )
         repeated = prepare_bounded_direct_session(
             self.projects.get(project.project_id),
             definition,
@@ -184,6 +216,64 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             ["", None, "text"],
         )
         self.assertEqual([row.number for row in rows], [2, 3, 4])
+
+    def test_unsupported_mapping_uses_one_dataset_wide_python_fallback(self) -> None:
+        project, source_file, catalog = self._registered_csv(
+            b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
+        )
+        selection = _selection_for(project, source_file, catalog)
+        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
+            project,
+            selection,
+            selection.datasets[0],
+            catalog,
+            source_file,
+        ).snapshot
+        definition = _direct_mapping(selection)
+        dataset_mapping = definition.datasets[0]
+        name_field = dataset_mapping.fields[0]
+        definition = replace(
+            definition,
+            datasets=(
+                replace(
+                    dataset_mapping,
+                    fields=(
+                        replace(
+                            name_field,
+                            transform=ScalarTransformPolicy(
+                                search_value="^A.*$",
+                                replacement_value="replaced",
+                                search_mode="pattern",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        sessions = PreparationSessionRepository(self.database)
+
+        with patch(
+            "impodo.application.bounded_preparation.iter_polars_transformation_batches",
+            side_effect=AssertionError("unsupported mapping used the native adapter"),
+        ):
+            bounded = prepare_bounded_direct_session(
+                project,
+                definition,
+                1,
+                selection,
+                selection,
+                (catalog,),
+                self.artifacts,
+                None,
+                sessions,
+                actor=LOCAL_ACTOR,
+                source_snapshots=(snapshot,),
+            )
+
+        self.assertEqual(
+            [row.proposed_values["name"] for row in bounded.run.rows],
+            ["replaced", "Beta"],
+        )
 
     def test_mixed_xlsx_scalars_round_trip_through_parquet(self) -> None:
         project, source_file, catalog, selection = self._registered_xlsx()

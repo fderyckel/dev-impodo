@@ -100,9 +100,9 @@ implemented. A live 150-row disposable-target run verified every row and
 repeated with no proposed writes or duplicates. The first remote Odoo 19 path
 supports bounded scalar creates, incoming many2one references to earlier
 imports, exact-key many2one references to existing target records, stable
-External IDs, and exact-key scalar updates. Remote many2many and relationship
-updates, throughput tuning, and production cutover controls remain later
-delivery scope.
+External IDs, remote many2many creates, and exact-key scalar or relationship
+updates. Incremental relationship commands, create-time cycles, throughput
+tuning, and production cutover controls remain later delivery scope.
 
 ## Install and start
 
