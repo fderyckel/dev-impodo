@@ -81,7 +81,7 @@ start a local Odoo stack separately before connecting to it in Impodo.
 Changing a confirmed source, frozen dataset, Odoo schema capture, or governed
 business key invalidates the active mapping so it must be validated again.
 
-### Practical local load
+### Practical Odoo load
 
 - Freezes the exact compared rows and field intentions automatically.
 - Shows create, update, and unchanged totals before any write.
@@ -95,10 +95,14 @@ business key invalidates the active mapping so it must be validated again.
   governed business key, and shows verified rows or downloadable fallout.
 
 **Delivery status:** The bounded preparation, review, durable preflight,
-execution snapshot, practical local load, and read-back reconciliation path
-are implemented. A live 150-row disposable-target run verified every row and
-repeated with no proposed writes or duplicates. Remote loading and production
-controls remain later delivery scope.
+execution snapshot, practical load, and read-back reconciliation path are
+implemented. A live 150-row disposable-target run verified every row and
+repeated with no proposed writes or duplicates. The first remote Odoo 19 path
+supports bounded scalar creates, incoming many2one references to earlier
+imports, exact-key many2one references to existing target records, stable
+External IDs, and exact-key scalar updates. Remote many2many and relationship
+updates, throughput tuning, and production cutover controls remain later
+delivery scope.
 
 ## Install and start
 

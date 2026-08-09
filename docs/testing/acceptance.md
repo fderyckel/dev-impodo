@@ -227,8 +227,9 @@ certification remain pending.
 ### Practical local execution verified
 
 - only the current hash-bound execution snapshot can be loaded;
-- only Local Odoo 19 can write, while the exact standard/custom models and
-  writable fields come from the current captured-schema-bound preview;
+- Local Odoo 19 and the bounded remote Odoo 19 slice can write, while the exact
+  standard/custom models and writable fields come from the current
+  captured-schema-bound preview;
 - the native adapter exposes exact business-key lookup, bounded create, and
   single-record update rather than generic RPC;
 - dependency-ordered creates resolve incoming relationship IDs before
@@ -239,7 +240,8 @@ certification remain pending.
   blocks the remaining work;
 - schema version 23 migrates to the durable execution tables and version 24
   migrates to the durable reconciliation tables;
-- committed rows are checked by exact saved ID and uncertain creates are
+- committed rows are checked by exact saved ID, remote-create External IDs are
+  checked against their expected model and record, and uncertain creates are
   re-matched by the governed business key before retry safety is classified;
 - the browser end-to-end test previews, confirms, journals, reads back, and
   renders a verified load without exposing the submitted API key; and

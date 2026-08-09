@@ -280,7 +280,7 @@ class Json2WriteExecutor:
         model: str,
         values: Mapping[str, Any],
     ) -> None:
-        """Allow reviewed scalar fields and the exact many2one ``field/id`` path."""
+        """Allow reviewed scalar fields and exact many2one identity paths."""
 
         permitted = self.scope.write_fields(model)
         if not values:
@@ -288,7 +288,13 @@ class Json2WriteExecutor:
                 "Odoo model or field is outside the reviewed load preview"
             )
         for field in values:
-            if field.endswith("/id"):
+            if field.endswith("/.id"):
+                base_field = field.removesuffix("/.id")
+                if not base_field or "/" in base_field:
+                    raise OdooWriteRejected(
+                        "Odoo import relationship path is outside the reviewed preview"
+                    )
+            elif field.endswith("/id"):
                 base_field = field.removesuffix("/id")
                 if not base_field or "/" in base_field:
                     raise OdooWriteRejected(

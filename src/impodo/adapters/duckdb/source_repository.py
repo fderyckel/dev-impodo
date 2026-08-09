@@ -19,11 +19,16 @@ from typing import Iterable
 
 from ...access import Actor
 from ...derived_entities import mapping_source_selection
-from ...domain.source_snapshot import SourceSnapshot
+from ...domain.source_snapshot import (
+    SourceSnapshot,
+    SourceSnapshotColumn,
+    SourceSnapshotSchema,
+)
 from ...inspection import SourceFileCatalog, SourceInspectionError
 from ...projects import ProjectNotFoundError
 from ...workspace_contracts import (
     SourceConfiguration,
+    SourceDataset,
     SourceSelection,
 )
 from ...workspace_errors import WorkspaceError
@@ -381,15 +386,18 @@ class SourceRepository(DuckDbRepository):
         """Register manifests and advance selection/snapshot pointers atomically."""
 
         manifests = tuple(snapshots)
+        datasets = {item.dataset_id: item for item in selection.datasets}
         expected_ids = {item.dataset_id for item in selection.datasets}
         supplied_ids = {item.dataset_id for item in manifests}
         if (
             selection.project_id != project_id
+            or len(datasets) != len(selection.datasets)
             or supplied_ids != expected_ids
             or len(supplied_ids) != len(manifests)
             or any(
                 item.project_id != project_id
                 or item.physical_selection_hash != selection.content_hash
+                or not _snapshot_matches_dataset(item, datasets[item.dataset_id])
                 for item in manifests
             )
         ):
@@ -500,3 +508,28 @@ class SourceRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
+
+
+def _snapshot_matches_dataset(
+    snapshot: SourceSnapshot,
+    dataset: SourceDataset,
+) -> bool:
+    expected_schema = SourceSnapshotSchema.create(
+        SourceSnapshotColumn.create(
+            ordinal=column.ordinal,
+            stable_key=column.stable_key,
+            source_name=column.source_name,
+            candidate_type=column.candidate_type,
+        )
+        for column in dataset.columns
+    )
+    return (
+        snapshot.dataset_name == dataset.name
+        and snapshot.file_id == dataset.file_id
+        and snapshot.table_key == dataset.table_key
+        and snapshot.source_sha256
+        == f"sha256:{dataset.source_sha256.removeprefix('sha256:').casefold()}"
+        and snapshot.catalog_hash == dataset.catalog_hash
+        and snapshot.row_count == dataset.row_count
+        and snapshot.schema == expected_schema
+    )

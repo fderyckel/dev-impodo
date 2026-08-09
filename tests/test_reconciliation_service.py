@@ -24,6 +24,7 @@ from impodo.domain.reconciliation import (
 from impodo.domain.execution_snapshot import FieldIntent
 from impodo.models import BusinessReference
 from impodo.odoo_readback import (
+    ExternalIdBinding,
     Json2ReadbackReader,
     OdooReadbackError,
     ReadbackRecord,
@@ -64,6 +65,7 @@ class _Results:
 
 class _Reader:
     target_hash = TARGET_HASH
+    imports_external_ids = True
 
     def __init__(self, scope_hash):
         self.scope_hash = scope_hash
@@ -78,6 +80,14 @@ class _Reader:
         }
         self.uncertain = ()
         self.references = {}
+        self.external_ids = {
+            "impodo_test.categories_2": ExternalIdBinding(
+                "impodo_test.categories_2", "product.category", 10
+            ),
+            "impodo_test.products_3": ExternalIdBinding(
+                "impodo_test.products_3", "product.template", 11
+            ),
+        }
 
     def read_ids(self, model, identifiers, fields):
         return tuple(
@@ -96,6 +106,13 @@ class _Reader:
                 return (ReadbackRecord(identifier, {}),)
         del fields
         return self.uncertain
+
+    def read_external_ids(self, external_ids):
+        return tuple(
+            self.external_ids[item]
+            for item in external_ids
+            if item in self.external_ids
+        )
 
 
 def _run(snapshot, statuses=None):
@@ -248,6 +265,84 @@ class ReconciliationServiceTests(unittest.TestCase):
         self.assertEqual(contact.differing_fields, ("email",))
         self.assertNotIn("different@example.test", report.to_json())
 
+    def test_reports_a_missing_external_id_as_fallout(self):
+        snapshot = _snapshot()
+        run = _run(snapshot)
+        service, _results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        del reader.external_ids[snapshot.rows[0].proposed_external_id]
+
+        report = service.reconcile(
+            snapshot.project_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(report.status, ReconciliationRunStatus.FALLOUT)
+        self.assertEqual(report.rows[0].status, ReconciliationRowStatus.DIFFERENT)
+        self.assertEqual(report.rows[0].differing_fields, ("External ID",))
+
+    def test_reports_an_external_id_bound_to_another_record_as_fallout(self):
+        snapshot = _snapshot()
+        run = _run(snapshot)
+        service, _results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        external_id = snapshot.rows[1].proposed_external_id
+        reader.external_ids[external_id] = ExternalIdBinding(
+            external_id,
+            "product.template",
+            999,
+        )
+
+        report = service.reconcile(
+            snapshot.project_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(report.rows[1].status, ReconciliationRowStatus.DIFFERENT)
+        self.assertEqual(report.rows[1].differing_fields, ("External ID",))
+
+    def test_verifies_a_remote_create_link_to_an_existing_target_record(self):
+        snapshot = _snapshot()
+        product = replace(
+            snapshot.rows[1],
+            fields=(
+                *snapshot.rows[1].fields[:-1],
+                replace(
+                    snapshot.rows[1].fields[-1],
+                    value=BusinessReference(
+                        "product.category",
+                        ("Existing Category",),
+                    ),
+                ),
+            ),
+        )
+        scoped = replace(
+            snapshot,
+            rows=(snapshot.rows[0], product, snapshot.rows[2]),
+        )
+        run = _run(scoped)
+        service, _results = self._service(scoped, run)
+        reader = _Reader(execution_api_scope(scoped).semantic_hash)
+        reader.records[("product.template", 11)]["categ_id"] = [
+            50,
+            "Existing Category",
+        ]
+        reader.references["product.category"] = {"Existing Category": 50}
+
+        report = service.reconcile(
+            scoped.project_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(report.status, ReconciliationRunStatus.VERIFIED)
+        self.assertEqual(report.rows[1].status, ReconciliationRowStatus.VERIFIED)
+
     def test_verifies_schema_bound_custom_many2many_fields(self):
         snapshot = _snapshot()
         contact = replace(
@@ -356,6 +451,59 @@ class Json2ReadbackReaderTests(unittest.TestCase):
         reader = replace(self.reader, transport=transport)
         with self.assertRaises(OdooReadbackError):
             reader.read_ids("res.partner", (42,), ("name",))
+
+    def test_resolves_exact_external_ids_through_model_data(self):
+        def transport(url, headers, body, timeout, method):
+            del headers, timeout, method
+            payload = json.loads(body)
+            self.calls.append((url, payload))
+            return 200, [
+                {
+                    "id": 7,
+                    "module": "impodo_test",
+                    "name": "partners_42",
+                    "model": "res.partner",
+                    "res_id": 42,
+                }
+            ]
+
+        reader = replace(self.reader, transport=transport)
+        result = reader.read_external_ids(("impodo_test.partners_42",))
+
+        self.assertEqual(
+            result,
+            (
+                ExternalIdBinding(
+                    "impodo_test.partners_42",
+                    "res.partner",
+                    42,
+                ),
+            ),
+        )
+        self.assertTrue(self.calls[-1][0].endswith("/ir.model.data/search_read"))
+        self.assertEqual(
+            self.calls[-1][1]["domain"],
+            [
+                ["module", "=", "impodo_test"],
+                ["name", "in", ["partners_42"]],
+            ],
+        )
+
+    def test_rejects_an_unrequested_external_id(self):
+        def transport(*_args):
+            return 200, [
+                {
+                    "id": 7,
+                    "module": "other",
+                    "name": "partners_42",
+                    "model": "res.partner",
+                    "res_id": 42,
+                }
+            ]
+
+        reader = replace(self.reader, transport=transport)
+        with self.assertRaises(OdooReadbackError):
+            reader.read_external_ids(("impodo_test.partners_42",))
 
 
 if __name__ == "__main__":

@@ -2464,6 +2464,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         class FakeReadbackReader:
             target_hash = load_preview.snapshot.target_hash
             scope_hash = load_preview.api_scope.semantic_hash
+            imports_external_ids = False
 
             def __init__(self, writer):
                 self.writer = writer
@@ -2494,6 +2495,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 if matches:
                     return tuple(matches[:2])
                 return (ReadbackRecord(42, {}),) if not fields else ()
+
+            def read_external_ids(self, external_ids):
+                del external_ids
+                return ()
 
         fake_writer = FakeWriteExecutor()
         self.app.state.context.write_executor_factory = (

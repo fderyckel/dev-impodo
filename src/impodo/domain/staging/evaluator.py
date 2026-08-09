@@ -38,6 +38,7 @@ from ..mapping.scalar_values import (
     ScalarValueRuleError,
     evaluate_scalar_mapping_value,
 )
+from ..mapping.descriptions import transformation_rule_summary
 from ...models import (
     InvalidPreparedValue,
     Issue,
@@ -622,7 +623,7 @@ def _compile_dataset_evaluation_plan(
             source_label=(
                 labels.get(field.source_column_key or "") or "Constant value"
             ),
-            rules=_transformation_rule_summary(field),
+            rules=transformation_rule_summary(field),
         )
         for index, field in enumerate(mapping.fields)
         if field.value_source is not ScalarValueSource.ODOO_DEFAULT
@@ -1242,40 +1243,6 @@ def _fallback_was_used(field, raw_value: object) -> bool:
     if field.transform.collapse_whitespace:
         value = " ".join(value.split())
     return field.transform.empty_as_null and value == ""
-
-
-def _transformation_rule_summary(field) -> str:
-    rules = []
-    if field.value_source is ScalarValueSource.CONSTANT:
-        rules.append("Constant")
-    elif field.value_source is ScalarValueSource.SOURCE_WITH_FALLBACK:
-        rules.append("Source + fallback")
-    else:
-        rules.append("Source")
-    if field.value_mappings:
-        rules.append(f"Match {len(field.value_mappings)} source choice(s)")
-    if field.reference_lookup is not None:
-        rules.append("Approved reference lookup")
-    transform = field.transform
-    if transform.formula:
-        rules.append("Formula")
-    if transform.trim:
-        rules.append("Trim")
-    if transform.collapse_whitespace:
-        rules.append("Collapse spaces")
-    if transform.search_value:
-        rules.append("Find and replace")
-    if transform.case_mode != "preserve":
-        rules.append(f"Case: {transform.case_mode}")
-    if transform.empty_as_null:
-        rules.append("Empty to null")
-    if field.value_type != "string":
-        rules.append(f"Parse {field.value_type}")
-    if transform.decimal_places is not None:
-        rules.append(f"Round to {transform.decimal_places} places")
-    if field.validation.configured:
-        rules.append("Final value check")
-    return " + ".join(rules)
 
 
 def _attach_preparation_issues(

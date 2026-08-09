@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 import socket
 from typing import Any, Mapping, Protocol, Sequence
 from urllib.error import URLError
@@ -15,6 +16,7 @@ from .odoo_scope import OdooApiScope
 
 MAX_READBACK_IDS = 50
 MAX_READBACK_BODY_BYTES = 1024 * 1024
+_EXTERNAL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.-]+")
 
 
 class OdooReadbackError(RuntimeError):
@@ -27,12 +29,22 @@ class ReadbackRecord:
     values: Mapping[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
+class ExternalIdBinding:
+    external_id: str
+    model: str
+    odoo_id: int
+
+
 class OdooReadbackReader(Protocol):
     @property
     def target_hash(self) -> str: ...
 
     @property
     def scope_hash(self) -> str: ...
+
+    @property
+    def imports_external_ids(self) -> bool: ...
 
     def read_ids(
         self,
@@ -48,10 +60,15 @@ class OdooReadbackReader(Protocol):
         fields: Sequence[str],
     ) -> tuple[ReadbackRecord, ...]: ...
 
+    def read_external_ids(
+        self,
+        external_ids: Sequence[str],
+    ) -> tuple[ExternalIdBinding, ...]: ...
+
 
 @dataclass(slots=True)
 class Json2ReadbackReader:
-    """Read only exact IDs or service-generated business keys."""
+    """Read only exact IDs, XML IDs, or service-generated business keys."""
 
     config: Json2Config
     scope: OdooApiScope
@@ -68,6 +85,10 @@ class Json2ReadbackReader:
     @property
     def scope_hash(self) -> str:
         return self.scope.semantic_hash
+
+    @property
+    def imports_external_ids(self) -> bool:
+        return self.config.connection_mode == "REMOTE"
 
     def read_ids(
         self,
@@ -114,6 +135,72 @@ class Json2ReadbackReader:
             limit=2,
             permitted_ids=None,
         )
+
+    def read_external_ids(
+        self,
+        external_ids: Sequence[str],
+    ) -> tuple[ExternalIdBinding, ...]:
+        """Resolve only the exact XML IDs committed by one import batch."""
+
+        requested = tuple(external_ids)
+        if (
+            not requested
+            or len(requested) > MAX_READBACK_IDS
+            or len(set(requested)) != len(requested)
+            or any(
+                not isinstance(item, str)
+                or len(item) > 255
+                or _EXTERNAL_ID.fullmatch(item) is None
+                for item in requested
+            )
+        ):
+            raise OdooReadbackError(
+                "Odoo External-ID read-back is outside the safe bound"
+            )
+
+        names_by_module: dict[str, list[str]] = {}
+        for external_id in requested:
+            module, _separator, name = external_id.partition(".")
+            names_by_module.setdefault(module, []).append(name)
+
+        permitted = frozenset(requested)
+        found: dict[str, ExternalIdBinding] = {}
+        for module, names in names_by_module.items():
+            records = self._search(
+                "ir.model.data",
+                [["module", "=", module], ["name", "in", names]],
+                ("module", "name", "model", "res_id"),
+                limit=len(names),
+                permitted_ids=None,
+            )
+            for record in records:
+                values = record.values
+                returned_module = values["module"]
+                returned_name = values["name"]
+                model = values["model"]
+                odoo_id = values["res_id"]
+                if (
+                    not isinstance(returned_module, str)
+                    or not isinstance(returned_name, str)
+                    or not isinstance(model, str)
+                    or not model
+                    or type(odoo_id) is not int
+                    or odoo_id <= 0
+                ):
+                    raise OdooReadbackError(
+                        "Odoo verification returned an invalid External ID"
+                    )
+                external_id = f"{returned_module}.{returned_name}"
+                if external_id not in permitted or external_id in found:
+                    raise OdooReadbackError(
+                        "Odoo verification returned inconsistent External IDs"
+                    )
+                found[external_id] = ExternalIdBinding(
+                    external_id=external_id,
+                    model=model,
+                    odoo_id=odoo_id,
+                )
+        return tuple(found[item] for item in requested if item in found)
 
     def _fields(self, model: str, fields: Sequence[str]) -> tuple[str, ...]:
         permitted = self.scope.read_fields(model)

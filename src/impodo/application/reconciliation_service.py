@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Protocol, Sequence
@@ -158,6 +158,12 @@ class ReconciliationService:
             if len(matches) == 1:
                 actual_by_row[row_id] = matches[0]
                 resolved_ids[row_id] = matches[0].odoo_id
+        external_id_issues = self._external_id_issues(
+            rows,
+            attempts,
+            resolved_ids,
+            reader,
+        )
 
         identity_cache: dict[tuple[str, tuple[tuple[str, str, Any], ...]], int] = {}
         outcomes = []
@@ -167,19 +173,29 @@ class ReconciliationService:
                 key=lambda item: item.source_row,
             )
             for row in dataset_rows:
-                outcomes.append(
-                    self._row_outcome(
-                        row,
-                        attempts[row.row_id],
-                        actual_by_row.get(row.row_id),
-                        uncertain_matches.get(row.row_id),
-                        metadata,
-                        by_source,
-                        resolved_ids,
-                        identity_cache,
-                        reader,
-                    )
+                outcome = self._row_outcome(
+                    row,
+                    attempts[row.row_id],
+                    actual_by_row.get(row.row_id),
+                    uncertain_matches.get(row.row_id),
+                    metadata,
+                    by_source,
+                    resolved_ids,
+                    identity_cache,
+                    reader,
                 )
+                issue = external_id_issues.get(row.row_id)
+                if (
+                    issue is not None
+                    and outcome.status is ReconciliationRowStatus.VERIFIED
+                ):
+                    outcome = replace(
+                        outcome,
+                        status=ReconciliationRowStatus.DIFFERENT,
+                        differing_fields=("External ID",),
+                        message=issue,
+                    )
+                outcomes.append(outcome)
 
         outcome_rows = tuple(outcomes)
         status = (
@@ -276,6 +292,55 @@ class ReconciliationService:
             )
             matches[row_id] = reader.find_records(row.target_model, domain, fields)
         return matches
+
+    @staticmethod
+    def _external_id_issues(
+        rows: Mapping[str, ExecutionRow],
+        attempts: Mapping[str, ExecutionRowAttempt],
+        resolved_ids: Mapping[str, int],
+        reader: OdooReadbackReader,
+    ) -> dict[str, str]:
+        if not reader.imports_external_ids:
+            return {}
+
+        expected: dict[str, tuple[str, str, int]] = {}
+        for row_id, row in rows.items():
+            attempt = attempts[row_id]
+            resolved_id = resolved_ids.get(row_id)
+            if (
+                row.disposition == "CREATE"
+                and attempt.status
+                in {ExecutionRowStatus.COMMITTED, ExecutionRowStatus.OUTCOME_UNKNOWN}
+                and resolved_id is not None
+            ):
+                expected[row.proposed_external_id] = (
+                    row_id,
+                    row.target_model,
+                    resolved_id,
+                )
+
+        bindings = {}
+        external_ids = tuple(expected)
+        for start in range(0, len(external_ids), MAX_READBACK_IDS):
+            for binding in reader.read_external_ids(
+                external_ids[start : start + MAX_READBACK_IDS]
+            ):
+                bindings[binding.external_id] = binding
+
+        issues = {}
+        for external_id, (row_id, model, odoo_id) in expected.items():
+            binding = bindings.get(external_id)
+            if binding is None:
+                issues[row_id] = (
+                    "Odoo matches the load preview, but its expected External ID "
+                    "is missing"
+                )
+            elif binding.model != model or binding.odoo_id != odoo_id:
+                issues[row_id] = (
+                    "Odoo matches the load preview, but its External ID points "
+                    "to another model or record"
+                )
+        return issues
 
     def _row_outcome(
         self,

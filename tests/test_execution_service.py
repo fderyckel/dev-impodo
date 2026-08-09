@@ -206,9 +206,18 @@ class _Journal:
 class _Executor:
     target_hash = TARGET_HASH
 
-    def __init__(self, scope_hash: str, *, unknown=False) -> None:
+    def __init__(
+        self,
+        scope_hash: str,
+        *,
+        unknown=False,
+        update_error: Exception | None = None,
+        lookup_ids: tuple[int, ...] = (50,),
+    ) -> None:
         self.scope_hash = scope_hash
         self.unknown = unknown
+        self.update_error = update_error
+        self.lookup_ids = lookup_ids
         self.creates = []
         self.loads = []
         self.updates = []
@@ -216,7 +225,7 @@ class _Executor:
 
     def find_ids(self, model, domain):
         self.lookup = (model, tuple(domain))
-        return (50,)
+        return self.lookup_ids
 
     def create_rows(self, model, values):
         if self.unknown:
@@ -237,6 +246,8 @@ class _Executor:
         return ids
 
     def update_row(self, model, record_id, values):
+        if self.update_error is not None:
+            raise self.update_error
         self.updates.append((model, record_id, dict(values)))
 
 
@@ -476,7 +487,7 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         self.assertFalse(hasattr(executor, "lookup"))
 
-    def test_remote_existing_target_relationship_remains_blocked(self):
+    def test_remote_existing_target_many2one_uses_exact_database_id(self):
         snapshot = _snapshot()
         product = replace(
             snapshot.rows[1],
@@ -486,7 +497,7 @@ class ExecutionServiceTests(unittest.TestCase):
                     snapshot.rows[1].fields[-1],
                     value=BusinessReference(
                         "product.category",
-                        ("Category",),
+                        ("Existing Category",),
                     ),
                 ),
             ),
@@ -507,16 +518,255 @@ class ExecutionServiceTests(unittest.TestCase):
             relationship_snapshot,
             mode=OdooConnectionMode.REMOTE,
         )
+        executor = _Executor(execution_api_scope(relationship_snapshot).semantic_hash)
 
         preview = service.current_preview(relationship_snapshot.project_id)
 
         assert preview is not None
-        self.assertFalse(preview.can_load)
-        self.assertIn("incoming many2one", preview.scope_error)
+        self.assertTrue(preview.can_load, preview.scope_error)
 
-    def test_remote_update_is_blocked_for_the_fresh_target_slice(self):
+        run = service.execute(
+            relationship_snapshot.project_id,
+            expected_snapshot_hash=relationship_snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(
+            executor.lookup,
+            (
+                "product.category",
+                (("name", "=", "Existing Category"),),
+            ),
+        )
+        self.assertEqual(
+            executor.loads[1][1][0]["categ_id/.id"],
+            "50",
+        )
+
+    def test_remote_existing_target_many2one_requires_one_match(self):
+        snapshot = _snapshot()
+        product = replace(
+            snapshot.rows[1],
+            fields=(
+                *snapshot.rows[1].fields[:-1],
+                replace(
+                    snapshot.rows[1].fields[-1],
+                    value=BusinessReference(
+                        "product.category",
+                        ("Existing Category",),
+                    ),
+                ),
+            ),
+        )
+        relationship_snapshot = replace(
+            snapshot,
+            datasets=snapshot.datasets[:2],
+            rows=(snapshot.rows[0], product),
+            counts={
+                "CREATE": 2,
+                "UPDATE": 0,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        for lookup_ids in ((), (50, 51)):
+            with self.subTest(lookup_ids=lookup_ids):
+                service, _journal = self._service(
+                    relationship_snapshot,
+                    mode=OdooConnectionMode.REMOTE,
+                )
+                executor = _Executor(
+                    execution_api_scope(relationship_snapshot).semantic_hash,
+                    lookup_ids=lookup_ids,
+                )
+
+                run = service.execute(
+                    relationship_snapshot.project_id,
+                    expected_snapshot_hash=relationship_snapshot.semantic_hash,
+                    executor=executor,
+                    actor=LOCAL_ACTOR,
+                )
+
+                self.assertEqual(
+                    run.status,
+                    ExecutionRunStatus.COMPLETED_WITH_ERRORS,
+                )
+                self.assertEqual(
+                    run.rows[0].status,
+                    ExecutionRowStatus.COMMITTED,
+                )
+                self.assertEqual(
+                    run.rows[1].status,
+                    ExecutionRowStatus.BLOCKED,
+                )
+                self.assertEqual(len(executor.loads), 1)
+
+    def test_remote_scalar_update_rematches_and_writes_one_exact_record(self):
         snapshot = _snapshot()
         contact = snapshot.rows[-1]
+        update_snapshot = replace(
+            snapshot,
+            datasets=(snapshot.datasets[-1],),
+            rows=(contact,),
+            counts={
+                "CREATE": 0,
+                "UPDATE": 1,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(
+            update_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(execution_api_scope(update_snapshot).semantic_hash)
+
+        preview = service.current_preview(update_snapshot.project_id)
+
+        assert preview is not None
+        self.assertTrue(preview.can_load, preview.scope_error)
+
+        run = service.execute(
+            update_snapshot.project_id,
+            expected_snapshot_hash=update_snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(executor.lookup, ("res.partner", (("ref", "=", "C1"),)))
+        self.assertEqual(
+            executor.updates,
+            [("res.partner", 50, {"email": "new@example.test"})],
+        )
+        self.assertEqual(run.rows[0].status, ExecutionRowStatus.COMMITTED)
+        self.assertEqual(run.rows[0].odoo_id, 50)
+
+    def test_remote_update_requires_one_current_business_key_match(self):
+        snapshot = _snapshot()
+        update_snapshot = replace(
+            snapshot,
+            datasets=(snapshot.datasets[-1],),
+            rows=(snapshot.rows[-1],),
+            counts={
+                "CREATE": 0,
+                "UPDATE": 1,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(
+            update_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(
+            execution_api_scope(update_snapshot).semantic_hash,
+            lookup_ids=(),
+        )
+
+        run = service.execute(
+            update_snapshot.project_id,
+            expected_snapshot_hash=update_snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED_WITH_ERRORS)
+        self.assertEqual(run.rows[0].status, ExecutionRowStatus.BLOCKED)
+        self.assertEqual(run.rows[0].attempt, 0)
+        self.assertEqual(executor.updates, [])
+
+    def test_remote_update_unknown_outcome_is_not_retried(self):
+        snapshot = _snapshot()
+        update_snapshot = replace(
+            snapshot,
+            datasets=(snapshot.datasets[-1],),
+            rows=(snapshot.rows[-1],),
+            counts={
+                "CREATE": 0,
+                "UPDATE": 1,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(
+            update_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(
+            execution_api_scope(update_snapshot).semantic_hash,
+            update_error=OdooWriteOutcomeUnknown("lost response"),
+        )
+
+        run = service.execute(
+            update_snapshot.project_id,
+            expected_snapshot_hash=update_snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.OUTCOME_UNKNOWN)
+        self.assertEqual(run.rows[0].status, ExecutionRowStatus.OUTCOME_UNKNOWN)
+        self.assertEqual(run.rows[0].attempt, 1)
+        self.assertEqual(executor.updates, [])
+
+    def test_remote_update_rejection_is_recorded_as_failed(self):
+        snapshot = _snapshot()
+        update_snapshot = replace(
+            snapshot,
+            datasets=(snapshot.datasets[-1],),
+            rows=(snapshot.rows[-1],),
+            counts={
+                "CREATE": 0,
+                "UPDATE": 1,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(
+            update_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(
+            execution_api_scope(update_snapshot).semantic_hash,
+            update_error=OdooWriteRejected("Odoo rejected the load request"),
+        )
+
+        run = service.execute(
+            update_snapshot.project_id,
+            expected_snapshot_hash=update_snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED_WITH_ERRORS)
+        self.assertEqual(run.rows[0].status, ExecutionRowStatus.FAILED)
+        self.assertEqual(run.rows[0].attempt, 1)
+        self.assertEqual(executor.updates, [])
+
+    def test_remote_relationship_update_remains_outside_slice_five(self):
+        snapshot = _snapshot()
+        contact = replace(
+            snapshot.rows[-1],
+            fields=(
+                FieldIntent(
+                    "parent_id",
+                    "SET_VALUE",
+                    BusinessReference("res.partner", ("PARENT",)),
+                    kind="relation",
+                    relation_operation="replace",
+                    related_model="res.partner",
+                    related_identity_fields=("ref",),
+                ),
+            ),
+        )
         update_snapshot = replace(
             snapshot,
             datasets=(snapshot.datasets[-1],),
@@ -538,7 +788,7 @@ class ExecutionServiceTests(unittest.TestCase):
 
         assert preview is not None
         self.assertFalse(preview.can_load)
-        self.assertIn("fresh Odoo target", preview.scope_error)
+        self.assertIn("remote-update slice", preview.scope_error)
 
 
 class Json2WriteExecutorTests(unittest.TestCase):
@@ -630,6 +880,29 @@ class Json2WriteExecutorTests(unittest.TestCase):
                 tuple({"name": f"Contact {index}"} for index in range(51)),
             )
 
+    def test_native_update_sends_one_exact_id_and_reviewed_scalar_values(self):
+        self.executor.update_row(
+            "res.partner",
+            42,
+            {"email": "a@example.test", "x_impodo_note": "Reviewed"},
+        )
+
+        url, headers, body, _timeout, method = self.calls[-1]
+        self.assertTrue(url.endswith("/json/2/res.partner/write"))
+        self.assertEqual(method, "POST")
+        self.assertNotIn(b"secret", body)
+        self.assertEqual(
+            json.loads(body),
+            {
+                "context": {},
+                "ids": [42],
+                "vals": {
+                    "email": "a@example.test",
+                    "x_impodo_note": "Reviewed",
+                },
+            },
+        )
+
     def test_native_load_sends_external_ids_and_reviewed_scalar_fields(self):
         identifiers = self.executor.load_create_rows(
             "res.partner",
@@ -677,6 +950,23 @@ class Json2WriteExecutorTests(unittest.TestCase):
                     (values,),
                     ("impodo_test.contact_1",),
                 )
+
+    def test_native_load_accepts_one_reviewed_database_id_relationship(self):
+        identifiers = self.executor.load_create_rows(
+            "res.partner",
+            ({"name": "Contact", "parent_id/.id": "42"},),
+            ("impodo_test.contact_1",),
+        )
+
+        self.assertEqual(identifiers, (43,))
+        self.assertEqual(
+            json.loads(self.calls[-1][2]),
+            {
+                "context": {"import_file": True},
+                "data": [["impodo_test.contact_1", "Contact", "42"]],
+                "fields": ["id", "name", "parent_id/.id"],
+            },
+        )
 
     def test_native_load_distinguishes_rejection_from_uncertain_receipt(self):
         rejected = Json2WriteExecutor(

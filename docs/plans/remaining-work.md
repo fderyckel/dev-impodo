@@ -134,6 +134,23 @@ Windows scale measurements remain evidence work under section 1.1.
 **Exit:** every mapping deterministically compiles to a supported program or an
   explicit whole-dataset fallback reason; runtime behavior is still unchanged.
 
+**Implementation state (2026-08-09):** implemented and verified in the
+development worktree. A backend-neutral, hashable program now records the
+minimal source projection, provider branches, ordered text rules, required and
+typed conversion boundaries, basic validation, source/target identities,
+scope, direct lineage, sparse transformation-impact requirements, and
+set/global work without importing Polars into the domain compiler. The complete
+capability matrix classifies each operation as native-columnar, set/global, or
+Python-oracle-only. Any oracle-only use rejects acceleration for the complete
+dataset with stable path-specific reasons before source rows are inspected.
+Adversarial Polars prototypes cover the supported provider, normalization,
+literal replacement, value-match, case, integer, Boolean, date, explicitly
+formatted datetime, required, exact-length, and ASCII character-class
+semantics against the Python evaluator. ISO datetime remains an explicit
+fallback because Python's accepted grammar is broader than the currently
+proven native parser. Production preparation routing remains unchanged for
+Slice 4.
+
 #### Slice 4 — Native Polars direct transformation
 
 - Implement the Polars adapter using `scan_parquet` and native expressions only.

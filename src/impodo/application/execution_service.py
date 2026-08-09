@@ -475,10 +475,15 @@ class ExecutionService:
             elif intent.kind == "scalar":
                 values[intent.field] = _odoo_scalar(intent.value)
             elif import_relations:
-                values[f"{intent.field}/id"] = self._relation_external_id(
+                field, value = self._import_relation_value(
                     intent,
+                    metadata,
                     by_source,
+                    source_cache,
+                    identity_cache,
+                    executor,
                 )
+                values[field] = value
             else:
                 values[intent.field] = self._relation_value(
                     intent,
@@ -491,6 +496,48 @@ class ExecutionService:
         if not values:
             raise WorkspaceError("A planned write has no permitted field values")
         return values
+
+    def _import_relation_value(
+        self,
+        intent: FieldIntent,
+        metadata: Mapping[str, ExecutionDataset],
+        by_source: Mapping[tuple[str, str], ExecutionRow],
+        source_cache: dict[tuple[str, str], int],
+        identity_cache: dict[str, int],
+        executor: OdooWriteExecutor,
+    ) -> tuple[str, object]:
+        """Choose one exact Odoo import identity for a remote many2one."""
+
+        value = intent.value
+        if intent.relation_operation != "replace" or isinstance(value, tuple):
+            raise WorkspaceError(
+                f"Relationship field {intent.field} is outside the remote "
+                "many2one import slice"
+            )
+        if isinstance(value, LogicalReference) and value.origin == "incoming":
+            return (
+                f"{intent.field}/id",
+                self._relation_external_id(intent, by_source),
+            )
+        if isinstance(value, BusinessReference):
+            if value.model != intent.related_model:
+                raise WorkspaceError(
+                    f"Relationship field {intent.field} targets another Odoo model"
+                )
+            identifier = self._relation_reference_id(
+                value,
+                intent,
+                metadata,
+                by_source,
+                source_cache,
+                identity_cache,
+                executor,
+            )
+            return f"{intent.field}/.id", str(identifier)
+        raise WorkspaceError(
+            f"Relationship field {intent.field} is outside the remote "
+            "many2one import slice"
+        )
 
     @staticmethod
     def _relation_external_id(
@@ -777,10 +824,19 @@ def _execution_snapshot_error(
             project.odoo_connection_mode is OdooConnectionMode.REMOTE
             and row.disposition == "UPDATE"
         ):
-            return (
-                "The first remote-import slice supports creates into a fresh "
-                f"Odoo target; {row.dataset} contains an update"
+            unsupported = next(
+                (
+                    intent.field
+                    for intent in row.fields
+                    if intent.action != "OMIT" and intent.kind != "scalar"
+                ),
+                None,
             )
+            if unsupported is not None:
+                return (
+                    "The remote-update slice supports reviewed scalar fields; "
+                    f"{row.dataset}.{unsupported} is outside it"
+                )
         if (
             project.odoo_connection_mode is OdooConnectionMode.REMOTE
             and row.disposition == "CREATE"
@@ -798,38 +854,53 @@ def _execution_snapshot_error(
                 if (
                     intent.action != "SET_VALUE"
                     or intent.relation_operation != "replace"
-                    or not isinstance(value, LogicalReference)
-                    or value.origin != "incoming"
-                    or value.dataset is None
+                    or isinstance(value, tuple)
                 ):
                     return (
-                        "The remote-import slice supports only an incoming "
+                        "The remote-import slice supports only one reviewed "
                         f"many2one create; {row.dataset}.{intent.field} is outside it"
                     )
-                related_dataset = datasets.get(value.dataset)
-                if (
-                    related_dataset is None
-                    or value.dataset not in dataset.dependencies
-                    or related_dataset.sequence >= dataset.sequence
-                ):
-                    return (
-                        f"{row.dataset}.{intent.field} must reference an earlier "
-                        "dependency dataset"
+                if isinstance(value, LogicalReference):
+                    if value.origin != "incoming" or value.dataset is None:
+                        return (
+                            f"{row.dataset}.{intent.field} is not an imported "
+                            "many2one reference"
+                        )
+                    related_dataset = datasets.get(value.dataset)
+                    if (
+                        related_dataset is None
+                        or value.dataset not in dataset.dependencies
+                        or related_dataset.sequence >= dataset.sequence
+                    ):
+                        return (
+                            f"{row.dataset}.{intent.field} must reference an earlier "
+                            "dependency dataset"
+                        )
+                    referenced = rows_by_source.get(
+                        (value.dataset, _portable_key(value.key))
                     )
-                referenced = rows_by_source.get(
-                    (value.dataset, _portable_key(value.key))
-                )
-                if (
-                    referenced is None
-                    or referenced.disposition != "CREATE"
-                    or not referenced.proposed_external_id
-                    or referenced.target_model != intent.related_model
-                ):
+                    if (
+                        referenced is None
+                        or referenced.disposition != "CREATE"
+                        or not referenced.proposed_external_id
+                        or referenced.target_model != intent.related_model
+                    ):
+                        return (
+                            f"{row.dataset}.{intent.field} has no earlier imported "
+                            "External ID"
+                        )
+                    import_fields.append(f"{intent.field}/id")
+                elif isinstance(value, BusinessReference):
+                    if value.model != intent.related_model:
+                        return (
+                            f"{row.dataset}.{intent.field} targets another Odoo model"
+                        )
+                    import_fields.append(f"{intent.field}/.id")
+                else:
                     return (
-                        f"{row.dataset}.{intent.field} has no earlier imported "
-                        "External ID"
+                        f"{row.dataset}.{intent.field} is not expressed by a "
+                        "reviewed business key"
                     )
-                import_fields.append(f"{intent.field}/id")
             field_set = tuple(
                 sorted(import_fields)
             )
