@@ -233,6 +233,7 @@ def create_local_app(
             project_repository,
             source_repository,
             resolved_authorization,
+            resolved_artifacts,
         ),
         derived_entities=DerivedEntityWorkspaceService(
             source_repository,

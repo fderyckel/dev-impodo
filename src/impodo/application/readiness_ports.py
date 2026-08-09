@@ -54,6 +54,7 @@ from ..domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
 )
+from ..domain.source_snapshot import SourceSnapshot
 from ..models import Issue
 
 
@@ -82,6 +83,12 @@ class PreparationSourceRepository(Protocol):
         self, project_id: str
     ) -> tuple[SourceFileCatalog, ...]:
         """Return inspected catalogs used to materialize the selected rows."""
+        ...
+
+    def get_current_source_snapshots(
+        self, project_id: str
+    ) -> tuple[SourceSnapshot, ...]:
+        """Return exact current Parquet manifests for physical datasets."""
         ...
 
 

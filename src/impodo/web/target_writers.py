@@ -1,4 +1,4 @@
-"""Construct closed native write and read-back ports for a local Odoo load."""
+"""Construct closed native write and read-back ports for one Odoo load."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from ..connectors import Json2Config
 from ..odoo_scope import OdooApiScope
 from ..odoo_writer import Json2WriteExecutor, OdooWriteExecutor
 from ..odoo_readback import Json2ReadbackReader, OdooReadbackReader
-from ..projects import MigrationProject, OdooConnectionMode, ProjectError
+from ..projects import MigrationProject, ProjectError
 
 
 def _write_executor(
@@ -16,8 +16,6 @@ def _write_executor(
 ) -> OdooWriteExecutor:
     """Bind the writer to the exact target and reviewed preview capability."""
 
-    if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
-        raise ProjectError("Loading is currently available only for Local Odoo")
     if not api_key.strip():
         raise ProjectError("Enter an Odoo API key for this load")
     return Json2WriteExecutor(
@@ -37,10 +35,8 @@ def _readback_reader(
     api_key: str,
     scope: OdooApiScope,
 ) -> OdooReadbackReader:
-    """Bind post-write verification to the same exact local target."""
+    """Bind post-write verification to the same exact target."""
 
-    if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
-        raise ProjectError("Load verification is available only for Local Odoo")
     if not api_key.strip():
         raise ProjectError("Enter an Odoo API key to verify this load")
     return Json2ReadbackReader(

@@ -1,9 +1,10 @@
 """Closed Odoo 19 JSON-2 writer for one reviewed execution preview.
 
 This module is deliberately separate from the read connector.  Callers can
-only resolve an exact business key, create bounded rows, or update one known
-record within a per-preview capability derived from captured schema and the
-confirmed mapping.  There is no global model/field allowlist and no
+only resolve an exact business key, import bounded creates with reviewed
+external IDs, create bounded rows for the disposable-local path, or update one
+known record within a per-preview capability derived from captured schema and
+the confirmed mapping.  There is no global model/field allowlist and no
 caller-controlled method name, context, delete, SQL, ``sudo``, or generic RPC
 surface.
 """
@@ -11,6 +12,7 @@ surface.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 import socket
 from typing import Any, Mapping, Protocol, Sequence
 from urllib.error import URLError
@@ -23,6 +25,7 @@ from .odoo_scope import OdooApiScope
 
 MAX_CREATE_BATCH_ROWS = 50
 MAX_WRITE_BODY_BYTES = 1024 * 1024
+_EXTERNAL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.-]+")
 
 
 class OdooWriteError(RuntimeError):
@@ -58,6 +61,13 @@ class OdooWriteExecutor(Protocol):
         values: Sequence[Mapping[str, Any]],
     ) -> tuple[int, ...]: ...
 
+    def load_create_rows(
+        self,
+        model: str,
+        values: Sequence[Mapping[str, Any]],
+        external_ids: Sequence[str],
+    ) -> tuple[int, ...]: ...
+
     def update_row(
         self,
         model: str,
@@ -68,7 +78,7 @@ class OdooWriteExecutor(Protocol):
 
 @dataclass(slots=True)
 class Json2WriteExecutor:
-    """Native JSON-2 create/write adapter with no automatic write retry."""
+    """Native JSON-2 load/create/write adapter with no automatic write retry."""
 
     config: Json2Config
     scope: OdooApiScope
@@ -167,6 +177,72 @@ class Json2WriteExecutor:
             raise OdooWriteOutcomeUnknown("Odoo create returned an invalid receipt")
         return identifiers
 
+    def load_create_rows(
+        self,
+        model: str,
+        values: Sequence[Mapping[str, Any]],
+        external_ids: Sequence[str],
+    ) -> tuple[int, ...]:
+        """Import one scalar/many2one create batch with stable External IDs."""
+
+        rows = tuple(dict(item) for item in values)
+        xml_ids = tuple(str(item) for item in external_ids)
+        if (
+            not rows
+            or len(rows) > MAX_CREATE_BATCH_ROWS
+            or len(xml_ids) != len(rows)
+        ):
+            raise OdooWriteRejected("Odoo import batch is outside the safe bound")
+        if any(
+            not item
+            or len(item) > 255
+            or _EXTERNAL_ID.fullmatch(item) is None
+            for item in xml_ids
+        ) or len(set(xml_ids)) != len(xml_ids):
+            raise OdooWriteRejected("Odoo External IDs are invalid or duplicated")
+        for row in rows:
+            self._validate_import_values(model, row)
+        field_names = tuple(sorted(rows[0]))
+        if not field_names or any(tuple(sorted(row)) != field_names for row in rows):
+            raise OdooWriteRejected(
+                "Odoo import rows must share the same reviewed field set"
+            )
+        response = self._post(
+            model,
+            "load",
+            {
+                "fields": ["id", *field_names],
+                "data": [
+                    [xml_id, *(row[field] for field in field_names)]
+                    for xml_id, row in zip(xml_ids, rows, strict=True)
+                ],
+                "context": {
+                    **dict(self.config.context),
+                    "import_file": True,
+                },
+            },
+            write=True,
+        )
+        if not isinstance(response, Mapping):
+            raise OdooWriteOutcomeUnknown("Odoo import returned an invalid receipt")
+        identifiers = response.get("ids")
+        messages = response.get("messages", [])
+        if identifiers is False:
+            raise OdooWriteRejected(_safe_import_error(messages))
+        if (
+            not isinstance(identifiers, list)
+            or any(type(item) is not int or item <= 0 for item in identifiers)
+            or len(identifiers) != len(rows)
+            or not isinstance(messages, list)
+        ):
+            raise OdooWriteOutcomeUnknown("Odoo import returned an invalid receipt")
+        if any(
+            isinstance(message, Mapping) and message.get("type") == "error"
+            for message in messages
+        ):
+            raise OdooWriteOutcomeUnknown("Odoo import returned an invalid receipt")
+        return tuple(identifiers)
+
     def update_row(
         self,
         model: str,
@@ -199,6 +275,36 @@ class Json2WriteExecutor:
                 "Odoo model or field is outside the reviewed load preview"
             )
 
+    def _validate_import_values(
+        self,
+        model: str,
+        values: Mapping[str, Any],
+    ) -> None:
+        """Allow reviewed scalar fields and the exact many2one ``field/id`` path."""
+
+        permitted = self.scope.write_fields(model)
+        if not values:
+            raise OdooWriteRejected(
+                "Odoo model or field is outside the reviewed load preview"
+            )
+        for field in values:
+            if field.endswith("/id"):
+                base_field = field.removesuffix("/id")
+                if not base_field or "/" in base_field:
+                    raise OdooWriteRejected(
+                        "Odoo import relationship path is outside the reviewed preview"
+                    )
+            elif "/" in field:
+                raise OdooWriteRejected(
+                    "Odoo import relationship path is outside the reviewed preview"
+                )
+            else:
+                base_field = field
+            if base_field not in permitted:
+                raise OdooWriteRejected(
+                    "Odoo model or field is outside the reviewed load preview"
+                )
+
     def _post(
         self,
         model: str,
@@ -207,7 +313,9 @@ class Json2WriteExecutor:
         *,
         write: bool,
     ) -> Any:
-        permitted_methods = {"create", "write"} if write else {"search_read"}
+        permitted_methods = (
+            {"create", "load", "write"} if write else {"search_read"}
+        )
         permitted_fields = (
             self.scope.write_fields(model)
             if write
@@ -248,8 +356,21 @@ class Json2WriteExecutor:
             return response
         if status in {401, 403}:
             raise OdooWriteRejected("Odoo did not authorize this load")
-        if write and status >= 500:
+        if write and (status >= 500 or status in {408, 425, 429}):
             raise OdooWriteOutcomeUnknown(
-                "Odoo returned a server error; the outcome is unknown"
+                "Odoo did not return a definitive write result; the outcome is unknown"
             )
         raise OdooWriteRejected(f"Odoo rejected the load request (HTTP {status})")
+
+
+def _safe_import_error(messages: object) -> str:
+    """Project one bounded Odoo import error without exposing response internals."""
+
+    if isinstance(messages, list):
+        for message in messages:
+            if not isinstance(message, Mapping) or message.get("type") != "error":
+                continue
+            detail = str(message.get("message", "")).strip()
+            if detail:
+                return f"Odoo rejected the import: {detail[:500]}"
+    return "Odoo rejected one or more imported rows"

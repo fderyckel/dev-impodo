@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+import json
 from types import SimpleNamespace
 import unittest
 from uuid import uuid4
@@ -28,6 +29,7 @@ from impodo.odoo_writer import (
 from impodo.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.connectors import Json2Config
 from impodo.projects import OdooConnectionMode
+from impodo.web.target_writers import _write_executor
 
 
 HASH = "sha256:" + "1" * 64
@@ -208,6 +210,7 @@ class _Executor:
         self.scope_hash = scope_hash
         self.unknown = unknown
         self.creates = []
+        self.loads = []
         self.updates = []
         self.next_id = 10
 
@@ -224,16 +227,25 @@ class _Executor:
         self.next_id += len(rows)
         return ids
 
+    def load_create_rows(self, model, values, external_ids):
+        if self.unknown:
+            raise OdooWriteOutcomeUnknown("lost response")
+        rows = tuple(dict(item) for item in values)
+        self.loads.append((model, rows, tuple(external_ids)))
+        ids = tuple(range(self.next_id, self.next_id + len(rows)))
+        self.next_id += len(rows)
+        return ids
+
     def update_row(self, model, record_id, values):
         self.updates.append((model, record_id, dict(values)))
 
 
 class ExecutionServiceTests(unittest.TestCase):
-    def _service(self, snapshot):
+    def _service(self, snapshot, *, mode=OdooConnectionMode.LOCAL):
         journal = _Journal()
         project = SimpleNamespace(
             project_id=snapshot.project_id,
-            odoo_connection_mode=OdooConnectionMode.LOCAL,
+            odoo_connection_mode=mode,
         )
         service = ExecutionService(
             SimpleNamespace(get=lambda _project_id: project),
@@ -372,6 +384,162 @@ class ExecutionServiceTests(unittest.TestCase):
             frozenset({"code"}),
         )
 
+    def test_remote_scalar_create_uses_native_load_with_external_id(self):
+        snapshot = _snapshot()
+        category = snapshot.rows[0]
+        remote_snapshot = replace(
+            snapshot,
+            datasets=(snapshot.datasets[0],),
+            rows=(category,),
+            counts={
+                "CREATE": 1,
+                "UPDATE": 0,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(
+            remote_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(execution_api_scope(remote_snapshot).semantic_hash)
+
+        run = service.execute(
+            remote_snapshot.project_id,
+            expected_snapshot_hash=remote_snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(executor.creates, [])
+        self.assertEqual(
+            executor.loads,
+            [
+                (
+                    "product.category",
+                    ({"name": "Category"},),
+                    (category.proposed_external_id,),
+                )
+            ],
+        )
+
+    def test_remote_many2one_create_uses_the_earlier_external_id(self):
+        snapshot = _snapshot()
+        relationship_snapshot = replace(
+            snapshot,
+            datasets=snapshot.datasets[:2],
+            rows=snapshot.rows[:2],
+            counts={
+                "CREATE": 2,
+                "UPDATE": 0,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(
+            relationship_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(execution_api_scope(relationship_snapshot).semantic_hash)
+
+        preview = service.current_preview(relationship_snapshot.project_id)
+
+        assert preview is not None
+        self.assertTrue(preview.can_load, preview.scope_error)
+
+        run = service.execute(
+            relationship_snapshot.project_id,
+            expected_snapshot_hash=relationship_snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(run.committed_count, 2)
+        self.assertEqual(executor.loads[0][0], "product.category")
+        self.assertEqual(
+            executor.loads[1],
+            (
+                "product.template",
+                (
+                    {
+                        "categ_id/id": snapshot.rows[0].proposed_external_id,
+                        "default_code": "P1",
+                        "name": "Product",
+                    },
+                ),
+                (snapshot.rows[1].proposed_external_id,),
+            ),
+        )
+        self.assertFalse(hasattr(executor, "lookup"))
+
+    def test_remote_existing_target_relationship_remains_blocked(self):
+        snapshot = _snapshot()
+        product = replace(
+            snapshot.rows[1],
+            fields=(
+                *snapshot.rows[1].fields[:-1],
+                replace(
+                    snapshot.rows[1].fields[-1],
+                    value=BusinessReference(
+                        "product.category",
+                        ("Category",),
+                    ),
+                ),
+            ),
+        )
+        relationship_snapshot = replace(
+            snapshot,
+            datasets=snapshot.datasets[:2],
+            rows=(snapshot.rows[0], product),
+            counts={
+                "CREATE": 2,
+                "UPDATE": 0,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(
+            relationship_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+
+        preview = service.current_preview(relationship_snapshot.project_id)
+
+        assert preview is not None
+        self.assertFalse(preview.can_load)
+        self.assertIn("incoming many2one", preview.scope_error)
+
+    def test_remote_update_is_blocked_for_the_fresh_target_slice(self):
+        snapshot = _snapshot()
+        contact = snapshot.rows[-1]
+        update_snapshot = replace(
+            snapshot,
+            datasets=(snapshot.datasets[-1],),
+            rows=(contact,),
+            counts={
+                "CREATE": 0,
+                "UPDATE": 1,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(
+            update_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+
+        preview = service.current_preview(update_snapshot.project_id)
+
+        assert preview is not None
+        self.assertFalse(preview.can_load)
+        self.assertIn("fresh Odoo target", preview.scope_error)
+
 
 class Json2WriteExecutorTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -381,6 +549,8 @@ class Json2WriteExecutorTests(unittest.TestCase):
             self.calls.append((url, headers, body, timeout, method))
             if url.endswith("/search_read"):
                 return 200, [{"id": 42}]
+            if url.endswith("/load"):
+                return 200, {"ids": [43], "messages": [], "nextrow": 0}
             if url.endswith("/create"):
                 return 200, [43]
             return 200, True
@@ -390,8 +560,20 @@ class Json2WriteExecutorTests(unittest.TestCase):
             models=(
                 OdooModelScope(
                     "res.partner",
-                    write_fields=("customer_rank", "email", "name", "x_impodo_note"),
-                    read_fields=("customer_rank", "email", "name", "x_impodo_note"),
+                    write_fields=(
+                        "customer_rank",
+                        "email",
+                        "name",
+                        "parent_id",
+                        "x_impodo_note",
+                    ),
+                    read_fields=(
+                        "customer_rank",
+                        "email",
+                        "name",
+                        "parent_id",
+                        "x_impodo_note",
+                    ),
                     lookup_fields=("ref",),
                 ),
                 OdooModelScope(
@@ -448,14 +630,104 @@ class Json2WriteExecutorTests(unittest.TestCase):
                 tuple({"name": f"Contact {index}"} for index in range(51)),
             )
 
-    def test_server_error_and_invalid_create_receipt_are_uncertain(self):
-        server_error = Json2WriteExecutor(
+    def test_native_load_sends_external_ids_and_reviewed_scalar_fields(self):
+        identifiers = self.executor.load_create_rows(
+            "res.partner",
+            (
+                {
+                    "name": "Contact",
+                    "parent_id/id": "impodo_test.parent_1",
+                    "x_impodo_note": "Reviewed",
+                },
+            ),
+            ("impodo_test.contact_1",),
+        )
+
+        self.assertEqual(identifiers, (43,))
+        url, headers, body, _timeout, method = self.calls[-1]
+        self.assertTrue(url.endswith("/json/2/res.partner/load"))
+        self.assertEqual(method, "POST")
+        self.assertEqual(headers["X-Odoo-Database"], "odoo19_disposable")
+        self.assertNotIn(b"secret", body)
+        self.assertEqual(
+            json.loads(body),
+            {
+                "context": {"import_file": True},
+                "data": [
+                    [
+                        "impodo_test.contact_1",
+                        "Contact",
+                        "impodo_test.parent_1",
+                        "Reviewed",
+                    ],
+                ],
+                "fields": ["id", "name", "parent_id/id", "x_impodo_note"],
+            },
+        )
+
+    def test_native_load_rejects_unreviewed_relationship_paths(self):
+        for values in (
+            {"password/id": "impodo_test.secret_1"},
+            {"parent_id/name": "Parent"},
+            {"parent_id/id/name": "Parent"},
+        ):
+            with self.subTest(values=values), self.assertRaises(OdooWriteRejected):
+                self.executor.load_create_rows(
+                    "res.partner",
+                    (values,),
+                    ("impodo_test.contact_1",),
+                )
+
+    def test_native_load_distinguishes_rejection_from_uncertain_receipt(self):
+        rejected = Json2WriteExecutor(
             self.executor.config,
             self.scope,
-            transport=lambda *_args: (500, None),
+            transport=lambda *_args: (
+                200,
+                {
+                    "ids": False,
+                    "messages": [
+                        {"type": "error", "message": "A required field is missing"}
+                    ],
+                    "nextrow": 0,
+                },
+            ),
+        )
+        with self.assertRaisesRegex(OdooWriteRejected, "required field"):
+            rejected.load_create_rows(
+                "res.partner",
+                ({"name": "Contact"},),
+                ("impodo_test.contact_1",),
+            )
+
+        invalid = Json2WriteExecutor(
+            self.executor.config,
+            self.scope,
+            transport=lambda *_args: (
+                200,
+                {"ids": [43], "messages": "invalid", "nextrow": 0},
+            ),
         )
         with self.assertRaises(OdooWriteOutcomeUnknown):
-            server_error.create_rows("res.partner", ({"name": "Contact"},))
+            invalid.load_create_rows(
+                "res.partner",
+                ({"name": "Contact"},),
+                ("impodo_test.contact_1",),
+            )
+
+    def test_server_error_and_invalid_create_receipt_are_uncertain(self):
+        for status in (408, 429, 500):
+            with self.subTest(status=status):
+                server_error = Json2WriteExecutor(
+                    self.executor.config,
+                    self.scope,
+                    transport=lambda *_args, status=status: (status, None),
+                )
+                with self.assertRaises(OdooWriteOutcomeUnknown):
+                    server_error.create_rows(
+                        "res.partner",
+                        ({"name": "Contact"},),
+                    )
 
         invalid_receipt = Json2WriteExecutor(
             self.executor.config,
@@ -467,6 +739,31 @@ class Json2WriteExecutorTests(unittest.TestCase):
                 "res.partner",
                 ({"name": "Contact"},),
             )
+
+
+class TargetWriterFactoryTests(unittest.TestCase):
+    def test_remote_https_target_builds_the_closed_json2_writer(self):
+        scope = OdooApiScope(
+            preview_hash=HASH,
+            models=(
+                OdooModelScope(
+                    "res.partner",
+                    write_fields=("name",),
+                    read_fields=("name",),
+                ),
+            ),
+        )
+        project = SimpleNamespace(
+            odoo_connection_mode=OdooConnectionMode.REMOTE,
+            odoo_base_url="https://odoo.example.test",
+            odoo_database="fresh_migration",
+        )
+
+        executor = _write_executor(project, "secret", scope)
+
+        self.assertIsInstance(executor, Json2WriteExecutor)
+        self.assertEqual(executor.config.connection_mode, "REMOTE")
+        self.assertEqual(executor.config.retries, 0)
 
 
 if __name__ == "__main__":

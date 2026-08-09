@@ -72,6 +72,11 @@ secret reduce but do not remove that limitation.
 - Files are copied under generated names through partial staging and atomic
   rename; display names are metadata only.
 - Registered source bytes are SHA-256 hashed and remain immutable.
+- Freezing parses each selected table once through that same strict reader and
+  publishes a lossless, content-addressed Parquet snapshot below the protected
+  project directory. Temporary fragments are contained and removed on every
+  exit path; the completed file is schema/count/semantic/hash checked before
+  atomic rename and DuckDB pointer publication.
 
 Endpoint antivirus or content-disarm requirements remain an organizational
 policy decision.
@@ -128,6 +133,16 @@ routing, and an evidenced read-only Odoo account.
 Excel review packages are generated locally with the controlled Python
 `openpyxl` dependency already required for XLSX intake. Node.js is not an
 Impodo workstation dependency.
+
+The columnar preparation track pins Polars `1.43.2` and its matching
+`polars-runtime-32` wheel in the authoritative Windows/Python 3.12 binary-only
+lock. Polars is distributed under the OSI-approved MIT License; the wheel
+retains its `LICENSE` metadata, and the internal release process records the
+resolved package in dependency-audit and CycloneDX SBOM evidence. Polars now
+executes only the application-constructed local Parquet ingestion/scan plan;
+it receives no browser-controlled path or expression. DuckDB external access
+remains disabled because snapshot bytes move through the artifact and
+repository ports rather than DuckDB filesystem readers.
 
 Impodo requires no inbound firewall opening. Detailed installation and
 verification steps belong in the

@@ -14,6 +14,7 @@ from ..domain.staging.transformation_impact import (
     TransformationImpactRow,
     TransformationImpactSnapshot,
 )
+from ..domain.source_snapshot import SourceSnapshot
 from ..inspection import SourceFileCatalog
 from ..domain.mapping.artifacts import MappingRevision
 from ..domain.mapping.validation.evidence import (
@@ -69,6 +70,11 @@ class TransformationImpactSourceRepository(Protocol):
         self, project_id: str
     ) -> tuple[SourceFileCatalog, ...]:
         """Return inspected catalogs used to materialize source artifacts."""
+        ...
+    def get_current_source_snapshots(
+        self, project_id: str
+    ) -> tuple[SourceSnapshot, ...]:
+        """Return current verified physical source snapshots."""
         ...
 
 
@@ -197,6 +203,7 @@ class TransformationImpactService:
 
         context = self.context(project_id)
         catalogs = self.sources.get_source_catalogs(project_id)
+        source_snapshots = self.sources.get_current_source_snapshots(project_id)
 
         def evaluate(
             write_impact: Callable[[TransformationImpactRow], None],
@@ -209,6 +216,7 @@ class TransformationImpactService:
                 context.plan,
                 catalogs,
                 self.artifacts,
+                source_snapshots=source_snapshots,
                 collect_transformation_impact=True,
                 transformation_detail_limit=0,
                 transformation_impact_sink=write_impact,

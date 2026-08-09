@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from typing import Protocol
 
 from ..derived_entities import DerivedEntityPlan
+from ..domain.source_snapshot import SourceSnapshot
 from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
 from ..domain.mapping.validation.evidence import MappingValidationResult
 from ..domain.schema.governance import SchemaGovernance
@@ -55,6 +56,9 @@ class SourceQueryRepository(Protocol):
     def get_mapping_source_selection(
         self, project_id: str
     ) -> SourceSelection | None: ...
+    def get_current_source_snapshots(
+        self, project_id: str
+    ) -> tuple[SourceSnapshot, ...]: ...
 
 
 class DerivedEntityQueryRepository(Protocol):
@@ -189,6 +193,11 @@ class BrowserQueryService:
         self, project_id: str
     ) -> SourceSelection | None:
         return self._sources.get_mapping_source_selection(project_id)
+
+    def get_current_source_snapshots(
+        self, project_id: str
+    ) -> tuple[SourceSnapshot, ...]:
+        return self._sources.get_current_source_snapshots(project_id)
 
     def get_derived_entity_plan(
         self, project_id: str

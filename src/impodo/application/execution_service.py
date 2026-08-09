@@ -253,6 +253,10 @@ class ExecutionService:
                             source_cache,
                             identity_cache,
                             executor,
+                            import_relations=(
+                                project.odoo_connection_mode
+                                is OdooConnectionMode.REMOTE
+                            ),
                         )
                     except (WorkspaceError, OdooWriteRejected) as error:
                         outcome = replace(
@@ -269,10 +273,21 @@ class ExecutionService:
                 if not prepared_rows:
                     continue
                 try:
-                    identifiers = executor.create_rows(
-                        dataset.target_model,
-                        tuple(values for _row, values in prepared_rows),
-                    )
+                    values = tuple(values for _row, values in prepared_rows)
+                    if project.odoo_connection_mode is OdooConnectionMode.REMOTE:
+                        identifiers = executor.load_create_rows(
+                            dataset.target_model,
+                            values,
+                            tuple(
+                                row.proposed_external_id
+                                for row, _values in prepared_rows
+                            ),
+                        )
+                    else:
+                        identifiers = executor.create_rows(
+                            dataset.target_model,
+                            values,
+                        )
                 except OdooWriteOutcomeUnknown as error:
                     outcomes = tuple(
                         replace(
@@ -416,10 +431,11 @@ class ExecutionService:
         executor: OdooWriteExecutor,
     ) -> None:
         snapshot = preview.snapshot
-        if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
-            raise WorkspaceError(
-                "Loading is currently limited to a disposable local Odoo target"
-            )
+        if project.odoo_connection_mode not in {
+            OdooConnectionMode.LOCAL,
+            OdooConnectionMode.REMOTE,
+        }:
+            raise WorkspaceError("Configure the exact Odoo load target first")
         if preview.current_run is not None:
             raise WorkspaceError(
                 "This preview was already loaded. Compare with Odoo again first."
@@ -447,6 +463,8 @@ class ExecutionService:
         source_cache: dict[tuple[str, str], int],
         identity_cache: dict[str, int],
         executor: OdooWriteExecutor,
+        *,
+        import_relations: bool = False,
     ) -> dict[str, Any]:
         values: dict[str, Any] = {}
         for intent in row.fields:
@@ -456,6 +474,11 @@ class ExecutionService:
                 values[intent.field] = None
             elif intent.kind == "scalar":
                 values[intent.field] = _odoo_scalar(intent.value)
+            elif import_relations:
+                values[f"{intent.field}/id"] = self._relation_external_id(
+                    intent,
+                    by_source,
+                )
             else:
                 values[intent.field] = self._relation_value(
                     intent,
@@ -468,6 +491,39 @@ class ExecutionService:
         if not values:
             raise WorkspaceError("A planned write has no permitted field values")
         return values
+
+    @staticmethod
+    def _relation_external_id(
+        intent: FieldIntent,
+        by_source: Mapping[tuple[str, str], ExecutionRow],
+    ) -> str:
+        """Resolve the first remote slice's incoming many2one External ID."""
+
+        value = intent.value
+        if (
+            intent.relation_operation != "replace"
+            or not isinstance(value, LogicalReference)
+            or value.origin != "incoming"
+            or value.dataset is None
+        ):
+            raise WorkspaceError(
+                f"Relationship field {intent.field} is outside the remote "
+                "many2one import slice"
+            )
+        referenced = by_source.get(
+            (value.dataset, _portable_key(value.key))
+        )
+        if (
+            referenced is None
+            or referenced.disposition != "CREATE"
+            or not referenced.proposed_external_id
+            or referenced.target_model != intent.related_model
+        ):
+            raise WorkspaceError(
+                f"Relationship field {intent.field} has no earlier imported "
+                "External ID"
+            )
+        return referenced.proposed_external_id
 
     def _relation_value(
         self,
@@ -697,18 +753,92 @@ def _execution_snapshot_error(
 ) -> str:
     """Explain an execution-shape problem before the user can press Load."""
 
-    if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
-        return "Loading is currently limited to a disposable local Odoo target"
+    if project.odoo_connection_mode not in {
+        OdooConnectionMode.LOCAL,
+        OdooConnectionMode.REMOTE,
+    }:
+        return "Configure the exact Odoo load target first"
     if not snapshot.target_odoo_version.startswith("19."):
         return "The schema-bound load path requires Odoo 19"
     write_rows = tuple(row for row in snapshot.rows if row.fields)
     if not write_rows:
         return "This preview has no rows to create or update"
     datasets = {item.dataset: item for item in snapshot.datasets}
+    rows_by_source = {
+        (row.dataset, _portable_key(row.source_identity)): row
+        for row in snapshot.rows
+    }
+    remote_create_field_sets: dict[str, tuple[str, ...]] = {}
     for row in write_rows:
         dataset = datasets.get(row.dataset)
         if dataset is None:
             return f"Dataset {row.dataset} is missing from the reviewed load preview"
+        if (
+            project.odoo_connection_mode is OdooConnectionMode.REMOTE
+            and row.disposition == "UPDATE"
+        ):
+            return (
+                "The first remote-import slice supports creates into a fresh "
+                f"Odoo target; {row.dataset} contains an update"
+            )
+        if (
+            project.odoo_connection_mode is OdooConnectionMode.REMOTE
+            and row.disposition == "CREATE"
+        ):
+            if not row.proposed_external_id:
+                return f"Dataset {row.dataset} has a create without an External ID"
+            import_fields = []
+            for intent in row.fields:
+                if intent.action == "OMIT":
+                    continue
+                if intent.kind == "scalar":
+                    import_fields.append(intent.field)
+                    continue
+                value = intent.value
+                if (
+                    intent.action != "SET_VALUE"
+                    or intent.relation_operation != "replace"
+                    or not isinstance(value, LogicalReference)
+                    or value.origin != "incoming"
+                    or value.dataset is None
+                ):
+                    return (
+                        "The remote-import slice supports only an incoming "
+                        f"many2one create; {row.dataset}.{intent.field} is outside it"
+                    )
+                related_dataset = datasets.get(value.dataset)
+                if (
+                    related_dataset is None
+                    or value.dataset not in dataset.dependencies
+                    or related_dataset.sequence >= dataset.sequence
+                ):
+                    return (
+                        f"{row.dataset}.{intent.field} must reference an earlier "
+                        "dependency dataset"
+                    )
+                referenced = rows_by_source.get(
+                    (value.dataset, _portable_key(value.key))
+                )
+                if (
+                    referenced is None
+                    or referenced.disposition != "CREATE"
+                    or not referenced.proposed_external_id
+                    or referenced.target_model != intent.related_model
+                ):
+                    return (
+                        f"{row.dataset}.{intent.field} has no earlier imported "
+                        "External ID"
+                    )
+                import_fields.append(f"{intent.field}/id")
+            field_set = tuple(
+                sorted(import_fields)
+            )
+            expected = remote_create_field_sets.setdefault(row.dataset, field_set)
+            if field_set != expected:
+                return (
+                    "The first remote-import slice requires one create field set "
+                    f"for dataset {row.dataset}"
+                )
         for intent in row.fields:
             if intent.kind == "scalar" or intent.action != "SET_VALUE":
                 continue

@@ -41,7 +41,7 @@
       <div>
         <p class="eyebrow">Destination</p>
         <h2 id="load-scope-title">{{ preview.snapshot.target_database }}</h2>
-        <p>Local Odoo {{ preview.snapshot.target_odoo_version }} · reviewed captured Odoo fields only</p>
+        <p>{{ project.odoo_connection_mode.value|title }} Odoo {{ preview.snapshot.target_odoo_version }} · reviewed captured Odoo fields only</p>
       </div>
     </div>
     <div class="table-scroll">
@@ -190,7 +190,7 @@
         <label>
           Odoo API key
           <input type="password" name="api_key" autocomplete="current-password" {% if not has_stored_key %}required{% endif %}>
-          <small>{% if has_stored_key %}A saved key is available; leave this empty to use it.{% else %}Required by Odoo's native API even for this local test database.{% endif %}</small>
+          <small>{% if has_stored_key %}A saved key is available; leave this empty to use it.{% else %}Required by Odoo's JSON-2 API for this exact target.{% endif %}</small>
         </label>
         <label class="checkbox">
           <input type="checkbox" name="remember_api_key">

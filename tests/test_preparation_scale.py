@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import csv
+from contextlib import ExitStack
 from dataclasses import replace
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version as package_version
 import json
 import os
 from pathlib import Path
-from time import perf_counter, sleep
+import platform
+import sys
+from time import perf_counter, process_time, sleep
 import tempfile
 from threading import Event, Thread
 import unittest
@@ -14,8 +18,10 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.application import normalization_service as normalization_module
+from impodo.application import bounded_preparation as bounded_preparation_module
 from impodo.application import preparation_service as preparation_module
 from impodo.application import quality_service as quality_module
+from impodo.application.bounded_preparation import BOUNDED_SOURCE_BATCH_SIZE
 from impodo.artifacts import LocalArtifactStore
 from impodo.domain.coverage import (
     CoverageApplicability,
@@ -49,6 +55,7 @@ from impodo.domain.resolution import (
 from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
 )
+from impodo.domain.staging import evaluator as evaluator_module
 from impodo.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
@@ -60,6 +67,7 @@ from impodo.projects import (
     ProjectStatus,
     SourceFile,
 )
+from impodo import source as source_module
 from impodo.normalization import (
     NormalizationCandidate,
     evaluate_normalization,
@@ -97,6 +105,7 @@ PREPARATION_SCALE_WORKLOAD = os.environ.get(
 PREPARATION_SCALE_DIRTY = (
     os.environ.get("IMPODO_PREPARATION_SCALE_DIRTY") == "1"
 )
+PREPARATION_BENCHMARK_PREFIX = "IMPODO_PREPARATION_BENCHMARK_JSON="
 
 
 class _PeakWorkingSetSampler:
@@ -161,41 +170,96 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             self.fail("The benchmark workload must be 'products' or 'bom'")
 
         fixture_started = perf_counter()
-        project_id, source_sha256, source_size_bytes = (
-            self._prepare_project_and_evidence(
-                row_count=PREPARATION_SCALE_ROWS,
-                column_count=PREPARATION_SCALE_COLUMNS,
-                mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
-                dirty=PREPARATION_SCALE_DIRTY,
+        fixture_cpu_started = process_time()
+        process = psutil.Process()
+        with _PeakWorkingSetSampler(process) as fixture_memory_sampler:
+            project_id, source_sha256, source_size_bytes = (
+                self._prepare_project_and_evidence(
+                    row_count=PREPARATION_SCALE_ROWS,
+                    column_count=PREPARATION_SCALE_COLUMNS,
+                    mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
+                    dirty=PREPARATION_SCALE_DIRTY,
+                )
             )
-        )
         if os.environ.get("IMPODO_PREPARATION_ADVANCED") == "1":
             self._enable_advanced_coverage(project_id)
         fixture_seconds = perf_counter() - fixture_started
+        fixture_cpu_seconds = process_time() - fixture_cpu_started
+        fixture_peak_mib = fixture_memory_sampler.peak_bytes / (1024 * 1024)
+        fixture_ending_mib = process.memory_info().rss / (1024 * 1024)
 
-        phases: dict[str, float] = {}
+        phase_wall_seconds: dict[str, float] = {}
+        phase_cpu_seconds: dict[str, float] = {}
+        phase_calls: dict[str, int] = {}
+
+        def record_phase(
+            name: str,
+            wall_seconds: float,
+            cpu_seconds: float,
+            *,
+            replace_existing: bool = False,
+        ) -> None:
+            if replace_existing:
+                phase_wall_seconds[name] = wall_seconds
+                phase_cpu_seconds[name] = cpu_seconds
+                phase_calls[name] = 1
+                return
+            phase_wall_seconds[name] = (
+                phase_wall_seconds.get(name, 0.0) + wall_seconds
+            )
+            phase_cpu_seconds[name] = (
+                phase_cpu_seconds.get(name, 0.0) + cpu_seconds
+            )
+            phase_calls[name] = phase_calls.get(name, 0) + 1
 
         def timed(name, callback):
             def invoke(*args, **kwargs):
-                started = perf_counter()
+                wall_started = perf_counter()
+                cpu_started = process_time()
                 try:
                     return callback(*args, **kwargs)
                 finally:
-                    phases[name] = perf_counter() - started
+                    record_phase(
+                        name,
+                        perf_counter() - wall_started,
+                        process_time() - cpu_started,
+                        replace_existing=True,
+                    )
 
             return invoke
 
         def accumulated(name, callback):
             def invoke(*args, **kwargs):
-                started = perf_counter()
+                wall_started = perf_counter()
+                cpu_started = process_time()
                 try:
                     return callback(*args, **kwargs)
                 finally:
-                    phases[name] = phases.get(name, 0.0) + (
-                        perf_counter() - started
+                    record_phase(
+                        name,
+                        perf_counter() - wall_started,
+                        process_time() - cpu_started,
                     )
 
             return invoke
+
+        original_iter_batches = source_module.SelectedSourceBatchStream.iter_batches
+
+        def timed_iter_batches(stream):
+            iterator = original_iter_batches(stream)
+            while True:
+                wall_started = perf_counter()
+                cpu_started = process_time()
+                try:
+                    batch = next(iterator)
+                except StopIteration:
+                    return
+                record_phase(
+                    "source_batch_read",
+                    perf_counter() - wall_started,
+                    process_time() - cpu_started,
+                )
+                yield batch
 
         original_stage = preparation_module.stage_browser_mapping
         original_bounded_stage = (
@@ -229,98 +293,158 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         original_finalize_session = (
             self.context.preparation.sessions.finalize_direct_session
         )
+        original_project_row = evaluator_module.CompiledBrowserRowTransformer.project
+        original_finish_row = evaluator_module.CompiledBrowserRowTransformer.finish
+        original_scalar_value = evaluator_module.evaluate_scalar_mapping_value
+        original_prepare_row = source_module.CompiledPreparedRowTransformer.transform
+        original_canonical_row = (
+            bounded_preparation_module.canonical_row_from_prepared
+        )
+        original_canonical_json = bounded_preparation_module.canonical_json_bytes
 
-        process = psutil.Process()
         started = perf_counter()
-        with (
-            _PeakWorkingSetSampler(process) as memory_sampler,
-            patch(
-                "impodo.application.preparation_service."
-                "require_supported_browser_scale",
-            ),
-            patch(
-                "impodo.domain.staging.evaluator."
-                "require_supported_browser_scale",
-            ),
-            patch(
-                "impodo.application.preparation_service.stage_browser_mapping",
-                timed("load_and_evaluate", original_stage),
-            ),
-            patch(
-                "impodo.application.preparation_service."
-                "prepare_bounded_direct_session",
-                timed("bounded_load_and_evaluate", original_bounded_stage),
-            ),
-            patch.object(
-                self.context.preparation.staging,
-                "publish_canonical_staging",
-                timed("staging_publication", original_publish),
-            ),
-            patch.object(
-                self.context.preparation.staging,
-                "get_canonical_staging_run",
-                timed("staging_reload", original_reload),
-            ),
-            patch.object(
-                self.context.preparation.quality,
-                "evaluate_and_publish",
-                timed("quality", original_quality),
-            ),
-            patch(
-                "impodo.application.quality_service."
-                "build_bounded_quality_run",
-                timed("quality_evaluation", original_quality_evaluation),
-            ),
-            patch.object(
-                self.context.preparation.quality.quality,
-                "_insert_quality_evidence",
-                timed(
-                    "quality_persistence_and_hash",
-                    original_quality_persistence,
+        cpu_started = process_time()
+        with ExitStack() as stack:
+            memory_sampler = stack.enter_context(_PeakWorkingSetSampler(process))
+            stack.enter_context(
+                patch(
+                    "impodo.application.preparation_service."
+                    "require_supported_browser_scale",
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "impodo.domain.staging.evaluator."
+                    "require_supported_browser_scale",
+                )
+            )
+            patches = (
+                patch(
+                    "impodo.application.preparation_service.stage_browser_mapping",
+                    timed("load_and_evaluate", original_stage),
                 ),
-            ),
-            patch.object(
-                self.context.preparation.normalization,
-                "evaluate_and_publish",
-                timed("normalization", original_normalization),
-            ),
-            patch(
-                "impodo.application.normalization_service."
-                "build_bounded_normalization_evaluation",
-                timed(
-                    "normalization_aggregation",
-                    original_normalization_aggregation,
+                patch(
+                    "impodo.application.preparation_service."
+                    "prepare_bounded_direct_session",
+                    timed("bounded_load_and_evaluate", original_bounded_stage),
                 ),
-            ),
-            patch.object(
-                self.context.preparation.normalization.repository,
-                "_insert_normalization_evidence",
-                timed(
-                    "normalization_persistence_and_hash",
-                    original_normalization_persistence,
+                patch.object(
+                    self.context.preparation.staging,
+                    "publish_canonical_staging",
+                    timed("staging_publication", original_publish),
                 ),
-            ),
-            patch.object(
-                self.context.preparation.sessions,
-                "append_direct_rows",
-                accumulated("direct_canonical_append", original_append_rows),
-            ),
-            patch.object(
-                self.context.preparation.sessions,
-                "append_impacts",
-                accumulated("session_impact_append", original_append_impacts),
-            ),
-            patch.object(
-                self.context.preparation.sessions,
-                "finalize_direct_session",
-                timed("direct_finalization", original_finalize_session),
-            ),
-        ):
+                patch.object(
+                    self.context.preparation.staging,
+                    "get_canonical_staging_run",
+                    timed("staging_reload", original_reload),
+                ),
+                patch.object(
+                    self.context.preparation.quality,
+                    "evaluate_and_publish",
+                    timed("quality", original_quality),
+                ),
+                patch(
+                    "impodo.application.quality_service."
+                    "build_bounded_quality_run",
+                    timed("quality_evaluation", original_quality_evaluation),
+                ),
+                patch.object(
+                    self.context.preparation.quality.quality,
+                    "_insert_quality_evidence",
+                    timed(
+                        "quality_persistence_and_hash",
+                        original_quality_persistence,
+                    ),
+                ),
+                patch.object(
+                    self.context.preparation.normalization,
+                    "evaluate_and_publish",
+                    timed("normalization", original_normalization),
+                ),
+                patch(
+                    "impodo.application.normalization_service."
+                    "build_bounded_normalization_evaluation",
+                    timed(
+                        "normalization_aggregation",
+                        original_normalization_aggregation,
+                    ),
+                ),
+                patch.object(
+                    self.context.preparation.normalization.repository,
+                    "_insert_normalization_evidence",
+                    timed(
+                        "normalization_persistence_and_hash",
+                        original_normalization_persistence,
+                    ),
+                ),
+                patch.object(
+                    self.context.preparation.sessions,
+                    "append_direct_rows",
+                    accumulated("direct_canonical_append", original_append_rows),
+                ),
+                patch.object(
+                    self.context.preparation.sessions,
+                    "append_impacts",
+                    accumulated("session_impact_append", original_append_impacts),
+                ),
+                patch.object(
+                    self.context.preparation.sessions,
+                    "finalize_direct_session",
+                    timed("direct_finalization", original_finalize_session),
+                ),
+                patch.object(
+                    source_module.SelectedSourceBatchStream,
+                    "iter_batches",
+                    timed_iter_batches,
+                ),
+                patch.object(
+                    evaluator_module.CompiledBrowserRowTransformer,
+                    "project",
+                    accumulated("row_projection", original_project_row),
+                ),
+                patch.object(
+                    evaluator_module.CompiledBrowserRowTransformer,
+                    "finish",
+                    accumulated("row_finish_inclusive", original_finish_row),
+                ),
+                patch.object(
+                    evaluator_module,
+                    "evaluate_scalar_mapping_value",
+                    accumulated("scalar_value_evaluation", original_scalar_value),
+                ),
+                patch.object(
+                    source_module.CompiledPreparedRowTransformer,
+                    "transform",
+                    accumulated(
+                        "prepared_record_construction",
+                        original_prepare_row,
+                    ),
+                ),
+                patch.object(
+                    bounded_preparation_module,
+                    "canonical_row_from_prepared",
+                    accumulated(
+                        "canonical_row_construction",
+                        original_canonical_row,
+                    ),
+                ),
+                patch.object(
+                    bounded_preparation_module,
+                    "canonical_json_bytes",
+                    accumulated(
+                        "canonical_serialization",
+                        original_canonical_json,
+                    ),
+                ),
+            )
+            for active_patch in patches:
+                stack.enter_context(active_patch)
             normalization = self.context.preparation.prepare(
                 project_id,
                 actor=self.context.actor,
             )
         elapsed = perf_counter() - started
+        cpu_seconds = process_time() - cpu_started
 
         staging = (
             self.context.preparation.staging.get_current_staging_summary(
@@ -342,6 +466,17 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         peak_mib = memory_sampler.peak_bytes / (1024 * 1024)
         database_path = self.root / project_id / "project.duckdb"
         database_mib = database_path.stat().st_size / (1024 * 1024)
+        source_snapshots = (
+            self.context.preparation.sources.get_current_source_snapshots(project_id)
+        )
+        snapshot_bytes = sum(
+            (
+                self.root
+                / project_id
+                / snapshot.parquet_storage_key
+            ).stat().st_size
+            for snapshot in source_snapshots
+        )
         with self.context.preparation.staging._connect(database_path) as connection:
             counters = connection.execute(
                 """
@@ -375,7 +510,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         ) = (int(item) for item in counters)
         phase_text = ", ".join(
             f"{name}={seconds:.3f}s"
-            for name, seconds in phases.items()
+            for name, seconds in phase_wall_seconds.items()
         )
         print(
             "Complete preparation scale probe: "
@@ -385,8 +520,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             f"columns={PREPARATION_SCALE_COLUMNS}, "
             f"mapped_fields={PREPARATION_SCALE_MAPPED_FIELDS}, "
             f"fixture={fixture_seconds:.3f}s, total={elapsed:.3f}s, "
+            f"fixture_peak={fixture_peak_mib:.1f} MiB, "
             f"peak={peak_mib:.1f} MiB, ending_rss={ending_mib:.1f} MiB, "
             f"database={database_mib:.1f} MiB, "
+            f"snapshots={len(source_snapshots)}, snapshot_bytes={snapshot_bytes}, "
             f"source_bytes={source_size_bytes}, source_sha256={source_sha256}, "
             f"selected_cells={PREPARATION_SCALE_ROWS * PREPARATION_SCALE_COLUMNS}, "
             f"mapped_scalar_evaluations={PREPARATION_SCALE_ROWS * PREPARATION_SCALE_MAPPED_FIELDS}, "
@@ -399,6 +536,66 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             f"quality_hash={quality.content_hash}, "
             f"normalization_hash={normalization.content_hash}"
         )
+
+        if os.environ.get("IMPODO_PREPARATION_SCALE_JSON") == "1":
+            result = {
+                "batch_sizes": {
+                    "source_rows": BOUNDED_SOURCE_BATCH_SIZE,
+                },
+                "columns": PREPARATION_SCALE_COLUMNS,
+                "counts": {
+                    "canonical_rows": canonical_rows,
+                    "lineage_links": lineage_links,
+                    "normalization_effects": normalization_effects,
+                    "normalization_groups": normalization_groups,
+                    "quality_issues": quality_issues,
+                    "quality_rows": quality_rows,
+                    "quarantine_entries": quarantine_entries,
+                    "serialized_characters": serialized_characters,
+                },
+                "cpu_seconds": cpu_seconds,
+                "database_mib": database_mib,
+                "dirty": PREPARATION_SCALE_DIRTY,
+                "ending_rss_mib": ending_mib,
+                "fixture": {
+                    "cpu_seconds": fixture_cpu_seconds,
+                    "ending_rss_mib": fixture_ending_mib,
+                    "peak_working_set_mib": fixture_peak_mib,
+                    "sha256": source_sha256,
+                    "size_bytes": source_size_bytes,
+                    "snapshot_bytes": snapshot_bytes,
+                    "snapshot_count": len(source_snapshots),
+                    "wall_seconds": fixture_seconds,
+                },
+                "hashes": {
+                    "normalization": normalization.content_hash,
+                    "quality": quality.content_hash,
+                    "staging": staging.content_hash,
+                },
+                "mapped_fields": PREPARATION_SCALE_MAPPED_FIELDS,
+                "peak_working_set_mib": peak_mib,
+                "phase_calls": phase_calls,
+                "phase_cpu_seconds": phase_cpu_seconds,
+                "phase_wall_seconds": phase_wall_seconds,
+                "platform": platform.platform(),
+                "python": sys.version,
+                "revision": os.environ.get(
+                    "IMPODO_PREPARATION_BENCHMARK_REVISION",
+                    "unknown",
+                ),
+                "rows": PREPARATION_SCALE_ROWS,
+                "runtime_versions": {
+                    name: _installed_version(name)
+                    for name in ("duckdb", "openpyxl", "polars", "psutil")
+                },
+                "schema_version": 1,
+                "wall_seconds": elapsed,
+                "workload": PREPARATION_SCALE_WORKLOAD,
+            }
+            print(
+                PREPARATION_BENCHMARK_PREFIX
+                + json.dumps(result, separators=(",", ":"), sort_keys=True)
+            )
 
         self.assertEqual(staging.total_rows, PREPARATION_SCALE_ROWS)
         collision_groups = (
@@ -472,6 +669,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 reference_bundle,
                 self.context.preparation.sessions,
                 actor=self.context.actor,
+                source_snapshots=(
+                    self.context.preparation.sources.get_current_source_snapshots(
+                        project_id
+                    )
+                ),
             )
         elapsed = perf_counter() - started
         peak_mib = memory_sampler.peak_bytes / (1024 * 1024)
@@ -1879,6 +2081,13 @@ def _catalog(
             ),
         ),
     )
+
+
+def _installed_version(distribution: str) -> str:
+    try:
+        return package_version(distribution)
+    except PackageNotFoundError:
+        return "missing"
 
 
 if __name__ == "__main__":

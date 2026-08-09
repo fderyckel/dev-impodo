@@ -16,8 +16,16 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
+from pathlib import PurePosixPath
+import re
+import shutil
 from typing import BinaryIO, ContextManager, Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
+
+
+_DATASET_SNAPSHOT_SEGMENT = re.compile(r"[0-9a-f]{24}")
+_SHA256_SEGMENT = re.compile(r"[0-9a-f]{64}")
+_PARQUET_SNAPSHOT_FILE = re.compile(r"[0-9a-f]{64}\.parquet")
 
 
 class ArtifactStoreError(RuntimeError):
@@ -67,6 +75,42 @@ class ArtifactStore(Protocol):
 
     def delete_source(self, project_id: str, storage_key: str) -> None:
         """Delete newly stored source bytes during a failed compensated intake."""
+        ...
+
+    def prepare_source_snapshot(
+        self,
+        project_id: str,
+    ) -> ContextManager[Path]:
+        """Yield one contained temporary workspace for a Parquet snapshot."""
+        ...
+
+    def publish_source_snapshot(
+        self,
+        project_id: str,
+        temporary_file: Path,
+        storage_key: str,
+        *,
+        expected_sha256: str,
+    ) -> None:
+        """Atomically publish one verified immutable snapshot file."""
+        ...
+
+    def materialize_source_snapshot(
+        self,
+        project_id: str,
+        storage_key: str,
+        *,
+        expected_sha256: str,
+    ) -> ContextManager[Path]:
+        """Expose one hash-verified immutable source snapshot for reading."""
+        ...
+
+    def cleanup_source_snapshots(
+        self,
+        project_id: str,
+        referenced_storage_keys: frozenset[str],
+    ) -> int:
+        """Remove only temporary and unregistered source-snapshot files."""
         ...
 
     def write_report(
@@ -198,6 +242,105 @@ class LocalArtifactStore:
 
         self._source_path(project_id, storage_key).unlink(missing_ok=True)
 
+    @contextmanager
+    def prepare_source_snapshot(self, project_id: str) -> Iterator[Path]:
+        """Create and always remove one project-contained snapshot workspace."""
+
+        work_root = self._source_snapshot_root(project_id, create=True) / ".work"
+        if work_root.is_symlink():
+            raise ArtifactStoreError("Snapshot work directory must not be a symlink")
+        work_root.mkdir(exist_ok=True)
+        workspace = work_root / str(uuid4())
+        workspace.mkdir()
+        try:
+            yield workspace
+        finally:
+            shutil.rmtree(workspace, ignore_errors=True)
+
+    def publish_source_snapshot(
+        self,
+        project_id: str,
+        temporary_file: Path,
+        storage_key: str,
+        *,
+        expected_sha256: str,
+    ) -> None:
+        """Hash-check and atomically rename a completed Parquet snapshot."""
+
+        source = temporary_file.resolve()
+        work_root = self._source_snapshot_root(project_id, create=True) / ".work"
+        try:
+            source.relative_to(work_root.resolve())
+        except ValueError as error:
+            raise ArtifactStoreError(
+                "Snapshot publication source escapes its work directory"
+            ) from error
+        if temporary_file.is_symlink() or not source.is_file():
+            raise ArtifactStoreError("Snapshot writer did not create a regular file")
+        actual_hash = _file_sha256(source)
+        if actual_hash != _canonical_sha256(expected_sha256):
+            raise ArtifactStoreError("Snapshot file hash changed before publication")
+
+        final = self._source_snapshot_path(project_id, storage_key, create=True)
+        if final.is_symlink():
+            raise ArtifactStoreError("Source snapshots must not be symbolic links")
+        if final.exists():
+            if not final.is_file() or _file_sha256(final) != actual_hash:
+                raise ArtifactStoreError(
+                    "A different snapshot already occupies the immutable path"
+                )
+            source.unlink()
+            return
+        source.replace(final)
+
+    @contextmanager
+    def materialize_source_snapshot(
+        self,
+        project_id: str,
+        storage_key: str,
+        *,
+        expected_sha256: str,
+    ) -> Iterator[Path]:
+        """Yield one contained snapshot only after verifying its exact bytes."""
+
+        path = self._source_snapshot_path(project_id, storage_key, create=False)
+        if path.is_symlink() or not path.is_file():
+            raise ArtifactStoreError("Stored source snapshot is missing")
+        if _file_sha256(path) != _canonical_sha256(expected_sha256):
+            raise ArtifactStoreError("Stored source snapshot failed hash verification")
+        yield path
+
+    def cleanup_source_snapshots(
+        self,
+        project_id: str,
+        referenced_storage_keys: frozenset[str],
+    ) -> int:
+        """Delete work remnants and immutable files absent from DuckDB manifests."""
+
+        root = self._source_snapshot_root(project_id, create=True)
+        referenced = {
+            self._source_snapshot_path(project_id, key, create=False)
+            for key in referenced_storage_keys
+        }
+        removed = 0
+        work_root = root / ".work"
+        if work_root.is_symlink():
+            work_root.unlink()
+            removed += 1
+        elif work_root.is_dir():
+            for child in tuple(work_root.iterdir()):
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink(missing_ok=True)
+                removed += 1
+        for candidate in tuple(root.rglob("*.parquet")):
+            if candidate.is_symlink() or candidate.resolve() not in referenced:
+                candidate.unlink(missing_ok=True)
+                removed += 1
+        _prune_empty_directories(root)
+        return removed
+
     def write_report(
         self,
         project_id: str,
@@ -281,6 +424,58 @@ class LocalArtifactStore:
             raise ArtifactStoreError("Invalid source artifact key")
         return target
 
+    def _source_snapshot_root(self, project_id: str, *, create: bool) -> Path:
+        project = self._project_directory(project_id)
+        snapshots = project / "snapshots"
+        if snapshots.is_symlink():
+            raise ArtifactStoreError("Project snapshots must not be a symbolic link")
+        if create:
+            snapshots.mkdir(exist_ok=True)
+        source = snapshots / "source"
+        if source.is_symlink():
+            raise ArtifactStoreError("Source snapshots must not be a symbolic link")
+        if create:
+            source.mkdir(exist_ok=True)
+        resolved = source.resolve()
+        if resolved.parent != snapshots.resolve():
+            raise ArtifactStoreError("Source snapshot directory escapes the project")
+        return resolved
+
+    def _source_snapshot_path(
+        self,
+        project_id: str,
+        storage_key: str,
+        *,
+        create: bool,
+    ) -> Path:
+        key = PurePosixPath(storage_key)
+        parts = key.parts
+        if (
+            key.is_absolute()
+            or str(key) != storage_key
+            or len(parts) != 6
+            or parts[:3] != ("snapshots", "source", "v1")
+            or _DATASET_SNAPSHOT_SEGMENT.fullmatch(parts[3]) is None
+            or _SHA256_SEGMENT.fullmatch(parts[4]) is None
+            or _PARQUET_SNAPSHOT_FILE.fullmatch(parts[5]) is None
+        ):
+            raise ArtifactStoreError("Invalid source snapshot key")
+        root = self._source_snapshot_root(project_id, create=create)
+        parent = root / parts[2] / parts[3] / parts[4]
+        current = root
+        for segment in parts[2:5]:
+            current = current / segment
+            if current.is_symlink():
+                raise ArtifactStoreError(
+                    "Source snapshot path must not contain symbolic links"
+                )
+            if create:
+                current.mkdir(exist_ok=True)
+        target = (parent / parts[5]).resolve()
+        if target.parent != parent.resolve():
+            raise ArtifactStoreError("Source snapshot escapes the project")
+        return target
+
     def _project_directory(self, project_id: str) -> Path:
         try:
             canonical = str(UUID(project_id))
@@ -332,3 +527,31 @@ class LocalArtifactStore:
         if target.parent != run_directory.resolve():
             raise ArtifactStoreError("Report artifact escapes the project root")
         return target
+
+
+def _canonical_sha256(value: str) -> str:
+    digest = value.removeprefix("sha256:").casefold()
+    if _SHA256_SEGMENT.fullmatch(digest) is None:
+        raise ArtifactStoreError("Invalid SHA-256 evidence")
+    return f"sha256:{digest}"
+
+
+def _file_sha256(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
+
+
+def _prune_empty_directories(root: Path) -> None:
+    directories = sorted(
+        (item for item in root.rglob("*") if item.is_dir() and not item.is_symlink()),
+        key=lambda item: len(item.parts),
+        reverse=True,
+    )
+    for directory in directories:
+        try:
+            directory.rmdir()
+        except OSError:
+            pass

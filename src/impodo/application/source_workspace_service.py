@@ -18,16 +18,29 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from hashlib import sha256
 import re
+from threading import RLock
 from typing import Iterable, Mapping, Protocol
 from uuid import uuid4
 
 from ..access import Actor, AuthorizationPolicy, Capability
+from ..artifacts import ArtifactStore, ArtifactStoreError
+from ..domain.source_snapshot import (
+    SOURCE_READER_CONTRACT_VERSION,
+    SourceSnapshot,
+    source_snapshot_logical_hash,
+)
 from ..inspection import (
     SourceFileCatalog,
     SourceInspectionError,
     SourceTableCatalog,
 )
 from ..projects import MigrationProject, ProjectStatus
+from ..source import SourceLoadError
+from ..source_snapshot_io import (
+    SourceSnapshotPublisher,
+    source_snapshot_schema,
+    validate_snapshot_for_dataset,
+)
 from ..workspace_contracts import (
     SourceConfiguration,
     SourceDataset,
@@ -90,6 +103,30 @@ class SourceWorkspaceRepository(Protocol):
         """Publish one selection version and invalidate derived/mapping evidence."""
         ...
 
+    def publish_source_selection_with_snapshots(
+        self,
+        project_id: str,
+        selection: SourceSelection,
+        snapshots: Iterable[SourceSnapshot],
+        *,
+        actor: Actor,
+    ) -> None:
+        """Atomically publish one selection and all of its snapshot pointers."""
+        ...
+
+    def find_source_snapshot(
+        self,
+        project_id: str,
+        dataset_id: str,
+        logical_hash: str,
+    ) -> SourceSnapshot | None:
+        """Return a registered matching logical snapshot, when available."""
+        ...
+
+    def source_snapshot_storage_keys(self, project_id: str) -> frozenset[str]:
+        """Return every immutable snapshot path referenced by DuckDB."""
+        ...
+
 
 class SourceWorkspaceService:
     """Own Stage B confirmation and versioned dataset-freeze rules.
@@ -104,10 +141,16 @@ class SourceWorkspaceService:
         projects: ProjectReader,
         sources: SourceWorkspaceRepository,
         authorization: AuthorizationPolicy,
+        artifacts: ArtifactStore | None = None,
     ) -> None:
         self.projects = projects
         self.sources = sources
         self.authorization = authorization
+        self.artifacts = artifacts
+        self.snapshot_publisher = (
+            SourceSnapshotPublisher(artifacts) if artifacts is not None else None
+        )
+        self._snapshot_lock = RLock()
 
     def confirm_source(
         self,
@@ -200,6 +243,22 @@ class SourceWorkspaceService:
         return configuration
 
     def freeze_selection(
+        self,
+        project_id: str,
+        *,
+        dataset_names: Mapping[tuple[str, str], str],
+        actor: Actor,
+    ) -> SourceSelection:
+        """Serialize snapshot publication and pointer advancement per process."""
+
+        with self._snapshot_lock:
+            return self._freeze_selection_locked(
+                project_id,
+                dataset_names=dataset_names,
+                actor=actor,
+            )
+
+    def _freeze_selection_locked(
         self,
         project_id: str,
         *,
@@ -305,12 +364,93 @@ class SourceWorkspaceService:
             datasets=tuple(datasets),
             content_hash=content_hash(content),
         )
-        self.sources.save_source_selection(
-            project_id,
-            selection,
-            actor=actor,
-        )
+        if self.snapshot_publisher is None or self.artifacts is None:
+            # Pure service tests keep the filesystem boundary absent. Production
+            # composition always supplies it and therefore always publishes
+            # snapshots before advancing the frozen-selection pointer.
+            self.sources.save_source_selection(
+                project_id,
+                selection,
+                actor=actor,
+            )
+            return selection
+
+        source_files = {item.file_id: item for item in project.source_files}
+        snapshots: list[SourceSnapshot] = []
+        try:
+            for dataset in selection.datasets:
+                catalog = catalogs.get(dataset.file_id)
+                source_file = source_files.get(dataset.file_id)
+                if catalog is None or source_file is None:
+                    raise WorkspaceError("Frozen source evidence is incomplete")
+                schema = source_snapshot_schema(dataset)
+                logical_hash = source_snapshot_logical_hash(
+                    project_id=project_id,
+                    dataset_id=dataset.dataset_id,
+                    dataset_name=dataset.name,
+                    file_id=dataset.file_id,
+                    table_key=dataset.table_key,
+                    source_sha256=(
+                        "sha256:"
+                        + dataset.source_sha256.removeprefix("sha256:")
+                    ),
+                    catalog_hash=dataset.catalog_hash,
+                    physical_selection_hash=selection.content_hash,
+                    reader_contract_version=SOURCE_READER_CONTRACT_VERSION,
+                    schema_hash=schema.content_hash,
+                    row_count=dataset.row_count,
+                )
+                existing = self.sources.find_source_snapshot(
+                    project_id,
+                    dataset.dataset_id,
+                    logical_hash,
+                )
+                if existing is not None:
+                    validate_snapshot_for_dataset(selection, dataset, existing)
+                    with self.artifacts.materialize_source_snapshot(
+                        project_id,
+                        existing.parquet_storage_key,
+                        expected_sha256=existing.parquet_sha256,
+                    ):
+                        pass
+                    snapshots.append(existing)
+                    continue
+                snapshots.append(
+                    self.snapshot_publisher.publish(
+                        project,
+                        selection,
+                        dataset,
+                        catalog,
+                        source_file,
+                    ).snapshot
+                )
+            self.sources.publish_source_selection_with_snapshots(
+                project_id,
+                selection,
+                snapshots,
+                actor=actor,
+            )
+        except WorkspaceError:
+            self._cleanup_snapshot_orphans(project_id)
+            raise
+        except (ArtifactStoreError, SourceLoadError, OSError) as error:
+            self._cleanup_snapshot_orphans(project_id)
+            raise WorkspaceError(
+                "Impodo could not create the immutable source snapshot: "
+                f"{error}"
+            ) from error
+        except Exception as error:
+            self._cleanup_snapshot_orphans(project_id)
+            raise WorkspaceError(
+                "Impodo could not publish the immutable source snapshot"
+            ) from error
+        self._cleanup_snapshot_orphans(project_id)
         return selection
+
+    def _cleanup_snapshot_orphans(self, project_id: str) -> None:
+        assert self.artifacts is not None
+        referenced = self.sources.source_snapshot_storage_keys(project_id)
+        self.artifacts.cleanup_source_snapshots(project_id, referenced)
 
 
 def _unsafe_cell_problem(

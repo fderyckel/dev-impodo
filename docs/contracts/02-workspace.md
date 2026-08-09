@@ -46,13 +46,25 @@ explicit acknowledgement; acknowledgement proves review, not data quality.
 
 Freezing assigns unique snake-case dataset names and stores versioned dataset
 keys, row counts, ordered columns, effective parsing, source/catalog hashes,
-actor, timestamp, and a canonical selection hash.
+actor, timestamp, and a canonical selection hash. Before the frozen pointer
+advances, each selected physical table is parsed once through the governed
+reader and published as an immutable Parquet `SourceSnapshot`. The manifest
+binds the selection, source/catalog hashes, stable column schema, original
+source-row numbers, row count, reader version, logical hash, exact Parquet
+hash, and content-addressed storage key. Selection and per-dataset snapshot
+pointers advance together in one DuckDB transaction.
+
+After freezing, normal mapping preview and preparation resolve and hash-check
+the Parquet snapshot rather than reopen CSV/XLSX. The original registered file
+remains immutable evidence for audit/reinspection, not the routine preparation
+data path. Snapshot publication is mapping-independent and has no user-facing
+format or backend choice.
 
 Invalidation is fail-closed:
 
 | Change | Invalidated active evidence |
 | --- | --- |
-| Reinspect or reconfirm a source | Frozen selection and mapping pointer |
+| Reinspect or reconfirm a source | Frozen selection, source-snapshot pointers, and mapping pointer |
 | Freeze a new selection | Mapping pointer |
 | Recapture target schema | Schema governance and mapping pointer |
 | Change target identity or governed keys | Target-derived mapping and submission evidence |

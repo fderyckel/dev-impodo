@@ -158,16 +158,28 @@ when that pointer is invalidated or advanced.
 | Stage | Main object family | Owner and organization |
 | --- | --- | --- |
 | A — Project | `MigrationProject` contains setup identity, governance, target, immutable `SourceFile` references, and lifecycle summaries | `ProjectService` applies lifecycle rules through the `ProjectRepository` port; DuckDB `ProjectRepository` owns registry/project transactions and downstream invalidation |
-| B — Source | `SourceFile` → `SourceFileCatalog` → `SourceConfiguration` → versioned `SourceSelection` | `SourceIntakeService` owns compensated artifact intake; `SourceInspectionService` owns bounded inspection; `SourceWorkspaceService` owns confirmation/freezing; `SourceRepository` owns their current pointers |
+| B — Source | `SourceFile` → `SourceFileCatalog` → `SourceConfiguration` → versioned `SourceSelection` + immutable `SourceSnapshot` | `SourceIntakeService` owns compensated artifact intake; `SourceInspectionService` owns bounded inspection; `SourceWorkspaceService` owns confirmation, Parquet publication, and freezing; `SourceRepository` atomically owns selection/manifest current pointers |
 | C — Schema | `OdooModelCatalog` → permitted-model scope → `OdooSchemaCatalog` → versioned `SchemaGovernance`/`BusinessKeyDefinition` | Closed readers create snapshots; `SchemaWorkspaceService` verifies target identity and meaning; `SchemaRepository` owns current catalogs plus immutable governance revisions |
 | D — Mapping | recoverable `MappingWorkingDraft` → semantic `MappingDefinition` → immutable `MappingRevision` + `MappingValidationResult` → `MappingSubmission` | Nested mapping contracts describe datasets, identities, scalar providers, relationships, and totals; `MappingWorkspaceService` coordinates validation; `MappingRepository` owns optimistic draft/current/history pointers |
+
+The columnar preparation track publishes immutable physical source evidence in
+[`domain/source_snapshot.py`](../../src/impodo/domain/source_snapshot.py): a
+mapping-independent schema, lossless tagged source scalars, logical/artifact
+hash binding, and application-constructed content-addressed paths.
+[`source_snapshot_io.py`](../../src/impodo/source_snapshot_io.py) retains the
+strict CSV/XLSX reader as the ingestion oracle, writes cell-bounded Parquet
+fragments, compacts and validates them with streaming Polars execution, and
+provides the temporary bounded `SourceRow` adapter. Source freezing publishes
+the file first and then advances the selection and per-dataset snapshot
+pointers together in DuckDB. Preview and preparation read the verified
+snapshot; they do not reopen registered CSV/XLSX bytes.
 
 The important port-to-adapter connections are:
 
 | Service-facing port | Local implementation | Used by |
 | --- | --- | --- |
 | `projects.ProjectRepository` | `adapters.duckdb.project_repository.ProjectRepository` | `ProjectService` |
-| `ArtifactStore` | `LocalArtifactStore` | source intake/inspection and preflight report projections |
+| `ArtifactStore` | `LocalArtifactStore` | source intake/inspection, contained immutable Parquet snapshot publication/materialization, and preflight report projections |
 | `SourceCatalogRepository` and `SourceWorkspaceRepository` | `adapters.duckdb.source_repository.SourceRepository` | `SourceInspectionService`, `SourceWorkspaceService` |
 | `DerivedEntityRepository` | `adapters.duckdb.derived_entity_repository.DerivedEntityRepository` | `DerivedEntityWorkspaceService` |
 | `SchemaWorkspaceRepository` | `adapters.duckdb.schema_repository.SchemaRepository` | `SchemaWorkspaceService` |

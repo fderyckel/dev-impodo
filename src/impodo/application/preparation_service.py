@@ -19,10 +19,11 @@ from contextlib import ExitStack
 from typing import Callable, Iterable
 
 from ..access import Actor, AuthorizationPolicy, Capability
-from ..artifacts import ArtifactStore
+from ..artifacts import ArtifactStore, ArtifactStoreError
 from ..derived_entities import DerivedEntityPlan
 from ..domain.contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
 from ..domain.coverage import ReferenceBundle
+from ..domain.source_snapshot import SourceSnapshot
 from ..domain.staging.evaluator import (
     StagedBrowserMapping,
     evaluate_browser_mapping,
@@ -39,6 +40,10 @@ from ..normalization import NormalizationRunSummary
 from ..preparation_jobs import PreparationPhase
 from ..projects import MigrationProject
 from ..source import SourceTable, load_selected_source_table
+from ..source_snapshot_io import (
+    load_source_snapshot_table,
+    validate_snapshot_for_dataset,
+)
 from ..workspace_contracts import SourceSelection
 from ..domain.errors import ReadinessError
 from .bounded_preparation import (
@@ -148,6 +153,7 @@ class PreparationService:
         physical_selection = self.sources.get_source_selection(project_id)
         if physical_selection is None:
             raise ReadinessError("Freeze the source datasets before checking data")
+        source_snapshots = self.sources.get_current_source_snapshots(project_id)
         total_rows = sum(item.row_count for item in physical_selection.datasets)
         source_hashes = canonical_source_hashes(physical_selection)
         effective_selection = self.sources.get_mapping_source_selection(project_id)
@@ -200,6 +206,7 @@ class PreparationService:
                 reference_bundle,
                 self.sessions,
                 actor=actor,
+                source_snapshots=source_snapshots,
                 batch_progress=report_source_batch,
             )
             bounded_session_id = bounded.session_id
@@ -245,6 +252,7 @@ class PreparationService:
                 derived_plan,
                 self.sources.get_source_catalogs(project_id),
                 self.artifacts,
+                source_snapshots=source_snapshots,
                 collect_transformation_impact=True,
                 transformation_detail_limit=0,
                 transformation_impact_sink=materialized_impacts.append,
@@ -403,6 +411,7 @@ def stage_browser_mapping(
     artifacts: ArtifactStore,
     reference_bundle: ReferenceBundle | None = None,
     *,
+    source_snapshots: Iterable[SourceSnapshot] | None = None,
     collect_transformation_impact: bool = False,
     transformation_detail_limit: int = TRANSFORMATION_IMPACT_DETAIL_LIMIT,
     transformation_impact_sink: Callable[[TransformationImpactRow], None]
@@ -422,6 +431,7 @@ def stage_browser_mapping(
         physical_selection,
         catalogs,
         artifacts,
+        source_snapshots=source_snapshots,
     )
     return evaluate_browser_mapping(
         project_id=project.project_id,
@@ -442,11 +452,22 @@ def _load_browser_source_tables(
     physical_selection: SourceSelection,
     catalogs: Iterable[SourceFileCatalog],
     artifacts: ArtifactStore,
+    *,
+    source_snapshots: Iterable[SourceSnapshot] | None = None,
 ) -> dict[str, SourceTable]:
     """Materialize and validate physical tables before pure evaluation."""
 
     catalog_by_file = {item.file_id: item for item in catalogs}
     source_file_by_id = {item.file_id: item for item in project.source_files}
+    snapshot_by_dataset = {
+        item.dataset_id: item for item in (source_snapshots or ())
+    }
+    if source_snapshots is not None and (
+        len(snapshot_by_dataset) != len(physical_selection.datasets)
+        or set(snapshot_by_dataset)
+        != {item.dataset_id for item in physical_selection.datasets}
+    ):
+        raise ReadinessError("Frozen source snapshots are incomplete")
     loaded: dict[str, SourceTable] = {}
     with ExitStack() as stack:
         for physical in physical_selection.datasets:
@@ -462,6 +483,30 @@ def _load_browser_source_tables(
             )
             if source_file is None or catalog is None or table_catalog is None:
                 raise ReadinessError("Frozen source evidence is incomplete")
+            snapshot = snapshot_by_dataset.get(physical.dataset_id)
+            if snapshot is not None:
+                try:
+                    validate_snapshot_for_dataset(
+                        physical_selection,
+                        physical,
+                        snapshot,
+                    )
+                    path = stack.enter_context(
+                        artifacts.materialize_source_snapshot(
+                            project.project_id,
+                            snapshot.parquet_storage_key,
+                            expected_sha256=snapshot.parquet_sha256,
+                        )
+                    )
+                    loaded[physical.dataset_id] = load_source_snapshot_table(
+                        path,
+                        snapshot,
+                    )
+                except (ArtifactStoreError, OSError, ValueError) as error:
+                    raise ReadinessError(
+                        "The frozen source snapshot could not be verified"
+                    ) from error
+                continue
             path = stack.enter_context(
                 artifacts.materialize_source(
                     project.project_id,

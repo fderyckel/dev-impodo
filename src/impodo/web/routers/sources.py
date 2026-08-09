@@ -201,7 +201,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
             for index, choice in enumerate(choices)
         }
         try:
-            selection = context.sources.freeze_selection(
+            selection = await run_in_threadpool(
+                context.sources.freeze_selection,
                 project_id,
                 dataset_names=names,
                 actor=context.actor,

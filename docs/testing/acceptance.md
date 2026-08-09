@@ -39,11 +39,58 @@ On macOS or Linux:
 Set `IMPODO_RUN_WORKBOOK_TESTS=1` only when the optional workbook-rendering
 runtime is installed and that integration is part of the acceptance run.
 
+## Fresh-process preparation baseline
+
+The columnar preparation track uses a machine-readable parent harness rather
+than comparing repeated runs inside one Python process:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/benchmark_preparation.py \
+  --runs 3 \
+  --rows 100000 \
+  --columns 30 \
+  --mapped-fields 20 \
+  --workload products \
+  --output .tmp/preparation-products-baseline.json
+```
+
+Run the same command with `--workload bom`, and use `--dirty` for the
+effect-heavy case. Every child process creates the deterministic fixture and a
+new local project, then records fixture checksum/size, revision, Python and
+runtime versions, batch size, wall and CPU time, sampled peak and ending
+working set, database size, counts, hashes, and detailed phase timings. The
+parent refuses to summarize runs whose fixture, runtime, revision, dimensions,
+or workload differ. The JSON output contains medians and every individual run;
+do not compare medians without retaining those raw observations.
+
+Accepted baseline evidence requires a clean worktree. The harness records that
+state and refuses a dirty checkout by default. `--allow-dirty-worktree` exists
+only for implementation diagnostics; its output must not be promoted as a
+baseline or release result.
+
+The detailed phase timers are benchmark-only wrappers around the unchanged
+production path. They separate source batch reading, projection, scalar
+value evaluation, inclusive row finalization, prepared-record construction,
+canonical construction and serialization, DuckDB appends/finalization,
+quality, and normalization. This instrumentation intentionally adds small
+call-level overhead, so compare baseline and future backends with the same
+harness revision and settings.
+
+The fixture section separately records its peak/ending working set, snapshot
+count, and Parquet bytes. It includes original-file ingestion, snapshot
+publication, and the remaining project/mapping fixture setup. The preparation
+peak begins afterward and therefore measures verified Parquet consumption
+rather than XLSX/CSV parsing. The focused `test_source_snapshot_io` suite
+proves lossless CSV/XLSX semantics, cell-bounded fragment sizing, exact-file
+verification, disk-write cleanup, orphan recovery, transactional pointer
+rollback, deterministic reuse, and repeated preview/direct preparation with
+the original source unavailable.
+
 ## Automated test inventory
 
 | Area | Current test modules |
 | --- | --- |
-| Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_web_app` |
+| Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_source_snapshot`, `test_source_snapshot_io`, `test_web_app` |
 | Mapping, preparation, staging, and quality | `test_mapping_validation`, `test_derived_entities`, `test_advanced_coverage`, `test_preparation_session`, `test_readiness`, `test_staging_store`, `test_quality` |
 | Profile-driven preflight and practical execution | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_preflight_service`, `test_execution_snapshot`, `test_execution_service`, `test_execution_repository`, `test_preflight_scale`, `test_reporting_cli` |
 | Local Odoo lifecycle | `test_local_odoo_reader`, `test_local_stack` |

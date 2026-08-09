@@ -16,6 +16,7 @@ from .advanced_coverage import create_advanced_coverage_schema
 from .preparation_session import create_preparation_session_schema
 from .execution import create_execution_schema
 from .reconciliation import create_reconciliation_schema
+from .source_snapshot import create_source_snapshot_schema
 
 class ProjectMigrationsMixin:
     """Keep new databases and upgrades on one monotonic schema path.
@@ -516,6 +517,7 @@ class ProjectMigrationsMixin:
         create_preparation_session_schema(connection)
         create_execution_schema(connection)
         create_reconciliation_schema(connection)
+        create_source_snapshot_schema(connection)
 
     def _migrate_project_database(
         self,
@@ -1226,6 +1228,9 @@ class ProjectMigrationsMixin:
                 if version == 26:
                     create_preparation_session_schema(connection)
                     version = 27
+                if version == 27:
+                    create_source_snapshot_schema(connection)
+                    version = 28
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

@@ -14,6 +14,7 @@ import hashlib
 
 from starlette.concurrency import run_in_threadpool
 
+from ..artifacts import ArtifactStoreError
 from ..connectors import (
     Json2Config,
     Json2ReadConnector,
@@ -28,7 +29,10 @@ from ..models import target_identity_hash
 from ..projects import MigrationProject, OdooConnectionMode, ProjectError
 from ..reference_keys import standard_reference_key
 from ..secrets import SecretStoreError
-from ..source import load_selected_source_table
+from ..source_snapshot_io import (
+    load_source_snapshot_table,
+    validate_snapshot_for_dataset,
+)
 from ..workspace_contracts import OdooModelCatalog, SchemaField, SchemaOrigin
 from ..workspace_errors import WorkspaceError
 from .constants import (
@@ -329,48 +333,31 @@ def _source_value_choices(
     )
     if column is None:
         raise WorkspaceError("Choose one current source column")
-    project = context.queries.get(project_id)
-    source_file = next(
-        (item for item in project.source_files if item.file_id == dataset.file_id),
-        None,
-    )
-    catalog = next(
-        (
-            item
-            for item in context.queries.get_source_catalogs(project_id)
-            if item.file_id == dataset.file_id
-        ),
-        None,
-    )
-    table_catalog = next(
-        (
-            item
-            for item in (catalog.tables if catalog else ())
-            if item.table_key == dataset.table_key
-        ),
-        None,
-    )
-    if source_file is None or catalog is None or table_catalog is None:
+    selection = context.queries.get_source_selection(project_id)
+    if selection is None:
         raise WorkspaceError("Frozen source evidence is incomplete")
-    named_range = (
-        table_catalog.named_tables[0].cell_range
-        if table_catalog.kind == "NAMED_TABLE" and table_catalog.named_tables
-        else None
+    snapshot = next(
+        (
+            item
+            for item in context.queries.get_current_source_snapshots(project_id)
+            if item.dataset_id == dataset.dataset_id
+        ),
+        None,
     )
-    with context.artifacts.materialize_source(
-        project_id,
-        source_file.stored_name,
-    ) as path:
-        table = load_selected_source_table(
-            path,
-            dataset=dataset.name,
-            table_key=dataset.table_key,
-            encoding=dataset.encoding,
-            delimiter=dataset.delimiter,
-            header_row=dataset.header_row,
-            named_table_range=named_range,
-            source_display_name=source_file.display_name,
-        )
+    if snapshot is None:
+        raise WorkspaceError("Frozen source snapshot is incomplete")
+    try:
+        validate_snapshot_for_dataset(selection, dataset, snapshot)
+        with context.artifacts.materialize_source_snapshot(
+            project_id,
+            snapshot.parquet_storage_key,
+            expected_sha256=snapshot.parquet_sha256,
+        ) as path:
+            table = load_source_snapshot_table(path, snapshot)
+    except (ArtifactStoreError, OSError, ValueError) as error:
+        raise WorkspaceError(
+            "The frozen source snapshot could not be verified"
+        ) from error
     expected_hash = f"sha256:{dataset.source_sha256.removeprefix('sha256:')}"
     if table.content_hash != expected_hash:
         raise WorkspaceError("Stored source content changed after selection")

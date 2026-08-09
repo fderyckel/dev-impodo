@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import Callable, Iterable
 
 from ..access import Actor
-from ..artifacts import ArtifactStore
+from ..artifacts import ArtifactStore, ArtifactStoreError
 from ..derived_entities import DerivedEntityPlan
 from ..domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from ..domain.mapping.contracts import MappingDefinition
@@ -17,6 +18,7 @@ from ..domain.staging.evaluator import (
     compile_reference_indexes,
 )
 from ..domain.coverage import ReferenceBundle
+from ..domain.source_snapshot import SourceSnapshot
 from ..domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
     PreparationSessionBindings,
@@ -28,15 +30,23 @@ from ..domain.staging.transformation_impact import (
 )
 from ..inspection import SourceFileCatalog
 from ..models import Issue, canonical_json_bytes
-from ..projects import MigrationProject
-from ..source import CompiledPreparedRowTransformer, open_selected_source_batches
+from ..projects import MigrationProject, SourceFile
+from ..source import (
+    CompiledPreparedRowTransformer,
+    SourceLoadError,
+    open_selected_source_batches,
+)
+from ..source_snapshot_io import (
+    open_source_snapshot_batches,
+    validate_snapshot_for_dataset,
+)
 from ..staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
     StagingDatasetRole,
     canonical_row_from_prepared,
 )
-from ..workspace_contracts import SourceSelection
+from ..workspace_contracts import SourceDataset, SourceSelection
 from ..domain.errors import ReadinessError
 from .readiness_ports import PreparationSessionRepository
 
@@ -109,6 +119,7 @@ def prepare_bounded_direct_session(
     sessions: PreparationSessionRepository,
     *,
     actor: Actor,
+    source_snapshots: Iterable[SourceSnapshot] | None = None,
     batch_progress: Callable[[int, int], None] | None = None,
 ) -> BoundedDirectPreparation:
     """Transform direct selected sources into one READY durable session."""
@@ -166,6 +177,14 @@ def prepare_bounded_direct_session(
         definition,
         effective_selection,
     )
+    snapshot_by_dataset = {
+        item.dataset_id: item for item in (source_snapshots or ())
+    }
+    if source_snapshots is not None and (
+        len(snapshot_by_dataset) != len(physical_selection.datasets)
+        or set(snapshot_by_dataset) != set(physical_by_id)
+    ):
+        raise ReadinessError("Frozen source snapshots are incomplete")
     session = sessions.begin_direct_session(
         project.project_id,
         PreparationSessionBindings(
@@ -250,90 +269,84 @@ def prepare_bounded_direct_session(
             if preparer.dataset_issue is not None:
                 run_issues.append(preparer.dataset_issue)
             row_count = 0
-            with artifacts.materialize_source(
-                project.project_id,
-                source_file.stored_name,
-            ) as path:
-                with open_selected_source_batches(
-                    path,
-                    dataset=physical.name,
-                    table_key=physical.table_key,
-                    encoding=physical.encoding,
-                    delimiter=physical.delimiter,
-                    header_row=physical.header_row,
-                    named_table_range=named_range,
-                    source_display_name=source_file.display_name,
-                    batch_size=BOUNDED_SOURCE_BATCH_SIZE,
-                ) as source:
-                    expected_hash = (
-                        f"sha256:{physical.source_sha256.removeprefix('sha256:')}"
+            with _open_preparation_source(
+                project,
+                physical_selection,
+                physical,
+                source_file,
+                artifacts,
+                snapshot_by_dataset.get(physical.dataset_id),
+                named_range=named_range,
+            ) as source:
+                expected_hash = (
+                    f"sha256:{physical.source_sha256.removeprefix('sha256:')}"
+                )
+                if source.content_hash != expected_hash:
+                    raise ReadinessError(
+                        "Stored source content changed after selection"
                     )
-                    if source.content_hash != expected_hash:
-                        raise ReadinessError(
-                            "Stored source content changed after selection"
+                for source_batch in source.iter_batches():
+                    prepared_batch: list[CanonicalPreparedSessionRow] = []
+                    for source_row in source_batch:
+                        projected = transformer.project(source_row)
+                        staged_row, preparation_issues = transformer.finish(
+                            projected,
+                            impact_collector=impact_collector,
                         )
-                    for source_batch in source.iter_batches():
-                        prepared_batch: list[CanonicalPreparedSessionRow] = []
-                        for source_row in source_batch:
-                            projected = transformer.project(source_row)
-                            staged_row, preparation_issues = transformer.finish(
-                                projected,
-                                impact_collector=impact_collector,
-                            )
-                            record = preparer.transform(staged_row)
-                            if preparation_issues:
-                                record = replace(
-                                    record,
-                                    issues=(*record.issues, *preparation_issues),
-                                )
-                            totals.add(record)
-                            physical_sources = {
-                                physical.dataset_id: (source_row.number,)
-                            }
-                            canonical = canonical_row_from_prepared(
+                        record = preparer.transform(staged_row)
+                        if preparation_issues:
+                            record = replace(
                                 record,
-                                mode=modes[effective.name],
-                                source_hash=source_hashes[effective.name],
-                                source_selection_hash=source_selection_hash,
-                                mapping_hash=mapping_hash,
-                                schema_hash=schema_hash,
-                                derived_plan_hash=None,
-                                field_sources=field_sources.get(
-                                    effective.name,
-                                    {},
+                                issues=(*record.issues, *preparation_issues),
+                            )
+                        totals.add(record)
+                        physical_sources = {
+                            physical.dataset_id: (source_row.number,)
+                        }
+                        canonical = canonical_row_from_prepared(
+                            record,
+                            mode=modes[effective.name],
+                            source_hash=source_hashes[effective.name],
+                            source_selection_hash=source_selection_hash,
+                            mapping_hash=mapping_hash,
+                            schema_hash=schema_hash,
+                            derived_plan_hash=None,
+                            field_sources=field_sources.get(
+                                effective.name,
+                                {},
+                            ),
+                            physical_dataset_id=physical.dataset_id,
+                            physical_source_rows=(source_row.number,),
+                            physical_sources=physical_sources,
+                        )
+                        prepared_batch.append(
+                            CanonicalPreparedSessionRow(
+                                row_id=canonical.row_id,
+                                ordinal=(
+                                    dataset_offsets[effective.dataset_id]
+                                    + row_count
+                                    + len(prepared_batch)
                                 ),
-                                physical_dataset_id=physical.dataset_id,
-                                physical_source_rows=(source_row.number,),
+                                dataset=canonical.dataset,
+                                source_row=canonical.source_row,
+                                target_model=canonical.target_model,
+                                disposition=canonical.disposition,
+                                source_identity=canonical.source_identity,
+                                row_json=canonical_json_bytes(
+                                    canonical.to_portable_dict()
+                                ).decode("utf-8"),
                                 physical_sources=physical_sources,
                             )
-                            prepared_batch.append(
-                                CanonicalPreparedSessionRow(
-                                    row_id=canonical.row_id,
-                                    ordinal=(
-                                        dataset_offsets[effective.dataset_id]
-                                        + row_count
-                                        + len(prepared_batch)
-                                    ),
-                                    dataset=canonical.dataset,
-                                    source_row=canonical.source_row,
-                                    target_model=canonical.target_model,
-                                    disposition=canonical.disposition,
-                                    source_identity=canonical.source_identity,
-                                    row_json=canonical_json_bytes(
-                                        canonical.to_portable_dict()
-                                    ).decode("utf-8"),
-                                    physical_sources=physical_sources,
-                                )
-                            )
-                        sessions.append_direct_rows(
-                            project.project_id,
-                            session.session_id,
-                            prepared_batch,
                         )
-                        row_count += len(source_batch)
-                        completed_rows += len(source_batch)
-                        if batch_progress is not None:
-                            batch_progress(completed_rows, total_rows)
+                    sessions.append_direct_rows(
+                        project.project_id,
+                        session.session_id,
+                        prepared_batch,
+                    )
+                    row_count += len(source_batch)
+                    completed_rows += len(source_batch)
+                    if batch_progress is not None:
+                        batch_progress(completed_rows, total_rows)
             dataset_evidence[effective.name] = (
                 physical.dataset_id,
                 StagingDatasetRole.DIRECT,
@@ -358,3 +371,54 @@ def prepare_bounded_direct_session(
             "BOUNDED_PREPARATION_FAILED",
         )
         raise
+
+
+@contextmanager
+def _open_preparation_source(
+    project: MigrationProject,
+    selection: SourceSelection,
+    dataset: SourceDataset,
+    source_file: SourceFile,
+    artifacts: ArtifactStore,
+    snapshot: SourceSnapshot | None,
+    *,
+    named_range: str | None,
+):
+    """Resolve production reads to Parquet with an explicit oracle fallback."""
+
+    if snapshot is not None:
+        try:
+            validate_snapshot_for_dataset(selection, dataset, snapshot)
+            with artifacts.materialize_source_snapshot(
+                project.project_id,
+                snapshot.parquet_storage_key,
+                expected_sha256=snapshot.parquet_sha256,
+            ) as path:
+                with open_source_snapshot_batches(
+                    path,
+                    snapshot,
+                    batch_size=BOUNDED_SOURCE_BATCH_SIZE,
+                ) as source:
+                    yield source
+            return
+        except (ArtifactStoreError, SourceLoadError) as error:
+            raise ReadinessError(
+                "The frozen source snapshot could not be verified"
+            ) from error
+
+    with artifacts.materialize_source(
+        project.project_id,
+        source_file.stored_name,
+    ) as path:
+        with open_selected_source_batches(
+            path,
+            dataset=dataset.name,
+            table_key=dataset.table_key,
+            encoding=dataset.encoding,
+            delimiter=dataset.delimiter,
+            header_row=dataset.header_row,
+            named_table_range=named_range,
+            source_display_name=source_file.display_name,
+            batch_size=BOUNDED_SOURCE_BATCH_SIZE,
+        ) as source:
+            yield source
