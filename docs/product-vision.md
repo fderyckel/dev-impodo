@@ -29,6 +29,12 @@ mapping authoring, durable canonical and effective staging, integrated quality
 and normalization approval, read-only Odoo comparison, a reviewed local Odoo
 19 load, a durable write journal, and post-write reconciliation.
 
+The supported preparation boundary is currently 50,000 physical rows for the
+bounded direct-dataset path and 25,000 physical rows for derived or
+materialized paths. Loading is restricted to an explicitly confirmed,
+disposable Local Odoo 19 target. Remote and production loading are not current
+capabilities.
+
 The completed disposable-target migration is retained as acceptance evidence.
 The active [remaining-work roadmap](plans/remaining-work.md) now prioritizes
 bounded 100,000-row preparation before optional clean-package, remote,
@@ -45,7 +51,7 @@ flowchart LR
     Normalize["Transform, normalize,<br/>and validate"]
     Stage["Store canonical rows,<br/>issues, and relations"]
     Preflight["Match against Odoo<br/>and classify changes"]
-    Approve["Review and approve<br/>a frozen import plan"]
+    Review["Review the frozen comparison<br/>and exact load preview"]
     Load["Controlled Odoo<br/>target load"]
     Reconcile["Reconcile every row<br/>and produce reports"]
 
@@ -55,8 +61,8 @@ flowchart LR
     Map --> Normalize
     Normalize --> Stage
     Stage --> Preflight
-    Preflight --> Approve
-    Approve --> Load
+    Preflight --> Review
+    Review --> Load
     Load --> Reconcile
 ```
 
@@ -68,15 +74,16 @@ hatch, while a guided mapping workspace creates and maintains it.
 
 Use the following terms consistently:
 
-- **Workflow steps** are the browser-facing names: Project setup, Source
-  discovery, Target schema, and Governed mapping.
+- **Workflow steps** are the browser-facing names: Source data, Odoo data,
+  Match data, Prepare data, Final review, and Load into Odoo. Project creation
+  and registration happen before those six stages.
 - **Product stages** describe the end-to-end business lifecycle and are named
   Stage A through Stage K below.
-- **Delivery phases** describe implementation increments. Phase 1 delivers
-  source discovery; Phase 2A delivers target-schema governance; Phase 2B
-  delivers identity, scope, and relationship mapping; Phase 2C.1 delivers
-  scalar providers and transformations. Later roadmap phases deliver staging,
-  preflight, approval, execution, and reconciliation.
+- **Delivery phases** describe implementation increments. Phases 1–5 now
+  provide the bounded, disposable-local path through staging, preflight,
+  execution, and reconciliation. Phase 6 and the active remaining-work plan
+  cover scale expansion, optional certification, remote or production
+  loading, and production operations.
 
 The legacy labels “Phase A” and “Phase B” are retired and must not be used.
 
@@ -152,10 +159,11 @@ The catalog exposes permitted:
 Discovery includes standard, extended, and custom models. It must not assume
 that an `x_` prefix is the only way to identify custom behavior.
 
-Schema discovery is read-only but broader than the current profile-driven
-metadata request. It should use a separate, narrow metadata capability with
-an environment and model allowlist. It must not add a generic Odoo call to the
-preflight connector.
+Schema discovery is implemented through a separate narrow metadata
+capability. Remote reads expose only Odoo 19 JSON-2 `fields_get` and
+`search_read`; Local mode uses fixed, bounded metadata and record-reading
+scripts derived from the selected `odoo.conf`. Neither reader exposes a
+generic Odoo method surface.
 
 ### Stage D — Build and approve the mapping
 
@@ -263,10 +271,13 @@ Canonical staging records contain source trace identity, target model,
 business identity and scope, typed values, logical relations, provenance, and
 issues. They do not contain target numeric Odoo IDs.
 
-The storage implementation sits behind a `StagingStore` interface:
+The storage implementation sits behind application-owned repositories and a
+staging port:
 
-- DuckDB plus Parquet is suitable for an initial local or controlled-runner
-  implementation and large tabular files;
+- the current local implementation uses one protected DuckDB database per
+  project;
+- Parquet may be added later as a controlled interchange or analytical
+  projection, but it is not the current staging authority;
 - PostgreSQL is preferable when several users, permissions, concurrent runs,
   and a hosted mapping UI are required.
 
@@ -305,7 +316,8 @@ records must exist or be scheduled earlier. The plan then applies explicit
 
 ### Stage H — Read-only target preflight
 
-This is the capability implemented by the current proof of concept:
+This capability is implemented for the current bounded browser workflow and
+the expert profile path:
 
 - capture target metadata and relevant records;
 - resolve target relations through governed business keys;
@@ -402,9 +414,12 @@ The reconciliation package includes:
 
 ## 5. Mapping contract
 
-The current profile is a preflight mapping contract for declared CSV files
-and XLSX worksheets. The end-to-end product needs a new mapping contract rather than
-silently stretching the proof-of-concept shape.
+The browser now persists a versioned, dataset-centric mapping contract for
+frozen CSV/XLSX datasets and derived datasets. It covers target mode, source
+and target identity, scope, scalar providers and transformations, exact value
+matches, and incoming-dataset or existing-target relations. The expert YAML
+profile remains a separate versioned entry point that compiles into the same
+planning semantics; it is not the browser contract's serialization format.
 
 Conceptual example:
 
@@ -476,9 +491,10 @@ datasets:
         operation: replace
 ```
 
-This is a design example, not the current profile schema. It demonstrates that
-the mapping preserves source provenance, target identity, scope,
-transformations, relationship semantics, and load policy.
+This is a design example, not the literal browser-contract or expert-profile
+serialization. It demonstrates that the mapping preserves source provenance,
+target identity, scope, transformations, relationship semantics, and load
+policy.
 
 ## 6. Mapping edge cases
 
@@ -518,7 +534,7 @@ flowchart TB
     Quality["Normalization and validation"]
     Store["StagingStore"]
     Preflight["Read-only preflight engine"]
-    Approval["Approval service"]
+    Review["Review and optional approval boundary"]
     Executor["Restricted Odoo executor"]
     Reconcile["Reconciliation and reports"]
 
@@ -529,26 +545,25 @@ flowchart TB
     Mapping --> Quality
     Quality --> Store
     Store --> Preflight
-    Preflight --> Approval
-    Approval --> Executor
+    Preflight --> Review
+    Review --> Executor
     Executor --> Reconcile
     Reconcile --> Store
 ```
 
-The current repository implements the Project setup workflow (product Stage
-A), governed source intake and project metadata storage, the complete delivery
-Phase 1 CSV/XLSX source-discovery flow (Stage B), delivery Phase 2A
-target-schema governance (Stage C), delivery Phase 2B identities and
-relationship mapping, and delivery Phase 2C.1 constants, fallbacks, explicit
-Odoo-default intent, allowlisted scalar transformations, bounded value
-previews, deterministic semantic validation, and immutable exact-hash
-submissions. It also retains strict CSV and declared-sheet XLSX loading,
-mapping through the existing expert profile, normalization and validation, and
-the read-only preflight path. Durable canonical staging, quality/quarantine,
-normalization approval, and restart-safe protected target snapshots are
-integrated for the bounded browser scope. It does not yet implement advanced
-lookup translations, mapping import/export and approval, clean-package
-certification, the executor, or reconciliation.
+The current repository implements the bounded browser path from Stage A
+through Stage K: project registration; governed CSV/XLSX intake; target-schema
+governance; mapping and derived-dataset authoring; exact choice matching;
+durable canonical staging; quality, quarantine, and normalization review;
+read-only target comparison; automatic execution-snapshot freezing; explicit
+disposable-local loading; a durable write journal; and post-write read-back
+reconciliation. The expert profile path retains strict CSV and declared-sheet
+XLSX loading and feeds the same compiled planning semantics.
+
+It does not yet provide the 100,000-row release boundary, general mapping
+import/export, a separate functional mapping-approval lifecycle, optional
+clean-package certification, remote or production loading, a target-side
+gateway, or hosted multi-user infrastructure.
 
 ## 8. Delivery roadmap
 
@@ -579,8 +594,8 @@ Delivery increments:
 - **Phase 2C.1 — Scalar providers and transformations:** constants, source
   fallbacks, explicit Odoo-default intent, allowlisted scalar transformations,
   bounded previews, and exact-hash mapping submission.
-- **Remaining Phase 2C scope:** governed lookup translations, mapping
-  import/export, functional review, and approval.
+- **Remaining Phase 2C scope:** general mapping import/export and a separate
+  functional review and approval lifecycle.
 
 - permitted Odoo model and field catalog;
 - mapping draft and version lifecycle;
@@ -589,24 +604,28 @@ Delivery increments:
 - mapping import and export;
 - mapping validation and approval.
 
-Current status: **Phases 2A, 2B, and 2C.1 are implemented.** The local browser discovers a
-lightweight, application-filtered Odoo 19 model catalog, captures the effective
-field catalog once per explicitly permitted model, then requires explicit
-governed business keys and scope. Dataset-centric revisions
-support source and target identity, scalar policies, incoming-dataset and
+Current status: **Phases 2A, 2B, and the practical Phase 2C mapping scope are
+implemented.** The local browser discovers a lightweight,
+application-filtered Odoo 19 model catalog, captures the effective field
+catalog once per explicitly permitted model, then requires explicit governed
+business keys and scope. Dataset-centric revisions support source and target
+identity, scalar policies, exact source-choice matches, incoming-dataset and
 existing-target many2one/many2many resolution, and one2many inverse ownership
-guidance. Scalar providers support source columns, constants, source fallbacks,
-and explicit omission for an Odoo runtime default. An allowlisted policy
-supports trim/collapse, empty-to-null, casing, strict boolean/integer/decimal
-parsing with declared decimal locale, explicit date formats, and UTC datetime
+guidance. Derived authoring can extract reusable lookup datasets and split
+grouped parent/child rows without changing the frozen source.
+
+Scalar providers support source columns, constants, source fallbacks, and
+explicit omission for an Odoo runtime default. An allowlisted policy supports
+trim/collapse, empty-to-null, casing, strict boolean/integer/decimal parsing
+with declared decimal locale, explicit date formats, and UTC datetime
 normalization. Bounded source samples preview raw and proposed values. A pure
 compiler/validator checks the complete mapping and persists deterministic
 validation evidence. Submission is permitted only for the exact validated
 mapping hash and acknowledged current warnings. Historical revisions,
 validations, submissions, and actors remain append-only.
 
-Still required to complete delivery Phase 2C: governed lookup translations, mapping
-import/export, functional review, and approval.
+Still required to close the broader authoring vision: general mapping
+import/export and a distinct functional review and approval lifecycle.
 
 ### Phase 3 — Durable staging and data quality
 
@@ -616,7 +635,13 @@ import/export, functional review, and approval.
 - joins, expansion, grouping, and declarative business rules;
 - scalable execution against large files.
 
-Remaining scale and optional certification work is maintained in the
+Current status: **implemented for the supported bounded scope.** Preparation
+publishes deterministic canonical rows with lineage and control totals,
+quality issues and quarantine, normalization groups and decisions, derived
+datasets, and hash-bound current pointers. The supported limits are 50,000
+physical rows for the direct path and 25,000 for derived or materialized
+paths. The 100,000-row release gate, mixed related-dataset scale proof, and
+remaining advanced project-specific coverage are maintained in the
 [remaining-work plan](plans/remaining-work.md).
 
 ### Phase 4 — Integrated preflight
@@ -627,7 +652,14 @@ Remaining scale and optional certification work is maintained in the
 - add a reviewed 100–300-record organization-specific slice;
 - complete live-target read-only validation.
 
-### Phase 5 — Approval and restricted executor
+Current status: **implemented for the bounded browser and expert-profile
+paths.** Browser preflight consumes only approved durable staging, quality,
+and normalization evidence; captures protected metadata and record snapshots;
+classifies every row; persists the report; and freezes the practical execution
+snapshot. Organization-specific ACL, record-rule, company-scope, and sanitized
+live-target acceptance remain required before a higher-risk target is used.
+
+### Phase 5 — Practical local execution and higher-risk approval
 
 - frozen import-plan contract;
 - signatures, roles, staleness, and expiry;
@@ -635,6 +667,15 @@ Remaining scale and optional certification work is maintained in the
 - dependency ordering and runtime crosswalk;
 - idempotency, retries, and reconciliation;
 - separate security review.
+
+Current status: **the practical disposable-local path is implemented.** One
+explicit Load into Odoo action consumes the current schema-bound execution
+snapshot. The writer permits only preview-derived models and fields, exact-key
+lookups, create batches of at most 50 rows, and single-record updates. It
+journals every row, stops after an uncertain response, and performs hash-bound
+read-back reconciliation. Signed or dual approval, expiry, remote execution,
+production controls, generalized restart/resume, and customer security
+acceptance remain later higher-risk capabilities.
 
 ### Phase 6 — Production readiness
 
@@ -659,14 +700,18 @@ Confirmed:
   wrapper for the first release;
 - the first release begins with exported `.xlsx`/`.csv` files, a local DuckDB
   staging store, and a disposable local Odoo laboratory;
-- the initial on-premise target is Odoo 19.4. The planned Odoo 20.0 move in
-  September requires a separate compatibility check and target rehearsal;
-- the data manager approves mapping versions and frozen import plans;
+- the implemented schema, preflight, load, and reconciliation path accepts
+  Odoo 19.x. The recorded initial on-premise business target is Odoo 19.4 and
+  must be reconfirmed before cutover. Any Odoo 20 move requires a separate
+  compatibility change and target rehearsal;
+- in the practical local path, the data manager confirms the validated mapping
+  and explicitly confirms the current frozen load preview. A later
+  higher-risk profile may require a separate signed or dual approval;
 - the initial transformation and business-rule proposal is recorded in
   [Stage E](#stage-e--normalize-and-validate);
 - the proposed default customer-data storage, retention, deletion, and access
   controls are recorded in the
-  [security and infrastructure overview](architecture/security-and-infrastructure.md#data-protection-and-retention).
+  [security and infrastructure overview](architecture/security-and-infrastructure.md#data-handling).
 
 The mapping workspace may make governed local changes to drafts and derived
 staging records in order to validate and correct data. This does **not** give

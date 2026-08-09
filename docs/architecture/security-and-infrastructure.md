@@ -14,8 +14,10 @@ contain the detailed endpoint-provisioning checklist.
 | Application | Local Python process and browser UI bound to `127.0.0.1` |
 | Project data | Owner-protected local files and per-project DuckDB |
 | Source intake | Governed `.csv` and `.xlsx` only |
-| Odoo access | Read-only access to authorised Odoo 19 targets |
-| Odoo writes | No create, update, delete, import, or generic method capability |
+| Odoo reads | Fixed local reads or closed remote Odoo 19 JSON-2 `fields_get` and `search_read` |
+| Odoo writes | Separate explicit Local-only JSON-2 create/update capability, bound to one reviewed preview |
+| Execution evidence | Durable per-row journal plus hash-bound read-back reconciliation and fallout export |
+| Current scale | 50,000 direct physical rows; 25,000 derived or materialized physical rows |
 | Hosted service | Not part of the current deployment |
 
 ## Trust boundaries
@@ -33,14 +35,24 @@ Managed workstation
         |-- resource-bounded source-file worker
         |-- local credential vault
         |
-        | outbound HTTPS, or literal-loopback local access
+        | fixed literal-loopback metadata/record reads, no API key
+        | or outbound HTTPS read-only JSON-2 with a read account
         v
   authorised Odoo 19 target
-        dedicated read-only access
+
+  Separate explicit load path
+        |
+        | literal-loopback Local Odoo 19 JSON-2 only
+        | preview-scoped search_read / create / write
+        | dedicated least-privilege API key
+        v
+  approved disposable Local Odoo database
 ```
 
 Impodo has no public listener, inbound Odoo connection, application cloud
 storage, telemetry service, direct PostgreSQL target access, or SSH surface.
+It has no Odoo delete, arbitrary import, caller-selected method, generic RPC,
+SQL, `sudo`, or workflow-action surface.
 
 ## Implemented controls
 
@@ -56,6 +68,11 @@ storage, telemetry service, direct PostgreSQL target access, or SSH surface.
 - API documentation, CORS, proxy forwarding, and access logs are disabled.
 - Transformation-report filtering and CSV download use JavaScript shipped with
   Impodo. No CDN, browser extension, or Node.js runtime is required.
+- Application services enforce fine-grained capabilities and retain stable
+  actor identity in governed audit records. In the current single-user local
+  composition, the authenticated local operator receives all capabilities;
+  Windows account access, the launch session, and physical workstation control
+  remain the user boundary. Hosted role assignment is not implemented.
 
 Loopback uses HTTP, so the session cookie cannot use `Secure`. Literal
 loopback binding, exact-host validation, the ephemeral port, and the launch
@@ -99,7 +116,8 @@ rest depends on full-disk encryption and operating-system access controls.
 
 ### Secrets
 
-- Remote Odoo API keys remain in memory or the local credential vault.
+- Remote read API keys and disposable-local load API keys remain in memory or
+  the local credential vault.
 - Stored credential identifiers are bound to the project, connection mode,
   URL, and database.
 - Credentials are excluded from project databases, mappings, reports, browser
@@ -113,22 +131,59 @@ Remote mode requires HTTPS outside literal loopback and exposes only Odoo 19
 JSON-2 `fields_get` and `search_read`. Reads are projected, batched by model,
 and paginated deterministically.
 
-Local mode uses the explicitly selected `odoo.conf` and fixed scripts for the
-model catalogue and `fields_get`. It is not a generic shell or RPC interface.
-Optional local-stack controls use fixed argument lists and may stop only the
-exact Odoo/PostgreSQL processes started by the current Impodo session.
+Local read mode uses the explicitly selected `odoo.conf` and fixed scripts for
+the model catalogue, `fields_get`, and bounded `search_read`. It requires no
+Odoo API key and is not a generic shell or RPC interface. Optional local-stack
+controls use fixed argument lists and may stop only the exact Odoo/PostgreSQL
+processes started by the current Impodo session.
 
 Odoo-side defense in depth remains mandatory: a dedicated service user,
 explicit ACLs and record rules, permitted-company context, model/field scope,
 and governed key rotation and revocation.
+
+### Controlled local execution and reconciliation
+
+The writer is a separate adapter from every read connector. A load is allowed
+only when all of these are true:
+
+- the project target mode is Local and the captured target is Odoo 19;
+- the current immutable execution snapshot matches the page the operator
+  reviewed and contains no blocked or ambiguous rows;
+- the writer target hash matches the exact URL and database in that snapshot;
+- the per-preview API scope matches the exact captured models, lookup fields,
+  readable fields, and writable fields;
+- no earlier run already consumed that snapshot; and
+- the operator makes one explicit **Load into Odoo** request with the execute
+  capability.
+
+The closed JSON-2 surface permits exact-key `search_read`, create batches of at
+most 50 rows, and one uniquely re-matched record per `write`. Request bodies
+are capped at 1 MiB. Standard, extended, and custom models are supported only
+when they appear in the captured schema and reviewed preview; there is no
+global model or field permission that can widen a particular run.
+
+Every proposed write is journaled. A definitive rejection is recorded without
+pretending the row committed. A lost or invalid write response becomes
+**outcome unknown**, is never retried automatically, and stops later writes in
+the run. Reconciliation reads committed rows by journaled ID, re-matches
+uncertain outcomes by governed business key, compares reviewed fields, and
+stores a hash-bound result with a downloadable fallout CSV. Only an uncertain
+create proven absent is marked safe to plan again; updates are never declared
+retry-safe merely because read-back could not find them.
+
+This is a disposable-local migration capability, not authorization for a
+remote target, production cutover, arbitrary Odoo business actions, or direct
+database writes.
 
 ## Infrastructure dependency
 
 Normal use requires a managed and patched workstation, full-disk encryption,
 EDR/antimalware, host firewall, a supported browser, approved Python 3.12,
 writable local application/temp storage, and an accepted internal Impodo
-bundle. Remote targets additionally require trusted TLS, governed network/VPN
-routing, and an evidenced read-only Odoo account.
+bundle. Remote reads additionally require trusted TLS, governed network/VPN
+routing, and an evidenced read-only Odoo account. A disposable-local load
+requires a separate least-privilege Odoo API key whose ACLs, record rules,
+companies, and field access cover only the reviewed rehearsal scope.
 
 Excel review packages are generated locally with the controlled Python
 `openpyxl` dependency already required for XLSX intake. Node.js is not an
@@ -159,6 +214,9 @@ this security summary.
 - Keep raw sources immutable and retain evidence for derived corrections.
 - Keep credentials outside project artifacts and remove related vault entries
   when the project closes.
+- Keep execution journals and reconciliation results inside the protected
+  project boundary. They may contain target-specific Odoo record IDs; portable
+  mappings, staging evidence, manifests, workbooks, and CSV reports must not.
 - Retain project data through acceptance and reconciliation, then apply the
   data owner's documented retention, legal-hold, backup, and deletion rules.
 
@@ -171,8 +229,10 @@ Before using real customer data or claiming production readiness, complete:
 
 - an accepted, clean, evidence-producing internal release bundle;
 - organization-specific workstation and protected-root verification;
-- live Odoo ACL, record-rule, company-scope, TLS/VPN, and key-lifecycle proof;
+- live Odoo read and local-writer ACL, record-rule, field-access,
+  company-scope, and key-lifecycle proof;
 - representative source-volume and sanitized live-target acceptance;
+- the 100,000-row Windows release gate before advertising that larger limit;
 - an explicit decision on loopback HTTP and endpoint content scanning;
 - customer-approved classification, retention, backup, legal hold, deletion,
   and support-access rules;
@@ -188,7 +248,9 @@ preview. It is not production authorization.
 
 Project evidence:
 
+- [Product vision and current delivery boundary](../product-vision.md)
 - [Architecture overview](overview.md)
+- [Python code map and execution boundary](python-code-map.md)
 - [Migration project contract](../contracts/01-migration-project.md)
 - [Profile-driven preflight contract](../contracts/04-preflight.md)
 - [Acceptance and test strategy](../testing/acceptance.md)
