@@ -45,7 +45,8 @@
             value="{{ project.odoo_base_url or local_stack.base_url }}">
           <small>Ask your Odoo administrator if you are unsure.</small>
         </label>
-        <div class="local-stack-entry" data-local-stack-entry>
+        <div class="local-stack-entry" data-local-stack-entry
+          {% if project.odoo_connection_mode and project.odoo_connection_mode.value == "REMOTE" %}hidden{% endif %}>
           <strong>Using Odoo on this computer?</strong>
           <span>Impodo can find the local installation and check that it is ready.</span>
           <button class="link-button" type="button" data-open-local-stack>
@@ -58,13 +59,15 @@
             placeholder="For example: odoo19_migration"
             value="{{ project.odoo_database or local_stack.database_hint }}">
         </label>
-        <label data-api-key-entry>
+        <label data-api-key-entry
+          {% if not project.odoo_connection_mode or project.odoo_connection_mode.value != "REMOTE" %}hidden{% endif %}>
           Access key from your administrator
           <input type="password" name="api_key" autocomplete="off">
           <small>Required only when Odoo is managed elsewhere. Impodo does not place this key in the project data.</small>
         </label>
       </div>
-      <label class="checkbox" data-api-key-entry>
+      <label class="checkbox" data-api-key-entry
+        {% if not project.odoo_connection_mode or project.odoo_connection_mode.value != "REMOTE" %}hidden{% endif %}>
         <input type="checkbox" name="remember_api_key">
         Remember this key securely on this computer.
       </label>
@@ -83,6 +86,60 @@
           {% endfor %}
         </div>
       </fieldset>
+      <section
+        id="remote-connection-status"
+        class="remote-connection-panel connection-state-{{ remote_connection.state }}"
+        data-remote-connection-status
+        data-state="{{ remote_connection.state }}"
+        tabindex="-1"
+        aria-labelledby="remote-connection-title"
+        role="{{ 'alert' if remote_connection.has_error else 'status' }}"
+        aria-live="polite"
+        aria-atomic="true"
+        {% if not project.odoo_connection_mode or project.odoo_connection_mode.value != "REMOTE" %}hidden{% endif %}
+      >
+        <div class="remote-connection-heading">
+          <div>
+            <p class="eyebrow">Read-only check</p>
+            <h2 id="remote-connection-title">Remote Odoo connection</h2>
+          </div>
+          <strong class="connection-state-label" data-connection-state-label>
+            {{ remote_connection.state_label }}
+          </strong>
+        </div>
+        <p data-connection-heading>{{ remote_connection.heading }}</p>
+        <ol class="readiness-list">
+          {% for check in remote_connection.checks %}
+            <li
+              class="readiness-item status-{{ check.level.value }}"
+              data-remote-connection-check
+              data-waiting-message="{{ check.waiting_message }}"
+            >
+              <span class="status-dot" aria-hidden="true"></span>
+              <div>
+                <strong>{{ check.label }}</strong>
+                <span data-connection-check-message>{{ check.message }}</span>
+              </div>
+            </li>
+          {% endfor %}
+        </ol>
+        <p class="muted" data-connection-guidance>
+          {{ remote_connection.guidance }}
+        </p>
+        {% if remote_connection.checked_at %}
+          <p class="muted" data-connection-checked-at>
+            <time datetime="{{ remote_connection.checked_at }}">
+              Checked during this Impodo session.
+            </time>
+          </p>
+        {% endif %}
+        {% if remote_connection.support_code %}
+          <details class="technical-details" data-connection-support>
+            <summary>Support details</summary>
+            <code>{{ remote_connection.support_code }}</code>
+          </details>
+        {% endif %}
+      </section>
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/files">Back</a>
         <button
@@ -91,7 +148,7 @@
           name="action"
           value="test"
           data-test-connection-button
-        >Check connection</button>
+        >{% if project.odoo_connection_mode and project.odoo_connection_mode.value == "REMOTE" %}{{ remote_connection.button_label }}{% else %}Check connection{% endif %}</button>
         <button class="button primary" type="submit" name="action" value="save">Save and continue</button>
       </div>
     </form>

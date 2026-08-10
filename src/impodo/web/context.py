@@ -47,13 +47,15 @@ from ..local_odoo_reader import (
     LocalOdooMetadataReader,
 )
 from ..local_stack import LocalStackService
+from ..models import TargetFingerprint
 from ..odoo_writer import OdooWriteExecutor
 from ..odoo_readback import OdooReadbackReader
 from ..odoo_scope import OdooApiScope
 from ..projects import MigrationProject, ProjectService
 from ..secrets import SecretStore
+from .remote_connection import RemoteConnectionStatusService
 
-ConnectionTester = Callable[[MigrationProject, str], str]
+ConnectionTester = Callable[[MigrationProject, str], TargetFingerprint]
 
 SchemaReader = Callable[[MigrationProject, str], MetadataSnapshot]
 
@@ -118,3 +120,4 @@ class WebContext:
     readback_reader_factory: OdooReadbackReaderFactory
     local_stack: LocalStackService
     local_odoo_reader: LocalOdooMetadataReader
+    remote_connections: RemoteConnectionStatusService

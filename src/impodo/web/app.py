@@ -102,6 +102,7 @@ from .routers.schema import build_schema_router
 from .routers.sources import build_sources_router
 from .routers.summary import build_summary_router
 from .routers.target import build_target_router
+from .remote_connection import RemoteConnectionStatusService
 from .security import LoopbackSecurityMiddleware
 
 
@@ -284,6 +285,7 @@ def create_local_app(
         readback_reader_factory=readback_reader_factory or _readback_reader,
         local_stack=local_stack_service or LocalStackService(),
         local_odoo_reader=local_odoo_reader or LocalOdooMetadataReader(),
+        remote_connections=RemoteConnectionStatusService(),
     )
 
     package_dir = Path(__file__).resolve().parent

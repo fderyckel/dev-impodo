@@ -47,6 +47,7 @@ def _render_target(
         project=project,
         applications=ODOO_APPLICATIONS,
         local_stack=context.local_stack.get(project.project_id),
+        remote_connection=context.remote_connections.get(project),
         open_local_stack=open_local_stack,
         error=error,
         status_code=status_code,

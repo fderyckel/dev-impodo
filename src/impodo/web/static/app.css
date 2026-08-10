@@ -2050,6 +2050,12 @@ label.model-choice input {
   padding: .8rem 1rem;
 }
 
+[data-local-stack-entry][hidden],
+[data-api-key-entry][hidden],
+[data-remote-connection-status][hidden] {
+  display: none;
+}
+
 .local-stack-entry .link-button {
   justify-self: start;
   margin-top: .35rem;
@@ -2481,6 +2487,62 @@ label.model-choice input {
 
 .next-action-card.ready {
   border-left-color: #4d7c5b;
+}
+
+.remote-connection-panel {
+  margin: 1.25rem 0;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--impodo-grey);
+  border-radius: 4px;
+  background: var(--impodo-surface);
+  padding: 1rem;
+  scroll-margin-top: 1rem;
+}
+
+.remote-connection-panel:focus {
+  outline: 3px solid #f3a6a1;
+  outline-offset: 2px;
+}
+
+.remote-connection-panel.connection-state-ready {
+  border-left-color: #25704a;
+}
+
+.remote-connection-panel.connection-state-error {
+  border-left-color: var(--danger);
+}
+
+.remote-connection-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.remote-connection-heading h2,
+.remote-connection-heading .eyebrow {
+  margin: 0;
+}
+
+.connection-state-label {
+  flex: 0 0 auto;
+  border: 1px solid var(--impodo-grey-light);
+  border-radius: 999px;
+  background: var(--impodo-soft);
+  padding: .2rem .65rem;
+  font-size: .85rem;
+}
+
+.connection-state-ready .connection-state-label {
+  border-color: #25704a;
+  background: #e8f4ed;
+  color: #1e5b3c;
+}
+
+.connection-state-error .connection-state-label {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .next-action-card.current {

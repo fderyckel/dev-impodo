@@ -19,7 +19,13 @@ from openpyxl import Workbook
 from openpyxl.worksheet.table import Table
 
 from impodo.access import Actor, ActorIdentity, Capability
-from impodo.connectors import ConnectorError, MetadataSnapshot, RecordSnapshot
+from impodo.connectors import (
+    ConnectorAuthenticationError,
+    ConnectorError,
+    ConnectorTransportError,
+    MetadataSnapshot,
+    RecordSnapshot,
+)
 from impodo.local_odoo_reader import LocalOdooMetadataReader
 from impodo.local_stack import (
     LocalStackCheck,
@@ -779,7 +785,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             self.connection_calls.append(
                 (project.project_id, api_key, project.odoo_connection_mode)
             )
-            return "Read-only local connection succeeded: migration / Odoo 19.4"
+            return _browser_schema(project).fingerprint
 
         def schema_reader(project, api_key):
             self.schema_calls.append((project.project_id, api_key))
@@ -843,6 +849,196 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.client.close()
         self.temporary.cleanup()
+
+    def test_remote_connection_status_is_visible_persistent_and_target_bound(
+        self,
+    ) -> None:
+        created = self._post(
+            "/projects/new",
+            {
+                "csrf_token": self.csrf,
+                "name": "Remote connection feedback",
+                "source_system": "Other",
+            },
+        )
+        project_id = created.headers["location"].split("/")[2]
+
+        tested = self.client.post(
+            f"/projects/{project_id}/target",
+            data={
+                "csrf_token": self.csrf,
+                "revision": "1",
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://edu-ucaps.odoo.com",
+                "odoo_database": "edu-ucaps",
+                "api_key": "remote-secret-key",
+                "action": "test",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(tested.status_code, 303)
+        self.assertEqual(
+            tested.headers["location"],
+            f"/projects/{project_id}/target#remote-connection-status",
+        )
+        result = self.client.get(tested.headers["location"])
+        self.assertIn("connection-state-ready", result.text)
+        self.assertIn("The Odoo connection is ready.", result.text)
+        self.assertIn("Read-only access to edu-ucaps succeeded.", result.text)
+        self.assertIn("Supported Odoo version 19.0.", result.text)
+        self.assertIn("Checked during this Impodo session.", result.text)
+        self.assertIn(">Check again</button>", result.text)
+        self.assertRegex(result.text, r"data-local-stack-entry\s+hidden")
+        self.assertNotIn("remote-secret-key", result.text)
+
+        refreshed = self.client.get(f"/projects/{project_id}/target")
+        self.assertIn("The Odoo connection is ready.", refreshed.text)
+        self.assertEqual(len(self.connection_calls), 1)
+
+        project = self.app.state.context.projects.repository.get(project_id)
+        changed = self.client.post(
+            f"/projects/{project_id}/target",
+            data={
+                "csrf_token": self.csrf,
+                "revision": str(project.revision),
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://other.example.com",
+                "odoo_database": "other_database",
+                "action": "save",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(changed.status_code, 303)
+        changed_target = self.client.get(f"/projects/{project_id}/target")
+        self.assertIn("connection-state-unknown", changed_target.text)
+        self.assertIn(
+            "The Odoo connection has not been checked.",
+            changed_target.text,
+        )
+        self.assertNotIn("Read-only access to edu-ucaps succeeded.", changed_target.text)
+
+        script = self.client.get("/static/app.js")
+        self.assertIn("resetRemoteConnectionStatus", script.text)
+        self.assertIn('window.location.hash === "#remote-connection-status"', script.text)
+        styles = self.client.get("/static/app.css")
+        self.assertIn("[data-local-stack-entry][hidden]", styles.text)
+
+    def test_remote_connection_failure_shows_safe_red_checks(self) -> None:
+        def rejected_connection(_project, _api_key):
+            raise ConnectorAuthenticationError(
+                "raw remote response and secret must not be displayed"
+            )
+
+        self.app.state.context.connection_tester = rejected_connection
+        created = self._post(
+            "/projects/new",
+            {
+                "csrf_token": self.csrf,
+                "name": "Rejected remote connection",
+                "source_system": "Other",
+            },
+        )
+        project_id = created.headers["location"].split("/")[2]
+
+        tested = self.client.post(
+            f"/projects/{project_id}/target",
+            data={
+                "csrf_token": self.csrf,
+                "revision": "1",
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://odoo.example.com",
+                "odoo_database": "migration",
+                "api_key": "never-render-this-key",
+                "action": "test",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(tested.status_code, 303)
+        result = self.client.get(tested.headers["location"])
+        self.assertIn("connection-state-error", result.text)
+        self.assertIn("The Odoo connection is not ready.", result.text)
+        self.assertIn("Odoo responded to the read-only check.", result.text)
+        self.assertIn(
+            "Odoo rejected the access key, database name, or API entitlement.",
+            result.text,
+        )
+        self.assertIn("ODOO_ACCESS_REJECTED", result.text)
+        self.assertIn(">Try again</button>", result.text)
+        self.assertNotIn("never-render-this-key", result.text)
+        self.assertNotIn("raw remote response", result.text)
+
+    def test_remote_connection_distinguishes_api_version_and_network_failures(
+        self,
+    ) -> None:
+        def wrong_version(project, _api_key):
+            return replace(
+                _browser_schema(project).fingerprint,
+                odoo_version="18.0",
+            )
+
+        def missing_api(_project, _api_key):
+            raise ConnectorTransportError("Odoo JSON-2 read failed with HTTP 404")
+
+        def unreachable(_project, _api_key):
+            raise ConnectorTransportError(
+                "Odoo JSON-2 read timed out or was unreachable"
+            )
+
+        cases = (
+            (
+                wrong_version,
+                "Impodo requires Odoo 19; this target reported Odoo 18.0.",
+                "ODOO_VERSION_UNSUPPORTED",
+            ),
+            (
+                missing_api,
+                "The JSON-2 API was not available at this address.",
+                "ODOO_API_HTTP_404",
+            ),
+            (
+                unreachable,
+                "Impodo could not reach Odoo. Check the address and network connection.",
+                "ODOO_UNREACHABLE",
+            ),
+        )
+
+        for index, (tester, message, support_code) in enumerate(cases, start=1):
+            with self.subTest(support_code=support_code):
+                self.app.state.context.connection_tester = tester
+                created = self._post(
+                    "/projects/new",
+                    {
+                        "csrf_token": self.csrf,
+                        "name": f"Remote failure {index}",
+                        "source_system": "Other",
+                    },
+                )
+                project_id = created.headers["location"].split("/")[2]
+                tested = self.client.post(
+                    f"/projects/{project_id}/target",
+                    data={
+                        "csrf_token": self.csrf,
+                        "revision": "1",
+                        "odoo_connection_mode": "REMOTE",
+                        "odoo_base_url": "https://odoo.example.com",
+                        "odoo_database": f"migration_{index}",
+                        "api_key": f"secret-{index}",
+                        "action": "test",
+                    },
+                    headers=POST_HEADERS,
+                    follow_redirects=False,
+                )
+                self.assertEqual(tested.status_code, 303)
+                result = self.client.get(tested.headers["location"])
+                self.assertIn("connection-state-error", result.text)
+                self.assertIn(message, result.text)
+                self.assertIn(support_code, result.text)
+                self.assertNotIn(f"secret-{index}", result.text)
 
     def test_project_list_permanently_deletes_project_after_confirmation(
         self,
@@ -2808,9 +3004,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
             headers=POST_HEADERS,
         )
-        self.assertEqual(remote.status_code, 422)
+        self.assertEqual(remote.status_code, 200)
         self.assertIn(
-            "Enter an Odoo API key for this exact remote target",
+            "Enter an Odoo access key for this remote target.",
             remote.text,
         )
         self.assertEqual(len(self.connection_calls), 1)

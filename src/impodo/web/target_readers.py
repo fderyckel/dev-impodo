@@ -25,7 +25,7 @@ from ..connectors import (
 )
 from ..local_stack import LocalStackProfile
 from ..domain.schema.governance import BusinessKeyDefinition
-from ..models import target_identity_hash
+from ..models import TargetFingerprint, target_identity_hash
 from ..projects import MigrationProject, OdooConnectionMode, ProjectError
 from ..reference_keys import standard_reference_key
 from ..secrets import SecretStoreError
@@ -42,7 +42,10 @@ from .constants import (
 from .context import WebContext
 
 
-def _test_connection(project: MigrationProject, api_key: str) -> str:
+def _test_connection(
+    project: MigrationProject,
+    api_key: str,
+) -> TargetFingerprint:
     if project.odoo_connection_mode is None:
         raise ProjectError("Choose Local Odoo or Remote Odoo")
     connector = Json2ReadConnector(
@@ -56,18 +59,7 @@ def _test_connection(project: MigrationProject, api_key: str) -> str:
     metadata = connector.get_model_metadata(
         (MetadataRequest(model="res.partner", fields=("id",)),)
     )
-    fingerprint = metadata.fingerprint
-    if (
-        fingerprint.odoo_version != "unknown"
-        and not fingerprint.odoo_version.startswith("19.")
-    ):
-        raise ProjectError(
-            f"Expected Odoo 19, received Odoo {fingerprint.odoo_version}"
-        )
-    return (
-        f"Read-only {project.odoo_connection_mode.value.casefold()} connection "
-        f"succeeded: {fingerprint.database} / Odoo {fingerprint.odoo_version}"
-    )
+    return metadata.fingerprint
 
 
 def _selected_local_profile(

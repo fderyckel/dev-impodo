@@ -66,6 +66,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 project_id=project.project_id,
             )
             context.local_stack.forget_project(project.project_id)
+            context.remote_connections.clear(project.project_id)
             context.secret_store.delete(_target_credential_id(project))
             deleted = await run_in_threadpool(
                 context.projects.delete_project,

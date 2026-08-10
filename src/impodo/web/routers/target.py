@@ -177,6 +177,7 @@ def build_target_router(context: WebContext) -> APIRouter:
             },
         )
         local_test_requested = False
+        remote_test_requested = False
         show_local_results = False
         try:
             project = context.projects.update_target(
@@ -193,9 +194,14 @@ def build_target_router(context: WebContext) -> APIRouter:
                 action == "test"
                 and project.odoo_connection_mode is OdooConnectionMode.LOCAL
             )
+            remote_test_requested = (
+                action == "test"
+                and project.odoo_connection_mode is OdooConnectionMode.REMOTE
+            )
             submitted_key = _text(form, "api_key")
             credential_id = _target_credential_id(project)
             if submitted_key:
+                context.remote_connections.clear(project_id)
                 context.secret_store.set(
                     credential_id,
                     submitted_key,
@@ -236,10 +242,6 @@ def build_target_router(context: WebContext) -> APIRouter:
                         database=fingerprint.database,
                         odoo_version=fingerprint.odoo_version,
                     )
-                    result = (
-                        "Read-only local connection succeeded: "
-                        f"{fingerprint.database} / Odoo {fingerprint.odoo_version}"
-                    )
                 else:
                     api_key = context.secret_store.get(credential_id)
                     if not api_key:
@@ -256,15 +258,26 @@ def build_target_router(context: WebContext) -> APIRouter:
                             "Enter an Odoo API key for this exact remote target "
                             "to test"
                         )
-                    result = await run_in_threadpool(
+                    fingerprint = await run_in_threadpool(
                         context.connection_tester,
                         project,
                         api_key,
                     )
-                _flash(request, "The Odoo connection is ready. Nothing was changed.")
+                    if remote_test_requested:
+                        context.remote_connections.mark_checked(
+                            project,
+                            fingerprint,
+                        )
                 target_url = f"/projects/{project_id}/target"
+                if local_test_requested:
+                    _flash(
+                        request,
+                        "The Odoo connection is ready. Nothing was changed.",
+                    )
                 if show_local_results:
                     target_url = f"{target_url}?local_stack=1"
+                elif remote_test_requested:
+                    target_url = f"{target_url}#remote-connection-status"
                 return RedirectResponse(
                     target_url,
                     status_code=303,
@@ -280,6 +293,13 @@ def build_target_router(context: WebContext) -> APIRouter:
                 context.local_stack.mark_connection_error(
                     project_id,
                     detail=str(error),
+                )
+            if remote_test_requested:
+                project = context.queries.get(project_id)
+                context.remote_connections.mark_error(project, error)
+                return RedirectResponse(
+                    f"/projects/{project_id}/target#remote-connection-status",
+                    status_code=303,
                 )
             return _render_target(
                 request,
