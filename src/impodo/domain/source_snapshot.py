@@ -29,6 +29,7 @@ from .serialization import canonical_json, content_hash
 
 
 SOURCE_SNAPSHOT_CONTRACT_VERSION = 1
+SOURCE_SNAPSHOT_STORAGE_LAYOUT_VERSION = 2
 SOURCE_READER_CONTRACT_VERSION = 1
 SOURCE_ROW_COLUMN = "__impodo_source_row"
 SOURCE_VALUE_PHYSICAL_TYPE = "utf8"
@@ -606,14 +607,22 @@ def source_snapshot_storage_key(
     dataset_digest = _dataset_digest(dataset_id)
     snapshot_digest = _hash_digest(logical_hash, "logical hash")
     artifact_digest = _hash_digest(parquet_sha256, "Parquet hash")
+    binding_digest = _hash_digest(
+        content_hash(
+            {
+                "logical_hash": f"sha256:{snapshot_digest}",
+                "parquet_sha256": f"sha256:{artifact_digest}",
+            }
+        ),
+        "snapshot storage binding",
+    )
     return str(
         PurePosixPath(
             "snapshots",
             "source",
-            f"v{SOURCE_SNAPSHOT_CONTRACT_VERSION}",
+            f"v{SOURCE_SNAPSHOT_STORAGE_LAYOUT_VERSION}",
             dataset_digest,
-            snapshot_digest,
-            f"{artifact_digest}.parquet",
+            f"{binding_digest}.parquet",
         )
     )
 

@@ -90,6 +90,19 @@ def _plain_ui_error(message: str) -> tuple[str, str | None]:
         plain = "Impodo could not check Odoo. Confirm that Odoo is available and review the connection details before trying again."
     elif any(item in lowered for item in ("mapping", "field", "business key")):
         plain = "Impodo could not check these data matches. Review the selected fields and try again."
+    elif any(
+        item in lowered
+        for item in (
+            "artifact_path_too_long",
+            "immutable source snapshot",
+            "immutable prepared snapshot",
+        )
+    ):
+        plain = (
+            "Impodo could not save the protected copy of these tables. "
+            "Your source files and saved project are unchanged. "
+            "Contact support before trying again."
+        )
     elif any(item in lowered for item in ("source", "file", "table", "dataset", "catalog")):
         plain = "The saved source information no longer matches this project. Check the source files again before continuing."
     else:

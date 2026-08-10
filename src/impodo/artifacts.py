@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from hashlib import sha256
+import os
 from pathlib import Path
 from pathlib import PurePosixPath
 import re
@@ -22,10 +23,14 @@ import shutil
 from typing import BinaryIO, ContextManager, Protocol
 from uuid import UUID, uuid4
 
+from .domain.prepared_snapshot import PREPARED_SNAPSHOT_STORAGE_LAYOUT_VERSION
+from .domain.source_snapshot import SOURCE_SNAPSHOT_STORAGE_LAYOUT_VERSION
+
 
 _DATASET_SNAPSHOT_SEGMENT = re.compile(r"[0-9a-f]{24}")
 _SHA256_SEGMENT = re.compile(r"[0-9a-f]{64}")
 _PARQUET_SNAPSHOT_FILE = re.compile(r"[0-9a-f]{64}\.parquet")
+WINDOWS_PORTABLE_PATH_LIMIT = 259
 
 
 class ArtifactStoreError(RuntimeError):
@@ -34,6 +39,10 @@ class ArtifactStoreError(RuntimeError):
 
 class ArtifactSizeError(ArtifactStoreError):
     """Raised when a streamed artifact exceeds its configured limit."""
+
+
+class ArtifactPathTooLongError(ArtifactStoreError):
+    """Raised before a governed artifact exceeds the portable Windows limit."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -605,17 +614,21 @@ class LocalArtifactStore:
         if (
             key.is_absolute()
             or str(key) != storage_key
-            or len(parts) != 6
-            or parts[:3] != ("snapshots", "source", "v1")
+            or len(parts) != 5
+            or parts[:3]
+            != (
+                "snapshots",
+                "source",
+                f"v{SOURCE_SNAPSHOT_STORAGE_LAYOUT_VERSION}",
+            )
             or _DATASET_SNAPSHOT_SEGMENT.fullmatch(parts[3]) is None
-            or _SHA256_SEGMENT.fullmatch(parts[4]) is None
-            or _PARQUET_SNAPSHOT_FILE.fullmatch(parts[5]) is None
+            or _PARQUET_SNAPSHOT_FILE.fullmatch(parts[4]) is None
         ):
             raise ArtifactStoreError("Invalid source snapshot key")
         root = self._source_snapshot_root(project_id, create=create)
-        parent = root / parts[2] / parts[3] / parts[4]
+        parent = root / parts[2] / parts[3]
         current = root
-        for segment in parts[2:5]:
+        for segment in parts[2:4]:
             current = current / segment
             if current.is_symlink():
                 raise ArtifactStoreError(
@@ -623,7 +636,9 @@ class LocalArtifactStore:
                 )
             if create:
                 current.mkdir(exist_ok=True)
-        target = (parent / parts[5]).resolve()
+        unresolved_target = parent / parts[4]
+        _require_portable_windows_path(unresolved_target)
+        target = unresolved_target.resolve()
         if target.parent != parent.resolve():
             raise ArtifactStoreError("Source snapshot escapes the project")
         return target
@@ -661,17 +676,21 @@ class LocalArtifactStore:
         if (
             key.is_absolute()
             or str(key) != storage_key
-            or len(parts) != 6
-            or parts[:3] != ("snapshots", "prepared", "v1")
+            or len(parts) != 5
+            or parts[:3]
+            != (
+                "snapshots",
+                "prepared",
+                f"v{PREPARED_SNAPSHOT_STORAGE_LAYOUT_VERSION}",
+            )
             or _DATASET_SNAPSHOT_SEGMENT.fullmatch(parts[3]) is None
-            or _SHA256_SEGMENT.fullmatch(parts[4]) is None
-            or _PARQUET_SNAPSHOT_FILE.fullmatch(parts[5]) is None
+            or _PARQUET_SNAPSHOT_FILE.fullmatch(parts[4]) is None
         ):
             raise ArtifactStoreError("Invalid prepared snapshot key")
         root = self._prepared_snapshot_root(project_id, create=create)
-        parent = root / parts[2] / parts[3] / parts[4]
+        parent = root / parts[2] / parts[3]
         current = root
-        for segment in parts[2:5]:
+        for segment in parts[2:4]:
             current = current / segment
             if current.is_symlink():
                 raise ArtifactStoreError(
@@ -679,7 +698,9 @@ class LocalArtifactStore:
                 )
             if create:
                 current.mkdir(exist_ok=True)
-        target = (parent / parts[5]).resolve()
+        unresolved_target = parent / parts[4]
+        _require_portable_windows_path(unresolved_target)
+        target = unresolved_target.resolve()
         if target.parent != parent.resolve():
             raise ArtifactStoreError("Prepared snapshot escapes the project")
         return target
@@ -742,6 +763,20 @@ def _canonical_sha256(value: str) -> str:
     if _SHA256_SEGMENT.fullmatch(digest) is None:
         raise ArtifactStoreError("Invalid SHA-256 evidence")
     return f"sha256:{digest}"
+
+
+def _require_portable_windows_path(path: Path) -> None:
+    """Fail clearly before using a path unavailable on baseline Windows."""
+
+    if os.name != "nt":
+        return
+    path_units = len(os.fspath(path).encode("utf-16-le")) // 2
+    if path_units > WINDOWS_PORTABLE_PATH_LIMIT:
+        raise ArtifactPathTooLongError(
+            "ARTIFACT_PATH_TOO_LONG "
+            f"path_units={path_units} "
+            f"portable_limit={WINDOWS_PORTABLE_PATH_LIMIT}"
+        )
 
 
 def _file_sha256(path: Path) -> str:

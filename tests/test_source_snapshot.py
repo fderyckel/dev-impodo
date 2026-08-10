@@ -5,6 +5,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 import json
 import math
+from pathlib import PurePosixPath, PureWindowsPath
 import unittest
 
 from impodo.domain.source_snapshot import (
@@ -193,16 +194,10 @@ class SourceSnapshotManifestTests(unittest.TestCase):
 
         self.assertEqual(restored, snapshot)
         self.assertEqual(restored.content_hash, snapshot.content_hash)
-        self.assertEqual(
-            snapshot.parquet_storage_key,
-            "snapshots/source/v1/"
-            + "1" * 24
-            + "/"
-            + snapshot.logical_hash.removeprefix("sha256:")
-            + "/"
-            + snapshot.parquet_sha256.removeprefix("sha256:")
-            + ".parquet",
-        )
+        parts = PurePosixPath(snapshot.parquet_storage_key).parts
+        self.assertEqual(parts[:4], ("snapshots", "source", "v2", "1" * 24))
+        self.assertEqual(len(parts), 5)
+        self.assertRegex(parts[4], r"^[0-9a-f]{64}\.parquet$")
 
     def test_logical_hash_ignores_write_time_and_parquet_encoding(self) -> None:
         first = _snapshot(created_at=datetime(2026, 8, 9, tzinfo=timezone.utc))
@@ -237,6 +232,13 @@ class SourceSnapshotManifestTests(unittest.TestCase):
                     SourceSnapshot.from_json(json.dumps(payload))
 
     def test_storage_key_rejects_caller_controlled_path_segments(self) -> None:
+        self.assertEqual(
+            source_snapshot_storage_key(DATASET_ID, HASH_A, HASH_B),
+            "snapshots/source/v2/"
+            + "1" * 24
+            + "/e9c0bd0498a3b16db3ea90d302340b4d"
+            + "f50a5583de5270971a2b207d101ffd8a.parquet",
+        )
         for dataset_id in (
             "dataset:../../escape",
             "dataset:" + "A" * 24,
@@ -249,6 +251,32 @@ class SourceSnapshotManifestTests(unittest.TestCase):
             source_snapshot_storage_key(DATASET_ID, "../../escape", HASH_B)
         with self.assertRaises(SourceSnapshotContractError):
             source_snapshot_storage_key(DATASET_ID, HASH_A, "../../escape")
+
+    def test_storage_key_fits_the_portable_windows_path_budget(self) -> None:
+        key = source_snapshot_storage_key(DATASET_ID, HASH_A, HASH_B)
+        path = PureWindowsPath(
+            r"C:\Users\12345678901234567890\AppData\Local\Impodo\projects",
+            "00000000-0000-0000-0000-000000000000",
+            *PurePosixPath(key).parts,
+        )
+
+        self.assertLessEqual(len(str(path)), 259)
+
+    def test_legacy_v1_storage_key_is_rejected(self) -> None:
+        snapshot = _snapshot()
+        payload = json.loads(snapshot.to_json())
+        payload["parquet_storage_key"] = (
+            "snapshots/source/v1/"
+            + "1" * 24
+            + "/"
+            + snapshot.logical_hash.removeprefix("sha256:")
+            + "/"
+            + snapshot.parquet_sha256.removeprefix("sha256:")
+            + ".parquet"
+        )
+
+        with self.assertRaises(SourceSnapshotContractError):
+            SourceSnapshot.from_json(json.dumps(payload))
 
     def test_naive_creation_timestamp_is_rejected(self) -> None:
         with self.assertRaises(SourceSnapshotContractError):

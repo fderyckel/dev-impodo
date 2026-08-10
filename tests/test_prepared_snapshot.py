@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
+from pathlib import PurePosixPath, PureWindowsPath
 import unittest
 
 from impodo.domain.prepared_snapshot import (
@@ -51,14 +52,39 @@ class PreparedSnapshotContractTests(unittest.TestCase):
         self.assertEqual(
             key,
             (
-                "snapshots/prepared/v1/0123456789abcdef01234567/"
-                f"{'a' * 64}/{'e' * 64}.parquet"
+                "snapshots/prepared/v2/0123456789abcdef01234567/"
+                "abd7a54048ca55aed975af8e803e2a6e"
+                "e68098d851e968bed684075b43e9bc99.parquet"
             ),
         )
         for dataset_id in ("../escape", "dataset:not-hex"):
             with self.subTest(dataset_id=dataset_id):
                 with self.assertRaises(PreparedSnapshotContractError):
                     prepared_snapshot_storage_key(dataset_id, HASH_A, HASH_E)
+
+    def test_storage_key_fits_the_portable_windows_path_budget(self) -> None:
+        key = prepared_snapshot_storage_key(DATASET_ID, HASH_A, HASH_E)
+        path = PureWindowsPath(
+            r"C:\Users\12345678901234567890\AppData\Local\Impodo\projects",
+            "00000000-0000-0000-0000-000000000000",
+            *PurePosixPath(key).parts,
+        )
+
+        self.assertLessEqual(len(str(path)), 259)
+
+    def test_legacy_v1_storage_key_is_rejected(self) -> None:
+        snapshot = _snapshot(HASH_E, created_at=NOW)
+        payload = json.loads(snapshot.to_json())
+        payload["parquet_storage_key"] = (
+            "snapshots/prepared/v1/0123456789abcdef01234567/"
+            + snapshot.logical_hash.removeprefix("sha256:")
+            + "/"
+            + snapshot.parquet_sha256.removeprefix("sha256:")
+            + ".parquet"
+        )
+
+        with self.assertRaises(PreparedSnapshotContractError):
+            PreparedSnapshot.from_json(json.dumps(payload))
 
     def test_logical_hash_changes_with_every_transformation_binding(self) -> None:
         base = dict(

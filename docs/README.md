@@ -14,8 +14,6 @@ or **MAY** rule, the normative rule wins.
 The browser uses named workflow steps: **Project setup**, **Source data**,
 **Select tables**, **Odoo fields**, **Match fields**, and **Review**. The
 product vision uses **Stages A–K** for the end-to-end business lifecycle.
-Numeric **Phases** describe delivery increments only: Phase 1, Phase 2A,
-Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
 
 ## Architecture
 

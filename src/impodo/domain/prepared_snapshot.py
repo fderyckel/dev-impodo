@@ -12,6 +12,7 @@ from .serialization import canonical_json, content_hash
 
 
 PREPARED_SNAPSHOT_CONTRACT_VERSION = 1
+PREPARED_SNAPSHOT_STORAGE_LAYOUT_VERSION = 2
 PREPARED_WRITER_CONTRACT_VERSION = 1
 
 _DATASET_ID = re.compile(r"dataset:([0-9a-f]{24})")
@@ -257,14 +258,24 @@ def prepared_snapshot_storage_key(
 ) -> str:
     """Return a safe application-constructed project-relative artifact key."""
 
+    logical_digest = _hash_digest(logical_hash, "logical hash")
+    artifact_digest = _hash_digest(parquet_sha256, "Parquet hash")
+    binding_digest = _hash_digest(
+        content_hash(
+            {
+                "logical_hash": f"sha256:{logical_digest}",
+                "parquet_sha256": f"sha256:{artifact_digest}",
+            }
+        ),
+        "snapshot storage binding",
+    )
     return str(
         PurePosixPath(
             "snapshots",
             "prepared",
-            f"v{PREPARED_SNAPSHOT_CONTRACT_VERSION}",
+            f"v{PREPARED_SNAPSHOT_STORAGE_LAYOUT_VERSION}",
             _dataset_digest(dataset_id),
-            _hash_digest(logical_hash, "logical hash"),
-            f"{_hash_digest(parquet_sha256, 'Parquet hash')}.parquet",
+            f"{binding_digest}.parquet",
         )
     )
 

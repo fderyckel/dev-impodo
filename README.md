@@ -119,13 +119,27 @@ Impodo requires Python 3.12 or newer.
 
 ### Windows
 
-From PowerShell at the repository root:
+Install 64-bit Python 3.12 or newer first. The standard Windows Python
+installation includes `venv`; no separate virtual-environment package is
+required.
+
+For the first setup, open PowerShell at the repository root, create the local
+`.venv`, and install Impodo into it:
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e .
+```
+
+The `.venv` directory now contains this checkout's isolated Python environment
+and the Impodo launcher. Start Impodo with:
+
+```powershell
 .\.venv\Scripts\impodo.exe
 ```
+
+You do not need to activate the virtual environment because these commands use
+its executables directly. On later starts, only run the launcher command.
 
 The launcher opens a single-use authenticated URL in the default browser. To
 stop Impodo, use **Quit Impodo** in the browser or press `Ctrl+C` in the
