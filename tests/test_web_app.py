@@ -2142,6 +2142,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Stage 4 of 6 · Prepare data", prepare_page.text)
         self.assertIn("Prepare all source rows", prepare_page.text)
         self.assertIn(
+            "Impodo prepares from the source copy stored inside this project",
+            prepare_page.text,
+        )
+        self.assertIn(
             f'action="/projects/{project_id}/summary/check"',
             prepare_page.text,
         )
@@ -2150,6 +2154,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         summary = self.client.get(f"/projects/{project_id}/summary")
         self.assertIn("Prepare and review data", summary.text)
+        self.assertIn("Uses Impodo’s stored local copy", summary.text)
         checked = self.client.post(
             f"/projects/{project_id}/summary/check",
             data={"csrf_token": self.csrf},
@@ -2160,6 +2165,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("/preparation/", checked.headers["location"])
         progress_page = self.client.get(checked.headers["location"])
         self.assertIn("Stage 4 of 6 · Prepare data", progress_page.text)
+        self.assertIn(
+            "Impodo is preparing from its stored local copy",
+            progress_page.text,
+        )
         self.assertIn('aria-current="step"', progress_page.text)
         self.assertIn('aria-current="page"', progress_page.text)
         completed_job = _wait_for_preparation(

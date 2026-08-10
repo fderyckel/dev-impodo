@@ -15,7 +15,7 @@
   <section class="form-card narrow">
     {% if can_prepare %}
       <h2>Start preparation</h2>
-      <p>This work happens locally. You can leave the progress page and return without losing the job.</p>
+      <p>Impodo prepares from the source copy stored inside this project. You can leave the progress page and return without losing the job.</p>
       <form method="post" action="/projects/{{ project.project_id }}/summary/check">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="button primary" type="submit">Prepare data</button>

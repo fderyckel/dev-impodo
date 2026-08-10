@@ -178,6 +178,14 @@ def _render_summary(
         if source_selection is not None
         else None
     )
+    preparation_limit_message = (
+        _preparation_limit_message(
+            bounded_direct=bounded_direct,
+            supported_limit=scale_limit,
+        )
+        if evaluation_scale is not None and not evaluation_scale.supported
+        else ""
+    )
     submission = (
         context.queries.get_mapping_submission(project_id, revision.version)
         if revision is not None
@@ -339,8 +347,27 @@ def _render_summary(
         status_filter=status_filter,
         dataset_filter=dataset_filter,
         evaluation_scale=evaluation_scale,
+        preparation_limit_message=preparation_limit_message,
         error=error,
         status_code=status_code,
+    )
+
+
+def _preparation_limit_message(
+    *,
+    bounded_direct: bool,
+    supported_limit: int,
+) -> str:
+    """Explain a preparation size boundary without exposing its backend."""
+
+    if bounded_direct:
+        return (
+            "With this source setup and these field rules, Impodo can safely "
+            f"prepare up to {supported_limit:,} rows in one project."
+        )
+    return (
+        "This setup includes related or grouped source data, so Impodo can "
+        f"safely prepare up to {supported_limit:,} rows in one project."
     )
 
 

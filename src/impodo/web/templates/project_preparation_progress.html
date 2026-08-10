@@ -35,7 +35,7 @@
           {% if job.total_rows %}{{ "{:,}".format(job.completed_rows) }} of {{ "{:,}".format(job.total_rows) }} source rows{% else %}Starting safely{% endif %}
         </span>
       </div>
-      <p class="muted">The source files remain unchanged, and nothing is sent to Odoo.</p>
+      <p class="muted">Impodo is preparing from its stored local copy. Your original source files remain unchanged, and nothing is sent to Odoo.</p>
     </section>
 
     <section class="next-action-card blocked" data-preparation-failed {% if job.status.value != 'FAILED' %}hidden{% endif %}>

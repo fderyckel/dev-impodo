@@ -516,8 +516,8 @@
     <section class="form-card readiness-start">
       <div class="empty-state">
         {% if evaluation_scale and not evaluation_scale.supported %}
-          <h2>Split this source before checking</h2>
-          <p>This project has {{ "{:,}".format(evaluation_scale.physical_rows) }} source rows. This version can safely check up to {{ "{:,}".format(evaluation_scale.supported_limit) }} rows in one project.</p>
+          <h2>Reduce the source size before preparing</h2>
+          <p>This project has {{ "{:,}".format(evaluation_scale.physical_rows) }} source rows. {{ preparation_limit_message }}</p>
           <a class="button primary" href="/projects/{{ project.project_id }}/sources">Review source tables</a>
           <small>No data was changed.</small>
         {% else %}
@@ -527,7 +527,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button primary" type="submit">Prepare and review data</button>
           </form>
-          <small>Read-only · no changes are sent to Odoo</small>
+          <small>Uses Impodo’s stored local copy · nothing is sent to Odoo</small>
         {% endif %}
       </div>
     </section>
