@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -23,6 +24,7 @@ from impodo.domain.execution_snapshot import (
     build_execution_snapshot,
 )
 from impodo.engine import PreflightEngine
+from impodo.models import BusinessReference, Classification, LogicalReference
 from impodo.planner import plan_metadata_requests, plan_record_requests
 from impodo.profile import load_profile
 from impodo.source import prepare_sources
@@ -130,6 +132,105 @@ class ExecutionSnapshotTests(unittest.TestCase):
         text = snapshot.to_json()
         self.assertNotIn("odoo_id", text)
         self.assertNotIn("P-CREATE", create.proposed_external_id)
+
+    def test_create_uses_reviewed_target_references_and_keeps_incoming_links(
+        self,
+    ) -> None:
+        frozen, result = _execution_fixture()
+
+        snapshot = build_execution_snapshot(
+            preflight_run_id=str(uuid4()),
+            frozen=frozen,
+            result=result,
+        )
+
+        product = next(
+            row
+            for row in snapshot.rows
+            if row.dataset == "products"
+            and row.business_identity[0] == "P-CREATE"
+        )
+        product_intents = {item.field: item for item in product.fields}
+        self.assertIsInstance(
+            product_intents["company_id"].value,
+            BusinessReference,
+        )
+        self.assertEqual(
+            product_intents["company_id"].value,
+            BusinessReference("res.company", ("BE",)),
+        )
+        self.assertEqual(
+            product_intents["uom_id"].value,
+            BusinessReference("uom.uom", ("UNIT",)),
+        )
+        self.assertEqual(
+            product_intents["tag_ids"].value,
+            (BusinessReference("product.tag", ("BLUE",)),),
+        )
+
+        child = next(
+            row
+            for row in snapshot.rows
+            if row.dataset == "asset_lines"
+            and row.disposition == "CREATE"
+        )
+        child_intents = {item.field: item for item in child.fields}
+        self.assertIsInstance(child_intents["asset_id"].value, LogicalReference)
+        self.assertEqual(child_intents["asset_id"].value.origin, "incoming")
+        self.assertEqual(
+            child_intents["product_tmpl_id"].value,
+            BusinessReference("product.template", ("P-SAME",)),
+        )
+
+    def test_unresolved_target_reference_remains_fail_closed(self) -> None:
+        frozen, result = _execution_fixture()
+        decisions = tuple(
+            replace(
+                decision,
+                classification=Classification.CREATE,
+                target_match_count=0,
+                issues=(),
+            )
+            if decision.business_identity == ("P-BLOCK",)
+            else decision
+            for decision in result.decisions
+        )
+
+        snapshot = build_execution_snapshot(
+            preflight_run_id=str(uuid4()),
+            frozen=frozen,
+            result=replace(result, decisions=decisions),
+        )
+
+        blocked_product = next(
+            row
+            for row in snapshot.rows
+            if row.business_identity == ("P-BLOCK",)
+        )
+        uom_intent = next(
+            item for item in blocked_product.fields if item.field == "uom_id"
+        )
+        self.assertIsInstance(uom_intent.value, LogicalReference)
+        self.assertEqual(uom_intent.value.origin, "target")
+
+    def test_create_rejects_missing_target_resolution_evidence(self) -> None:
+        frozen, result = _execution_fixture()
+        resolutions = tuple(
+            item
+            for item in result.reference_resolutions
+            if not (
+                item.dataset == "products"
+                and item.reference.origin == "target"
+                and item.reference.key == ("UNIT",)
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "resolution evidence is incomplete"):
+            build_execution_snapshot(
+                preflight_run_id=str(uuid4()),
+                frozen=frozen,
+                result=replace(result, reference_resolutions=resolutions),
+            )
 
     def test_round_trip_is_deterministic_and_detects_tampering(self) -> None:
         frozen, result = _execution_fixture()

@@ -716,6 +716,117 @@ class ExecutionServiceTests(unittest.TestCase):
             "50",
         )
 
+    def test_remote_create_caches_repeated_existing_relation_across_batches(
+        self,
+    ):
+        snapshot = _snapshot()
+        template = replace(
+            snapshot.rows[1],
+            fields=(
+                *snapshot.rows[1].fields[:-1],
+                replace(
+                    snapshot.rows[1].fields[-1],
+                    value=BusinessReference(
+                        "product.category",
+                        ("Existing Category",),
+                    ),
+                ),
+            ),
+        )
+        products = tuple(
+            replace(
+                template,
+                row_id="sha256:" + f"{1000 + index:064x}",
+                source_row=1000 + index,
+                source_trace_id="sha256:" + f"{2000 + index:064x}",
+                source_identity=(f"P{index}",),
+                business_identity=(f"P{index}",),
+                proposed_external_id=f"impodo_test.products_{index}",
+            )
+            for index in range(51)
+        )
+        relationship_snapshot = replace(
+            snapshot,
+            datasets=(snapshot.datasets[1],),
+            rows=products,
+            counts={
+                "CREATE": len(products),
+                "UPDATE": 0,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(
+            relationship_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(
+            execution_api_scope(relationship_snapshot).semantic_hash
+        )
+
+        run = service.execute(
+            relationship_snapshot.project_id,
+            expected_snapshot_hash=relationship_snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(len(executor.loads), 2)
+        self.assertEqual(
+            executor.lookups,
+            [
+                (
+                    "product.category",
+                    (("name", "=", "Existing Category"),),
+                )
+            ],
+        )
+
+    def test_remote_unresolved_target_relation_has_actionable_scope_error(self):
+        snapshot = _snapshot()
+        product = replace(
+            snapshot.rows[1],
+            fields=(
+                *snapshot.rows[1].fields[:-1],
+                replace(
+                    snapshot.rows[1].fields[-1],
+                    value=LogicalReference(
+                        origin="target",
+                        key=("Missing Category",),
+                        model="product.category",
+                        target_fields=("name",),
+                    ),
+                ),
+            ),
+        )
+        relationship_snapshot = replace(
+            snapshot,
+            datasets=(snapshot.datasets[1],),
+            rows=(product,),
+            counts={
+                "CREATE": 1,
+                "UPDATE": 0,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(
+            relationship_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+
+        preview = service.current_preview(relationship_snapshot.project_id)
+
+        assert preview is not None
+        self.assertFalse(preview.can_load)
+        self.assertEqual(
+            preview.scope_error,
+            "products.categ_id has no unique reviewed Odoo relationship match",
+        )
+
     def test_remote_existing_target_many2one_requires_one_match(self):
         snapshot = _snapshot()
         product = replace(

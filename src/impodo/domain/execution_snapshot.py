@@ -8,7 +8,7 @@ not another user approval.  Every compared row is accounted for, while only
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha256
 import json
 import re
@@ -17,8 +17,10 @@ from typing import Any, Mapping
 from .compiler.contracts import CompiledMigrationPlan
 from .preflight.frozen_input import FrozenPreflightInput
 from ..models import (
+    BusinessReference,
     Classification,
     Decision,
+    LogicalReference,
     PreflightResult,
     PreparedRecord,
     assert_no_numeric_odoo_ids,
@@ -317,6 +319,7 @@ def build_execution_snapshot(
         (record.dataset, record.source_row): record
         for record in frozen.prepared.records
     }
+    target_resolutions = _target_resolution_index(result)
     rows = []
     for decision in result.decisions:
         record = records.get((decision.dataset, decision.source_row))
@@ -326,12 +329,17 @@ def build_execution_snapshot(
         ):
             raise ValueError("Preflight decision row is missing from frozen input")
         dataset = frozen.plan.dataset(decision.dataset)
+        execution_record = (
+            _resolved_create_record(record, target_resolutions)
+            if decision.classification is Classification.CREATE
+            else record
+        )
         rows.append(
             _execution_row(
                 frozen.project_id,
                 frozen.plan,
                 dataset,
-                record,
+                execution_record,
                 decision,
             )
         )
@@ -387,6 +395,81 @@ def build_execution_snapshot(
     _validate_rows(row_tuple, counts)
     snapshot.portable_dict()
     return snapshot
+
+
+def _target_resolution_index(
+    result: PreflightResult,
+) -> dict[tuple[str, bytes], tuple[str, int]]:
+    """Index reviewed target-reference outcomes without carrying Odoo IDs.
+
+    Resolution evidence is grouped by field for reporting, while the logical
+    reference itself already contains the complete lookup shape.  Identical
+    references within one dataset must therefore have one consistent outcome.
+    """
+
+    outcomes: dict[tuple[str, bytes], tuple[str, int]] = {}
+    for evidence in result.reference_resolutions:
+        reference = evidence.reference
+        if reference.origin != "target":
+            continue
+        key = (
+            evidence.dataset,
+            canonical_json_bytes(portable_value(reference)),
+        )
+        outcome = (evidence.status, evidence.match_count)
+        previous = outcomes.setdefault(key, outcome)
+        if previous != outcome:
+            raise ValueError("Target relationship resolution evidence conflicts")
+    return outcomes
+
+
+def _resolved_create_record(
+    record: PreparedRecord,
+    target_resolutions: Mapping[tuple[str, bytes], tuple[str, int]],
+) -> PreparedRecord:
+    """Use reviewed target matches while preserving incoming dependencies.
+
+    The preflight engine resolves both target and incoming logical references
+    for comparison.  Execution must keep incoming references symbolic so it
+    can use dependency ordering and External IDs, but a uniquely reviewed
+    existing-Odoo reference becomes a portable ``BusinessReference``.
+    """
+
+    def resolved_value(value: Any) -> Any:
+        if isinstance(value, tuple):
+            return tuple(resolved_value(item) for item in value)
+        if not isinstance(value, LogicalReference) or value.origin != "target":
+            return value
+        outcome = target_resolutions.get(
+            (
+                record.dataset,
+                canonical_json_bytes(portable_value(value)),
+            )
+        )
+        if outcome is None:
+            raise ValueError("Target relationship resolution evidence is incomplete")
+        status, match_count = outcome
+        if status != "RESOLVED":
+            return value
+        if match_count != 1 or not value.model:
+            raise ValueError("Resolved target relationship evidence is invalid")
+        return BusinessReference(
+            model=value.model,
+            key=value.key,
+            scope=value.scope,
+        )
+
+    return replace(
+        record,
+        target_identity=tuple(
+            resolved_value(value) for value in record.target_identity
+        ),
+        target_scope=tuple(resolved_value(value) for value in record.target_scope),
+        references={
+            field: resolved_value(value)
+            for field, value in record.references.items()
+        },
+    )
 
 
 def _execution_row(

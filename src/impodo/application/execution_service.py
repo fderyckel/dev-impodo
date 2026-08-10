@@ -905,6 +905,8 @@ class ExecutionService:
         identity_cache: dict[str, int],
         executor: OdooWriteExecutor,
     ) -> int:
+        if cache_key in identity_cache:
+            return identity_cache[cache_key]
         matches = executor.find_ids(model, domain)
         if len(matches) != 1:
             raise WorkspaceError(
@@ -1061,9 +1063,14 @@ def _execution_snapshot_error(
         *,
         require_created: bool = True,
     ) -> str:
-        if value.origin != "incoming" or value.dataset is None:
+        if value.origin != "incoming":
             return (
-                f"{dataset.dataset}.{intent.field} is not an imported "
+                f"{dataset.dataset}.{intent.field} has no unique reviewed "
+                "Odoo relationship match"
+            )
+        if value.dataset is None:
+            return (
+                f"{dataset.dataset}.{intent.field} has an incomplete imported "
                 "relationship reference"
             )
         related_dataset = datasets.get(value.dataset)
