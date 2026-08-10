@@ -20,6 +20,7 @@ class ExecutionRunStatus(StrEnum):
 class ExecutionRowStatus(StrEnum):
     PLANNED = "PLANNED"
     COMMITTED = "COMMITTED"
+    PARTIALLY_APPLIED = "PARTIALLY_APPLIED"
     FAILED = "FAILED"
     BLOCKED = "BLOCKED"
     OUTCOME_UNKNOWN = "OUTCOME_UNKNOWN"
@@ -92,6 +93,13 @@ class ExecutionRun:
     @property
     def failed_count(self) -> int:
         return sum(item.status is ExecutionRowStatus.FAILED for item in self.rows)
+
+    @property
+    def partially_applied_count(self) -> int:
+        return sum(
+            item.status is ExecutionRowStatus.PARTIALLY_APPLIED
+            for item in self.rows
+        )
 
     @property
     def blocked_count(self) -> int:

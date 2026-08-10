@@ -34,6 +34,7 @@ from impodo.odoo_scope import OdooApiScope, OdooModelScope
 from tests.test_execution_service import (
     HASH,
     TARGET_HASH,
+    _remote_cycle_snapshot,
     _remote_many2many_snapshot,
     _snapshot,
 )
@@ -202,6 +203,56 @@ class ReconciliationServiceTests(unittest.TestCase):
             all(row.status is ReconciliationRowStatus.VERIFIED for row in report.rows)
         )
         self.assertEqual(results.report.semantic_hash, report.semantic_hash)
+
+    def test_partially_applied_cycle_is_read_by_exact_created_id(self):
+        snapshot = _remote_cycle_snapshot()
+        run = _run(
+            snapshot,
+            (
+                ExecutionRowStatus.PARTIALLY_APPLIED,
+                ExecutionRowStatus.COMMITTED,
+            ),
+        )
+        run = replace(
+            run,
+            status=ExecutionRunStatus.COMPLETED_WITH_ERRORS,
+            rows=(replace(run.rows[0], odoo_id=10), run.rows[1]),
+        )
+        service, _results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.records.update(
+            {
+                ("x.first.node", 10): {
+                    "code": "FIRST",
+                    "second_id": False,
+                },
+                ("x.second.node", 11): {
+                    "code": "SECOND",
+                    "first_id": [10, "First"],
+                },
+            }
+        )
+        reader.external_ids.update(
+            {
+                "impodo_test.first_nodes_20": ExternalIdBinding(
+                    "impodo_test.first_nodes_20", "x.first.node", 10
+                ),
+                "impodo_test.second_nodes_21": ExternalIdBinding(
+                    "impodo_test.second_nodes_21", "x.second.node", 11
+                ),
+            }
+        )
+
+        report = service.reconcile(
+            snapshot.project_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(report.rows[0].status, ReconciliationRowStatus.DIFFERENT)
+        self.assertEqual(report.rows[0].odoo_id, 10)
+        self.assertEqual(report.rows[0].differing_fields, ("second_id",))
 
     def test_unknown_create_is_rematched_without_retrying_the_write(self):
         snapshot = _snapshot()

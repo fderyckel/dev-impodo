@@ -11,6 +11,7 @@ from .evidence import MappingValidationIssue
 
 def _validate_dependencies(
     dependencies: Mapping[str, set[str]],
+    required_on_create_dependencies: Mapping[str, set[str]],
     datasets_by_id: Mapping[str, DatasetMapping],
     issues: list[MappingValidationIssue],
 ) -> None:
@@ -36,8 +37,8 @@ def _validate_dependencies(
                 _issue(
                     "MAPPING_DEPENDENCY_CYCLE",
                     "/datasets",
-                    "Incoming relationships contain a dependency cycle.",
-                    "Remove the cycle or defer a reviewed multi-pass strategy.",
+                    "Required-at-create relationships contain a dependency cycle.",
+                    "Make at least one relationship deferrable or remove the cycle.",
                     dataset=datasets_by_id.get(node),
                 )
             )
@@ -45,7 +46,7 @@ def _validate_dependencies(
         if node in visited:
             return
         visiting.add(node)
-        for child in sorted(dependencies.get(node, ())):
+        for child in sorted(required_on_create_dependencies.get(node, ())):
             if child in known:
                 visit(child)
         visiting.remove(node)

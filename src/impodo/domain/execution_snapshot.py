@@ -57,6 +57,7 @@ class FieldIntent:
     related_model: str = ""
     related_identity_fields: tuple[str, ...] = ()
     related_scope_fields: tuple[str, ...] = ()
+    defer_on_create: bool = False
 
     def portable_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -73,6 +74,8 @@ class FieldIntent:
                 self.related_identity_fields
             )
             payload["related_scope_fields"] = list(self.related_scope_fields)
+            if self.defer_on_create:
+                payload["defer_on_create"] = True
         return payload
 
 
@@ -450,6 +453,14 @@ def _create_intents(
     record: PreparedRecord,
 ) -> tuple[FieldIntent, ...]:
     intentions: dict[str, FieldIntent] = {}
+    identity_fields = {
+        field
+        for component in (
+            *dataset.target_identity.components,
+            *dataset.target_identity.scope,
+        )
+        for field in component.target_fields
+    }
     _add_identity_intents(
         intentions,
         plan,
@@ -479,6 +490,11 @@ def _create_intents(
             spec.null_policy,
             kind="relation",
             relation_operation=spec.operation,
+            defer_on_create=(
+                spec.resolve.dataset is not None
+                and not spec.required_on_create
+                and field not in identity_fields
+            ),
             **_relation_shape(plan, spec.resolve),
         )
     return tuple(intentions[field] for field in sorted(intentions))
@@ -561,6 +577,7 @@ def _intent(
     related_model: str = "",
     related_identity_fields: tuple[str, ...] = (),
     related_scope_fields: tuple[str, ...] = (),
+    defer_on_create: bool = False,
 ) -> FieldIntent:
     empty_relation = kind == "relation" and value == ()
     if (value is None or empty_relation) and null_policy == "ignore_source_null":
@@ -578,6 +595,7 @@ def _intent(
         related_model=related_model,
         related_identity_fields=related_identity_fields,
         related_scope_fields=related_scope_fields,
+        defer_on_create=defer_on_create and action == "SET_VALUE",
     )
 
 
@@ -747,6 +765,7 @@ def _validate_rows(
                 intent.related_model
                 or intent.related_identity_fields
                 or intent.related_scope_fields
+                or intent.defer_on_create
             ):
                 raise ValueError("Execution snapshot relation shape is invalid")
             if intent.kind == "relation" and intent.relation_operation not in {
@@ -759,6 +778,11 @@ def _validate_rows(
                 not intent.related_model or not intent.related_identity_fields
             ):
                 raise ValueError("Execution snapshot relation shape is invalid")
+            if intent.defer_on_create and (
+                row.disposition != Classification.CREATE.value
+                or intent.action != "SET_VALUE"
+            ):
+                raise ValueError("Execution snapshot deferred relation is invalid")
 
 
 def _restore_row(payload: Mapping[str, Any]) -> ExecutionRow:
@@ -777,6 +801,7 @@ def _restore_row(payload: Mapping[str, Any]) -> ExecutionRow:
             related_scope_fields=tuple(
                 str(value) for value in item.get("related_scope_fields", ())
             ),
+            defer_on_create=bool(item.get("defer_on_create", False)),
         )
         for item in payload.get("fields", ())
     )

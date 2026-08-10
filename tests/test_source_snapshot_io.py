@@ -167,19 +167,23 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             bounded.run.validated_content_hash,
             python_bounded.run.validated_content_hash,
         )
-        repeated = prepare_bounded_direct_session(
-            self.projects.get(project.project_id),
-            definition,
-            1,
-            selection,
-            selection,
-            (catalog,),
-            self.artifacts,
-            None,
-            sessions,
-            actor=LOCAL_ACTOR,
-            source_snapshots=snapshots,
-        )
+        with patch(
+            "impodo.application.bounded_preparation.write_polars_prepared_snapshot",
+            side_effect=AssertionError("reused preparation reran Polars"),
+        ):
+            repeated = prepare_bounded_direct_session(
+                self.projects.get(project.project_id),
+                definition,
+                1,
+                selection,
+                selection,
+                (catalog,),
+                self.artifacts,
+                None,
+                sessions,
+                actor=LOCAL_ACTOR,
+                source_snapshots=snapshots,
+            )
         self.assertEqual(
             repeated.run.validated_content_hash,
             bounded.run.validated_content_hash,
@@ -253,7 +257,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         sessions = PreparationSessionRepository(self.database)
 
         with patch(
-            "impodo.application.bounded_preparation.iter_polars_transformation_batches",
+            "impodo.application.bounded_preparation.write_polars_prepared_snapshot",
             side_effect=AssertionError("unsupported mapping used the native adapter"),
         ):
             bounded = prepare_bounded_direct_session(
@@ -273,6 +277,51 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.assertEqual(
             [row.proposed_values["name"] for row in bounded.run.rows],
             ["replaced", "Beta"],
+        )
+
+    def test_prepared_snapshot_bind_failure_removes_unregistered_file(self) -> None:
+        project, source_file, catalog = self._registered_csv(
+            b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
+        )
+        selection = _selection_for(project, source_file, catalog)
+        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
+            project,
+            selection,
+            selection.datasets[0],
+            catalog,
+            source_file,
+        ).snapshot
+        sessions = PreparationSessionRepository(self.database)
+
+        with (
+            patch.object(
+                sessions,
+                "bind_prepared_snapshot",
+                side_effect=RuntimeError("injected manifest failure"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "injected manifest failure"),
+        ):
+            prepare_bounded_direct_session(
+                project,
+                _direct_mapping(selection),
+                1,
+                selection,
+                selection,
+                (catalog,),
+                self.artifacts,
+                None,
+                sessions,
+                actor=LOCAL_ACTOR,
+                source_snapshots=(snapshot,),
+            )
+
+        prepared_root = (
+            self.root / project.project_id / "snapshots" / "prepared"
+        )
+        self.assertEqual(tuple(prepared_root.rglob("*.parquet")), ())
+        self.assertEqual(
+            sessions.prepared_snapshot_storage_keys(project.project_id),
+            frozenset(),
         )
 
     def test_mixed_xlsx_scalars_round_trip_through_parquet(self) -> None:

@@ -6,14 +6,19 @@ import json
 from pathlib import Path
 import unittest
 
+import yaml
+
+from impodo.catalog import TargetCatalog
 from impodo.connectors import MetadataSnapshot, SnapshotConnector
 from impodo.domain.compiler import CompiledMigrationPlan, compile_profile_document
-from impodo.engine import PreflightEngine, _relation_difference
+from impodo.engine import PreflightEngine, _relation_difference, _resolve_records
 from impodo.models import (
     BusinessReference,
     Classification,
     FieldMetadata,
     ModelMetadata,
+    LogicalReference,
+    PreparedRecord,
     assert_no_numeric_odoo_ids,
     canonical_json_bytes,
 )
@@ -21,7 +26,12 @@ from impodo.planner import (
     plan_metadata_requests,
     plan_record_requests,
 )
-from impodo.profile import RelationSpec, ResolveSpec, load_profile
+from impodo.profile import (
+    ProfileDocument,
+    RelationSpec,
+    ResolveSpec,
+    load_profile,
+)
 from impodo.source import prepare_sources
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
@@ -54,6 +64,75 @@ class PortableEvidenceValidationTests(unittest.TestCase):
                 ]
             }
         )
+
+
+class CyclicRelationshipResolutionTests(unittest.TestCase):
+    def test_optional_relationship_cycle_resolves_each_business_key_once(self) -> None:
+        data = yaml.safe_load((ROOT / "profiles/template.yaml").read_text())
+        first = data["datasets"][0]
+        first["name"] = "one"
+        first["source_identity"]["fields"] = ["source_key"]
+        first["relations"]["uom_id"]["required_on_create"] = False
+        first["relations"]["uom_id"]["resolve"] = {
+            "dataset": "two",
+            "target_source_fields": ["source_key"],
+        }
+        second = yaml.safe_load(yaml.safe_dump(first))
+        second["name"] = "two"
+        second["source"]["file"] = "two.csv"
+        second["relations"]["uom_id"]["resolve"] = {
+            "dataset": "one",
+            "target_source_fields": ["source_key"],
+        }
+        data["datasets"] = [first, second]
+        plan = compile_profile_document(ProfileDocument.model_validate(data))
+        records = (
+            PreparedRecord(
+                dataset="one",
+                source_row=2,
+                target_model=first["target"]["model"],
+                source_identity=("ONE",),
+                target_identity=("ONE",),
+                target_scope=(),
+                scalar_values={},
+                references={
+                    "uom_id": LogicalReference(
+                        origin="incoming",
+                        key=("TWO",),
+                        dataset="two",
+                    )
+                },
+            ),
+            PreparedRecord(
+                dataset="two",
+                source_row=2,
+                target_model=second["target"]["model"],
+                source_identity=("TWO",),
+                target_identity=("TWO",),
+                target_scope=(),
+                scalar_values={},
+                references={
+                    "uom_id": LogicalReference(
+                        origin="incoming",
+                        key=("ONE",),
+                        dataset="one",
+                    )
+                },
+            ),
+        )
+
+        resolved, evidence = _resolve_records(plan, records, TargetCatalog({}))
+
+        self.assertEqual(
+            resolved[0].references["uom_id"],
+            BusinessReference(records[1].target_model, ("TWO",)),
+        )
+        self.assertEqual(
+            resolved[1].references["uom_id"],
+            BusinessReference(records[0].target_model, ("ONE",)),
+        )
+        self.assertEqual(len(evidence), 2)
+        self.assertTrue(all(item.status == "RESOLVED" for item in evidence))
 
 
 def golden_result():

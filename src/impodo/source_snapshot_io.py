@@ -19,6 +19,11 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Iterator
 
+from .columnar_runtime import configure_columnar_runtime
+
+
+configure_columnar_runtime()
+
 import polars as pl
 
 from .artifacts import ArtifactStore

@@ -54,6 +54,7 @@ from ..domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
 )
+from ..domain.prepared_snapshot import PreparedSnapshot
 from ..domain.source_snapshot import SourceSnapshot
 from ..models import Issue
 
@@ -218,6 +219,22 @@ class PreparationSessionRepository(Protocol):
         control_totals: Sequence[CanonicalControlTotal],
         impact_report: TransformationImpactReport,
     ) -> StoredCanonicalStagingRun: ...
+
+    def find_prepared_snapshot(
+        self,
+        project_id: str,
+        dataset_id: str,
+        logical_hash: str,
+    ) -> PreparedSnapshot | None: ...
+
+    def bind_prepared_snapshot(
+        self,
+        project_id: str,
+        session_id: str,
+        snapshot: PreparedSnapshot,
+    ) -> None: ...
+
+    def prepared_snapshot_storage_keys(self, project_id: str) -> frozenset[str]: ...
 
     def physical_rows(
         self,

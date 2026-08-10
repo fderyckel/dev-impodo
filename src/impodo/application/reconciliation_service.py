@@ -236,9 +236,12 @@ class ReconciliationService:
     ) -> None:
         by_model: dict[str, list[ExecutionRow]] = {}
         for row_id, attempt in attempts.items():
-            if attempt.status is ExecutionRowStatus.COMMITTED:
-                if attempt.odoo_id is None:
-                    raise WorkspaceError("A committed load row has no Odoo record")
+            if (
+                attempt.status is ExecutionRowStatus.COMMITTED
+                and attempt.odoo_id is None
+            ):
+                raise WorkspaceError("A committed load row has no Odoo record")
+            if attempt.odoo_id is not None:
                 by_model.setdefault(attempt.target_model, []).append(rows[row_id])
         for model, model_rows in by_model.items():
             identifiers = {
@@ -277,7 +280,10 @@ class ReconciliationService:
     ) -> dict[str, tuple[ReadbackRecord, ...]]:
         matches = {}
         for row_id, attempt in attempts.items():
-            if attempt.status is not ExecutionRowStatus.OUTCOME_UNKNOWN:
+            if (
+                attempt.status is not ExecutionRowStatus.OUTCOME_UNKNOWN
+                or attempt.odoo_id is not None
+            ):
                 continue
             row = rows[row_id]
             dataset = metadata[row.dataset]
@@ -310,7 +316,11 @@ class ReconciliationService:
             if (
                 row.disposition == "CREATE"
                 and attempt.status
-                in {ExecutionRowStatus.COMMITTED, ExecutionRowStatus.OUTCOME_UNKNOWN}
+                in {
+                    ExecutionRowStatus.COMMITTED,
+                    ExecutionRowStatus.PARTIALLY_APPLIED,
+                    ExecutionRowStatus.OUTCOME_UNKNOWN,
+                }
                 and resolved_id is not None
             ):
                 expected[row.proposed_external_id] = (
@@ -363,13 +373,20 @@ class ReconciliationService:
             execution_status=attempt.status.value,
             odoo_id=actual.odoo_id if actual is not None else attempt.odoo_id,
         )
-        if attempt.status in {ExecutionRowStatus.FAILED, ExecutionRowStatus.BLOCKED}:
+        if (
+            attempt.status in {ExecutionRowStatus.FAILED, ExecutionRowStatus.BLOCKED}
+            and attempt.odoo_id is None
+        ):
             return ReconciliationRow(
                 **common,
                 status=ReconciliationRowStatus.NOT_WRITTEN,
                 message=attempt.safe_error or "Odoo did not receive this row",
             )
-        if attempt.status is ExecutionRowStatus.OUTCOME_UNKNOWN and actual is None:
+        if (
+            attempt.status is ExecutionRowStatus.OUTCOME_UNKNOWN
+            and actual is None
+            and attempt.odoo_id is None
+        ):
             if uncertain_matches is not None and len(uncertain_matches) > 1:
                 message = "The business key now matches more than one Odoo record"
             elif row.disposition == "CREATE":

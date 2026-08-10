@@ -164,6 +164,52 @@ class ExecutionRepositoryTests(unittest.TestCase):
             ).fetchall()
         self.assertEqual(events, [("ODOO_LOAD_STARTED",), ("ODOO_LOAD_FINISHED",)])
 
+    def test_created_row_can_progress_from_partial_to_committed(self) -> None:
+        run = self._run()
+        self.repository.start_run(
+            self.project.project_id,
+            run,
+            actor=LOCAL_ACTOR,
+        )
+        partial = replace(
+            run.rows[0],
+            status=ExecutionRowStatus.PARTIALLY_APPLIED,
+            attempt=1,
+            odoo_id=42,
+            safe_error="Created; deferred relationship update pending",
+        )
+        self.repository.record_outcomes(
+            self.project.project_id,
+            run.run_id,
+            (partial,),
+        )
+        self.repository.record_outcomes(
+            self.project.project_id,
+            run.run_id,
+            (
+                replace(
+                    partial,
+                    status=ExecutionRowStatus.COMMITTED,
+                    safe_error="",
+                ),
+                replace(
+                    run.rows[1],
+                    status=ExecutionRowStatus.BLOCKED,
+                    safe_error="Not part of this test",
+                ),
+            ),
+        )
+
+        finished = self.repository.finish_run(
+            self.project.project_id,
+            run.run_id,
+            ExecutionRunStatus.COMPLETED_WITH_ERRORS,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(finished.rows[0].status, ExecutionRowStatus.COMMITTED)
+        self.assertEqual(finished.rows[0].odoo_id, 42)
+
     def test_version_twenty_three_adds_execution_tables(self) -> None:
         path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
         with self.projects._connect(path) as connection:

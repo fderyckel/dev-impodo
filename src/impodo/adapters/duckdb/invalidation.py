@@ -171,6 +171,7 @@ class EvidenceInvalidationMixin:
         """Retire the current staging pointer without deleting audit evidence."""
 
         cls._invalidate_resolution(connection, reason=reason)
+        connection.execute("DELETE FROM prepared_snapshot_current")
 
         current = connection.execute(
             """

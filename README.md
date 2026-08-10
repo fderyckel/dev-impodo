@@ -101,8 +101,11 @@ repeated with no proposed writes or duplicates. The first remote Odoo 19 path
 supports bounded scalar creates, incoming many2one references to earlier
 imports, exact-key many2one references to existing target records, stable
 External IDs, remote many2many creates, and exact-key scalar or relationship
-updates. Incremental relationship commands, create-time cycles, throughput
-tuning, and production cutover controls remain later delivery scope.
+updates. Create-time cycles made only of deferrable relationships use a
+reviewed two-phase create-then-ORM-update path; identity/scope cycles and
+fields required during create remain blocked. Incremental relationship
+commands, live-target throughput tuning, and production cutover controls
+remain later delivery scope.
 
 ## Install and start
 

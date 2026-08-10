@@ -12,7 +12,9 @@ import polars as pl
 
 from impodo.adapters.polars_transformation import (
     POLARS_TRANSFORMATION_BATCH_ROWS,
+    iter_polars_prepared_batches,
     iter_polars_transformation_batches,
+    write_polars_prepared_snapshot,
 )
 from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from impodo.domain.compiler.columnar_transformation import (
@@ -35,6 +37,7 @@ from impodo.domain.source_snapshot import (
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
+from impodo.domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.staging.evaluator import compile_browser_row_transformer
 from impodo.domain.staging.transformation_impact import (
     TransformationImpactCounts,
@@ -136,6 +139,72 @@ class PolarsTransformationParityTests(unittest.TestCase):
                     self.path,
                     self.snapshot,
                     other_program,
+                )
+            )
+
+    def test_prepared_snapshot_round_trip_matches_direct_native_batches(self) -> None:
+        decision = compile_columnar_transformation_program(
+            self.definition,
+            self.selection,
+            DATASET_ID,
+        )
+        assert decision.program is not None
+        destination = self.root / "prepared.parquet"
+        candidate = write_polars_prepared_snapshot(
+            self.path,
+            self.snapshot,
+            decision.program,
+            destination,
+        )
+        prepared = PreparedSnapshot.create(
+            project_id=self.snapshot.project_id,
+            dataset_id=self.snapshot.dataset_id,
+            dataset_name=self.snapshot.dataset_name,
+            source_snapshot_hash=self.snapshot.content_hash,
+            mapping_hash=self.definition.content_hash,
+            schema_hash=self.definition.schema_hash,
+            transformation_program_hash=decision.program.content_hash,
+            row_count=candidate.row_count,
+            physical_schema_hash=candidate.physical_schema_hash,
+            parquet_sha256=candidate.parquet_sha256,
+            created_at=NOW,
+        )
+        expected_records, expected_report = _python_oracle(
+            self.definition,
+            self.selection,
+            self.rows,
+        )
+
+        for chunk_size in (1, 17, POLARS_TRANSFORMATION_BATCH_ROWS):
+            with self.subTest(chunk_size=chunk_size):
+                records = []
+                collector = _TransformationImpactCollector(
+                    mapping_content_hash=self.definition.content_hash,
+                    detail_limit=10_000,
+                )
+                for batch in iter_polars_prepared_batches(
+                    destination,
+                    prepared,
+                    self.snapshot,
+                    decision.program,
+                    batch_size=chunk_size,
+                ):
+                    records.extend(batch.records)
+                    collector.record_precomputed(
+                        batch.impact_counts,
+                        batch.impacts,
+                    )
+                self.assertEqual(tuple(records), expected_records)
+                self.assertEqual(collector.report(), expected_report)
+
+        destination.write_bytes(destination.read_bytes()[:16])
+        with self.assertRaisesRegex(ValueError, "schema is unreadable"):
+            tuple(
+                iter_polars_prepared_batches(
+                    destination,
+                    prepared,
+                    self.snapshot,
+                    decision.program,
                 )
             )
 

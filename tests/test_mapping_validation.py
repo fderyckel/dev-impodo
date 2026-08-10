@@ -289,6 +289,92 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertIn("MAPPING_RELATION_POLICY_UNSAFE", codes)
         self.assertIn("MAPPING_BUSINESS_KEY_NOT_GOVERNED", codes)
 
+    def test_optional_relationship_cycle_is_deferred_but_required_cycle_blocks(
+        self,
+    ) -> None:
+        valid = _valid_definition(self.selection, self.governance)
+        company, partner = valid.datasets
+        parent = RelationshipMapping(
+            target_field="parent_id",
+            kind="many2one",
+            source_column_keys=("partner.parent_ref",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.DATASET,
+                dataset_id=partner.dataset_id,
+            ),
+        )
+        optional = replace(
+            valid,
+            datasets=(
+                company,
+                replace(partner, relationships=(*partner.relationships, parent)),
+            ),
+        )
+        required = replace(
+            optional,
+            datasets=(
+                company,
+                replace(
+                    optional.datasets[1],
+                    relationships=(
+                        *optional.datasets[1].relationships[:-1],
+                        replace(parent, required_on_create=True),
+                    ),
+                ),
+            ),
+        )
+
+        optional_result = self.validator.validate(
+            optional,
+            self.selection,
+            self.schema,
+            self.governance,
+        )
+        required_result = self.validator.validate(
+            required,
+            self.selection,
+            self.schema,
+            self.governance,
+        )
+        required_schema = replace(
+            self.schema,
+            models=tuple(
+                replace(
+                    item,
+                    fields=tuple(
+                        replace(field, required=True)
+                        if field.name == "parent_id"
+                        else field
+                        for field in item.fields
+                    ),
+                )
+                if item.name == "res.partner"
+                else item
+                for item in self.schema.models
+            ),
+            content_hash="sha256:required-parent-schema",
+        )
+        required_governance = _schema_governance(required_schema)
+        schema_required_result = self.validator.validate(
+            replace(optional, schema_hash=required_governance.content_hash),
+            self.selection,
+            required_schema,
+            required_governance,
+        )
+
+        self.assertNotIn(
+            "MAPPING_DEPENDENCY_CYCLE",
+            {item.code for item in optional_result.issues},
+        )
+        self.assertIn(
+            "MAPPING_DEPENDENCY_CYCLE",
+            {item.code for item in required_result.issues},
+        )
+        self.assertIn(
+            "MAPPING_DEPENDENCY_CYCLE",
+            {item.code for item in schema_required_result.issues},
+        )
+
     def test_every_frozen_dataset_and_governed_key_are_required(self) -> None:
         valid = _valid_definition(self.selection, self.governance)
         partner_only = replace(valid, datasets=(valid.datasets[1],))

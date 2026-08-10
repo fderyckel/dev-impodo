@@ -131,7 +131,7 @@ class ProfileTests(unittest.TestCase):
             with self.assertRaisesRegex(ProfileLoadError, "validate_only"):
                 load_profile(path)
 
-    def test_deferred_cycle_is_rejected(self) -> None:
+    def test_required_at_create_cycle_is_rejected(self) -> None:
         data = yaml.safe_load((ROOT / "profiles/template.yaml").read_text())
         first = data["datasets"][0]
         first["name"] = "one"
@@ -153,6 +153,32 @@ class ProfileTests(unittest.TestCase):
             path.write_text(yaml.safe_dump(data, sort_keys=False))
             with self.assertRaisesRegex(ProfileLoadError, "cycle"):
                 load_profile(path)
+
+    def test_optional_relationship_cycle_is_accepted_for_two_phase_load(self) -> None:
+        data = yaml.safe_load((ROOT / "profiles/template.yaml").read_text())
+        first = data["datasets"][0]
+        first["name"] = "one"
+        first["source_identity"]["fields"] = ["source_key"]
+        first["relations"]["uom_id"]["required_on_create"] = False
+        first["relations"]["uom_id"]["resolve"] = {
+            "dataset": "two",
+            "target_source_fields": ["source_key"],
+        }
+        second = yaml.safe_load(yaml.safe_dump(first))
+        second["name"] = "two"
+        second["source"]["file"] = "two.csv"
+        second["relations"]["uom_id"]["resolve"] = {
+            "dataset": "one",
+            "target_source_fields": ["source_key"],
+        }
+        data["datasets"] = [first, second]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cycle.yaml"
+            path.write_text(yaml.safe_dump(data, sort_keys=False))
+
+            profile = load_profile(path)
+
+        self.assertEqual(tuple(item.name for item in profile.datasets), ("one", "two"))
 
 if __name__ == "__main__":
     unittest.main()

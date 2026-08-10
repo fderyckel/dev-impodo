@@ -120,6 +120,51 @@ class PreparedRecord:
     source_trace_id: str = ""
     issues: tuple[Issue, ...] = ()
 
+    @classmethod
+    def from_canonicalized_values(
+        cls,
+        *,
+        dataset: str,
+        source_row: int,
+        target_model: str,
+        source_identity: tuple[ScalarValue, ...],
+        target_identity: tuple[
+            ScalarValue | LogicalReference | BusinessReference, ...
+        ],
+        target_scope: tuple[
+            ScalarValue | LogicalReference | BusinessReference, ...
+        ],
+        scalar_values: Mapping[str, ScalarValue],
+        references: Mapping[
+            str,
+            LogicalReference
+            | BusinessReference
+            | tuple[LogicalReference | BusinessReference, ...]
+            | None,
+        ],
+        source_trace_id: str,
+        issues: tuple[Issue, ...],
+    ) -> "PreparedRecord":
+        """Build trusted typed output without invoking the generic parser again.
+
+        Only a parity-proven transformation backend may call this constructor.
+        It is intentionally allocation-only: validation and issue semantics must
+        already have been applied by the compiled transformation program.
+        """
+
+        return cls(
+            dataset=dataset,
+            source_row=source_row,
+            target_model=target_model,
+            source_identity=source_identity,
+            target_identity=target_identity,
+            target_scope=target_scope,
+            scalar_values=scalar_values,
+            references=references,
+            source_trace_id=source_trace_id,
+            issues=issues,
+        )
+
     @property
     def blocked(self) -> bool:
         """Return whether any attached issue has error severity."""

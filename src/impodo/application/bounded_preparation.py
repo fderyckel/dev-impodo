@@ -4,21 +4,29 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from typing import Callable, Iterable, Mapping
 
 from ..access import Actor
 from ..adapters.polars_transformation import (
     POLARS_TRANSFORMATION_BATCH_ROWS,
-    iter_polars_transformation_batches,
+    iter_polars_prepared_batches,
+    write_polars_prepared_snapshot,
 )
 from ..artifacts import ArtifactStore, ArtifactStoreError
 from ..derived_entities import DerivedEntityPlan
 from ..domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from ..domain.compiler.columnar_transformation import (
     ColumnarSupport,
+    ColumnarTransformationProgram,
     compile_columnar_transformation_programs,
 )
 from ..domain.mapping.contracts import MappingDefinition
+from ..domain.prepared_snapshot import (
+    PREPARED_WRITER_CONTRACT_VERSION,
+    PreparedSnapshot,
+    prepared_snapshot_logical_hash,
+)
 from ..domain.staging.control_totals import CompiledControlTotalAccumulator
 from ..domain.staging.evaluator import (
     canonical_field_sources,
@@ -287,13 +295,22 @@ def prepare_bounded_direct_session(
                         physical,
                         snapshot,
                     )
-                    with artifacts.materialize_source_snapshot(
+                    prepared_snapshot = _prepared_snapshot_for_program(
+                        project,
+                        snapshot,
+                        columnar.program,
+                        artifacts,
+                        sessions,
+                        session.session_id,
+                    )
+                    with artifacts.materialize_prepared_snapshot(
                         project.project_id,
-                        snapshot.parquet_storage_key,
-                        expected_sha256=snapshot.parquet_sha256,
+                        prepared_snapshot.parquet_storage_key,
+                        expected_sha256=prepared_snapshot.parquet_sha256,
                     ) as path:
-                        for native_batch in iter_polars_transformation_batches(
+                        for native_batch in iter_polars_prepared_batches(
                             path,
+                            prepared_snapshot,
                             snapshot,
                             columnar.program,
                             batch_size=columnar_batch_size,
@@ -359,8 +376,13 @@ def prepare_bounded_direct_session(
                             )
                             pending_rows.clear()
                 except (ArtifactStoreError, SourceLoadError) as error:
+                    _cleanup_prepared_snapshot_orphans(
+                        project.project_id,
+                        artifacts,
+                        sessions,
+                    )
                     raise ReadinessError(
-                        "The frozen source snapshot could not be verified"
+                        "The prepared columnar snapshot could not be verified"
                     ) from error
                 dataset_evidence[effective.name] = (
                     physical.dataset_id,
@@ -512,6 +534,114 @@ def _canonical_session_row(
         row_json=canonical_json_bytes(canonical.to_portable_dict()).decode("utf-8"),
         physical_sources=physical_sources,
     )
+
+
+def _prepared_snapshot_for_program(
+    project: MigrationProject,
+    source_snapshot: SourceSnapshot,
+    program: ColumnarTransformationProgram,
+    artifacts: ArtifactStore,
+    sessions: PreparationSessionRepository,
+    session_id: str,
+) -> PreparedSnapshot:
+    """Reuse or publish one exact typed projection before canonical adaptation."""
+
+    logical_hash = prepared_snapshot_logical_hash(
+        project_id=project.project_id,
+        dataset_id=program.dataset_id,
+        dataset_name=program.dataset_name,
+        source_snapshot_hash=source_snapshot.content_hash,
+        mapping_hash=program.mapping_content_hash,
+        schema_hash=program.schema_hash,
+        transformation_program_hash=program.content_hash,
+        writer_contract_version=PREPARED_WRITER_CONTRACT_VERSION,
+        row_count=source_snapshot.row_count,
+    )
+    existing = sessions.find_prepared_snapshot(
+        project.project_id,
+        program.dataset_id,
+        logical_hash,
+    )
+    if existing is not None:
+        try:
+            with artifacts.materialize_prepared_snapshot(
+                project.project_id,
+                existing.parquet_storage_key,
+                expected_sha256=existing.parquet_sha256,
+            ):
+                pass
+        except ArtifactStoreError:
+            existing = None
+        else:
+            sessions.bind_prepared_snapshot(
+                project.project_id,
+                session_id,
+                existing,
+            )
+            return existing
+
+    try:
+        with artifacts.materialize_source_snapshot(
+            project.project_id,
+            source_snapshot.parquet_storage_key,
+            expected_sha256=source_snapshot.parquet_sha256,
+        ) as source_path:
+            with artifacts.prepare_prepared_snapshot(
+                project.project_id
+            ) as workspace:
+                candidate_path = workspace / "prepared.parquet"
+                candidate = write_polars_prepared_snapshot(
+                    source_path,
+                    source_snapshot,
+                    program,
+                    candidate_path,
+                )
+                prepared = PreparedSnapshot.create(
+                    project_id=project.project_id,
+                    dataset_id=program.dataset_id,
+                    dataset_name=program.dataset_name,
+                    source_snapshot_hash=source_snapshot.content_hash,
+                    mapping_hash=program.mapping_content_hash,
+                    schema_hash=program.schema_hash,
+                    transformation_program_hash=program.content_hash,
+                    row_count=candidate.row_count,
+                    physical_schema_hash=candidate.physical_schema_hash,
+                    parquet_sha256=candidate.parquet_sha256,
+                    created_at=datetime.now(timezone.utc),
+                )
+                artifacts.publish_prepared_snapshot(
+                    project.project_id,
+                    candidate_path,
+                    prepared.parquet_storage_key,
+                    expected_sha256=prepared.parquet_sha256,
+                )
+        sessions.bind_prepared_snapshot(
+            project.project_id,
+            session_id,
+            prepared,
+        )
+        return prepared
+    except Exception:
+        _cleanup_prepared_snapshot_orphans(
+            project.project_id,
+            artifacts,
+            sessions,
+        )
+        raise
+
+
+def _cleanup_prepared_snapshot_orphans(
+    project_id: str,
+    artifacts: ArtifactStore,
+    sessions: PreparationSessionRepository,
+) -> None:
+    """Best-effort cleanup without masking the preparation failure."""
+
+    try:
+        referenced = sessions.prepared_snapshot_storage_keys(project_id)
+        artifacts.cleanup_prepared_snapshots(project_id, referenced)
+    except Exception:
+        pass
 
 
 @contextmanager

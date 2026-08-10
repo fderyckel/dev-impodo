@@ -136,6 +136,7 @@
           <h2 id="load-result-title">
             {{ preview.current_run.committed_count }} accepted ·
             {{ preview.current_run.failed_count + preview.current_run.blocked_count }} not written ·
+            {{ preview.current_run.partially_applied_count }} partially applied ·
             {{ preview.current_run.unknown_count }} unknown
           </h2>
           <p>The API receipt is durable. Verify now to check the actual Odoo records and resolve uncertain responses without retrying them.</p>

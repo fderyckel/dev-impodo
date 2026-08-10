@@ -256,6 +256,91 @@ def _remote_relation_update_snapshot(*, many2many: bool) -> ExecutionSnapshot:
     )
 
 
+def _remote_cycle_snapshot(*, required_at_create: bool = False) -> ExecutionSnapshot:
+    snapshot = _snapshot()
+    first = _row(
+        dataset="first_nodes",
+        model="x.first.node",
+        source_row=20,
+        source_identity=("FIRST",),
+        business_identity=("FIRST",),
+        disposition="CREATE",
+        fields=(
+            FieldIntent("code", "SET_VALUE", "FIRST"),
+            FieldIntent(
+                "second_id",
+                "SET_VALUE",
+                LogicalReference(
+                    origin="incoming",
+                    key=("SECOND",),
+                    dataset="second_nodes",
+                ),
+                kind="relation",
+                relation_operation="replace",
+                related_model="x.second.node",
+                related_identity_fields=("code",),
+                defer_on_create=not required_at_create,
+            ),
+        ),
+    )
+    second = _row(
+        dataset="second_nodes",
+        model="x.second.node",
+        source_row=21,
+        source_identity=("SECOND",),
+        business_identity=("SECOND",),
+        disposition="CREATE",
+        fields=(
+            FieldIntent("code", "SET_VALUE", "SECOND"),
+            FieldIntent(
+                "first_id",
+                "SET_VALUE",
+                LogicalReference(
+                    origin="incoming",
+                    key=("FIRST",),
+                    dataset="first_nodes",
+                ),
+                kind="relation",
+                relation_operation="replace",
+                related_model="x.first.node",
+                related_identity_fields=("code",),
+                defer_on_create=True,
+            ),
+        ),
+    )
+    return replace(
+        snapshot,
+        datasets=(
+            ExecutionDataset(
+                "first_nodes",
+                "x.first.node",
+                0,
+                ("second_nodes",),
+                "update",
+                ("code",),
+                (),
+            ),
+            ExecutionDataset(
+                "second_nodes",
+                "x.second.node",
+                1,
+                ("first_nodes",),
+                "update",
+                ("code",),
+                (),
+            ),
+        ),
+        rows=(first, second),
+        counts={
+            "CREATE": 2,
+            "UPDATE": 0,
+            "UNCHANGED": 0,
+            "AMBIGUOUS": 0,
+            "BLOCKED": 0,
+        },
+    )
+
+
 class _Journal:
     def __init__(self) -> None:
         self.run = None
@@ -1072,6 +1157,110 @@ class ExecutionServiceTests(unittest.TestCase):
         assert preview is not None
         self.assertFalse(preview.can_load)
         self.assertIn("exact relationship replacement", preview.scope_error)
+
+
+    def test_remote_create_cycle_uses_create_then_relationship_patch(self):
+        snapshot = _remote_cycle_snapshot()
+        service, _journal = self._service(
+            snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(execution_api_scope(snapshot).semantic_hash)
+
+        run = service.execute(
+            snapshot.project_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(run.committed_count, 2)
+        self.assertEqual(run.partially_applied_count, 0)
+        self.assertEqual(
+            executor.loads,
+            [
+                (
+                    "x.first.node",
+                    ({"code": "FIRST"},),
+                    ("impodo_test.first_nodes_20",),
+                ),
+                (
+                    "x.second.node",
+                    (
+                        {
+                            "code": "SECOND",
+                            "first_id/id": "impodo_test.first_nodes_20",
+                        },
+                    ),
+                    ("impodo_test.second_nodes_21",),
+                ),
+            ],
+        )
+        self.assertEqual(
+            executor.updates,
+            [("x.first.node", 10, {"second_id": 11})],
+        )
+
+    def test_required_at_create_cycle_is_blocked_before_write(self):
+        snapshot = _remote_cycle_snapshot(required_at_create=True)
+        service, _journal = self._service(
+            snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+
+        preview = service.current_preview(snapshot.project_id)
+
+        self.assertIsNotNone(preview)
+        self.assertFalse(preview.can_load)
+        self.assertIn("required during create", preview.scope_error)
+
+    def test_rejected_cycle_patch_retains_created_id_as_partial(self):
+        snapshot = _remote_cycle_snapshot()
+        service, _journal = self._service(
+            snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(
+            execution_api_scope(snapshot).semantic_hash,
+            update_error=OdooWriteRejected("constraint rejected relationship"),
+        )
+
+        run = service.execute(
+            snapshot.project_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED_WITH_ERRORS)
+        self.assertEqual(run.partially_applied_count, 1)
+        self.assertEqual(run.rows[0].odoo_id, 10)
+        self.assertIn("Record was created", run.rows[0].safe_error)
+        self.assertEqual(run.rows[1].status, ExecutionRowStatus.COMMITTED)
+
+    def test_uncertain_cycle_patch_keeps_exact_created_id(self):
+        snapshot = _remote_cycle_snapshot()
+        service, _journal = self._service(
+            snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(
+            execution_api_scope(snapshot).semantic_hash,
+            update_error=OdooWriteOutcomeUnknown("lost patch response"),
+        )
+
+        run = service.execute(
+            snapshot.project_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.OUTCOME_UNKNOWN)
+        self.assertEqual(run.rows[0].status, ExecutionRowStatus.OUTCOME_UNKNOWN)
+        self.assertEqual(run.rows[0].odoo_id, 10)
+        self.assertEqual(run.rows[1].status, ExecutionRowStatus.COMMITTED)
 
 
 class Json2WriteExecutorTests(unittest.TestCase):

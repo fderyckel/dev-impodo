@@ -217,6 +217,7 @@ class ExecutionService:
         recorded: dict[str, ExecutionRowAttempt] = {
             item.row_id: item for item in attempts
         }
+        deferred_by_row: dict[str, tuple[FieldIntent, ...]] = {}
         stop_after_unknown = False
 
         for dataset in sorted(snapshot.datasets, key=lambda item: item.sequence):
@@ -243,9 +244,16 @@ class ExecutionService:
             updates = tuple(row for row in dataset_rows if row.disposition == "UPDATE")
             for start in range(0, len(creates), MAX_CREATE_BATCH_ROWS):
                 batch = creates[start : start + MAX_CREATE_BATCH_ROWS]
-                prepared_rows: list[tuple[ExecutionRow, dict[str, Any]]] = []
+                prepared_rows: list[
+                    tuple[ExecutionRow, dict[str, Any], tuple[FieldIntent, ...]]
+                ] = []
                 for row in batch:
                     try:
+                        deferred = self._deferred_create_intents(
+                            row,
+                            by_source,
+                            source_cache,
+                        )
                         values = self._row_values(
                             row,
                             metadata,
@@ -256,6 +264,9 @@ class ExecutionService:
                             import_relations=(
                                 project.odoo_connection_mode
                                 is OdooConnectionMode.REMOTE
+                            ),
+                            skip_fields=frozenset(
+                                intent.field for intent in deferred
                             ),
                         )
                     except (WorkspaceError, OdooWriteRejected) as error:
@@ -269,69 +280,98 @@ class ExecutionService:
                         )
                         recorded[row.row_id] = outcome
                     else:
-                        prepared_rows.append((row, values))
+                        prepared_rows.append((row, values, deferred))
                 if not prepared_rows:
                     continue
-                try:
-                    values = tuple(values for _row, values in prepared_rows)
-                    if project.odoo_connection_mode is OdooConnectionMode.REMOTE:
-                        identifiers = executor.load_create_rows(
-                            dataset.target_model,
-                            values,
-                            tuple(
-                                row.proposed_external_id
-                                for row, _values in prepared_rows
+                groups: dict[
+                    tuple[str, ...],
+                    list[
+                        tuple[
+                            ExecutionRow,
+                            dict[str, Any],
+                            tuple[FieldIntent, ...],
+                        ]
+                    ],
+                ] = {}
+                for prepared in prepared_rows:
+                    groups.setdefault(tuple(sorted(prepared[1])), []).append(prepared)
+                for prepared_group in groups.values():
+                    try:
+                        values = tuple(item[1] for item in prepared_group)
+                        if project.odoo_connection_mode is OdooConnectionMode.REMOTE:
+                            identifiers = executor.load_create_rows(
+                                dataset.target_model,
+                                values,
+                                tuple(item[0].proposed_external_id for item in prepared_group),
+                            )
+                        else:
+                            identifiers = executor.create_rows(
+                                dataset.target_model,
+                                values,
+                            )
+                    except OdooWriteOutcomeUnknown as error:
+                        outcomes = tuple(
+                            replace(
+                                recorded[row.row_id],
+                                status=ExecutionRowStatus.OUTCOME_UNKNOWN,
+                                attempt=1,
+                                safe_error=str(error),
+                            )
+                            for row, _values, _deferred in prepared_group
+                        )
+                        self.journal.record_outcomes(
+                            project_id, run.run_id, outcomes
+                        )
+                        recorded.update({item.row_id: item for item in outcomes})
+                        stop_after_unknown = True
+                        break
+                    except OdooWriteRejected as error:
+                        outcomes = tuple(
+                            replace(
+                                recorded[row.row_id],
+                                status=ExecutionRowStatus.FAILED,
+                                attempt=1,
+                                safe_error=str(error),
+                            )
+                            for row, _values, _deferred in prepared_group
+                        )
+                        self.journal.record_outcomes(
+                            project_id, run.run_id, outcomes
+                        )
+                        recorded.update({item.row_id: item for item in outcomes})
+                        continue
+                    outcomes = []
+                    for (row, _values, deferred), identifier in zip(
+                        prepared_group, identifiers, strict=True
+                    ):
+                        outcome = replace(
+                            recorded[row.row_id],
+                            status=(
+                                ExecutionRowStatus.PARTIALLY_APPLIED
+                                if deferred
+                                else ExecutionRowStatus.COMMITTED
+                            ),
+                            attempt=1,
+                            odoo_id=identifier,
+                            safe_error=(
+                                "Created; deferred relationship update pending"
+                                if deferred
+                                else ""
                             ),
                         )
-                    else:
-                        identifiers = executor.create_rows(
-                            dataset.target_model,
-                            values,
-                        )
-                except OdooWriteOutcomeUnknown as error:
-                    outcomes = tuple(
-                        replace(
-                            recorded[row.row_id],
-                            status=ExecutionRowStatus.OUTCOME_UNKNOWN,
-                            attempt=1,
-                            safe_error=str(error),
-                        )
-                        for row, _values in prepared_rows
+                        outcomes.append(outcome)
+                        if deferred:
+                            deferred_by_row[row.row_id] = deferred
+                        source_cache[
+                            (row.dataset, _portable_key(row.source_identity))
+                        ] = identifier
+                        identity_cache[_identity_cache_key(row)] = identifier
+                    self.journal.record_outcomes(
+                        project_id, run.run_id, outcomes
                     )
-                    self.journal.record_outcomes(project_id, run.run_id, outcomes)
                     recorded.update({item.row_id: item for item in outcomes})
-                    stop_after_unknown = True
+                if stop_after_unknown:
                     break
-                except OdooWriteRejected as error:
-                    outcomes = tuple(
-                        replace(
-                            recorded[row.row_id],
-                            status=ExecutionRowStatus.FAILED,
-                            attempt=1,
-                            safe_error=str(error),
-                        )
-                        for row, _values in prepared_rows
-                    )
-                    self.journal.record_outcomes(project_id, run.run_id, outcomes)
-                    recorded.update({item.row_id: item for item in outcomes})
-                    continue
-                outcomes = []
-                for (row, _values), identifier in zip(
-                    prepared_rows, identifiers, strict=True
-                ):
-                    outcome = replace(
-                        recorded[row.row_id],
-                        status=ExecutionRowStatus.COMMITTED,
-                        attempt=1,
-                        odoo_id=identifier,
-                    )
-                    outcomes.append(outcome)
-                    source_cache[(row.dataset, _portable_key(row.source_identity))] = (
-                        identifier
-                    )
-                    identity_cache[_identity_cache_key(row)] = identifier
-                self.journal.record_outcomes(project_id, run.run_id, outcomes)
-                recorded.update({item.row_id: item for item in outcomes})
 
             for row in updates:
                 if stop_after_unknown:
@@ -392,6 +432,20 @@ class ExecutionService:
                 self.journal.record_outcomes(project_id, run.run_id, (outcome,))
                 recorded[row.row_id] = outcome
 
+        if not stop_after_unknown:
+            stop_after_unknown = self._apply_deferred_relationships(
+                project_id,
+                run.run_id,
+                write_rows,
+                deferred_by_row,
+                recorded,
+                metadata,
+                by_source,
+                source_cache,
+                identity_cache,
+                executor,
+            )
+
         remaining = tuple(
             row
             for row in write_rows
@@ -412,7 +466,11 @@ class ExecutionService:
             else (
                 ExecutionRunStatus.COMPLETED_WITH_ERRORS
                 if statuses.intersection(
-                    {ExecutionRowStatus.FAILED, ExecutionRowStatus.BLOCKED}
+                    {
+                        ExecutionRowStatus.PARTIALLY_APPLIED,
+                        ExecutionRowStatus.FAILED,
+                        ExecutionRowStatus.BLOCKED,
+                    }
                 )
                 else ExecutionRunStatus.COMPLETED
             )
@@ -455,6 +513,107 @@ class ExecutionService:
                 "The writer is not bound to this reviewed load preview"
             )
 
+    @staticmethod
+    def _deferred_create_intents(
+        row: ExecutionRow,
+        by_source: Mapping[tuple[str, str], ExecutionRow],
+        source_cache: Mapping[tuple[str, str], int],
+    ) -> tuple[FieldIntent, ...]:
+        """Return optional incoming relationships whose creates are not known yet."""
+
+        deferred = []
+        for intent in row.fields:
+            if not intent.defer_on_create or intent.action != "SET_VALUE":
+                continue
+            references = (
+                intent.value if isinstance(intent.value, tuple) else (intent.value,)
+            )
+            for reference in references:
+                if not (
+                    isinstance(reference, LogicalReference)
+                    and reference.origin == "incoming"
+                    and reference.dataset is not None
+                ):
+                    continue
+                source_key = (
+                    reference.dataset,
+                    _portable_key(reference.key),
+                )
+                referenced = by_source.get(source_key)
+                if (
+                    referenced is not None
+                    and referenced.disposition == "CREATE"
+                    and source_key not in source_cache
+                ):
+                    deferred.append(intent)
+                    break
+        return tuple(deferred)
+
+    def _apply_deferred_relationships(
+        self,
+        project_id: str,
+        run_id: str,
+        rows: Sequence[ExecutionRow],
+        deferred_by_row: Mapping[str, tuple[FieldIntent, ...]],
+        recorded: dict[str, ExecutionRowAttempt],
+        metadata: Mapping[str, ExecutionDataset],
+        by_source: Mapping[tuple[str, str], ExecutionRow],
+        source_cache: dict[tuple[str, str], int],
+        identity_cache: dict[str, int],
+        executor: OdooWriteExecutor,
+    ) -> bool:
+        """Patch deferred create relationships after all first-pass creates."""
+
+        for row in rows:
+            intents = deferred_by_row.get(row.row_id)
+            if not intents:
+                continue
+            attempt = recorded[row.row_id]
+            if (
+                attempt.status is not ExecutionRowStatus.PARTIALLY_APPLIED
+                or attempt.odoo_id is None
+            ):
+                continue
+            try:
+                values = {
+                    intent.field: self._relation_value(
+                        intent,
+                        metadata,
+                        by_source,
+                        source_cache,
+                        identity_cache,
+                        executor,
+                    )
+                    for intent in intents
+                }
+                executor.update_row(row.target_model, attempt.odoo_id, values)
+            except OdooWriteOutcomeUnknown as error:
+                outcome = replace(
+                    attempt,
+                    status=ExecutionRowStatus.OUTCOME_UNKNOWN,
+                    safe_error=str(error),
+                )
+                self.journal.record_outcomes(project_id, run_id, (outcome,))
+                recorded[row.row_id] = outcome
+                return True
+            except (WorkspaceError, OdooWriteRejected) as error:
+                outcome = replace(
+                    attempt,
+                    safe_error=(
+                        "Record was created, but its deferred relationship "
+                        f"update failed: {error}"
+                    ),
+                )
+            else:
+                outcome = replace(
+                    attempt,
+                    status=ExecutionRowStatus.COMMITTED,
+                    safe_error="",
+                )
+            self.journal.record_outcomes(project_id, run_id, (outcome,))
+            recorded[row.row_id] = outcome
+        return False
+
     def _row_values(
         self,
         row: ExecutionRow,
@@ -465,10 +624,11 @@ class ExecutionService:
         executor: OdooWriteExecutor,
         *,
         import_relations: bool = False,
+        skip_fields: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         values: dict[str, Any] = {}
         for intent in row.fields:
-            if intent.action == "OMIT":
+            if intent.action == "OMIT" or intent.field in skip_fields:
                 continue
             if intent.action == "SET_NULL":
                 values[intent.field] = None
@@ -680,6 +840,8 @@ class ExecutionService:
             referenced = by_source.get(source_key)
             if referenced is None:
                 raise WorkspaceError("A related prepared row could not be found")
+            if referenced.disposition == "CREATE":
+                raise WorkspaceError("A related Odoo create did not complete")
             related_id = self._find_row_id(
                 referenced,
                 metadata[referenced.dataset],
@@ -872,10 +1034,9 @@ def _execution_snapshot_error(
         if (
             related_dataset is None
             or value.dataset not in dataset.dependencies
-            or related_dataset.sequence >= dataset.sequence
         ):
             return (
-                f"{dataset.dataset}.{intent.field} must reference an earlier "
+                f"{dataset.dataset}.{intent.field} must reference a reviewed "
                 "dependency dataset"
             )
         referenced = rows_by_source.get(
@@ -883,8 +1044,22 @@ def _execution_snapshot_error(
         )
         if referenced is None or referenced.target_model != intent.related_model:
             return (
-                f"{dataset.dataset}.{intent.field} has no earlier imported record"
+                f"{dataset.dataset}.{intent.field} has no reviewed imported record"
             )
+        if related_dataset.sequence >= dataset.sequence:
+            if not intent.defer_on_create:
+                return (
+                    f"{dataset.dataset}.{intent.field} is required during create "
+                    "and cannot participate in a dependency cycle"
+                )
+            if (
+                referenced.disposition != "CREATE"
+                or not referenced.proposed_external_id
+            ):
+                return (
+                    f"{dataset.dataset}.{intent.field} has no deferred create record"
+                )
+            return ""
         if require_created and (
             referenced.disposition != "CREATE"
             or not referenced.proposed_external_id
@@ -902,7 +1077,6 @@ def _execution_snapshot_error(
             )
         return ""
 
-    remote_create_field_sets: dict[str, tuple[str, ...]] = {}
     for row in write_rows:
         dataset = datasets.get(row.dataset)
         if dataset is None:
@@ -955,12 +1129,10 @@ def _execution_snapshot_error(
         ):
             if not row.proposed_external_id:
                 return f"Dataset {row.dataset} has a create without an External ID"
-            import_fields = []
             for intent in row.fields:
                 if intent.action == "OMIT":
                     continue
                 if intent.kind == "scalar":
-                    import_fields.append(intent.field)
                     continue
                 value = intent.value
                 if isinstance(value, tuple):
@@ -994,7 +1166,6 @@ def _execution_snapshot_error(
                                 f"{row.dataset}.{intent.field} contains an "
                                 "unsupported relationship value"
                             )
-                    import_fields.append(f"{intent.field}/.id")
                     continue
                 if (
                     intent.action != "SET_VALUE"
@@ -1008,27 +1179,16 @@ def _execution_snapshot_error(
                     error = incoming_reference_error(value, intent, dataset)
                     if error:
                         return error
-                    import_fields.append(f"{intent.field}/id")
                 elif isinstance(value, BusinessReference):
                     if value.model != intent.related_model:
                         return (
                             f"{row.dataset}.{intent.field} targets another Odoo model"
                         )
-                    import_fields.append(f"{intent.field}/.id")
                 else:
                     return (
                         f"{row.dataset}.{intent.field} is not expressed by a "
                         "reviewed business key"
                     )
-            field_set = tuple(
-                sorted(import_fields)
-            )
-            expected = remote_create_field_sets.setdefault(row.dataset, field_set)
-            if field_set != expected:
-                return (
-                    "The remote-import path requires one create field set "
-                    f"for dataset {row.dataset}"
-                )
         for intent in row.fields:
             if intent.kind == "scalar" or intent.action != "SET_VALUE":
                 continue

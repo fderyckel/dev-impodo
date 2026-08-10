@@ -20,6 +20,7 @@ from impodo.domain.staging.preparation_session import (
     PreparationSessionStatus,
     PreparedSessionRow,
 )
+from impodo.domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
@@ -511,6 +512,111 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
                 [session.session_id, session.session_id],
             ).fetchone()
         self.assertEqual(remaining, (0, 0))
+
+    def test_prepared_snapshot_pointer_advances_only_after_publication(self) -> None:
+        dataset_id = "dataset:" + "a" * 24
+
+        def snapshot(source_digit: str, parquet_digit: str) -> PreparedSnapshot:
+            return PreparedSnapshot.create(
+                project_id=self.project.project_id,
+                dataset_id=dataset_id,
+                dataset_name="contacts",
+                source_snapshot_hash="sha256:" + source_digit * 64,
+                mapping_hash=MAPPING_HASH,
+                schema_hash=SCHEMA_HASH,
+                transformation_program_hash=PLAN_HASH,
+                row_count=0,
+                physical_schema_hash="sha256:" + "8" * 64,
+                parquet_sha256="sha256:" + parquet_digit * 64,
+                created_at=datetime.now(timezone.utc),
+            )
+
+        first = snapshot("7", "9")
+        published = self.repository.begin_direct_session(
+            self.project.project_id,
+            self.bindings,
+            actor=LOCAL_ACTOR,
+        )
+        self.repository.bind_prepared_snapshot(
+            self.project.project_id,
+            published.session_id,
+            first,
+        )
+        self.assertEqual(
+            self.repository.find_prepared_snapshot(
+                self.project.project_id,
+                dataset_id,
+                first.logical_hash,
+            ),
+            first,
+        )
+        self.assertEqual(
+            self.repository.current_prepared_snapshots(self.project.project_id),
+            (),
+        )
+        self.repository.finalize_direct_session(
+            self.project.project_id,
+            published.session_id,
+            dataset_evidence={
+                "contacts": (
+                    dataset_id,
+                    StagingDatasetRole.DIRECT,
+                    0,
+                    "res.partner",
+                )
+            },
+            run_issues=(),
+            control_totals=(),
+            impact_report=TransformationImpactReport(
+                mapping_content_hash=MAPPING_HASH,
+                evaluated_count=0,
+                changed_count=0,
+                fallback_count=0,
+                null_count=0,
+                invalid_count=0,
+                provided_count=0,
+                unchanged_count=0,
+                rows=(),
+                detail_limit=0,
+            ),
+        )
+        self.repository.mark_published(
+            self.project.project_id,
+            published.session_id,
+        )
+        self.assertEqual(
+            self.repository.current_prepared_snapshots(self.project.project_id),
+            (first,),
+        )
+
+        second = snapshot("6", "5")
+        failed = self.repository.begin_direct_session(
+            self.project.project_id,
+            self.bindings,
+            actor=LOCAL_ACTOR,
+        )
+        self.repository.bind_prepared_snapshot(
+            self.project.project_id,
+            failed.session_id,
+            second,
+        )
+        self.repository.fail_session(
+            self.project.project_id,
+            failed.session_id,
+            "BOUNDED_PREPARATION_FAILED",
+        )
+        self.assertEqual(
+            self.repository.current_prepared_snapshots(self.project.project_id),
+            (first,),
+        )
+        self.assertEqual(
+            self.repository.find_prepared_snapshot(
+                self.project.project_id,
+                dataset_id,
+                second.logical_hash,
+            ),
+            second,
+        )
 
 
 if __name__ == "__main__":

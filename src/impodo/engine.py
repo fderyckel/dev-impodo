@@ -204,7 +204,9 @@ def _resolve_records(
     Incoming references use source identities from this same bundle; target
     references use the catalog's prebuilt indexes.  Recursive incoming
     dependencies are cached by dataset and source row, so a referenced row is
-    resolved only once.
+    resolved only once. Identity and scope are resolved before a provisional
+    row enters the cache; this permits optional relationship cycles while
+    identity/scope cycles remain invalid at plan validation.
     """
 
     original = tuple(records)
@@ -250,6 +252,17 @@ def _resolve_records(
                     Severity.ERROR,
                 )
             )
+
+        # Relationships need only the referenced row's stable business key.
+        # Cache that key before descending into relationships so A -> B -> A
+        # does not recurse forever. Required-at-create and identity/scope
+        # cycles are rejected by the compiled-plan graph before this point.
+        cache[cache_key] = replace(
+            record,
+            target_identity=tuple(identity),
+            target_scope=tuple(scope),
+            issues=tuple(record_issues),
+        )
 
         references: dict[str, Any] = {}
         for field_name, value in record.references.items():

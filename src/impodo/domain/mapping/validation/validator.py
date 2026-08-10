@@ -137,10 +137,12 @@ class MappingSemanticValidator:
 
         seen_dataset_ids: set[str] = set()
         dependencies: dict[str, set[str]] = {}
+        required_on_create_dependencies: dict[str, set[str]] = {}
 
         for dataset_index, dataset in enumerate(definition.datasets):
             base = f"/datasets/{dataset_index}"
             dependencies.setdefault(dataset.dataset_id, set())
+            required_on_create_dependencies.setdefault(dataset.dataset_id, set())
             if dataset.dataset_id in seen_dataset_ids:
                 issues.append(
                     _issue(
@@ -228,6 +230,7 @@ class MappingSemanticValidator:
                         component_path,
                         columns,
                         dependencies,
+                        required_on_create_dependencies,
                         issues,
                     )
                     provided.update(component.target_fields)
@@ -295,6 +298,7 @@ class MappingSemanticValidator:
                     path,
                     columns,
                     dependencies,
+                    required_on_create_dependencies,
                     issues,
                 )
                 _claim_target(
@@ -420,6 +424,7 @@ class MappingSemanticValidator:
 
         _validate_dependencies(
             dependencies,
+            required_on_create_dependencies,
             context.datasets_by_id,
             issues,
         )

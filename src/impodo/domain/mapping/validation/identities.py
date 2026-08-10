@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Mapping
 
 from ....metadata import TYPE_COMPATIBILITY
-from ..contracts import DatasetMapping, IdentityComponentMapping
+from ..contracts import DatasetMapping, IdentityComponentMapping, ResolverOrigin
 from .common import (
     _VALUE_TYPES,
     _check_column,
@@ -55,6 +55,7 @@ def _validate_identity_component(
     path: str,
     columns: Mapping[str, SourceColumnView],
     dependencies: dict[str, set[str]],
+    required_on_create_dependencies: dict[str, set[str]],
     issues: list[MappingValidationIssue],
 ) -> None:
     fields = context.fields_by_model[dataset.target_model]
@@ -146,3 +147,10 @@ def _validate_identity_component(
         issues,
         require_governed_key=True,
     )
+    if (
+        component.resolver.origin is ResolverOrigin.DATASET
+        and component.resolver.dataset_id
+    ):
+        required_on_create_dependencies.setdefault(
+            dataset.dataset_id, set()
+        ).add(component.resolver.dataset_id)

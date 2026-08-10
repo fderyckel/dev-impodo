@@ -154,6 +154,7 @@ class ExecutionRepository(DuckDbRepository):
             item.status
             not in {
                 ExecutionRowStatus.COMMITTED,
+                ExecutionRowStatus.PARTIALLY_APPLIED,
                 ExecutionRowStatus.FAILED,
                 ExecutionRowStatus.BLOCKED,
                 ExecutionRowStatus.OUTCOME_UNKNOWN,
@@ -179,7 +180,16 @@ class ExecutionRepository(DuckDbRepository):
                         """,
                         [canonical_run_id, item.row_id],
                     ).fetchone()
-                    if stored is None or str(stored[0]) != "PLANNED":
+                    stored_status = str(stored[0]) if stored is not None else ""
+                    if stored_status == "PLANNED":
+                        pass
+                    elif stored_status == "PARTIALLY_APPLIED" and item.status in {
+                        ExecutionRowStatus.PARTIALLY_APPLIED,
+                        ExecutionRowStatus.COMMITTED,
+                        ExecutionRowStatus.OUTCOME_UNKNOWN,
+                    }:
+                        pass
+                    else:
                         raise WorkspaceError("Execution row was already attempted")
                     connection.execute(
                         """

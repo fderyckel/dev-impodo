@@ -31,6 +31,7 @@ def _validate_relationship(
     path: str,
     columns: Mapping[str, SourceColumnView],
     dependencies: dict[str, set[str]],
+    required_on_create_dependencies: dict[str, set[str]],
     issues: list[MappingValidationIssue],
 ) -> None:
     fields = context.fields_by_model[dataset.target_model]
@@ -216,6 +217,14 @@ def _validate_relationship(
         issues,
         require_governed_key=True,
     )
+    if (
+        relation.resolver.origin is ResolverOrigin.DATASET
+        and relation.resolver.dataset_id
+        and (metadata.required or relation.required_on_create)
+    ):
+        required_on_create_dependencies.setdefault(
+            dataset.dataset_id, set()
+        ).add(relation.resolver.dataset_id)
 
 
 def _validate_resolver(

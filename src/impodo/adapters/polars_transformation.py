@@ -15,6 +15,11 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Iterator
 
+from ..columnar_runtime import configure_columnar_runtime
+
+
+configure_columnar_runtime()
+
 import polars as pl
 
 from ..domain.compiler.columnar_transformation import (
@@ -24,6 +29,8 @@ from ..domain.compiler.columnar_transformation import (
     ColumnarScalarFieldProgram,
     ColumnarTransformationProgram,
 )
+from ..domain.prepared_snapshot import PreparedSnapshot
+from ..domain.serialization import content_hash
 from ..domain.source_snapshot import (
     EncodedSourceCell,
     SOURCE_ROW_COLUMN,
@@ -44,6 +51,8 @@ from ..domain.staging.fields import synthetic_field
 
 
 POLARS_TRANSFORMATION_BATCH_ROWS = 1_000
+PREPARED_PARQUET_ROW_GROUP_ROWS = 5_000
+PREPARED_PARQUET_COMPRESSION = "zstd"
 _ISSUE_COLUMN = "__impodo_columnar_issues"
 _ERROR_REQUIRED = "__required__"
 _ERROR_PREPARED_REQUIRED = "__prepared_required__"
@@ -58,6 +67,15 @@ class ColumnarTransformationBatch:
     impacts: tuple[TransformationImpactRow, ...]
     impact_counts: TransformationImpactCounts
     source_rows: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ColumnarPreparedSnapshotCandidate:
+    """Validated physical evidence produced before artifact publication."""
+
+    row_count: int
+    physical_schema_hash: str
+    parquet_sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +150,106 @@ def iter_polars_transformation_batches(
         yield batch
     if row_count != snapshot.row_count:
         raise SourceLoadError("Columnar source row count is invalid")
+
+
+def write_polars_prepared_snapshot(
+    source_path: str | Path,
+    source_snapshot: SourceSnapshot,
+    program: ColumnarTransformationProgram,
+    destination: str | Path,
+) -> ColumnarPreparedSnapshotCandidate:
+    """Stream native output into one validated mapping-bound Parquet file."""
+
+    if (
+        source_snapshot.dataset_id != program.dataset_id
+        or source_snapshot.dataset_name != program.dataset_name
+    ):
+        raise SourceLoadError("Columnar program does not match the source snapshot")
+    snapshot_path = validate_source_snapshot_path(source_path, source_snapshot)
+    target = Path(destination).resolve()
+    if target.is_symlink() or target.exists() or not target.parent.is_dir():
+        raise SourceLoadError("Prepared snapshot destination is invalid")
+    lazy, _layout = _compile_lazy_transformation(snapshot_path, program)
+    try:
+        lazy.sink_parquet(
+            target,
+            compression=PREPARED_PARQUET_COMPRESSION,
+            statistics=True,
+            row_group_size=PREPARED_PARQUET_ROW_GROUP_ROWS,
+            maintain_order=True,
+            mkdir=False,
+            engine="streaming",
+        )
+    except (OSError, pl.exceptions.PolarsError) as error:
+        raise SourceLoadError("Prepared snapshot could not be written") from error
+    physical_schema_hash, row_count = _validate_prepared_physical_file(
+        target,
+        expected_columns=_execution_layout(program).output_columns,
+        expected_row_count=source_snapshot.row_count,
+    )
+    return ColumnarPreparedSnapshotCandidate(
+        row_count=row_count,
+        physical_schema_hash=physical_schema_hash,
+        parquet_sha256=_file_hash(target),
+    )
+
+
+def iter_polars_prepared_batches(
+    path: str | Path,
+    prepared_snapshot: PreparedSnapshot,
+    source_snapshot: SourceSnapshot,
+    program: ColumnarTransformationProgram,
+    *,
+    batch_size: int = POLARS_TRANSFORMATION_BATCH_ROWS,
+) -> Iterator[ColumnarTransformationBatch]:
+    """Adapt a verified prepared artifact without re-running transformations."""
+
+    if batch_size < 1:
+        raise ValueError("Columnar transformation batch size must be positive")
+    _validate_prepared_bindings(prepared_snapshot, source_snapshot, program)
+    prepared_path = Path(path).resolve()
+    layout = _execution_layout(program)
+    physical_schema_hash = _read_prepared_schema_hash(
+        prepared_path,
+        expected_columns=layout.output_columns,
+    )
+    if physical_schema_hash != prepared_snapshot.physical_schema_hash:
+        raise SourceLoadError("Prepared snapshot physical schema changed")
+    lazy = pl.scan_parquet(
+        prepared_path,
+        glob=False,
+        low_memory=True,
+        rechunk=False,
+        cache=False,
+        parallel="auto",
+    ).select(layout.output_columns)
+    observed_rows = 0
+    previous_source_row = 0
+    try:
+        for frame in lazy.collect_batches(
+            chunk_size=batch_size,
+            maintain_order=True,
+            engine="streaming",
+        ):
+            if frame.height > batch_size:
+                raise SourceLoadError(
+                    "Prepared transformation batch exceeded its bound"
+                )
+            batch = _adapt_frame(frame, program, layout)
+            for source_row in batch.source_rows:
+                if source_row <= previous_source_row:
+                    raise SourceLoadError("Prepared source row order is invalid")
+                previous_source_row = source_row
+            observed_rows += len(batch.source_rows)
+            if observed_rows > prepared_snapshot.row_count:
+                raise SourceLoadError("Prepared source row count is invalid")
+            yield batch
+    except SourceLoadError:
+        raise
+    except (OSError, pl.exceptions.PolarsError) as error:
+        raise SourceLoadError("Prepared snapshot values are unreadable") from error
+    if observed_rows != prepared_snapshot.row_count:
+        raise SourceLoadError("Prepared source row count is invalid")
 
 
 def _compile_lazy_transformation(
@@ -217,6 +335,174 @@ def _compile_lazy_transformation(
             output_columns=tuple(final_columns),
         ),
     )
+
+
+def _execution_layout(
+    program: ColumnarTransformationProgram,
+) -> _ExecutionLayout:
+    """Rebuild the deterministic physical projection without source execution."""
+
+    scalars = tuple(
+        _compile_scalar(index, field)[0]
+        for index, field in enumerate(program.scalar_fields)
+    )
+    source_identity = _compile_identity_group(
+        program.source_identity,
+        "source_identity",
+    )[0]
+    target_identity = _compile_identity_group(
+        program.target_identity,
+        "target_identity",
+    )[0]
+    target_scope = _compile_identity_group(
+        program.target_scope,
+        "target_scope",
+    )[0]
+    output_columns = [SOURCE_ROW_COLUMN]
+    for item in program.inputs:
+        output_columns.extend(
+            (source_value_column(item.ordinal), source_kind_column(item.ordinal))
+        )
+    for scalar in scalars:
+        output_columns.append(scalar.prepared_alias)
+        if scalar.value_alias != scalar.prepared_alias:
+            output_columns.append(scalar.value_alias)
+        if scalar.fallback_alias is not None:
+            output_columns.append(scalar.fallback_alias)
+    for groups in (source_identity, target_identity, target_scope):
+        for component in groups:
+            for item in component.values:
+                output_columns.append(item.normalized_alias)
+                if item.value_alias != item.normalized_alias:
+                    output_columns.append(item.value_alias)
+    output_columns.append(_ISSUE_COLUMN)
+    return _ExecutionLayout(
+        scalars=scalars,
+        source_identity=source_identity,
+        target_identity=target_identity,
+        target_scope=target_scope,
+        output_columns=tuple(output_columns),
+    )
+
+
+def _validate_prepared_bindings(
+    prepared: PreparedSnapshot,
+    source: SourceSnapshot,
+    program: ColumnarTransformationProgram,
+) -> None:
+    if (
+        prepared.project_id != source.project_id
+        or prepared.dataset_id != source.dataset_id
+        or prepared.dataset_name != source.dataset_name
+        or prepared.dataset_id != program.dataset_id
+        or prepared.dataset_name != program.dataset_name
+        or prepared.source_snapshot_hash != source.content_hash
+        or prepared.mapping_hash != program.mapping_content_hash
+        or prepared.schema_hash != program.schema_hash
+        or prepared.transformation_program_hash != program.content_hash
+        or prepared.row_count != source.row_count
+    ):
+        raise SourceLoadError(
+            "Prepared snapshot does not match its transformation inputs"
+        )
+
+
+def _validate_prepared_physical_file(
+    path: str | Path,
+    *,
+    expected_columns: tuple[str, ...],
+    expected_row_count: int,
+) -> tuple[str, int]:
+    schema_hash = _read_prepared_schema_hash(
+        path,
+        expected_columns=expected_columns,
+    )
+    prepared_path = Path(path).resolve()
+    try:
+        stats = pl.scan_parquet(
+            prepared_path,
+            glob=False,
+            low_memory=True,
+            rechunk=False,
+            cache=False,
+            parallel="none",
+        ).select(
+            pl.len().alias("row_count"),
+            pl.col(SOURCE_ROW_COLUMN).null_count().alias("null_source_rows"),
+            pl.col(SOURCE_ROW_COLUMN).n_unique().alias("unique_source_rows"),
+            pl.col(SOURCE_ROW_COLUMN).is_sorted().alias("source_rows_sorted"),
+        )
+        iterator = stats.collect_batches(
+            chunk_size=1,
+            maintain_order=True,
+            engine="streaming",
+        )
+        try:
+            frame = next(iterator)
+        except StopIteration as error:
+            raise SourceLoadError(
+                "Prepared snapshot accounting is missing"
+            ) from error
+        try:
+            next(iterator)
+        except StopIteration:
+            pass
+        else:
+            raise SourceLoadError("Prepared snapshot accounting is ambiguous")
+    except SourceLoadError:
+        raise
+    except (OSError, pl.exceptions.PolarsError) as error:
+        raise SourceLoadError("Prepared snapshot accounting is unreadable") from error
+    if frame.height != 1:
+        raise SourceLoadError("Prepared snapshot accounting is invalid")
+    row_count, null_rows, unique_rows, rows_sorted = frame.row(0)
+    observed = int(row_count)
+    if (
+        observed != expected_row_count
+        or int(null_rows) != 0
+        or int(unique_rows) != observed
+        or not bool(rows_sorted)
+    ):
+        raise SourceLoadError("Prepared snapshot row accounting is invalid")
+    return schema_hash, observed
+
+
+def _read_prepared_schema_hash(
+    path: str | Path,
+    *,
+    expected_columns: tuple[str, ...],
+) -> str:
+    """Validate cheap Parquet metadata without rescanning prepared values."""
+
+    candidate = Path(path)
+    if candidate.is_symlink():
+        raise SourceLoadError("Prepared snapshot must not be a symbolic link")
+    prepared_path = candidate.resolve()
+    if not prepared_path.is_file():
+        raise SourceLoadError("Prepared snapshot is unavailable")
+    try:
+        schema = pl.read_parquet_schema(prepared_path)
+    except Exception as error:
+        raise SourceLoadError("Prepared snapshot schema is unreadable") from error
+    if tuple(schema) != expected_columns:
+        raise SourceLoadError("Prepared snapshot schema is invalid")
+    schema_hash = content_hash(
+        {
+            "columns": [
+                {"name": name, "type": str(data_type)}
+                for name, data_type in schema.items()
+            ]
+        }
+    )
+    return schema_hash
+
+
+def _file_hash(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
 
 
 def _compile_scalar(
@@ -703,7 +989,7 @@ def _adapt_frame(
             errors,
             raw_by_ordinal,
         )
-        record = PreparedRecord(
+        record = PreparedRecord.from_canonicalized_values(
             dataset=program.dataset_name,
             source_row=source_row,
             target_model=program.target_model,
@@ -1084,6 +1370,10 @@ def _source_repr(text: object, kind_value: int) -> str:
 
 __all__ = [
     "POLARS_TRANSFORMATION_BATCH_ROWS",
+    "PREPARED_PARQUET_ROW_GROUP_ROWS",
+    "ColumnarPreparedSnapshotCandidate",
     "ColumnarTransformationBatch",
+    "iter_polars_prepared_batches",
     "iter_polars_transformation_batches",
+    "write_polars_prepared_snapshot",
 ]

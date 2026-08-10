@@ -4,7 +4,7 @@ Profiles are the declarative authority for source preparation, request
 planning, relationship resolution, and comparison. Pydantic validates the
 entire document before any source file or Odoo snapshot is read. Unknown keys,
 unsafe paths, contradictory policies, broken dataset references, and
-dependency cycles therefore fail at the boundary.
+required-at-create dependency cycles therefore fail at the boundary.
 
 The module contains no source-data or Odoo access. `ProfileDocument` is an
 authoring input; the compiler converts it to `CompiledMigrationPlan` before
@@ -347,9 +347,13 @@ def validate_dataset_graph(datasets: tuple[DatasetSpec, ...]) -> None:
                         "target_source_fields that do not match the "
                         "referenced dataset source identity"
                     )
+    # Identity/scope dependencies and relationships explicitly required during
+    # create must already exist before the owner row can be created. Optional
+    # relationships may form cycles because execution can create first and
+    # apply those reviewed fields in a second ORM write pass.
     graph: dict[str, set[str]] = {dataset.name: set() for dataset in datasets}
     for dataset in datasets:
-        specs = [
+        strict_specs = [
             component.resolve
             for component in (
                 *dataset.target_identity.components,
@@ -357,9 +361,15 @@ def validate_dataset_graph(datasets: tuple[DatasetSpec, ...]) -> None:
             )
             if component.resolve is not None
         ]
-        specs.extend(relation.resolve for relation in dataset.relations.values())
+        strict_specs.extend(
+            relation.resolve
+            for relation in dataset.relations.values()
+            if relation.required_on_create
+        )
         graph[dataset.name].update(
-            resolve.dataset for resolve in specs if resolve.dataset is not None
+            resolve.dataset
+            for resolve in strict_specs
+            if resolve.dataset is not None
         )
 
     visiting: set[str] = set()
@@ -369,7 +379,9 @@ def validate_dataset_graph(datasets: tuple[DatasetSpec, ...]) -> None:
         """Depth-first traversal with an active recursion-stack guard."""
 
         if name in visiting:
-            raise ValueError(f"deferred dataset reference cycle includes {name!r}")
+            raise ValueError(
+                f"required-at-create dataset reference cycle includes {name!r}"
+            )
         if name in visited:
             return
         visiting.add(name)

@@ -680,8 +680,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
             return invoke
 
-        original_columnar_batches = (
-            bounded_preparation_module.iter_polars_transformation_batches
+        original_prepared_writer = (
+            bounded_preparation_module.write_polars_prepared_snapshot
+        )
+        original_prepared_batches = (
+            bounded_preparation_module.iter_polars_prepared_batches
         )
         original_project_row = (
             evaluator_module.CompiledBrowserRowTransformer.project
@@ -696,8 +699,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             bounded_preparation_module._canonical_session_row
         )
 
-        def timed_columnar_batches(*args, **kwargs):
-            iterator = original_columnar_batches(*args, **kwargs)
+        def timed_prepared_batches(*args, **kwargs):
+            iterator = original_prepared_batches(*args, **kwargs)
             while True:
                 phase_started = perf_counter()
                 try:
@@ -705,8 +708,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 except StopIteration:
                     return
                 finally:
-                    phase_seconds["columnar_transform_and_adapt"] = (
-                        phase_seconds.get("columnar_transform_and_adapt", 0.0)
+                    phase_seconds["prepared_snapshot_read_and_adapt"] = (
+                        phase_seconds.get("prepared_snapshot_read_and_adapt", 0.0)
                         + perf_counter()
                         - phase_started
                     )
@@ -718,8 +721,18 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             stack.enter_context(
                 patch.object(
                     bounded_preparation_module,
-                    "iter_polars_transformation_batches",
-                    timed_columnar_batches,
+                    "write_polars_prepared_snapshot",
+                    timed_call(
+                        "prepared_snapshot_transform_and_write",
+                        original_prepared_writer,
+                    ),
+                )
+            )
+            stack.enter_context(
+                patch.object(
+                    bounded_preparation_module,
+                    "iter_polars_prepared_batches",
+                    timed_prepared_batches,
                 )
             )
             stack.enter_context(
