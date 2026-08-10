@@ -287,7 +287,11 @@ class Json2WriteExecutor:
             raise OdooWriteRejected(
                 "Odoo model or field is outside the reviewed load preview"
             )
-        for field in values:
+        for field, value in values.items():
+            if not isinstance(value, str):
+                raise OdooWriteRejected(
+                    "Odoo import values must use the reviewed text format"
+                )
             if field.endswith("/.id"):
                 base_field = field.removesuffix("/.id")
                 if not base_field or "/" in base_field:

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 import json
 from types import SimpleNamespace
 import unittest
@@ -773,7 +774,11 @@ class ExecutionServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
-        self.assertEqual(len(executor.loads), 2)
+        self.assertEqual(len(executor.loads), 6)
+        self.assertEqual(
+            [len(rows) for _model, rows, _external_ids in executor.loads],
+            [10, 10, 10, 10, 10, 1],
+        )
         self.assertEqual(
             executor.lookups,
             [
@@ -782,6 +787,69 @@ class ExecutionServiceTests(unittest.TestCase):
                     (("name", "=", "Existing Category"),),
                 )
             ],
+        )
+
+    def test_remote_load_serializes_every_scalar_as_odoo_import_text(self):
+        snapshot = _snapshot()
+        category = replace(
+            snapshot.rows[0],
+            fields=(
+                FieldIntent("active", "SET_VALUE", True),
+                FieldIntent("archived", "SET_VALUE", False),
+                FieldIntent("blank", "SET_NULL"),
+                FieldIntent("count", "SET_VALUE", 12),
+                FieldIntent("measured", "SET_VALUE", 1.25),
+                FieldIntent("name", "SET_VALUE", "Category"),
+                FieldIntent("on_date", "SET_VALUE", date(2026, 8, 10)),
+                FieldIntent(
+                    "on_datetime",
+                    "SET_VALUE",
+                    datetime(2026, 8, 10, 14, 30, tzinfo=timezone.utc),
+                ),
+                FieldIntent("precise", "SET_VALUE", Decimal("1234.500")),
+            ),
+        )
+        remote_snapshot = replace(
+            snapshot,
+            datasets=(snapshot.datasets[0],),
+            rows=(category,),
+            counts={
+                "CREATE": 1,
+                "UPDATE": 0,
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+        )
+        service, _journal = self._service(
+            remote_snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        executor = _Executor(execution_api_scope(remote_snapshot).semantic_hash)
+
+        run = service.execute(
+            remote_snapshot.project_id,
+            expected_snapshot_hash=remote_snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+        self.assertEqual(
+            executor.loads[0][1],
+            (
+                {
+                    "active": "1",
+                    "archived": "0",
+                    "blank": "",
+                    "count": "12",
+                    "measured": "1.25",
+                    "name": "Category",
+                    "on_date": "2026-08-10",
+                    "on_datetime": "2026-08-10 14:30:00",
+                    "precise": "1234.500",
+                },
+            ),
         )
 
     def test_remote_unresolved_target_relation_has_actionable_scope_error(self):
@@ -1562,6 +1630,18 @@ class Json2WriteExecutorTests(unittest.TestCase):
                 self.executor.load_create_rows(
                     "res.partner",
                     (values,),
+                    ("impodo_test.contact_1",),
+                )
+
+    def test_native_load_rejects_non_text_import_cells(self):
+        for value in (True, False, None, 1, 1.25):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                OdooWriteRejected,
+                "text format",
+            ):
+                self.executor.load_create_rows(
+                    "res.partner",
+                    ({"customer_rank": value, "name": "Contact"},),
                     ("impodo_test.contact_1",),
                 )
 

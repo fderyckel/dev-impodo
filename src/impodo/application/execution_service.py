@@ -39,6 +39,9 @@ from ..workspace_errors import WorkspaceError
 from .preflight_service import PreflightService
 
 
+REMOTE_CREATE_BATCH_ROWS = 10
+
+
 class ExecutionProjectRepository(Protocol):
     def get(self, project_id: str) -> MigrationProject: ...
 
@@ -149,7 +152,12 @@ class ExecutionService:
             ),
             current_run=current,
             api_scope=api_scope,
-            deferred_create_count=_planned_deferred_create_count(snapshot),
+            deferred_create_count=_planned_deferred_create_count(
+                snapshot,
+                remote=(
+                    project.odoo_connection_mode is OdooConnectionMode.REMOTE
+                ),
+            ),
             scope_error=_execution_snapshot_error(project, snapshot),
         )
 
@@ -221,6 +229,11 @@ class ExecutionService:
         }
         deferred_by_row: dict[str, tuple[FieldIntent, ...]] = {}
         stop_after_unknown = False
+        create_batch_rows = (
+            REMOTE_CREATE_BATCH_ROWS
+            if project.odoo_connection_mode is OdooConnectionMode.REMOTE
+            else MAX_CREATE_BATCH_ROWS
+        )
 
         for dataset in sorted(snapshot.datasets, key=lambda item: item.sequence):
             dataset_rows = tuple(
@@ -244,8 +257,8 @@ class ExecutionService:
                 continue
             creates = tuple(row for row in dataset_rows if row.disposition == "CREATE")
             updates = tuple(row for row in dataset_rows if row.disposition == "UPDATE")
-            for start in range(0, len(creates), MAX_CREATE_BATCH_ROWS):
-                batch = creates[start : start + MAX_CREATE_BATCH_ROWS]
+            for start in range(0, len(creates), create_batch_rows):
+                batch = creates[start : start + create_batch_rows]
                 prepared_rows: list[
                     tuple[ExecutionRow, dict[str, Any], tuple[FieldIntent, ...]]
                 ] = []
@@ -633,9 +646,13 @@ class ExecutionService:
             if intent.action == "OMIT" or intent.field in skip_fields:
                 continue
             if intent.action == "SET_NULL":
-                values[intent.field] = None
+                values[intent.field] = "" if import_relations else None
             elif intent.kind == "scalar":
-                values[intent.field] = _odoo_scalar(intent.value)
+                values[intent.field] = (
+                    _odoo_import_scalar(intent.value)
+                    if import_relations
+                    else _odoo_scalar(intent.value)
+                )
             elif import_relations:
                 field, value = self._import_relation_value(
                     intent,
@@ -958,7 +975,11 @@ def _identity_domain(
     )
 
 
-def _planned_deferred_create_count(snapshot: ExecutionSnapshot) -> int:
+def _planned_deferred_create_count(
+    snapshot: ExecutionSnapshot,
+    *,
+    remote: bool,
+) -> int:
     """Count create rows expected to need the reviewed second relation pass."""
 
     by_source = {
@@ -967,14 +988,15 @@ def _planned_deferred_create_count(snapshot: ExecutionSnapshot) -> int:
     }
     available: dict[tuple[str, str], int] = {}
     count = 0
+    create_batch_rows = REMOTE_CREATE_BATCH_ROWS if remote else MAX_CREATE_BATCH_ROWS
     for dataset in sorted(snapshot.datasets, key=lambda item: item.sequence):
         creates = tuple(
             row
             for row in snapshot.rows
             if row.dataset == dataset.dataset and row.disposition == "CREATE"
         )
-        for start in range(0, len(creates), MAX_CREATE_BATCH_ROWS):
-            batch = creates[start : start + MAX_CREATE_BATCH_ROWS]
+        for start in range(0, len(creates), create_batch_rows):
+            batch = creates[start : start + create_batch_rows]
             count += sum(
                 bool(
                     ExecutionService._deferred_create_intents(
@@ -1274,6 +1296,29 @@ def _odoo_scalar(value: Any) -> Any:
         raise WorkspaceError("A relational business key cannot be used as a scalar")
     if value is None or type(value) in {str, int, bool, float}:
         return value
+    raise WorkspaceError("A prepared value is not supported by the Odoo API")
+
+
+def _odoo_import_scalar(value: Any) -> str:
+    """Render one scalar for Odoo's text-only ``Model.load`` matrix."""
+
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, datetime):
+        normalized = value
+        if normalized.tzinfo is not None:
+            normalized = normalized.astimezone(timezone.utc).replace(tzinfo=None)
+        return normalized.isoformat(sep=" ")
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, BusinessReference | LogicalReference):
+        raise WorkspaceError("A relational business key cannot be used as a scalar")
+    if value is None:
+        return ""
+    if type(value) is bool:
+        return "1" if value else "0"
+    if type(value) in {str, int, float}:
+        return str(value)
     raise WorkspaceError("A prepared value is not supported by the Odoo API")
 
 
