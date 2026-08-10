@@ -107,6 +107,11 @@ fields required during create remain blocked. Incremental relationship
 commands, live-target throughput tuning, and production cutover controls
 remain later delivery scope.
 
+The opt-in [remote Odoo 19 acceptance run](docs/operations/07-remote-odoo-acceptance.md)
+is ready for a disposable on-premises database. It exercises 150 sanitized
+rows through the real remote writer and read-back path and records observed
+throughput; live evidence still requires the target server.
+
 ## Install and start
 
 Impodo requires Python 3.12 or newer.

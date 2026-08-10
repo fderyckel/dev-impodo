@@ -17,6 +17,7 @@ from ..artifacts import ArtifactStore, ArtifactStoreError
 from ..derived_entities import DerivedEntityPlan
 from ..domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from ..domain.compiler.columnar_transformation import (
+    ColumnarCompilationError,
     ColumnarSupport,
     ColumnarTransformationProgram,
     compile_columnar_transformation_programs,
@@ -39,6 +40,10 @@ from ..domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
     PreparationSessionBindings,
     StoredCanonicalStagingRun,
+)
+from ..domain.staging.scale import (
+    BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+    COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
 )
 from ..domain.staging.transformation_impact import (
     TransformationImpactRow,
@@ -121,6 +126,47 @@ def supports_bounded_direct_preparation(
     return physical == effective and len(physical) == len(
         physical_selection.datasets
     )
+
+
+def direct_preparation_row_limit(
+    definition: MappingDefinition,
+    effective_selection: SourceSelection,
+    source_snapshots: Iterable[SourceSnapshot],
+) -> int:
+    """Return 100k only for the mandatory verified columnar production path."""
+
+    try:
+        decisions = compile_columnar_transformation_programs(
+            definition,
+            effective_selection,
+        )
+    except ColumnarCompilationError:
+        return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
+    if any(
+        item.support is not ColumnarSupport.SUPPORTED
+        for item in decisions
+    ):
+        return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
+    snapshots = tuple(source_snapshots)
+    snapshots_by_id = {item.dataset_id: item for item in snapshots}
+    datasets_by_id = {
+        item.dataset_id: item for item in effective_selection.datasets
+    }
+    if (
+        len(snapshots_by_id) != len(snapshots)
+        or set(snapshots_by_id) != set(datasets_by_id)
+    ):
+        return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
+    try:
+        for dataset_id, dataset in datasets_by_id.items():
+            validate_snapshot_for_dataset(
+                effective_selection,
+                dataset,
+                snapshots_by_id[dataset_id],
+            )
+    except SourceLoadError:
+        return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
+    return COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
 
 
 def prepare_bounded_direct_session(
@@ -282,10 +328,12 @@ def prepare_bounded_direct_session(
             )
             snapshot = snapshot_by_dataset.get(physical.dataset_id)
             columnar = columnar_by_id[effective.dataset_id]
-            if (
-                snapshot is not None
-                and columnar.support is ColumnarSupport.SUPPORTED
-            ):
+            if columnar.support is ColumnarSupport.SUPPORTED:
+                if snapshot is None:
+                    raise ReadinessError(
+                        "Supported direct preparation requires its frozen "
+                        "source snapshot"
+                    )
                 assert columnar.program is not None
                 row_count = 0
                 pending_rows: list[CanonicalPreparedSessionRow] = []

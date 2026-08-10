@@ -3,9 +3,11 @@
 The runner generates deterministic sanitized rows, captures the live read-only
 preflight, executes the same practical writer and reconciliation services used
 by the browser, and captures Odoo again to prove the repeat is all unchanged.
-It refuses non-loopback URLs and database names outside the dedicated
-``impodo_p4_`` namespace. Credentials are read from a private file and are
-never printed or included in the result.
+It accepts literal-loopback Odoo or a remote HTTPS target, while refusing
+database names outside the dedicated ``impodo_p4_`` namespace. Credentials
+are read from a private file and are never printed or included in the result.
+The emitted JSON contains phase timings and observed row throughput, but no
+source values, target values, URL, or credential.
 """
 
 from __future__ import annotations
@@ -18,12 +20,17 @@ from decimal import Decimal
 import json
 from pathlib import Path
 import tempfile
+from time import perf_counter
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
-from impodo.application.execution_service import ExecutionService
+from impodo.application.execution_service import (
+    ExecutionService,
+    execution_api_scope,
+)
 from impodo.application.reconciliation_service import ReconciliationService
 from impodo.connectors import (
     Json2Config,
@@ -37,6 +44,7 @@ from impodo.domain.preflight.frozen_input import FrozenPreflightInput
 from impodo.engine import PreflightEngine
 from impodo.models import Classification
 from impodo.odoo_readback import Json2ReadbackReader
+from impodo.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.odoo_writer import Json2WriteExecutor
 from impodo.planner import plan_metadata_requests, plan_record_requests
 from impodo.profile import load_profile
@@ -80,7 +88,11 @@ class _Journal:
     def get_run(self, project_id, run_id):
         if self.run is None:
             return None
-        return self.run if (self.run.project_id, self.run.run_id) == (project_id, run_id) else None
+        return (
+            self.run
+            if (self.run.project_id, self.run.run_id) == (project_id, run_id)
+            else None
+        )
 
     def start_run(self, project_id, run, *, actor):
         del actor
@@ -136,7 +148,66 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--base-url", default="http://127.0.0.1:8069")
     parser.add_argument("--database", required=True)
     parser.add_argument("--api-key-file", type=Path, required=True)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="optional path for the non-secret JSON result",
+    )
     return parser.parse_args()
+
+
+def _connection_mode(base_url: str) -> str:
+    hostname = (urlparse(base_url).hostname or "").casefold()
+    return "LOCAL" if hostname in {"127.0.0.1", "::1"} else "REMOTE"
+
+
+def _seed_scope() -> OdooApiScope:
+    """Return the exact fixed capability used only to prepare the P4 fixture."""
+
+    return OdooApiScope(
+        preview_hash="sha256:" + "0" * 64,
+        models=(
+            OdooModelScope(
+                "product.category",
+                write_fields=("name",),
+                read_fields=("name",),
+            ),
+            OdooModelScope(
+                "product.template",
+                write_fields=(
+                    "active",
+                    "categ_id",
+                    "default_code",
+                    "list_price",
+                    "name",
+                ),
+                read_fields=(
+                    "active",
+                    "categ_id",
+                    "default_code",
+                    "list_price",
+                    "name",
+                ),
+            ),
+            OdooModelScope(
+                "res.partner",
+                write_fields=("city", "email", "name", "phone", "ref"),
+                read_fields=("city", "email", "name", "phone", "ref"),
+            ),
+        ),
+    )
+
+
+def _rate(rows: int, seconds: float) -> float:
+    return round(rows / seconds, 2) if seconds > 0 else 0.0
+
+
+def _emit_result(payload: dict[str, Any], output: Path | None) -> None:
+    serialized = json.dumps(payload, sort_keys=True)
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(serialized + "\n", encoding="utf-8")
+    print(serialized)
 
 
 def _write_sources(directory: Path) -> None:
@@ -262,35 +333,35 @@ def _target_counts(records) -> dict[str, int]:
 
 def main() -> int:
     args = _arguments()
-    if args.base_url.rstrip("/") != "http://127.0.0.1:8069":
-        raise SystemExit("P4 accepts only the loopback rehearsal URL")
     if not args.database.startswith("impodo_p4_"):
         raise SystemExit("P4 accepts only an impodo_p4_ disposable database")
     api_key = args.api_key_file.read_text("utf-8").strip()
     if not api_key:
         raise SystemExit("The P4 API key file is empty")
     config = Json2Config(
-        base_url=args.base_url,
+        base_url=args.base_url.rstrip("/"),
         database=args.database,
         api_key=api_key,
-        connection_mode="LOCAL",
+        connection_mode=_connection_mode(args.base_url),
         page_size=100,
         retries=0,
         relevant_modules=("base", "contacts", "product"),
     )
-    executor = Json2WriteExecutor(config)
-    reader = Json2ReadbackReader(config)
     with tempfile.TemporaryDirectory(prefix="impodo-p4-") as directory_name:
         directory = Path(directory_name)
+        preparation_started = perf_counter()
         _write_sources(directory)
         plan = compile_profile_document(load_profile(PROFILE))
         prepared = prepare_sources(plan, directory)
+        preparation_seconds = perf_counter() - preparation_started
         if len(prepared.records) != TOTAL_ROWS or prepared.issues:
             raise RuntimeError("The generated P4 source package is invalid")
 
+        baseline_started = perf_counter()
         baseline, baseline_records = _capture(config, plan, prepared)
+        baseline_seconds = perf_counter() - baseline_started
         if int(baseline.counts.get("CREATE", 0)) == TOTAL_ROWS:
-            _seed_existing(executor)
+            _seed_existing(Json2WriteExecutor(config, _seed_scope()))
         elif {
             name: int(baseline.counts.get(name, 0)) for name in EXPECTED_REPEAT
         } == EXPECTED_REPEAT:
@@ -305,17 +376,26 @@ def main() -> int:
                     f"P4 target counts are {target_counts}, expected "
                     f"{expected_target_counts}"
                 )
-            print(
-                json.dumps(
-                    {
-                        "database": args.database,
-                        "source_rows": TOTAL_ROWS,
-                        "status": "already_migrated_and_unchanged",
-                        "repeat_preview": EXPECTED_REPEAT,
-                        "target_rows": target_counts,
+            _emit_result(
+                {
+                    "captured_at": baseline.fingerprint.snapshot_timestamp,
+                    "connection_mode": config.connection_mode,
+                    "database": args.database,
+                    "module_versions": dict(
+                        sorted(baseline.fingerprint.module_versions.items())
+                    ),
+                    "odoo_version": baseline.fingerprint.odoo_version,
+                    "source_rows": TOTAL_ROWS,
+                    "status": "already_migrated_and_unchanged",
+                    "target_hash": baseline.fingerprint.target_hash,
+                    "repeat_preview": EXPECTED_REPEAT,
+                    "target_rows": target_counts,
+                    "timing_seconds": {
+                        "preparation": round(preparation_seconds, 6),
+                        "target_capture": round(baseline_seconds, 6),
                     },
-                    sort_keys=True,
-                )
+                },
+                args.output,
             )
             return 0
         elif baseline.counts != EXPECTED_FIRST:
@@ -323,7 +403,9 @@ def main() -> int:
                 "The disposable target is neither empty nor at the expected P4 seed state"
             )
 
+        first_preview_started = perf_counter()
         first, _first_records = _capture(config, plan, prepared)
+        first_preview_seconds = perf_counter() - first_preview_started
         _assert_counts(first.counts, EXPECTED_FIRST, "first preview")
         if any(
             decision.classification
@@ -346,7 +428,7 @@ def main() -> int:
         )
         project = SimpleNamespace(
             project_id=project_id,
-            odoo_connection_mode=OdooConnectionMode.LOCAL,
+            odoo_connection_mode=OdooConnectionMode(config.connection_mode),
         )
         authorization = CapabilityAuthorizationPolicy()
         execution = ExecutionService(
@@ -355,15 +437,45 @@ def main() -> int:
             journal,
             authorization,
         )
+        scope = execution_api_scope(snapshot)
+        executor = Json2WriteExecutor(config, scope)
+        reader = Json2ReadbackReader(config, scope)
+        execution_started = perf_counter()
         run = execution.execute(
             project_id,
             expected_snapshot_hash=snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
         )
-        if run.status is not ExecutionRunStatus.COMPLETED or run.committed_count != 145:
-            raise RuntimeError("The P4 execution did not commit every planned write")
+        execution_seconds = perf_counter() - execution_started
+        if (
+            run.status is not ExecutionRunStatus.COMPLETED
+            or run.committed_count != 145
+        ):
+            _emit_result(
+                {
+                    "captured_at": first.fingerprint.snapshot_timestamp,
+                    "connection_mode": config.connection_mode,
+                    "database": args.database,
+                    "odoo_version": first.fingerprint.odoo_version,
+                    "source_rows": TOTAL_ROWS,
+                    "status": "execution_failed",
+                    "target_hash": first.fingerprint.target_hash,
+                    "execution": {
+                        "committed": run.committed_count,
+                        "failed": run.failed_count,
+                        "partially_applied": run.partially_applied_count,
+                        "unknown": run.unknown_count,
+                    },
+                    "timing_seconds": {
+                        "execution": round(execution_seconds, 6),
+                    },
+                },
+                args.output,
+            )
+            return 1
 
+        readback_started = perf_counter()
         reconciliation = ReconciliationService(
             preflight,
             journal,
@@ -375,10 +487,37 @@ def main() -> int:
             reader=reader,
             actor=LOCAL_ACTOR,
         )
-        if reconciliation.fallout_count or reconciliation.verified_count != TOTAL_ROWS:
-            raise RuntimeError("The P4 read-back did not verify every row")
+        readback_seconds = perf_counter() - readback_started
+        if (
+            reconciliation.fallout_count
+            or reconciliation.verified_count != TOTAL_ROWS
+        ):
+            _emit_result(
+                {
+                    "captured_at": first.fingerprint.snapshot_timestamp,
+                    "connection_mode": config.connection_mode,
+                    "database": args.database,
+                    "odoo_version": first.fingerprint.odoo_version,
+                    "source_rows": TOTAL_ROWS,
+                    "status": "readback_failed",
+                    "target_hash": first.fingerprint.target_hash,
+                    "readback": {
+                        "verified": reconciliation.verified_count,
+                        "fallout": reconciliation.fallout_count,
+                        "unknown": reconciliation.unknown_count,
+                    },
+                    "timing_seconds": {
+                        "execution": round(execution_seconds, 6),
+                        "readback": round(readback_seconds, 6),
+                    },
+                },
+                args.output,
+            )
+            return 1
 
+        repeat_started = perf_counter()
         repeated, repeated_records = _capture(config, plan, prepared)
+        repeat_seconds = perf_counter() - repeat_started
         _assert_counts(repeated.counts, EXPECTED_REPEAT, "repeat preview")
         target_counts = _target_counts(repeated_records)
         expected_target_counts = {
@@ -391,27 +530,52 @@ def main() -> int:
                 f"P4 target counts are {target_counts}, expected {expected_target_counts}"
             )
 
-        print(
-            json.dumps(
-                {
-                    "database": args.database,
-                    "source_rows": TOTAL_ROWS,
-                    "first_preview": EXPECTED_FIRST,
-                    "execution": {
-                        "committed": run.committed_count,
-                        "failed": run.failed_count,
-                        "unknown": run.unknown_count,
-                    },
-                    "readback": {
-                        "verified": reconciliation.verified_count,
-                        "fallout": reconciliation.fallout_count,
-                        "unknown": reconciliation.unknown_count,
-                    },
-                    "repeat_preview": EXPECTED_REPEAT,
-                    "target_rows": target_counts,
+        _emit_result(
+            {
+                "captured_at": repeated.fingerprint.snapshot_timestamp,
+                "connection_mode": config.connection_mode,
+                "database": args.database,
+                "module_versions": dict(
+                    sorted(repeated.fingerprint.module_versions.items())
+                ),
+                "odoo_version": repeated.fingerprint.odoo_version,
+                "source_rows": TOTAL_ROWS,
+                "status": "verified",
+                "target_hash": repeated.fingerprint.target_hash,
+                "first_preview": EXPECTED_FIRST,
+                "execution": {
+                    "committed": run.committed_count,
+                    "failed": run.failed_count,
+                    "partially_applied": run.partially_applied_count,
+                    "unknown": run.unknown_count,
                 },
-                sort_keys=True,
-            )
+                "readback": {
+                    "verified": reconciliation.verified_count,
+                    "fallout": reconciliation.fallout_count,
+                    "unknown": reconciliation.unknown_count,
+                },
+                "repeat_preview": EXPECTED_REPEAT,
+                "target_rows": target_counts,
+                "timing_seconds": {
+                    "preparation": round(preparation_seconds, 6),
+                    "baseline_capture": round(baseline_seconds, 6),
+                    "first_preview": round(first_preview_seconds, 6),
+                    "execution": round(execution_seconds, 6),
+                    "readback": round(readback_seconds, 6),
+                    "repeat_preview": round(repeat_seconds, 6),
+                },
+                "throughput_rows_per_second": {
+                    "committed_writes": _rate(
+                        run.committed_count,
+                        execution_seconds,
+                    ),
+                    "verified_rows": _rate(
+                        reconciliation.verified_count,
+                        readback_seconds,
+                    ),
+                },
+            },
+            args.output,
         )
     return 0
 

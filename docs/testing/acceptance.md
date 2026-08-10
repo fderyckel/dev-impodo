@@ -250,7 +250,11 @@ certification remain pending.
 
 The protected P3 adapter, service, persistence, and browser path are covered
 automatically. The live representative P4 acceptance is recorded separately
-because it requires an explicitly disposable local Odoo database.
+because it requires an explicitly disposable Odoo database. The same runner
+now accepts a remote HTTPS Odoo 19 target, binds the current exact writer and
+read-back scopes, and emits phase timings and observed rows per second. The
+remote run remains pending until a disposable on-premises target is available;
+see the [remote acceptance runbook](../operations/07-remote-odoo-acceptance.md).
 
 P4 passed on 2026-08-06 against the isolated `impodo_p4_20260806` database:
 125 creates, 20 updates, 5 unchanged, 145 committed writes, 150 verified by
@@ -769,7 +773,7 @@ Structural requirements already apply:
 | Composite/scoped identities | verified locally | real target scopes |
 | Relational comparison | verified locally | real target relationships |
 | 100–300 sanitized records | not complete | build and review |
-| Live authorised target | not complete | execute smoke tests |
+| Live authorised target | remote harness ready; local P4 passed | run against the disposable on-premises target |
 | Historical-scale memory | 50,000-row bounded direct preparation and 25,000-row durable preflight verified | 100,000-row expansion remains separate |
 
 ## Acceptance gate
@@ -782,7 +786,7 @@ runtime as executed evidence.
 deployment milestone acceptance additionally requires:
 
 - the reviewed 100–300-record slice;
-- live target smoke runs;
+- a retained remote-target acceptance result;
 - Odoo-side read-only account evidence;
 - partner confirmation of Odoo version, routing, context, keys, scopes,
   decimal, and timezone rules;

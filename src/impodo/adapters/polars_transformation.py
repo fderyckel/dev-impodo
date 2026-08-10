@@ -112,46 +112,6 @@ class _ExecutionLayout:
     output_columns: tuple[str, ...]
 
 
-def iter_polars_transformation_batches(
-    path: str | Path,
-    snapshot: SourceSnapshot,
-    program: ColumnarTransformationProgram,
-    *,
-    batch_size: int = POLARS_TRANSFORMATION_BATCH_ROWS,
-) -> Iterator[ColumnarTransformationBatch]:
-    """Yield native direct results while proving count and source-row order."""
-
-    if batch_size < 1:
-        raise ValueError("Columnar transformation batch size must be positive")
-    if (
-        snapshot.dataset_id != program.dataset_id
-        or snapshot.dataset_name != program.dataset_name
-    ):
-        raise SourceLoadError("Columnar program does not match the source snapshot")
-    snapshot_path = validate_source_snapshot_path(path, snapshot)
-    lazy, layout = _compile_lazy_transformation(snapshot_path, program)
-    row_count = 0
-    previous_source_row = 0
-    for frame in lazy.collect_batches(
-        chunk_size=batch_size,
-        maintain_order=True,
-        engine="streaming",
-    ):
-        if frame.height > batch_size:
-            raise SourceLoadError("Columnar transformation batch exceeded its bound")
-        batch = _adapt_frame(frame, program, layout)
-        for source_row in batch.source_rows:
-            if source_row <= previous_source_row:
-                raise SourceLoadError("Columnar source row order is invalid")
-            previous_source_row = source_row
-        row_count += len(batch.source_rows)
-        if row_count > snapshot.row_count:
-            raise SourceLoadError("Columnar source row count is invalid")
-        yield batch
-    if row_count != snapshot.row_count:
-        raise SourceLoadError("Columnar source row count is invalid")
-
-
 def write_polars_prepared_snapshot(
     source_path: str | Path,
     source_snapshot: SourceSnapshot,
@@ -1374,6 +1334,5 @@ __all__ = [
     "ColumnarPreparedSnapshotCandidate",
     "ColumnarTransformationBatch",
     "iter_polars_prepared_batches",
-    "iter_polars_transformation_batches",
     "write_polars_prepared_snapshot",
 ]

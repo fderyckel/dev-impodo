@@ -187,6 +187,26 @@ the release-grade performance gate.
 rows, failure injection preserves the previous current evidence, and CPU/memory
 targets improve relative to the baseline.
 
+**Implemented in Slice 5.** Supported native transformations now stream into a
+content-addressed prepared Parquet snapshot before canonical adaptation. The
+snapshot contract binds the source snapshot, mapping, schema, transformation
+program, row count, physical schema, and exact file hash. DuckDB owns immutable
+manifests, per-session bindings, and a current pointer that advances only after
+successful canonical publication; failure injection proves that the preceding
+pointer survives and unregistered files are removed. Repeated preparation
+reuses the exact verified snapshot without rerunning Polars. The accelerated
+reader adapts only bounded batches through an allocation-only trusted typed
+record constructor and no longer performs a second generic scalar parse.
+
+The local 100,000-row/30-column/20-field probe completed bounded preparation in
+21.8 seconds at 827.5 MiB peak and 412.5 MiB ending RSS with the measured
+two-thread Polars default, compared with the Slice 4 Python control of 26.8
+seconds at 830 MiB peak. The immutable prepared writer uses 5,000-row Zstandard
+row groups; reads use 1,000-row streaming batches; canonical DuckDB preparation
+remains limited to one thread and 96 MB. Clean reference-Windows measurements
+and the multi-run parent benchmark remain release evidence work under section
+1.1 rather than additional Slice 5 architecture.
+
 #### Slice 6 — Production cutover and direct-path retirement
 
 - Make the columnar path the only production implementation for the supported

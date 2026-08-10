@@ -13,12 +13,12 @@ import polars as pl
 from impodo.adapters.polars_transformation import (
     POLARS_TRANSFORMATION_BATCH_ROWS,
     iter_polars_prepared_batches,
-    iter_polars_transformation_batches,
     write_polars_prepared_snapshot,
 )
 from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarSupport,
+    ColumnarTransformationProgram,
     compile_columnar_transformation_program,
 )
 from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
@@ -74,7 +74,7 @@ class PolarsTransformationParityTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def test_native_batches_match_python_oracle_for_all_chunk_sizes(self) -> None:
+    def test_prepared_batches_match_python_oracle_for_all_chunk_sizes(self) -> None:
         expected_records, expected_report = _python_oracle(
             self.definition,
             self.selection,
@@ -87,6 +87,12 @@ class PolarsTransformationParityTests(unittest.TestCase):
         )
         self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
         assert decision.program is not None
+        destination, prepared = _write_prepared_snapshot(
+            self.root,
+            self.path,
+            self.snapshot,
+            decision.program,
+        )
 
         for chunk_size in (1, 17, POLARS_TRANSFORMATION_BATCH_ROWS):
             with self.subTest(chunk_size=chunk_size):
@@ -96,8 +102,9 @@ class PolarsTransformationParityTests(unittest.TestCase):
                     detail_limit=10_000,
                 )
                 observed_batch_sizes = []
-                for batch in iter_polars_transformation_batches(
-                    self.path,
+                for batch in iter_polars_prepared_batches(
+                    destination,
+                    prepared,
                     self.snapshot,
                     decision.program,
                     batch_size=chunk_size,
@@ -125,77 +132,43 @@ class PolarsTransformationParityTests(unittest.TestCase):
         pl.read_parquet(self.path).head(3).write_parquet(short_path)
         other_program = replace(decision.program, dataset_name="other")
 
-        with self.assertRaisesRegex(ValueError, "row count"):
-            tuple(
-                iter_polars_transformation_batches(
-                    short_path,
-                    self.snapshot,
-                    decision.program,
-                )
+        with self.assertRaisesRegex(ValueError, "row accounting"):
+            write_polars_prepared_snapshot(
+                short_path,
+                self.snapshot,
+                decision.program,
+                self.root / "short-prepared.parquet",
             )
         with self.assertRaisesRegex(ValueError, "does not match"):
-            tuple(
-                iter_polars_transformation_batches(
-                    self.path,
-                    self.snapshot,
-                    other_program,
-                )
+            write_polars_prepared_snapshot(
+                self.path,
+                self.snapshot,
+                other_program,
+                self.root / "other-prepared.parquet",
             )
 
-    def test_prepared_snapshot_round_trip_matches_direct_native_batches(self) -> None:
+    def test_prepared_snapshot_corruption_and_binding_fail_closed(self) -> None:
         decision = compile_columnar_transformation_program(
             self.definition,
             self.selection,
             DATASET_ID,
         )
         assert decision.program is not None
-        destination = self.root / "prepared.parquet"
-        candidate = write_polars_prepared_snapshot(
+        destination, prepared = _write_prepared_snapshot(
+            self.root,
             self.path,
             self.snapshot,
             decision.program,
-            destination,
         )
-        prepared = PreparedSnapshot.create(
-            project_id=self.snapshot.project_id,
-            dataset_id=self.snapshot.dataset_id,
-            dataset_name=self.snapshot.dataset_name,
-            source_snapshot_hash=self.snapshot.content_hash,
-            mapping_hash=self.definition.content_hash,
-            schema_hash=self.definition.schema_hash,
-            transformation_program_hash=decision.program.content_hash,
-            row_count=candidate.row_count,
-            physical_schema_hash=candidate.physical_schema_hash,
-            parquet_sha256=candidate.parquet_sha256,
-            created_at=NOW,
-        )
-        expected_records, expected_report = _python_oracle(
-            self.definition,
-            self.selection,
-            self.rows,
-        )
-
-        for chunk_size in (1, 17, POLARS_TRANSFORMATION_BATCH_ROWS):
-            with self.subTest(chunk_size=chunk_size):
-                records = []
-                collector = _TransformationImpactCollector(
-                    mapping_content_hash=self.definition.content_hash,
-                    detail_limit=10_000,
-                )
-                for batch in iter_polars_prepared_batches(
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            tuple(
+                iter_polars_prepared_batches(
                     destination,
                     prepared,
                     self.snapshot,
-                    decision.program,
-                    batch_size=chunk_size,
-                ):
-                    records.extend(batch.records)
-                    collector.record_precomputed(
-                        batch.impact_counts,
-                        batch.impacts,
-                    )
-                self.assertEqual(tuple(records), expected_records)
-                self.assertEqual(collector.report(), expected_report)
+                    replace(decision.program, dataset_name="other"),
+                )
+            )
 
         destination.write_bytes(destination.read_bytes()[:16])
         with self.assertRaisesRegex(ValueError, "schema is unreadable"):
@@ -243,6 +216,34 @@ class PolarsTransformationParityTests(unittest.TestCase):
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, source)
+
+
+def _write_prepared_snapshot(
+    root: Path,
+    source_path: Path,
+    snapshot: SourceSnapshot,
+    program: ColumnarTransformationProgram,
+) -> tuple[Path, PreparedSnapshot]:
+    destination = root / "prepared.parquet"
+    candidate = write_polars_prepared_snapshot(
+        source_path,
+        snapshot,
+        program,
+        destination,
+    )
+    return destination, PreparedSnapshot.create(
+        project_id=snapshot.project_id,
+        dataset_id=snapshot.dataset_id,
+        dataset_name=snapshot.dataset_name,
+        source_snapshot_hash=snapshot.content_hash,
+        mapping_hash=program.mapping_content_hash,
+        schema_hash=program.schema_hash,
+        transformation_program_hash=program.content_hash,
+        row_count=candidate.row_count,
+        physical_schema_hash=candidate.physical_schema_hash,
+        parquet_sha256=candidate.parquet_sha256,
+        created_at=NOW,
+    )
 
 
 def _selection() -> SourceSelection:

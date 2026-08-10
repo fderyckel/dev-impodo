@@ -29,7 +29,6 @@ from ..domain.staging.evaluator import (
     evaluate_browser_mapping,
 )
 from ..domain.staging.scale import (
-    BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     require_supported_browser_scale,
 )
 from ..domain.staging.transformation_impact import TransformationImpactRow
@@ -47,6 +46,7 @@ from ..source_snapshot_io import (
 from ..workspace_contracts import SourceSelection
 from ..domain.errors import ReadinessError
 from .bounded_preparation import (
+    direct_preparation_row_limit,
     prepare_bounded_direct_session,
     supports_bounded_direct_preparation,
 )
@@ -193,7 +193,11 @@ class PreparationService:
         ):
             require_supported_browser_scale(
                 physical_selection,
-                supported_limit=BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+                supported_limit=direct_preparation_row_limit(
+                    revision.definition,
+                    effective_selection,
+                    source_snapshots,
+                ),
             )
             bounded = prepare_bounded_direct_session(
                 project,

@@ -42,7 +42,8 @@ The opt-in runner is
 [`scripts/p4_representative_runner.py`](../../scripts/p4_representative_runner.py)
 and the mapping is
 [`profiles/examples/p4_representative.yaml`](../../profiles/examples/p4_representative.yaml).
-The runner refuses non-loopback URLs and databases outside the `impodo_p4_`
+The recorded run used literal loopback. The current runner also accepts remote
+HTTPS Odoo 19 targets, while still refusing databases outside the `impodo_p4_`
 namespace. It generates sanitized source rows in a temporary directory, reads
 the API key from a private file, and never prints or persists the credential.
 

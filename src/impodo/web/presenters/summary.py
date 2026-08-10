@@ -7,7 +7,10 @@ from urllib.parse import urlencode
 from fastapi import HTTPException, Request
 
 from ...access import AuthorizationError, Capability
-from ...application.bounded_preparation import supports_bounded_direct_preparation
+from ...application.bounded_preparation import (
+    direct_preparation_row_limit,
+    supports_bounded_direct_preparation,
+)
 from ...domain.errors import ReadinessError
 from ...domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
@@ -148,6 +151,7 @@ def _render_summary(
     source_selection = context.queries.get_source_selection(project_id)
     effective_selection = context.queries.get_mapping_source_selection(project_id)
     derived_plan = context.queries.get_derived_entity_plan(project_id)
+    revision = context.queries.get_mapping_revision(project_id)
     bounded_direct = (
         source_selection is not None
         and effective_selection is not None
@@ -157,19 +161,23 @@ def _render_summary(
             derived_plan,
         )
     )
+    scale_limit = BROWSER_EVALUATION_ROW_LIMIT
+    if bounded_direct:
+        scale_limit = BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
+        if revision is not None and effective_selection is not None:
+            scale_limit = direct_preparation_row_limit(
+                revision.definition,
+                effective_selection,
+                context.queries.get_current_source_snapshots(project_id),
+            )
     evaluation_scale = (
         browser_evaluation_scale(
             source_selection,
-            supported_limit=(
-                BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
-                if bounded_direct
-                else BROWSER_EVALUATION_ROW_LIMIT
-            ),
+            supported_limit=scale_limit,
         )
         if source_selection is not None
         else None
     )
-    revision = context.queries.get_mapping_revision(project_id)
     submission = (
         context.queries.get_mapping_submission(project_id, revision.version)
         if revision is not None

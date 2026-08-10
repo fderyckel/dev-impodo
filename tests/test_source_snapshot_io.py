@@ -17,7 +17,10 @@ from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
 from impodo.adapters.duckdb.source_repository import SourceRepository
-from impodo.application.bounded_preparation import prepare_bounded_direct_session
+from impodo.application.bounded_preparation import (
+    direct_preparation_row_limit,
+    prepare_bounded_direct_session,
+)
 from impodo.application.preparation_service import stage_browser_mapping
 from impodo.application.source_workspace_service import SourceWorkspaceService
 from impodo.artifacts import ArtifactStoreError, LocalArtifactStore
@@ -27,7 +30,12 @@ from impodo.domain.mapping.contracts import (
     MappingDefinition,
     ScalarFieldMapping,
 )
+from impodo.domain.errors import ReadinessError
 from impodo.domain.source_snapshot import SourceSnapshot
+from impodo.domain.staging.scale import (
+    BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+    COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+)
 from impodo.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
@@ -94,18 +102,6 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         self.assertEqual(snapshots[0].row_count, 2)
         definition = _direct_mapping(selection)
         sessions = PreparationSessionRepository(self.database)
-        python_bounded = prepare_bounded_direct_session(
-            self.projects.get(project.project_id),
-            definition,
-            1,
-            selection,
-            selection,
-            (catalog,),
-            self.artifacts,
-            None,
-            sessions,
-            actor=LOCAL_ACTOR,
-        )
 
         self.artifacts.delete_source(project.project_id, source_file.stored_name)
         with self.assertRaises(ArtifactStoreError):
@@ -150,22 +146,16 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
                 source_snapshots=snapshots,
                 columnar_batch_size=1,
-            )
+        )
         self.assertEqual(len(bounded.run.rows), 2)
         self.assertIsNotNone(bounded.run.validated_content_hash)
-        self.assertEqual(tuple(bounded.run.rows), tuple(python_bounded.run.rows))
         self.assertEqual(
-            tuple(sessions.iter_impacts(project.project_id, bounded.session_id)),
-            tuple(
-                sessions.iter_impacts(
-                    project.project_id,
-                    python_bounded.session_id,
-                )
-            ),
+            tuple(bounded.run.rows),
+            tuple(staged.canonical_run.rows),
         )
         self.assertEqual(
             bounded.run.validated_content_hash,
-            python_bounded.run.validated_content_hash,
+            staged.canonical_run.content_hash,
         )
         with patch(
             "impodo.application.bounded_preparation.write_polars_prepared_snapshot",
@@ -279,6 +269,88 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             ["replaced", "Beta"],
         )
 
+    def test_supported_mapping_cannot_fall_back_without_source_snapshot(self) -> None:
+        project, source_file, catalog = self._registered_csv(
+            b"Code,Name,Active\nC1,Alpha,true\n"
+        )
+        selection = _selection_for(project, source_file, catalog)
+        sessions = PreparationSessionRepository(self.database)
+
+        with (
+            patch(
+                "impodo.application.bounded_preparation.compile_browser_row_transformer",
+                side_effect=AssertionError("supported mapping used Python"),
+            ),
+            self.assertRaisesRegex(ReadinessError, "source snapshot"),
+        ):
+            prepare_bounded_direct_session(
+                project,
+                _direct_mapping(selection),
+                1,
+                selection,
+                selection,
+                (catalog,),
+                self.artifacts,
+                None,
+                sessions,
+                actor=LOCAL_ACTOR,
+            )
+
+    def test_only_verified_supported_columnar_path_receives_100k_limit(self) -> None:
+        project, source_file, catalog = self._registered_csv(
+            b"Code,Name,Active\nC1,Alpha,true\n"
+        )
+        selection = _selection_for(project, source_file, catalog)
+        definition = _direct_mapping(selection)
+        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
+            project,
+            selection,
+            selection.datasets[0],
+            catalog,
+            source_file,
+        ).snapshot
+
+        self.assertEqual(
+            direct_preparation_row_limit(
+                definition,
+                selection,
+                (snapshot,),
+            ),
+            COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+        )
+        self.assertEqual(
+            direct_preparation_row_limit(definition, selection, ()),
+            BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+        )
+
+        dataset_mapping = definition.datasets[0]
+        unsupported = replace(
+            definition,
+            datasets=(
+                replace(
+                    dataset_mapping,
+                    fields=(
+                        replace(
+                            dataset_mapping.fields[0],
+                            transform=ScalarTransformPolicy(
+                                search_value="^A.*$",
+                                replacement_value="replaced",
+                                search_mode="pattern",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        self.assertEqual(
+            direct_preparation_row_limit(
+                unsupported,
+                selection,
+                (snapshot,),
+            ),
+            BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+        )
+
     def test_prepared_snapshot_bind_failure_removes_unregistered_file(self) -> None:
         project, source_file, catalog = self._registered_csv(
             b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
@@ -323,6 +395,65 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             sessions.prepared_snapshot_storage_keys(project.project_id),
             frozenset(),
         )
+
+    def test_cancelled_columnar_session_reuses_snapshot_on_retry(self) -> None:
+        project, source_file, catalog = self._registered_csv(
+            b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
+        )
+        selection = _selection_for(project, source_file, catalog)
+        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
+            project,
+            selection,
+            selection.datasets[0],
+            catalog,
+            source_file,
+        ).snapshot
+        sessions = PreparationSessionRepository(self.database)
+        definition = _direct_mapping(selection)
+
+        def cancel_after_durable_batch(_completed: int, _total: int) -> None:
+            raise RuntimeError("injected cancellation")
+
+        with self.assertRaisesRegex(RuntimeError, "injected cancellation"):
+            prepare_bounded_direct_session(
+                project,
+                definition,
+                1,
+                selection,
+                selection,
+                (catalog,),
+                self.artifacts,
+                None,
+                sessions,
+                actor=LOCAL_ACTOR,
+                source_snapshots=(snapshot,),
+                batch_progress=cancel_after_durable_batch,
+                columnar_batch_size=1,
+            )
+
+        self.assertEqual(
+            len(sessions.prepared_snapshot_storage_keys(project.project_id)),
+            1,
+        )
+        with patch(
+            "impodo.application.bounded_preparation.write_polars_prepared_snapshot",
+            side_effect=AssertionError("retry reran Polars"),
+        ):
+            retry = prepare_bounded_direct_session(
+                project,
+                definition,
+                1,
+                selection,
+                selection,
+                (catalog,),
+                self.artifacts,
+                None,
+                sessions,
+                actor=LOCAL_ACTOR,
+                source_snapshots=(snapshot,),
+                columnar_batch_size=1,
+            )
+        self.assertEqual(len(retry.run.rows), 2)
 
     def test_mixed_xlsx_scalars_round_trip_through_parquet(self) -> None:
         project, source_file, catalog, selection = self._registered_xlsx()

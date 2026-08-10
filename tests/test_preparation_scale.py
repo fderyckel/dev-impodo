@@ -656,13 +656,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             else None
         )
         process = psutil.Process()
-        force_python_oracle = (
-            os.environ.get("IMPODO_PREPARATION_FORCE_PYTHON") == "1"
-        )
         source_snapshots = (
-            None
-            if force_python_oracle
-            else self.context.preparation.sources.get_current_source_snapshots(
+            self.context.preparation.sources.get_current_source_snapshots(
                 project_id
             )
         )
@@ -802,9 +797,15 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         database_path = self.root / project_id / "project.duckdb"
         database_mib = database_path.stat().st_size / (1024 * 1024)
         self.assertEqual(len(bounded.run.rows), PREPARATION_SCALE_ROWS)
+        for forbidden_phase in (
+            "python_row_projection",
+            "python_row_transformation",
+            "python_prepared_record",
+        ):
+            self.assertNotIn(forbidden_phase, phase_seconds)
         print(
             "Bounded source preparation probe: "
-            f"backend={'python' if force_python_oracle else 'polars'}, "
+            "backend=polars, "
             f"workload={PREPARATION_SCALE_WORKLOAD}, "
             f"rows={PREPARATION_SCALE_ROWS:,}, "
             f"columns={PREPARATION_SCALE_COLUMNS}, "
@@ -814,6 +815,81 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             f"phases={json.dumps(phase_seconds, sort_keys=True)}, "
             f"source_bytes={source_size_bytes}, source_sha256={source_sha256}, "
             f"session={bounded.session_id}"
+        )
+
+    def test_repeated_preparation_reuses_exact_prepared_snapshot(self) -> None:
+        """Prove a production retry avoids source parsing and Polars execution."""
+
+        import psutil
+
+        project_id, _source_sha256, _source_size_bytes = (
+            self._prepare_project_and_evidence(
+                row_count=PREPARATION_SCALE_ROWS,
+                column_count=PREPARATION_SCALE_COLUMNS,
+                mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
+                dirty=PREPARATION_SCALE_DIRTY,
+            )
+        )
+        first = self.context.preparation.prepare(
+            project_id,
+            actor=self.context.actor,
+        )
+        first_staging = (
+            self.context.preparation.staging.get_current_staging_summary(
+                project_id
+            )
+        )
+        self.assertIsNotNone(first_staging)
+        process = psutil.Process()
+        started = perf_counter()
+        with (
+            _PeakWorkingSetSampler(process) as memory_sampler,
+            patch(
+                "impodo.application.bounded_preparation."
+                "write_polars_prepared_snapshot",
+                side_effect=AssertionError("retry reran Polars"),
+            ),
+            patch(
+                "impodo.application.bounded_preparation."
+                "compile_browser_row_transformer",
+                side_effect=AssertionError("retry used the Python evaluator"),
+            ),
+            patch.object(
+                self.artifacts,
+                "materialize_source",
+                side_effect=AssertionError("retry reopened registered source"),
+            ),
+        ):
+            repeated = self.context.preparation.prepare(
+                project_id,
+                actor=self.context.actor,
+            )
+        elapsed = perf_counter() - started
+        repeated_staging = (
+            self.context.preparation.staging.get_current_staging_summary(
+                project_id
+            )
+        )
+        self.assertIsNotNone(repeated_staging)
+        assert first_staging is not None
+        assert repeated_staging is not None
+        self.assertEqual(repeated.content_hash, first.content_hash)
+        self.assertEqual(repeated_staging.content_hash, first_staging.content_hash)
+        self.assertEqual(
+            len(
+                self.context.preparation.sessions.current_prepared_snapshots(
+                    project_id
+                )
+            ),
+            1,
+        )
+        print(
+            "Repeated preparation probe: "
+            f"rows={PREPARATION_SCALE_ROWS:,}, total={elapsed:.3f}s, "
+            f"peak={memory_sampler.peak_bytes / (1024 * 1024):.1f} MiB, "
+            f"ending_rss={process.memory_info().rss / (1024 * 1024):.1f} MiB, "
+            f"staging_hash={repeated_staging.content_hash}, "
+            f"normalization_hash={repeated.content_hash}"
         )
 
     def test_background_worker_releases_its_working_memory(self) -> None:
