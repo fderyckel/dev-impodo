@@ -114,8 +114,8 @@ shell. Local stack controls can stop only services started and retained by the
 current Impodo session.
 
 The reader has no create, write, unlink, import, arbitrary model method, or SQL
-surface. The practical disposable-local path uses a separate writer limited to
-exact lookups plus create and write. Its model and field capability is derived
+surface. The practical disposable-target path uses a separate writer limited
+to exact lookups plus create and write. Its model and field capability is derived
 from one captured-schema-bound preview, so standard, extension, and custom
 schema surfaces do not require a global product allowlist. Its frozen snapshot,
 authorization, and journal are independent of the reader. A second closed

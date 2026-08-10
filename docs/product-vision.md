@@ -26,19 +26,23 @@ controlled loading, and reconciliation.
 The current product provides local-browser project setup, CSV/XLSX source
 discovery and frozen datasets, read-only target-schema capture, governed
 mapping authoring, durable canonical and effective staging, integrated quality
-and normalization approval, read-only Odoo comparison, a reviewed local Odoo
-19 load, a durable write journal, and post-write reconciliation.
+and normalization approval, read-only Odoo comparison, a reviewed disposable
+local or remote Odoo 19 load, a durable write journal, and post-write
+reconciliation.
 
-The supported preparation boundary is currently 50,000 physical rows for the
-bounded direct-dataset path and 25,000 physical rows for derived or
-materialized paths. Loading is restricted to an explicitly confirmed,
-disposable Local Odoo 19 target. Remote and production loading are not current
+The supported preparation boundary is currently 100,000 physical rows for an
+exact-snapshot direct mapping compiled entirely to the native columnar path,
+50,000 rows for a direct mapping that still requires the Python oracle, and
+25,000 rows for derived or materialized paths. Loading is restricted to the
+separately governed disposable local or remote Odoo 19 capabilities.
+Production loading and production cutover controls are not current
 capabilities.
 
 The completed disposable-target migration is retained as acceptance evidence.
 The active [remaining-work roadmap](plans/remaining-work.md) now prioritizes
-bounded 100,000-row preparation before optional clean-package, remote,
-production, gateway, or hosted capabilities.
+extending bounded/set-based preparation to related, derived, quality, and
+normalization paths before optional clean-package, production, gateway, or
+hosted capabilities.
 
 ## 2. User workflow
 
@@ -80,10 +84,10 @@ Use the following terms consistently:
 - **Product stages** describe the end-to-end business lifecycle and are named
   Stage A through Stage K below.
 - **Delivery phases** describe implementation increments. Phases 1–5 now
-  provide the bounded, disposable-local path through staging, preflight,
+  provide the bounded, disposable-target path through staging, preflight,
   execution, and reconciliation. Phase 6 and the active remaining-work plan
-  cover scale expansion, optional certification, remote or production
-  loading, and production operations.
+  cover scale expansion, optional certification, retained remote acceptance,
+  production loading, and production operations.
 
 The legacy labels “Phase A” and “Phase B” are retired and must not be used.
 
@@ -356,14 +360,15 @@ rules, but their review does not replace a required production approval.
 ### Stage J — Controlled Odoo execution
 
 The first implemented executor profile is deliberately environment-bounded: a
-disposable Local Odoo 19 database, create and explicit update, reviewed
-many2one/many2many relations, a native JSON-2 capability derived from the exact
-captured-schema-bound preview, bounded dependency-ordered batches, and a
-durable row journal. It has no global business-model or field allowlist, so
+disposable local or remote Odoo 19 database, create and explicit update,
+reviewed many2one/many2many relations, a native JSON-2 capability derived from
+the exact captured-schema-bound preview, bounded dependency-ordered batches,
+and a durable row journal. It has no global business-model or field allowlist, so
 standard, extension, and custom schema surfaces follow the same validated
-path. One explicit **Load into Odoo** action consumes the current frozen
-snapshot. A lost write response is recorded as outcome unknown and is never
-blindly retried.
+path. Deferrable create-time relationship cycles use a reviewed second ORM
+write after the related records exist. One explicit **Load into Odoo** action
+consumes the current frozen snapshot. A lost write response is recorded as
+outcome unknown and is never blindly retried.
 
 Broader or production execution remains a separate security milestone. It:
 
@@ -386,7 +391,7 @@ mapping, staging, approval, and review contracts.
 
 ### Stage K — Reconcile
 
-The practical disposable-local path implements this stage for the exact
+The practical disposable-target path implements this stage for the exact
 standard or custom models and writable fields in the reviewed, schema-bound
 preview: committed rows are read by saved target ID, uncertain responses are
 re-matched by governed keys, and a hash-bound result with downloadable fallout
@@ -556,14 +561,15 @@ through Stage K: project registration; governed CSV/XLSX intake; target-schema
 governance; mapping and derived-dataset authoring; exact choice matching;
 durable canonical staging; quality, quarantine, and normalization review;
 read-only target comparison; automatic execution-snapshot freezing; explicit
-disposable-local loading; a durable write journal; and post-write read-back
+disposable local or remote loading; a durable write journal; and post-write read-back
 reconciliation. The expert profile path retains strict CSV and declared-sheet
 XLSX loading and feeds the same compiled planning semantics.
 
-It does not yet provide the 100,000-row release boundary, general mapping
-import/export, a separate functional mapping-approval lifecycle, optional
-clean-package certification, remote or production loading, a target-side
-gateway, or hosted multi-user infrastructure.
+It does not yet provide a general 100,000-row boundary for Python-fallback,
+related, or derived preparation; general mapping import/export; a separate
+functional mapping-approval lifecycle; optional clean-package certification;
+production loading; a target-side gateway; or hosted multi-user
+infrastructure.
 
 ## 8. Delivery roadmap
 
@@ -638,11 +644,11 @@ import/export and a distinct functional review and approval lifecycle.
 Current status: **implemented for the supported bounded scope.** Preparation
 publishes deterministic canonical rows with lineage and control totals,
 quality issues and quarantine, normalization groups and decisions, derived
-datasets, and hash-bound current pointers. The supported limits are 50,000
-physical rows for the direct path and 25,000 for derived or materialized
-paths. The 100,000-row release gate, mixed related-dataset scale proof, and
-remaining advanced project-specific coverage are maintained in the
-[remaining-work plan](plans/remaining-work.md).
+datasets, and hash-bound current pointers. The supported limits are 100,000
+physical rows for verified native-columnar direct mappings, 50,000 for direct
+Python-fallback mappings, and 25,000 for derived or materialized paths. The
+mixed related-dataset scale proof and remaining advanced project-specific
+coverage are maintained in the [remaining-work plan](plans/remaining-work.md).
 
 ### Phase 4 — Integrated preflight
 
@@ -659,7 +665,7 @@ classifies every row; persists the report; and freezes the practical execution
 snapshot. Organization-specific ACL, record-rule, company-scope, and sanitized
 live-target acceptance remain required before a higher-risk target is used.
 
-### Phase 5 — Practical local execution and higher-risk approval
+### Phase 5 — Practical controlled execution and higher-risk approval
 
 - frozen import-plan contract;
 - signatures, roles, staleness, and expiry;
@@ -668,14 +674,15 @@ live-target acceptance remain required before a higher-risk target is used.
 - idempotency, retries, and reconciliation;
 - separate security review.
 
-Current status: **the practical disposable-local path is implemented.** One
-explicit Load into Odoo action consumes the current schema-bound execution
-snapshot. The writer permits only preview-derived models and fields, exact-key
-lookups, create batches of at most 50 rows, and single-record updates. It
-journals every row, stops after an uncertain response, and performs hash-bound
-read-back reconciliation. Signed or dual approval, expiry, remote execution,
-production controls, generalized restart/resume, and customer security
-acceptance remain later higher-risk capabilities.
+Current status: **the practical disposable local and remote paths are
+implemented.** One explicit Load into Odoo action consumes the current
+schema-bound execution snapshot. The writer permits only preview-derived
+models and fields, exact-key lookups, create batches of at most 50 rows, and
+single-record updates. It journals every row, stops after an uncertain
+response, and performs hash-bound read-back reconciliation. A retained remote
+on-premises acceptance result is still pending. Signed or dual approval,
+expiry, production controls, generalized restart/resume, and customer
+security acceptance remain later higher-risk capabilities.
 
 ### Phase 6 — Production readiness
 
@@ -704,7 +711,7 @@ Confirmed:
   Odoo 19.x. The recorded initial on-premise business target is Odoo 19.4 and
   must be reconfirmed before cutover. Any Odoo 20 move requires a separate
   compatibility change and target rehearsal;
-- in the practical local path, the data manager confirms the validated mapping
+- in the practical disposable-target path, the data manager confirms the validated mapping
   and explicitly confirms the current frozen load preview. A later
   higher-risk profile may require a separate signed or dual approval;
 - the initial transformation and business-rule proposal is recorded in
@@ -716,5 +723,5 @@ Confirmed:
 The mapping workspace may make governed local changes to drafts and derived
 staging records in order to validate and correct data. This does **not** give
 the read-only preflight connector permission to change Odoo. The practical
-writer is a separate, explicitly confirmed local executor capability. A later
+writer is a separate, explicitly confirmed disposable-target capability. A later
 production profile may add approval-bound execution as defined in Stage J.

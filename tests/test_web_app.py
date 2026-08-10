@@ -2431,6 +2431,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Review the Odoo load", load_page.text)
         self.assertIn("Load into Odoo", load_page.text)
         self.assertIn("reviewed captured Odoo fields", load_page.text)
+        self.assertIn("small batches in dependency order", load_page.text)
+        self.assertIn("stop without retrying", load_page.text)
 
         class FakeWriteExecutor:
             target_hash = load_preview.snapshot.target_hash

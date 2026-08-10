@@ -24,13 +24,15 @@ Artifact materialization remains an adapter responsibility. The evaluator
 accepts already loaded physical tables and has no repository, connector,
 credential, or Odoo dependency.
 
-The bounded direct-table browser path accepts at most **50,000 physical source
-rows per project**. Projects that require derived entities or the legacy
-materializing evaluator retain the **25,000-row** limit. Impodo selects the
-limit from the actual preparation path before starting work and gives the data
-manager a plain instruction to split a larger source. The 50,000-row boundary
-is supported for the bounded direct path; it is not a claim that every derived
-evaluation is streaming.
+The bounded direct-table browser path accepts at most **100,000 physical source
+rows per project** when every mapped dataset compiles to the verified native
+columnar program and has an exact frozen source snapshot. Direct mappings that
+still require the Python oracle retain the **50,000-row** limit. Projects that
+require derived entities or the materializing evaluator retain the
+**25,000-row** limit. Impodo selects the limit from the actual mapping and
+snapshot path before starting work and gives the data manager a plain
+instruction to split a larger source. The 100,000-row boundary is not a claim
+that unsupported or derived evaluation is streaming.
 
 ## Bound inputs
 
@@ -145,13 +147,14 @@ technical details. Odoo is not contacted by the staging repository.
 
 ## Current scale evidence and quality integration
 
-On 2026-08-05, the earlier evaluator-only probe processed a synthetic
-100,000-row fixture, but it excluded the durable quality overlay and therefore
-does not define the product limit. The completed integrated probe processed
-25,000 physical rows into 25,001 canonical and quality rows in 45.392 seconds,
-with 348.0 MiB peak RSS and a 66.3 MiB project database on the development
-Windows workstation. The lower completed integrated bound wins. Wider sources
-and streaming beyond it remain later scale work.
+The earlier evaluator-only and 25,000-row integrated probes remain historical
+evidence. On 2026-08-10, the actual spawned preparation-worker path completed
+100,000-row Products first/repeat runs in 41.883/42.046 seconds at
+826.2/869.0 MiB, and BOM-shaped direct first/repeat runs in 54.958/54.249
+seconds at 854.7/807.6 MiB. The repeat ran after deletion of the registered CSV
+and preserved exact staging and normalization hashes. This evidence defines
+the native-columnar direct limit only; Python-fallback, derived, and related
+limits remain lower as stated above.
 
 Governed quality rules, physical-source accounting, and quarantine are defined
 in the [quality and quarantine contract](06-quality-and-quarantine.md). Durable

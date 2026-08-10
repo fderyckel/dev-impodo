@@ -86,6 +86,7 @@ class ExecutionPreview:
     datasets: tuple[ExecutionDatasetPreview, ...]
     current_run: ExecutionRun | None
     api_scope: OdooApiScope
+    deferred_create_count: int
     scope_error: str = ""
 
     @property
@@ -148,6 +149,7 @@ class ExecutionService:
             ),
             current_run=current,
             api_scope=api_scope,
+            deferred_create_count=_planned_deferred_create_count(snapshot),
             scope_error=_execution_snapshot_error(project, snapshot),
         )
 
@@ -952,6 +954,40 @@ def _identity_domain(
             strict=True,
         )
     )
+
+
+def _planned_deferred_create_count(snapshot: ExecutionSnapshot) -> int:
+    """Count create rows expected to need the reviewed second relation pass."""
+
+    by_source = {
+        (row.dataset, _portable_key(row.source_identity)): row
+        for row in snapshot.rows
+    }
+    available: dict[tuple[str, str], int] = {}
+    count = 0
+    for dataset in sorted(snapshot.datasets, key=lambda item: item.sequence):
+        creates = tuple(
+            row
+            for row in snapshot.rows
+            if row.dataset == dataset.dataset and row.disposition == "CREATE"
+        )
+        for start in range(0, len(creates), MAX_CREATE_BATCH_ROWS):
+            batch = creates[start : start + MAX_CREATE_BATCH_ROWS]
+            count += sum(
+                bool(
+                    ExecutionService._deferred_create_intents(
+                        row,
+                        by_source,
+                        available,
+                    )
+                )
+                for row in batch
+            )
+            for row in batch:
+                available[
+                    (row.dataset, _portable_key(row.source_identity))
+                ] = 1
+    return count
 
 
 def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:

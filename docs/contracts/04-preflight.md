@@ -27,8 +27,10 @@ strict profile or submitted browser mapping + frozen CSV/XLSX
 A strict YAML profile declares datasets, contained CSV files or explicit XLSX
 worksheets, target models, modes, identities, scopes, scalar mappings,
 relations, and optional target domains. Unknown keys, duplicate datasets,
-invalid relation origins, inconsistent key arity, and dependency cycles fail
-before processing.
+invalid relation origins, inconsistent key arity, identity or scope cycles,
+and relationship cycles required during create fail before processing.
+Cycles made only of deferrable relationship fields remain valid and are
+carried into the reviewed two-step execution plan.
 
 Dataset modes are:
 

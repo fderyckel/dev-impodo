@@ -1166,6 +1166,11 @@ class ExecutionServiceTests(unittest.TestCase):
             mode=OdooConnectionMode.REMOTE,
         )
         executor = _Executor(execution_api_scope(snapshot).semantic_hash)
+        preview = service.current_preview(snapshot.project_id)
+
+        self.assertIsNotNone(preview)
+        assert preview is not None
+        self.assertEqual(preview.deferred_create_count, 1)
 
         run = service.execute(
             snapshot.project_id,
@@ -1212,6 +1217,8 @@ class ExecutionServiceTests(unittest.TestCase):
         preview = service.current_preview(snapshot.project_id)
 
         self.assertIsNotNone(preview)
+        assert preview is not None
+        self.assertEqual(preview.deferred_create_count, 0)
         self.assertFalse(preview.can_load)
         self.assertIn("required during create", preview.scope_error)
 

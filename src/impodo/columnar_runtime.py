@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 
-POLARS_DEFAULT_MAX_THREADS = 2
+POLARS_DEFAULT_MAX_THREADS = 1
 
 
 def configure_columnar_runtime() -> None:
@@ -15,4 +15,3 @@ def configure_columnar_runtime() -> None:
         "POLARS_MAX_THREADS",
         str(POLARS_DEFAULT_MAX_THREADS),
     )
-

@@ -6,9 +6,9 @@ This guide is for a data manager who understands customers, products, product
 categories, bills of materials (BoMs), and other ERP records, but does not need
 to know how Impodo is designed internally.
 
-It follows one complete fictional project from source files to a reviewed local
-Odoo 19 load. The same pattern applies to standard and approved custom Odoo
-record types.
+It follows one complete fictional project from source files to a reviewed Odoo
+19 load. The same pattern applies to approved disposable local or remote
+targets and to standard or custom Odoo record types.
 
 ## Confidentiality and safety
 
@@ -27,8 +27,8 @@ Impodo has two different safety boundaries:
 - Source inspection, preparation, transformation review, and Odoo comparison
   are read-only. They do not change the registered files or Odoo.
 - **Load into Odoo** is a separate, explicit action. It is currently available
-  only for an approved disposable Local Odoo target, not a remote or production
-  target.
+  for an approved disposable Local or Remote Odoo 19 target. It is not a
+  production cutover action.
 
 ## The training project
 
@@ -83,7 +83,8 @@ Have these decisions ready:
 - the Local or Remote Odoo URL and database;
 - the Odoo record types included in the migration;
 - one stable business key for each record type;
-- an Odoo API key only if an approved disposable-local load will be performed.
+- an Odoo API key only if an approved disposable local or remote load will be
+  performed.
 
 Do not use Odoo's numeric database IDs as source keys. Use portable business
 values such as customer reference, internal product reference, country code,
@@ -459,10 +460,11 @@ new template was loaded. A fresh comparison is the evidence boundary.
 The two passes remain inside the same migration project. Each pass has its own
 frozen comparison and explicit load confirmation.
 
-## 10. Preview and submit the local Odoo load
+## 10. Preview and submit the Odoo load
 
-The current load action is limited to an approved disposable Local Odoo 19
-target. Remote and production loading require a separate controlled process.
+The current load action is limited to an approved disposable Local or Remote
+Odoo 19 target. Production loading requires separate change, access, backup,
+monitoring, and cutover controls.
 
 Open **Load into Odoo** only after the latest comparison is complete. Review:
 
@@ -478,22 +480,30 @@ updates or unchanged in this BoM pass, so their variants are already available
 for component resolution. Its totals illustrate the confirmation screen; they
 are not the expected totals for the expanded practice files.
 
+If reviewed relationships form a deferrable cycle, the confirmation page says
+how many new records need a second relationship step. Impodo creates those
+records first and then sets the relationships through Odoo after the related
+records exist. Identity, scope, and fields required during create cannot use
+this second step.
+
 When every total and the destination are correct:
 
 1. Enter the Odoo API key.
 2. Optionally store it in the operating-system credential vault.
 3. Select **Load into Odoo** once.
-4. Keep the page open until Impodo records the API outcome and read-back result.
+4. Keep the page open until Impodo records the API outcome.
+5. Select **Verify in Odoo**, provide the key if needed, and wait for the
+   read-back result.
 
-![Explicit local-load confirmation with the dependency-order warning, API-key field, and Load into Odoo button.](../images/impodo-local-browser-guide/12-odoo-load-confirmation.png)
+![Explicit Odoo-load confirmation with the dependency-order warning, API-key field, and Load into Odoo button.](../images/impodo-local-browser-guide/12-odoo-load-confirmation.png)
 
 Do not refresh, repeat, or start another load when the response is uncertain.
 Impodo deliberately stops without blindly retrying a lost write response.
 
 ## 11. Review the Odoo read-back result
 
-After the API accepts the writes, Impodo reads the affected records back from
-Odoo and compares them with the confirmed preview.
+After Impodo records the API outcome, select **Verify in Odoo**. Impodo then
+reads the affected records back and compares them with the confirmed preview.
 
 Review:
 
@@ -501,6 +511,11 @@ Review:
 - fallout rows and differing fields;
 - unknown outcomes;
 - rows marked safe to plan again after a fresh comparison.
+
+`Partially applied` means that the Odoo record exists but one or more deferred
+relationship updates did not finish cleanly. Do not load the same preview
+again. Verify the records, review the fallout, and prepare a fresh comparison
+only after the actual Odoo state is understood.
 
 Download the fallout CSV when any row is not verified. Correct the cause, run a
 new preparation and comparison, and approve a new preview. Do not edit stored
@@ -532,7 +547,7 @@ ambiguous matches are review findings, not opportunities to guess.
 - [ ] The transformation-impact report and export were reviewed.
 - [ ] Every prepared row passed quality and Odoo comparison checks.
 - [ ] New product variants exist before BoM component preflight.
-- [ ] The exact local database and Create/Update/No change totals were approved.
+- [ ] The exact target database and Create/Update/No change totals were approved.
 - [ ] **Load into Odoo** was selected once for the approved preview.
 - [ ] Odoo read-back and any fallout were reviewed.
 

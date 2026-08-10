@@ -46,7 +46,8 @@ datasets:
 ```
 
 Unknown keys, duplicate dataset names, invalid relations, inconsistent key
-arity, and dependency cycles are rejected.
+arity, identity or scope cycles, and relationship cycles that cannot be
+deferred are rejected.
 
 ## Dataset source and mode
 
@@ -115,7 +116,8 @@ fields:
 Useful controls include:
 
 - `required`: the source value must be present;
-- `required_on_create`: creation needs the value;
+- `required_on_create`: Odoo must receive the value in the first create
+  request, so Impodo cannot defer it;
 - `compare`: include it in change classification;
 - `validate_only`: validate without proposing a target change;
 - `normalize`: apply declared string normalization;
@@ -168,7 +170,10 @@ explicit business decision.
 
 Incoming references to another source dataset remain symbolic until the
 dependency graph is resolved. Keep every referenced dataset in the same
-profile and avoid dependency cycles.
+profile. Optional relationship fields may form a cycle: Impodo creates the
+records first and then sets those relationships through Odoo. Identity,
+scope, and `required_on_create` relationships must remain acyclic because
+Odoo needs them during the first create step.
 
 ## Target domains
 

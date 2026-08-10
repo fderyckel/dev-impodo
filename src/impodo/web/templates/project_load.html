@@ -139,7 +139,11 @@
             {{ preview.current_run.partially_applied_count }} partially applied ·
             {{ preview.current_run.unknown_count }} unknown
           </h2>
-          <p>The API receipt is durable. Verify now to check the actual Odoo records and resolve uncertain responses without retrying them.</p>
+          {% if preview.current_run.partially_applied_count %}
+            <p><strong>Do not load this preview again.</strong> These records already exist in Odoo, but one or more relationship updates did not finish cleanly. Verify them now before preparing another comparison.</p>
+          {% else %}
+            <p>The API receipt is durable. Verify now to check the actual Odoo records and resolve uncertain responses without retrying them.</p>
+          {% endif %}
         </div>
         <form method="post" action="/projects/{{ project.project_id }}/load/reconcile">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -183,7 +187,12 @@
       <div>
         <p class="eyebrow">Explicit confirmation</p>
         <h2 id="confirm-load-title">Load {{ preview.snapshot.write_count }} row{{ 's' if preview.snapshot.write_count != 1 else '' }}</h2>
-        <p>Impodo will send small batches in dependency order. It will stop without retrying if a write response is lost.</p>
+        {% if preview.deferred_create_count %}
+          <p>{{ preview.deferred_create_count }} new {{ 'records need' if preview.deferred_create_count != 1 else 'record needs' }} a second relationship step. Impodo will create the records first, then set those relationships through Odoo after the related records exist.</p>
+        {% else %}
+          <p>Impodo will send small batches in dependency order.</p>
+        {% endif %}
+        <p>Impodo will stop without retrying if a write response is lost.</p>
       </div>
       <form method="post" action="/projects/{{ project.project_id }}/load">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

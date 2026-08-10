@@ -15,9 +15,9 @@ contain the detailed endpoint-provisioning checklist.
 | Project data | Owner-protected local files and per-project DuckDB |
 | Source intake | Governed `.csv` and `.xlsx` only |
 | Odoo reads | Fixed local reads or closed remote Odoo 19 JSON-2 `fields_get` and `search_read` |
-| Odoo writes | Separate explicit Local-only JSON-2 create/update capability, bound to one reviewed preview |
+| Odoo writes | Separate explicit local or remote JSON-2 create/update capability, bound to one reviewed preview |
 | Execution evidence | Durable per-row journal plus hash-bound read-back reconciliation and fallout export |
-| Current scale | 50,000 direct physical rows; 25,000 derived or materialized physical rows |
+| Current scale | 100,000 verified native-columnar direct rows; 50,000 Python-fallback direct rows; 25,000 derived/materialized rows |
 | Hosted service | Not part of the current deployment |
 
 ## Trust boundaries
@@ -42,11 +42,11 @@ Managed workstation
 
   Separate explicit load path
         |
-        | literal-loopback Local Odoo 19 JSON-2 only
-        | preview-scoped search_read / create / write
+        | literal-loopback or outbound HTTPS Odoo 19 JSON-2
+        | preview-scoped search_read / load / create / write
         | dedicated least-privilege API key
         v
-  approved disposable Local Odoo database
+  approved disposable local or remote Odoo database
 ```
 
 Impodo has no public listener, inbound Odoo connection, application cloud
@@ -116,7 +116,7 @@ rest depends on full-disk encryption and operating-system access controls.
 
 ### Secrets
 
-- Remote read API keys and disposable-local load API keys remain in memory or
+- Remote read API keys and disposable-target load API keys remain in memory or
   the local credential vault.
 - Stored credential identifiers are bound to the project, connection mode,
   URL, and database.
@@ -141,12 +141,13 @@ Odoo-side defense in depth remains mandatory: a dedicated service user,
 explicit ACLs and record rules, permitted-company context, model/field scope,
 and governed key rotation and revocation.
 
-### Controlled local execution and reconciliation
+### Controlled disposable-target execution and reconciliation
 
 The writer is a separate adapter from every read connector. A load is allowed
 only when all of these are true:
 
-- the project target mode is Local and the captured target is Odoo 19;
+- the project target mode is Local or Remote and the captured target is Odoo
+  19;
 - the current immutable execution snapshot matches the page the operator
   reviewed and contains no blocked or ambiguous rows;
 - the writer target hash matches the exact URL and database in that snapshot;
@@ -171,19 +172,20 @@ stores a hash-bound result with a downloadable fallout CSV. Only an uncertain
 create proven absent is marked safe to plan again; updates are never declared
 retry-safe merely because read-back could not find them.
 
-This is a disposable-local migration capability, not authorization for a
-remote target, production cutover, arbitrary Odoo business actions, or direct
-database writes.
+This is a disposable-target migration capability, not authorization for a
+production cutover, arbitrary Odoo business actions, or direct database
+writes.
 
 ## Infrastructure dependency
 
 Normal use requires a managed and patched workstation, full-disk encryption,
 EDR/antimalware, host firewall, a supported browser, approved Python 3.12,
 writable local application/temp storage, and an accepted internal Impodo
-bundle. Remote reads additionally require trusted TLS, governed network/VPN
-routing, and an evidenced read-only Odoo account. A disposable-local load
-requires a separate least-privilege Odoo API key whose ACLs, record rules,
-companies, and field access cover only the reviewed rehearsal scope.
+bundle. Remote access additionally requires trusted TLS and governed
+network/VPN routing. Remote reads need an evidenced read-only Odoo account. A
+disposable local or remote load requires a separate least-privilege Odoo API
+key whose ACLs, record rules, companies, and field access cover only the
+reviewed rehearsal scope.
 
 Excel review packages are generated locally with the controlled Python
 `openpyxl` dependency already required for XLSX intake. Node.js is not an
@@ -229,10 +231,10 @@ Before using real customer data or claiming production readiness, complete:
 
 - an accepted, clean, evidence-producing internal release bundle;
 - organization-specific workstation and protected-root verification;
-- live Odoo read and local-writer ACL, record-rule, field-access,
+- live Odoo read and writer ACL, record-rule, field-access,
   company-scope, and key-lifecycle proof;
 - representative source-volume and sanitized live-target acceptance;
-- the 100,000-row Windows release gate before advertising that larger limit;
+- the 100,000-row Windows repetition before making a cross-platform claim;
 - an explicit decision on loopback HTTP and endpoint content scanning;
 - customer-approved classification, retention, backup, legal hold, deletion,
   and support-access rules;
@@ -240,9 +242,9 @@ Before using real customer data or claiming production readiness, complete:
   customer security review.
 
 These gaps do not authorize broadening the read connector or deploying the
-local writer as a production executor. The current writer is separate,
-local-only, and bound to the exact captured-schema fields in one reviewed
-preview. It is not production authorization.
+current writer as a production executor. The writer remains separate,
+disposable-target-only, and bound to the exact captured-schema fields in one
+reviewed preview. Remote capability is not production authorization.
 
 ## Evidence and references
 

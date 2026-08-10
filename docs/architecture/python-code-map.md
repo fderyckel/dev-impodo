@@ -80,8 +80,8 @@ Phase 2B describe when capabilities were built; they are not the same thing.
 | G — Resolve relationships | Implemented across mapping validation, structural preparation, exact references, reviewed duplicate resolution, and preflight lookup resolution | [`domain/mapping/validation/`](../../src/impodo/domain/mapping/validation), [`domain/structural.py`](../../src/impodo/domain/structural.py), [`application/resolution_service.py`](../../src/impodo/application/resolution_service.py), and [`engine.py`](../../src/impodo/engine.py) |
 | H — Read-only target preflight | Implemented from approved durable rows and for strict CLI profiles | [`application/preflight_service.py`](../../src/impodo/application/preflight_service.py), [`domain/preflight/frozen_input.py`](../../src/impodo/domain/preflight/frozen_input.py), [`planner.py`](../../src/impodo/planner.py), and [`engine.py`](../../src/impodo/engine.py) |
 | I — Freeze exact practical execution input | Implemented automatically after browser preflight; no extra certification or approval lifecycle | [`domain/execution_snapshot.py`](../../src/impodo/domain/execution_snapshot.py), emitted and revalidated by [`application/preflight_service.py`](../../src/impodo/application/preflight_service.py) |
-| J — Controlled Odoo execution | Implemented for schema-bound previews on a disposable local target; readers remain read-only | [`application/execution_service.py`](../../src/impodo/application/execution_service.py), [`odoo_scope.py`](../../src/impodo/odoo_scope.py), [`odoo_writer.py`](../../src/impodo/odoo_writer.py), and [`web/routers/execution.py`](../../src/impodo/web/routers/execution.py) |
-| K — Reconcile after writes | Implemented for the schema-bound disposable-local path | [`application/reconciliation_service.py`](../../src/impodo/application/reconciliation_service.py), [`odoo_readback.py`](../../src/impodo/odoo_readback.py), and [`adapters/duckdb/reconciliation_repository.py`](../../src/impodo/adapters/duckdb/reconciliation_repository.py) |
+| J — Controlled Odoo execution | Implemented for schema-bound previews on a disposable local or remote target; comparison readers remain read-only | [`application/execution_service.py`](../../src/impodo/application/execution_service.py), [`odoo_scope.py`](../../src/impodo/odoo_scope.py), [`odoo_writer.py`](../../src/impodo/odoo_writer.py), and [`web/routers/execution.py`](../../src/impodo/web/routers/execution.py) |
+| K — Reconcile after writes | Implemented for the schema-bound disposable-target path | [`application/reconciliation_service.py`](../../src/impodo/application/reconciliation_service.py), [`odoo_readback.py`](../../src/impodo/odoo_readback.py), and [`adapters/duckdb/reconciliation_repository.py`](../../src/impodo/adapters/duckdb/reconciliation_repository.py) |
 
 ## Local browser composition
 
@@ -188,11 +188,12 @@ DuckDB owns historical manifests, session bindings, and the current pointer.
 The pointer advances only after canonical publication succeeds. The adapter
 then reads the prepared values in bounded batches, constructs trusted typed
 records without generic scalar reparsing, and emits sparse issue and impact
-evidence. `columnar_runtime.py` caps the default Polars pool at two measured
-worker threads while respecting an explicit `POLARS_MAX_THREADS` override.
-Unsupported semantics still use the Python oracle for the complete dataset,
-and both routes share the same canonical publication helper and evidence
-contracts.
+evidence. `columnar_runtime.py` caps the default Polars pool at one measured
+worker thread while respecting an explicit `POLARS_MAX_THREADS` override.
+Supported direct programs require this exact snapshot path and cannot fall
+through to Python. Unsupported semantics still use the Python oracle for the
+complete dataset, and both routes share the same canonical publication helper
+and evidence contracts.
 
 The important port-to-adapter connections are:
 

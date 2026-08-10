@@ -53,7 +53,7 @@ from impodo.domain.resolution import (
     SimilarityAlgorithm,
 )
 from impodo.domain.staging.scale import (
-    BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+    COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
 )
 from impodo.domain.staging import evaluator as evaluator_module
 from impodo.inspection import (
@@ -817,91 +817,16 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             f"session={bounded.session_id}"
         )
 
-    def test_repeated_preparation_reuses_exact_prepared_snapshot(self) -> None:
-        """Prove a production retry avoids source parsing and Polars execution."""
-
-        import psutil
-
-        project_id, _source_sha256, _source_size_bytes = (
-            self._prepare_project_and_evidence(
-                row_count=PREPARATION_SCALE_ROWS,
-                column_count=PREPARATION_SCALE_COLUMNS,
-                mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
-                dirty=PREPARATION_SCALE_DIRTY,
-            )
-        )
-        first = self.context.preparation.prepare(
-            project_id,
-            actor=self.context.actor,
-        )
-        first_staging = (
-            self.context.preparation.staging.get_current_staging_summary(
-                project_id
-            )
-        )
-        self.assertIsNotNone(first_staging)
-        process = psutil.Process()
-        started = perf_counter()
-        with (
-            _PeakWorkingSetSampler(process) as memory_sampler,
-            patch(
-                "impodo.application.bounded_preparation."
-                "write_polars_prepared_snapshot",
-                side_effect=AssertionError("retry reran Polars"),
-            ),
-            patch(
-                "impodo.application.bounded_preparation."
-                "compile_browser_row_transformer",
-                side_effect=AssertionError("retry used the Python evaluator"),
-            ),
-            patch.object(
-                self.artifacts,
-                "materialize_source",
-                side_effect=AssertionError("retry reopened registered source"),
-            ),
-        ):
-            repeated = self.context.preparation.prepare(
-                project_id,
-                actor=self.context.actor,
-            )
-        elapsed = perf_counter() - started
-        repeated_staging = (
-            self.context.preparation.staging.get_current_staging_summary(
-                project_id
-            )
-        )
-        self.assertIsNotNone(repeated_staging)
-        assert first_staging is not None
-        assert repeated_staging is not None
-        self.assertEqual(repeated.content_hash, first.content_hash)
-        self.assertEqual(repeated_staging.content_hash, first_staging.content_hash)
-        self.assertEqual(
-            len(
-                self.context.preparation.sessions.current_prepared_snapshots(
-                    project_id
-                )
-            ),
-            1,
-        )
-        print(
-            "Repeated preparation probe: "
-            f"rows={PREPARATION_SCALE_ROWS:,}, total={elapsed:.3f}s, "
-            f"peak={memory_sampler.peak_bytes / (1024 * 1024):.1f} MiB, "
-            f"ending_rss={process.memory_info().rss / (1024 * 1024):.1f} MiB, "
-            f"staging_hash={repeated_staging.content_hash}, "
-            f"normalization_hash={repeated.content_hash}"
-        )
-
     def test_background_worker_releases_its_working_memory(self) -> None:
-        """Verify the production job boundary with the representative workload."""
+        """Verify fresh-process first/repeat preparation and worker reclamation."""
 
         import psutil
 
-        if PREPARATION_SCALE_ROWS > BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:
+        if PREPARATION_SCALE_ROWS > COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:
             self.skipTest(
                 "The production background probe honors the current "
-                f"{BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:,}-row "
-                "bounded-direct safety limit"
+                f"{COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:,}-row "
+                "columnar-direct safety limit"
             )
 
         project_id, _source_sha256, _source_size_bytes = (
@@ -917,47 +842,112 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         assert selection is not None
         manager = self.context.preparation_jobs
         assert manager is not None
-        job = manager.enqueue(
+
+        def run_attempt() -> tuple[float, int]:
+            job = manager.enqueue(
+                project_id,
+                project.name,
+                sum(item.row_count for item in selection.datasets),
+                actor=self.context.actor,
+            )
+            started = perf_counter()
+            peak_worker_bytes = 0
+            deadline = started + 600
+            while perf_counter() < deadline:
+                current = manager.get(project_id, job.job_id)
+                worker_pid = manager.worker_pid(job.job_id)
+                if worker_pid is not None:
+                    try:
+                        peak_worker_bytes = max(
+                            peak_worker_bytes,
+                            psutil.Process(worker_pid).memory_info().rss,
+                        )
+                    except psutil.NoSuchProcess:
+                        pass
+                if current.terminal:
+                    break
+                sleep(0.05)
+            else:
+                self.fail(
+                    "Background preparation did not finish within ten minutes"
+                )
+            self.assertEqual(
+                current.status,
+                PreparationJobStatus.SUCCEEDED,
+                msg=f"{current.failure_code}: {current.failure_message}",
+            )
+            worker_deadline = perf_counter() + 5
+            while (
+                manager.worker_alive(job.job_id)
+                and perf_counter() < worker_deadline
+            ):
+                sleep(0.01)
+            self.assertFalse(manager.worker_alive(job.job_id))
+            return perf_counter() - started, peak_worker_bytes
+
+        first_seconds, first_peak = run_attempt()
+        first_staging = (
+            self.context.preparation.staging.get_current_staging_summary(
+                project_id
+            )
+        )
+        first_normalization = (
+            self.context.preparation.normalization.current_summary(project_id)
+        )
+        prepared = (
+            self.context.preparation.sessions.current_prepared_snapshots(
+                project_id
+            )
+        )
+        self.assertEqual(len(prepared), 1)
+        prepared_path = self.root / project_id / prepared[0].parquet_storage_key
+        prepared_modified = prepared_path.stat().st_mtime_ns
+        self.artifacts.delete_source(
             project_id,
-            project.name,
-            sum(item.row_count for item in selection.datasets),
-            actor=self.context.actor,
+            project.source_files[0].stored_name,
         )
-        started = perf_counter()
-        peak_worker_bytes = 0
-        deadline = started + 600
-        while perf_counter() < deadline:
-            current = manager.get(project_id, job.job_id)
-            worker_pid = manager.worker_pid(job.job_id)
-            if worker_pid is not None:
-                try:
-                    peak_worker_bytes = max(
-                        peak_worker_bytes,
-                        psutil.Process(worker_pid).memory_info().rss,
-                    )
-                except psutil.NoSuchProcess:
-                    pass
-            if current.terminal:
-                break
-            sleep(0.05)
-        else:
-            self.fail("Background preparation did not finish within ten minutes")
+
+        repeat_seconds, repeat_peak = run_attempt()
+        repeated_staging = (
+            self.context.preparation.staging.get_current_staging_summary(
+                project_id
+            )
+        )
+        repeated_normalization = (
+            self.context.preparation.normalization.current_summary(project_id)
+        )
+        self.assertIsNotNone(first_staging)
+        self.assertIsNotNone(first_normalization)
+        self.assertIsNotNone(repeated_staging)
+        self.assertIsNotNone(repeated_normalization)
+        assert first_staging is not None
+        assert first_normalization is not None
+        assert repeated_staging is not None
+        assert repeated_normalization is not None
+        self.assertEqual(repeated_staging.content_hash, first_staging.content_hash)
         self.assertEqual(
-            current.status,
-            PreparationJobStatus.SUCCEEDED,
-            msg=f"{current.failure_code}: {current.failure_message}",
+            repeated_normalization.content_hash,
+            first_normalization.content_hash,
         )
-        worker_deadline = perf_counter() + 5
-        while manager.worker_alive(job.job_id) and perf_counter() < worker_deadline:
-            sleep(0.01)
-        self.assertFalse(manager.worker_alive(job.job_id))
+        self.assertEqual(
+            self.context.preparation.sessions.current_prepared_snapshots(
+                project_id
+            ),
+            prepared,
+        )
+        self.assertEqual(prepared_path.stat().st_mtime_ns, prepared_modified)
         print(
             "Background preparation probe: "
             f"rows={PREPARATION_SCALE_ROWS:,}, "
-            f"total={perf_counter() - started:.3f}s, "
-            f"worker_peak={peak_worker_bytes / (1024 * 1024):.1f} MiB, "
-            "worker_exited=yes"
+            f"first={first_seconds:.3f}s/{first_peak / (1024 * 1024):.1f} MiB, "
+            f"repeat={repeat_seconds:.3f}s/{repeat_peak / (1024 * 1024):.1f} MiB, "
+            "workers_exited=yes, source_reopened=no"
         )
+        if PREPARATION_SCALE_ROWS == COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:
+            self.assertLess(first_seconds, 120)
+            self.assertLess(repeat_seconds, 120)
+            self.assertLess(first_peak / (1024 * 1024), 900)
+            self.assertLess(repeat_peak / (1024 * 1024), 900)
 
     def _prepare_project_and_evidence(
         self,

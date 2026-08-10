@@ -12,22 +12,26 @@ belongs in architecture, contracts, and operations documentation.
 The order below is intentional. Finish the measured local scale boundary
 before expanding target risk. Clean-package certification, a target-side
 gateway, and hosted deployment are conditional capabilities, not prerequisites
-for an ordinary disposable-local migration.
+for an ordinary disposable-target migration.
 
 ## Current boundary
 
-Impodo currently supports the complete reviewed local Odoo 19 load and
-read-back path. Its native writer accepts any standard, extension, or custom
-model and field present in the captured schema and exact reviewed preview.
+Impodo currently supports the complete reviewed disposable local or remote
+Odoo 19 load and read-back path. Its native writer accepts any standard,
+extension, or custom model and field present in the captured schema and exact
+reviewed preview. Retained remote on-premises acceptance evidence remains
+pending until the target is available.
 
 The supported preparation limit is:
 
-- 50,000 physical rows for the bounded direct-dataset path;
+- 100,000 physical rows for exact-snapshot direct mappings compiled entirely
+  to the native columnar path;
+- 50,000 physical rows for direct mappings requiring the Python oracle;
 - 25,000 physical rows for derived or materialized paths.
 
-The next unconditional product goal is to make the complete Products, BOM,
-and mixed related-dataset workflows pass the 100,000-row release gate without
-changing evidence semantics.
+The next unconditional product goal is to extend the completed direct
+columnar boundary so complete related and mixed-dataset workflows pass the
+100,000-row release gate without changing evidence semantics.
 
 ## 1. Build the columnar preparation path and raise the scale limit
 
@@ -218,6 +222,27 @@ and the multi-run parent benchmark remain release evidence work under section
 
 **Exit:** the direct columnar path passes its 100,000-row release gate with no
 UI or evidence-contract change and no permanent backend selector.
+
+**Implemented in Slice 6.** A supported direct program now requires its exact
+source snapshot and can no longer fall through to the Python evaluator. The
+obsolete source-Parquet-to-native-batch compatibility iterator was removed;
+prepared Parquet is the sole production boundary for supported direct data.
+Unsupported direct semantics retain one explicit dataset-wide Python path and
+the preceding 50,000-row limit. Limit selection compiles the actual mapping
+and verifies complete source snapshots before granting 100,000 rows, so no
+backend selector or UI choice was introduced.
+
+The actual spawned worker passed the local 100,000-row gate for Products at
+41.883 seconds/826.2 MiB first and 42.046 seconds/869.0 MiB repeat. The
+BOM-shaped direct fixture passed at 54.958 seconds/854.7 MiB first and 54.249
+seconds/807.6 MiB repeat. Repeats ran in fresh production child processes after
+the registered CSV was deleted, preserved staging/normalization hashes, and
+did not rewrite the prepared artifact. A two-thread Polars pool missed the BOM
+memory gate at 906.7 MiB, so the measured default is now one thread with an
+explicit environment override. Cancellation/retry, manifest/pointer failure,
+batch-size parity, unsupported fallback, and mandatory-columnar routing are
+covered. Reference-Windows repetition remains cross-platform evidence; related
+and mixed-dataset 100,000-row work remains in the follow-on slices.
 
 #### Follow-on slices — Related, derived, quality, and normalization
 
@@ -453,8 +478,9 @@ The scale limit may change only after all of these pass:
 - operations, acceptance evidence, limits, and user-facing messages are
   updated in the same change.
 
-Until then, retain the 50,000-row direct and 25,000-row derived/materialized
-limits.
+Until the follow-on gates close, retain 100,000 rows only for verified native
+columnar direct mappings, 50,000 for Python-fallback direct mappings, and
+25,000 for derived/materialized paths.
 
 ## 2. Add optional clean-package certification
 
@@ -490,12 +516,21 @@ accounted for, no blocking or ambiguous condition remains, every reviewed
 exception has evidence, control totals reconcile, all applicable coverage is
 verified, privacy controls pass, and the exact package passes target rehearsal.
 
-## 3. Support remote and production Odoo loading
+## 3. Retain remote acceptance and add production Odoo loading
 
-### 3.1 Standard remote profile
+### 3.1 Remote acceptance and operational hardening
 
-- Add remote target fingerprinting, secure credential handling, TLS checks,
-  target confirmation, and backup or restore-point confirmation.
+The bounded disposable remote profile now provides target fingerprinting,
+HTTPS enforcement, credential redaction, explicit target confirmation,
+schema-bound capabilities, durable write outcomes, and read-back
+reconciliation. The remaining work is to prove it against the intended
+on-premises environment and add controls justified by that evidence.
+
+- Run the sanitized representative harness against a fresh disposable remote
+  target and retain its target fingerprint, reconciliation, repeat-preview,
+  and throughput evidence.
+- Confirm the target backup or restore point before each retained acceptance
+  run.
 - Define pause, resume, uncertain-outcome recovery, and operator guidance for
   remote failures.
 - Add adaptive bounded batches only where measurements justify them; isolate a

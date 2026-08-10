@@ -153,6 +153,10 @@ class PreparationCancellationBoundaryTests(unittest.TestCase):
                 "impodo.application.preparation_service.require_supported_browser_scale"
             ),
             patch(
+                "impodo.application.preparation_service.direct_preparation_row_limit",
+                return_value=50_000,
+            ),
+            patch(
                 "impodo.application.preparation_service.prepare_bounded_direct_session",
                 side_effect=bounded_batch,
             ),

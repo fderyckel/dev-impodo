@@ -6,8 +6,8 @@ target Odoo schema, and build a validated mapping before any migration work is
 considered.
 
 Impodo's normal preparation and comparison workflow is read-only. For a
-disposable local Odoo 19 target, it can now preview and explicitly load a
-reviewed, schema-bound set of standard or custom models and writable fields
+disposable local or remote Odoo 19 target, it can preview and explicitly load
+a reviewed, schema-bound set of standard or custom models and writable fields
 through Odoo's native API, then read the written records back and show
 actionable fallout.
 
@@ -16,14 +16,15 @@ actionable fallout.
 Impodo runs locally on Windows and macOS and opens in the default browser on a
 local-only `127.0.0.1` address. Each project has its own local DuckDB database,
 which stores project evidence, source inspection results, frozen datasets,
-Odoo schema captures, mapping revisions, validation results, and local load
+Odoo schema captures, mapping revisions, validation results, and load
 outcomes.
 
 The platform accepts `.csv` and `.xlsx` source files. It can connect to an
 authorised Odoo 19 target. A local Windows instance uses an explicitly
 selected `odoo.conf` and fixed read-only metadata operations without an Odoo
-API key. The explicit local load does require an Odoo API key. A remote
-instance requires HTTPS and a dedicated read-only API key.
+API key. A remote read connection requires HTTPS and a dedicated read-only API
+key. An explicit local or remote load requires a separately authorized API
+key.
 Impodo does not classify targets by an organisation's lifecycle stages.
 
 The browser, source inspection, and read-only Odoo connection work on both
@@ -104,8 +105,8 @@ External IDs, remote many2many creates, and exact-key scalar or relationship
 updates. Create-time cycles made only of deferrable relationships use a
 reviewed two-phase create-then-ORM-update path; identity/scope cycles and
 fields required during create remain blocked. Incremental relationship
-commands, live-target throughput tuning, and production cutover controls
-remain later delivery scope.
+commands, retained live-target throughput evidence and any measurement-led
+tuning, and production cutover controls remain later delivery scope.
 
 The opt-in [remote Odoo 19 acceptance run](docs/operations/07-remote-odoo-acceptance.md)
 is ready for a disposable on-premises database. It exercises 150 sanitized

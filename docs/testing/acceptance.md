@@ -11,13 +11,16 @@ Do not copy a fixed test count into documentation. The discovered suite is the
 current executable inventory; optional environment-gated integrations must be
 reported separately.
 
-The disposable-local practical path now has live-target acceptance: a
+The disposable-target practical path has local live-target acceptance: a
 150-record sanitized run completed with every row verified and a repeat
-preview proposed no writes. The local bounded direct-table preparation path is
-supported through 50,000 physical rows; derived/materialized preparation and
-durable preflight retain their separate 25,000-row boundaries. Broader
-Odoo-side ACL/record-rule matrices, remote targets, and representative
-production sizing remain pending for later risk profiles.
+preview proposed no writes. The same harness is ready for retained remote
+acceptance when the disposable on-premises target is available. Exact-snapshot
+direct mappings compiled entirely to the native columnar path are supported
+through 100,000 physical rows;
+direct mappings requiring the Python oracle remain at 50,000, and
+derived/materialized preparation and durable preflight retain their separate
+25,000-row boundaries. Broader Odoo-side ACL/record-rule matrices and
+representative production sizing remain pending for later risk profiles.
 
 ## Validation command
 
@@ -171,9 +174,10 @@ the original source unavailable.
   deleting historical rows;
 - readiness reports bind the exact staging run and content hash;
 - the browser uses a plain saved/retry state and collapses technical evidence;
-- bounded direct projects above 50,000 physical rows, and materialized or
-  derived projects above 25,000, block before artifact materialization with a
-  plain split-the-source instruction;
+- native-columnar direct projects above 100,000 physical rows,
+  Python-fallback direct projects above 50,000, and materialized or derived
+  projects above 25,000 block before artifact materialization with a plain
+  split-the-source instruction;
 - explicitly named expected sums use only user-selected mapped numeric fields,
   retain unit/tolerance evidence, persist atomically, and block package creation
   when they differ or contain empty values.
@@ -724,13 +728,13 @@ This is workstation evidence, not a production sizing guarantee. Wide sources,
 saved snapshots, workbooks, and Odoo transport still require representative
 measurement.
 
-The next performance target remains complete local preparation of 100,000
-physical rows in less than 120 seconds and less than 900 MiB peak working set.
-The supported limit is now 50,000 rows for bounded direct projects and 25,000
-for derived/materialized projects. The gates in the
-[remaining-work plan](../plans/remaining-work.md#1-finish-bounded-preparation-and-raise-the-scale-limit)
-must pass before either path promises 100,000 rows. Every optimization must
-append comparable evidence here rather than replacing historical results.
+The native-columnar direct path now meets the local 100,000-row target of less
+than 120 seconds and 900 MiB peak working set. Direct mappings requiring the
+Python oracle remain limited to 50,000 rows, and derived/materialized paths
+remain limited to 25,000. Cross-platform repetition and the related/mixed gates
+in the [remaining-work plan](../plans/remaining-work.md#1-build-the-columnar-preparation-path-and-raise-the-scale-limit)
+remain open. Every optimization appends comparable evidence here rather than
+replacing historical results.
 
 ### 50,000-row bounded-direct background release evidence
 
@@ -749,6 +753,32 @@ was held in memory; completed preparation evidence remained in DuckDB. The
 bounded direct limit is therefore 50,000 physical rows. Derived/materialized
 projects remain capped at 25,000 rows, and 100,000 rows remains a separate
 qualification target.
+
+### 100,000-row native-columnar production evidence
+
+On 2026-08-10 the actual spawned preparation-worker path was exercised on the
+MacBook Air M5 with 100,000 rows, 30 source columns, and 20 mapped fields. Each
+repeat used a new child process, matching production memory reclamation. Before
+the repeat, the registered CSV artifact was deleted; preparation therefore had
+to reuse the verified source and prepared Parquet evidence. Staging and
+normalization hashes were unchanged, the prepared artifact was not rewritten,
+and both workers exited.
+
+| Direct workload | Attempt | Complete preparation | Worker peak | Result |
+| --- | --- | ---: | ---: | --- |
+| Products | First | 41.883 s | 826.2 MiB | Passed |
+| Products | Repeat | 42.046 s | 869.0 MiB | Passed |
+| BOM-shaped direct table | First | 54.958 s | 854.7 MiB | Passed |
+| BOM-shaped direct table | Repeat | 54.249 s | 807.6 MiB | Passed |
+
+The BOM-shaped fixture required the measured one-thread Polars default; the
+two-thread configuration reached 906.7 MiB and was rejected. An explicit
+`POLARS_MAX_THREADS` environment value still overrides the default. The
+100,000-row limit is selected only when every dataset is direct,
+columnar-supported, and bound to an exact source snapshot. Otherwise Impodo
+retains the preceding 50,000- or 25,000-row limit. Related and mixed-dataset
+100,000-row qualification remains follow-on work, not part of this direct-path
+claim.
 
 Structural requirements already apply:
 

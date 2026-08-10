@@ -37,8 +37,9 @@ Phase 2B, Phase 2C.1, and later roadmap phases. Do not use Phase A or Phase B.
 ## Active plan
 
 - [Impodo remaining work](plans/remaining-work.md) — the single forward-looking
-  roadmap for 100,000-row preparation, optional clean-package certification,
-  remote/production loading, and conditional gateway or hosted work.
+  roadmap for related/mixed 100,000-row preparation, optional clean-package
+  certification, retained remote acceptance, production loading, and
+  conditional gateway or hosted work.
 
 ## Contracts
 
@@ -67,10 +68,11 @@ The numbered contracts form the recommended conceptual reading order.
 
 The numbered runbooks are grouped by reader journey. Browser users start with
 01 and use 02 for a local target; expert CLI users read 03 then 04; IT and
-release teams use 05 and 06.
+release teams use 05 and 06. Use 07 only for an explicitly disposable remote
+acceptance target.
 
 - [Local-browser user guide](operations/01-local-browser-user-guide.md) — concise
-  walkthrough of the current read-only browser workflow and its limits.
+  walkthrough of the current browser workflow, explicit load, and its limits.
 - [Local Odoo runbook](operations/02-local-odoo.md) — local target readiness,
   ownership-aware start and stop behavior, and troubleshooting.
 - [Profile authoring](operations/03-profile-authoring.md) — strict YAML datasets,
@@ -82,6 +84,9 @@ release teams use 05 and 06.
 - [Internal development and release runbook](operations/06-internal-release.md) —
   development setup, authoritative dependency locking, promotion, evidence,
   and installation of an accepted internal bundle.
+- [Remote Odoo 19 acceptance](operations/07-remote-odoo-acceptance.md) —
+  opt-in sanitized remote load, read-back, repeat-preview, and throughput
+  evidence against a disposable on-premises database.
 - [Derived-entity authoring](derived-entity-authoring.md) — the implemented
   browser slice for related-entity datasets extracted from denormalized source
   fields, plus its execution boundary.

@@ -180,7 +180,8 @@ revision, validation result, submission, or Odoo request.
 The pure semantic validator checks hashes, permitted models/fields, governed
 identity and scope, type compatibility, readonly/required fields, relation
 shape and key arity, provider/transform/value-rule policies, formula and custom
-pattern bounds, dependencies, and cycles.
+pattern bounds, dependencies, and required-at-create cycles. Deferrable
+relationship cycles remain valid for reviewed two-step execution.
 It emits deterministic issues, coverage, deferred checks, and a validation
 hash.
 
