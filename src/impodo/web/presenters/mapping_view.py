@@ -44,7 +44,11 @@ from .mapping_forms import (
     _resolver_business_key,
     _standard_reference_business_key,
 )
-from .mapping_impact import _mapping_field_page_size, _mapping_return_url
+from .mapping_impact import (
+    _mapping_field_page_size,
+    _mapping_return_url,
+    _transformation_impact_identity,
+)
 
 
 def _render_mapping(
@@ -272,6 +276,42 @@ def _render_mapping(
         for item in (validation.issues if validation else ())
         if item.severity == "warning"
     )
+    find_replace_configured = bool(
+        revision is not None
+        and any(
+            field.transform.search_value
+            for dataset in revision.definition.datasets
+            for field in dataset.fields
+        )
+    )
+    rule_impact_snapshot = None
+    if (
+        find_replace_configured
+        and revision is not None
+        and not has_unvalidated_changes
+        and selection is not None
+    ):
+        physical_selection = context.queries.get_source_selection(project_id)
+        if physical_selection is not None:
+            identity = _transformation_impact_identity(
+                revision,
+                physical_selection,
+                selection,
+                preparation_plan,
+            )
+            rule_impact_snapshot = (
+                context.queries.get_transformation_impact_snapshot(
+                    project_id,
+                    identity,
+                )
+            )
+    rule_review_ready = bool(
+        not find_replace_configured
+        or (
+            rule_impact_snapshot is not None
+            and not rule_impact_snapshot.unacknowledged_rule_impacts
+        )
+    )
     quality_view = None
     if (
         revision is not None
@@ -305,6 +345,9 @@ def _render_mapping(
         has_unvalidated_changes=has_unvalidated_changes,
         dataset_views=dataset_views,
         warning_issues=warning_issues,
+        find_replace_configured=find_replace_configured,
+        rule_impact_snapshot=rule_impact_snapshot,
+        rule_review_ready=rule_review_ready,
         quality_view=quality_view,
         error=error,
         status_code=status_code,

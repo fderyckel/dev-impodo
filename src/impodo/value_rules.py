@@ -21,7 +21,7 @@ from decimal import (
 from functools import lru_cache
 import operator
 import re
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 
 MAX_PATTERN_LENGTH = 500
@@ -251,6 +251,7 @@ def prepare_rule_text(
     policy: ScalarTransformPolicy,
     *,
     formula_context: Mapping[str, Any] | None = None,
+    find_replace_observer: Callable[[bool, bool], None] | None = None,
 ) -> str | None:
     """Apply formula, normalization, replacement, and casing to raw input."""
 
@@ -281,7 +282,18 @@ def prepare_rule_text(
                 "SOURCE_PATTERN_INPUT_TOO_LONG",
                 "The value is too long for an advanced find pattern",
             )
+        before_replacement = rendered
         rendered = _replace_text(rendered, policy)
+        if find_replace_observer is not None and before_replacement != "":
+            matched = (
+                policy.search_value in before_replacement
+                if policy.search_mode == "literal"
+                else validate_pattern(policy.search_value).search(
+                    before_replacement
+                )
+                is not None
+            )
+            find_replace_observer(matched, rendered != before_replacement)
     if policy.case_mode == "uppercase":
         rendered = rendered.upper()
     elif policy.case_mode == "lowercase":

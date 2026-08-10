@@ -48,6 +48,7 @@ from ..domain.staging.scale import (
 from ..domain.staging.transformation_impact import (
     TransformationImpactRow,
     _TransformationImpactCollector,
+    transformation_rule_impact_definition,
 )
 from ..inspection import SourceFileCatalog
 from ..models import Issue, PreparedRecord, canonical_json_bytes
@@ -284,6 +285,14 @@ def prepare_bounded_direct_session(
         detail_limit=0,
         sink=impact_sink.add,
     )
+    for dataset_mapping in definition.datasets:
+        for field in dataset_mapping.fields:
+            rule = transformation_rule_impact_definition(
+                dataset_mapping.dataset_id,
+                field,
+            )
+            if rule is not None:
+                impact_collector.register_rule(rule)
     reference_indexes = compile_reference_indexes(reference_bundle)
     totals = CompiledControlTotalAccumulator.compile(
         definition,
@@ -366,6 +375,7 @@ def prepare_bounded_direct_session(
                             impact_collector.record_precomputed(
                                 native_batch.impact_counts,
                                 native_batch.impacts,
+                                native_batch.rule_impacts,
                             )
                             for batch_index, (record, source_row) in enumerate(
                                 zip(

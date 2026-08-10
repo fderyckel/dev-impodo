@@ -81,6 +81,7 @@ from .transformation_impact import (
     _TransformationImpactCollector,
     _display_value,
     _display_values_equal,
+    transformation_rule_impact_definition,
 )
 
 
@@ -129,6 +130,7 @@ class _ScalarFieldPlan:
 
 @dataclass(frozen=True, slots=True)
 class _DatasetEvaluationPlan:
+    dataset_id: str
     dataset_name: str
     ordinal_columns: tuple[tuple[int, str], ...]
     identities: tuple[_IdentityImpactPlan, ...]
@@ -332,6 +334,15 @@ def evaluate_browser_mapping(
         if collect_transformation_impact
         else None
     )
+    if impact_collector is not None:
+        for dataset_mapping in definition.datasets:
+            for field in dataset_mapping.fields:
+                rule = transformation_rule_impact_definition(
+                    dataset_mapping.dataset_id,
+                    field,
+                )
+                if rule is not None:
+                    impact_collector.register_rule(rule)
     lookup_by_consumer: dict[
         str,
         list[tuple[DerivedEntityRule, DerivedDatasetLink]],
@@ -629,6 +640,7 @@ def _compile_dataset_evaluation_plan(
         if field.value_source is not ScalarValueSource.ODOO_DEFAULT
     )
     return _DatasetEvaluationPlan(
+        dataset_id=mapping.dataset_id,
         dataset_name=effective.name,
         ordinal_columns=tuple(
             (column.ordinal, column.stable_key) for column in effective.columns
@@ -1005,10 +1017,27 @@ def _apply_scalar_mappings(
                     values,
                     reference_indexes or {},
                 )
+            rule = transformation_rule_impact_definition(
+                plan.dataset_id,
+                field,
+            )
             proposed = evaluate_scalar_mapping_value(
                 field,
                 scalar_input,
                 source_values_by_ordinal=source_values_by_ordinal,
+                find_replace_observer=(
+                    (
+                        lambda matched, changed, configured=rule: (
+                            impact_collector.record_rule(
+                                configured,
+                                matched=matched,
+                                changed=changed,
+                            )
+                        )
+                    )
+                    if impact_collector is not None and rule is not None
+                    else None
+                ),
             )
             values[synthetic_field(field_plan.index)] = proposed
             if impact_collector is not None:

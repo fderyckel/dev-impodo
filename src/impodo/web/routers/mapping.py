@@ -55,6 +55,7 @@ from ..presenters.mapping_impact import (
     _transformation_impact_identity,
     _transformation_impact_labels,
     _transformation_impact_url,
+    _transformation_rule_impact_views,
 )
 from ..presenters.mapping_view import _render_mapping, _safe_spreadsheet_text
 from ..target_readers import _relationship_value_choices, _source_value_choices
@@ -299,6 +300,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             revision=revision,
             snapshot=snapshot,
             report=snapshot.report if snapshot is not None else None,
+            rule_impact_views=_transformation_rule_impact_views(
+                request,
+                project_id,
+                snapshot,
+                revision,
+                effective_selection,
+                field_labels,
+            ),
             rows=rows,
             datasets=datasets,
             field_labels=field_labels,
@@ -358,6 +367,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 revision=revision,
                 snapshot=None,
                 report=None,
+                rule_impact_views=(),
                 rows=(),
                 datasets=datasets,
                 field_labels=field_labels,
@@ -665,6 +675,33 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             )
         return RedirectResponse(
             mapping_return_url,
+            status_code=303,
+        )
+
+    @router.post(
+        "/projects/{project_id}/mapping/transformation-impact/acknowledge"
+    )
+    async def acknowledge_transformation_rule(
+        request: Request,
+        project_id: str,
+    ):
+        """Acknowledge one zero-match rule for the exact impact snapshot."""
+
+        require_session(request)
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "rule_fingerprint"})
+        try:
+            await run_in_threadpool(
+                context.transformation_impacts.acknowledge_rule,
+                project_id,
+                _text(form, "rule_fingerprint"),
+                actor=context.actor,
+            )
+        except WorkspaceError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        _flash(request, "The unchanged rule was reviewed.")
+        return RedirectResponse(
+            f"/projects/{project_id}/mapping/transformation-impact",
             status_code=303,
         )
 

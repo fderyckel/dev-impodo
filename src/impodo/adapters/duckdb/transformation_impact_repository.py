@@ -24,6 +24,8 @@ from ...domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
     TransformationImpactSnapshot,
+    TransformationRuleImpact,
+    TransformationRuleReview,
 )
 from ...workspace_errors import WorkspaceError
 from .repository import DuckDbRepository
@@ -78,7 +80,18 @@ class TransformationImpactRepository(DuckDbRepository):
             or str(row[0]) != stored_identity.content_hash
         ):
             return None
-        return self._transformation_impact_snapshot(stored_identity, row)
+        with self._connect(database_path) as connection:
+            rule_impacts = self._rule_impacts(connection)
+            acknowledgements = self._rule_acknowledgements(
+                connection,
+                stored_identity.content_hash,
+            )
+        return self._transformation_impact_snapshot(
+            stored_identity,
+            row,
+            rule_impacts=rule_impacts,
+            acknowledgements=acknowledgements,
+        )
     def replace_transformation_impact_snapshot(
         self,
         project_id: str,
@@ -143,6 +156,7 @@ class TransformationImpactRepository(DuckDbRepository):
 
                 try:
                     connection.execute("DELETE FROM transformation_impact_row")
+                    connection.execute("DELETE FROM transformation_rule_impact")
                     connection.execute("DELETE FROM transformation_impact_run")
                     report = build(write_row)
                     flush()
@@ -153,6 +167,28 @@ class TransformationImpactRepository(DuckDbRepository):
                     if ordinal != report.impact_count:
                         raise WorkspaceError(
                             "Transformation impact rows were not stored completely"
+                        )
+                    if report.rule_impacts:
+                        connection.executemany(
+                            """
+                            INSERT INTO transformation_rule_impact (
+                                rule_fingerprint, dataset_id, target_field,
+                                rule_kind, evaluated_value_count,
+                                matched_value_count, changed_value_count
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            [
+                                [
+                                    item.rule_fingerprint,
+                                    item.dataset_id,
+                                    item.target_field,
+                                    item.rule_kind,
+                                    item.evaluated_value_count,
+                                    item.matched_value_count,
+                                    item.changed_value_count,
+                                ]
+                                for item in report.rule_impacts
+                            ],
                         )
                     affected = connection.execute(
                         """
@@ -208,6 +244,104 @@ class TransformationImpactRepository(DuckDbRepository):
                 created_by=actor.identity.display_name,
                 affected_row_count=affected_row_count,
                 report=report,
+                acknowledged_rule_fingerprints=(),
+            )
+
+    def acknowledge_transformation_rule(
+        self,
+        project_id: str,
+        identity: TransformationImpactIdentity,
+        rule_fingerprint: str,
+        *,
+        actor: Actor,
+    ) -> None:
+        """Acknowledge one zero-match rule for the exact current snapshot."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            run = connection.execute(
+                """
+                SELECT identity_hash
+                  FROM transformation_impact_run
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()
+            rule = connection.execute(
+                """
+                SELECT matched_value_count
+                  FROM transformation_rule_impact
+                 WHERE rule_fingerprint = ?
+                """,
+                [rule_fingerprint],
+            ).fetchone()
+            if (
+                run is None
+                or str(run[0]) != identity.content_hash
+                or rule is None
+            ):
+                raise WorkspaceError("Prepare the current rule effects first")
+            if int(rule[0]) != 0:
+                raise WorkspaceError("Only a rule with no matches needs review")
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO transformation_rule_acknowledgement (
+                    identity_hash, rule_fingerprint,
+                    acknowledged_at, acknowledged_by
+                ) VALUES (?, ?, ?, ?)
+                """,
+                [
+                    identity.content_hash,
+                    rule_fingerprint,
+                    datetime.now(timezone.utc).isoformat(),
+                    actor.identity.display_name,
+                ],
+            )
+
+    def get_transformation_rule_review(
+        self,
+        project_id: str,
+        *,
+        mapping_content_hash: str,
+        source_selection_hash: str,
+        schema_hash: str,
+    ) -> TransformationRuleReview | None:
+        """Return review evidence only for the exact current mapping inputs."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._migrate_project_database(connection)
+            run = connection.execute(
+                """
+                SELECT identity_hash, mapping_content_hash,
+                       source_selection_hash, schema_hash
+                  FROM transformation_impact_run
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()
+            if run is None or (
+                str(run[1]), str(run[2]), str(run[3])
+            ) != (
+                mapping_content_hash,
+                source_selection_hash,
+                schema_hash,
+            ):
+                return None
+            identity_hash = str(run[0])
+            return TransformationRuleReview(
+                identity_hash=identity_hash,
+                mapping_content_hash=str(run[1]),
+                source_selection_hash=str(run[2]),
+                schema_hash=str(run[3]),
+                rule_impacts=self._rule_impacts(connection),
+                acknowledged_rule_fingerprints=self._rule_acknowledgements(
+                    connection,
+                    identity_hash,
+                ),
             )
     def get_transformation_impact_page(
         self,
@@ -404,6 +538,9 @@ class TransformationImpactRepository(DuckDbRepository):
     def _transformation_impact_snapshot(
         identity: TransformationImpactIdentity,
         row: Sequence[object],
+        *,
+        rule_impacts: tuple[TransformationRuleImpact, ...] = (),
+        acknowledgements: tuple[str, ...] = (),
     ) -> TransformationImpactSnapshot:
         return TransformationImpactSnapshot(
             identity=identity,
@@ -420,6 +557,49 @@ class TransformationImpactRepository(DuckDbRepository):
                 provided_count=int(row[16]),
                 unchanged_count=int(row[17]),
                 rows=(),
+                rule_impacts=rule_impacts,
                 detail_limit=0,
             ),
+            acknowledged_rule_fingerprints=acknowledgements,
+        )
+
+    @staticmethod
+    def _rule_impacts(connection) -> tuple[TransformationRuleImpact, ...]:
+        return tuple(
+            TransformationRuleImpact(
+                rule_fingerprint=str(row[0]),
+                dataset_id=str(row[1]),
+                target_field=str(row[2]),
+                rule_kind=str(row[3]),
+                evaluated_value_count=int(row[4]),
+                matched_value_count=int(row[5]),
+                changed_value_count=int(row[6]),
+            )
+            for row in connection.execute(
+                """
+                SELECT rule_fingerprint, dataset_id, target_field, rule_kind,
+                       evaluated_value_count, matched_value_count,
+                       changed_value_count
+                  FROM transformation_rule_impact
+                 ORDER BY dataset_id, target_field, rule_fingerprint
+                """
+            ).fetchall()
+        )
+
+    @staticmethod
+    def _rule_acknowledgements(
+        connection,
+        identity_hash: str,
+    ) -> tuple[str, ...]:
+        return tuple(
+            str(row[0])
+            for row in connection.execute(
+                """
+                SELECT rule_fingerprint
+                  FROM transformation_rule_acknowledgement
+                 WHERE identity_hash = ?
+                 ORDER BY rule_fingerprint
+                """,
+                [identity_hash],
+            ).fetchall()
         )

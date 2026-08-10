@@ -80,6 +80,15 @@ class PolarsTransformationParityTests(unittest.TestCase):
             self.selection,
             self.rows,
         )
+        self.assertEqual(len(expected_report.rule_impacts), 1)
+        self.assertEqual(
+            (
+                expected_report.rule_impacts[0].evaluated_value_count,
+                expected_report.rule_impacts[0].matched_value_count,
+                expected_report.rule_impacts[0].changed_value_count,
+            ),
+            (4, 3, 3),
+        )
         decision = compile_columnar_transformation_program(
             self.definition,
             self.selection,
@@ -114,6 +123,7 @@ class PolarsTransformationParityTests(unittest.TestCase):
                     collector.record_precomputed(
                         batch.impact_counts,
                         batch.impacts,
+                        batch.rule_impacts,
                     )
 
                 self.assertEqual(tuple(records), expected_records)

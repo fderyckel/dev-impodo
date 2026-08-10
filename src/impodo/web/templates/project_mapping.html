@@ -486,6 +486,7 @@
                                 Replace every match
                               </label>
                             </div>
+                            <p class="muted rule-literal-warning" data-rule-literal-warning role="status" hidden></p>
 
                             <h4>Check the final text</h4>
                             <div class="rule-inline-fields">
@@ -939,9 +940,23 @@
           {% endif %}
           {% if validation.status.value != 'INVALID' and revision and not has_unvalidated_changes %}
             <div class="actions">
-              <a class="button secondary" href="/projects/{{ project.project_id }}/mapping/transformation-impact">Preview rule effects</a>
+              <a class="button secondary" href="/projects/{{ project.project_id }}/mapping/transformation-impact">Review rule effects</a>
             </div>
             <p class="muted">Shows how the confirmed rules prepare every source row. This does not contact or change Odoo.</p>
+          {% endif %}
+          {% if find_replace_configured and not rule_review_ready %}
+            <div class="notice warning">
+              {% if rule_impact_snapshot %}
+                <strong>One or more find rules matched no values.</strong>
+                Review the full-row result and either fix or explicitly keep each unchanged rule before confirming.
+              {% else %}
+                <strong>Review what the find rules did before confirming.</strong>
+                Impodo must evaluate the current saved mapping against every source row first.
+              {% endif %}
+              <div class="actions">
+                <a class="button primary" href="/projects/{{ project.project_id }}/mapping/transformation-impact">Review rule effects</a>
+              </div>
+            </div>
           {% endif %}
           {% for item in warning_issues %}
             <label class="acknowledgement">
@@ -985,7 +1000,7 @@
         <button class="button secondary" name="action" value="draft" type="submit">Check matches</button>
         {% if submission %}
           <a class="button primary" href="/projects/{{ project.project_id }}/prepare">Prepare data</a>
-        {% elif schema.origin.value != 'LOCAL_MANUAL' and revision and validation and validation.status.value != 'INVALID' and not has_unvalidated_changes %}
+        {% elif schema.origin.value != 'LOCAL_MANUAL' and revision and validation and validation.status.value != 'INVALID' and not has_unvalidated_changes and rule_review_ready %}
           <button class="button primary" name="action" value="submit" type="submit" data-confirm-mapping>Confirm field matches</button>
         {% endif %}
       </div>

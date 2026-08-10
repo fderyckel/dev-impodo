@@ -484,6 +484,24 @@ class ProjectMigrationsMixin:
                     dataset, outcome, target_field, ordinal
                 );
 
+            CREATE TABLE transformation_rule_impact (
+                rule_fingerprint VARCHAR PRIMARY KEY,
+                dataset_id VARCHAR NOT NULL,
+                target_field VARCHAR NOT NULL,
+                rule_kind VARCHAR NOT NULL,
+                evaluated_value_count BIGINT NOT NULL,
+                matched_value_count BIGINT NOT NULL,
+                changed_value_count BIGINT NOT NULL
+            );
+
+            CREATE TABLE transformation_rule_acknowledgement (
+                identity_hash VARCHAR NOT NULL,
+                rule_fingerprint VARCHAR NOT NULL,
+                acknowledged_at VARCHAR NOT NULL,
+                acknowledged_by VARCHAR NOT NULL,
+                PRIMARY KEY (identity_hash, rule_fingerprint)
+            );
+
             CREATE TABLE readiness_run (
                 run_id VARCHAR PRIMARY KEY,
                 mapping_id VARCHAR NOT NULL,
@@ -1236,6 +1254,32 @@ class ProjectMigrationsMixin:
                 if version == 28:
                     create_prepared_snapshot_schema(connection)
                     version = 29
+                if version == 29:
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS transformation_rule_impact (
+                            rule_fingerprint VARCHAR PRIMARY KEY,
+                            dataset_id VARCHAR NOT NULL,
+                            target_field VARCHAR NOT NULL,
+                            rule_kind VARCHAR NOT NULL,
+                            evaluated_value_count BIGINT NOT NULL,
+                            matched_value_count BIGINT NOT NULL,
+                            changed_value_count BIGINT NOT NULL
+                        )
+                        """
+                    )
+                    connection.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS transformation_rule_acknowledgement (
+                            identity_hash VARCHAR NOT NULL,
+                            rule_fingerprint VARCHAR NOT NULL,
+                            acknowledged_at VARCHAR NOT NULL,
+                            acknowledged_by VARCHAR NOT NULL,
+                            PRIMARY KEY (identity_hash, rule_fingerprint)
+                        )
+                        """
+                    )
+                    version = 30
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

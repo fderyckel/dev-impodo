@@ -1798,6 +1798,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Must be exactly", mapping_page.text)
         self.assertIn("The first characters", mapping_page.text)
         self.assertIn("Plain text (recommended)", mapping_page.text)
+        self.assertIn("data-rule-literal-warning", mapping_page.text)
         self.assertIn("Advanced: custom pattern", mapping_page.text)
         self.assertIn("Advanced: formula or custom calculation", mapping_page.text)
         self.assertIn("Safe formulas only", mapping_page.text)
@@ -1831,6 +1832,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("window.history.replaceState", mapping_script.text)
         self.assertIn("restoreScalarRow(row)", mapping_script.text)
         self.assertIn("restoreRelationRow(row)", mapping_script.text)
+        self.assertIn(
+            "^ is treated as ordinary text in Plain text mode.",
+            mapping_script.text,
+        )
         self.assertIn("scheduleRelationCatalogSearch", mapping_script.text)
         self.assertIn("relationDraftRows", mapping_script.text)
         self.assertNotIn("pendingRedirect", mapping_script.text)
@@ -2034,6 +2039,32 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(checked_revision.version, 1)
 
+        premature_submit = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            data={
+                **mapping_data,
+                "action": "submit",
+                "expected_parent_version": "1",
+                "expected_working_draft_version": "2",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(premature_submit.status_code, 303)
+        premature_page = self.client.get(premature_submit.headers["location"])
+        self.assertIn(
+            "Preview the current rule effects before confirming field matches",
+            premature_page.text,
+        )
+
+        rule_preview = self.client.post(
+            f"/projects/{project_id}/mapping/transformation-impact/prepare",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(rule_preview.status_code, 303)
+
         submitted = self.client.post(
             f"/projects/{project_id}/mapping/save",
             data={
@@ -2099,14 +2130,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         impact_link = (
             f"/projects/{project_id}/mapping/transformation-impact"
         )
-        self.assertIn("Preview rule effects", submitted_page.text)
+        self.assertIn("Review rule effects", submitted_page.text)
         impact_page = self.client.get(impact_link)
         self.assertEqual(impact_page.status_code, 200)
-        self.assertIn("Preview rule effects", impact_page.text)
-        self.assertIn("Stage 3 of 6 · Optional preview", impact_page.text)
+        self.assertIn("Review rule effects", impact_page.text)
+        self.assertIn("Stage 3 of 6 · Rule review", impact_page.text)
         self.assertIn('aria-current="step"', impact_page.text)
         self.assertIn('aria-current="page"', impact_page.text)
-        self.assertIn("Prepare the comparison", impact_page.text)
+        self.assertIn("What each find rule did", impact_page.text)
         self.assertIn("your confirmed preparation choices", impact_page.text)
         self.assertNotIn("data-impact-row", impact_page.text)
         prepared = self.client.post(

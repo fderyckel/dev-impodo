@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
+import re
 from typing import Iterator
 
 from ..columnar_runtime import configure_columnar_runtime
@@ -42,6 +43,7 @@ from ..domain.source_snapshot import (
 from ..domain.staging.transformation_impact import (
     TransformationImpactCounts,
     TransformationImpactRow,
+    TransformationRuleImpact,
     _display_value,
 )
 from ..models import Issue, PreparedRecord, canonical_json_bytes, portable_value
@@ -66,6 +68,7 @@ class ColumnarTransformationBatch:
     records: tuple[PreparedRecord, ...]
     impacts: tuple[TransformationImpactRow, ...]
     impact_counts: TransformationImpactCounts
+    rule_impacts: tuple[TransformationRuleImpact, ...]
     source_rows: tuple[int, ...]
 
 
@@ -896,6 +899,11 @@ def _adapt_frame(
         "provided": 0,
         "unchanged": 0,
     }
+    rule_impacts = {
+        rule.rule_fingerprint: rule
+        for scalar in layout.scalars
+        if (rule := _columnar_rule_definition(program, scalar.field)) is not None
+    }
     source_rows: list[int] = []
     scalar_by_index = {index: item for index, item in enumerate(layout.scalars)}
     identity_by_kind = {
@@ -983,6 +991,23 @@ def _adapt_frame(
         impacts.extend(identity_impacts)
         counts["changed"] += len(identity_impacts)
         for index, scalar_layout in scalar_by_index.items():
+            rule_result = _columnar_rule_result(
+                program,
+                scalar_layout.field,
+                raw_by_ordinal,
+            )
+            if rule_result is not None:
+                rule, matched, changed = rule_result
+                current = rule_impacts[rule.rule_fingerprint]
+                rule_impacts[rule.rule_fingerprint] = TransformationRuleImpact(
+                    dataset_id=current.dataset_id,
+                    target_field=current.target_field,
+                    rule_kind=current.rule_kind,
+                    rule_fingerprint=current.rule_fingerprint,
+                    evaluated_value_count=current.evaluated_value_count + 1,
+                    matched_value_count=current.matched_value_count + int(matched),
+                    changed_value_count=current.changed_value_count + int(changed),
+                )
             impact, outcome = _scalar_impact(
                 row,
                 indexes,
@@ -1009,8 +1034,133 @@ def _adapt_frame(
             provided_count=counts["provided"],
             unchanged_count=counts["unchanged"],
         ),
+        rule_impacts=tuple(
+            rule_impacts[key] for key in sorted(rule_impacts)
+        ),
         source_rows=tuple(source_rows),
     )
+
+
+def _columnar_rule_definition(
+    program: ColumnarTransformationProgram,
+    field: ColumnarScalarFieldProgram,
+) -> TransformationRuleImpact | None:
+    step = next(
+        (
+            item
+            for item in field.transform_steps
+            if item.operation is ColumnarOperationKind.REPLACE_LITERAL
+        ),
+        None,
+    )
+    if step is None:
+        return None
+    assert step.text is not None and step.replacement is not None
+    rule_kind = "find_replace_literal"
+    fingerprint = content_hash(
+        {
+            "dataset_id": program.dataset_id,
+            "target_field": field.target_field,
+            "rule_kind": rule_kind,
+            "search_value": step.text,
+            "replacement_value": step.replacement,
+            "replace_all": bool(step.flag),
+        }
+    )
+    return TransformationRuleImpact(
+        dataset_id=program.dataset_id,
+        target_field=field.target_field,
+        rule_kind=rule_kind,
+        rule_fingerprint=fingerprint,
+    )
+
+
+def _columnar_rule_result(
+    program: ColumnarTransformationProgram,
+    field: ColumnarScalarFieldProgram,
+    raw_by_ordinal: dict[int, tuple[object, int]],
+) -> tuple[TransformationRuleImpact, bool, bool] | None:
+    """Reconcile the native literal rule within the already-read row batch."""
+
+    step = next(
+        (
+            item
+            for item in field.transform_steps
+            if item.operation is ColumnarOperationKind.REPLACE_LITERAL
+        ),
+        None,
+    )
+    if step is None:
+        return None
+    provider = field.provider
+    raw = (
+        _source_python(*raw_by_ordinal[provider.source.ordinal])
+        if provider.source is not None
+        else None
+    )
+    source_choice = str(raw).strip() if raw is not None else None
+    if any(source_choice == source for source, _target in provider.value_mappings):
+        return None
+    if provider.operation is ColumnarOperationKind.USE_CONSTANT:
+        selected = provider.literal_value
+    elif provider.operation is ColumnarOperationKind.SOURCE_FALLBACK:
+        selected = _apply_native_text_steps(raw, provider.fallback_probe_steps)
+        if selected is None:
+            selected = provider.literal_value
+    else:
+        selected = raw
+    before = _apply_native_text_steps(
+        selected,
+        field.transform_steps,
+        stop_before_replace=True,
+    )
+    if before is None or before == "":
+        return None
+    assert step.text is not None and step.replacement is not None
+    matched = step.text in before
+    after = before.replace(
+        step.text,
+        step.replacement,
+        -1 if step.flag else 1,
+    )
+    rule = _columnar_rule_definition(program, field)
+    assert rule is not None
+    return rule, matched, after != before
+
+
+def _apply_native_text_steps(
+    value: object,
+    steps: tuple[ColumnarExpressionStep, ...],
+    *,
+    stop_before_replace: bool = False,
+) -> str | None:
+    result = None if value is None else str(value)
+    for step in steps:
+        if result is None:
+            return None
+        operation = step.operation
+        if operation is ColumnarOperationKind.REPLACE_LITERAL and stop_before_replace:
+            return result
+        if operation is ColumnarOperationKind.RENDER_TEXT:
+            continue
+        if operation is ColumnarOperationKind.TRIM:
+            result = result.strip()
+        elif operation is ColumnarOperationKind.COLLAPSE_WHITESPACE:
+            result = re.sub(r"\s+", " ", result)
+        elif operation is ColumnarOperationKind.CASE_UPPER:
+            result = result.upper()
+        elif operation is ColumnarOperationKind.CASE_LOWER:
+            result = result.lower()
+        elif operation is ColumnarOperationKind.EMPTY_AS_NULL and result == "":
+            return None
+    return result
+
+
+def _source_python(text: object, kind_value: int) -> object:
+    return EncodedSourceCell(
+        kind=SourceCellKind(kind_value),
+        text=str(text) if text is not None else None,
+    ).to_python()
 
 
 def _flatten_identity(

@@ -242,7 +242,8 @@ general-purpose transformation language:
 - scoped source-key uniqueness, mandatory-field completeness, and duplicate
   handling;
 - parent/child and many2one/many2many reference integrity, dependency order,
-  and cycle detection;
+  required-at-create cycle rejection, and explicit deferral of safe
+  create-time relationship cycles;
 - source-to-staging row-count reconciliation and a declared exception list;
 - project-selected cross-row controls such as date-order checks, balance or
   total reconciliation, and one-active-record-per-scoped-key rules.
@@ -260,6 +261,7 @@ stores:
 ```text
 MigrationProject
 ├── immutable source files and hashes
+├── immutable source and prepared Parquet snapshots
 ├── source schema and profile statistics
 ├── Odoo schema snapshot
 ├── approved mapping version
@@ -279,9 +281,14 @@ The storage implementation sits behind application-owned repositories and a
 staging port:
 
 - the current local implementation uses one protected DuckDB database per
-  project;
-- Parquet may be added later as a controlled interchange or analytical
-  projection, but it is not the current staging authority;
+  project for manifests, current pointers, canonical rows, quality evidence,
+  normalization decisions, and lifecycle history;
+- source freezing publishes a lossless, immutable Parquet snapshot, and the
+  verified native-columnar path publishes a mapping-bound immutable prepared
+  Parquet snapshot for bulk values;
+- DuckDB remains the control and evidence authority: it owns each snapshot
+  manifest and advances the prepared-snapshot pointer only after canonical
+  publication succeeds;
 - PostgreSQL is preferable when several users, permissions, concurrent runs,
   and a hosted mapping UI are required.
 
@@ -315,8 +322,18 @@ it.
 #### Many2many
 
 The staging layer stores a set of logical business references. All referenced
-records must exist or be scheduled earlier. The plan then applies explicit
-`replace`, `add`, or `remove` semantics.
+records must exist, be scheduled earlier, or be part of an explicitly
+deferrable create-time cycle. The plan then applies explicit `replace`, `add`,
+or `remove` semantics.
+
+#### Relationship cycles
+
+A cycle is invalid when every path requires its related record during create;
+the mapping and load preview block before any write. When at least one
+relationship is safe to defer, Impodo creates the records first and applies
+the exact reviewed relationship in a second ORM `write` after the related IDs
+exist. A rejected or uncertain second write retains the created record ID and
+is reported as partially applied or outcome unknown for reconciliation.
 
 ### Stage H — Read-only target preflight
 
@@ -366,9 +383,11 @@ the exact captured-schema-bound preview, bounded dependency-ordered batches,
 and a durable row journal. It has no global business-model or field allowlist, so
 standard, extension, and custom schema surfaces follow the same validated
 path. Deferrable create-time relationship cycles use a reviewed second ORM
-write after the related records exist. One explicit **Load into Odoo** action
-consumes the current frozen snapshot. A lost write response is recorded as
-outcome unknown and is never blindly retried.
+write after the related records exist. Remote creates use bounded Odoo `load`
+requests with generated stable External IDs; local creates use bounded
+`create` requests. One explicit **Load into Odoo** action consumes the current
+frozen snapshot. A lost write response is recorded as outcome unknown and is
+never blindly retried.
 
 Broader or production execution remains a separate security milestone. It:
 
@@ -644,10 +663,12 @@ import/export and a distinct functional review and approval lifecycle.
 Current status: **implemented for the supported bounded scope.** Preparation
 publishes deterministic canonical rows with lineage and control totals,
 quality issues and quarantine, normalization groups and decisions, derived
-datasets, and hash-bound current pointers. The supported limits are 100,000
-physical rows for verified native-columnar direct mappings, 50,000 for direct
-Python-fallback mappings, and 25,000 for derived or materialized paths. The
-mixed related-dataset scale proof and remaining advanced project-specific
+datasets, hash-bound source and prepared Parquet snapshots, and transactional
+current pointers. The supported limits are 100,000 physical rows for verified
+native-columnar direct mappings, 50,000 for direct Python-fallback mappings,
+and 25,000 for derived or materialized paths. Impodo selects and explains the
+applicable limit from the current mapping and snapshot path before preparation.
+The mixed related-dataset scale proof and remaining advanced project-specific
 coverage are maintained in the [remaining-work plan](plans/remaining-work.md).
 
 ### Phase 4 — Integrated preflight
@@ -677,12 +698,13 @@ live-target acceptance remain required before a higher-risk target is used.
 Current status: **the practical disposable local and remote paths are
 implemented.** One explicit Load into Odoo action consumes the current
 schema-bound execution snapshot. The writer permits only preview-derived
-models and fields, exact-key lookups, create batches of at most 50 rows, and
-single-record updates. It journals every row, stops after an uncertain
-response, and performs hash-bound read-back reconciliation. A retained remote
-on-premises acceptance result is still pending. Signed or dual approval,
-expiry, production controls, generalized restart/resume, and customer
-security acceptance remain later higher-risk capabilities.
+models and fields, exact-key lookups, remote External-ID `load` batches or
+local `create` batches of at most 50 rows, and single-record updates. It
+journals every row, stops after an uncertain response, and performs hash-bound
+read-back reconciliation. A retained remote on-premises acceptance result is
+still pending. Signed or dual approval, expiry, production controls,
+generalized restart/resume, and customer security acceptance remain later
+higher-risk capabilities.
 
 ### Phase 6 — Production readiness
 

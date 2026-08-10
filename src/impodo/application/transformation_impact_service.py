@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Protocol
 
-from ..access import Actor
+from ..access import Actor, AuthorizationPolicy, Capability
 from ..artifacts import ArtifactStore
 from ..derived_entities import DerivedEntityPlan
 from ..domain.staging.transformation_impact import (
@@ -105,6 +105,15 @@ class TransformationImpactRepository(Protocol):
         """Stream a complete replacement and commit it atomically."""
         ...
 
+    def acknowledge_transformation_rule(
+        self,
+        project_id: str,
+        identity: TransformationImpactIdentity,
+        rule_fingerprint: str,
+        *,
+        actor: Actor,
+    ) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class TransformationImpactContext:
@@ -140,6 +149,7 @@ class TransformationImpactService:
         derived_entities: TransformationImpactDerivedRepository,
         impacts: TransformationImpactRepository,
         artifacts: ArtifactStore,
+        authorization: AuthorizationPolicy,
     ) -> None:
         self.projects = projects
         self.mappings = mappings
@@ -147,6 +157,7 @@ class TransformationImpactService:
         self.derived_entities = derived_entities
         self.impacts = impacts
         self.artifacts = artifacts
+        self.authorization = authorization
 
     def context(self, project_id: str) -> TransformationImpactContext:
         """Resolve current inputs and reject invalid or unsaved mapping state."""
@@ -249,5 +260,27 @@ class TransformationImpactService:
             project_id,
             identity,
             build,
+            actor=actor,
+        )
+
+    def acknowledge_rule(
+        self,
+        project_id: str,
+        rule_fingerprint: str,
+        *,
+        actor: Actor,
+    ) -> None:
+        """Acknowledge one zero-match rule for the exact current evidence."""
+
+        context = self.context(project_id)
+        self.authorization.require(
+            actor,
+            Capability.MAPPING_SUBMIT,
+            project_id=project_id,
+        )
+        self.impacts.acknowledge_transformation_rule(
+            project_id,
+            context.identity,
+            rule_fingerprint,
             actor=actor,
         )

@@ -59,6 +59,39 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.governance = _schema_governance(self.schema)
         self.validator = MappingSemanticValidator()
 
+    def test_find_rule_counts_distinguish_plain_text_from_advanced_pattern(
+        self,
+    ) -> None:
+        def counts(search_mode: str) -> tuple[int, int, int]:
+            observed: list[tuple[bool, bool]] = []
+            mapping = ScalarFieldMapping(
+                target_field="phone",
+                source_column_key="column:phone",
+                transform=ScalarTransformPolicy(
+                    search_value="^00",
+                    replacement_value="+",
+                    search_mode=search_mode,
+                ),
+            )
+            for value in ("00352 1", "33123", "0044 2", "", None):
+                canonicalize_scalar_value(
+                    mapping,
+                    value,
+                    find_replace_observer=(
+                        lambda matched, changed: observed.append(
+                            (matched, changed)
+                        )
+                    ),
+                )
+            return (
+                len(observed),
+                sum(int(matched) for matched, _changed in observed),
+                sum(int(changed) for _matched, changed in observed),
+            )
+
+        self.assertEqual(counts("literal"), (3, 0, 0))
+        self.assertEqual(counts("pattern"), (3, 2, 2))
+
     def test_valid_relationship_mapping_is_deterministic_and_portable(
         self,
     ) -> None:

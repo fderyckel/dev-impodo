@@ -100,7 +100,7 @@ _TEMPLATE_LOCATION = {
     "project_mapping.html": ("match", "Match fields"),
     "project_transformation_impact.html": (
         "match",
-        "Preview rule effects",
+        "Review rule effects",
     ),
     "project_prepare.html": ("prepare", "Start preparation"),
     "project_preparation_progress.html": (
@@ -244,6 +244,14 @@ def build_project_navigation(
         and submission.mapping_id == revision.mapping_id
         and submission.mapping_content_hash == revision.definition.content_hash
     )
+    rule_review_required = bool(
+        revision is not None
+        and any(
+            field.transform.search_value
+            for dataset in revision.definition.datasets
+            for field in dataset.fields
+        )
+    )
     stages.append(
         _stage(
             project_id,
@@ -264,9 +272,9 @@ def build_project_navigation(
                 _page(
                     project_id,
                     "transformation-impact",
-                    "Preview rule effects",
+                    "Review rule effects",
                     "/mapping/transformation-impact",
-                    optional=True,
+                    optional=not rule_review_required,
                 ),
             ),
         )

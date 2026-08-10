@@ -196,6 +196,61 @@ def _mapping_return_url(
     return f"{base}?{query}" if query else base
 
 
+def _transformation_rule_impact_views(
+    request: Request,
+    project_id: str,
+    snapshot,
+    revision,
+    selection,
+    field_labels,
+) -> tuple[dict[str, object], ...]:
+    """Join persisted rule counts to current business labels and edit links."""
+
+    if snapshot is None:
+        return ()
+    fields = {
+        (dataset.dataset_id, field.target_field): field
+        for dataset in revision.definition.datasets
+        for field in dataset.fields
+    }
+    datasets = {
+        dataset.dataset_id: (index, dataset)
+        for index, dataset in enumerate(selection.datasets)
+    }
+    acknowledged = frozenset(snapshot.acknowledged_rule_fingerprints)
+    views = []
+    for impact in snapshot.report.rule_impacts:
+        configured = fields.get((impact.dataset_id, impact.target_field))
+        located = datasets.get(impact.dataset_id)
+        if configured is None or located is None:
+            continue
+        dataset_index, dataset = located
+        field_label = field_labels.get(
+            (dataset.name, impact.target_field),
+            impact.target_field,
+        )
+        fix_url = _mapping_return_url(
+            request,
+            project_id,
+            mapping_dataset=dataset_index,
+            scalar_page=1,
+            field_query=field_label,
+        )
+        views.append(
+            {
+                "impact": impact,
+                "field_label": field_label,
+                "search_value": configured.transform.search_value,
+                "requires_acknowledgement": impact.requires_acknowledgement,
+                "acknowledged": (
+                    impact.rule_fingerprint in acknowledged
+                ),
+                "fix_url": f"{fix_url}#mapping-dataset-{dataset_index}",
+            }
+        )
+    return tuple(views)
+
+
 def _mapping_field_page_size(value: str | None) -> int:
     requested = _positive_query_int(
         value,

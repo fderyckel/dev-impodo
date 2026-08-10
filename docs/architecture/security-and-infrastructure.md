@@ -12,10 +12,10 @@ contain the detailed endpoint-provisioning checklist.
 | Area | Current boundary |
 | --- | --- |
 | Application | Local Python process and browser UI bound to `127.0.0.1` |
-| Project data | Owner-protected local files and per-project DuckDB |
+| Project data | Owner-protected local files, immutable Parquet snapshots, and per-project DuckDB |
 | Source intake | Governed `.csv` and `.xlsx` only |
 | Odoo reads | Fixed local reads or closed remote Odoo 19 JSON-2 `fields_get` and `search_read` |
-| Odoo writes | Separate explicit local or remote JSON-2 create/update capability, bound to one reviewed preview |
+| Odoo writes | Separate explicit local or remote JSON-2 load/create/update capability, bound to one reviewed preview |
 | Execution evidence | Durable per-row journal plus hash-bound read-back reconciliation and fallout export |
 | Current scale | 100,000 verified native-columnar direct rows; 50,000 Python-fallback direct rows; 25,000 derived/materialized rows |
 | Hosted service | Not part of the current deployment |
@@ -31,7 +31,7 @@ Managed workstation
         v
   Impodo / FastAPI
         |-- protected project root
-        |-- per-project DuckDB and immutable source copies
+        |-- per-project DuckDB and immutable source/prepared snapshots
         |-- resource-bounded source-file worker
         |-- local credential vault
         |
@@ -108,6 +108,15 @@ policy decision.
   data only.
 - Each project uses a separate DuckDB database behind application-owned
   repositories; users and mappings receive no SQL console.
+- Native-columnar preparation publishes a mapping-bound immutable prepared
+  Parquet snapshot. Its manifest binds the exact source snapshot, mapping,
+  schema, transformation program, row count, physical schema, and Parquet
+  bytes. DuckDB advances its current pointer only after canonical publication
+  succeeds.
+- Snapshot paths are application-constructed from validated dataset and hash
+  bindings. Traversal and symlink escapes are rejected, and Windows refuses a
+  governed snapshot path longer than the 259 UTF-16-code-unit portable limit
+  before filesystem access.
 - DuckDB external access and extension autoload are disabled, and connections
   have bounded memory and threads.
 
@@ -127,9 +136,10 @@ rest depends on full-disk encryption and operating-system access controls.
 
 ### Odoo access
 
-Remote mode requires HTTPS outside literal loopback and exposes only Odoo 19
-JSON-2 `fields_get` and `search_read`. Reads are projected, batched by model,
-and paginated deterministically.
+The remote read connector requires HTTPS outside literal loopback and exposes
+only Odoo 19 JSON-2 `fields_get` and `search_read`. Reads are projected,
+batched by model, and paginated deterministically. The separately confirmed
+writer described below does not widen that read connector.
 
 Local read mode uses the explicitly selected `odoo.conf` and fixed scripts for
 the model catalogue, `fields_get`, and bounded `search_read`. It requires no
@@ -157,11 +167,19 @@ only when all of these are true:
 - the operator makes one explicit **Load into Odoo** request with the execute
   capability.
 
-The closed JSON-2 surface permits exact-key `search_read`, create batches of at
-most 50 rows, and one uniquely re-matched record per `write`. Request bodies
-are capped at 1 MiB. Standard, extended, and custom models are supported only
-when they appear in the captured schema and reviewed preview; there is no
-global model or field permission that can widen a particular run.
+The closed JSON-2 surface permits exact-key `search_read`, remote External-ID
+`load` batches or local `create` batches of at most 50 rows, and one uniquely
+re-matched record per `write`. Request bodies are capped at 1 MiB. Standard,
+extended, and custom models are supported only when they appear in the
+captured schema and reviewed preview; there is no global model or field
+permission that can widen a particular run.
+
+Required-at-create relationship cycles block the preview before any write.
+For an explicitly deferrable cycle, Impodo creates the records first and then
+applies the exact reviewed relationship with one second ORM `write`. If that
+patch is rejected, the row is recorded as partially applied; if its outcome is
+unknown, later writes stop. In both cases the already-created Odoo ID remains
+in the protected journal for reconciliation.
 
 Every proposed write is journaled. A definitive rejection is recorded without
 pretending the row committed. A lost or invalid write response becomes

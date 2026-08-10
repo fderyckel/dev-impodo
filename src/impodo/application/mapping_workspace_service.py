@@ -36,6 +36,7 @@ from ..domain.mapping.validation.evidence import (
     mapping_issue_fingerprint,
 )
 from ..domain.mapping.validation.validator import MappingSemanticValidator
+from ..domain.staging.transformation_impact import TransformationRuleReview
 from ..workspace_contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
@@ -83,7 +84,6 @@ class MappingWorkspaceRepository(Protocol):
     ) -> MappingWorkingDraft | None:
         """Return recoverable unchecked editor state, if one exists."""
         ...
-
     def save_mapping_working_draft(
         self,
         project_id: str,
@@ -162,6 +162,19 @@ class MappingWorkspaceRepository(Protocol):
         ...
 
 
+class MappingTransformationImpactRepository(Protocol):
+    """Read separate full-row rule-review evidence for submission gates."""
+
+    def get_transformation_rule_review(
+        self,
+        project_id: str,
+        *,
+        mapping_content_hash: str,
+        source_selection_hash: str,
+        schema_hash: str,
+    ) -> TransformationRuleReview | None: ...
+
+
 class MappingWorkspaceService:
     """Own Stage D concurrency, evidence binding, and submission gates.
 
@@ -177,11 +190,13 @@ class MappingWorkspaceService:
         schemas: MappingSchemaRepository,
         mappings: MappingWorkspaceRepository,
         authorization: AuthorizationPolicy,
+        transformation_impacts: MappingTransformationImpactRepository | None = None,
     ) -> None:
         self.sources = sources
         self.schemas = schemas
         self.mappings = mappings
         self.authorization = authorization
+        self.transformation_impacts = transformation_impacts
         self.validator = MappingSemanticValidator()
 
     def save_working_draft(
@@ -482,6 +497,26 @@ class MappingWorkspaceService:
                 "Acknowledge every current validation warning before "
                 "confirming"
             )
+        find_replace_configured = any(
+            field.transform.search_value
+            for dataset in revision.definition.datasets
+            for field in dataset.fields
+        )
+        if find_replace_configured and self.transformation_impacts is not None:
+            review = self.transformation_impacts.get_transformation_rule_review(
+                project_id,
+                mapping_content_hash=revision.definition.content_hash,
+                source_selection_hash=revision.definition.source_selection_hash,
+                schema_hash=revision.definition.schema_hash,
+            )
+            if review is None:
+                raise WorkspaceError(
+                    "Preview the current rule effects before confirming field matches"
+                )
+            if review.unacknowledged_rule_impacts:
+                raise WorkspaceError(
+                    "Review every rule that matched no values before confirming"
+                )
         existing = self.mappings.get_mapping_submission(
             project_id,
             revision.version,

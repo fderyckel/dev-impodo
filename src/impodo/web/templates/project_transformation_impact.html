@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Preview rule effects &middot; {{ project.name }} &middot; Impodo{% endblock %}
+{% block title %}Review rule effects &middot; {{ project.name }} &middot; Impodo{% endblock %}
 {% block content %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 3 of 6 · Optional preview</p>
-      <h1>Preview rule effects</h1>
+      <p class="eyebrow">Stage 3 of 6 · Rule review</p>
+      <h1>Review rule effects</h1>
       {% if report %}
         <p>Compare original source values with the values Impodo will prepare.</p>
       {% else %}
@@ -44,6 +44,48 @@
       <a class="impact-card provided{% if filters.outcome == 'provided' %} selected{% endif %}" href="{{ outcome_urls.provided }}" {% if filters.outcome == 'provided' %}aria-current="true"{% endif %}><span>Fixed value used</span><strong>{{ report.provided_count }}</strong></a>
       <article class="impact-card unchanged"><span>Unchanged</span><strong>{{ report.unchanged_count }}</strong></article>
     </section>
+
+    {% if report.rule_impacts %}
+      <section class="form-card" aria-labelledby="rule-impact-title">
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Rule review</p>
+            <h2 id="rule-impact-title">What each find rule did</h2>
+          </div>
+        </div>
+        <div class="rule-impact-list">
+          {% for item in rule_impact_views %}
+            <article class="notice {{ 'warning' if item.requires_acknowledgement and not item.acknowledged else 'success' }}">
+              <strong>
+                {{ item.field_label }} rule
+                {% if item.impact.changed_value_count == 0 %}changed no values{% else %}changed {{ item.impact.changed_value_count }} value{{ 's' if item.impact.changed_value_count != 1 else '' }}{% endif %}
+              </strong>
+              <p>
+                Find <code>{{ item.search_value }}</code> matched
+                {{ item.impact.matched_value_count }} of
+                {{ item.impact.evaluated_value_count }} non-empty
+                {{ item.field_label|lower }} value{{ 's' if item.impact.evaluated_value_count != 1 else '' }}.
+                {% if item.impact.rule_kind == 'find_replace_literal' %}Plain text was selected.{% else %}Advanced pattern was selected.{% endif %}
+              </p>
+              {% if item.requires_acknowledgement %}
+                <div class="actions">
+                  <a class="button secondary" href="{{ item.fix_url }}">Fix {{ item.field_label|lower }} rule</a>
+                  {% if item.acknowledged %}
+                    <span class="status ready">Reviewed</span>
+                  {% else %}
+                    <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact/acknowledge">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="rule_fingerprint" value="{{ item.impact.rule_fingerprint }}">
+                      <button class="button primary" type="submit">Keep this rule unchanged</button>
+                    </form>
+                  {% endif %}
+                </div>
+              {% endif %}
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
 
     <section class="form-card">
       <div class="page-heading compact">

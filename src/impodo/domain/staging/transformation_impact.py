@@ -21,6 +21,70 @@ from ..contracts import (
     TRANSFORMATION_IMPACT_CONTRACT_VERSION,
     TRANSFORMATION_IMPACT_DETAIL_LIMIT,
 )
+from ..mapping.contracts import ScalarFieldMapping
+from ..serialization import content_hash
+
+
+@dataclass(frozen=True, slots=True)
+class TransformationRuleImpact:
+    """Complete counts for one configured transformation rule."""
+
+    dataset_id: str
+    target_field: str
+    rule_kind: str
+    rule_fingerprint: str
+    evaluated_value_count: int = 0
+    matched_value_count: int = 0
+    changed_value_count: int = 0
+
+    def __post_init__(self) -> None:
+        counts = (
+            self.evaluated_value_count,
+            self.matched_value_count,
+            self.changed_value_count,
+        )
+        if any(value < 0 for value in counts):
+            raise ValueError("Transformation rule counts cannot be negative")
+        if not (
+            self.changed_value_count
+            <= self.matched_value_count
+            <= self.evaluated_value_count
+        ):
+            raise ValueError("Transformation rule counts do not reconcile")
+
+    @property
+    def requires_acknowledgement(self) -> bool:
+        """Return whether a configured rule had no observable match."""
+
+        return self.matched_value_count == 0
+
+
+def transformation_rule_impact_definition(
+    dataset_id: str,
+    field: ScalarFieldMapping,
+) -> TransformationRuleImpact | None:
+    """Describe the configured find-and-replace rule for one mapped field."""
+
+    transform = field.transform
+    if not transform.search_value:
+        return None
+    rule_kind = f"find_replace_{transform.search_mode}"
+    fingerprint = content_hash(
+        {
+            "dataset_id": dataset_id,
+            "target_field": field.target_field,
+            "rule_kind": rule_kind,
+            "search_value": transform.search_value,
+            "replacement_value": transform.replacement_value,
+            "replace_all": transform.replace_all,
+        }
+    )
+    return TransformationRuleImpact(
+        dataset_id=dataset_id,
+        target_field=field.target_field,
+        rule_kind=rule_kind,
+        rule_fingerprint=fingerprint,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +115,7 @@ class TransformationImpactReport:
     provided_count: int
     unchanged_count: int
     rows: tuple[TransformationImpactRow, ...]
+    rule_impacts: tuple[TransformationRuleImpact, ...] = ()
     detail_limit: int = TRANSFORMATION_IMPACT_DETAIL_LIMIT
 
     @property
@@ -153,6 +218,41 @@ class TransformationImpactSnapshot:
     created_by: str
     affected_row_count: int
     report: TransformationImpactReport
+    acknowledged_rule_fingerprints: tuple[str, ...] = ()
+
+    @property
+    def unacknowledged_rule_impacts(self) -> tuple[TransformationRuleImpact, ...]:
+        """Return zero-match rules that still require explicit review."""
+
+        acknowledged = frozenset(self.acknowledged_rule_fingerprints)
+        return tuple(
+            item
+            for item in self.report.rule_impacts
+            if item.requires_acknowledgement
+            and item.rule_fingerprint not in acknowledged
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TransformationRuleReview:
+    """Current hash-bound rule review used by the mapping submission gate."""
+
+    identity_hash: str
+    mapping_content_hash: str
+    source_selection_hash: str
+    schema_hash: str
+    rule_impacts: tuple[TransformationRuleImpact, ...]
+    acknowledged_rule_fingerprints: tuple[str, ...] = ()
+
+    @property
+    def unacknowledged_rule_impacts(self) -> tuple[TransformationRuleImpact, ...]:
+        acknowledged = frozenset(self.acknowledged_rule_fingerprints)
+        return tuple(
+            item
+            for item in self.rule_impacts
+            if item.requires_acknowledgement
+            and item.rule_fingerprint not in acknowledged
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,10 +290,83 @@ class _TransformationImpactCollector:
     unchanged_count: int = 0
     rows: list[TransformationImpactRow] | None = None
     sink: Callable[[TransformationImpactRow], None] | None = None
+    rule_impacts: dict[str, TransformationRuleImpact] | None = None
 
     def __post_init__(self) -> None:
         if self.rows is None:
             self.rows = []
+        if self.rule_impacts is None:
+            self.rule_impacts = {}
+
+    def register_rule(self, rule: TransformationRuleImpact) -> None:
+        """Register one configured rule even when no row reaches it."""
+
+        assert self.rule_impacts is not None
+        existing = self.rule_impacts.get(rule.rule_fingerprint)
+        if existing is not None:
+            if (
+                existing.dataset_id,
+                existing.target_field,
+                existing.rule_kind,
+            ) != (rule.dataset_id, rule.target_field, rule.rule_kind):
+                raise ValueError("Transformation rule fingerprint is ambiguous")
+            return
+        self.rule_impacts[rule.rule_fingerprint] = rule
+
+    def record_rule(
+        self,
+        rule: TransformationRuleImpact,
+        *,
+        matched: bool,
+        changed: bool,
+    ) -> None:
+        """Count one non-empty value evaluated by a configured rule."""
+
+        self.register_rule(rule)
+        assert self.rule_impacts is not None
+        current = self.rule_impacts[rule.rule_fingerprint]
+        self.rule_impacts[rule.rule_fingerprint] = TransformationRuleImpact(
+            dataset_id=current.dataset_id,
+            target_field=current.target_field,
+            rule_kind=current.rule_kind,
+            rule_fingerprint=current.rule_fingerprint,
+            evaluated_value_count=current.evaluated_value_count + 1,
+            matched_value_count=current.matched_value_count + int(matched),
+            changed_value_count=current.changed_value_count + int(changed),
+        )
+
+    def record_rule_precomputed(
+        self,
+        rule: TransformationRuleImpact,
+    ) -> None:
+        """Merge complete counts from one bounded native result batch."""
+
+        assert self.rule_impacts is not None
+        current = self.rule_impacts.get(rule.rule_fingerprint)
+        if current is None:
+            self.rule_impacts[rule.rule_fingerprint] = rule
+            return
+        if (
+            current.dataset_id,
+            current.target_field,
+            current.rule_kind,
+        ) != (rule.dataset_id, rule.target_field, rule.rule_kind):
+            raise ValueError("Transformation rule fingerprint is ambiguous")
+        self.rule_impacts[rule.rule_fingerprint] = TransformationRuleImpact(
+            dataset_id=current.dataset_id,
+            target_field=current.target_field,
+            rule_kind=current.rule_kind,
+            rule_fingerprint=current.rule_fingerprint,
+            evaluated_value_count=(
+                current.evaluated_value_count + rule.evaluated_value_count
+            ),
+            matched_value_count=(
+                current.matched_value_count + rule.matched_value_count
+            ),
+            changed_value_count=(
+                current.changed_value_count + rule.changed_value_count
+            ),
+        )
 
     def record(
         self,
@@ -235,6 +408,7 @@ class _TransformationImpactCollector:
         self,
         counts: TransformationImpactCounts,
         impacts: tuple[TransformationImpactRow, ...],
+        rule_impacts: tuple[TransformationRuleImpact, ...] = (),
     ) -> None:
         """Merge one native batch without replaying unchanged scalar cells."""
 
@@ -272,8 +446,11 @@ class _TransformationImpactCollector:
                 self.sink(impact)
             if len(self.rows) < self.detail_limit:
                 self.rows.append(impact)
+        for rule_impact in rule_impacts:
+            self.record_rule_precomputed(rule_impact)
 
     def report(self) -> TransformationImpactReport:
+        assert self.rule_impacts is not None
         return TransformationImpactReport(
             mapping_content_hash=self.mapping_content_hash,
             evaluated_count=self.evaluated_count,
@@ -284,6 +461,9 @@ class _TransformationImpactCollector:
             provided_count=self.provided_count,
             unchanged_count=self.unchanged_count,
             rows=tuple(self.rows or ()),
+            rule_impacts=tuple(
+                self.rule_impacts[key] for key in sorted(self.rule_impacts)
+            ),
             detail_limit=self.detail_limit,
         )
 

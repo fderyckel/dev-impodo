@@ -2071,6 +2071,30 @@ document.addEventListener("DOMContentLoaded", () => {
       if (textRuleTypeWarning) {
         textRuleTypeWarning.hidden = type === "string";
       }
+      const literalWarning = row.querySelector(
+        "[data-rule-literal-warning]"
+      );
+      if (literalWarning) {
+        const searchValue =
+          row.querySelector("[data-rule-search]")?.value || "";
+        const searchMode =
+          row.querySelector("[data-rule-search-mode]")?.value || "literal";
+        const patternToken = searchValue.match(/\^|\$|\[|\]|\.\*/)?.[0];
+        literalWarning.hidden = !(
+          searchMode === "literal" && patternToken
+        );
+        if (!literalWarning.hidden) {
+          if (patternToken === "^" && searchValue.startsWith("^")) {
+            literalWarning.textContent =
+              `^ is treated as ordinary text in Plain text mode. ` +
+              `To mean “starts with ${searchValue.slice(1)},” choose Advanced pattern.`;
+          } else {
+            literalWarning.textContent =
+              `${patternToken} is treated as ordinary text in Plain text mode. ` +
+              "Choose Advanced pattern only when it should control how values are matched.";
+          }
+        }
+      }
       const segmentLocation = row.querySelector(
         "[data-rule-segment-location]"
       )?.value;
