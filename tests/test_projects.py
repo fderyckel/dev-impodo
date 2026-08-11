@@ -28,6 +28,7 @@ from impodo.adapters.duckdb.constants import SCHEMA_GENERATION, SCHEMA_VERSION
 from impodo.adapters.duckdb.schema.upgrades import PROJECT_SCHEMA_UPGRADES
 from impodo.projects import (
     OdooConnectionMode,
+    ProjectCompatibilityError,
     ProjectConflictError,
     ProjectError,
     ProjectNotFoundError,
@@ -254,8 +255,17 @@ class ProjectLifecycleTests(unittest.TestCase):
             )
             connection.execute("INSERT INTO schema_version VALUES (1)")
 
-        with self.assertRaisesRegex(RuntimeError, "predates.*baseline"):
+        with self.assertRaisesRegex(ProjectCompatibilityError, "older Impodo"):
             self.repository.get(project.project_id)
+
+        deleted = self.service.delete_project(
+            project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=project.revision,
+        )
+        self.assertEqual(deleted, project)
+        self.assertFalse(database_path.parent.exists())
+        self.assertEqual(self.repository.list(), ())
 
     def test_supported_project_schema_upgrades_once_and_atomically(self) -> None:
         project = self.service.create_project(

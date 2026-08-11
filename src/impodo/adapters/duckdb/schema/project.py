@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import duckdb
 
+from ....projects import ProjectCompatibilityError
 from ..constants import SCHEMA_GENERATION, SCHEMA_VERSION
 from .advanced_coverage import create_advanced_coverage_schema
 from .execution import create_execution_schema
@@ -13,6 +14,12 @@ from .prepared_snapshot import create_prepared_snapshot_schema
 from .reconciliation import create_reconciliation_schema
 from .source_snapshot import create_source_snapshot_schema
 from .upgrades import apply_project_schema_upgrades
+
+
+_LEGACY_PROJECT_MESSAGE = (
+    "This project was created by an older Impodo build and cannot be opened. "
+    "Delete it from the Projects page and create a new project."
+)
 
 
 class ProjectSchemaMixin:
@@ -564,17 +571,14 @@ class ProjectSchemaMixin:
                 """
             ).fetchone()
         except duckdb.Error as error:
-            raise RuntimeError(
-                "Project database predates the supported schema baseline"
-            ) from error
+            raise ProjectCompatibilityError(_LEGACY_PROJECT_MESSAGE) from error
         if row is None or str(row[0]) != SCHEMA_GENERATION:
-            raise RuntimeError(
-                "Project database predates the supported schema baseline"
-            )
+            raise ProjectCompatibilityError(_LEGACY_PROJECT_MESSAGE)
         stored_version = int(row[1])
         if stored_version > SCHEMA_VERSION:
-            raise RuntimeError(
-                "Project database was created by a newer Impodo version"
+            raise ProjectCompatibilityError(
+                "This project was created by a newer Impodo version. Update "
+                "Impodo before opening it."
             )
         apply_project_schema_upgrades(
             connection,

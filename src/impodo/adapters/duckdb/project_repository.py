@@ -71,11 +71,29 @@ class ProjectRepository(DuckDbRepository):
     def get(self, project_id: str) -> MigrationProject:
         """Load one complete project aggregate from its contained database."""
 
+        return self._get_project(project_id, require_supported_schema=True)
+
+    def get_for_deletion(self, project_id: str) -> MigrationProject:
+        """Load a deletion target without upgrading its working schema.
+
+        This narrow path exists so a project rejected by the current schema
+        baseline can still be removed through the governed project service.
+        """
+
+        return self._get_project(project_id, require_supported_schema=False)
+
+    def _get_project(
+        self,
+        project_id: str,
+        *,
+        require_supported_schema: bool,
+    ) -> MigrationProject:
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
+            if require_supported_schema:
+                self._ensure_project_database_schema(connection)
             row = connection.execute("SELECT * FROM project").fetchone()
             if row is None:
                 raise ProjectNotFoundError("Project not found")
@@ -147,7 +165,6 @@ class ProjectRepository(DuckDbRepository):
             raise ProjectNotFoundError("Project not found")
 
         with self._connect(database_path) as connection:
-            self._ensure_project_database_schema(connection)
             current = connection.execute(
                 "SELECT revision FROM project"
             ).fetchone()

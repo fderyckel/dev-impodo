@@ -37,6 +37,10 @@ class ProjectConflictError(ProjectError):
     """Raised when a stale browser form attempts to overwrite newer data."""
 
 
+class ProjectCompatibilityError(ProjectError):
+    """Raised when a project cannot be opened by this Impodo build."""
+
+
 class ProjectRegistrationError(ProjectError):
     """Raised when a draft is incomplete and cannot be registered."""
 
@@ -163,6 +167,10 @@ class ProjectRepository(Protocol):
         """Return the complete current aggregate or raise ``ProjectNotFoundError``."""
         ...
 
+    def get_for_deletion(self, project_id: str) -> MigrationProject:
+        """Load deletion metadata without requiring a supported work schema."""
+        ...
+
     def list(self) -> tuple[ProjectSummary, ...]:
         """Return lightweight registry projections without opening every project."""
         ...
@@ -259,21 +267,37 @@ class ProjectService:
     ) -> MigrationProject:
         """Permanently delete one project regardless of lifecycle status."""
 
+        project = self.deletion_target(
+            project_id,
+            actor=actor,
+            expected_revision=expected_revision,
+        )
+        self.repository.delete(
+            project.project_id,
+            expected_revision=expected_revision,
+        )
+        return project
+
+    def deletion_target(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+    ) -> MigrationProject:
+        """Authorize and load the exact project selected for deletion."""
+
         canonical_project_id = _canonical_project_id(project_id)
         self.authorization.require(
             actor,
             Capability.PROJECT_DELETE,
             project_id=canonical_project_id,
         )
-        project = self.repository.get(canonical_project_id)
+        project = self.repository.get_for_deletion(canonical_project_id)
         if project.revision != expected_revision:
             raise ProjectConflictError(
                 "The project changed in another request; reload before deleting"
             )
-        self.repository.delete(
-            canonical_project_id,
-            expected_revision=expected_revision,
-        )
         return project
 
     def update_details(

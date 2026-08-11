@@ -1146,6 +1146,45 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("projectDeleteDialog.showModal()", script.text)
         self.assertIn("form?.requestSubmit()", script.text)
 
+    def test_incompatible_project_explains_recovery_and_remains_deletable(
+        self,
+    ) -> None:
+        context = self.app.state.context
+        project = context.projects.create_project(
+            actor=context.actor,
+            name="Historical rehearsal",
+            source_system="Other",
+        )
+        repository = context.projects.repository
+        project_dir = repository.project_directory(project.project_id)
+        database_path = project_dir / "project.duckdb"
+        with repository._connect(database_path) as connection:
+            connection.execute("DROP TABLE schema_version")
+            connection.execute(
+                "CREATE TABLE schema_version (version INTEGER NOT NULL)"
+            )
+            connection.execute("INSERT INTO schema_version VALUES (1)")
+
+        opened = self.client.get(f"/projects/{project.project_id}")
+        self.assertEqual(opened.status_code, 409)
+        self.assertIn("created by an older Impodo build", opened.text)
+        self.assertIn(
+            f'action="/projects/{project.project_id}/delete"',
+            opened.text,
+        )
+        self.assertNotIn("Traceback", opened.text)
+
+        deleted = self._post(
+            f"/projects/{project.project_id}/delete",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(project.revision),
+            },
+        )
+        self.assertEqual(deleted.status_code, 303)
+        self.assertEqual(deleted.headers["location"], "/projects")
+        self.assertFalse(project_dir.exists())
+
     def test_local_schema_draft_does_not_call_the_odoo_api(self) -> None:
         context = self.app.state.context
         created = context.projects.create_project(

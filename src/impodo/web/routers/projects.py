@@ -55,11 +55,11 @@ def build_projects_router(context: WebContext) -> APIRouter:
         _secure_form(request, form, {"csrf_token", "revision"})
         try:
             expected_revision = _revision(form)
-            project = context.queries.get(project_id)
-            if project.revision != expected_revision:
-                raise ProjectConflictError(
-                    "The project changed in another request; reload before deleting"
-                )
+            project = context.projects.deletion_target(
+                project_id,
+                actor=context.actor,
+                expected_revision=expected_revision,
+            )
             if (
                 context.preparation_jobs is not None
                 and context.preparation_jobs.active(project.project_id) is not None

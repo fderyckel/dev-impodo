@@ -76,6 +76,12 @@ artifact-store port; filesystem paths are not part of the domain contract.
 A hosted adapter must supply its own identity, database, storage, secret, and
 job implementations.
 
+A project outside the supported database baseline is not opened or upgraded
+implicitly. The project list explains that it must be recreated, while the
+normal revision-checked deletion command remains available. Deletion reads only
+the legacy project identity needed to authorize, clean up, and remove that exact
+contained project.
+
 Project registration grants no Odoo write capability. Browser and storage
 controls are documented in
 [security and infrastructure](../architecture/security-and-infrastructure.md).

@@ -71,7 +71,11 @@ from ..adapters.duckdb.advanced_coverage_repository import AdvancedCoverageRepos
 from ..adapters.duckdb.transformation_impact_repository import (
     TransformationImpactRepository,
 )
-from ..projects import ProjectNotFoundError, ProjectService
+from ..projects import (
+    ProjectCompatibilityError,
+    ProjectNotFoundError,
+    ProjectService,
+)
 from ..secrets import CredentialVault, SecretStore
 from .context import (
     BrowserReadinessReader,
@@ -82,6 +86,7 @@ from .context import (
     SchemaReader,
     WebContext,
 )
+from .presenters.common import _render
 from .target_readers import (
     _read_model_catalog,
     _read_schema,
@@ -330,6 +335,19 @@ def create_local_app(
     @app.exception_handler(ProjectNotFoundError)
     async def project_not_found(_request: Request, _error: ProjectNotFoundError):
         return HTMLResponse("Project not found", status_code=404)
+
+    @app.exception_handler(ProjectCompatibilityError)
+    async def project_incompatible(
+        request: Request,
+        error: ProjectCompatibilityError,
+    ):
+        return _render(
+            request,
+            "project_list.html",
+            projects=context.queries.list(),
+            error=str(error),
+            status_code=409,
+        )
 
     for router in (
         build_lifecycle_router(context),
