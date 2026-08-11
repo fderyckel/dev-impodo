@@ -160,7 +160,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
             "Saved the Odoo choices. Load their details before matching data.",
         )
         return RedirectResponse(
-            f"/projects/{project_id}/schema",
+            f"/projects/{project_id}/schema#odoo-details",
             status_code=303,
         )
 
@@ -225,7 +225,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
             )
         _flash(request, f"Loaded details for {len(schema.models)} Odoo choice(s).")
         return RedirectResponse(
-            f"/projects/{project_id}/schema",
+            f"/projects/{project_id}/schema#odoo-details",
             status_code=303,
         )
 

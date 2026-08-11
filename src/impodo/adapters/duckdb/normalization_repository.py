@@ -517,7 +517,12 @@ class NormalizationRepository(DuckDbRepository):
                         "Prepared data was reviewed in another browser window. Refresh and try again."
                     )
                 dry_run = DryRun.from_json(str(row[0]))
-                updated = dry_run.approve(
+                with_groups_approved = dry_run.approve_all_required_groups(
+                    actor=actor,
+                    decided_at=approved_at,
+                    reason=reason,
+                )
+                updated = with_groups_approved.approve(
                     actor=actor,
                     approved_at=approved_at,
                     reason=reason,
@@ -536,7 +541,9 @@ class NormalizationRepository(DuckDbRepository):
                     revision=self._project_revision(connection),
                     event_type="PREPARED_DATA_APPROVED",
                     detail=(
-                        f"run {canonical_run_id}: eligible dataset {row[2]}"
+                        f"run {canonical_run_id}: accepted "
+                        f"{len(updated.approved_groups)} required group(s); "
+                        f"eligible dataset {row[2]}"
                     ),
                     actor=actor,
                 )
@@ -548,6 +555,67 @@ class NormalizationRepository(DuckDbRepository):
         if summary is None:
             raise WorkspaceError("Prepared review is no longer current")
         return summary
+
+    def reopen_normalization_review(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        expected_version: int,
+        actor: Actor,
+        reason: str = "",
+    ) -> NormalizationRunSummary:
+        """Reopen the current review while retaining prior audit transitions."""
+
+        canonical_run_id = self._normalization_run_id(run_id)
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        reopened_at = datetime.now(timezone.utc)
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            connection.begin()
+            try:
+                row = connection.execute(
+                    """
+                    SELECT run.dry_run_json, run.lifecycle_version
+                      FROM normalization_current AS current
+                      JOIN normalization_run AS run ON run.run_id = current.run_id
+                     WHERE current.singleton_id = 1 AND run.run_id = ?
+                    """,
+                    [canonical_run_id],
+                ).fetchone()
+                if row is None:
+                    raise WorkspaceError("Prepared review is no longer current")
+                if int(row[1]) != expected_version:
+                    raise WorkspaceError(
+                        "Prepared data was reviewed in another browser window. Refresh and try again."
+                    )
+                dry_run = DryRun.from_json(str(row[0]))
+                updated = dry_run.reopen_review()
+                self._save_normalization_transition(
+                    connection,
+                    canonical_run_id,
+                    expected_version=expected_version,
+                    dry_run=updated,
+                    event_type="PREPARED_REVIEW_REOPENED",
+                    actor=actor,
+                    occurred_at=reopened_at,
+                )
+                self._insert_workspace_audit(
+                    connection,
+                    revision=self._project_revision(connection),
+                    event_type="PREPARED_REVIEW_REOPENED",
+                    detail=f"run {canonical_run_id}: {reason.strip()}",
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        summary = self.get_current_normalization_summary(project_id)
+        if summary is None:
+            raise WorkspaceError("Prepared review is no longer current")
+        return summary
+
     @staticmethod
     def _normalization_evaluation_header(
         evaluation: NormalizationEvaluation | StoredNormalizationEvaluation,

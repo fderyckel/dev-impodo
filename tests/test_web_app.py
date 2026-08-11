@@ -1346,6 +1346,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         self.assertEqual(scoped.status_code, 303)
+        self.assertEqual(
+            scoped.headers["location"],
+            f"/projects/{registered.project_id}/schema#odoo-details",
+        )
         self.local_odoo_reader.get_model_catalog.assert_called_once()
         context.local_stack = configured_local_stack
         scoped_page = self.client.get(scoped.headers["location"])
@@ -1358,6 +1362,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             {"csrf_token": self.csrf},
         )
         self.assertEqual(captured.status_code, 303)
+        self.assertEqual(
+            captured.headers["location"],
+            f"/projects/{registered.project_id}/schema#odoo-details",
+        )
         self.local_odoo_reader.get_model_metadata.assert_called_once()
         metadata_call = (
             self.local_odoo_reader.get_model_metadata.call_args.args
@@ -1372,6 +1380,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "Odoo details are ready",
             cached_schema_page.text,
         )
+        self.assertIn('id="odoo-details"', cached_schema_page.text)
         self.assertIn(
             "The snapshot includes inherited fields and is used without another Odoo call",
             cached_schema_page.text,
@@ -2042,7 +2051,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("preventScroll: true", mapping_script.text)
         self.assertIn("rememberNormalizationPosition", mapping_script.text)
         self.assertIn("restoreNormalizationPosition", mapping_script.text)
-        self.assertIn("data-normalization-decision-form", mapping_script.text)
+        self.assertIn("data-normalization-reject-form", mapping_script.text)
+        self.assertIn("normalizationApproveDialog", mapping_script.text)
+        self.assertIn("normalizationRejectDialog", mapping_script.text)
         self.assertIn("rememberSourceReviewPosition", mapping_script.text)
         self.assertIn("restoreSourceReviewPosition", mapping_script.text)
         self.assertIn("data-source-review-form", mapping_script.text)
@@ -2446,7 +2457,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Review what Impodo prepared", review_page.text)
         self.assertIn("Nothing is sent to Odoo", review_page.text)
         self.assertIn("data-normalization-review", review_page.text)
-        self.assertIn("data-normalization-decision-form", review_page.text)
+        self.assertIn("Approve all prepared data", review_page.text)
+        self.assertIn("Send back to fix", review_page.text)
+        self.assertNotIn("Accept this change", review_page.text)
+        self.assertIn("data-normalization-approve-dialog", review_page.text)
+        self.assertIn("data-normalization-reject-dialog", review_page.text)
         self.assertIn("data-normalization-table-scroll", review_page.text)
         self.assertEqual(len(self.readiness_calls), 0)
 
@@ -2475,28 +2490,46 @@ class ProjectSetupWizardTests(unittest.TestCase):
         review = normalization_service.current_review(project_id)
         assert review is not None
         normalization, evaluation, dry_run = review
-        for group in evaluation.groups:
-            if not group.requires_decision:
-                continue
-            accepted = self.client.post(
-                f"/projects/{project_id}/normalization/groups/"
-                f"{group.group_id}/accept?status=pending&page=2",
-                data={
-                    "csrf_token": self.csrf,
-                    "run_id": normalization.run_id,
-                    "lifecycle_version": str(normalization.lifecycle_version),
-                },
-                headers=POST_HEADERS,
-                follow_redirects=False,
-            )
-            self.assertEqual(accepted.status_code, 303)
-            self.assertEqual(
-                accepted.headers["location"],
-                f"/projects/{project_id}/normalization"
-                "?status=pending&page=2#review-groups",
-            )
-            normalization = normalization_service.current_summary(project_id)
-            assert normalization is not None
+        decision_group = next(
+            group for group in evaluation.groups if group.requires_decision
+        )
+        rejected = self.client.post(
+            f"/projects/{project_id}/normalization/groups/"
+            f"{decision_group.group_id}/reject?status=pending&page=2",
+            data={
+                "csrf_token": self.csrf,
+                "run_id": normalization.run_id,
+                "lifecycle_version": str(normalization.lifecycle_version),
+                "reason": "The prepared value needs another review.",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(rejected.status_code, 303)
+        blocked_page = self.client.get(rejected.headers["location"])
+        self.assertIn("Fix the change that was sent back", blocked_page.text)
+        self.assertIn("The prepared value needs another review", blocked_page.text)
+        self.assertIn("Reopen review", blocked_page.text)
+        self.assertNotIn("Accept this change", blocked_page.text)
+        normalization = normalization_service.current_summary(project_id)
+        assert normalization is not None
+        reopened = self.client.post(
+            f"/projects/{project_id}/normalization/reopen",
+            data={
+                "csrf_token": self.csrf,
+                "run_id": normalization.run_id,
+                "lifecycle_version": str(normalization.lifecycle_version),
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(reopened.status_code, 303)
+        self.assertEqual(
+            reopened.headers["location"],
+            f"/projects/{project_id}/normalization?status=pending#review-groups",
+        )
+        normalization = normalization_service.current_summary(project_id)
+        assert normalization is not None
         approved = self.client.post(
             f"/projects/{project_id}/normalization/approve",
             data={
@@ -2511,6 +2544,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         normalization = normalization_service.current_summary(project_id)
         assert normalization is not None
         self.assertTrue(normalization.frozen)
+        frozen_review = normalization_service.current_review(project_id)
+        assert frozen_review is not None
+        self.assertEqual(
+            frozen_review[2].approved_groups,
+            frozen_review[2].summary.required_group_keys,
+        )
         project = self.app.state.context.projects.repository.get(project_id)
         source_artifact = (
             self.app.state.context.projects.repository.project_directory(project_id)
@@ -4245,6 +4284,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         first_page = self.client.get(impact_url)
         self.assertEqual(first_page.text.count('class="impact-row'), 100)
+        self.assertIn(
+            "Contains 1 space before the value and 1 space after the value.",
+            first_page.text,
+        )
+        self.assertIn(
+            "Removed 1 space before the value and 1 space after the value.",
+            first_page.text,
+        )
         self.assertIn("Showing 1–100 of 205", first_page.text)
         self.assertIn("Next 100", first_page.text)
         next_match = re.search(

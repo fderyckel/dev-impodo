@@ -185,7 +185,8 @@
               </tr>
             </thead>
             <tbody>
-              {% for row in rows %}
+              {% for item in rows %}
+                {% set row = item.row %}
                 <tr class="impact-row outcome-{{ row.outcome }}">
                   <td>{{ row.dataset.replace('_', ' ')|title }}</td>
                   <td>{{ row.source_row }}</td>
@@ -193,9 +194,13 @@
                   <td>
                     <strong>{{ field_labels.get((row.dataset, row.target_field), row.target_field) }}</strong>
                   </td>
-                  <td class="impact-value raw">{{ row.raw_value }}</td>
+                  <td class="impact-value raw">
+                    <span class="impact-value-text">{{ row.raw_value }}</span>
+                    {% if item.original_spacing_note %}<small class="row-field">{{ item.original_spacing_note }}</small>{% endif %}
+                  </td>
                   <td class="impact-value proposed">
-                    {{ row.proposed_value }}
+                    <span class="impact-value-text">{{ row.proposed_value }}</span>
+                    {% if item.prepared_spacing_note %}<small class="row-field">{{ item.prepared_spacing_note }}</small>{% endif %}
                     {% if row.message %}<small class="row-field">{{ row.message }}</small>{% endif %}
                   </td>
                   <td>{{ row.rules }}</td>

@@ -19,7 +19,7 @@ files, certify a clean package, grant export approval, or write to Odoo.
 immutable source evidence
 -> canonical and quality evaluation
 -> DryRunSummary
--> correction-group decisions
+-> correction-group decisions, individually or as one approval-all action
 -> whole-run approval
 -> canonical dataset hash freeze
 ```
@@ -48,6 +48,7 @@ stateDiagram-v2
     RUNNING --> REVIEW_REQUIRED: safe summary
     REVIEW_REQUIRED --> REVIEW_REQUIRED: approve required group
     REVIEW_REQUIRED --> BLOCKED: reject required group
+    BLOCKED --> REVIEW_REQUIRED: reopen sent-back review
     REVIEW_REQUIRED --> APPROVED: approve complete run
     APPROVED --> FROZEN: bind canonical dataset hash
 ```
@@ -58,13 +59,17 @@ state.
 ### Group decisions
 
 `approve_group()` and `reject_group()` apply only to known groups whose
-approval mode is `required`. A verified actor needs the
-`normalization.decide` capability. Rejection blocks the run and requires new
-source or rule evidence before retrying.
+approval mode is `required`. `approve_all_required_groups()` records approval
+for every pending required group as one governed action. A verified actor needs
+the `normalization.decide` capability. Rejection blocks the run. A reviewer may
+either change the source or rule evidence, or explicitly reopen the same review;
+reopening preserves accepted decisions, returns rejected groups to pending, and
+creates a new audited lifecycle version.
 
 ### Whole-run approval
 
-`approve()` requires:
+The application may approve all pending required groups and then call
+`approve()` in one transaction. Whole-run approval requires:
 
 - `REVIEW_REQUIRED` state;
 - approval of every required correction group;

@@ -388,7 +388,19 @@ class NormalizationRepository(Protocol):
         actor: Actor,
         reason: str = "",
     ) -> NormalizationRunSummary:
-        """Approve all resolved groups and freeze the eligible dataset hash."""
+        """Approve all pending groups and freeze the eligible dataset hash."""
+        ...
+
+    def reopen_normalization_review(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        expected_version: int,
+        actor: Actor,
+        reason: str = "",
+    ) -> NormalizationRunSummary:
+        """Reopen one current review blocked by a sent-back change."""
         ...
 
 

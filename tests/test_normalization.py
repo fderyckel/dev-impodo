@@ -567,21 +567,53 @@ class NormalizationStoreTests(unittest.TestCase):
             )
             self.assertEqual(page.status_code, 200)
             self.assertIn("Review what Impodo prepared", page.text)
-            self.assertIn("Accept this change", page.text)
+            self.assertIn("Approve all prepared data", page.text)
+            self.assertIn("Send back to fix", page.text)
+            self.assertNotIn("Accept this change", page.text)
+            self.assertIn("data-normalization-approve-dialog", page.text)
+            self.assertIn("data-normalization-reject-dialog", page.text)
             self.assertIn("Nothing is sent to Odoo", page.text)
             self.assertIn("<summary>Support details</summary>", page.text)
-        decided = self.repository.decide_normalization_group(
+        blocked = self.repository.decide_normalization_group(
             self.project.project_id,
             published.run_id,
             evaluation.groups[0].group_id,
-            approve=True,
+            approve=False,
             expected_version=published.lifecycle_version,
             actor=LOCAL_ACTOR,
+            reason="The supplied value needs correction.",
+        )
+        self.assertEqual(blocked.status, DryRunStatus.BLOCKED.value)
+        blocked_app = create_local_app(
+            self.temporary.name,
+            launch_token="launch-secret",
+            session_secret="session-secret",
+        )
+        with TestClient(blocked_app) as client:
+            launched = client.get(
+                "/launch?token=launch-secret",
+                follow_redirects=False,
+            )
+            self.assertEqual(launched.status_code, 303)
+            blocked_page = client.get(
+                f"/projects/{self.project.project_id}/normalization"
+            )
+            self.assertIn("Fix the change that was sent back", blocked_page.text)
+            self.assertIn("The supplied value needs correction", blocked_page.text)
+            self.assertIn("Reopen review", blocked_page.text)
+            self.assertIn("Sent back", blocked_page.text)
+            self.assertNotIn("Accept this change", blocked_page.text)
+        reopened = self.repository.reopen_normalization_review(
+            self.project.project_id,
+            published.run_id,
+            expected_version=blocked.lifecycle_version,
+            actor=LOCAL_ACTOR,
+            reason="Reopened after review.",
         )
         frozen = self.repository.approve_and_freeze_normalization(
             self.project.project_id,
             published.run_id,
-            expected_version=decided.lifecycle_version,
+            expected_version=reopened.lifecycle_version,
             actor=LOCAL_ACTOR,
         )
         repeated = self.repository.publish_normalization_run(
@@ -609,6 +641,13 @@ class NormalizationStoreTests(unittest.TestCase):
                 frozen.run_id,
             ).status,
             DryRunStatus.FROZEN,
+        )
+        self.assertIn(
+            evaluation.groups[0].decision_key,
+            self.repository.get_normalization_dry_run(
+                self.project.project_id,
+                frozen.run_id,
+            ).approved_groups,
         )
         current_project = self.projects.get(self.project.project_id)
         changed_project = replace(

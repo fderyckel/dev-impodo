@@ -475,6 +475,33 @@ class DryRun:
         )
         return replace(self, group_decisions=self._append_decision(decision))
 
+    def approve_all_required_groups(
+        self,
+        *,
+        actor: Actor,
+        decided_at: datetime,
+        reason: str = "",
+    ) -> "DryRun":
+        """Approve every still-pending required group in one domain action."""
+
+        self._require_status(DryRunStatus.REVIEW_REQUIRED)
+        assert self.summary is not None
+        pending = self.summary.required_group_keys.difference(
+            self.approved_groups
+        )
+        updated = self
+        for key in sorted(
+            pending,
+            key=lambda item: (item.rule_id, item.dataset, item.field),
+        ):
+            updated = updated.approve_group(
+                key,
+                actor=actor,
+                decided_at=decided_at,
+                reason=reason,
+            )
+        return updated
+
     def reject_group(
         self,
         key: CorrectionGroupKey,
@@ -509,6 +536,29 @@ class DryRun:
             self,
             status=DryRunStatus.BLOCKED,
             group_decisions=self._append_decision(decision),
+        )
+
+    def reopen_review(self) -> "DryRun":
+        """Reopen a review blocked by a manager rejection.
+
+        Accepted group decisions remain valid. Rejected decisions return to
+        pending, while the append-only transition and workspace audit retain
+        who rejected and later reopened the review.
+        """
+
+        self._require_status(DryRunStatus.BLOCKED)
+        if not self.rejected_groups:
+            raise DryRunTransitionError(
+                "only a review blocked by a sent-back change can be reopened"
+            )
+        return replace(
+            self,
+            status=DryRunStatus.REVIEW_REQUIRED,
+            group_decisions=tuple(
+                item
+                for item in self.group_decisions
+                if item.decision is CorrectionDecisionKind.APPROVED
+            ),
         )
 
     def approve(

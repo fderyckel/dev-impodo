@@ -73,10 +73,11 @@ def _render_normalization(
             status_code=(status_code if error else 422),
         )
     summary, groups, dry_run, automatic_record_count = review
-    decisions = {item.key: item.decision.value for item in dry_run.group_decisions}
+    decisions = {item.key: item for item in dry_run.group_decisions}
     items = []
     for group in groups:
-        decision = decisions.get(group.decision_key, "")
+        recorded_decision = decisions.get(group.decision_key)
+        decision = recorded_decision.decision.value if recorded_decision else ""
         if group.eligible_count == 0:
             item_status = "set_aside"
         elif not group.requires_decision:
@@ -90,6 +91,11 @@ def _render_normalization(
                 "group": group,
                 "status": item_status,
                 "decision": decision,
+                "reason": (
+                    recorded_decision.evidence.reason
+                    if recorded_decision is not None
+                    else ""
+                ),
             }
         )
     selected_status = request.query_params.get("status", "").strip()
@@ -117,6 +123,9 @@ def _render_normalization(
         normalization=summary,
         dry_run=dry_run,
         review_items=page_items,
+        rejected_items=tuple(
+            item for item in items if item["decision"] == "REJECTED"
+        ),
         review_matching_count=len(matching),
         review_status=selected_status,
         review_page=page,

@@ -159,7 +159,7 @@
       {% endif %}
     {% endif %}
 
-    <p>Odoo choices selected: <strong>{{ project.intended_models|length if project.intended_models else 0 }}</strong></p>
+    <p id="odoo-details">Odoo choices selected: <strong>{{ project.intended_models|length if project.intended_models else 0 }}</strong></p>
     {% if schema and schema.origin.value != 'LOCAL_MANUAL' %}
       <div class="notice stack-ready" role="status">
         <strong>Odoo details are ready.</strong>

@@ -90,6 +90,37 @@ def build_normalization_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
+    @router.post("/projects/{project_id}/normalization/reopen")
+    async def reopen_prepared_review(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "run_id", "lifecycle_version"},
+        )
+        try:
+            await run_in_threadpool(
+                context.normalization.reopen_review,
+                project_id,
+                str(form["run_id"]),
+                expected_version=int(str(form["lifecycle_version"])),
+                actor=context.actor,
+                reason="Reopened by the data manager after a sent-back change.",
+            )
+        except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
+            return _render_normalization(
+                request,
+                context,
+                project_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, "Prepared review reopened. Review or approve the changes.")
+        return RedirectResponse(
+            f"/projects/{project_id}/normalization?status=pending#review-groups",
+            status_code=303,
+        )
+
     @router.post(
         "/projects/{project_id}/normalization/groups/{group_id}/reject"
     )
@@ -102,9 +133,14 @@ def build_normalization_router(context: WebContext) -> APIRouter:
         _secure_form(
             request,
             form,
-            {"csrf_token", "run_id", "lifecycle_version"},
+            {"csrf_token", "run_id", "lifecycle_version", "reason"},
         )
         try:
+            reason = str(form["reason"]).strip()
+            if not reason:
+                raise ProjectError("Explain what needs fixing before continuing")
+            if len(reason) > 1000:
+                raise ProjectError("The explanation is too long")
             await run_in_threadpool(
                 context.normalization.decide_group,
                 project_id,
@@ -113,6 +149,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 approve=False,
                 expected_version=int(str(form["lifecycle_version"])),
                 actor=context.actor,
+                reason=reason,
             )
         except (ProjectError, ReadinessError, WorkspaceError, ValueError) as error:
             return _render_normalization(

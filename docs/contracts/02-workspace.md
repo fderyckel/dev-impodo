@@ -129,9 +129,9 @@ Each frozen dataset declares:
 - source trace identity and governed target identity/scope;
 - one explicit provider per target scalar field: source, constant,
   source-with-fallback, or leave-unset/Odoo-default;
-- allowlisted trim, whitespace, empty-to-null, literal/bounded-pattern
-  replacement, casing, decimal-locale and rounding, date-format, boolean,
-  UTC-datetime, and bounded formula transformations;
+- allowlisted trim, whitespace, empty-to-null, ordered text cleanup,
+  literal/bounded-pattern replacement, casing, decimal-locale and rounding,
+  date-format, boolean, UTC-datetime, and bounded formula transformations;
 - guided exact-length and first/last/whole-value character checks, with an
   optional bounded expert custom pattern;
 - required, comparison, validate-only, and null policies;
@@ -144,6 +144,13 @@ Each frozen dataset declares:
 One2many is represented through the child dataset's owning many2one. One
 source column may feed several explicitly governed target mappings.
 Odoo-default intent stays visibly unverified until controlled target rehearsal.
+
+Mapping contract version 8 stores text cleanup exclusively as ordered
+`text_steps`. The former scalar-level `search_value`, `replacement_value`,
+`search_mode`, and `replace_all` fields and their browser form names are not
+accepted or converted. A payload that still contains those fields fails with
+an explicit migration error; this prevents a stale rule from being silently
+dropped or reinterpreted.
 
 The browser value-matching dialog counts every distinct non-empty value in one
 frozen physical source column. It suggests exact key matches only. Scalar

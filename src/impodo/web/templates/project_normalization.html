@@ -57,33 +57,49 @@
     <section class="next-action-card blocked" aria-labelledby="prepared-next-title">
       <div>
         <p class="eyebrow">Next action</p>
-        <h2 id="prepared-next-title">Correct the source or field rule</h2>
-        <p>A change was sent back. Make the correction, confirm the field matches, then prepare the data again.</p>
+        <h2 id="prepared-next-title">Fix the change that was sent back</h2>
+        {% if rejected_items %}
+          <p>
+            <strong>{{ rejected_items[0].group.name }}</strong> for
+            {{ rejected_items[0].group.dataset_label }} - {{ rejected_items[0].group.field_label }}
+            stopped this prepared review.
+          </p>
+          {% if rejected_items[0].reason %}<p>Reason: {{ rejected_items[0].reason }}</p>{% endif %}
+        {% else %}
+          <p>This prepared review found a blocking issue that must be corrected.</p>
+        {% endif %}
+        <p>Preparing again without changing the source or field rule will return to this same review.</p>
       </div>
-      <a class="button primary" href="/projects/{{ project.project_id }}/mapping">Return to data matching</a>
+      <div class="next-action-buttons">
+        <a class="button primary" href="/projects/{{ project.project_id }}/mapping">Edit field rules</a>
+        {% if rejected_items %}
+          <form method="post" action="/projects/{{ project.project_id }}/normalization/reopen">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
+            <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
+            <button class="button secondary" type="submit">Reopen review</button>
+          </form>
+        {% endif %}
+      </div>
     </section>
-  {% elif normalization.decisions_left == 0 %}
+  {% elif dry_run.status.value == 'REVIEW_REQUIRED' %}
     <section class="next-action-card ready" aria-labelledby="prepared-next-title">
       <div>
         <p class="eyebrow">Next action</p>
-        <h2 id="prepared-next-title">Approve the prepared data</h2>
-        <p>This confirms the exact records shown here. Nothing is sent to Odoo.</p>
+        <h2 id="prepared-next-title">Approve all prepared data</h2>
+        <p>
+          Review the groups below. Approval
+          {% if normalization.decisions_left %}accepts {{ normalization.decisions_left }} remaining change{{ "s" if normalization.decisions_left != 1 else "" }} and {% endif %}
+          freezes the exact {{ normalization.eligible_record_count }} records shown here.
+          Nothing is sent to Odoo.
+        </p>
       </div>
-      <form method="post" action="/projects/{{ project.project_id }}/normalization/approve">
+      <form method="post" action="/projects/{{ project.project_id }}/normalization/approve" data-normalization-approve-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
         <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
-        <button class="button primary" type="submit">Approve prepared data</button>
+        <button class="button primary" type="button" data-normalization-approve-trigger>Approve all prepared data</button>
       </form>
-    </section>
-  {% else %}
-    <section class="next-action-card review" aria-labelledby="prepared-next-title">
-      <div>
-        <p class="eyebrow">Next action</p>
-        <h2 id="prepared-next-title">Review {{ normalization.decisions_left }} change{{ "s" if normalization.decisions_left != 1 else "" }}</h2>
-        <p>Accept each group that reflects the intended business value, or send it back for correction.</p>
-      </div>
-      <a class="button primary" href="?status=pending#review-groups">Show decisions left</a>
     </section>
   {% endif %}
 
@@ -134,24 +150,24 @@
                     <span class="status ready">Accepted</span>
                   {% elif item.decision == 'REJECTED' %}
                     <span class="status blocked">Sent back</span>
+                    {% if item.reason %}<small class="row-field">{{ item.reason }}</small>{% endif %}
                   {% elif item.status == 'automatic' %}
                     <span class="status ready">Routine rule</span>
                     <small class="row-field">Covered by the final approval</small>
                   {% elif item.status == 'set_aside' %}
                     <span class="status blocked">Not included</span>
+                  {% elif dry_run.status.value == 'BLOCKED' %}
+                    <span class="status blocked">Review paused</span>
+                    <small class="row-field">Fix or reopen the sent-back change first</small>
                   {% else %}
                     <div class="next-action-buttons">
-                      <form method="post" action="/projects/{{ project.project_id }}/normalization/groups/{{ group.group_id }}/accept?status={{ review_status }}&amp;page={{ review_page }}" data-normalization-decision-form>
+                      <span class="status review">Included in approval</span>
+                      <form method="post" action="/projects/{{ project.project_id }}/normalization/groups/{{ group.group_id }}/reject?status={{ review_status }}&amp;page={{ review_page }}" data-normalization-reject-form>
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
                         <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
-                        <button class="button primary small" type="submit">{% if group.kind.value == 'FINDING' %}I reviewed this{% else %}Accept this change{% endif %}</button>
-                      </form>
-                      <form method="post" action="/projects/{{ project.project_id }}/normalization/groups/{{ group.group_id }}/reject?status={{ review_status }}&amp;page={{ review_page }}" data-normalization-decision-form>
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
-                        <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
-                        <button class="button secondary small" type="submit">Send back to fix</button>
+                        <input type="hidden" name="reason" value="" data-normalization-reject-reason-value>
+                        <button class="button secondary small" type="button" data-normalization-reject-trigger data-group-name="{{ group.name }}">Send back to fix</button>
                       </form>
                     </div>
                   {% endif %}
@@ -186,6 +202,52 @@
       <p>Lifecycle version {{ normalization.lifecycle_version }}. Odoo has not been changed.</p>
     </details>
   </section>
+
+  {% if dry_run.status.value == 'REVIEW_REQUIRED' %}
+    <dialog class="confirmation-dialog" aria-labelledby="normalization-approve-title" data-normalization-approve-dialog>
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Prepared-data approval</p>
+          <h2 id="normalization-approve-title">Approve all prepared data?</h2>
+        </div>
+        <form method="dialog">
+          <button class="dialog-close" type="submit" aria-label="Close dialog">&times;</button>
+        </form>
+      </div>
+      <p>
+        This {% if normalization.decisions_left %}accepts {{ normalization.decisions_left }} remaining change group{{ "s" if normalization.decisions_left != 1 else "" }} and {% endif %}
+        approves the exact {{ normalization.eligible_record_count }} prepared records shown here.
+        Nothing will be sent to Odoo.
+      </p>
+      <div class="dialog-actions">
+        <form method="dialog"><button class="button secondary" type="submit">Cancel</button></form>
+        <button class="button primary" type="button" data-normalization-approve-confirm>Approve all prepared data</button>
+      </div>
+    </dialog>
+
+    <dialog class="confirmation-dialog" aria-labelledby="normalization-reject-title" data-normalization-reject-dialog>
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Stop this review</p>
+          <h2 id="normalization-reject-title">Send this change back?</h2>
+        </div>
+        <form method="dialog">
+          <button class="dialog-close" type="submit" aria-label="Close dialog">&times;</button>
+        </form>
+      </div>
+      <p data-normalization-reject-message>
+        This stops approval until the source or field rule is corrected.
+      </p>
+      <label>
+        What needs fixing?
+        <textarea rows="3" maxlength="1000" required data-normalization-reject-reason></textarea>
+      </label>
+      <div class="dialog-actions">
+        <form method="dialog"><button class="button secondary" type="submit">Cancel</button></form>
+        <button class="button danger" type="button" data-normalization-reject-confirm>Stop review and fix</button>
+      </div>
+    </dialog>
+  {% endif %}
 
   <div class="form-actions split-actions">
     <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to project review</a>

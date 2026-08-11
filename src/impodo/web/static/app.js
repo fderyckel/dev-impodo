@@ -147,6 +147,96 @@ document.addEventListener("DOMContentLoaded", () => {
     pendingProjectDeleteForm = null;
   });
 
+  const normalizationApproveDialog = document.querySelector(
+    "[data-normalization-approve-dialog]"
+  );
+  const normalizationApproveForm = document.querySelector(
+    "[data-normalization-approve-form]"
+  );
+  const normalizationApproveTrigger = document.querySelector(
+    "[data-normalization-approve-trigger]"
+  );
+  const normalizationApproveConfirm = document.querySelector(
+    "[data-normalization-approve-confirm]"
+  );
+
+  normalizationApproveTrigger?.addEventListener("click", () => {
+    normalizationApproveDialog?.showModal();
+  });
+
+  normalizationApproveConfirm?.addEventListener("click", () => {
+    normalizationApproveDialog?.close();
+    normalizationApproveForm?.requestSubmit();
+  });
+
+  const normalizationRejectDialog = document.querySelector(
+    "[data-normalization-reject-dialog]"
+  );
+  const normalizationRejectMessage = normalizationRejectDialog?.querySelector(
+    "[data-normalization-reject-message]"
+  );
+  const normalizationRejectReason = normalizationRejectDialog?.querySelector(
+    "[data-normalization-reject-reason]"
+  );
+  const normalizationRejectConfirm = normalizationRejectDialog?.querySelector(
+    "[data-normalization-reject-confirm]"
+  );
+  let pendingNormalizationRejectForm = null;
+
+  for (const trigger of document.querySelectorAll(
+    "[data-normalization-reject-trigger]"
+  )) {
+    trigger.addEventListener("click", () => {
+      const form = trigger.closest("[data-normalization-reject-form]");
+      if (!form || !normalizationRejectDialog) {
+        return;
+      }
+      pendingNormalizationRejectForm = form;
+      if (normalizationRejectMessage) {
+        const groupName = trigger.dataset.groupName || "This prepared change";
+        normalizationRejectMessage.textContent =
+          `${groupName} will be sent back. This stops approval until the ` +
+          "source or field rule is corrected.";
+      }
+      if (normalizationRejectReason) {
+        normalizationRejectReason.value = "";
+        normalizationRejectReason.setCustomValidity("");
+      }
+      normalizationRejectDialog.showModal();
+      normalizationRejectReason?.focus();
+    });
+  }
+
+  normalizationRejectReason?.addEventListener("input", () => {
+    normalizationRejectReason.setCustomValidity("");
+  });
+
+  normalizationRejectConfirm?.addEventListener("click", () => {
+    const form = pendingNormalizationRejectForm;
+    const reason = normalizationRejectReason?.value.trim() || "";
+    if (!form || !normalizationRejectReason) {
+      return;
+    }
+    if (!reason) {
+      normalizationRejectReason.setCustomValidity("Explain what needs fixing.");
+      normalizationRejectReason.reportValidity();
+      return;
+    }
+    const storedReason = form.querySelector(
+      "[data-normalization-reject-reason-value]"
+    );
+    if (storedReason) {
+      storedReason.value = reason;
+    }
+    pendingNormalizationRejectForm = null;
+    normalizationRejectDialog?.close();
+    form.requestSubmit();
+  });
+
+  normalizationRejectDialog?.addEventListener("close", () => {
+    pendingNormalizationRejectForm = null;
+  });
+
   const mappingPositionStorageKey =
     `impodo.mapping.position:${window.location.pathname}`;
   let lastMappingRow = null;
@@ -353,7 +443,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
   for (const form of document.querySelectorAll(
-    "[data-normalization-decision-form]"
+    "[data-normalization-reject-form]"
   )) {
     form.addEventListener("submit", () => {
       rememberNormalizationPosition(form);

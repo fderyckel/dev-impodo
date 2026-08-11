@@ -175,6 +175,35 @@ class DryRunLifecycleTests(unittest.TestCase):
         self.assertEqual(approved_run.status, DryRunStatus.APPROVED)
         self.assertIn(correction.key, approved_run.approved_groups)
 
+    def test_required_groups_can_be_approved_together(self) -> None:
+        """Record every required group before one whole-run approval."""
+
+        corrections = (
+            CorrectionImpact(
+                CorrectionGroupKey("case-name", "contacts", "name"),
+                ApprovalMode.REQUIRED,
+                18,
+            ),
+            CorrectionImpact(
+                CorrectionGroupKey("match-language", "contacts", "lang"),
+                ApprovalMode.REQUIRED,
+                12,
+            ),
+        )
+        completed = make_run().complete(DryRunSummary(corrections=corrections))
+
+        reviewed = completed.approve_all_required_groups(
+            actor=LOCAL_ACTOR,
+            decided_at=APPROVED_AT,
+        )
+        approved = reviewed.approve(
+            actor=LOCAL_ACTOR,
+            approved_at=APPROVED_AT,
+        )
+
+        self.assertEqual(reviewed.approved_groups, {item.key for item in corrections})
+        self.assertEqual(approved.status, DryRunStatus.APPROVED)
+
     def test_automatic_group_cannot_receive_a_group_approval(self) -> None:
         """Keep rule-policy authorization separate from manager decisions."""
 
@@ -218,6 +247,12 @@ class DryRunLifecycleTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
                 approved_at=APPROVED_AT,
             )
+
+        reopened = blocked.reopen_review()
+
+        self.assertEqual(reopened.status, DryRunStatus.REVIEW_REQUIRED)
+        self.assertFalse(reopened.rejected_groups)
+        self.assertEqual(reopened.group_decisions, ())
 
     def test_collision_finishes_as_blocked(self) -> None:
         """Route an unsafe execution summary directly from running to blocked."""

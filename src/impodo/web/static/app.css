@@ -2154,6 +2154,7 @@ label.model-choice input {
 }
 
 .local-stack-dialog,
+.confirmation-dialog,
 .project-delete-dialog,
 .value-match-dialog {
   width: min(720px, calc(100vw - 2rem));
@@ -2167,16 +2168,19 @@ label.model-choice input {
 }
 
 .local-stack-dialog::backdrop,
+.confirmation-dialog::backdrop,
 .project-delete-dialog::backdrop,
 .value-match-dialog::backdrop {
   background: rgba(41, 44, 40, .58);
 }
 
 .local-stack-dialog form,
+.confirmation-dialog form,
 .project-delete-dialog form {
   margin: 0;
 }
 
+.confirmation-dialog,
 .project-delete-dialog {
   width: min(560px, calc(100vw - 2rem));
 }
@@ -3017,12 +3021,20 @@ a.impact-card:focus-visible,
 }
 
 .impact-value {
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.impact-value-text {
+  white-space: pre-wrap;
 }
 
 .impact-value.proposed {
   font-weight: 700;
+}
+
+.impact-value .row-field {
+  font-weight: 400;
+  white-space: normal;
 }
 
 .impact-result {

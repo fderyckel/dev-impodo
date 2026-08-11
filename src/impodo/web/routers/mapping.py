@@ -54,6 +54,7 @@ from ..presenters.mapping_impact import (
     _transformation_impact_filters,
     _transformation_impact_identity,
     _transformation_impact_labels,
+    _transformation_impact_row_views,
     _transformation_impact_url,
     _transformation_rule_impact_views,
 )
@@ -280,7 +281,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 after=after,
                 before=before,
             )
-            rows = page.rows
+            rows = _transformation_impact_row_views(page.rows)
             if page.previous_before is not None:
                 previous_url = _transformation_impact_url(
                     project_id,

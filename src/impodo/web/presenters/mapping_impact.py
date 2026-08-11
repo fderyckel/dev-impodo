@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 from urllib.parse import urlencode
 
@@ -11,6 +12,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from ...domain.staging.transformation_impact import (
     TransformationImpactFilter,
     TransformationImpactIdentity,
+    TransformationImpactRow,
     transformation_rule_impact_definitions,
 )
 from ...domain.mapping.contracts import ScalarValueSource
@@ -21,6 +23,81 @@ from ..constants import (
 )
 from ..context import WebContext
 from ..forms import _positive_query_int
+
+
+@dataclass(frozen=True, slots=True)
+class _TransformationImpactRowView:
+    """Add plain-language display evidence without changing stored values."""
+
+    row: TransformationImpactRow
+    original_spacing_note: str = ""
+    prepared_spacing_note: str = ""
+
+
+def _transformation_impact_row_views(
+    rows: tuple[TransformationImpactRow, ...],
+) -> tuple[_TransformationImpactRowView, ...]:
+    views = []
+    for row in rows:
+        original_note, prepared_note = _edge_spacing_change_notes(
+            row.raw_value,
+            row.proposed_value,
+        )
+        views.append(
+            _TransformationImpactRowView(
+                row=row,
+                original_spacing_note=original_note,
+                prepared_spacing_note=prepared_note,
+            )
+        )
+    return tuple(views)
+
+
+def _edge_spacing_change_notes(
+    raw_value: str,
+    proposed_value: str,
+) -> tuple[str, str]:
+    """Explain edge spaces that a browser cannot make reliably visible."""
+
+    if raw_value == proposed_value or not raw_value:
+        return "", ""
+    if raw_value.isspace():
+        return "Contains only spaces.", ""
+
+    leading_removed = max(
+        0,
+        _leading_spacing_count(raw_value) - _leading_spacing_count(proposed_value),
+    )
+    trailing_removed = max(
+        0,
+        _trailing_spacing_count(raw_value) - _trailing_spacing_count(proposed_value),
+    )
+    if not leading_removed and not trailing_removed:
+        return "", ""
+
+    changes = _spacing_change_phrase(leading_removed, trailing_removed)
+    return f"Contains {changes}.", f"Removed {changes}."
+
+
+def _leading_spacing_count(value: str) -> int:
+    return len(value) - len(value.lstrip())
+
+
+def _trailing_spacing_count(value: str) -> int:
+    return len(value) - len(value.rstrip())
+
+
+def _spacing_change_phrase(leading: int, trailing: int) -> str:
+    parts = []
+    if leading:
+        parts.append(
+            f"{leading} space{'s' if leading != 1 else ''} before the value"
+        )
+    if trailing:
+        parts.append(
+            f"{trailing} space{'s' if trailing != 1 else ''} after the value"
+        )
+    return " and ".join(parts)
 
 
 def _mapping_save_error_response(

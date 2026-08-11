@@ -128,14 +128,43 @@ class NormalizationService:
         actor: Actor,
         reason: str = "",
     ) -> NormalizationRunSummary:
-        """Authorize final approval and freeze the eligible dataset identity."""
+        """Accept pending groups, approve, and freeze the eligible dataset."""
 
+        self.authorization.require(
+            actor,
+            Capability.NORMALIZATION_DECIDE,
+            project_id=project_id,
+        )
         self.authorization.require(
             actor,
             Capability.NORMALIZATION_APPROVE,
             project_id=project_id,
         )
         return self.repository.approve_and_freeze_normalization(
+            project_id,
+            run_id,
+            expected_version=expected_version,
+            actor=actor,
+            reason=reason,
+        )
+
+    def reopen_review(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        expected_version: int,
+        actor: Actor,
+        reason: str = "",
+    ) -> NormalizationRunSummary:
+        """Reopen the current review after an accidental send-back decision."""
+
+        self.authorization.require(
+            actor,
+            Capability.NORMALIZATION_DECIDE,
+            project_id=project_id,
+        )
+        return self.repository.reopen_normalization_review(
             project_id,
             run_id,
             expected_version=expected_version,
