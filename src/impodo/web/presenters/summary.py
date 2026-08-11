@@ -22,10 +22,10 @@ from ...projects import MigrationProject, OdooConnectionMode
 from ...reporting import WORKBOOK_NAME
 from ...workspace_errors import WorkspaceError
 from ..constants import (
+    DEFAULT_SUMMARY_ROWS_PER_PAGE,
     NORMALIZATION_GROUPS_PER_PAGE,
     ODOO_APPLICATIONS,
-    QUALITY_REVIEW_ROWS_PER_PAGE,
-    READINESS_ROWS_PER_PAGE,
+    SUMMARY_ROW_PAGE_SIZES,
 )
 from ..context import WebContext
 from ..forms import _positive_query_int
@@ -229,6 +229,9 @@ def _render_summary(
     quality_page = None
     quality_row_start = 0
     quality_row_end = 0
+    quality_page_size = _summary_page_size(
+        request.query_params.get("quality_page_size")
+    )
     if quality is not None:
         quality_page = context.queries.get_quality_review_page(
             project_id,
@@ -239,15 +242,15 @@ def _render_summary(
                 request.query_params.get("quality_page"),
                 default=1,
             ),
-            page_size=QUALITY_REVIEW_ROWS_PER_PAGE,
+            page_size=quality_page_size,
         )
         if quality_page.matching_count:
             quality_row_start = (
-                (quality_page.page - 1) * QUALITY_REVIEW_ROWS_PER_PAGE
+                (quality_page.page - 1) * quality_page_size
                 + 1
             )
             quality_row_end = min(
-                quality_page.page * QUALITY_REVIEW_ROWS_PER_PAGE,
+                quality_page.page * quality_page_size,
                 quality_page.matching_count,
             )
     status_filter = request.query_params.get("status", "").strip()
@@ -263,6 +266,9 @@ def _render_summary(
         request.query_params.get("page"),
         default=1,
     )
+    readiness_page_size = _summary_page_size(
+        request.query_params.get("page_size")
+    )
     if report is not None:
         persisted_page = context.preflight.readiness_rows(
             project_id,
@@ -270,13 +276,13 @@ def _render_summary(
             status=status_filter,
             dataset=dataset_filter,
             page=requested_row_page,
-            page_size=READINESS_ROWS_PER_PAGE,
+            page_size=readiness_page_size,
         )
         rows = persisted_page.items
         row_total = persisted_page.matching_count
         row_page = persisted_page.page
         row_page_count = persisted_page.page_count
-        row_start_index = (row_page - 1) * READINESS_ROWS_PER_PAGE
+        row_start_index = (row_page - 1) * readiness_page_size
     else:
         rows = ()
         row_total = 0
@@ -298,12 +304,26 @@ def _render_summary(
         quality_review_row_end=quality_row_end,
         quality_status=quality_status,
         quality_dataset=quality_dataset,
+        quality_page_size=quality_page_size,
+        quality_page_size_options=tuple(
+            {
+                "size": size,
+                "url": _quality_summary_url(
+                    project_id,
+                    status=quality_status,
+                    dataset=quality_dataset,
+                    page_size=size,
+                ),
+            }
+            for size in SUMMARY_ROW_PAGE_SIZES
+        ),
         quality_previous_url=(
             _quality_summary_url(
                 project_id,
                 status=quality_status,
                 dataset=quality_dataset,
                 page=quality_page.page - 1,
+                page_size=quality_page_size,
             )
             if quality_page is not None and quality_page.page > 1
             else None
@@ -314,6 +334,7 @@ def _render_summary(
                 status=quality_status,
                 dataset=quality_dataset,
                 page=quality_page.page + 1,
+                page_size=quality_page_size,
             )
             if quality_page is not None
             and quality_page.page < quality_page.page_count
@@ -325,8 +346,21 @@ def _render_summary(
         readiness_row_total=row_total,
         readiness_row_start=(row_start_index + 1 if row_total else 0),
         readiness_row_end=min(
-            row_start_index + READINESS_ROWS_PER_PAGE,
+            row_start_index + readiness_page_size,
             row_total,
+        ),
+        readiness_page_size=readiness_page_size,
+        readiness_page_size_options=tuple(
+            {
+                "size": size,
+                "url": _summary_rows_url(
+                    request,
+                    project_id,
+                    page=None,
+                    page_size=size,
+                ),
+            }
+            for size in SUMMARY_ROW_PAGE_SIZES
         ),
         readiness_row_page=row_page,
         readiness_row_page_count=row_page_count,
@@ -335,6 +369,7 @@ def _render_summary(
                 request,
                 project_id,
                 page=row_page - 1 if row_page > 2 else None,
+                page_size=readiness_page_size,
             )
             if row_page > 1
             else None
@@ -344,6 +379,7 @@ def _render_summary(
                 request,
                 project_id,
                 page=row_page + 1,
+                page_size=readiness_page_size,
             )
             if row_page < row_page_count
             else None
@@ -386,6 +422,7 @@ def _summary_rows_url(
     project_id: str,
     *,
     page: int | None,
+    page_size: int,
 ) -> str:
     params = {
         name: value
@@ -394,6 +431,8 @@ def _summary_rows_url(
     }
     if page is not None and page > 1:
         params["page"] = str(page)
+    if page_size != DEFAULT_SUMMARY_ROWS_PER_PAGE:
+        params["page_size"] = str(page_size)
     query = urlencode(params)
     base = f"/projects/{project_id}/summary"
     url = f"{base}?{query}" if query else base
@@ -406,6 +445,7 @@ def _quality_summary_url(
     status: str = "",
     dataset: str = "",
     page: int | None = None,
+    page_size: int = DEFAULT_SUMMARY_ROWS_PER_PAGE,
 ) -> str:
     params = {}
     if status:
@@ -414,10 +454,26 @@ def _quality_summary_url(
         params["quality_dataset"] = dataset
     if page is not None and page > 1:
         params["quality_page"] = str(page)
+    if page_size != DEFAULT_SUMMARY_ROWS_PER_PAGE:
+        params["quality_page_size"] = str(page_size)
     query = urlencode(params)
     base = f"/projects/{project_id}/summary"
     url = f"{base}?{query}" if query else base
     return f"{url}#quality-rows"
+
+
+def _summary_page_size(value: str | None) -> int:
+    """Return one bounded summary-table page size."""
+
+    try:
+        page_size = int(value or DEFAULT_SUMMARY_ROWS_PER_PAGE)
+    except ValueError:
+        return DEFAULT_SUMMARY_ROWS_PER_PAGE
+    return (
+        page_size
+        if page_size in SUMMARY_ROW_PAGE_SIZES
+        else DEFAULT_SUMMARY_ROWS_PER_PAGE
+    )
 
 
 def _require_local_stack_access(

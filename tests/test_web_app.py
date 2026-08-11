@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlsplit
@@ -1184,6 +1185,86 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(deleted.status_code, 303)
         self.assertEqual(deleted.headers["location"], "/projects")
         self.assertFalse(project_dir.exists())
+
+    def test_load_receipt_rows_offer_twenty_or_fifty_with_pagination(self) -> None:
+        context = self.app.state.context
+        project = context.projects.create_project(
+            actor=context.actor,
+            name="Paginated load review",
+            source_system="Other",
+        )
+        project = context.projects.update_target(
+            project.project_id,
+            actor=context.actor,
+            expected_revision=project.revision,
+            odoo_connection_mode="REMOTE",
+            odoo_base_url="https://odoo.example.test",
+            odoo_database="migration",
+            intended_applications=("Contacts",),
+            intended_models=(),
+        )
+        status = SimpleNamespace(value="COMMITTED")
+        rows = tuple(
+            SimpleNamespace(
+                dataset="contacts",
+                source_row=index,
+                target_model="res.partner",
+                odoo_id=index,
+                operation="CREATE",
+                status=status,
+                safe_error="",
+            )
+            for index in range(1, 56)
+        )
+        current_run = SimpleNamespace(
+            rows=rows,
+            committed_count=55,
+            failed_count=0,
+            blocked_count=0,
+            partially_applied_count=0,
+            unknown_count=0,
+            run_id="run-1",
+        )
+        preview = SimpleNamespace(
+            snapshot=SimpleNamespace(
+                counts={"CREATE": 55, "UPDATE": 0, "UNCHANGED": 0},
+                target_database="migration",
+                target_odoo_version="19.0",
+                semantic_hash="sha256:" + "a" * 64,
+                target_hash="sha256:" + "b" * 64,
+            ),
+            datasets=(),
+            current_run=current_run,
+            can_load=False,
+        )
+
+        with (
+            patch.object(
+                type(context.execution),
+                "current_preview",
+                return_value=preview,
+            ),
+            patch.object(
+                type(context.reconciliation),
+                "current",
+                return_value=None,
+            ),
+        ):
+            page = self.client.get(
+                f"/projects/{project.project_id}/load"
+                "?rows_page=2&rows_per_page=20"
+            )
+
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.text.count("data-load-row"), 20)
+        self.assertIn("Showing 21-40 of 55 rows", page.text)
+        self.assertIn("Rows per page:", page.text)
+        self.assertIn(">20</a>", page.text)
+        self.assertIn(">50</a>", page.text)
+        self.assertIn("Page 2 of 3", page.text)
+        self.assertIn("row 21", page.text)
+        self.assertIn("row 40", page.text)
+        self.assertNotIn("row 41", page.text)
 
     def test_local_schema_draft_does_not_call_the_odoo_api(self) -> None:
         context = self.app.state.context
@@ -2513,17 +2594,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
             status="",
             dataset="",
             page=1,
-            page_size=50,
+            page_size=20,
         )
-        self.assertLessEqual(len(quality_page.items), 50)
+        self.assertLessEqual(len(quality_page.items), 20)
         prepared_summary_page = self.client.get(
             f"/projects/{project_id}/summary"
         )
         self.assertIn(
-            f"Records 1-{min(50, quality_page.matching_count)} "
+            f"Records 1-{min(20, quality_page.matching_count)} "
             f"of {quality_page.matching_count}",
             prepared_summary_page.text,
         )
+        if quality_page.matching_count > 10:
+            self.assertIn("Records per page:", prepared_summary_page.text)
 
         normalization_service = self.app.state.context.normalization
         review = normalization_service.current_review(project_id)
@@ -2922,12 +3005,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
             self.assertEqual(
                 first_page.text.count("data-readiness-row"),
-                50,
+                20,
             )
-            self.assertIn("Rows 1-50 of 201", first_page.text)
-            self.assertIn("Page 1 of 5", first_page.text)
-            self.assertIn("ROW-0050", first_page.text)
-            self.assertNotIn("ROW-0051", first_page.text)
+            self.assertIn("Rows 1-20 of 201", first_page.text)
+            self.assertIn("Page 1 of 11", first_page.text)
+            self.assertIn("Rows per page:", first_page.text)
+            for size in (10, 20, 50, 100):
+                self.assertIn(f">{size}</a>", first_page.text)
+            self.assertIn("ROW-0020", first_page.text)
+            self.assertNotIn("ROW-0021", first_page.text)
             next_match = re.search(
                 r'href="([^"]+)" data-readiness-next',
                 first_page.text,
@@ -2943,11 +3029,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
             )
             self.assertEqual(
                 second_page.text.count("data-readiness-row"),
-                50,
+                20,
             )
-            self.assertIn("Rows 51-100 of 201", second_page.text)
-            self.assertIn("ROW-0051", second_page.text)
-            self.assertIn("ROW-0100", second_page.text)
+            self.assertIn("Rows 21-40 of 201", second_page.text)
+            self.assertIn("ROW-0021", second_page.text)
+            self.assertIn("ROW-0040", second_page.text)
             self.assertNotIn("ROW-0001", second_page.text)
 
             clamped_page = self.client.get(
@@ -2958,7 +3044,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 1,
             )
             self.assertIn("Rows 201-201 of 201", clamped_page.text)
-            self.assertIn("Page 5 of 5", clamped_page.text)
+            self.assertIn("Page 11 of 11", clamped_page.text)
             self.assertIn("ROW-0201", clamped_page.text)
 
             filtered_page = self.client.get(
@@ -2967,6 +3053,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     "status": "blocked",
                     "dataset": sample_row.dataset,
                     "page": "3",
+                    "page_size": "50",
                 },
             )
             self.assertEqual(
@@ -2990,6 +3077,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 [sample_row.dataset],
             )
             self.assertEqual(previous_query["page"], ["2"])
+            self.assertEqual(previous_query["page_size"], ["50"])
 
         self.assertEqual(len(self.readiness_calls), 2)
         readiness_requests = self.readiness_calls[-1][2]

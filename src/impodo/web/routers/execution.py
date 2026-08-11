@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass
 from io import StringIO
+from typing import Sequence
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -17,11 +20,64 @@ from ...odoo_readback import OdooReadbackError
 from ...projects import ProjectError
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
+from ..constants import DEFAULT_LOAD_ROWS_PER_PAGE, LOAD_ROW_PAGE_SIZES
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..security import require_session
 from ..target_readers import _target_credential_id
+
+
+@dataclass(frozen=True, slots=True)
+class LoadRowPage:
+    """Bound the write rows rendered in one browser response."""
+
+    rows: tuple[object, ...]
+    page: int
+    page_count: int
+    page_size: int
+    total: int
+    first_row: int
+    last_row: int
+
+
+def _load_row_page(
+    rows: Sequence[object],
+    *,
+    requested_page: str | None,
+    requested_page_size: str | None,
+) -> LoadRowPage:
+    """Return one clamped 20- or 50-row page for the load review."""
+
+    try:
+        page_size = int(requested_page_size or DEFAULT_LOAD_ROWS_PER_PAGE)
+    except ValueError:
+        page_size = DEFAULT_LOAD_ROWS_PER_PAGE
+    if page_size not in LOAD_ROW_PAGE_SIZES:
+        page_size = DEFAULT_LOAD_ROWS_PER_PAGE
+    try:
+        page = max(1, int(requested_page or "1"))
+    except ValueError:
+        page = 1
+    total = len(rows)
+    page_count = max(1, (total + page_size - 1) // page_size)
+    page = min(page, page_count)
+    start = (page - 1) * page_size
+    page_rows = tuple(rows[start : start + page_size])
+    return LoadRowPage(
+        rows=page_rows,
+        page=page,
+        page_count=page_count,
+        page_size=page_size,
+        total=total,
+        first_row=(start + 1 if page_rows else 0),
+        last_row=start + len(page_rows),
+    )
+
+
+def _load_row_page_url(page: int, page_size: int) -> str:
+    query = urlencode({"rows_page": page, "rows_per_page": page_size})
+    return f"?{query}#row-outcomes"
 
 
 def build_execution_router(context: WebContext) -> APIRouter:
@@ -49,12 +105,48 @@ def build_execution_router(context: WebContext) -> APIRouter:
             )
         except SecretStoreError:
             has_stored_key = False
+        reconciliation = context.reconciliation.current(project_id)
+        if reconciliation is not None:
+            load_rows = reconciliation.rows
+        elif preview.current_run is not None:
+            load_rows = preview.current_run.rows
+        else:
+            load_rows = ()
+        load_row_page = _load_row_page(
+            load_rows,
+            requested_page=request.query_params.get("rows_page"),
+            requested_page_size=request.query_params.get("rows_per_page"),
+        )
         return _render(
             request,
             "project_load.html",
             project=project,
             preview=preview,
-            reconciliation=context.reconciliation.current(project_id),
+            reconciliation=reconciliation,
+            load_row_page=load_row_page,
+            load_row_page_size_options=tuple(
+                {
+                    "size": size,
+                    "url": _load_row_page_url(1, size),
+                }
+                for size in LOAD_ROW_PAGE_SIZES
+            ),
+            load_row_previous_url=(
+                _load_row_page_url(
+                    load_row_page.page - 1,
+                    load_row_page.page_size,
+                )
+                if load_row_page.page > 1
+                else None
+            ),
+            load_row_next_url=(
+                _load_row_page_url(
+                    load_row_page.page + 1,
+                    load_row_page.page_size,
+                )
+                if load_row_page.page < load_row_page.page_count
+                else None
+            ),
             has_stored_key=has_stored_key,
             error=error,
             status_code=status_code,

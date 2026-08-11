@@ -2,7 +2,21 @@ from __future__ import annotations
 
 import unittest
 
-from impodo.web.presenters.summary import _preparation_limit_message
+from impodo.web.presenters.summary import (
+    _preparation_limit_message,
+    _summary_page_size,
+)
+
+
+class SummaryPageSizeTests(unittest.TestCase):
+    def test_accepts_only_the_four_bounded_display_sizes(self) -> None:
+        self.assertEqual(
+            tuple(_summary_page_size(str(size)) for size in (10, 20, 50, 100)),
+            (10, 20, 50, 100),
+        )
+        self.assertEqual(_summary_page_size(None), 20)
+        self.assertEqual(_summary_page_size("5000"), 20)
+        self.assertEqual(_summary_page_size("invalid"), 20)
 
 
 class PreparationLimitCopyTests(unittest.TestCase):

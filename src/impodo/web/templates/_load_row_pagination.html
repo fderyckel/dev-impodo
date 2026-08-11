@@ -1,0 +1,17 @@
+<nav class="field-catalog-navigation" aria-label="Load row pages">
+  <div class="field-page-size" aria-label="Number of load rows shown per page">
+    <span>Rows per page:</span>
+    {% for option in load_row_page_size_options %}
+      <a
+        class="field-count-button{% if option.size == load_row_page.page_size %} active{% endif %}"
+        href="{{ option.url }}"
+        {% if option.size == load_row_page.page_size %}aria-current="page"{% endif %}
+      >{{ option.size }}</a>
+    {% endfor %}
+  </div>
+  <div class="field-pagination">
+    {% if load_row_previous_url %}<a class="button secondary" href="{{ load_row_previous_url }}">Previous</a>{% endif %}
+    <span class="muted">Page {{ load_row_page.page }} of {{ load_row_page.page_count }}</span>
+    {% if load_row_next_url %}<a class="button secondary" href="{{ load_row_next_url }}">Next</a>{% endif %}
+  </div>
+</nav>

@@ -104,15 +104,16 @@
         </div>
       </section>
 
-      <section class="form-card" aria-labelledby="row-outcomes-title">
+      <section class="form-card" id="row-outcomes" aria-labelledby="row-outcomes-title">
         <h2 id="row-outcomes-title">Verified write rows</h2>
+        <p class="muted">Showing {{ load_row_page.first_row }}-{{ load_row_page.last_row }} of {{ load_row_page.total }} rows.</p>
         <div class="table-scroll">
           <table class="data-table">
             <thead>
               <tr><th>Prepared row</th><th>Odoo record</th><th>Action</th><th>Read-back result</th></tr>
             </thead>
             <tbody>
-              {% for row in reconciliation.rows %}
+              {% for row in load_row_page.rows %}
                 <tr data-load-row data-reconciliation-row>
                   <td>{{ row.dataset }} · row {{ row.source_row }}</td>
                   <td><code>{{ row.target_model }}</code>{% if row.odoo_id %} · {{ row.odoo_id }}{% endif %}</td>
@@ -128,6 +129,7 @@
             </tbody>
           </table>
         </div>
+        {% include "_load_row_pagination.html" %}
       </section>
     {% else %}
       <section class="next-action-card review" aria-labelledby="load-result-title">
@@ -161,15 +163,16 @@
         </form>
       </section>
 
-      <section class="form-card" aria-labelledby="row-outcomes-title">
+      <section class="form-card" id="row-outcomes" aria-labelledby="row-outcomes-title">
         <h2 id="row-outcomes-title">Saved API receipt</h2>
+        <p class="muted">Showing {{ load_row_page.first_row }}-{{ load_row_page.last_row }} of {{ load_row_page.total }} rows.</p>
         <div class="table-scroll">
           <table class="data-table">
             <thead>
               <tr><th>Prepared row</th><th>Odoo record</th><th>Action</th><th>API outcome</th></tr>
             </thead>
             <tbody>
-              {% for row in preview.current_run.rows %}
+              {% for row in load_row_page.rows %}
                 <tr data-load-row>
                   <td>{{ row.dataset }} · row {{ row.source_row }}</td>
                   <td><code>{{ row.target_model }}</code>{% if row.odoo_id %} · {{ row.odoo_id }}{% endif %}</td>
@@ -180,6 +183,7 @@
             </tbody>
           </table>
         </div>
+        {% include "_load_row_pagination.html" %}
       </section>
     {% endif %}
   {% elif preview.can_load %}

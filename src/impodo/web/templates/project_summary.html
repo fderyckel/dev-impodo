@@ -155,11 +155,19 @@
             </tbody>
           </table>
         </div>
-        {% if quality_review_page.page_count > 1 %}
-          <nav class="readiness-pagination" aria-label="Data-quality pages">
-            {% if quality_previous_url %}<a class="button secondary" href="{{ quality_previous_url }}">Previous</a>{% endif %}
-            <span class="muted">Page {{ quality_review_page.page }} of {{ quality_review_page.page_count }}</span>
-            {% if quality_next_url %}<a class="button secondary" href="{{ quality_next_url }}">Next</a>{% endif %}
+        {% if quality_review_page.matching_count > 10 %}
+          <nav class="field-catalog-navigation" aria-label="Prepared-data record pages">
+            <div class="field-page-size" aria-label="Number of prepared-data records shown per page">
+              <span>Records per page:</span>
+              {% for option in quality_page_size_options %}
+                <a class="field-count-button{% if option.size == quality_page_size %} active{% endif %}" href="{{ option.url }}" {% if option.size == quality_page_size %}aria-current="page"{% endif %}>{{ option.size }}</a>
+              {% endfor %}
+            </div>
+            <div class="field-pagination">
+              {% if quality_previous_url %}<a class="button secondary" href="{{ quality_previous_url }}">Previous</a>{% endif %}
+              <span class="muted">Page {{ quality_review_page.page }} of {{ quality_review_page.page_count }}</span>
+              {% if quality_next_url %}<a class="button secondary" href="{{ quality_next_url }}">Next</a>{% endif %}
+            </div>
           </nav>
         {% endif %}
       {% else %}
@@ -447,15 +455,23 @@
             </tbody>
           </table>
         </div>
-        {% if readiness_row_page_count > 1 %}
-          <nav class="readiness-pagination" aria-label="Readiness row pages">
-            {% if readiness_row_previous_url %}
-              <a class="button secondary" href="{{ readiness_row_previous_url }}" data-readiness-previous>Previous</a>
-            {% endif %}
-            <span class="muted">Page {{ readiness_row_page }} of {{ readiness_row_page_count }}</span>
-            {% if readiness_row_next_url %}
-              <a class="button secondary" href="{{ readiness_row_next_url }}" data-readiness-next>Next</a>
-            {% endif %}
+        {% if readiness_row_total > 10 %}
+          <nav class="field-catalog-navigation" aria-label="Checked-row pages">
+            <div class="field-page-size" aria-label="Number of checked rows shown per page">
+              <span>Rows per page:</span>
+              {% for option in readiness_page_size_options %}
+                <a class="field-count-button{% if option.size == readiness_page_size %} active{% endif %}" href="{{ option.url }}" {% if option.size == readiness_page_size %}aria-current="page"{% endif %}>{{ option.size }}</a>
+              {% endfor %}
+            </div>
+            <div class="field-pagination">
+              {% if readiness_row_previous_url %}
+                <a class="button secondary" href="{{ readiness_row_previous_url }}" data-readiness-previous>Previous</a>
+              {% endif %}
+              <span class="muted">Page {{ readiness_row_page }} of {{ readiness_row_page_count }}</span>
+              {% if readiness_row_next_url %}
+                <a class="button secondary" href="{{ readiness_row_next_url }}" data-readiness-next>Next</a>
+              {% endif %}
+            </div>
           </nav>
         {% endif %}
       {% else %}
