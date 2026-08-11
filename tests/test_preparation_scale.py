@@ -13,15 +13,19 @@ import sys
 from time import perf_counter, process_time, sleep
 import tempfile
 from threading import Event, Thread
+import tracemalloc
 import unittest
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from impodo.application import normalization_service as normalization_module
 from impodo.application import bounded_preparation as bounded_preparation_module
 from impodo.application import preparation_service as preparation_module
 from impodo.application import quality_service as quality_module
 from impodo.application.bounded_preparation import BOUNDED_SOURCE_BATCH_SIZE
+from impodo.application.preparation_capability import (
+    compile_preparation_capability,
+)
 from impodo.artifacts import LocalArtifactStore
 from impodo.domain.coverage import (
     CoverageApplicability,
@@ -108,15 +112,29 @@ PREPARATION_SCALE_DIRTY = (
 PREPARATION_BENCHMARK_PREFIX = "IMPODO_PREPARATION_BENCHMARK_JSON="
 
 
+def _benchmark_uuid(label: str) -> UUID:
+    """Return stable fixture identities so fresh-run hashes are comparable."""
+
+    fixture_key = (
+        f"{PREPARATION_SCALE_WORKLOAD}:"
+        f"{PREPARATION_SCALE_ROWS}:"
+        f"{PREPARATION_SCALE_COLUMNS}:"
+        f"{PREPARATION_SCALE_MAPPED_FIELDS}:"
+        f"{int(PREPARATION_SCALE_DIRTY)}"
+    )
+    return uuid5(NAMESPACE_URL, f"impodo:preparation-scale:{fixture_key}:{label}")
+
+
 class _PeakWorkingSetSampler:
     """Sample cross-platform process working set during the timed operation."""
 
-    def __init__(self, process, *, interval_seconds: float = 0.01) -> None:
+    def __init__(self, process, *, interval_seconds: float = 0.05) -> None:
         self._process = process
         self._interval_seconds = interval_seconds
         self._stop = Event()
         self._thread = Thread(target=self._sample_until_stopped, daemon=True)
         self.peak_bytes = 0
+        self.peak_tree_bytes = 0
 
     def __enter__(self) -> "_PeakWorkingSetSampler":
         self._sample()
@@ -133,9 +151,19 @@ class _PeakWorkingSetSampler:
             self._sample()
 
     def _sample(self) -> None:
-        memory = self._process.memory_info()
-        working_set = getattr(memory, "peak_wset", memory.rss)
-        self.peak_bytes = max(self.peak_bytes, working_set)
+        try:
+            memory = self._process.memory_info()
+            working_set = getattr(memory, "peak_wset", memory.rss)
+            self.peak_bytes = max(self.peak_bytes, working_set)
+            tree_bytes = memory.rss
+            for child in self._process.children(recursive=True):
+                try:
+                    tree_bytes += child.memory_info().rss
+                except Exception:  # Process may exit between discovery and read.
+                    continue
+            self.peak_tree_bytes = max(self.peak_tree_bytes, tree_bytes)
+        except Exception:  # The sampled process can exit at the end of a probe.
+            return
 
 
 @unittest.skipUnless(
@@ -166,8 +194,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             self.fail("The source fixture must include every mapped field")
         if PREPARATION_SCALE_MAPPED_FIELDS < 3:
             self.fail("The benchmark requires identity, changed, and numeric fields")
-        if PREPARATION_SCALE_WORKLOAD not in {"products", "bom"}:
-            self.fail("The benchmark workload must be 'products' or 'bom'")
+        if PREPARATION_SCALE_WORKLOAD not in {"products", "bom", "customers"}:
+            self.fail(
+                "The benchmark workload must be 'products', 'bom', or "
+                "'customers'"
+            )
 
         fixture_started = perf_counter()
         fixture_cpu_started = process_time()
@@ -183,6 +214,43 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
         if os.environ.get("IMPODO_PREPARATION_ADVANCED") == "1":
             self._enable_advanced_coverage(project_id)
+        revision = self.context.preparation.mappings.get_mapping_revision(project_id)
+        physical_selection = (
+            self.context.preparation.sources.get_source_selection(project_id)
+        )
+        effective_selection = (
+            self.context.preparation.sources.get_mapping_source_selection(
+                project_id
+            )
+        )
+        assert revision is not None
+        assert physical_selection is not None
+        assert effective_selection is not None
+        route_manifest = compile_preparation_capability(
+            definition=revision.definition,
+            physical_selection=physical_selection,
+            effective_selection=effective_selection,
+            source_snapshots=(
+                self.context.preparation.sources.get_current_source_snapshots(
+                    project_id
+                )
+            ),
+            derived_plan=(
+                self.context.preparation.derived_entities.get_derived_entity_plan(
+                    project_id
+                )
+            ),
+            current_ruleset=(
+                self.context.preparation.quality.current_ruleset(project_id)
+            ),
+            reference_bundle=(
+                self.context.preparation.resolution.current_reference_bundle(
+                    project_id
+                )
+                if self.context.preparation.resolution is not None
+                else None
+            ),
+        )
         fixture_seconds = perf_counter() - fixture_started
         fixture_cpu_seconds = process_time() - fixture_cpu_started
         fixture_peak_mib = fixture_memory_sampler.peak_bytes / (1024 * 1024)
@@ -191,6 +259,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         phase_wall_seconds: dict[str, float] = {}
         phase_cpu_seconds: dict[str, float] = {}
         phase_calls: dict[str, int] = {}
+        phase_checkpoint_rss_bytes: dict[str, int] = {}
 
         def record_phase(
             name: str,
@@ -224,6 +293,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                         perf_counter() - wall_started,
                         process_time() - cpu_started,
                         replace_existing=True,
+                    )
+                    phase_checkpoint_rss_bytes[name] = max(
+                        phase_checkpoint_rss_bytes.get(name, 0),
+                        process.memory_info().rss,
                     )
 
             return invoke
@@ -302,8 +375,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         original_canonical_json = bounded_preparation_module.canonical_json_bytes
 
+        trace_python_allocations = (
+            os.environ.get("IMPODO_PREPARATION_TRACE_PYTHON") == "1"
+        )
+        if trace_python_allocations:
+            tracemalloc.start()
         started = perf_counter()
         cpu_started = process_time()
+        process_cpu_started = process.cpu_times()
         with ExitStack() as stack:
             memory_sampler = stack.enter_context(_PeakWorkingSetSampler(process))
             stack.enter_context(
@@ -445,6 +524,15 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
         elapsed = perf_counter() - started
         cpu_seconds = process_time() - cpu_started
+        process_cpu_finished = process.cpu_times()
+        if trace_python_allocations:
+            python_traced_current, python_traced_peak = (
+                tracemalloc.get_traced_memory()
+            )
+            tracemalloc.stop()
+        else:
+            python_traced_current = 0
+            python_traced_peak = 0
 
         staging = (
             self.context.preparation.staging.get_current_staging_summary(
@@ -464,8 +552,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
         ending_mib = process.memory_info().rss / (1024 * 1024)
         peak_mib = memory_sampler.peak_bytes / (1024 * 1024)
+        peak_tree_mib = memory_sampler.peak_tree_bytes / (1024 * 1024)
         database_path = self.root / project_id / "project.duckdb"
-        database_mib = database_path.stat().st_size / (1024 * 1024)
         source_snapshots = (
             self.context.preparation.sources.get_current_source_snapshots(project_id)
         )
@@ -477,7 +565,58 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             ).stat().st_size
             for snapshot in source_snapshots
         )
+        prepared_snapshots = (
+            self.context.preparation.sessions.current_prepared_snapshots(project_id)
+        )
+        prepared_snapshot_bytes = sum(
+            (
+                self.root
+                / project_id
+                / snapshot.parquet_storage_key
+            ).stat().st_size
+            for snapshot in prepared_snapshots
+        )
         with self.context.preparation.staging._connect(database_path) as connection:
+            connection.execute("CHECKPOINT")
+            database_size_row = connection.execute(
+                "PRAGMA database_size"
+            ).fetchone()
+            memory_rows = connection.execute(
+                "SELECT memory_usage_bytes, temporary_storage_bytes "
+                "FROM duckdb_memory()"
+            ).fetchall()
+            serialized_rows = connection.execute(
+                """
+                SELECT 'canonical_staging_row',
+                       COALESCE(SUM(LENGTH(row_json)), 0)
+                  FROM canonical_staging_row
+                UNION ALL
+                SELECT 'quality_row_result',
+                       COALESCE(SUM(LENGTH(row_json)), 0)
+                  FROM quality_row_result
+                UNION ALL
+                SELECT 'quality_issue',
+                       COALESCE(SUM(LENGTH(issue_json)), 0)
+                  FROM quality_issue
+                UNION ALL
+                SELECT 'source_accounting_entry',
+                       COALESCE(SUM(LENGTH(entry_json)), 0)
+                  FROM source_accounting_entry
+                UNION ALL
+                SELECT 'quality_quarantine_entry',
+                       COALESCE(SUM(LENGTH(entry_json)), 0)
+                  FROM quality_quarantine_entry
+                UNION ALL
+                SELECT 'normalization_effect',
+                       COALESCE(SUM(LENGTH(effect_json)), 0)
+                  FROM normalization_effect
+                UNION ALL
+                SELECT 'normalization_group',
+                       COALESCE(SUM(LENGTH(group_json)), 0)
+                  FROM normalization_group
+                ORDER BY 1
+                """
+            ).fetchall()
             counters = connection.execute(
                 """
                 SELECT
@@ -497,6 +636,39 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                       + COALESCE((SELECT SUM(LENGTH(group_json)) FROM normalization_group), 0)
                 """
             ).fetchone()
+        assert database_size_row is not None
+        block_size = int(database_size_row[2])
+        database_file_bytes = database_path.stat().st_size
+        project_directory = self.root / project_id
+        project_storage_bytes = sum(
+            item.stat().st_size
+            for item in project_directory.rglob("*")
+            if item.is_file()
+        )
+        parquet_bytes = sum(
+            item.stat().st_size
+            for item in project_directory.rglob("*.parquet")
+            if item.is_file()
+        )
+        database_mib = database_file_bytes / (1024 * 1024)
+        storage_metrics = {
+            "database_file_bytes": database_file_bytes,
+            "database_free_bytes": block_size * int(database_size_row[5]),
+            "database_used_bytes": block_size * int(database_size_row[4]),
+            "duckdb_current_memory_bytes": sum(int(item[0]) for item in memory_rows),
+            "duckdb_current_temporary_bytes": sum(
+                int(item[1]) for item in memory_rows
+            ),
+            "parquet_bytes": parquet_bytes,
+            "prepared_snapshot_bytes": prepared_snapshot_bytes,
+            "project_storage_bytes": project_storage_bytes,
+            "serialized_characters_by_table": {
+                str(table): int(characters)
+                for table, characters in serialized_rows
+            },
+            "source_snapshot_bytes": snapshot_bytes,
+            "wal_size": str(database_size_row[6]),
+        }
         assert counters is not None
         (
             canonical_rows,
@@ -512,6 +684,55 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             f"{name}={seconds:.3f}s"
             for name, seconds in phase_wall_seconds.items()
         )
+        primary_phase_names = tuple(
+            name
+            for name in (
+                "load_and_evaluate",
+                "bounded_load_and_evaluate",
+                "staging_publication",
+                "quality",
+                "normalization",
+            )
+            if name in phase_wall_seconds
+        )
+        primary_wall_seconds = sum(
+            phase_wall_seconds[name] for name in primary_phase_names
+        )
+        primary_cpu_seconds = sum(
+            phase_cpu_seconds[name] for name in primary_phase_names
+        )
+        route_by_stage = {
+            item.stage: item.behavior.value for item in route_manifest.stages
+        }
+        vectorization_report = {
+            "full_canonical_rows_constructed": phase_calls.get(
+                "canonical_row_construction",
+                0,
+            ),
+            "full_prepared_records_constructed": phase_calls.get(
+                "prepared_record_construction",
+                0,
+            ),
+            "python_cell_callbacks": phase_calls.get(
+                "scalar_value_evaluation",
+                0,
+            ),
+            "python_row_callbacks": (
+                phase_calls.get("row_finish_inclusive", 0)
+                + phase_calls.get("prepared_record_construction", 0)
+            ),
+            "row_weighted_native_coverage_percent": (
+                100.0
+                if route_by_stage.get("transformation")
+                == "NATIVE_COLUMNAR"
+                else 0.0
+            ),
+            "rule_impact_python_replay_rows": phase_calls.get(
+                "canonical_row_construction",
+                0,
+            ),
+            "stage_routes": route_by_stage,
+        }
         print(
             "Complete preparation scale probe: "
             f"workload={PREPARATION_SCALE_WORKLOAD}, "
@@ -522,7 +743,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             f"fixture={fixture_seconds:.3f}s, total={elapsed:.3f}s, "
             f"fixture_peak={fixture_peak_mib:.1f} MiB, "
             f"peak={peak_mib:.1f} MiB, ending_rss={ending_mib:.1f} MiB, "
+            f"peak_tree={peak_tree_mib:.1f} MiB, "
             f"database={database_mib:.1f} MiB, "
+            f"database_used={storage_metrics['database_used_bytes'] / (1024 * 1024):.1f} MiB, "
+            f"project_storage={project_storage_bytes / (1024 * 1024):.1f} MiB, "
             f"snapshots={len(source_snapshots)}, snapshot_bytes={snapshot_bytes}, "
             f"source_bytes={source_size_bytes}, source_sha256={source_sha256}, "
             f"selected_cells={PREPARATION_SCALE_ROWS * PREPARATION_SCALE_COLUMNS}, "
@@ -554,6 +778,12 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     "serialized_characters": serialized_characters,
                 },
                 "cpu_seconds": cpu_seconds,
+                "cpu_system_seconds": (
+                    process_cpu_finished.system - process_cpu_started.system
+                ),
+                "cpu_user_seconds": (
+                    process_cpu_finished.user - process_cpu_started.user
+                ),
                 "database_mib": database_mib,
                 "dirty": PREPARATION_SCALE_DIRTY,
                 "ending_rss_mib": ending_mib,
@@ -574,21 +804,49 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 },
                 "mapped_fields": PREPARATION_SCALE_MAPPED_FIELDS,
                 "peak_working_set_mib": peak_mib,
+                "peak_process_tree_mib": peak_tree_mib,
                 "phase_calls": phase_calls,
                 "phase_cpu_seconds": phase_cpu_seconds,
+                "phase_checkpoint_rss_mib": {
+                    name: value / (1024 * 1024)
+                    for name, value in sorted(
+                        phase_checkpoint_rss_bytes.items()
+                    )
+                },
                 "phase_wall_seconds": phase_wall_seconds,
+                "phase_reconciliation": {
+                    "primary_cpu_seconds": primary_cpu_seconds,
+                    "primary_phase_names": list(primary_phase_names),
+                    "primary_wall_seconds": primary_wall_seconds,
+                    "unattributed_cpu_seconds": max(
+                        0.0,
+                        cpu_seconds - primary_cpu_seconds,
+                    ),
+                    "unattributed_wall_seconds": max(
+                        0.0,
+                        elapsed - primary_wall_seconds,
+                    ),
+                },
                 "platform": platform.platform(),
+                "python_traced_allocations": {
+                    "current_mib": python_traced_current / (1024 * 1024),
+                    "enabled": trace_python_allocations,
+                    "peak_mib": python_traced_peak / (1024 * 1024),
+                },
                 "python": sys.version,
                 "revision": os.environ.get(
                     "IMPODO_PREPARATION_BENCHMARK_REVISION",
                     "unknown",
                 ),
                 "rows": PREPARATION_SCALE_ROWS,
+                "route_manifest": route_manifest.to_portable_dict(),
                 "runtime_versions": {
                     name: _installed_version(name)
                     for name in ("duckdb", "openpyxl", "polars", "psutil")
                 },
-                "schema_version": 1,
+                "schema_version": 2,
+                "storage": storage_metrics,
+                "vectorization_report": vectorization_report,
                 "wall_seconds": elapsed,
                 "workload": PREPARATION_SCALE_WORKLOAD,
             }
@@ -957,11 +1215,16 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         mapped_field_count: int,
         dirty: bool = False,
     ) -> tuple[str, str, int]:
-        project = self.context.projects.create_project(
-            actor=self.context.actor,
-            name="100k complete preparation benchmark",
-            source_system="Deterministic CSV fixture",
-        )
+        benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        with patch(
+            "impodo.projects.uuid4",
+            return_value=_benchmark_uuid("project"),
+        ):
+            project = self.context.projects.create_project(
+                actor=self.context.actor,
+                name="100k complete preparation benchmark",
+                source_system="Deterministic CSV fixture",
+            )
         source_path = self.root / "preparation-scale-input.csv"
         headers = _headers(column_count, PREPARATION_SCALE_WORKLOAD)
         with source_path.open("w", encoding="utf-8", newline="") as stream:
@@ -977,7 +1240,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     )
                 )
 
-        file_id = str(uuid4())
+        file_id = str(_benchmark_uuid("source-file"))
         with source_path.open("rb") as stream:
             stored = self.artifacts.store_source(
                 project.project_id,
@@ -994,7 +1257,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             stored_name=stored.storage_key,
             size_bytes=stored.size_bytes,
             sha256=stored.sha256,
-            received_at=datetime.now(timezone.utc),
+            received_at=benchmark_now,
         )
         project = self.context.projects.add_source_file(
             project.project_id,
@@ -1002,7 +1265,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             expected_revision=project.revision,
             source_file=source,
         )
-        now = datetime.now(timezone.utc)
+        now = benchmark_now
         registered = replace(
             project,
             data_manager="Performance tester",
@@ -1011,11 +1274,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             odoo_connection_mode=OdooConnectionMode.LOCAL,
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_scale",
-            intended_models=(
-                "product.template"
-                if PREPARATION_SCALE_WORKLOAD == "products"
-                else "mrp.bom.line",
-            ),
+            intended_models=(_target_model(PREPARATION_SCALE_WORKLOAD),),
             status=ProjectStatus.REGISTERED,
             revision=project.revision + 1,
             updated_at=now,
@@ -1051,9 +1310,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             registered.project_id,
             dataset_names={
                 (source.file_id, "csv"): (
-                    "products"
-                    if PREPARATION_SCALE_WORKLOAD == "products"
-                    else "bom_lines"
+                    _dataset_name(PREPARATION_SCALE_WORKLOAD)
                 )
             },
             actor=self.context.actor,
@@ -1063,15 +1320,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         fields = tuple(
             ScalarFieldMapping(
                 target_field=(
-                    (
-                        "default_code"
-                        if PREPARATION_SCALE_WORKLOAD == "products"
-                        else "x_bom_reference"
-                    )
+                    _identity_target_fields(PREPARATION_SCALE_WORKLOAD)[0]
                     if index == 0
                     else (
                         "name"
-                        if PREPARATION_SCALE_WORKLOAD == "products"
+                        if PREPARATION_SCALE_WORKLOAD in {"products", "customers"}
                         else "x_line_reference"
                     )
                     if index == 1
@@ -1079,6 +1332,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                         "list_price"
                         if PREPARATION_SCALE_WORKLOAD == "products"
                         else "product_qty"
+                        if PREPARATION_SCALE_WORKLOAD == "bom"
+                        else "credit_limit"
                     )
                     if index == 2
                     else f"x_scale_{index:02d}"
@@ -1095,40 +1350,34 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             for index in range(mapped_field_count)
         )
         definition = MappingDefinition(
-            mapping_id=str(uuid4()),
+            mapping_id=str(_benchmark_uuid("mapping")),
             source_selection_hash=selection.content_hash,
             schema_hash="sha256:" + "5" * 64,
             datasets=(
                 DatasetMapping(
                     dataset_id=dataset.dataset_id,
-                    target_model=(
-                        "product.template"
-                        if PREPARATION_SCALE_WORKLOAD == "products"
-                        else "mrp.bom.line"
-                    ),
+                    target_model=_target_model(PREPARATION_SCALE_WORKLOAD),
                     mode=MappingTargetMode.UPSERT,
                     source_identity_column_keys=(
-                        (columns[0].stable_key,)
-                        if PREPARATION_SCALE_WORKLOAD == "products"
-                        else (
+                        (
                             columns[0].stable_key,
                             columns[1].stable_key,
                         )
+                        if PREPARATION_SCALE_WORKLOAD == "bom"
+                        else (columns[0].stable_key,)
                     ),
                     target_identity=(
                         IdentityComponentMapping(
                             source_column_keys=(
-                                (columns[0].stable_key,)
-                                if PREPARATION_SCALE_WORKLOAD == "products"
-                                else (
+                                (
                                     columns[0].stable_key,
                                     columns[1].stable_key,
                                 )
+                                if PREPARATION_SCALE_WORKLOAD == "bom"
+                                else (columns[0].stable_key,)
                             ),
-                            target_fields=(
-                                ("default_code",)
-                                if PREPARATION_SCALE_WORKLOAD == "products"
-                                else ("x_bom_reference", "x_line_reference")
+                            target_fields=_identity_target_fields(
+                                PREPARATION_SCALE_WORKLOAD
                             ),
                         ),
                     ),
@@ -1139,14 +1388,22 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                                 "Sales price total"
                                 if PREPARATION_SCALE_WORKLOAD == "products"
                                 else "Component quantity total"
+                                if PREPARATION_SCALE_WORKLOAD == "bom"
+                                else "Credit limit total"
                             ),
                             target_field=(
                                 "list_price"
                                 if PREPARATION_SCALE_WORKLOAD == "products"
                                 else "product_qty"
+                                if PREPARATION_SCALE_WORKLOAD == "bom"
+                                else "credit_limit"
                             ),
                             expected_total=str(row_count),
-                            unit="EUR",
+                            unit=(
+                                "unit"
+                                if PREPARATION_SCALE_WORKLOAD == "bom"
+                                else "EUR"
+                            ),
                         ),
                     ),
                 ),
@@ -1190,7 +1447,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         mapping_repository.save_mapping_submission(
             registered.project_id,
             MappingSubmission(
-                submission_id=str(uuid4()),
+                submission_id=str(_benchmark_uuid("mapping-submission")),
                 mapping_id=definition.mapping_id,
                 version=revision.version,
                 mapping_content_hash=definition.content_hash,
@@ -1212,9 +1469,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         assert revision is not None
         dataset_mapping = revision.definition.datasets[0]
         dataset_name = selection.datasets[0].name
-        now = datetime.now(timezone.utc)
+        now = datetime(2026, 1, 1, tzinfo=timezone.utc)
         scope = CoverageScopeRevision(
-            scope_id=str(uuid4()),
+            scope_id=str(_benchmark_uuid("coverage-scope")),
             project_id=project_id,
             version=1,
             parent_version=None,
@@ -1272,7 +1529,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
         )
         reference = ReferenceDataSet(
-            reference_id=str(uuid4()),
+            reference_id=str(_benchmark_uuid("reference-bundle")),
             version=1,
             name="Scale approved values",
             key_fields=("value",),
@@ -1287,7 +1544,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             sorted(item.target_field for item in dataset_mapping.fields)
         )
         policy = ResolutionPolicy(
-            policy_id=str(uuid4()),
+            policy_id=str(_benchmark_uuid("resolution-policy")),
             project_id=project_id,
             version=1,
             parent_version=None,
@@ -1297,7 +1554,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             reference_bundle_hash=bundle.content_hash,
             rules=(
                 ResolutionRule(
-                    rule_id=str(uuid4()),
+                    rule_id=str(_benchmark_uuid("resolution-rule")),
                     dataset=dataset_name,
                     blocking_fields=(target_fields[0],),
                     comparison_fields=(
@@ -2176,9 +2433,17 @@ class BoundedPreparationParityTests(unittest.TestCase):
 
 def _headers(column_count: int, workload: str) -> tuple[str, ...]:
     return (
-        "product_reference" if workload == "products" else "bom_reference",
-        "name" if workload == "products" else "line_reference",
-        "list_price" if workload == "products" else "quantity",
+        "product_reference"
+        if workload == "products"
+        else "bom_reference"
+        if workload == "bom"
+        else "customer_reference",
+        "line_reference" if workload == "bom" else "name",
+        "list_price"
+        if workload == "products"
+        else "quantity"
+        if workload == "bom"
+        else "credit_limit",
         *(f"field_{index:02d}" for index in range(3, column_count)),
     )
 
@@ -2196,11 +2461,13 @@ def _source_values(
             f"P{identity_index:06d}"
             if workload == "products"
             else f"BOM{identity_index // 10:06d}"
+            if workload == "bom"
+            else f"C{identity_index:06d}"
         ),
         (
-            f" Product {index:06d} "
-            if workload == "products"
-            else f" L{identity_index:06d} "
+            f" L{identity_index:06d} "
+            if workload == "bom"
+            else f" {workload.removesuffix('s').title()} {index:06d} "
         ),
         "1",
         *(
@@ -2208,6 +2475,30 @@ def _source_values(
             for column in range(3, column_count)
         ),
     )
+
+
+def _dataset_name(workload: str) -> str:
+    return {
+        "bom": "bom_lines",
+        "customers": "customers",
+        "products": "products",
+    }[workload]
+
+
+def _target_model(workload: str) -> str:
+    return {
+        "bom": "mrp.bom.line",
+        "customers": "res.partner",
+        "products": "product.template",
+    }[workload]
+
+
+def _identity_target_fields(workload: str) -> tuple[str, ...]:
+    return {
+        "bom": ("x_bom_reference", "x_line_reference"),
+        "customers": ("ref",),
+        "products": ("default_code",),
+    }[workload]
 
 
 def _catalog(

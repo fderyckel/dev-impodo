@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
-import re
 from typing import Iterator
 
 from ..columnar_runtime import configure_columnar_runtime
@@ -107,6 +106,14 @@ class _IdentityComponentLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class _RuleObservationLayout:
+    rule: TransformationRuleImpact
+    evaluated_alias: str
+    matched_alias: str
+    changed_alias: str
+
+
+@dataclass(frozen=True, slots=True)
 class _ExecutionLayout:
     scalars: tuple[_ScalarLayout, ...]
     source_identity: tuple[_IdentityComponentLayout, ...]
@@ -186,6 +193,23 @@ def iter_polars_prepared_batches(
         cache=False,
         parallel="auto",
     ).select(layout.output_columns)
+    rule_observations, rule_expressions = _compile_rule_observations(
+        program,
+        layout,
+    )
+    if rule_expressions:
+        lazy = lazy.with_columns(rule_expressions).select(
+            *layout.output_columns,
+            *(
+                alias
+                for observation in rule_observations
+                for alias in (
+                    observation.evaluated_alias,
+                    observation.matched_alias,
+                    observation.changed_alias,
+                )
+            ),
+        )
     observed_rows = 0
     previous_source_row = 0
     try:
@@ -198,7 +222,12 @@ def iter_polars_prepared_batches(
                 raise SourceLoadError(
                     "Prepared transformation batch exceeded its bound"
                 )
-            batch = _adapt_frame(frame, program, layout)
+            batch = _adapt_frame(
+                frame,
+                program,
+                layout,
+                rule_observations,
+            )
             for source_row in batch.source_rows:
                 if source_row <= previous_source_row:
                     raise SourceLoadError("Prepared source row order is invalid")
@@ -610,45 +639,11 @@ def _text_expression(
         elif operation is ColumnarOperationKind.COLLAPSE_WHITESPACE:
             result = result.str.replace_all(r"\s+", " ")
         elif operation is ColumnarOperationKind.REPLACE_LITERAL:
-            assert step.text is not None and step.replacement is not None
-            result = (
-                result.str.replace_all(
-                    step.text,
-                    step.replacement,
-                    literal=True,
-                )
-                if step.flag
-                else result.str.replace(
-                    step.text,
-                    step.replacement,
-                    literal=True,
-                    n=1,
-                )
-            )
+            result = _native_replacement_expression(result, step)
         elif operation is ColumnarOperationKind.REPLACE_PREFIX:
-            assert step.text is not None and step.replacement is not None
-            result = (
-                pl.when(result.str.starts_with(step.text))
-                .then(
-                    pl.concat_str(
-                        pl.lit(step.replacement),
-                        result.str.strip_prefix(step.text),
-                    )
-                )
-                .otherwise(result)
-            )
+            result = _native_replacement_expression(result, step)
         elif operation is ColumnarOperationKind.REPLACE_SUFFIX:
-            assert step.text is not None and step.replacement is not None
-            result = (
-                pl.when(result.str.ends_with(step.text))
-                .then(
-                    pl.concat_str(
-                        result.str.strip_suffix(step.text),
-                        pl.lit(step.replacement),
-                    )
-                )
-                .otherwise(result)
-            )
+            result = _native_replacement_expression(result, step)
         elif operation is ColumnarOperationKind.CASE_UPPER:
             result = result.str.to_uppercase()
         elif operation is ColumnarOperationKind.CASE_LOWER:
@@ -911,6 +906,7 @@ def _adapt_frame(
     frame: pl.DataFrame,
     program: ColumnarTransformationProgram,
     layout: _ExecutionLayout,
+    rule_observations: tuple[_RuleObservationLayout, ...],
 ) -> ColumnarTransformationBatch:
     indexes = {name: index for index, name in enumerate(frame.columns)}
     records: list[PreparedRecord] = []
@@ -923,11 +919,7 @@ def _adapt_frame(
         "provided": 0,
         "unchanged": 0,
     }
-    rule_impacts = {
-        rule.rule_fingerprint: rule
-        for scalar in layout.scalars
-        for _step, rule in _columnar_rule_definitions(program, scalar.field)
-    }
+    rule_impacts = _aggregate_rule_observations(frame, rule_observations)
     source_rows: list[int] = []
     scalar_by_index = {index: item for index, item in enumerate(layout.scalars)}
     identity_by_kind = {
@@ -1015,22 +1007,6 @@ def _adapt_frame(
         impacts.extend(identity_impacts)
         counts["changed"] += len(identity_impacts)
         for index, scalar_layout in scalar_by_index.items():
-            rule_results = _columnar_rule_results(
-                program,
-                scalar_layout.field,
-                raw_by_ordinal,
-            )
-            for rule, matched, changed in rule_results:
-                current = rule_impacts[rule.rule_fingerprint]
-                rule_impacts[rule.rule_fingerprint] = TransformationRuleImpact(
-                    dataset_id=current.dataset_id,
-                    target_field=current.target_field,
-                    rule_kind=current.rule_kind,
-                    rule_fingerprint=current.rule_fingerprint,
-                    evaluated_value_count=current.evaluated_value_count + 1,
-                    matched_value_count=current.matched_value_count + int(matched),
-                    changed_value_count=current.changed_value_count + int(changed),
-                )
             impact, outcome = _scalar_impact(
                 row,
                 indexes,
@@ -1107,146 +1083,179 @@ def _columnar_rule_definitions(
     return tuple(definitions)
 
 
-def _columnar_rule_results(
+def _compile_rule_observations(
     program: ColumnarTransformationProgram,
-    field: ColumnarScalarFieldProgram,
-    raw_by_ordinal: dict[int, tuple[object, int]],
-) -> tuple[tuple[TransformationRuleImpact, bool, bool], ...]:
-    """Observe every native text rule in the same authored execution order."""
+    layout: _ExecutionLayout,
+) -> tuple[tuple[_RuleObservationLayout, ...], tuple[pl.Expr, ...]]:
+    """Compile sparse rule observations as transient native expressions."""
 
-    definitions = dict(_columnar_rule_definitions(program, field))
-    if not definitions:
-        return ()
-    provider = field.provider
-    raw = (
-        _source_python(*raw_by_ordinal[provider.source.ordinal])
-        if provider.source is not None
-        else None
-    )
-    source_choice = str(raw).strip() if raw is not None else None
-    if any(source_choice == source for source, _target in provider.value_mappings):
-        return ()
-    if provider.operation is ColumnarOperationKind.USE_CONSTANT:
-        selected = provider.literal_value
-    elif provider.operation is ColumnarOperationKind.SOURCE_FALLBACK:
-        selected = _apply_native_text_steps(raw, provider.fallback_probe_steps)
-        if selected is None:
-            selected = provider.literal_value
-    else:
-        selected = raw
-    result = None if selected is None else str(selected)
-    observations = []
-    for step in field.transform_steps:
-        if result is None:
-            break
-        operation = step.operation
-        if operation is ColumnarOperationKind.TRIM:
-            result = result.strip()
-        elif operation is ColumnarOperationKind.COLLAPSE_WHITESPACE:
-            result = re.sub(r"\s+", " ", result)
-        elif operation in {
-            ColumnarOperationKind.REPLACE_LITERAL,
-            ColumnarOperationKind.REPLACE_PREFIX,
-            ColumnarOperationKind.REPLACE_SUFFIX,
-        }:
-            if result == "":
+    observations: list[_RuleObservationLayout] = []
+    expressions: list[pl.Expr] = []
+    for scalar_index, scalar in enumerate(layout.scalars):
+        field = scalar.field
+        definitions = dict(_columnar_rule_definitions(program, field))
+        if not definitions:
+            continue
+        result, mapped = _provider_expression(field)
+        for step in field.transform_steps:
+            operation = step.operation
+            if operation is ColumnarOperationKind.RENDER_TEXT:
                 continue
-            before = result
-            matched = _native_step_matches(before, step)
-            result = _apply_native_replacement(result, step)
-            rule = definitions[step]
-            observations.append(
-                (rule, matched, result != before)
+            if operation is ColumnarOperationKind.TRIM:
+                result = result.str.strip_chars()
+                continue
+            if operation is ColumnarOperationKind.COLLAPSE_WHITESPACE:
+                result = result.str.replace_all(r"\s+", " ")
+                continue
+            if operation in {
+                ColumnarOperationKind.REPLACE_LITERAL,
+                ColumnarOperationKind.REPLACE_PREFIX,
+                ColumnarOperationKind.REPLACE_SUFFIX,
+            }:
+                rule = definitions[step]
+                rule_index = len(observations)
+                prefix = f"__impodo_rule_{scalar_index:06d}_{rule_index:06d}"
+                observation = _RuleObservationLayout(
+                    rule=rule,
+                    evaluated_alias=f"{prefix}_evaluated",
+                    matched_alias=f"{prefix}_matched",
+                    changed_alias=f"{prefix}_changed",
+                )
+                evaluated = (
+                    (~mapped) & result.is_not_null() & (result != "")
+                ).fill_null(False)
+                matched = (
+                    evaluated & _native_replacement_match_expression(result, step)
+                ).fill_null(False)
+                replaced = _native_replacement_expression(result, step)
+                changed = (evaluated & (replaced != result)).fill_null(False)
+                observations.append(observation)
+                expressions.extend(
+                    (
+                        evaluated.alias(observation.evaluated_alias),
+                        matched.alias(observation.matched_alias),
+                        changed.alias(observation.changed_alias),
+                    )
+                )
+                result = replaced
+                continue
+            if operation is ColumnarOperationKind.CASE_UPPER:
+                result = result.str.to_uppercase()
+                continue
+            if operation is ColumnarOperationKind.CASE_LOWER:
+                result = result.str.to_lowercase()
+                continue
+            if operation is ColumnarOperationKind.EMPTY_AS_NULL:
+                result = (
+                    pl.when(result == "")
+                    .then(pl.lit(None, dtype=pl.String))
+                    .otherwise(result)
+                )
+                continue
+            if operation is ColumnarOperationKind.VALIDATE_RULE_OUTPUT_LENGTH:
+                continue
+            raise ValueError(
+                f"Unsupported native text operation {operation.value}"
             )
-        elif operation is ColumnarOperationKind.CASE_UPPER:
-            result = result.upper()
-        elif operation is ColumnarOperationKind.CASE_LOWER:
-            result = result.lower()
-        elif operation is ColumnarOperationKind.EMPTY_AS_NULL and result == "":
-            result = None
-    return tuple(observations)
+    return tuple(observations), tuple(expressions)
 
 
-def _apply_native_replacement(
-    value: str,
+def _aggregate_rule_observations(
+    frame: pl.DataFrame,
+    observations: tuple[_RuleObservationLayout, ...],
+) -> dict[str, TransformationRuleImpact]:
+    """Reduce native boolean observations without replaying values in Python."""
+
+    if not observations:
+        return {}
+    aggregates = frame.select(
+        *(
+            pl.col(alias).sum().alias(alias)
+            for observation in observations
+            for alias in (
+                observation.evaluated_alias,
+                observation.matched_alias,
+                observation.changed_alias,
+            )
+        )
+    ).row(0, named=True)
+    return {
+        observation.rule.rule_fingerprint: TransformationRuleImpact(
+            dataset_id=observation.rule.dataset_id,
+            target_field=observation.rule.target_field,
+            rule_kind=observation.rule.rule_kind,
+            rule_fingerprint=observation.rule.rule_fingerprint,
+            evaluated_value_count=int(
+                aggregates[observation.evaluated_alias] or 0
+            ),
+            matched_value_count=int(
+                aggregates[observation.matched_alias] or 0
+            ),
+            changed_value_count=int(
+                aggregates[observation.changed_alias] or 0
+            ),
+        )
+        for observation in observations
+    }
+
+
+def _native_replacement_expression(
+    value: pl.Expr,
     step: ColumnarExpressionStep,
-) -> str:
+) -> pl.Expr:
     assert step.text is not None and step.replacement is not None
     if step.operation is ColumnarOperationKind.REPLACE_LITERAL:
-        return value.replace(
-            step.text,
-            step.replacement,
-            -1 if step.flag else 1,
+        return (
+            value.str.replace_all(
+                step.text,
+                step.replacement,
+                literal=True,
+            )
+            if step.flag
+            else value.str.replace(
+                step.text,
+                step.replacement,
+                literal=True,
+                n=1,
+            )
         )
     if step.operation is ColumnarOperationKind.REPLACE_PREFIX:
         return (
-            f"{step.replacement}{value[len(step.text):]}"
-            if value.startswith(step.text)
-            else value
+            pl.when(value.str.starts_with(step.text))
+            .then(
+                pl.concat_str(
+                    pl.lit(step.replacement),
+                    value.str.strip_prefix(step.text),
+                )
+            )
+            .otherwise(value)
         )
     if step.operation is ColumnarOperationKind.REPLACE_SUFFIX:
         return (
-            f"{value[:-len(step.text)]}{step.replacement}"
-            if value.endswith(step.text)
-            else value
+            pl.when(value.str.ends_with(step.text))
+            .then(
+                pl.concat_str(
+                    value.str.strip_suffix(step.text),
+                    pl.lit(step.replacement),
+                )
+            )
+            .otherwise(value)
         )
     raise ValueError("Unsupported native replacement operation")
 
 
-def _native_step_matches(value: str, step: ColumnarExpressionStep) -> bool:
+def _native_replacement_match_expression(
+    value: pl.Expr,
+    step: ColumnarExpressionStep,
+) -> pl.Expr:
     assert step.text is not None
     if step.operation is ColumnarOperationKind.REPLACE_LITERAL:
-        return step.text in value
+        return value.str.contains(step.text, literal=True)
     if step.operation is ColumnarOperationKind.REPLACE_PREFIX:
-        return value.startswith(step.text)
+        return value.str.starts_with(step.text)
     if step.operation is ColumnarOperationKind.REPLACE_SUFFIX:
-        return value.endswith(step.text)
+        return value.str.ends_with(step.text)
     raise ValueError("Unsupported native replacement operation")
-
-
-def _apply_native_text_steps(
-    value: object,
-    steps: tuple[ColumnarExpressionStep, ...],
-    *,
-    stop_before_replace: bool = False,
-) -> str | None:
-    result = None if value is None else str(value)
-    for step in steps:
-        if result is None:
-            return None
-        operation = step.operation
-        if operation in {
-            ColumnarOperationKind.REPLACE_LITERAL,
-            ColumnarOperationKind.REPLACE_PREFIX,
-            ColumnarOperationKind.REPLACE_SUFFIX,
-        } and stop_before_replace:
-            return result
-        if operation is ColumnarOperationKind.RENDER_TEXT:
-            continue
-        if operation is ColumnarOperationKind.TRIM:
-            result = result.strip()
-        elif operation is ColumnarOperationKind.COLLAPSE_WHITESPACE:
-            result = re.sub(r"\s+", " ", result)
-        elif operation in {
-            ColumnarOperationKind.REPLACE_LITERAL,
-            ColumnarOperationKind.REPLACE_PREFIX,
-            ColumnarOperationKind.REPLACE_SUFFIX,
-        }:
-            result = _apply_native_replacement(result, step)
-        elif operation is ColumnarOperationKind.CASE_UPPER:
-            result = result.upper()
-        elif operation is ColumnarOperationKind.CASE_LOWER:
-            result = result.lower()
-        elif operation is ColumnarOperationKind.EMPTY_AS_NULL and result == "":
-            return None
-    return result
-
-
-def _source_python(text: object, kind_value: int) -> object:
-    return EncodedSourceCell(
-        kind=SourceCellKind(kind_value),
-        text=str(text) if text is not None else None,
-    ).to_python()
 
 
 def _flatten_identity(

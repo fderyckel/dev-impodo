@@ -46,11 +46,11 @@ from ..source_snapshot_io import (
 from ..workspace_contracts import SourceSelection
 from ..domain.errors import ReadinessError
 from .bounded_preparation import (
-    direct_preparation_row_limit,
     prepare_bounded_direct_session,
     supports_bounded_direct_preparation,
 )
 from .normalization_service import NormalizationService
+from .preparation_capability import compile_preparation_capability
 from .quality_service import QualityService
 from .resolution_service import ResolutionService
 from .readiness_ports import (
@@ -166,6 +166,16 @@ class PreparationService:
         )
 
         derived_plan = self.derived_entities.get_derived_entity_plan(project_id)
+        capability = compile_preparation_capability(
+            definition=revision.definition,
+            physical_selection=physical_selection,
+            effective_selection=effective_selection,
+            source_snapshots=source_snapshots,
+            derived_plan=derived_plan,
+            current_ruleset=self.quality.current_ruleset(project_id),
+            reference_bundle=reference_bundle,
+        )
+        capability.require_supported()
         bounded_session_id: str | None = None
         bounded_canonical_run: StoredCanonicalStagingRun | None = None
         impact_rows: Iterable[TransformationImpactRow]
@@ -191,14 +201,6 @@ class PreparationService:
             effective_selection,
             derived_plan,
         ):
-            require_supported_browser_scale(
-                physical_selection,
-                supported_limit=direct_preparation_row_limit(
-                    revision.definition,
-                    effective_selection,
-                    source_snapshots,
-                ),
-            )
             bounded = prepare_bounded_direct_session(
                 project,
                 revision.definition,
@@ -325,6 +327,9 @@ class PreparationService:
                 ),
                 reference_bundle,
                 actor=actor,
+                allow_materialized_fallback=(
+                    capability.permits_materialized_fallback
+                ),
             )
             report_progress(
                 PreparationPhase.NORMALIZING,
@@ -344,6 +349,9 @@ class PreparationService:
                 source_hashes,
                 effective,
                 actor=actor,
+                allow_materialized_fallback=(
+                    capability.permits_materialized_fallback
+                ),
             )
             if bounded_session_id is not None:
                 self.sessions.mark_published(project_id, bounded_session_id)

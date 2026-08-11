@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Status:** Detailed implementation proposal.
+**Status:** Repository-checked implementation proposal, revised 2026-08-11.
 
 This document defines a scoped delivery path for using Odoo 19 records as
 governed Impodo source data and, when explicitly authorized, applying reviewed
@@ -15,6 +15,14 @@ database acts as both source and destination; the operator selects existing
 records, freezes them locally, transforms selected fields, reviews a fresh
 comparison, and performs update-only writes. Production authorization remains
 separate from feature completeness.
+
+The repository check found several prerequisites that must be delivered before
+record capture. In particular, an Odoo-only project cannot currently be
+registered without a source file, detailed schema capture currently requires a
+frozen file dataset, read and write credentials currently share one vault key,
+and the existing portable execution snapshot deliberately rejects numeric Odoo
+IDs. The phased sequence below resolves those constraints explicitly rather
+than treating source capture as an adapter-only change.
 
 ## 1. Outcome
 
@@ -82,26 +90,74 @@ broad or extra record projections. Odoo source capture needs a separate,
 equally narrow capability with different authorization, limits, evidence, and
 audit semantics.
 
+Some foundations require refactoring rather than direct reuse:
+
+- `MigrationProject` and registration currently require a received export date
+  and at least one source file;
+- `SchemaWorkspaceService._capture_context` currently requires a frozen source
+  selection, which creates a cycle when Odoo field metadata is needed to choose
+  Odoo source fields;
+- `SourceDataset` and `SourceSnapshot` require file-specific identifiers, and
+  the current logical snapshot hash has no Odoo row-data hash;
+- the live reader uses offset pagination and materializes all returned records,
+  neither of which is suitable for source capture;
+- `ExecutionSnapshot` is portable and calls
+  `assert_no_numeric_odoo_ids`, so protected IDs must remain in a separate
+  execution companion rather than being added to that snapshot; and
+- the same project credential ID is currently used by schema reads, preflight,
+  execution, and reconciliation.
+
+### 2.1 Repository-check findings and required responses
+
+| Blind spot | Consequence if left unresolved | Required response |
+| --- | --- | --- |
+| File-only registration | An Odoo-only project cannot reach Stage B | Add a project-level `FILE`/`ODOO` source mode and origin-specific registration rules before capture work |
+| Source-before-schema gate | Odoo capture needs field metadata that cannot currently be captured yet | For `ODOO` projects, permit model discovery and capture-eligibility schema before source freeze; keep business-key governance after source freeze |
+| Ambiguous `target_hash` vocabulary | Connector target identity and schema-scope identity can be confused | Separate `connection_target_hash`, `target_instance_hash`, and `schema_scope_hash` contracts |
+| Endpoint/database is not an instance identity | A restored or replaced database at the same URL/name can reuse numeric IDs | Treat endpoint identity as disposable-only; require a database/deployment instance fingerprint and restore invalidation for production |
+| Shared credential slot | Entering a write key can silently replace the read identity | Use distinct read and write vault entries, prompts, probes, and audit fingerprints with no fallback between them |
+| Offset pagination | Concurrent inserts/deletes can skip rows even when duplicate IDs are rejected | Use high-water-marked keyset pagination (`id > last_id` and `id <= high_water_id`) |
+| No database-wide snapshot transaction | Pages can reflect different instants and filter membership can change during capture | State the consistency contract honestly, record the capture interval/high-water mark, and reserve strict point-in-time export for a server-side seam |
+| Missing response-byte bound | A wide page can exceed memory before row limits are checked | Add request, response, per-cell, per-row, page, snapshot, disk, and historical-project byte limits at the transport boundary |
+| Incomplete field metadata | `readonly` and type alone cannot govern stored, computed, translated, company-dependent, searchable, or numeric fields | Capture `store`, `compute`, `inverse`, `related`, `translate`, `company_dependent`, `searchable`, `sortable`, `exportable`, `digits`, and `currency_field` where applicable |
+| Numeric and monetary fidelity | JSON floating-point values and missing Odoo precision metadata can cause phantom differences or non-idempotent writes | Keep float/decimal/monetary out of Tier 1; qualify them with field-specific rounding and currency evidence later |
+| Missing target-field baseline | A source column can be mapped to a target field that was never captured | Require every proposed write field to have a captured baseline under the exact same context |
+| Existing compiler assumes business identities | Blank or duplicate human keys would still block before protected-ID matching | Add an explicit Odoo-pinned update mode with an opaque row-origin reference outside portable canonical values |
+| Portable execution snapshot rejects IDs | Putting Odoo IDs into it would break an intentional invariant and exports | Persist a protected execution-origin companion keyed by execution row ID/hash |
+| `write_date` policy is inconsistent with field-level concurrency | A coarse `write_date` guard blocks harmless changes, while ignoring it leaves a race | Define separate disposable and production policies; production requires one atomic lock/check/write transaction |
+| Generic `write` has business side effects | Model overrides, automation, tracking, mail, and computed fields can change more than the reviewed values | Add project-specific writable-field governance and model/automation qualification; never infer “scalar” means side-effect-free |
+| Current reports omit business values | The requested baseline/proposed/current review cannot be reconstructed from readiness summaries | Add a protected, paged, hash-bound three-way field-difference artifact |
+| Process-only job state and unlimited history | Restart loses progress and repeated immutable captures can exhaust disk | Make candidate cleanup restart-safe; add per-project historical quota and retention behavior before browser release |
+| JSON-2 entitlement is assumed | Some Odoo deployments cannot use the external API | Make Odoo 19 JSON-2 availability and the applicable Odoo plan/deployment entitlement an installation preflight |
+
 ## 3. First supported profile
 
 ### 3.1 Included
 
 - Odoo version 19 only.
+- A project declares `ODOO` source mode before registration and does not need a
+  placeholder source file or export date.
 - The configured Impodo Odoo target is also the source database.
 - Persistent, concrete models already present in the current target-bound
   model catalogue.
 - One Odoo model per captured source dataset.
 - Update-only round trips for records captured from that exact target.
-- Scalar fields supported by the existing canonical type system: text,
-  integer, float/decimal, monetary, boolean, date, datetime, and selection.
-- Stored or computed fields may be captured as context, but readonly fields
-  cannot become write intentions.
-- Explicit language, timezone, company, and archived-record context.
+- Tier-1 stored, non-relational scalar fields: bounded character/text, integer,
+  boolean, date, datetime, and selection.
+- Stored readonly fields may be captured as context, but cannot become write
+  intentions. Non-stored computed fields are not in Tier 1.
+- Tier-1 write fields must be stored, non-computed, non-related,
+  non-translated, non-company-dependent, statically non-readonly, explicitly
+  approved for this project, and present in the captured baseline.
+- Explicit language, timezone, primary company, ordered allowed-company set,
+  and archived-record context, bound through capture, comparison, execution,
+  and reconciliation.
 - Bounded paginated reads and immutable local Parquet publication.
 - Existing transformation, quality, normalization, comparison, execution,
   journaling, and reconciliation behavior.
-- Local and remote Odoo targets through a dedicated read credential for record
-  extraction. Existing no-key local metadata discovery remains unchanged.
+- Local and remote Odoo record extraction through a dedicated read credential.
+  Existing no-key local metadata discovery remains unchanged.
+- Odoo 19 JSON-2 is available and contractually enabled for the deployment.
 
 ### 3.2 Deferred to later increments
 
@@ -112,8 +168,14 @@ audit semantics.
 - Cross-Odoo migration where source database A differs from target database B.
 - Incremental or change-data capture.
 - Scheduling and unattended refresh.
+- Strict database-wide point-in-time capture across multiple JSON-2 calls.
 - Binary fields, images, attachments, HTML bodies, chatter, and mail records.
 - One2many capture as an editable parent list.
+- Non-stored computed fields and custom search methods as capture filters.
+- Float, decimal, and monetary writes until Odoo digits/currency semantics have
+  a retained idempotence qualification.
+- Translated and company-dependent writes until context-specific baseline,
+  write, and read-back semantics are qualified.
 - Delete, archive, unarchive, workflow transition, posting, or arbitrary Odoo
   business actions.
 - Production use before the production gates in this plan and the main roadmap
@@ -126,8 +188,10 @@ audit semantics.
 - Maximum 100 selected fields, subject to a lower byte-size limit for wide
   models.
 - Fixed read pages of at most 500 records.
-- A hard maximum response and snapshot size, measured and documented before
-  release.
+- Hard UTF-8 byte limits per value, row, response, snapshot, temporary capture,
+  and retained project history, measured and documented before release.
+- A disk-space preflight that includes temporary fragments and compaction
+  overhead.
 - No binary or unbounded x2many value in the first release.
 
 These are fail-closed release limits, not expected Odoo limits. Raise them only
@@ -145,7 +209,9 @@ evidence.
    dedicated read user's ACLs, record rules, and allowed companies.
 4. **No direct PostgreSQL access.** Odoo ORM/API behavior remains authoritative.
 5. **The source target is exact.** URL, database, connection mode, and Odoo
-   version are bound by the existing target fingerprint.
+   version are bound by the connection identity. Production additionally
+   requires a strong database/deployment instance fingerprint and documented
+   invalidation after restore or clone.
 6. **Numeric Odoo IDs remain target-internal.** They may exist in protected
    origin provenance and execution evidence, but never as user-authored mapping
    keys or portable review values.
@@ -161,267 +227,417 @@ evidence.
     concurrency checks are planned in bounded model-level batches.
 12. **Unknown write outcomes are never blindly retried.** Existing journal and
     reconciliation semantics remain authoritative.
+13. **Paging is keyset-based.** Source capture never uses offsets; one captured
+    high-water ID excludes records created after enumeration begins.
+14. **Capture consistency is not overstated.** Each page is transactionally
+    coherent, but native JSON-2 pages are not a database-wide point-in-time
+    snapshot. The manifest records this limitation.
+15. **Every write has a baseline.** A mapped target field cannot become a write
+    intent unless its value was captured from the same record and context.
+16. **Context is evidence.** Language, timezone, active-test behavior, primary
+    company, allowed companies, and credential principal are never silently
+    changed between capture, comparison, write, and read-back.
+17. **Portable and protected evidence remain separate.** Numeric IDs, company
+    IDs, principal IDs, and target-bound row-origin bindings never enter
+    portable mappings, canonical rows, workbooks, or the portable execution
+    snapshot.
+18. **A scalar write is still business logic.** Only project-approved fields
+    may be written, and production qualification accounts for model overrides,
+    automation, tracking, notifications, constraints, and computed side
+    effects.
 
 ## 5. Target architecture
 
-### 5.1 Separate Odoo-source capture port
+### 5.1 Project lifecycle and dependency order
 
-Introduce an application-facing Odoo-source capture capability distinct from
-the current metadata/preflight reader. A proposed contract may be named
-`OdooSourceCapturePort`; the exact name is an implementation choice.
+Add `source_mode: FILE | ODOO` to the project contract and select it during
+draft setup. The first release does not mix both modes in one project.
 
-It accepts only a service-generated request containing:
+- `FILE` registration and navigation retain their current behavior and hashes.
+- `ODOO` registration requires target connection details and governance owners,
+  but not an export date or placeholder file.
+- Model discovery is allowed after registration for both modes.
+- For `ODOO`, capture-eligibility field metadata is allowed before source
+  freeze. Business-key governance and mapping submission still follow source
+  freeze.
 
-- project ID and expected target hash;
+The Odoo-source journey becomes:
+
+```text
+Register ODOO project
+  -> verify read identity and target
+  -> discover/select one permitted model
+  -> capture eligibility metadata
+  -> choose/filter/freeze records
+  -> govern target schema where still required
+  -> map/transform/prepare
+  -> compare
+  -> optionally write
+```
+
+This conditional ordering breaks the current `source -> schema -> mapping`
+cycle without weakening the file-source workflow.
+
+### 5.2 Target, schema, principal, context, and credential identity
+
+Use distinct names and hashes for distinct facts:
+
+| Evidence | Meaning |
+| --- | --- |
+| `connection_target_hash` | Normalized connection mode, base URL, and database name; replaces the ambiguous generic target-hash usage |
+| `target_instance_hash` | Strong database/deployment identity, such as a narrowly exposed database UUID plus deployment nonce; mandatory for production exact-ID writes |
+| `schema_scope_hash` | Exact permitted model/field metadata and schema contract |
+| `principal_hash` | Stable, non-secret fingerprint of the Odoo read or write principal/credential binding |
+| `context_hash` | Canonical language, timezone, primary company, ordered allowed-company set, and `active_test` behavior |
+
+Endpoint/database identity alone is acceptable only for explicitly disposable
+acceptance. Before production, a narrow identity probe or gateway must expose a
+stable instance and principal identity without granting access to arbitrary
+`ir.config_parameter` values. A database restore, clone, or instance-identity
+change invalidates every current protected-ID binding.
+
+Split the existing credential storage into read and write roles:
+
+- metadata and business-data extraction use only the read credential;
+- fresh comparison normally uses the read credential;
+- the execution-time check, write, and read-back use the write credential;
+- the two roles have separate vault IDs, UI fields, service labels, permission
+  probes, and audit fingerprints; and
+- no route falls back from one role to the other.
+
+Credentials remain in process memory or the operating-system vault and never
+enter DuckDB, snapshots, reports, browser storage, or logs. An optional local
+no-key extractor remains deferred unless it can impersonate one explicit Odoo
+user and prove ACL and record-rule parity without `sudo()`.
+
+### 5.3 Separate Odoo-source capture port
+
+Introduce an application-facing `OdooSourceCapturePort` distinct from the
+metadata/preflight reader. It accepts only a service-generated request with:
+
+- project ID plus expected connection, instance, principal, schema-scope, and
+  context hashes;
 - one permitted persistent model;
-- an ordered, validated field projection;
-- a structured allowlisted filter expression;
-- fixed context values for language, timezone, allowed company IDs, and
-  archived-record inclusion;
-- page size, maximum rows, and maximum bytes; and
-- an expected schema-catalog hash.
+- one ordered, validated Tier-1 field projection;
+- one canonical structured filter;
+- fixed page, row, value, response, snapshot, temporary-disk, and project-history
+  limits; and
+- a cancellation probe checked between bounded requests and write batches.
 
-It returns deterministic pages ordered by numeric `id`, plus capture
-accounting. It exposes no write and no caller-selected method.
+The result is an iterator of validated pages and accounting, not a materialized
+record snapshot. The port exposes no write, raw domain, caller-selected method,
+caller-selected context key, arbitrary field path, or generic search surface.
+Transport and safe-error utilities may be shared, but the existing preflight
+request contract remains closed around prepared identities.
 
-The adapter may share the existing JSON-2 transport and redaction utilities,
-but it must not share the preflight request contract. The different contracts
-make it possible to permit a user-confirmed whole-model capture up to a hard
-limit without weakening the rule that preflight target reads must be narrowed
-by prepared identities.
+### 5.4 Field, filter, and context policy
 
-### 5.2 Credential decision
+Capture enough Odoo field description to make eligibility explicit. In
+addition to the current metadata, capture supported forms of `store`, `compute`,
+`inverse`, `related`, `translate`, `company_dependent`, `searchable`, `sortable`,
+`exportable`, `digits`, and `currency_field`.
 
-The first release should require a dedicated read credential for Odoo record
-extraction in both Local and Remote modes:
+Tier-1 projected fields are stored direct scalar fields. Initial filters allow:
 
-- metadata discovery may continue to use the existing fixed no-key local
-  reader;
-- business-data extraction uses Odoo JSON-2 with the dedicated user's ACLs and
-  record rules;
-- write credentials remain separate and are requested only at explicit load;
-  and
-- neither credential is stored in project DuckDB, mappings, snapshots,
-  reports, browser storage, or logs.
+- equality and bounded explicit sets for eligible scalar/selection fields;
+- inclusive/exclusive date and datetime ranges;
+- booleans;
+- active versus archived state only when the model has the reserved `active`
+  field; and
+- an explicit **All matching records up to the limit** choice.
 
-An optional local no-key extractor should be deferred unless it can switch to
-an explicitly selected Odoo user and prove ACL/record-rule parity without
-`sudo()`.
+Only direct fields that the captured metadata marks searchable can be filter
+fields. Bound the number of clauses, set members, and encoded bytes. Do not
+accept dotted traversal, custom domain operators, raw prefix-domain tokens, or
+non-stored/custom-search fields in Tier 1.
 
-### 5.3 Safe record selection
+The service constructs company and language choices from narrow target-bound
+catalogues. It validates the selected company set against the read principal,
+records the primary company and ordered allowed-company IDs in protected
+evidence, and applies the exact same context at every later read and write.
+Archived inclusion uses both explicit reserved-field policy and fixed
+`active_test` behavior; callers cannot inject other context keys.
 
-The browser must produce a structured filter; it must not accept raw Odoo
-domain syntax. Initial filters should cover:
+`readonly` in Odoo primarily describes UI behavior, so Impodo applies a stricter
+write policy: Tier-1 write fields must also be stored, direct, non-translated,
+non-company-dependent, non-computed, non-related, and approved in the project's
+writable-field policy. `id`, access-log fields, `active`, workflow/business
+control fields, and any field rejected by model qualification cannot become
+write intents. Every intended write field must also be present in the captured
+baseline.
 
-- exact values and explicit sets for scalar/selection fields;
-- date and datetime ranges;
-- boolean state;
-- company selection constrained to the credential's allowed companies;
-- active versus archived records; and
-- an explicit **All records up to the limit** choice.
+### 5.5 Paging and capture consistency
 
-The service validates field names against the exact captured schema, validates
-operators against field types, canonicalizes filter order, and hashes the
-result. The adapter stops at `maximum_rows + 1`; exceeding the limit fails
-without publishing a partial current snapshot.
+Use high-water-marked keyset pagination, not offsets:
 
-Count/sample behavior must remain bounded. If an exact pre-capture count would
-require widening the closed method surface, use paginated `search_read` with an
-ID-only projection and stop at the limit rather than adding generic
-`search_count` prematurely.
+1. read at most one highest matching ID with `order="id desc"`;
+2. read pages with the canonical user filter plus `id > last_id` and
+   `id <= high_water_id`, ordered `id asc`;
+3. stop at `maximum_rows + 1` and publish nothing when the limit is exceeded;
+4. reject missing IDs, non-increasing IDs, IDs outside the page bounds, duplicate
+   IDs, incomplete projections, and oversized responses; and
+5. recheck target instance, principal, context eligibility, and projected schema
+   after the last page.
 
-### 5.4 Source and provenance contracts
+Records inserted above the high-water ID are excluded. Keyset paging prevents
+offset shifts, but native JSON-2 still does not provide one database-wide
+snapshot across pages: deletes, ACL/rule changes, or filter-field changes during
+the run can alter membership. The manifest therefore records start/end time,
+high-water ID, page accounting, observed `write_date` values, and this
+consistency level. A strict point-in-time capture requires a later server-side
+export method or an operational quiescence contract.
 
-Do not create fake CSV files, fake `file_id` values, or synthetic file hashes.
-Evolve the source contracts to represent their origin explicitly.
+The pre-freeze sample is a bounded, display-truncated preview and is not
+evidence of final membership. The authoritative count is the number of rows in
+the successfully published snapshot; do not perform an unbounded or duplicate
+exact-count scan merely for the UI.
 
-The proposed immutable evidence is:
+### 5.6 Source, snapshot, and protected provenance contracts
+
+Do not create fake files, file IDs, table keys, or hashes. Introduce
+discriminated bindings and a forward DuckDB schema upgrade:
+
+- `FileSourceBinding` preserves every existing file field and semantic hash;
+- `OdooSourceBinding` contains capture/model/selection/schema/context/principal/
+  target hashes and no credential;
+- Odoo dataset IDs are stable for the project source slot and model;
+- Odoo column stable keys derive from model plus technical field name, not a
+  transient ordinal; and
+- the Odoo snapshot logical hash includes a canonical row-data hash, because no
+  immutable original-file hash exists.
+
+The immutable evidence set is:
 
 | Evidence | Portable | Required contents |
 | --- | --- | --- |
-| Odoo source selection | No, target-bound | Project, target hash, model, fields, filter, context, schema hash, actor, limits, capture version |
-| Source dataset contract | Yes except origin binding | Dataset/column stable keys, labels, types, row count, origin kind, source-evidence hash |
-| Parquet source snapshot | Locally portable only with its manifest | Raw captured field values in deterministic row/column order |
-| Protected row-origin sidecar | No, target-bound | Dataset row ordinal, model, Odoo ID, extraction `write_date`, baseline hash |
-| Source snapshot manifest | No, target-bound for this origin | Selection hash, target hash, schema hash, row count, data hash, Parquet hash, provenance hash, timestamps |
+| Odoo capture selection | No | Project, model, field projection, filter, limits, capture consistency, actor, version, and all target/schema/principal/context hashes |
+| Source dataset contract | Values are portable; binding is not | Stable dataset/column keys, labels, types, row count, origin kind, source-evidence hash |
+| Parquet snapshot | Only with manifest and origin caveat | Raw captured values in deterministic row/column order, excluding numeric Odoo IDs |
+| Protected row-origin sidecar | No | Dataset/source row, model, Odoo ID, captured `write_date`, captured-field baseline hash, target instance, principal, and context binding |
+| Snapshot manifest | No for Odoo origin | Selection hash, schema/context/target hashes, row/data/Parquet/provenance hashes, capture interval, high-water ID, and consistency level |
 
-The preferred contract shape is a discriminated source binding such as
-`FILE` or `ODOO`, rather than adding nullable Odoo fields throughout the
-existing file contract. Existing file selections deserialize as `FILE` and
-retain the same semantic hashes unless a deliberate contract-version migration
-is approved.
+The schema upgrade must migrate existing databases forward, deserialize legacy
+file selections as `FILE`, and prove their existing content hashes do not
+change. Historical Odoo captures count against a project quota and follow the
+project retention/deletion policy; failed candidates never count as retained
+evidence.
 
-The protected row-origin sidecar is essential. It permits exact same-database
-updates without asking the data manager to treat `default_code`, barcode, or
-another mutable/non-unique product field as a universal identifier. Numeric IDs
-must not appear as visible mapping columns or in portable review workbooks.
+### 5.7 Streaming and atomic publication
 
-### 5.5 Atomic publication
+Publication follows the existing last-valid-pointer pattern without holding a
+DuckDB transaction across Odoo access:
 
-Reuse the source-snapshot publication pattern:
+1. authorize and validate the expected project/target/schema/principal/context;
+2. reserve bounded temporary disk space;
+3. stream validated pages into bounded Parquet fragments and a protected
+   provenance candidate while computing row/data/provenance hashes;
+4. validate physical schema, row order/count, semantic hashes, exact artifact
+   hashes, and final target/schema/principal/context checks;
+5. publish content-addressed Parquet and provenance artifacts;
+6. in one short DuckDB transaction, insert immutable manifests/history and
+   advance source-selection, snapshot, and provenance current pointers; and
+7. clean unpublished or abandoned candidates while retaining the prior valid
+   current version and all in-retention history.
 
-1. validate authorization, target binding, schema binding, limits, and filter;
-2. stream deterministic pages into a temporary protected workspace;
-3. encode canonical source cell types and compute row/data hashes while
-   writing bounded Parquet fragments;
-4. write the target-bound provenance sidecar and its hash;
-5. verify row counts, schema, IDs, ordering, hashes, and target fingerprint;
-6. persist immutable manifests and selection history;
-7. atomically advance the current source-selection and dataset pointers; and
-8. remove unpublished candidates after failure while retaining the previous
-   valid current version.
+The path is streaming from its first implementation. It never stores all Odoo
+rows as Python objects, reads an unbounded HTTP body, or deletes the previous
+current artifacts before pointer promotion succeeds.
 
-Do not hold all Odoo records as Python objects before publication. The source
-capture path should be streaming/batched from its first implementation.
+### 5.8 Mapping, identity, and preparation integration
 
-### 5.6 Mapping and preparation integration
+Add an explicit mapping mode such as `odoo_pinned_update`. It locks the target
+model to the originating model, forbids create fallback, and obtains row
+identity from the protected origin companion rather than a human business key.
+An opaque row-origin reference may link local artifacts, but neither the numeric
+ID nor a reversible form enters portable canonical rows.
 
-After publication, downstream preparation should be origin-neutral:
+This is a focused compiler/application change: the existing compiler currently
+expects source and target business identities, so simply carrying a sidecar is
+not sufficient. Blank or duplicate human product codes must not block an
+otherwise valid pinned-ID row. Relationship resolution remains on the existing
+business-key path until separately qualified.
 
-- mapping consumes the same stable dataset and column identities;
+After identity binding, the middle remains as origin-neutral as practical:
+
+- mapping uses stable dataset and column keys;
 - raw Odoo values remain immutable source evidence;
-- transformations produce proposed values and visible impact evidence;
-- readonly/computed source columns may support validation or transformation
-  input but cannot become write fields unless the captured target schema says
-  they are writable;
+- transformations produce proposed values and impact evidence;
+- every intended target field must have a captured baseline;
 - quality, normalization, lineage, and accounting cover every captured row;
-- preparation opens only the frozen Parquet snapshot and never contacts Odoo;
-  and
-- a source refresh invalidates mapping/staging evidence through the same
-  current-pointer rules as a changed file selection.
+- preparation opens only frozen local artifacts and makes zero Odoo calls; and
+- refresh invalidates approvals and prepared/current evidence. If model,
+  columns, and schema remain compatible, the UI may offer the old rules as an
+  explicitly unapproved rebase draft rather than silently applying them.
 
-The mapping UI should preselect the originating model and suggest same-name
-fields, but the user must confirm every target field and transformation.
-Suggestions are not approvals.
+Same-name mappings may be suggested, but every field, transformation, and
+project writable-field approval remains explicit.
 
-### 5.7 Target-bound identity and three-way comparison
+### 5.9 Three-way comparison and protected difference evidence
 
-The round-trip classifier needs three values for each writable field:
+For every intended write field, compare:
 
-- **baseline:** the value captured from Odoo;
-- **proposed:** the value produced by Impodo; and
-- **current:** the value read from Odoo during fresh comparison.
+- **baseline:** captured from the pinned Odoo record under the captured context;
+- **proposed:** produced by the frozen Impodo preparation; and
+- **current:** freshly read by protected ID under that same context.
 
-The comparison rules are:
+Persist a protected, paged, hash-bound field-difference artifact keyed by
+execution row ID. It contains only the fields needed for review and is excluded
+from portable workbooks and normal readiness summaries.
 
 | Condition | Result |
 | --- | --- |
-| Target hash differs | Block the whole round trip |
-| Extracted Odoo ID no longer exists | `BLOCKED: RECORD_REMOVED_SINCE_CAPTURE` |
+| Connection/instance/principal/context binding differs | Block the whole comparison |
+| Extracted ID no longer exists or is no longer visible | `BLOCKED: RECORD_REMOVED_OR_INACCESSIBLE` |
 | Baseline equals proposed and current | `UNCHANGED` |
 | Baseline differs from proposed, current still equals baseline | `UPDATE` |
-| Current differs from baseline in a field Impodo intends to write | `BLOCKED: CONCURRENT_FIELD_CHANGE` |
-| Current changed only in fields Impodo will not write | Permit after recording current comparison evidence |
-| Field became readonly, absent, or type-incompatible | `BLOCKED: TARGET_SCHEMA_CHANGED` |
+| Current differs from baseline in an intended field | `BLOCKED: CONCURRENT_FIELD_CHANGE` |
+| Current differs only in fields Impodo will not write | Record informational evidence; do not overwrite those fields |
+| Baseline for a write field is absent | `BLOCKED: BASELINE_NOT_CAPTURED` |
+| Field became absent, ineligible, readonly-by-policy, or type-incompatible | `BLOCKED: TARGET_SCHEMA_CHANGED` |
 
-Preflight reads extracted IDs in bounded `id in [...]` chunks and projects
-only baseline/concurrency/write fields. It must not reclassify a missing ID as
-a create or fall back to a potentially ambiguous business key.
+Read protected IDs in bounded `id in [...]` chunks with an exact projection.
+Never fall back to a business key and never reclassify a missing pinned ID as a
+create. Require `write_date` in the initial writable profile as coarse change
+evidence, but compare intended field values directly. Models without access-log
+evidence remain read-only until an equivalent version contract is approved.
 
-The first release should require `write_date` for writable round trips. Models
-without safe concurrency evidence may be captured read-only but cannot be
-loaded back until an equivalent guard is designed.
+### 5.10 Execution-time concurrency and production boundary
 
-### 5.8 Execution-time concurrency
+A fresh comparison does not close the race to `write`. Odoo documents that
+separate JSON-2 calls use separate transactions, so a native pre-read followed
+by `write` is not an atomic compare-and-set.
 
-A fresh preflight still leaves a race between comparison and `write`.
+For disposable acceptance only, the writer may immediately re-read the exact
+intended baseline fields and `write_date` with the write credential, stop on a
+field mismatch, then issue one exact-ID write. This reduces the window but does
+not eliminate it, and the UI/evidence must label the residual race.
 
-For disposable-target acceptance, the existing writer may add one bounded
-pre-write current-value check immediately before each update and stop on any
-baseline mismatch. This reduces but does not eliminate the race because JSON-2
-calls are separate Odoo transactions.
+Production feasibility is a Phase-0 decision, not a late optimization. Prove
+one of these before production work proceeds:
 
-Impodo must not claim production-safe round trips until one of these is
-implemented and accepted:
+1. a narrow Odoo 19 method can acquire a supported row lock, re-check ACLs,
+   record rules, target/context, expected intended-field values and permitted
+   values, call ORM `write`, and return an auditable receipt in one transaction;
+2. a target-side gateway provides equivalent atomic semantics; or
+3. production round-trip write remains unsupported.
 
-1. a narrow Odoo 19 server-side method that atomically checks target ID,
-   expected `write_date`/baseline fields, permitted values, and then calls ORM
-   `write`; or
-2. an equivalent target-side gateway with the same atomic and auditable
-   semantics.
+If Odoo 19 has no supported ORM locking primitive and the no-direct-SQL policy
+is retained, the third result is the correct gate outcome. Do not call an
+unlocked check-and-write “atomic.” A coarse expected-`write_date` policy may be
+chosen, but it must explicitly accept false conflicts from unrelated updates;
+field-level concurrency may permit unrelated changes only when the atomic
+method locks and compares those exact fields.
 
-Any Odoo addon used for that purpose must follow Odoo 19 conventions, use the
-ORM, honor ACLs and record rules, operate on recordsets in batches, avoid
-searches inside record loops, expose no generic model/method surface, and
-include access, transaction, upgrade, and failure tests. Direct SQL is not an
-acceptable concurrency shortcut.
+Any addon/gateway exposes named guarded operations only, never a generic model,
+method, domain, context, or SQL surface. It uses no `sudo()`, honors ACLs and
+record rules, and has transaction, race, access, upgrade, restore, automation,
+and failure tests. Impodo itself never accesses PostgreSQL directly.
 
-### 5.9 Execution and reconciliation
+### 5.11 Execution, side effects, and reconciliation
 
-Extend the execution snapshot with protected origin binding for update rows:
+Keep `ExecutionSnapshot` portable. Add a protected
+`ExecutionOriginBinding` companion keyed by the execution snapshot hash and row
+ID/hash, containing:
 
-- expected target hash;
-- Odoo model and protected record ID;
-- baseline/provenance hash;
-- expected concurrency evidence;
-- exact changed fields and proposed values; and
-- current comparison snapshot hash.
+- connection and instance hashes, model, protected record ID, principal and
+  context hashes;
+- source provenance/baseline hash and expected concurrency evidence;
+- exact changed fields and current-comparison artifact hash; and
+- the project writable-field policy hash.
 
-Execution must:
+The preview-derived Odoo API scope is built from both artifacts. Adapter callers
+cannot substitute an ID, model, context, or field that is absent from the
+protected companion.
 
-- refuse `CREATE` for an Odoo-origin update-only dataset;
-- avoid a business-key lookup when a validated protected ID is available;
-- validate the ID/model/target binding before write;
-- write only the reviewed changed fields;
-- record rejection, unknown outcome, or commit through the existing journal;
-- stop later writes after an unknown outcome; and
-- never infer success from HTTP status alone.
+Execution must refuse `CREATE`, skip business-key lookup for a valid protected
+ID, write only reviewed changed fields, journal before target I/O, stop after an
+unknown outcome, and never infer success from HTTP status alone. The journal may
+retain protected IDs as it does today; portable reports may not.
 
-Reconciliation reads committed rows by protected ID, verifies the exact
-reviewed fields, retains current `write_date`, and publishes the existing
-hash-bound result and fallout artifact. A repeat comparison must propose zero
-writes for successfully reconciled rows.
+Reconciliation reads attempted rows by protected ID under the execution
+context, verifies exact reviewed fields, records current `write_date`, and
+publishes hash-bound result/fallout evidence. It also records qualified and
+observed side effects without claiming that a generic Odoo `write` changes only
+the submitted columns. A repeat comparison must propose zero writes for every
+successfully reconciled row.
 
 ## 6. Browser experience
 
-The UI should add one source choice rather than a parallel technical workflow.
+The UI adds one source choice and conditionally reorders the existing journey;
+it does not create a parallel technical application.
 
-### 6.1 Source data
+### 6.1 Project setup and source mode
 
-Present two plain-language choices:
+During draft setup, present two plain-language choices:
 
 - **Use files** — current CSV/XLSX workflow;
 - **Use data already in Odoo** — new target-bound capture workflow.
 
-For Odoo data, the next obvious action is **Choose Odoo records**.
+An `ODOO` project can be registered without an export date or placeholder
+file. Registration explains that source capture is read-only and does not ask
+for a write credential. Changing source mode after evidence exists requires an
+explicit project reset through the normal invalidation/deletion path.
 
-### 6.2 Choose Odoo records
+### 6.2 Verify Odoo and choose a record type
+
+Before showing fields or filters, verify and display:
+
+- connected database, Odoo version, and entitlement/API availability;
+- non-secret read-principal identity and allowed companies;
+- disposable versus strong target-instance identity status;
+- read permission for one model selected from the stored model catalogue; and
+- capture-eligible versus context-only fields from a fresh schema scope.
+
+If strong instance identity is unavailable, the page labels the project as
+ineligible for production writes; it does not imply that URL and database name
+prove instance identity. Read and write credential forms remain separate, and
+the write form is not shown until the user reaches an authorized load stage.
+
+### 6.3 Choose and freeze Odoo records
 
 The page shows:
 
-- connected database and Odoo version;
-- record type selector from the stored model catalogue;
-- context choices for language, company, and archived records;
-- guided filters;
-- field checklist grouped into editable scalar fields and optional context
-  fields;
-- estimated or bounded count and a small redacted sample; and
-- the hard row/field/byte limits.
+- the selected record type and exact context for language, timezone, primary
+  company, ordered allowed companies, active records, and archived records;
+- guided, structured filters with no raw-domain or field-path input;
+- a field checklist grouped into Tier-1 writable candidates, read-only context,
+  and excluded fields with reasons;
+- a bounded, redacted, non-authoritative sample;
+- row, field, response, snapshot, temporary-disk, and history limits; and
+- the native multi-page consistency limitation.
 
-The confirmation action is **Freeze these Odoo records**. The confirmation
-copy must state that Odoo is read-only at this point and that a later change in
-Odoo will be detected before any write.
+The confirmation action is **Freeze these Odoo records**. Progress shows page
+and byte accounting without business values. Cancellation or process restart
+abandons the candidate and retains the last valid frozen version; it never
+silently resumes with a missing credential. Final row count comes from the
+published snapshot, not the sample or an extra exact-count scan.
 
-### 6.3 Mapping through load
+### 6.4 Mapping, comparison, and load
 
-- Show the originating Odoo model as the recommended target.
-- Default the dataset to **Update the records selected from Odoo**.
-- Do not show a create fallback for this mode.
-- Show baseline, proposed, and current values in transformation/final review.
-- Explain concurrent changes in business language and offer one next action:
-  **Refresh the Odoo source**.
-- Preserve the existing explicit **Load into Odoo** confirmation and outcome
-  pages.
+- Show the originating Odoo model as the only Tier-1 round-trip target.
+- Default to **Update the records selected from Odoo**, with no create fallback.
+- Explain that human business keys may be blank or duplicated because protected
+  captured identity controls the update.
+- Require every target write field to have a captured baseline and explicit
+  project approval.
+- Show protected, paged baseline/proposed/current differences only to authorized
+  reviewers; do not put numeric IDs or these values in portable exports.
+- Explain a removed row, schema drift, context mismatch, or concurrent field
+  change in business language and offer **Refresh the Odoo source**.
+- Label the disposable pre-read/write race honestly and never present it as
+  production-safe.
+- Preserve the existing explicit **Load into Odoo** confirmation, execution,
+  unknown-outcome, and reconciliation pages.
 
-Accessibility and browser tests must cover keyboard operation, labels, focus,
-errors, bounded tables, and narrow viewports before acceptance.
+Accessibility and browser tests cover keyboard operation, labels, focus,
+errors, bounded/virtualized tables, and narrow viewports before acceptance.
 
-## 7. Delivery sequence
+## 7. Phased implementation proposal
 
-Each work package is independently reviewable. Do not begin the next package
-until the previous exit gate is met.
+Each phase is independently reviewable and ends in a usable or risk-reducing
+state. Do not start a later phase whose contract depends on an unmet exit gate.
 
-### Work package 0 — Baseline and decisions
+### Phase 0 — Baseline and feasibility decisions
 
 **Deliverables**
 
@@ -429,237 +645,248 @@ until the previous exit gate is met.
   browser, and security suites green before feature changes.
 - Fix the existing execution-test fixture mismatch where invalid batch-size
   subtests inspect a nonexistent journal attribute.
-- Record an ADR for Odoo-source origin, target-bound numeric-ID provenance,
-  update-only semantics, and production concurrency.
-- Approve the initial supported field types and limits.
+- Record ADRs for source mode/lifecycle, the named hash vocabulary, protected
+  numeric-ID provenance, Tier-1 fields, and update-only semantics.
+- Verify JSON-2 availability and deployment entitlement against the supported
+  Odoo 19 deployment profiles.
+- Spike a narrow target instance/principal probe and restore/clone invalidation.
+- Spike the production atomic lock/check/write operation. Record `SUPPORTED`,
+  `GATEWAY_REQUIRED`, or `PRODUCTION_WRITE_UNSUPPORTED`; do not defer this
+  feasibility answer until production hardening.
+- Approve response/snapshot/disk/history limits and a first project/model
+  writable-field policy that accounts for automation and side effects.
 
 **Exit gate**
 
 - Existing file-source behavior and disposable Odoo load evidence have a clean
   baseline.
-- No open decision changes the source evidence or concurrency architecture.
+- No unresolved decision can change the source evidence, identity, or
+  concurrency architecture. Production writes have an explicit feasibility
+  disposition even though they are not yet implemented.
 
-### Work package 1 — Origin-aware contracts and persistence
+### Phase 1 — Project lifecycle, schema ordering, and credential roles
 
 **Deliverables**
 
-- Add discriminated source-origin and Odoo-source selection contracts.
-- Add target-bound row-origin and capture-manifest contracts.
-- Version deterministic serialization and semantic hashing.
-- Add DuckDB history/current-pointer storage for Odoo capture selections,
-  manifests, and provenance.
-- Extend project invalidation and deletion through repositories/services.
-- Preserve existing file-source selection behavior.
-
-**Tests**
-
-- deterministic round trips and hashes;
-- target/schema/filter/context binding;
-- malformed or mixed-origin rejection;
-- stale revision and wrong-project rejection;
-- pointer atomicity and failure cleanup; and
-- legacy/current file selection regression tests.
+- Add `FILE`/`ODOO` source mode and origin-specific registration validation.
+- Allow an Odoo-only project to register without a source file/export date.
+- Reorder navigation and schema services so Odoo model discovery and
+  capture-eligibility metadata precede source freeze, while later target
+  governance still sees the frozen source.
+- Split read and write credential vault IDs, forms, permission probes,
+  principal fingerprints, service labels, and audit events with no fallback.
+- Define a forward storage/contract migration from version 1 that preserves
+  existing `FILE` semantic hashes.
 
 **Exit gate**
 
-- Immutable Odoo-source evidence can be constructed, stored, restored, and
-  invalidated without Odoo access or source-file impersonation.
+- An `ODOO` project reaches model/field selection without a fake file, a `FILE`
+  project follows the unchanged workflow, and replacing a write credential
+  cannot change the capture identity.
 
-### Work package 2 — Closed Odoo-source reader
+### Phase 2 — Origin and protected-provenance contracts
 
 **Deliverables**
 
-- Add the separate capture port and validated request planner.
-- Reuse closed JSON-2 transport with a read-only credential.
-- Add field/type eligibility and structured-filter policy.
-- Implement deterministic paging, duplicate-ID detection, row/byte limits,
-  bounded sampling, and cancellation.
-- Capture target/schema/context fingerprints and concurrency fields.
-- Redact credentials and bounded Odoo errors.
+- Add discriminated file/Odoo source bindings and Odoo capture selection.
+- Add target-bound row-origin, capture-manifest, and protected execution-origin
+  contracts.
+- Add canonical row-data, provenance, target-instance, principal, context, and
+  schema-scope hashes; eliminate ambiguous new uses of `target_hash`.
+- Version deterministic serialization and add DuckDB history/current-pointer
+  persistence, quotas, retention metadata, invalidation, and deletion.
+- Implement and test the version-1-to-version-2 migration without recomputing
+  legacy file hashes.
+
+**Exit gate**
+
+- Immutable Odoo-source evidence can be constructed, stored, restored,
+  quota-checked, and invalidated offline without source-file impersonation or
+  protected identifiers in portable contracts.
+
+### Phase 3 — Closed, bounded Odoo-source reader
+
+**Deliverables**
+
+- Add the separate capture port and service-generated request planner.
+- Extend schema metadata and enforce Tier-1 field, filter, model, and context
+  policies.
+- Implement a transport-level HTTP response-byte cap and per-value/row/page/
+  snapshot accounting before materialization.
+- Implement high-water keyset paging, strict projection/order validation,
+  `maximum_rows + 1`, bounded sampling, cancellation, and safe error redaction.
+- Verify connection, instance, principal, context, and schema scope at both ends
+  of capture.
 
 **Tests**
 
 - page boundaries `0`, `1`, `499`, `500`, `501`, and maximum plus one;
-- duplicate, missing, reordered, malformed, and partial pages;
-- target/schema changes during capture;
-- ACL, record-rule, company, archived, and credential failures;
-- invalid model/field/operator/context rejection;
-- timeout/cancellation with no partial current publication; and
-- call-count proof that reads scale by pages, not records.
+- inserted rows above high-water, deletion between pages, and filter/ACL changes;
+- duplicate, missing, reordered, out-of-range, malformed, partial, and oversized
+  responses;
+- invalid model, field, operator, raw domain, field path, or context key;
+- ACL, record-rule, company, archived, timeout, and cancellation failures; and
+- call counts that scale by pages rather than records.
 
 **Exit gate**
 
-- The adapter can capture permitted Odoo records read-only with deterministic
-  completeness evidence and no generic or elevated access surface.
+- The reader returns a bounded validated page stream and honest consistency
+  accounting through a closed read-only surface. It makes no claim of a
+  database-wide point-in-time snapshot.
 
-### Work package 3 — Streaming snapshot publication
+### Phase 4 — Streaming publication and browser capture
 
 **Deliverables**
 
-- Convert Odoo pages to the existing source-cell type system.
-- Stream bounded Parquet fragments and protected provenance.
-- Compute logical/data/Parquet/provenance hashes once per capture.
-- Verify, persist, and atomically promote the full source selection.
-- Retain the prior valid selection after injected failures.
+- Stream Tier-1 source values and protected provenance to bounded Parquet and
+  sidecar candidates while computing hashes once.
+- Verify all candidates and atomically advance history/current pointers in a
+  short DuckDB transaction after Odoo access completes.
+- Add disk preflight, candidate lifecycle, startup cleanup, project history
+  quota, cancellation, and failure recovery.
+- Add the source-mode, identity/model, selection, sample, confirmation,
+  progress, cancellation, and current-version browser experience.
 
 **Tests**
 
-- null versus empty text, decimals, dates, datetimes, booleans, selections,
-  Unicode, and large text;
-- exact row/column order and batch-size invariance;
-- crash/failure injection before artifact write, manifest write, and pointer
-  promotion;
-- cleanup without deleting historical evidence; and
-- bounded working set at the proposed release limit.
+- null versus empty text, bounded Unicode/text, integer, date, datetime,
+  boolean, and selection encodings;
+- exact row/column order and page-size-invariant semantic hashes;
+- crash/failure injection at every artifact/manifest/pointer boundary;
+- cleanup that preserves previous/historical evidence;
+- authorization, CSRF, stale form, accessibility, and responsive layout; and
+- bounded memory and disk at the release limits.
 
 **Exit gate**
 
-- One frozen Odoo-source dataset can be reopened after restart without Odoo
-  traffic and produces identical logical evidence across page sizes.
+- A user can freeze, restart, reopen, replace, and audit an Odoo snapshot with
+  zero Odoo traffic after publication; any failed candidate leaves the last
+  valid version current.
 
-### Work package 4 — Browser capture workflow
+### Phase 5 — Pinned identity, mapping, and preparation
 
 **Deliverables**
 
-- Add the source-origin choice and Odoo record-selection pages.
-- Use the stored model/schema catalogue for choices.
-- Add guided filters, field eligibility, sample, limits, confirmation, progress,
-  cancellation, and plain-language errors.
-- Keep credentials session-only and route blocking work through a worker
-  thread/background job consistent with current browser architecture.
-- Add navigation and current-state recovery after restart.
+- Add explicit `odoo_pinned_update` mapping/preparation mode.
+- Bind rows to opaque protected origin references, not portable business keys.
+- Lock the target to the origin model, forbid create fallback, and require a
+  captured baseline for every target field that can become a write intent.
+- Feed Odoo snapshots through existing transformation, staging, quality,
+  normalization, impact, and lineage paths.
+- Invalidate downstream evidence on refresh and expose compatible old rules
+  only as an explicitly unapproved rebase draft.
 
 **Tests**
 
-- authorization and CSRF;
-- invalid form keys and raw-domain attempts;
-- Post/Redirect/Get behavior;
-- cancellation and restart recovery;
-- stale target/schema/source selection;
-- accessibility and responsive-layout checks; and
-- no regression to CSV/XLSX source pages.
+- blank and duplicate human keys do not block pinned-ID preparation;
+- stale/wrong protected bindings and missing target baselines fail closed;
+- every Tier-1 transformation and readonly-context input;
+- refresh, schema, and mapping invalidation plus exact row accounting;
+- no numeric IDs in portable canonical rows/workbooks/reports; and
+- zero Odoo calls during preparation and no file-source hash regression.
 
 **Exit gate**
 
-- A non-technical data manager can select, preview, freeze, reopen, and replace
-  an Odoo-source snapshot with one obvious next action at each step.
+- The origin-neutral middle processes every captured row offline while the
+  target-bound identity remains protected and update-only.
 
-### Work package 5 — Origin-neutral preparation and mapping
-
-**Deliverables**
-
-- Feed Odoo-source snapshots through the current mapping compiler and bounded
-  preparation path.
-- Suggest same-model/same-field mappings without auto-approving them.
-- Enforce update-only target behavior for the round-trip mode.
-- Carry protected row-origin references alongside, not inside, portable
-  canonical values.
-- Bind staging, quality, normalization, impact, and mapping evidence to the
-  Odoo-source selection hash.
-
-**Tests**
-
-- existing transformations across every initial scalar field type;
-- readonly/computed fields as input but never write intent;
-- mapping/source refresh invalidation;
-- row accounting and lineage for every captured record;
-- zero Odoo calls during preparation; and
-- current file-source compilation/hash regressions.
-
-**Exit gate**
-
-- The existing preparation and review middle can process Odoo-origin records
-  without knowing how they were captured and without leaking numeric IDs into
-  portable evidence.
-
-### Work package 6 — Pinned-ID preflight and concurrency
+### Phase 6 — Read-only three-way comparison
 
 **Deliverables**
 
-- Add the target-bound exact-ID comparison planner.
-- Read IDs and relevant fields in bounded model-level batches.
-- Produce baseline/proposed/current field evidence.
-- Block missing records, target mismatch, schema drift, and conflicting
-  concurrent field changes.
-- Create update-only execution rows bound to protected provenance.
+- Add exact protected-ID current-value reads in bounded model-level chunks.
+- Produce a protected, paged, hash-bound baseline/proposed/current artifact.
+- Classify unchanged, proposed update, missing/inaccessible, target/instance/
+  principal/context mismatch, schema drift, missing baseline, and concurrent
+  intended-field change.
+- Build preview rows and protected execution-origin companions, but leave load
+  disabled.
 
 **Tests**
 
-- unchanged, update, missing, target mismatch, schema drift, and concurrent
-  change classifications;
-- duplicate business keys do not affect pinned-ID updates;
-- no create fallback;
-- non-written concurrent fields do not cause data loss;
-- batch/domain/call-count invariants; and
-- deterministic report/workbook evidence without visible numeric IDs.
+- every classification and exact projection/domain invariant;
+- unrelated current-field changes recorded without being overwritten;
+- duplicate human keys, no business-key fallback, and no create fallback;
+- value authorization, pagination, redaction, and numeric-ID non-disclosure;
+  and
+- deterministic call counts and artifact hashes.
 
-**Exit gate**
+**Exit gate — first releasable milestone**
 
-- Every eligible row is classified deterministically against the exact current
-  Odoo record, and unsafe rows fail before the load page is enabled.
+- Authorized users can capture, transform, and compare Odoo records safely and
+  reproducibly without enabling writes. Unsafe rows fail closed, and refresh is
+  the only remediation offered for stale source evidence.
 
-### Work package 7 — Guarded update and reconciliation
+### Phase 7 — Disposable guarded update and reconciliation
 
 **Deliverables**
 
-- Extend the preview-derived API scope for protected exact-ID updates.
-- Add the disposable-target pre-write concurrency check.
-- Reuse journaling, unknown-outcome stopping, read-back, and fallout behavior.
-- Prove a repeat preview has no proposed writes.
-- Measure per-row lookup and write calls and document the accepted disposable
-  limit.
+- Build preview-derived API scope from the portable snapshot plus protected
+  execution-origin companion.
+- Require and probe a separate write credential/principal.
+- Immediately re-read intended fields and concurrency evidence, then issue the
+  exact-ID update with the documented residual race.
+- Reuse journaling, unknown-outcome stopping, read-back, fallout, and recovery.
+- Record observed business side effects and prove a repeat comparison proposes
+  zero writes for committed rows.
 
 **Tests**
 
-- reviewed scalar updates and field omission;
-- wrong target/model/ID/provenance/scope rejection;
-- concurrent change between preflight and execution;
+- reviewed Tier-1 writes and exact field omission;
+- wrong target/instance/principal/context/model/ID/provenance/scope rejection;
+- changes before precheck and injected change in the residual precheck/write
+  window, with the limitation retained in acceptance evidence;
 - definitive rejection, timeout, invalid receipt, and unknown outcome;
-- reconciliation by protected ID and exact fields; and
-- no automatic retry or accidental create.
+- protected-ID reconciliation and no automatic retry or accidental create; and
+- exact precheck/write/read-back call counts.
 
 **Exit gate**
 
-- A disposable Odoo 19 round trip is fully journaled and reconciled, and an
-  interrupted or conflicting run cannot silently overwrite or duplicate data.
+- A disposable Odoo 19 round trip is explicitly labeled, fully journaled, and
+  reconciled. It is not represented as production-safe.
 
-### Work package 8 — Product and relationship qualification
+### Phase 8 — Type, model, relationship, and side-effect qualification
 
 **Deliverables**
 
-- Qualify `product.template` separately from `product.product`.
-- Document and test template-only versus variant-owned fields.
-- Add many2one capture using explicit related-model business keys and batched
-  related reads.
-- Add many2many only with reviewed final-set replacement semantics.
-- Test active/archived, multi-company, language, category, UoM, taxes, and
-  custom fields.
-- Retain model-generic contracts; product behavior is acceptance coverage, not
-  a hard-coded product connector.
+- Qualify float/decimal/monetary fields with retained digits, currency context,
+  canonical decimal handling, rounding, and repeat-write idempotence evidence.
+- Qualify translated and company-dependent fields per exact context, or retain
+  their exclusion.
+- Qualify `product.template` separately from `product.product`, including
+  template/variant ownership and project-specific writable fields.
+- Add many2one capture through explicit related-model business keys and batched
+  reads; add many2many only with reviewed final-set replacement semantics.
+- Test active/archived, category, UoM, taxes, tracking, automation, constraints,
+  notifications, and custom fields. Retain model-generic contracts.
 
 **Exit gate**
 
-- Simple products and products with variants have unambiguous model/field
-  behavior, and relationship reads introduce no per-row Odoo query.
+- Every newly enabled field/model class has explicit serialization, baseline,
+  write, read-back, side-effect, idempotence, and non-N+1 evidence. Unqualified
+  classes remain fail-closed.
 
-### Work package 9 — Scale and production hardening
+### Phase 9 — Production authorization and scale
 
 **Deliverables**
 
+- Implement only the Phase-0-approved narrow atomic lock/check/write seam; if
+  none was approved, retain production writes as unsupported.
+- Require strong instance identity and test database restore, clone, deployment
+  replacement, principal rotation, and context changes.
 - Run retained sanitized local and remote acceptance at representative volume.
-- Measure metadata, page, concurrency, lookup, write, and read-back calls.
-- Group identical recordsets/values where Odoo ORM semantics permit it; do not
-  hide different values in pseudo-batches.
-- Decide and implement the atomic Odoo-side guarded update seam.
+- Measure metadata, page, comparison, precheck, write, and read-back calls;
+  group recordsets only where per-row receipts and unknown-outcome semantics
+  remain correct.
 - Complete ACL/record-rule/company tests, threat model, privacy assessment,
-  fault injection, backup/restore, observability, release, and rollback work.
-- Raise limits only from measurement evidence.
+  audit/observability, fault injection, backup/restore, release, and rollback.
+- Raise limits only from evidence and update the authoritative roadmap.
 
 **Exit gate**
 
-- All production-readiness gates in `remaining-work.md` pass, including N+1
-  prevention, target permissions, failure recovery, and representative live
-  acceptance.
+- Production round-trip support is authorized only when the atomic seam and all
+  applicable production-readiness gates in `remaining-work.md` pass. Read-only
+  and disposable modes remain independently usable if production stays gated.
 
 ## 8. N+1 and performance policy
 
@@ -667,124 +894,184 @@ The source feature must not inherit avoidable per-record access patterns.
 
 | Operation | Required call shape |
 | --- | --- |
-| Model/field metadata | Once per selected model/snapshot refresh |
-| Source record capture | `ceil(rows / page_size)` bounded pages |
+| Identity/principal/context probes | One bounded probe before capture and one revalidation after it |
+| Model/field metadata | One capture per selected schema scope plus final hash revalidation |
+| High-water discovery | At most one `id desc, limit 1` read |
+| Source record capture | `ceil(published_rows / page_size)` keyset pages, plus one bounded overflow page only when needed |
+| Sample | At most one bounded page; never reused as authoritative membership |
 | Many2one related keys | Unique keys grouped by related model and chunked |
-| Preflight current values | Extracted IDs grouped by model and chunked |
-| Execution identity lookup | None when protected ID binding is valid |
-| Execution write | Initially at most one per changed row; measure and hard-limit disposable use |
-| Reconciliation | IDs grouped by model and chunked |
+| Comparison current values | Protected IDs grouped by model and chunked |
+| Disposable execution precheck | At most one exact-field read per changed row in Phase 7 |
+| Execution identity lookup | None; callers use the protected binding |
+| Execution write | At most one per changed row in disposable mode; production follows the approved atomic seam |
+| Reconciliation | Protected IDs grouped by model and chunked |
 
-No implementation may call `search_read`, `browse`, `fields_get`, or related
-record lookup inside a source-row loop. In any conditional Odoo addon, use
-recordsets and ORM batch operations, prefetch related data, and avoid
-`search`/`search_count` inside computed-field or constraint loops.
+There is no separate unbounded count scan. No implementation may call
+`search_read`, `browse`, `fields_get`, related lookup, or `search_count` inside
+a source-row loop. Offset paging is forbidden. In a conditional Odoo addon,
+use recordsets, ORM batch operations, and prefetching while retaining per-row
+receipts and bounded failure semantics.
 
-The one-write-per-changed-row boundary is acceptable only for the bounded
-disposable profile and must be visible in throughput evidence. Production
-promotion requires either measured acceptance at the approved volume or an
-atomic bounded bulk seam that preserves per-row results and unknown-outcome
-semantics.
+The one-precheck/one-write-per-changed-row boundary is acceptable only for the
+bounded disposable profile and must be visible in throughput evidence. It is
+not an atomic concurrency guarantee.
 
 ## 9. Failure and security matrix
 
 | Failure | Required behavior |
 | --- | --- |
-| Credential missing/expired | Stop before capture; retain prior snapshot |
+| JSON-2 unavailable or deployment not entitled | Block Odoo source setup with an installation-level explanation |
+| Read credential missing/expired | Stop before capture; retain prior snapshot; require explicit restart |
+| Write credential missing/expired | Preserve read/compare capability; disable load without substituting the read credential |
 | ACL or record-rule denial | Show bounded safe error; never retry with elevated access |
-| Target fingerprint changed | Invalidate capture/comparison; no write |
-| Schema changed during capture | Reject candidate; retain prior snapshot |
-| Limit exceeded | Publish nothing; require narrower selection |
-| Duplicate/reordered page ID | Treat completeness as uncertain; publish nothing |
-| Capture connection lost | Publish nothing; safe manual restart from a new candidate |
+| Connection target changed | Invalidate current operation and require re-verification |
+| Strong target instance changed/restored/cloned | Invalidate protected-ID bindings and every dependent comparison/execution |
+| Principal, company, language, timezone, or active context changed | Reject candidate or comparison; require explicit new capture |
+| Schema scope changed during capture | Reject candidate; retain prior snapshot |
+| High-water or page-order/projection invariant fails | Treat completeness as uncertain and publish nothing |
+| Record deleted or filter/ACL membership changes during native capture | Retain honest interval/high-water evidence; never claim point-in-time completeness |
+| Value/row/response/snapshot/temp/history limit exceeded | Publish nothing; clean candidate; require a narrower selection or retention action |
+| Insufficient disk space | Stop before capture/promotion and retain current/historical evidence |
+| Capture connection lost, cancelled, or process restarts | Abandon/clean candidate; retain prior snapshot; require explicit restart |
 | Record removed after capture | Block row; never create replacement |
-| Writable field changed externally | Block row and require source refresh |
-| Unwritten field changed externally | Record current evidence; do not overwrite it |
-| Write rejection | Record failed; continue only where dependency policy permits |
-| Write outcome unknown | Stop later writes; reconcile; never blind retry |
-| Journal/reconciliation failure | Preserve exact execution evidence and recover through repository APIs |
+| Write-field baseline absent | Block mapping/comparison before an execution row exists |
+| Intended field changed externally | Block row and require source refresh |
+| Unwritten field changed externally | Record protected current evidence; do not overwrite it |
+| Field/model not approved or business side effects unqualified | Keep read-only or block load; do not infer safety from scalar type |
+| Target restore after review | Strong-instance recheck blocks execution and invalidates protected IDs |
+| Write rejection | Record failure; continue only where explicit dependency policy permits |
+| Write outcome unknown | Stop later writes; reconcile; never retry blindly |
+| Journal/reconciliation failure | Preserve exact execution evidence and recover only through repository APIs |
 
 ## 10. Acceptance scenarios
 
-### 10.1 Mandatory disposable product slice
+### 10.1 Mandatory read-only milestone
 
-Use a fresh disposable Odoo 19 database with sanitized fixtures:
+Use a fresh disposable Odoo 19 database with sanitized fixtures containing:
 
-- simple `product.template` records;
-- archived and active records;
-- at least two companies within explicit allowed-company context;
-- selections, booleans, text, decimal/monetary, date, and datetime fields;
-- custom writable and custom readonly fields; and
-- duplicate or blank human business keys to prove protected-ID behavior.
+- active and archived records across two allowed companies;
+- bounded text, integer, boolean, date, datetime, and selection fields;
+- captured context-only and explicitly excluded fields; and
+- duplicate and blank human business keys.
 
 The run must:
 
-1. capture at least 1,000 records without CSV/XLSX;
-2. freeze and reopen the source without Odoo traffic;
-3. transform at least three writable field types;
-4. classify intended changes, unchanged rows, and injected concurrent changes;
-5. block removed and concurrently changed records;
-6. update only the reviewed safe rows;
-7. reconcile every attempted row;
-8. repeat comparison with zero writes for committed rows; and
-9. retain exact read/write call counts and time/memory evidence.
+1. register an `ODOO` project with no CSV/XLSX, export date, or fake file;
+2. verify a dedicated read principal and exact context;
+3. capture at least 1,000 records with high-water keyset pages and byte limits;
+4. freeze/restart/reopen without Odoo traffic and reproduce logical evidence;
+5. transform at least three Tier-1 writable field types;
+6. compare baseline/proposed/current by protected ID without enabling load;
+7. classify removed, schema-drifted, and intended-field concurrent changes;
+8. prove blank/duplicate human keys do not affect identity;
+9. prove protected numeric IDs never enter portable evidence; and
+10. retain exact call, time, memory, disk, and consistency evidence.
 
-### 10.2 Regression acceptance
+Inject concurrent inserts above high-water, deletion between pages, and filter/
+ACL membership changes. Acceptance must demonstrate the documented behavior,
+not claim that native multi-call capture was point-in-time.
 
-- Existing CSV/XLSX projects produce unchanged source/mapping/preflight
-  semantics.
-- A file-source dataset and Odoo-source dataset cannot be silently confused.
-- Existing schema discovery remains cached and target-bound.
-- Existing disposable create/update/reconciliation acceptance remains valid.
-- Frozen source artifacts remain content-addressed and restart-safe on Windows
-  and macOS.
+### 10.2 Mandatory disposable-write extension
+
+With a separate least-privilege write principal, the run must:
+
+1. enable only project-approved Tier-1 fields with a captured baseline;
+2. block wrong target, instance, principal, context, schema, model, and scope;
+3. update only reviewed safe rows and never create a removed row;
+4. demonstrate and document the residual precheck/write race;
+5. journal and reconcile every attempted row by protected ID;
+6. record observed Odoo-side effects; and
+7. repeat comparison with zero writes for committed rows.
+
+Float/decimal/monetary, translated, company-dependent, relationship, variant,
+and unqualified custom-field acceptance belongs to Phase 8, not this slice.
+
+### 10.3 Production and regression acceptance
+
+- A database replacement/restore at the same URL and database name fails the
+  strong-instance check before production execution.
+- The atomic concurrency seam passes deterministic race tests in one Odoo
+  transaction; otherwise production write remains disabled.
+- Existing CSV/XLSX projects preserve registration, source, mapping, preflight,
+  and semantic-hash behavior after migration.
+- File-source and Odoo-source datasets cannot be silently confused.
+- Existing schema discovery and disposable create/update/reconciliation
+  acceptance remain valid.
+- Frozen artifacts are content-addressed and restart-safe on Windows and macOS.
 
 ## 11. Documentation and release changes required with implementation
 
-When the feature is implemented, update in the same delivery:
+When a phase is implemented, update the same delivery's current-capability and
+contract documentation:
 
-- `README.md` current capability and explicit limits;
-- `docs/product-vision.md` Stage B/C boundary;
-- `docs/contracts/01-migration-project.md` source-origin registration;
-- `docs/contracts/02-workspace.md` Odoo-source selection and invalidation;
-- `docs/contracts/03-canonical-staging.md` protected origin sidecar;
-- `docs/contracts/04-preflight.md` pinned-ID three-way comparison;
+- `README.md` current capability and explicit read-only/disposable/production
+  labels;
+- `docs/product-vision.md` Stage A/B/C ordering for origin-specific projects;
+- `docs/contracts/01-migration-project.md` source mode, registration, credential
+  roles, and named identity/hash vocabulary;
+- `docs/contracts/02-workspace.md` discriminated source bindings, Odoo capture,
+  data hash, history/quota, and invalidation;
+- `docs/contracts/03-canonical-staging.md` pinned mode and protected origin
+  companion;
+- `docs/contracts/04-preflight.md` protected-ID three-way comparison;
+- the execution/reconciliation contracts for the protected execution companion;
 - `docs/architecture/overview.md` and `python-code-map.md`;
-- `docs/architecture/security-and-infrastructure.md` read credential and
-  production concurrency boundary;
+- `docs/architecture/security-and-infrastructure.md` read/write principals,
+  target-instance identity, evidence privacy, and concurrency boundary;
 - the local-browser user guide and remote acceptance runbook;
-- `docs/testing/acceptance.md` with retained evidence; and
+- `docs/testing/acceptance.md` with retained call/race/restore evidence; and
 - `docs/plans/remaining-work.md` to remove completed work or retain open
   production gates.
 
-Do not describe planned behavior as current capability before its exit gate and
-acceptance evidence exist.
+Do not describe planned behavior as current capability before its phase exit
+gate and acceptance evidence exist.
 
-## 12. Definition of done
+## 12. Definitions of done
 
-The initial Odoo-source round-trip feature is done when all of the following
-are true:
+### 12.1 Read-only Odoo-source and comparison
 
-- the browser can capture and freeze bounded Odoo 19 scalar records without a
-  file export;
-- capture uses a dedicated read identity and never `sudo()` or direct SQL;
-- the frozen snapshot and protected provenance are deterministic, immutable,
-  target-bound, and restart-safe;
-- existing preparation and mapping process the dataset without Odoo traffic;
-- the final review shows baseline, proposed, and current values;
-- missing, schema-changed, wrong-target, and concurrently changed records fail
-  closed;
-- extracted records can only be updated, never accidentally created;
-- execution uses only protected preview-derived IDs/fields and one explicit
-  confirmation;
-- every attempted update is journaled and reconciled;
-- repeat comparison is idempotent;
-- source capture and comparison have proved non-N+1 call counts;
-- the focused, browser, full, security, deterministic, fault-injection, and
-  bounded-scale suites pass; and
-- documentation accurately distinguishes disposable capability from
-  production authorization.
+The first release is done when an Odoo-only project can capture, freeze,
+transform, and freshly compare bounded Tier-1 Odoo 19 records without a file or
+any write authorization; protected provenance is deterministic, immutable,
+target/principal/context-bound, restart-safe, and absent from portable evidence;
+preparation makes no Odoo calls; unsafe rows fail closed; page/call/memory/disk
+limits and native consistency semantics are proved; file-source hashes and
+behavior regressions pass; and documentation labels the capability read-only.
 
-Production round-trip support is a later definition of done. It additionally
-requires the atomic target-side concurrency seam and every applicable
-production-readiness gate in the authoritative roadmap.
+### 12.2 Disposable round-trip update
+
+Disposable write support is done only when a separate write principal can apply
+explicitly reviewed, project-approved Tier-1 field updates to protected IDs,
+with no create fallback; every write field has a captured baseline; the
+non-atomic residual race is disclosed and tested; every attempted update is
+journaled and reconciled; unknown outcomes stop safely; repeat comparison is
+idempotent; observed side effects are retained; and all focused, browser,
+security, determinism, fault-injection, and bounded-scale suites pass.
+
+### 12.3 Production round-trip update
+
+Production support is done only when a strong target-instance identity and the
+Phase-0-approved atomic target-side lock/check/write seam are implemented and
+restore/race tests plus every applicable production gate in the authoritative
+roadmap pass. If a supported seam cannot be proven without violating the
+no-direct-SQL/no-generic-surface constraints, production write remains
+unsupported; this does not retract the completed read-only milestone.
+
+## 13. Odoo assumptions verified for this revision
+
+- [Odoo 19's external JSON-2 API documentation](https://www.odoo.com/documentation/19.0/developer/reference/external_api.html)
+  states that each call runs in its own SQL transaction, recommends one method
+  call for related operations that need transactionality, and documents the
+  deployment-plan limitation for external API access. This is why native
+  multi-page capture is not described as point-in-time and production compare/
+  write requires a narrow server-side seam.
+- [Odoo 19 ORM documentation](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html)
+  documents access-log fields such as `write_date` and notes that field
+  `readonly` is primarily a UI attribute rather than a complete programmatic
+  write-safety policy. Impodo therefore retains direct field baselines and a
+  stricter project writable-field policy.
+- Odoo 19 field implementation metadata for
+  [base fields](https://github.com/odoo/odoo/blob/19.0/odoo/orm/fields.py)
+  and [numeric/monetary fields](https://github.com/odoo/odoo/blob/19.0/odoo/orm/fields_numeric.py)
+  supports retaining store/compute/relation/translation/company and precision
+  semantics before enabling those field classes.

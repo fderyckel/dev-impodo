@@ -207,6 +207,7 @@ class QualityService:
         reference_bundle: ReferenceBundle | None = None,
         *,
         actor: Actor,
+        allow_materialized_fallback: bool = True,
     ) -> tuple[QualityRun | StoredQualityRun, QualityRunSummary]:
         """Evaluate Stage F and publish its full run plus lifecycle summary.
 
@@ -249,7 +250,13 @@ class QualityService:
                             published_staging_content_hash=staging.content_hash,
                         )
                     )
-                except BoundedQualityUnsupported:
+                except BoundedQualityUnsupported as error:
+                    if not allow_materialized_fallback:
+                        raise ReadinessError(
+                            "The data-check route could not stay bounded for "
+                            "this project. Whole-run fallback is disabled above "
+                            "the materialized safety limit; no fallback was run."
+                        ) from error
                     quality_run = evaluate_quality(
                         project=project,
                         staging=materialize_staging_run(canonical_run),

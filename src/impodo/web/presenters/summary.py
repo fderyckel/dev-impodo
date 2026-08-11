@@ -8,8 +8,10 @@ from fastapi import HTTPException, Request
 
 from ...access import AuthorizationError, Capability
 from ...application.bounded_preparation import (
-    direct_preparation_row_limit,
     supports_bounded_direct_preparation,
+)
+from ...application.preparation_capability import (
+    compile_preparation_capability,
 )
 from ...domain.errors import ReadinessError
 from ...domain.staging.scale import (
@@ -174,12 +176,25 @@ def _render_summary(
     scale_limit = BROWSER_EVALUATION_ROW_LIMIT
     if bounded_direct:
         scale_limit = BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
-        if revision is not None and effective_selection is not None:
-            scale_limit = direct_preparation_row_limit(
-                revision.definition,
-                effective_selection,
-                context.queries.get_current_source_snapshots(project_id),
-            )
+    if (
+        source_selection is not None
+        and effective_selection is not None
+        and revision is not None
+    ):
+        capability = compile_preparation_capability(
+            definition=revision.definition,
+            physical_selection=source_selection,
+            effective_selection=effective_selection,
+            source_snapshots=(
+                context.queries.get_current_source_snapshots(project_id)
+            ),
+            derived_plan=derived_plan,
+            current_ruleset=context.quality.current_ruleset(project_id),
+            reference_bundle=(
+                context.resolution.current_reference_bundle(project_id)
+            ),
+        )
+        scale_limit = capability.supported_rows
     evaluation_scale = (
         browser_evaluation_scale(
             source_selection,

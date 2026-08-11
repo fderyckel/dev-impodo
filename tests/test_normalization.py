@@ -5,19 +5,23 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 from time import perf_counter
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
 from impodo.access import LOCAL_ACTOR
 from impodo.application.bounded_normalization import (
+    BoundedNormalizationUnsupported,
     build_bounded_normalization_evaluation,
 )
 from impodo.application.bounded_quality import build_bounded_quality_run
+from impodo.application.normalization_service import NormalizationService
+from impodo.domain.errors import ReadinessError
 from impodo.governance import DryRun, DryRunStatus
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
@@ -53,7 +57,6 @@ from tests.test_quality import (
     SCHEMA_HASH,
     SOURCE_HASH,
     _canonical_row,
-    _prepared,
     _project,
     _staging,
     _stored_staging,
@@ -97,8 +100,89 @@ class _ReplayableImpacts:
         del connection
         yield from self._rows
 
+    def __iter__(self):
+        for impact, _row_id in self._rows:
+            yield impact
+
 
 class NormalizationEvaluationTests(unittest.TestCase):
+    def test_high_volume_bounded_rejection_never_materializes(self) -> None:
+        project = _project()
+        rows = (_canonical_row("5", 2),)
+        staging = _staging(project.project_id, rows)
+        stored_staging = _stored_staging(staging)
+        ruleset = default_quality_ruleset(
+            project_id=project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts",),
+        )
+        materialized_quality = evaluate_quality(
+            project=project,
+            staging=staging,
+            physical_rows={"dataset:contacts": (2,)},
+            ruleset=ruleset,
+        )
+        stored_quality = build_bounded_quality_run(
+            project=project,
+            staging=stored_staging,
+            physical_rows={"dataset:contacts": (2,)},
+            ruleset=ruleset,
+            published_staging_content_hash=staging.content_hash,
+        ).with_content_hash(materialized_quality.content_hash)
+        repository = MagicMock()
+        service = NormalizationService(repository, MagicMock())
+        mapping = _mapping()
+        revision = SimpleNamespace(
+            definition=SimpleNamespace(datasets=(mapping,))
+        )
+        selection = SimpleNamespace(
+            datasets=(
+                SimpleNamespace(
+                    dataset_id=mapping.dataset_id,
+                    name="contacts",
+                ),
+            )
+        )
+
+        with (
+            patch(
+                "impodo.application.normalization_service."
+                "build_bounded_normalization_evaluation",
+                side_effect=BoundedNormalizationUnsupported,
+            ),
+            patch(
+                "impodo.application.normalization_service."
+                "evaluate_normalization",
+                side_effect=AssertionError("whole-run fallback executed"),
+            ),
+            self.assertRaisesRegex(
+                ReadinessError,
+                "Whole-run fallback is disabled",
+            ),
+        ):
+            service.evaluate_and_publish(
+                project,
+                revision,
+                selection,
+                stored_staging,
+                SimpleNamespace(
+                    content_hash=staging.content_hash,
+                    run_id="staging:1",
+                ),
+                stored_quality,
+                SimpleNamespace(
+                    content_hash=materialized_quality.content_hash,
+                    run_id="quality:1",
+                ),
+                _ReplayableImpacts(()),
+                {"file:1": SOURCE_HASH},
+                actor=LOCAL_ACTOR,
+                allow_materialized_fallback=False,
+            )
+
+        repository.publish_normalization_run.assert_not_called()
+
     def test_bounded_dirty_evidence_matches_complete_evaluator(self) -> None:
         project = _project()
         rows = (

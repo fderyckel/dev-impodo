@@ -5,10 +5,11 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 from time import perf_counter
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from impodo.access import LOCAL_ACTOR
@@ -17,7 +18,12 @@ from impodo.adapters.duckdb.database import DuckDbDatabase
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
-from impodo.application.bounded_quality import build_bounded_quality_run
+from impodo.application.bounded_quality import (
+    BoundedQualityUnsupported,
+    build_bounded_quality_run,
+)
+from impodo.application.quality_service import QualityService
+from impodo.domain.errors import ReadinessError
 from impodo.domain.compiler import compile_profile_document
 from impodo.planner import plan_record_requests
 from impodo.domain.preflight.frozen_input import canonical_rows_to_prepared_bundle
@@ -64,6 +70,60 @@ SOURCE_HASH = "sha256:" + "4" * 64
 class QualityEvaluationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.project = _project()
+
+    def test_high_volume_bounded_rejection_never_materializes(self) -> None:
+        rows = (_canonical_row("5", 2),)
+        staging = _staging(self.project.project_id, rows)
+        stored = _stored_staging(staging)
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts",),
+        )
+        repository = MagicMock()
+        repository.get_current_quality_ruleset.return_value = ruleset
+        service = QualityService(MagicMock(), MagicMock(), repository)
+        revision = SimpleNamespace(
+            definition=SimpleNamespace(
+                content_hash=MAPPING_HASH,
+                schema_hash=SCHEMA_HASH,
+            )
+        )
+        selection = SimpleNamespace(
+            datasets=(SimpleNamespace(name="contacts"),)
+        )
+
+        with (
+            patch(
+                "impodo.application.quality_service."
+                "build_bounded_quality_run",
+                side_effect=BoundedQualityUnsupported,
+            ),
+            patch(
+                "impodo.application.quality_service.evaluate_quality",
+                side_effect=AssertionError("whole-run fallback executed"),
+            ),
+            self.assertRaisesRegex(
+                ReadinessError,
+                "Whole-run fallback is disabled",
+            ),
+        ):
+            service.evaluate_and_publish(
+                self.project,
+                revision,
+                selection,
+                stored,
+                {"dataset:contacts": (2,)},
+                SimpleNamespace(
+                    content_hash=staging.content_hash,
+                    run_id="staging:1",
+                ),
+                actor=LOCAL_ACTOR,
+                allow_materialized_fallback=False,
+            )
+
+        repository.publish_quality_run.assert_not_called()
 
     def test_collision_quarantines_complete_group_and_reconciles_sources(self) -> None:
         rows = (
@@ -121,7 +181,6 @@ class QualityEvaluationTests(unittest.TestCase):
             issues=(issue,),
         )
         staging = _staging(self.project.project_id, (row,))
-        prepared = _prepared((row,))
         ruleset = default_quality_ruleset(
             project_id=self.project.project_id,
             mapping_hash=MAPPING_HASH,

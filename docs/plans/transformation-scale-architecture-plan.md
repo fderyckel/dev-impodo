@@ -11,6 +11,9 @@ This document expands the related and mixed preparation objective in
 behavior, raise a supported limit, or weaken any source, mapping, staging,
 quality, normalization, preflight, or execution evidence contract.
 
+Implementation status and before/after measurements are maintained separately
+in [Transformation scale implementation log](../reports/transformation-scale-implementation-log.md).
+
 The immediate business target is one project containing approximately 16,000
 products and 80,000 BOM lines. The design must also explain and correct the
 reported 800-900 MiB peak for a real 1,000-customer preparation before a larger

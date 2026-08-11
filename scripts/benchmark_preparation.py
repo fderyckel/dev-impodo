@@ -21,6 +21,7 @@ from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 RESULT_PREFIX = "IMPODO_PREPARATION_BENCHMARK_JSON="
+SUPPORTED_CHILD_SCHEMAS = frozenset({1, 2})
 TEST_NAME = (
     "tests.test_preparation_scale.PreparationWorkflowScaleTests."
     "test_complete_preparation_workflow"
@@ -37,9 +38,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rows", type=int, default=100_000)
     parser.add_argument("--columns", type=int, default=30)
     parser.add_argument("--mapped-fields", type=int, default=20)
-    parser.add_argument("--workload", choices=("products", "bom"), default="products")
+    parser.add_argument(
+        "--workload",
+        choices=("products", "bom", "customers"),
+        default="products",
+    )
     parser.add_argument("--dirty", action="store_true")
     parser.add_argument("--advanced", action="store_true")
+    parser.add_argument(
+        "--trace-python-allocations",
+        action="store_true",
+        help=(
+            "Enable tracemalloc in the child. Run separately because tracing "
+            "adds material CPU and memory overhead."
+        ),
+    )
     parser.add_argument(
         "--allow-dirty-worktree",
         action="store_true",
@@ -50,6 +63,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         help="Optional JSON evidence path; parent directories must already exist.",
+    )
+    parser.add_argument(
+        "--compare-to",
+        type=Path,
+        help="Optional prior benchmark JSON to compare against.",
     )
     return parser
 
@@ -68,7 +86,7 @@ def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
         for index in range(1, arguments.runs + 1)
     )
     _require_comparable_results(results)
-    return {
+    report: dict[str, object] = {
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "command": {
             "advanced": arguments.advanced,
@@ -79,12 +97,25 @@ def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
             "runs": arguments.runs,
             "workload": arguments.workload,
         },
-        "result_schema_version": 1,
+        "result_schema_version": 2,
         "revision": revision,
         "runs": list(results),
         "summary": summarize(results),
         "worktree_dirty": worktree_dirty,
     }
+    if arguments.trace_python_allocations:
+        command = report["command"]
+        assert isinstance(command, dict)
+        command["trace_python_allocations"] = True
+    hashes = results[0].get("hashes")
+    if isinstance(hashes, dict):
+        report["semantic_hashes"] = hashes
+    if arguments.compare_to is not None:
+        report["comparison"] = compare_reports(
+            _load_report(arguments.compare_to),
+            report,
+        )
+    return report
 
 
 def summarize(results: Iterable[dict[str, object]]) -> dict[str, object]:
@@ -93,7 +124,7 @@ def summarize(results: Iterable[dict[str, object]]) -> dict[str, object]:
     items = tuple(results)
     if not items:
         raise PreparationBenchmarkError("At least one benchmark result is required")
-    return {
+    summary: dict[str, object] = {
         "median_cpu_seconds": statistics.median(
             float(item["cpu_seconds"]) for item in items
         ),
@@ -111,6 +142,30 @@ def summarize(results: Iterable[dict[str, object]]) -> dict[str, object]:
         ),
         "run_count": len(items),
     }
+    optional_metrics = {
+        "median_cpu_system_seconds": lambda item: item.get(
+            "cpu_system_seconds"
+        ),
+        "median_cpu_user_seconds": lambda item: item.get("cpu_user_seconds"),
+        "median_database_used_mib": lambda item: (
+            dict(item["storage"])["database_used_bytes"] / (1024 * 1024)
+            if isinstance(item.get("storage"), dict)
+            else None
+        ),
+        "median_peak_process_tree_mib": lambda item: item.get(
+            "peak_process_tree_mib"
+        ),
+        "median_project_storage_mib": lambda item: (
+            dict(item["storage"])["project_storage_bytes"] / (1024 * 1024)
+            if isinstance(item.get("storage"), dict)
+            else None
+        ),
+    }
+    for name, value_for in optional_metrics.items():
+        values = tuple(value_for(item) for item in items)
+        if all(value is not None for value in values):
+            summary[name] = statistics.median(float(value) for value in values)
+    return summary
 
 
 def extract_result(output: str) -> dict[str, object]:
@@ -131,7 +186,10 @@ def extract_result(output: str) -> dict[str, object]:
         raise PreparationBenchmarkError(
             "Benchmark child emitted invalid JSON"
         ) from error
-    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") not in SUPPORTED_CHILD_SCHEMAS
+    ):
         raise PreparationBenchmarkError(
             "Benchmark child emitted an unsupported result schema"
         )
@@ -163,6 +221,9 @@ def _run_once(
                 arguments.mapped_fields
             ),
             "IMPODO_PREPARATION_SCALE_ROWS": str(arguments.rows),
+            "IMPODO_PREPARATION_TRACE_PYTHON": (
+                "1" if arguments.trace_python_allocations else "0"
+            ),
             "IMPODO_PREPARATION_SCALE_WORKLOAD": arguments.workload,
             "IMPODO_RUN_PREPARATION_SCALE": "1",
         }
@@ -214,6 +275,99 @@ def _require_comparable_results(results: tuple[dict[str, object], ...]) -> None:
             raise PreparationBenchmarkError(
                 "Fresh-process benchmark fixtures are not byte-identical"
             )
+        if int(first.get("schema_version", 0)) >= 2 and (
+            result.get("hashes") != first.get("hashes")
+            or result.get("counts") != first.get("counts")
+        ):
+            raise PreparationBenchmarkError(
+                "Fresh-process benchmark semantic evidence is not identical"
+            )
+
+
+def compare_reports(
+    baseline: dict[str, object],
+    candidate: dict[str, object],
+) -> dict[str, object]:
+    """Compare same-fixture medians with positive percentages for gains."""
+
+    baseline_command = baseline.get("command")
+    candidate_command = candidate.get("command")
+    if baseline_command != candidate_command:
+        raise PreparationBenchmarkError(
+            "Benchmark comparison requires identical workload arguments"
+        )
+    baseline_runs = baseline.get("runs")
+    candidate_runs = candidate.get("runs")
+    if (
+        not isinstance(baseline_runs, list)
+        or not baseline_runs
+        or not isinstance(candidate_runs, list)
+        or not candidate_runs
+    ):
+        raise PreparationBenchmarkError("Benchmark comparison runs are missing")
+    first_before = baseline_runs[0]
+    first_after = candidate_runs[0]
+    for key in ("platform", "runtime_versions"):
+        if first_before.get(key) != first_after.get(key):
+            raise PreparationBenchmarkError(
+                "Benchmark comparison requires the same platform and runtime"
+            )
+    before_fixture = first_before.get("fixture")
+    after_fixture = first_after.get("fixture")
+    if not isinstance(before_fixture, dict) or not isinstance(after_fixture, dict):
+        raise PreparationBenchmarkError("Benchmark comparison fixture is missing")
+    if any(
+        before_fixture.get(key) != after_fixture.get(key)
+        for key in ("sha256", "size_bytes")
+    ):
+        raise PreparationBenchmarkError(
+            "Benchmark comparison requires a byte-identical fixture"
+        )
+    baseline_summary = baseline.get("summary")
+    candidate_summary = candidate.get("summary")
+    if not isinstance(baseline_summary, dict) or not isinstance(
+        candidate_summary, dict
+    ):
+        raise PreparationBenchmarkError("Benchmark comparison summary is missing")
+    metric_names = tuple(
+        sorted(
+            key
+            for key in baseline_summary.keys() & candidate_summary.keys()
+            if key.startswith("median_")
+        )
+    )
+    metrics: dict[str, object] = {}
+    for name in metric_names:
+        before = float(baseline_summary[name])
+        after = float(candidate_summary[name])
+        metrics[name] = {
+            "absolute_change": after - before,
+            "baseline": before,
+            "candidate": after,
+            "gain_percent": (
+                ((before - after) / before) * 100 if before else None
+            ),
+        }
+    return {
+        "baseline_revision": str(baseline.get("revision", "unknown")),
+        "candidate_revision": str(candidate.get("revision", "unknown")),
+        "metrics": metrics,
+    }
+
+
+def _load_report(path: Path) -> dict[str, object]:
+    resolved = path.expanduser().resolve()
+    if not resolved.is_file():
+        raise PreparationBenchmarkError("Benchmark comparison file was not found")
+    try:
+        payload = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise PreparationBenchmarkError(
+            "Benchmark comparison file is invalid"
+        ) from error
+    if not isinstance(payload, dict):
+        raise PreparationBenchmarkError("Benchmark comparison file is invalid")
+    return payload
 
 
 def _validate_arguments(arguments: argparse.Namespace) -> None:
@@ -235,6 +389,13 @@ def _validate_arguments(arguments: argparse.Namespace) -> None:
             raise PreparationBenchmarkError(
                 "Benchmark output parent directory does not exist"
             )
+    compare_to = getattr(arguments, "compare_to", None)
+    if compare_to is not None and not (
+        compare_to.expanduser().resolve().is_file()
+    ):
+        raise PreparationBenchmarkError(
+            "Benchmark comparison file was not found"
+        )
 
 
 def _revision() -> str:

@@ -11,6 +11,7 @@ from scripts.benchmark_preparation import (
     RESULT_PREFIX,
     _require_comparable_results,
     _validate_arguments,
+    compare_reports,
     extract_result,
     summarize,
 )
@@ -100,6 +101,22 @@ class PreparationBenchmarkHarnessTests(unittest.TestCase):
                     with self.assertRaises(PreparationBenchmarkError):
                         _validate_arguments(arguments)
 
+    def test_compares_same_fixture_medians_as_positive_gains(self) -> None:
+        baseline = _report(_result(wall=10, cpu=8, peak=400, database=200))
+        candidate = _report(_result(wall=8, cpu=6, peak=300, database=100))
+
+        comparison = compare_reports(baseline, candidate)
+
+        cpu = comparison["metrics"]["median_cpu_seconds"]
+        self.assertEqual(cpu["absolute_change"], -2.0)
+        self.assertEqual(cpu["gain_percent"], 25.0)
+        database = comparison["metrics"]["median_database_mib"]
+        self.assertEqual(database["gain_percent"], 50.0)
+
+        candidate["command"] = {"rows": 999}
+        with self.assertRaises(PreparationBenchmarkError):
+            compare_reports(baseline, candidate)
+
 
 def _result(
     *,
@@ -124,6 +141,23 @@ def _result(
         "schema_version": 1,
         "wall_seconds": wall,
         "workload": "products",
+    }
+
+
+def _report(result: dict[str, object]) -> dict[str, object]:
+    return {
+        "command": {
+            "advanced": False,
+            "columns": 30,
+            "dirty": False,
+            "mapped_fields": 20,
+            "rows": 100,
+            "runs": 1,
+            "workload": "products",
+        },
+        "revision": "revision",
+        "runs": [result],
+        "summary": summarize((result,)),
     }
 
 

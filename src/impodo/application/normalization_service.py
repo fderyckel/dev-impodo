@@ -186,6 +186,7 @@ class NormalizationService:
         effective: EffectiveDataset | None = None,
         *,
         actor: Actor,
+        allow_materialized_fallback: bool = True,
     ) -> NormalizationRunSummary:
         """Convert impact rows into Stage-G evidence and publish a review run.
 
@@ -232,7 +233,14 @@ class NormalizationService:
                         quality_content_hash=quality.content_hash,
                         effective=effective,
                     )
-                except BoundedNormalizationUnsupported:
+                except BoundedNormalizationUnsupported as error:
+                    if not allow_materialized_fallback:
+                        raise ReadinessError(
+                            "The review-evidence route could not stay bounded "
+                            "for this project. Whole-run fallback is disabled "
+                            "above the materialized safety limit; no fallback "
+                            "was run."
+                        ) from error
                     evaluation = evaluate_normalization(
                         project=project,
                         staging=canonical_run,
