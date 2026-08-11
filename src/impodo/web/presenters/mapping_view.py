@@ -276,7 +276,7 @@ def _render_mapping(
         for item in (validation.issues if validation else ())
         if item.severity == "warning"
     )
-    find_replace_configured = bool(
+    text_cleanup_configured = bool(
         revision is not None
         and any(
             field.transform.configured_text_steps
@@ -286,7 +286,7 @@ def _render_mapping(
     )
     rule_impact_snapshot = None
     if (
-        find_replace_configured
+        text_cleanup_configured
         and revision is not None
         and not has_unvalidated_changes
         and selection is not None
@@ -306,7 +306,7 @@ def _render_mapping(
                 )
             )
     rule_review_ready = bool(
-        not find_replace_configured
+        not text_cleanup_configured
         or (
             rule_impact_snapshot is not None
             and not rule_impact_snapshot.unacknowledged_rule_impacts
@@ -345,7 +345,7 @@ def _render_mapping(
         has_unvalidated_changes=has_unvalidated_changes,
         dataset_views=dataset_views,
         warning_issues=warning_issues,
-        find_replace_configured=find_replace_configured,
+        text_cleanup_configured=text_cleanup_configured,
         rule_impact_snapshot=rule_impact_snapshot,
         rule_review_ready=rule_review_ready,
         quality_view=quality_view,

@@ -264,6 +264,8 @@ def _transformation_rule_impact_views(
         views.append(
             {
                 "impact": impact,
+                "dataset_index": dataset_index,
+                "dataset_name": dataset.name,
                 "field_label": field_label,
                 "step_number": step_index + 1,
                 "search_value": step.search_value,
@@ -279,6 +281,7 @@ def _transformation_rule_impact_views(
         sorted(
             views,
             key=lambda item: (
+                item["dataset_index"],
                 item["field_label"].casefold(),
                 item["step_number"],
             ),

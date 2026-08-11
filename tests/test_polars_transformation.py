@@ -44,7 +44,11 @@ from impodo.domain.staging.transformation_impact import (
     _TransformationImpactCollector,
 )
 from impodo.source import CompiledPreparedRowTransformer, SourceRow
-from impodo.value_rules import ScalarTransformPolicy, ScalarValidationPolicy
+from impodo.value_rules import (
+    ScalarTransformPolicy,
+    ScalarValidationPolicy,
+    TextTransformStep,
+)
 from impodo.workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
@@ -130,6 +134,101 @@ class PolarsTransformationParityTests(unittest.TestCase):
                 self.assertEqual(collector.report(), expected_report)
                 self.assertTrue(observed_batch_sizes)
                 self.assertLessEqual(max(observed_batch_sizes), chunk_size)
+
+    def test_native_ordered_cleanup_matches_python_and_counts_each_step(self) -> None:
+        dataset = self.definition.datasets[0]
+        name_field = next(
+            field for field in dataset.fields if field.target_field == "name"
+        )
+        ordered_name = replace(
+            name_field,
+            transform=ScalarTransformPolicy(
+                trim=True,
+                collapse_whitespace=True,
+                empty_as_null=True,
+                text_steps=(
+                    TextTransformStep(
+                        search_value="Alpha",
+                        replacement_value="A",
+                        search_mode="starts_with",
+                    ),
+                    TextTransformStep(
+                        search_value="-",
+                        replacement_value=" ",
+                    ),
+                ),
+            ),
+        )
+        definition = canonicalize_mapping_definition(
+            replace(
+                self.definition,
+                datasets=(
+                    replace(
+                        dataset,
+                        fields=tuple(
+                            ordered_name
+                            if field.target_field == "name"
+                            else field
+                            for field in dataset.fields
+                        ),
+                    ),
+                ),
+            )
+        )
+        expected_records, expected_report = _python_oracle(
+            definition,
+            self.selection,
+            self.rows,
+        )
+        decision = compile_columnar_transformation_program(
+            definition,
+            self.selection,
+            DATASET_ID,
+        )
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        assert decision.program is not None
+        destination, prepared = _write_prepared_snapshot(
+            self.root,
+            self.path,
+            self.snapshot,
+            decision.program,
+        )
+        collector = _TransformationImpactCollector(
+            mapping_content_hash=definition.content_hash,
+            detail_limit=10_000,
+        )
+        records = []
+        for batch in iter_polars_prepared_batches(
+            destination,
+            prepared,
+            self.snapshot,
+            decision.program,
+            batch_size=2,
+        ):
+            records.extend(batch.records)
+            collector.record_precomputed(
+                batch.impact_counts,
+                batch.impacts,
+                batch.rule_impacts,
+            )
+
+        self.assertEqual(tuple(records), expected_records)
+        self.assertEqual(collector.report(), expected_report)
+        counts_by_kind = {
+            item.rule_kind: (
+                item.evaluated_value_count,
+                item.matched_value_count,
+                item.changed_value_count,
+            )
+            for item in expected_report.rule_impacts
+        }
+        self.assertEqual(
+            counts_by_kind,
+            {
+                "find_replace_starts_with": (4, 1, 1),
+                "find_replace_literal": (4, 3, 3),
+            },
+        )
 
     def test_snapshot_row_count_and_program_binding_fail_closed(self) -> None:
         decision = compile_columnar_transformation_program(

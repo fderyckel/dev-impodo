@@ -423,6 +423,17 @@ def _validate_transform_policy(
                         target_field=field_mapping.target_field,
                     )
                 )
+            if field_mapping.value_type != "string":
+                issues.append(
+                    _issue(
+                        "MAPPING_TRANSFORM_INVALID",
+                        step_path,
+                        "Separator cleanup applies only to text values.",
+                        "Choose the Text value type or remove this cleanup step.",
+                        dataset=dataset,
+                        target_field=field_mapping.target_field,
+                    )
+                )
             continue
         if step.search_mode not in SEARCH_MODES:
             issues.append(
@@ -450,13 +461,13 @@ def _validate_transform_policy(
                         target_field=field_mapping.target_field,
                     )
                 )
-        if step.replacement_value and not step.search_value:
+        if not step.search_value:
             issues.append(
                 _issue(
                     "MAPPING_TRANSFORM_INVALID",
                     step_path,
-                    "Replacement text was entered without text to find.",
-                    "Enter the text to find or clear the replacement.",
+                    "This cleanup step has no text to find.",
+                    "Enter the text to find or remove this cleanup step.",
                     dataset=dataset,
                     target_field=field_mapping.target_field,
                 )

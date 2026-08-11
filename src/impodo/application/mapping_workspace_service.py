@@ -497,12 +497,12 @@ class MappingWorkspaceService:
                 "Acknowledge every current validation warning before "
                 "confirming"
             )
-        find_replace_configured = any(
+        text_cleanup_configured = any(
             field.transform.configured_text_steps
             for dataset in revision.definition.datasets
             for field in dataset.fields
         )
-        if find_replace_configured and self.transformation_impacts is not None:
+        if text_cleanup_configured and self.transformation_impacts is not None:
             review = self.transformation_impacts.get_transformation_rule_review(
                 project_id,
                 mapping_content_hash=revision.definition.content_hash,

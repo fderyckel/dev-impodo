@@ -1643,8 +1643,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(frozen.status_code, 303)
         self.assertEqual(
             frozen.headers["location"],
-            f"/projects/{project_id}/schema",
+            f"/projects/{project_id}/datasets#tables-ready",
         )
+        saved_datasets = self.client.get(frozen.headers["location"])
+        self.assertIn('id="tables-ready"', saved_datasets.text)
+        self.assertIn("Tables ready for the next step", saved_datasets.text)
+        self.assertIn("Choose Odoo data", saved_datasets.text)
         derived_page = self.client.get(
             f"/projects/{project_id}/derived-entities"
         )
@@ -2009,7 +2013,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn("data-scalar-table-scroll", mapping_page.text)
         self.assertIn("Preview", mapping_page.text)
-        self.assertIn("Check values", mapping_page.text)
+        self.assertIn("Prepare and check values", mapping_page.text)
         self.assertIn("Must be exactly", mapping_page.text)
         self.assertIn("The first characters", mapping_page.text)
         self.assertIn("Add cleanup step", mapping_page.text)
@@ -2049,7 +2053,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("restoreScalarRow(row)", mapping_script.text)
         self.assertIn("restoreRelationRow(row)", mapping_script.text)
         self.assertIn(
-            "^ is treated as ordinary text in Plain text mode.",
+            "^ is ordinary text here.",
             mapping_script.text,
         )
         self.assertIn("scheduleRelationCatalogSearch", mapping_script.text)
@@ -2357,7 +2361,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Stage 3 of 6 · Rule review", impact_page.text)
         self.assertIn('aria-current="step"', impact_page.text)
         self.assertIn('aria-current="page"', impact_page.text)
-        self.assertIn("What each find rule did", impact_page.text)
+        self.assertIn("What each cleanup step did", impact_page.text)
         self.assertIn("your confirmed preparation choices", impact_page.text)
         self.assertNotIn("data-impact-row", impact_page.text)
         prepared = self.client.post(

@@ -50,14 +50,14 @@
         <div class="page-heading compact">
           <div>
             <p class="eyebrow">Rule review</p>
-            <h2 id="rule-impact-title">What each find rule did</h2>
+            <h2 id="rule-impact-title">What each cleanup step did</h2>
           </div>
         </div>
         <div class="rule-impact-list">
           {% for item in rule_impact_views %}
             <article class="notice {{ 'warning' if item.requires_acknowledgement and not item.acknowledged else 'success' }}">
               <strong>
-                {{ item.field_label }} · cleanup {{ item.step_number }}
+                {{ item.dataset_name }} · {{ item.field_label }} · cleanup {{ item.step_number }}
                 {% if item.impact.changed_value_count == 0 %}changed no values{% else %}changed {{ item.impact.changed_value_count }} value{{ 's' if item.impact.changed_value_count != 1 else '' }}{% endif %}
               </strong>
               <p>

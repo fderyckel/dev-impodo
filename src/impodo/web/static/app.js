@@ -1974,13 +1974,22 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
   const syncTextStepStorage = (builder) => {
+    const stepCount = builder.querySelectorAll("[data-text-step]").length;
     const storage = builder.querySelector("[data-text-step-storage]");
     if (storage) {
       storage.value = JSON.stringify(textStepsFromCards(builder));
     }
     const empty = builder.querySelector("[data-text-step-empty]");
     if (empty) {
-      empty.hidden = Boolean(builder.querySelector("[data-text-step]"));
+      empty.hidden = stepCount > 0;
+    }
+    const add = builder.querySelector("[data-add-text-step]");
+    if (add) {
+      add.disabled = stepCount >= 20;
+    }
+    const limit = builder.querySelector("[data-text-step-limit]");
+    if (limit) {
+      limit.hidden = stepCount < 20;
     }
   };
 
@@ -2463,30 +2472,6 @@ document.addEventListener("DOMContentLoaded", () => {
       );
       if (textRuleTypeWarning) {
         textRuleTypeWarning.hidden = type === "string";
-      }
-      const literalWarning = row.querySelector(
-        "[data-rule-literal-warning]"
-      );
-      if (literalWarning) {
-        const searchValue =
-          row.querySelector("[data-rule-search]")?.value || "";
-        const searchMode =
-          row.querySelector("[data-rule-search-mode]")?.value || "literal";
-        const patternToken = searchValue.match(/\^|\$|\[|\]|\.\*/)?.[0];
-        literalWarning.hidden = !(
-          searchMode === "literal" && patternToken
-        );
-        if (!literalWarning.hidden) {
-          if (patternToken === "^" && searchValue.startsWith("^")) {
-            literalWarning.textContent =
-              `^ is treated as ordinary text in Plain text mode. ` +
-              `To mean “starts with ${searchValue.slice(1)},” choose Advanced pattern.`;
-          } else {
-            literalWarning.textContent =
-              `${patternToken} is treated as ordinary text in Plain text mode. ` +
-              "Choose Advanced pattern only when it should control how values are matched.";
-          }
-        }
       }
       const segmentLocation = row.querySelector(
         "[data-rule-segment-location]"

@@ -492,7 +492,7 @@ def _dataset_mapping_to_dict(
                 "replace_all",
             ):
                 transform.pop(name, None)
-        else:
+        elif contract_version >= 3:
             steps = list(transform.get("text_steps", ()))
             if steps:
                 if len(steps) != 1 or steps[0].get("kind") != "find_replace":
@@ -509,6 +509,8 @@ def _dataset_mapping_to_dict(
                 transform["replace_all"] = bool(
                     steps[0].get("replace_all", True)
                 )
+            transform.pop("text_steps", None)
+        else:
             transform.pop("text_steps", None)
     if contract_version < 3:
         for item in payload.get("fields", ()):

@@ -360,16 +360,6 @@
                         <label><input type="checkbox" name="scalar_collapse_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-collapse {% if mapping and mapping.transform.collapse_whitespace %}checked{% endif %}> Replace repeated spaces with one</label>
                         <label><input type="checkbox" name="scalar_empty_null_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-empty-null {% if mapping and mapping.transform.empty_as_null %}checked{% endif %}> Treat blank values as empty</label>
                       </div>
-                      <label class="compact-control">Capitalisation
-                        <select name="scalar_case_{{ dataset_index }}_{{ field_index }}" data-transform-case>
-                          {% set case_mode = mapping.transform.case_mode if mapping else 'preserve' %}
-                          <option value="preserve" {% if case_mode == 'preserve' %}selected{% endif %}>Keep as-is</option>
-                          <option value="uppercase" {% if case_mode == 'uppercase' %}selected{% endif %}>ALL CAPITALS</option>
-                          <option value="lowercase" {% if case_mode == 'lowercase' %}selected{% endif %}>all lowercase</option>
-                          <option value="sentence" {% if case_mode == 'sentence' %}selected{% endif %}>Sentence case</option>
-                          <option value="title" {% if case_mode == 'title' %}selected{% endif %}>Title Case</option>
-                        </select>
-                      </label>
                       <label class="compact-control" data-decimal-policy>
                         Number format
                         <select name="scalar_decimal_locale_{{ dataset_index }}_{{ field_index }}">
@@ -427,14 +417,15 @@
                       </div>
 
                       {% set value_rules_configured = mapping and (
-                        transform.configured_text_steps
+                        transform.effective_text_steps
+                        or transform.case_mode != 'preserve'
                         or transform.formula
                         or transform.decimal_places is not none
                         or validation_rule.configured
                       ) %}
                       <details class="value-rule-builder" {% if value_rules_configured %}open{% endif %} data-value-rule-builder>
                         <summary>
-                          <span>Check values</span>
+                          <span>Prepare and check values</span>
                           <small>{{ "Configured" if value_rules_configured else "Optional" }}</small>
                         </summary>
                         <div class="value-rule-content">
@@ -443,7 +434,7 @@
                           </p>
                           <div data-text-rules>
                             <h4>Make the text consistent</h4>
-                            <p class="muted">Add simple cleanup steps in the order Impodo should apply them. Your registered source stays unchanged.</p>
+                            <p class="muted">After the spacing options above, Impodo applies these steps from top to bottom. Your registered source stays unchanged.</p>
                             <input
                               type="hidden"
                               name="scalar_text_steps_{{ dataset_index }}_{{ field_index }}"
@@ -465,6 +456,18 @@
                               </label>
                               <button class="button secondary compact" type="button" data-add-text-step>Add cleanup step</button>
                             </div>
+                            <p class="muted" data-text-step-limit role="status" aria-live="polite" hidden>You have reached the maximum of 20 cleanup steps for this field.</p>
+
+                            <label class="compact-control">Capitalisation after cleanup
+                              <select name="scalar_case_{{ dataset_index }}_{{ field_index }}" data-transform-case>
+                                {% set case_mode = mapping.transform.case_mode if mapping else 'preserve' %}
+                                <option value="preserve" {% if case_mode == 'preserve' %}selected{% endif %}>Keep as-is</option>
+                                <option value="uppercase" {% if case_mode == 'uppercase' %}selected{% endif %}>ALL CAPITALS</option>
+                                <option value="lowercase" {% if case_mode == 'lowercase' %}selected{% endif %}>all lowercase</option>
+                                <option value="sentence" {% if case_mode == 'sentence' %}selected{% endif %}>Sentence case</option>
+                                <option value="title" {% if case_mode == 'title' %}selected{% endif %}>Title Case</option>
+                              </select>
+                            </label>
 
                             <h4>Check the final text</h4>
                             <div class="rule-inline-fields">
@@ -922,13 +925,13 @@
             </div>
             <p class="muted">Shows how the confirmed rules prepare every source row. This does not contact or change Odoo.</p>
           {% endif %}
-          {% if find_replace_configured and not rule_review_ready %}
+          {% if text_cleanup_configured and not rule_review_ready %}
             <div class="notice warning">
               {% if rule_impact_snapshot %}
-                <strong>One or more find rules matched no values.</strong>
-                Review the full-row result and either fix or explicitly keep each unchanged rule before confirming.
+                <strong>One or more cleanup steps changed no values.</strong>
+                Review the full-row result and either fix or explicitly keep each unchanged step before confirming.
               {% else %}
-                <strong>Review what the find rules did before confirming.</strong>
+                <strong>Review what the cleanup steps did before confirming.</strong>
                 Impodo must evaluate the current saved mapping against every source row first.
               {% endif %}
               <div class="actions">

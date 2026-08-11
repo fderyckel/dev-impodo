@@ -222,7 +222,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             "Saved the table choices.",
         )
         return RedirectResponse(
-            f"/projects/{project_id}/schema",
+            f"/projects/{project_id}/datasets#tables-ready",
             status_code=303,
         )
 

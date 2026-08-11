@@ -35,6 +35,10 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationStatus,
 )
 from impodo.domain.mapping.validation.validator import MappingSemanticValidator
+from impodo.domain.staging.transformation_impact import (
+    TransformationRuleImpact,
+    transformation_rule_impact_definitions,
+)
 from impodo.value_rules import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
@@ -167,6 +171,97 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertNotIn("search_value", transform)
         self.assertEqual(len(transform["text_steps"]), 2)
         self.assertEqual(MappingDefinition.from_dict(payload), definition)
+        self.assertNotIn(
+            "transform",
+            replace(definition, contract_version=2).to_dict()["datasets"][0][
+                "fields"
+            ][0],
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "Legacy mapping contracts cannot contain ordered text changes",
+        ):
+            replace(definition, contract_version=7).to_dict()
+
+    def test_ordered_cleanup_steps_have_distinct_review_evidence(self) -> None:
+        field = ScalarFieldMapping(
+            target_field="phone",
+            source_column_key="column:phone",
+            transform=ScalarTransformPolicy(
+                text_steps=(
+                    TextTransformStep(
+                        search_value="00",
+                        replacement_value="+",
+                        search_mode="starts_with",
+                    ),
+                    TextTransformStep(
+                        kind="remove_separators_between_digits",
+                        characters=" .-",
+                    ),
+                )
+            ),
+        )
+
+        definitions = transformation_rule_impact_definitions(
+            "dataset:phone",
+            field,
+        )
+
+        self.assertEqual(
+            [item.rule_kind for item in definitions],
+            ["find_replace_starts_with", "remove_separators_between_digits"],
+        )
+        self.assertEqual(
+            len({item.rule_fingerprint for item in definitions}),
+            2,
+        )
+        matched_but_unchanged = replace(
+            definitions[0],
+            evaluated_value_count=3,
+            matched_value_count=2,
+            changed_value_count=0,
+        )
+        self.assertTrue(matched_but_unchanged.requires_acknowledgement)
+        self.assertFalse(
+            TransformationRuleImpact(
+                dataset_id="dataset:phone",
+                target_field="phone",
+                rule_kind="find_replace_literal",
+                rule_fingerprint="sha256:" + "a" * 64,
+                evaluated_value_count=3,
+                matched_value_count=1,
+                changed_value_count=1,
+            ).requires_acknowledgement
+        )
+
+    def test_incomplete_cleanup_step_is_kept_visible_and_invalid(self) -> None:
+        definition = _valid_definition(self.selection, self.governance)
+        company, partner = definition.datasets
+        name_field = replace(
+            partner.fields[0],
+            transform=ScalarTransformPolicy(
+                text_steps=(TextTransformStep(),),
+            ),
+        )
+
+        result = self.validator.validate(
+            replace(
+                definition,
+                datasets=(company, replace(partner, fields=(name_field,))),
+            ),
+            self.selection,
+            self.schema,
+            self.governance,
+        )
+
+        cleanup_issues = [
+            item
+            for item in result.issues
+            if "/transform/text_steps/0" in item.path
+        ]
+        self.assertEqual(result.status, MappingValidationStatus.INVALID)
+        self.assertEqual(len(cleanup_issues), 1)
+        self.assertIn("no text to find", cleanup_issues[0].message)
 
     def test_valid_relationship_mapping_is_deterministic_and_portable(
         self,

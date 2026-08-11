@@ -346,7 +346,28 @@ For the training price column, choose decimal format **French** so 1,25 becomes
 the numeric value 1.25. For Product Name, enable removal of outer spaces and
 repeated-space cleanup.
 
-### 6.2 Handle a Many2one relationship
+### 6.2 Add ordered cleanup steps
+
+Open **Prepare and check values** for a text field when values need more than
+spacing or capitalisation cleanup. Add each step in the order it should run.
+For an international phone field, for example:
+
+1. Add **Replace text at the beginning**, find `00`, and replace it with `+`.
+2. Add **Remove separators between numbers** and select spaces, dots, and
+   hyphens.
+
+The result turns `00352-621.23.45` into `+3526212345`, while a value such as
+`120034` keeps its internal `00`. Use **Move up** and **Move down** when one
+step depends on the result of another. Guided steps update the sample preview;
+**Advanced pattern** remains an explicit expert choice and is validated only
+after **Save progress**.
+
+Saving does not alter the registered source. Before confirming the field
+matches, **Review rule effects** shows how many values each cleanup step
+matched and changed. A step that changed no values must be fixed or explicitly
+kept.
+
+### 6.3 Handle a Many2one relationship
 
 A Many2one means one row points to one related Odoo record. The product's
 categ_id points to one Product Category.
@@ -367,7 +388,7 @@ Country example uses source Country Code against res.country.code.
 
 Impodo stores the source business value and resolver—not an Odoo numeric ID.
 
-### 6.3 Handle a One2many relationship
+### 6.4 Handle a One2many relationship
 
 A One2many list is owned by its child rows in Odoo. Do not write the parent
 mrp.bom.bom_line_ids list directly.
