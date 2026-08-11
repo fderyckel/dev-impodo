@@ -1,14 +1,40 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 import unittest
 
 from starlette.datastructures import FormData
 
 from impodo.web.presenters.mapping_forms import _text_steps_from_form
+from impodo.web.presenters.mapping_view import _is_phone_field
 
 
 class OrderedTextStepFormTests(unittest.TestCase):
+    def test_phone_quick_start_is_suggested_only_for_phone_fields(self) -> None:
+        for name, label in (
+            ("phone", "Phone"),
+            ("mobile", "Mobile"),
+            ("x_studio_telephone", "Telephone"),
+            ("x_contact", "Téléphone principal"),
+        ):
+            with self.subTest(name=name, label=label):
+                self.assertTrue(
+                    _is_phone_field(
+                        SimpleNamespace(name=name, label=label, type="char")
+                    )
+                )
+        self.assertFalse(
+            _is_phone_field(
+                SimpleNamespace(name="email", label="Email", type="char")
+            )
+        )
+        self.assertFalse(
+            _is_phone_field(
+                SimpleNamespace(name="phone", label="Phone", type="integer")
+            )
+        )
+
     def test_reads_ordered_steps_without_interpreting_business_text(self) -> None:
         payload = [
             {

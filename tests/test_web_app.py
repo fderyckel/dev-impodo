@@ -2053,9 +2053,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("restoreScalarRow(row)", mapping_script.text)
         self.assertIn("restoreRelationRow(row)", mapping_script.text)
         self.assertIn(
-            "^ is ordinary text here.",
+            "is ordinary text here.",
             mapping_script.text,
         )
+        self.assertIn("internationalPhoneTextSteps", mapping_script.text)
+        self.assertIn('characters: " .-/"', mapping_script.text)
         self.assertIn("scheduleRelationCatalogSearch", mapping_script.text)
         self.assertIn("relationDraftRows", mapping_script.text)
         self.assertNotIn("pendingRedirect", mapping_script.text)
@@ -2779,6 +2781,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "csrf_token": self.csrf,
                 "snapshot_hash": load_preview.snapshot.semantic_hash,
                 "api_key": "load-secret",
+                "batch_rows": "10",
             },
             headers=POST_HEADERS,
             follow_redirects=False,

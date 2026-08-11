@@ -604,6 +604,7 @@ def _mapping_dataset_views(
                     if field.name in scalar_by_target
                     else ()
                 ),
+                "show_phone_cleanup_quick_start": _is_phone_field(field),
                 "selection_choice_count": (
                     len(field.selection)
                     if field.type == "selection"
@@ -1024,6 +1025,18 @@ def _text_steps_json(steps) -> str:
         ],
         ensure_ascii=True,
         separators=(",", ":"),
+    )
+
+
+def _is_phone_field(field) -> bool:
+    """Return whether a scalar field should show the phone quick start."""
+
+    if field.type not in {"char", "text"}:
+        return False
+    searchable = f"{field.name} {field.label}".casefold()
+    return any(
+        word in searchable
+        for word in ("phone", "mobile", "telephone", "téléphone")
     )
 
 

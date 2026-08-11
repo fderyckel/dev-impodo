@@ -112,7 +112,7 @@ class MappingSemanticValidatorTests(unittest.TestCase):
                     ),
                     TextTransformStep(
                         kind="remove_separators_between_digits",
-                        characters=" .-",
+                        characters=" .-/",
                     ),
                 )
             ),
@@ -137,6 +137,10 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         )
         self.assertEqual(
             canonicalize_scalar_value(mapping, "067.37.67.77"),
+            "067376777",
+        )
+        self.assertEqual(
+            canonicalize_scalar_value(mapping, "067/37/67/77"),
             "067376777",
         )
         self.assertEqual(canonicalize_scalar_value(mapping, "120034"), "120034")

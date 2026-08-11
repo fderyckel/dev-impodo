@@ -1934,6 +1934,18 @@ document.addEventListener("DOMContentLoaded", () => {
       preset === "remove_separators_between_digits" ? " .-" : "",
   });
 
+  const internationalPhoneTextSteps = () => [
+    {
+      ...defaultTextStep("starts_with"),
+      search_value: "00",
+      replacement_value: "+",
+    },
+    {
+      ...defaultTextStep("remove_separators_between_digits"),
+      characters: " .-/",
+    },
+  ];
+
   const readTextSteps = (row) => {
     const storage = row.querySelector("[data-text-step-storage]");
     if (!storage?.value) {
@@ -1990,6 +2002,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const limit = builder.querySelector("[data-text-step-limit]");
     if (limit) {
       limit.hidden = stepCount < 20;
+    }
+    const phoneQuickStart = builder.querySelector(
+      "[data-phone-cleanup-quick-start]"
+    );
+    if (phoneQuickStart) {
+      phoneQuickStart.hidden = stepCount > 0;
     }
   };
 
@@ -2362,6 +2380,17 @@ document.addEventListener("DOMContentLoaded", () => {
     builder.dataset.textStepsInitialized = "true";
     renderTextSteps(builder, readTextSteps(row));
     builder.addEventListener("click", (event) => {
+      const phoneQuickStart = event.target.closest(
+        "[data-use-phone-cleanup]"
+      );
+      if (phoneQuickStart) {
+        if (textStepsFromCards(builder).length > 0) {
+          return;
+        }
+        renderTextSteps(builder, internationalPhoneTextSteps());
+        updateScalarRow();
+        return;
+      }
       const add = event.target.closest("[data-add-text-step]");
       if (add) {
         const steps = textStepsFromCards(builder);

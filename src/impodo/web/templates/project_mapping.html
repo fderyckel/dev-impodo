@@ -441,6 +441,20 @@
                               value="{{ row.text_steps_json }}"
                               data-text-step-storage
                             >
+                            {% if row.show_phone_cleanup_quick_start %}
+                              <div
+                                class="text-step-quick-start"
+                                data-phone-cleanup-quick-start
+                                {% if transform and transform.effective_text_steps %}hidden{% endif %}
+                              >
+                                <div class="text-step-quick-start-copy">
+                                  <strong>Suggested start for this phone field</strong>
+                                  <span>Change <code>00</code> at the beginning to <code>+</code>, then remove spaces, dots, hyphens and slashes only when they are between digits.</span>
+                                  <small>Example: <code>00352-621.23.45</code> becomes <code>+3526212345</code>. You can change every step before saving.</small>
+                                </div>
+                                <button class="button secondary compact" type="button" data-use-phone-cleanup>Use phone cleanup</button>
+                              </div>
+                            {% endif %}
                             <div class="text-step-list" data-text-step-list></div>
                             <p class="muted" data-text-step-empty {% if transform and transform.effective_text_steps %}hidden{% endif %}>No cleanup steps added.</p>
                             <div class="text-step-add">

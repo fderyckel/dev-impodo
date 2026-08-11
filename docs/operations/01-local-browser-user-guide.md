@@ -349,8 +349,12 @@ repeated-space cleanup.
 ### 6.2 Add ordered cleanup steps
 
 Open **Prepare and check values** for a text field when values need more than
-spacing or capitalisation cleanup. Add each step in the order it should run.
-For an international phone field, for example:
+spacing or capitalisation cleanup. For a Phone or Mobile field, choose
+**Use phone cleanup** to add an editable two-step starting point. Impodo does
+not save the suggestion until you choose **Save progress**.
+
+You can also add each step yourself in the order it should run. For an
+international phone field:
 
 1. Add **Replace text at the beginning**, find `00`, and replace it with `+`.
 2. Add **Remove separators between numbers** and select spaces, dots, and

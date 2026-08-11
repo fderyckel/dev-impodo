@@ -1902,6 +1902,33 @@ label.model-choice input {
   margin-top: .7rem;
 }
 
+.text-step-quick-start {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .85rem;
+  margin-top: .7rem;
+  padding: .8rem;
+  border: 1px solid var(--brand);
+  border-radius: .65rem;
+  background: var(--accent);
+}
+
+.text-step-quick-start-copy {
+  display: grid;
+  flex: 1 1 24rem;
+  gap: .2rem;
+}
+
+.text-step-quick-start-copy span,
+.text-step-quick-start-copy small {
+  color: var(--muted);
+}
+
+.text-step-quick-start .button {
+  flex: 0 0 auto;
+}
+
 .text-step-card {
   padding: .75rem;
   border: 1px solid var(--border);
@@ -3172,6 +3199,15 @@ a.impact-card:focus-visible,
 }
 
 @media (max-width: 720px) {
+  .text-step-quick-start {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .text-step-quick-start .button {
+    width: 100%;
+  }
+
   .overview-stage {
     grid-template-columns: auto minmax(0, 1fr);
   }
