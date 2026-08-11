@@ -5,13 +5,13 @@ from __future__ import annotations
 import duckdb
 
 from ..constants import SCHEMA_VERSION
-from .preflight import create_preflight_schema
 from .advanced_coverage import create_advanced_coverage_schema
-from .preparation_session import create_preparation_session_schema
 from .execution import create_execution_schema
+from .preflight import create_preflight_schema
+from .preparation_session import create_preparation_session_schema
+from .prepared_snapshot import create_prepared_snapshot_schema
 from .reconciliation import create_reconciliation_schema
 from .source_snapshot import create_source_snapshot_schema
-from .prepared_snapshot import create_prepared_snapshot_schema
 
 
 class ProjectSchemaMixin:
