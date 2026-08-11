@@ -5,7 +5,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import Callable, Iterable, Mapping
+from hashlib import sha256
+from typing import Any, Callable, Iterable, Mapping
 
 from ..access import Actor
 from ..adapters.polars_transformation import (
@@ -51,7 +52,13 @@ from ..domain.staging.transformation_impact import (
     transformation_rule_impact_definitions,
 )
 from ..inspection import SourceFileCatalog
-from ..models import Issue, PreparedRecord, canonical_json_bytes
+from ..models import (
+    Issue,
+    PreparedRecord,
+    canonical_json_bytes,
+    portable_issue,
+    portable_value,
+)
 from ..projects import MigrationProject, SourceFile
 from ..source import (
     CompiledPreparedRowTransformer,
@@ -66,6 +73,7 @@ from ..staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
     StagingDatasetRole,
+    StagingDisposition,
     canonical_row_from_prepared,
 )
 from ..workspace_contracts import SourceDataset, SourceSelection
@@ -369,24 +377,45 @@ def prepare_bounded_direct_session(
                             snapshot,
                             columnar.program,
                             batch_size=columnar_batch_size,
+                            materialize_records=False,
                         ):
                             impact_collector.record_precomputed(
                                 native_batch.impact_counts,
                                 native_batch.impacts,
                                 native_batch.rule_impacts,
                             )
-                            for batch_index, (record, source_row) in enumerate(
+                            for batch_index, (
+                                source_row,
+                                source_identity,
+                                target_identity,
+                                target_scope,
+                                scalar_values,
+                                issues,
+                            ) in enumerate(
                                 zip(
-                                    native_batch.records,
                                     native_batch.source_rows,
+                                    native_batch.source_identities,
+                                    native_batch.target_identities,
+                                    native_batch.target_scopes,
+                                    native_batch.scalar_values,
+                                    native_batch.issues,
                                     strict=True,
                                 )
                             ):
-                                totals.add(record)
+                                totals.add_values(
+                                    effective.name,
+                                    scalar_values,
+                                )
                                 pending_rows.append(
-                                    _canonical_session_row(
-                                        record,
+                                    _canonical_session_row_from_columnar(
+                                        dataset=effective.name,
                                         source_row=source_row,
+                                        target_model=columnar.program.target_model,
+                                        source_identity=source_identity,
+                                        target_identity=target_identity,
+                                        target_scope=target_scope,
+                                        scalar_values=scalar_values,
+                                        issues=issues,
                                         ordinal=(
                                             dataset_offsets[
                                                 effective.dataset_id
@@ -588,6 +617,103 @@ def _canonical_session_row(
         disposition=canonical.disposition,
         source_identity=canonical.source_identity,
         row_json=canonical_json_bytes(canonical.to_portable_dict()).decode("utf-8"),
+        physical_sources=physical_sources,
+    )
+
+
+def _canonical_session_row_from_columnar(
+    *,
+    dataset: str,
+    source_row: int,
+    target_model: str,
+    source_identity: tuple[Any, ...],
+    target_identity: tuple[Any, ...],
+    target_scope: tuple[Any, ...],
+    scalar_values: Mapping[str, Any],
+    issues: tuple[Issue, ...],
+    ordinal: int,
+    mode: str,
+    source_hash: str,
+    source_selection_hash: str,
+    mapping_hash: str,
+    schema_hash: str,
+    field_sources: Mapping[str, tuple[str, ...]],
+    physical_dataset_id: str,
+) -> CanonicalPreparedSessionRow:
+    """Encode a native row without building PreparedRecord/CanonicalRow graphs."""
+
+    physical_sources = {physical_dataset_id: (source_row,)}
+    lineage = {
+        "source_selection_hash": source_selection_hash,
+        "source_hash": source_hash,
+        "mapping_hash": mapping_hash,
+        "schema_hash": schema_hash,
+        "derived_plan_hash": None,
+        "dataset": dataset,
+        "source_row": source_row,
+        "physical_dataset_id": physical_dataset_id,
+        "physical_source_rows": [source_row],
+        "field_sources": {
+            field: list(sources)
+            for field, sources in sorted(field_sources.items())
+        },
+    }
+    portable_source_identity = portable_value(source_identity)
+    row_id = "sha256:" + sha256(
+        canonical_json_bytes(
+            {
+                "lineage": lineage,
+                "target_model": target_model,
+                "source_identity": portable_source_identity,
+            }
+        )
+    ).hexdigest()
+    disposition = (
+        StagingDisposition.BLOCKED.value
+        if any(item.blocking for item in issues)
+        else (
+            StagingDisposition.REFERENCE.value
+            if mode == "reference"
+            else StagingDisposition.CANDIDATE.value
+        )
+    )
+    canonical_issues = []
+    for issue in issues:
+        portable = portable_issue(issue)
+        canonical_issues.append(
+            {
+                "code": portable["code"],
+                "message": portable["message"],
+                "severity": portable["severity"],
+                "dataset": portable["dataset"],
+                "source_row": portable["row"],
+                "field": portable["field"],
+                "affected_count": portable["affected_count"],
+            }
+        )
+    payload = {
+        "row_id": row_id,
+        "dataset": dataset,
+        "source_row": source_row,
+        "target_model": target_model,
+        "disposition": disposition,
+        "source_identity": portable_source_identity,
+        "target_identity": portable_value(target_identity),
+        "target_scope": portable_value(target_scope),
+        "proposed_values": portable_value(scalar_values),
+        "references": {},
+        "issues": canonical_issues,
+        "lineage": lineage,
+    }
+    return CanonicalPreparedSessionRow(
+        row_id=row_id,
+        ordinal=ordinal,
+        dataset=dataset,
+        source_row=source_row,
+        target_model=target_model,
+        disposition=StagingDisposition(disposition),
+        source_identity=source_identity,
+        row_json=canonical_json_bytes(payload).decode("utf-8"),
         physical_sources=physical_sources,
     )
 

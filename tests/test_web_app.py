@@ -62,7 +62,7 @@ from impodo.models import (
 )
 from impodo.models import canonical_json_text
 from impodo.odoo_readback import ReadbackRecord
-from impodo.projects import OdooConnectionMode, ProjectStatus
+from impodo.projects import OdooConnectionMode, ProjectStatus, SourceMode
 from impodo.quality import (
     QualityOutcomePolicy,
     QualityOwnerRole,
@@ -1510,6 +1510,109 @@ class ProjectSetupWizardTests(unittest.TestCase):
             cached_schema_page.text,
         )
         self.local_odoo_reader.get_model_metadata.assert_called_once()
+
+    def test_odoo_source_setup_skips_file_export_and_opens_schema_first(
+        self,
+    ) -> None:
+        new_page = self.client.get("/projects/new")
+        self.assertIn("Use files", new_page.text)
+        self.assertIn("Use data already in Odoo", new_page.text)
+
+        created = self._post(
+            "/projects/new",
+            {
+                "csrf_token": self.csrf,
+                "name": "Odoo product cleanup",
+                "source_system": "Odoo 19",
+                "source_mode": "ODOO",
+            },
+        )
+        project_id = created.headers["location"].split("/")[2]
+        details_page = self.client.get(created.headers["location"])
+        self.assertIn("Source: data already in Odoo", details_page.text)
+        self.assertNotIn("Have you received the final files?", details_page.text)
+
+        details = self._post(
+            f"/projects/{project_id}/details",
+            {
+                "csrf_token": self.csrf,
+                "revision": "1",
+                "name": "Odoo product cleanup",
+                "source_system": "Odoo 19",
+                "description": "Round-trip selected products",
+            },
+        )
+        self.assertEqual(
+            details.headers["location"],
+            f"/projects/{project_id}/governance",
+        )
+        governance = self._post(
+            f"/projects/{project_id}/governance",
+            {
+                "csrf_token": self.csrf,
+                "revision": "2",
+                "data_manager": "Data Manager",
+                "functional_owner": "Product Owner",
+                "business_unit": "Example Business Unit",
+                "data_classification": "CONFIDENTIAL",
+                "retention_days": "90",
+            },
+        )
+        self.assertEqual(
+            governance.headers["location"],
+            f"/projects/{project_id}/target",
+        )
+        files = self.client.get(
+            f"/projects/{project_id}/files",
+            follow_redirects=False,
+        )
+        self.assertEqual(files.status_code, 303)
+        self.assertEqual(files.headers["location"], f"/projects/{project_id}/target")
+
+        target = self._post(
+            f"/projects/{project_id}/target",
+            {
+                "csrf_token": self.csrf,
+                "revision": "3",
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://odoo.example.test",
+                "odoo_database": "odoo_review",
+                "intended_applications": "Inventory",
+                "action": "save",
+            },
+        )
+        self.assertEqual(
+            target.headers["location"],
+            f"/projects/{project_id}/review",
+        )
+        review = self.client.get(target.headers["location"])
+        self.assertNotIn("Complete these items", review.text)
+        self.assertIn("Existing Odoo records", review.text)
+        self.assertIn("Confirm project and continue", review.text)
+
+        registered = self._post(
+            f"/projects/{project_id}/register",
+            {"csrf_token": self.csrf, "revision": "4"},
+        )
+        self.assertEqual(registered.status_code, 303)
+        overview = self.client.get(registered.headers["location"])
+        self.assertIn("Odoo source data", overview.text)
+        self.assertIn(
+            f'href="/projects/{project_id}/schema"',
+            overview.text,
+        )
+        self.assertNotIn(
+            f'href="/projects/{project_id}/sources"',
+            overview.text,
+        )
+        project = self.app.state.context.projects.repository.get(project_id)
+        self.assertEqual(project.source_mode, SourceMode.ODOO)
+        self.assertEqual(project.source_files, ())
+        self.assertIsNone(project.export_date)
+
+        schema_page = self.client.get(f"/projects/{project_id}/schema")
+        self.assertIn("Stage 1 of 6 · Odoo data", schema_page.text)
+        self.assertIn("Choose the Odoo source record type", schema_page.text)
 
     def test_complete_project_setup_registration_without_yaml(self) -> None:
         created = self._post(

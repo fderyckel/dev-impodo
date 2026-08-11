@@ -64,6 +64,13 @@ class ExportStatus(StrEnum):
     RECEIVED = "RECEIVED"
 
 
+class SourceMode(StrEnum):
+    """Select the governed origin used to create the project's source data."""
+
+    FILE = "FILE"
+    ODOO = "ODOO"
+
+
 class DataClassification(StrEnum):
     """Govern retention, display, and operational handling of project data."""
 
@@ -124,6 +131,7 @@ class MigrationProject:
     project_id: str
     name: str
     source_system: str
+    source_mode: SourceMode = SourceMode.FILE
     export_status: ExportStatus = ExportStatus.PLANNED
     export_date: date | None = None
     description: str = ""
@@ -149,6 +157,7 @@ class MigrationProject:
     approval_status: ApprovalStatus = ApprovalStatus.NOT_STARTED
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "source_mode", SourceMode(self.source_mode))
         object.__setattr__(
             self,
             "approval_status",
@@ -241,17 +250,23 @@ class ProjectService:
         actor: Actor,
         name: str,
         source_system: str,
+        source_mode: str | SourceMode = SourceMode.FILE,
     ) -> MigrationProject:
         """Create and persist a minimal editable migration-project draft."""
 
         self.authorization.require(actor, Capability.PROJECT_CREATE)
         clean_name = _required_text(name, "Project name")
         clean_source = _required_text(source_system, "Source system")
+        try:
+            parsed_source_mode = SourceMode(source_mode)
+        except ValueError as error:
+            raise ProjectError("Choose files or data already in Odoo") from error
         now = _now()
         project = MigrationProject(
             project_id=str(uuid4()),
             name=clean_name,
             source_system=clean_source,
+            source_mode=parsed_source_mode,
             created_at=now,
             updated_at=now,
         )
@@ -320,15 +335,21 @@ class ProjectService:
             actor=actor,
             capability=Capability.PROJECT_EDIT,
         )
-        try:
-            parsed_status = ExportStatus(export_status)
-        except ValueError as error:
-            raise ProjectError("Choose a valid export status") from error
-        parsed_date = _optional_date(export_date)
-        if parsed_status is ExportStatus.RECEIVED and parsed_date is None:
-            raise ProjectError("Export date is required when files are received")
-        if parsed_date is not None and parsed_date > date.today():
-            raise ProjectError("Export date cannot be in the future")
+        if project.source_mode is SourceMode.FILE:
+            try:
+                parsed_status = ExportStatus(export_status)
+            except ValueError as error:
+                raise ProjectError("Choose a valid export status") from error
+            parsed_date = _optional_date(export_date)
+            if parsed_status is ExportStatus.RECEIVED and parsed_date is None:
+                raise ProjectError(
+                    "Export date is required when files are received"
+                )
+            if parsed_date is not None and parsed_date > date.today():
+                raise ProjectError("Export date cannot be in the future")
+        else:
+            parsed_status = ExportStatus.PLANNED
+            parsed_date = None
         clean_description = description.strip()
         if len(clean_description) > 2000:
             raise ProjectError("Description is too long")
@@ -512,6 +533,8 @@ class ProjectService:
             actor=actor,
             capability=Capability.PROJECT_EDIT,
         )
+        if project.source_mode is not SourceMode.FILE:
+            raise ProjectError("Odoo-source projects do not accept source files")
         if any(item.sha256 == source_file.sha256 for item in project.source_files):
             raise ProjectError("This exact source file is already registered")
         updated = replace(project, source_files=project.source_files + (source_file,))
@@ -618,12 +641,15 @@ def registration_problems(project: MigrationProject) -> tuple[str, ...]:
         problems.append("Project name is required")
     if not project.source_system:
         problems.append("Source system is required")
-    if project.export_status is not ExportStatus.RECEIVED:
-        problems.append("Source export must be marked as received")
-    if project.export_date is None:
-        problems.append("Source export date is required")
-    if not project.source_files:
-        problems.append("At least one source file is required")
+    if project.source_mode is SourceMode.FILE:
+        if project.export_status is not ExportStatus.RECEIVED:
+            problems.append("Source export must be marked as received")
+        if project.export_date is None:
+            problems.append("Source export date is required")
+        if not project.source_files:
+            problems.append("At least one source file is required")
+    elif project.source_files:
+        problems.append("Odoo-source projects cannot contain source files")
     if not project.data_manager:
         problems.append("Responsible data manager is required")
     if not project.functional_owner:

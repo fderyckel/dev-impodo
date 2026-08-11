@@ -6,8 +6,8 @@
   {% set local_access_verified = not local_mode or local_stack.metadata_ready %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 2 of 6 · Odoo data</p>
-      <h1>Choose the Odoo records to prepare</h1>
+      <p class="eyebrow">Stage {% if project.source_mode.value == 'ODOO' %}1{% else %}2{% endif %} of 6 · Odoo data</p>
+      <h1>{% if project.source_mode.value == 'ODOO' %}Choose the Odoo source record type{% else %}Choose the Odoo records to prepare{% endif %}</h1>
       <p>Choose the kinds of Odoo information needed for this project.</p>
     </div>
     {% if schema %}
@@ -188,8 +188,8 @@
     <form method="post" action="/projects/{{ project.project_id }}/schema/capture">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
-        <a class="button secondary" href="/projects/{{ project.project_id }}/datasets">Back to tables</a>
-        <button class="button primary" type="submit" {% if not selection or not project.intended_models or not local_reader_ready %}disabled{% endif %}>
+        <a class="button secondary" href="/projects/{{ project.project_id }}/{% if project.source_mode.value == 'ODOO' %}overview{% else %}datasets{% endif %}">{% if project.source_mode.value == 'ODOO' %}Back to overview{% else %}Back to tables{% endif %}</a>
+        <button class="button primary" type="submit" {% if (project.source_mode.value == 'FILE' and not selection) or not project.intended_models or not local_reader_ready %}disabled{% endif %}>
           {% if schema %}Refresh selected Odoo details{% else %}Load selected Odoo details{% endif %}
         </button>
       </div>
@@ -234,7 +234,7 @@
           I understand this is an unverified local draft and cannot be submitted until a live Odoo capture replaces it.
         </label>
         <div class="actions">
-          <button class="button secondary" type="submit" {% if not selection or not project.intended_models %}disabled{% endif %}>Create unverified local schema draft</button>
+          <button class="button secondary" type="submit" {% if (project.source_mode.value == 'FILE' and not selection) or not project.intended_models %}disabled{% endif %}>Create unverified local schema draft</button>
         </div>
       </form>
     </details>
@@ -246,6 +246,16 @@
         This field catalog was entered manually for local development. Validate it against Odoo with an authenticated live capture before submitting a mapping.
       </div>
     {% endif %}
+    {% if project.source_mode.value == 'ODOO' and not selection %}
+      <section class="form-card" id="schema-governance">
+        <p class="eyebrow">Next slice</p>
+        <h2>Choose and freeze the Odoo source records</h2>
+        <p>
+          The record type and field metadata are ready. Matching rules remain
+          locked until an immutable Odoo source selection has been frozen.
+        </p>
+      </section>
+    {% else %}
     <form method="post" action="/projects/{{ project.project_id }}/schema/govern">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <section class="form-card" id="schema-governance">
@@ -449,5 +459,6 @@
         {% endif %}
       </div>
     </form>
+    {% endif %}
   {% endif %}
 {% endblock %}

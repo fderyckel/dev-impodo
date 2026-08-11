@@ -31,7 +31,7 @@ from ...domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
 )
-from ...models import Issue, PreparedRecord, canonical_json_bytes, portable_value
+from ...models import Issue, canonical_json_bytes, portable_value
 from ...projects import ProjectNotFoundError
 from ...staging import StagingRunStatus
 from ...staging_contracts import (

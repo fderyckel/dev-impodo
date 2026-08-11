@@ -44,6 +44,7 @@ class ProjectSchemaMixin:
                 project_id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL,
                 source_system VARCHAR NOT NULL,
+                source_mode VARCHAR NOT NULL,
                 export_status VARCHAR NOT NULL,
                 export_date VARCHAR,
                 description VARCHAR NOT NULL,

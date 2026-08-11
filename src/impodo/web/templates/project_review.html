@@ -19,12 +19,17 @@
     <dl class="summary-grid">
       <div><dt>Project</dt><dd>{{ project.name }}</dd></div>
       <div><dt>Source</dt><dd>{{ project.source_system }}</dd></div>
-      <div><dt>Files produced on</dt><dd>{{ project.export_date or "Not set" }}</dd></div>
+      <div><dt>Source method</dt><dd>{% if project.source_mode.value == "FILE" %}Governed files{% else %}Existing Odoo records{% endif %}</dd></div>
+      {% if project.source_mode.value == "FILE" %}
+        <div><dt>Files produced on</dt><dd>{{ project.export_date or "Not set" }}</dd></div>
+      {% endif %}
       <div><dt>Preparing the data</dt><dd>{{ project.data_manager or "Not set" }}</dd></div>
       <div><dt>Confirming the result</dt><dd>{{ project.functional_owner or "Not set" }}</dd></div>
       <div><dt>Data sensitivity</dt><dd>{{ project.data_classification.value|title }}</dd></div>
       <div><dt>Local project removal</dt><dd>{{ project.retention_days }} days after acceptance</dd></div>
-      <div><dt>Source files</dt><dd>{{ project.source_files|length }}</dd></div>
+      {% if project.source_mode.value == "FILE" %}
+        <div><dt>Source files</dt><dd>{{ project.source_files|length }}</dd></div>
+      {% endif %}
       <div><dt>Odoo location</dt><dd>{% if project.odoo_connection_mode and project.odoo_connection_mode.value == "LOCAL" %}On this computer{% elif project.odoo_connection_mode %}Managed elsewhere{% else %}Not set{% endif %}</dd></div>
       <div class="wide"><dt>Odoo areas included</dt><dd>{{ project.intended_applications|join(", ") or "All available areas" }}</dd></div>
     </dl>
@@ -38,7 +43,12 @@
     </details>
 
     <div class="notice warning">
-      Confirming locks these uploaded files and setup as the source for this project. Review the details above before continuing.
+      {% if project.source_mode.value == "FILE" %}
+        Confirming locks these uploaded files and setup as the source for this project.
+      {% else %}
+        Confirming locks this project identity and Odoo connection setup. It does not read or write Odoo business records; record selection happens next.
+      {% endif %}
+      Review the details above before continuing.
     </div>
 
     <form method="post" action="/projects/{{ project.project_id }}/register">
@@ -46,7 +56,7 @@
       <input type="hidden" name="revision" value="{{ project.revision }}">
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/target">Back</a>
-        <button class="button primary" type="submit" {% if problems %}disabled{% endif %}>Confirm files and continue</button>
+        <button class="button primary" type="submit" {% if problems %}disabled{% endif %}>{% if project.source_mode.value == "FILE" %}Confirm files and continue{% else %}Confirm project and continue{% endif %}</button>
       </div>
     </form>
   </section>

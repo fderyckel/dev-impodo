@@ -62,8 +62,17 @@ class CompiledControlTotalAccumulator:
     def add(self, record: PreparedRecord) -> None:
         """Add one row's prepared numeric values to configured field totals."""
 
-        for target_field, state in self.states.get(record.dataset, {}).items():
-            value = record.scalar_values.get(target_field)
+        self.add_values(record.dataset, record.scalar_values)
+
+    def add_values(
+        self,
+        dataset: str,
+        scalar_values: Mapping[str, object],
+    ) -> None:
+        """Add native columnar values without constructing a prepared record."""
+
+        for target_field, state in self.states.get(dataset, {}).items():
+            value = scalar_values.get(target_field)
             if value is None:
                 state.empty += 1
                 continue

@@ -42,7 +42,6 @@ from impodo.inspection import (
     SourceTableCatalog,
 )
 from impodo.projects import MigrationProject, ProjectStatus, SourceFile
-from impodo.source import SourceLoadError
 from impodo.source_snapshot_io import (
     SourceSnapshotPublisher,
     load_source_snapshot_table,
@@ -132,6 +131,9 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         with patch(
             "impodo.application.bounded_preparation.compile_browser_row_transformer",
             side_effect=AssertionError("supported snapshot used the Python oracle"),
+        ), patch(
+            "impodo.application.bounded_preparation.canonical_row_from_prepared",
+            side_effect=AssertionError("native path built CanonicalRow"),
         ):
             bounded = prepare_bounded_direct_session(
                 self.projects.get(project.project_id),

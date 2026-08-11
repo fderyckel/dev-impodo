@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 
 from ...domain.errors import ReadinessError
 from ...domain.reconciliation import ReconciliationRunStatus
-from ...projects import MigrationProject, ProjectStatus
+from ...projects import MigrationProject, ProjectStatus, SourceMode
 from ...workspace_errors import WorkspaceError
 from ..context import WebContext
 
@@ -143,6 +143,74 @@ def build_project_navigation(
             viewed_stage_id="",
             viewed_page_label=viewed_page_label,
             stages=stages,
+        )
+
+    if current_project.source_mode is SourceMode.ODOO:
+        model_catalog = context.queries.get_odoo_model_catalog(
+            current_project.project_id
+        )
+        schema = context.queries.get_odoo_schema_catalog(
+            current_project.project_id
+        )
+        stages = [
+            _stage(
+                current_project.project_id,
+                "odoo",
+                1,
+                "Odoo source data",
+                "/schema",
+                status="current",
+                status_label=(
+                    "Choose source records" if schema is not None else "Current"
+                ),
+                pages=(
+                    _page(
+                        current_project.project_id,
+                        "odoo-models",
+                        "Choose Odoo record type",
+                        "/schema",
+                        complete=model_catalog is not None,
+                    ),
+                    _page(
+                        current_project.project_id,
+                        "odoo-fields",
+                        "Capture eligible fields",
+                        "/schema#odoo-details",
+                        complete=schema is not None,
+                    ),
+                ),
+            ),
+            WorkflowStage(
+                stage_id="source",
+                number=2,
+                label="Freeze Odoo records",
+                href=None,
+                status="locked",
+                status_label="Available in the next implementation slice",
+            ),
+            *(
+                WorkflowStage(
+                    stage_id=stage_id,
+                    number=number,
+                    label=label,
+                    href=None,
+                    status="locked",
+                    status_label="Not yet available",
+                )
+                for stage_id, number, label in (
+                    ("match", 3, "Match data"),
+                    ("prepare", 4, "Prepare data"),
+                    ("review", 5, "Final review"),
+                    ("load", 6, "Load into Odoo"),
+                )
+            ),
+        ]
+        return _navigation(
+            current_project,
+            template_name,
+            viewed_stage_id,
+            viewed_page_label,
+            stages,
         )
 
     project_id = current_project.project_id

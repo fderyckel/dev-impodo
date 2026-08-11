@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import polars as pl
 
@@ -43,6 +44,7 @@ from impodo.domain.staging.transformation_impact import (
     TransformationImpactCounts,
     _TransformationImpactCollector,
 )
+from impodo.models import PreparedRecord
 from impodo.source import CompiledPreparedRowTransformer, SourceRow
 from impodo.value_rules import (
     ScalarTransformPolicy,
@@ -134,6 +136,61 @@ class PolarsTransformationParityTests(unittest.TestCase):
                 self.assertEqual(collector.report(), expected_report)
                 self.assertTrue(observed_batch_sizes)
                 self.assertLessEqual(max(observed_batch_sizes), chunk_size)
+
+    def test_production_projection_skips_full_prepared_record_objects(self) -> None:
+        expected_records, _expected_report = _python_oracle(
+            self.definition,
+            self.selection,
+            self.rows,
+        )
+        decision = compile_columnar_transformation_program(
+            self.definition,
+            self.selection,
+            DATASET_ID,
+        )
+        assert decision.program is not None
+        destination, prepared = _write_prepared_snapshot(
+            self.root,
+            self.path,
+            self.snapshot,
+            decision.program,
+        )
+
+        batches = []
+        with patch.object(
+            PreparedRecord,
+            "from_canonicalized_values",
+            side_effect=AssertionError("production path built PreparedRecord"),
+        ):
+            batches.extend(
+                iter_polars_prepared_batches(
+                    destination,
+                    prepared,
+                    self.snapshot,
+                    decision.program,
+                    batch_size=2,
+                    materialize_records=False,
+                )
+            )
+
+        self.assertTrue(batches)
+        self.assertTrue(all(not batch.records for batch in batches))
+        self.assertEqual(
+            tuple(
+                identity
+                for batch in batches
+                for identity in batch.source_identities
+            ),
+            tuple(record.source_identity for record in expected_records),
+        )
+        self.assertEqual(
+            tuple(
+                values
+                for batch in batches
+                for values in batch.scalar_values
+            ),
+            tuple(record.scalar_values for record in expected_records),
+        )
 
     def test_native_ordered_cleanup_matches_python_and_counts_each_step(self) -> None:
         dataset = self.definition.datasets[0]

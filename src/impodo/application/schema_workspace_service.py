@@ -31,6 +31,7 @@ from ..projects import (
     MigrationProject,
     OdooConnectionMode,
     ProjectStatus,
+    SourceMode,
 )
 from ..workspace_contracts import (
     OdooModelCatalog,
@@ -367,7 +368,14 @@ class SchemaWorkspaceService:
             project_id=project_id,
         )
         project = self.projects.get(project_id)
-        if self.sources.get_source_selection(project_id) is None:
+        if project.status is not ProjectStatus.REGISTERED:
+            raise WorkspaceError(
+                "Register the project before capturing Odoo schema"
+            )
+        if (
+            project.source_mode is SourceMode.FILE
+            and self.sources.get_source_selection(project_id) is None
+        ):
             raise WorkspaceError(
                 "Freeze source datasets before capturing Odoo schema"
             )
@@ -474,6 +482,14 @@ class SchemaWorkspaceService:
             Capability.SCHEMA_GOVERN,
             project_id=project_id,
         )
+        project = self.projects.get(project_id)
+        if (
+            project.source_mode is SourceMode.ODOO
+            and self.sources.get_source_selection(project_id) is None
+        ):
+            raise WorkspaceError(
+                "Freeze the selected Odoo source records before confirming keys"
+            )
         schema = self.schemas.get_odoo_schema_catalog(project_id)
         if schema is None:
             raise WorkspaceError(

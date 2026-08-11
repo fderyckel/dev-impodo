@@ -132,7 +132,7 @@ to know all concrete implementations.
 | Idempotent work | [`jobs.py`](../../src/impodo/jobs.py) | `JobRequest` binds actor/project/input hash to an idempotency key. The local dispatcher is synchronous but preserves queued/running/succeeded/failed transitions and future hosted-queue semantics. |
 | Local Odoo lifecycle | [`local_stack.py`](../../src/impodo/local_stack.py) | The service keeps session-only status and exact process ownership. It reads an allowlisted non-secret config subset and may stop/restart only services this Impodo process started; external services are probed but never adopted. |
 | Database boundary | [`adapters/duckdb/database.py`](../../src/impodo/adapters/duckdb/database.py) and [`unit_of_work.py`](../../src/impodo/adapters/duckdb/unit_of_work.py) | One hardened connection factory disables external access/extensions. Per-project UUID containment, schema preparation, explicit begin/commit/rollback, and shared unit-of-work scopes sit below all concrete repositories. |
-| Project schema | [`adapters/duckdb/schema/project.py`](../../src/impodo/adapters/duckdb/schema/project.py) and [`upgrades.py`](../../src/impodo/adapters/duckdb/schema/upgrades.py) | The August 2026 schema generation starts at version 1; historical versions 1–30 belong to the retired generation. New databases receive the complete current schema, while supported projects from this baseline apply registered one-version forward upgrades atomically. |
+| Project schema | [`adapters/duckdb/schema/project.py`](../../src/impodo/adapters/duckdb/schema/project.py) and [`upgrades.py`](../../src/impodo/adapters/duckdb/schema/upgrades.py) | The August 2026 schema generation is at version 2; version 1 projects migrate atomically to explicit `FILE` source mode. Historical versions 1–30 from the retired generation remain unsupported because their generation marker differs. New databases receive the complete current schema, while supported projects apply registered one-version forward upgrades atomically. |
 | Evidence invalidation | [`adapters/duckdb/invalidation.py`](../../src/impodo/adapters/duckdb/invalidation.py) | Upstream writes retire dependent lifecycle state and remove only `current` pointers in the caller's transaction. Immutable historical evidence remains. The cascade follows staging/effective dataset → quality → normalization → preflight. |
 | Serialization and hashing | [`models.py`](../../src/impodo/models.py), [`domain/serialization.py`](../../src/impodo/domain/serialization.py), and DuckDB [`serialization.py`](../../src/impodo/adapters/duckdb/serialization.py) | Portable values and canonical JSON make content identities deterministic. Repository serializers adapt fixed row shapes without redefining domain semantics; numeric Odoo IDs remain forbidden from portable artifacts. |
 | Audit | [`adapters/duckdb/audit.py`](../../src/impodo/adapters/duckdb/audit.py) | Audit rows are appended inside the state-changing transaction, so a mutation and its actor evidence either commit or roll back together. |
@@ -211,14 +211,16 @@ DuckDB. `BrowserQueryService` is intentionally different: its small methods
 are transparent read-only forwarders used by presenters and are a documented
 coverage exception rather than independent business operations.
 
-## Journey 1 — Register a project and its source files (Stage A)
+## Journey 1 — Register a project and its source mode (Stage A)
 
 ### Outcome
 
-The setup wizard creates a draft, records governance and target identity,
-stores validated source bytes under generated names, and registers the project
-only after every required fact exists. Registration freezes the editable setup
-boundary; later workflow evidence remains independently versioned.
+The setup wizard creates a draft, records `FILE` or `ODOO` source mode,
+governance, and target identity, and registers only after the mode-specific
+facts exist. `FILE` mode stores validated bytes under generated names. `ODOO`
+mode rejects file attachment and needs no export date or placeholder file.
+Registration freezes the editable setup boundary; later workflow evidence
+remains independently versioned.
 
 ```mermaid
 sequenceDiagram
@@ -230,10 +232,12 @@ sequenceDiagram
 
     Route->>Project: create_project / update details, governance, target
     Project->>Repo: create / save with expected revision
-    Route->>Intake: accept(upload, expected revision)
-    Intake->>Artifacts: validate, hash, and store immutable bytes
-    Intake->>Project: add_source_file(...)
-    Project->>Repo: add immutable source-file evidence
+    opt FILE source mode
+        Route->>Intake: accept(upload, expected revision)
+        Intake->>Artifacts: validate, hash, and store immutable bytes
+        Intake->>Project: add_source_file(...)
+        Project->>Repo: add immutable source-file evidence
+    end
     Route->>Project: register(...)
     Project->>Repo: save PROJECT_REGISTERED
 ```
@@ -247,7 +251,8 @@ sequenceDiagram
    optimistic revision checks, editable-versus-registered lifecycle rules, and
    field validation. `registration_problems` returns every missing setup fact
    instead of failing on the first one.
-3. [`SourceIntakeService.accept`](../../src/impodo/intake.py) validates the
+3. For `FILE` projects,
+   [`SourceIntakeService.accept`](../../src/impodo/intake.py) validates the
    display name and format, streams the upload through isolated validation,
    hashes/stores it, and registers immutable `SourceFile` evidence. If project
    persistence fails, it deletes the newly stored artifact.
@@ -265,8 +270,8 @@ invalidations described next.
 ### Evidence and tests
 
 ```text
-draft MigrationProject
--> immutable stored source bytes + SourceFile hashes
+draft MigrationProject with FILE or ODOO source mode
+-> optional immutable stored source bytes + SourceFile hashes (FILE only)
 -> complete registered MigrationProject
 -> project registry + registration manifest + audit events
 ```

@@ -13,14 +13,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
-from typing import Iterator
-
-from ..columnar_runtime import configure_columnar_runtime
-
-
-configure_columnar_runtime()
-
-import polars as pl
+from typing import Any, Iterator, Mapping
 
 from ..domain.compiler.columnar_transformation import (
     ColumnarExpressionStep,
@@ -49,6 +42,12 @@ from ..models import Issue, PreparedRecord, canonical_json_bytes, portable_value
 from ..source import SourceLoadError
 from ..source_snapshot_io import validate_source_snapshot_path
 from ..domain.staging.fields import synthetic_field
+from ..columnar_runtime import configure_columnar_runtime
+
+
+configure_columnar_runtime()
+
+import polars as pl  # noqa: E402
 
 
 POLARS_TRANSFORMATION_BATCH_ROWS = 1_000
@@ -65,6 +64,11 @@ class ColumnarTransformationBatch:
     """One bounded native result adapted to the current canonical boundary."""
 
     records: tuple[PreparedRecord, ...]
+    source_identities: tuple[tuple[Any, ...], ...]
+    target_identities: tuple[tuple[Any, ...], ...]
+    target_scopes: tuple[tuple[Any, ...], ...]
+    scalar_values: tuple[Mapping[str, Any], ...]
+    issues: tuple[tuple[Issue, ...], ...]
     impacts: tuple[TransformationImpactRow, ...]
     impact_counts: TransformationImpactCounts
     rule_impacts: tuple[TransformationRuleImpact, ...]
@@ -171,8 +175,14 @@ def iter_polars_prepared_batches(
     program: ColumnarTransformationProgram,
     *,
     batch_size: int = POLARS_TRANSFORMATION_BATCH_ROWS,
+    materialize_records: bool = True,
 ) -> Iterator[ColumnarTransformationBatch]:
-    """Adapt a verified prepared artifact without re-running transformations."""
+    """Adapt a verified prepared artifact without re-running transformations.
+
+    The production direct path consumes the bounded column arrays and leaves
+    ``records`` empty.  The optional record projection remains the small-fixture
+    semantic oracle used by parity tests and legacy callers.
+    """
 
     if batch_size < 1:
         raise ValueError("Columnar transformation batch size must be positive")
@@ -227,6 +237,7 @@ def iter_polars_prepared_batches(
                 program,
                 layout,
                 rule_observations,
+                materialize_records=materialize_records,
             )
             for source_row in batch.source_rows:
                 if source_row <= previous_source_row:
@@ -907,6 +918,8 @@ def _adapt_frame(
     program: ColumnarTransformationProgram,
     layout: _ExecutionLayout,
     rule_observations: tuple[_RuleObservationLayout, ...],
+    *,
+    materialize_records: bool,
 ) -> ColumnarTransformationBatch:
     indexes = {name: index for index, name in enumerate(frame.columns)}
     records: list[PreparedRecord] = []
@@ -921,6 +934,11 @@ def _adapt_frame(
     }
     rule_impacts = _aggregate_rule_observations(frame, rule_observations)
     source_rows: list[int] = []
+    source_identities: list[tuple[Any, ...]] = []
+    target_identities: list[tuple[Any, ...]] = []
+    target_scopes: list[tuple[Any, ...]] = []
+    scalar_value_rows: list[Mapping[str, Any]] = []
+    issue_rows: list[tuple[Issue, ...]] = []
     scalar_by_index = {index: item for index, item in enumerate(layout.scalars)}
     identity_by_kind = {
         "source_identity": _flatten_identity(layout.source_identity),
@@ -973,29 +991,38 @@ def _adapt_frame(
             errors,
             raw_by_ordinal,
         )
-        record = PreparedRecord.from_canonicalized_values(
-            dataset=program.dataset_name,
-            source_row=source_row,
-            target_model=program.target_model,
-            source_identity=source_identity,
-            target_identity=target_identity,
-            target_scope=target_scope,
-            scalar_values=scalar_values,
-            references={},
-            source_trace_id="sha256:"
-            + sha256(
-                canonical_json_bytes(
-                    {
-                        "dataset": program.dataset_name,
-                        "source_row": source_row,
-                        "target_model": program.target_model,
-                        "source_identity": portable_value(source_identity),
-                    }
+        source_identities.append(source_identity)
+        target_identities.append(target_identity)
+        target_scopes.append(target_scope)
+        scalar_value_rows.append(scalar_values)
+        issue_rows.append(issues)
+        if materialize_records:
+            records.append(
+                PreparedRecord.from_canonicalized_values(
+                    dataset=program.dataset_name,
+                    source_row=source_row,
+                    target_model=program.target_model,
+                    source_identity=source_identity,
+                    target_identity=target_identity,
+                    target_scope=target_scope,
+                    scalar_values=scalar_values,
+                    references={},
+                    source_trace_id="sha256:"
+                    + sha256(
+                        canonical_json_bytes(
+                            {
+                                "dataset": program.dataset_name,
+                                "source_row": source_row,
+                                "target_model": program.target_model,
+                                "source_identity": portable_value(
+                                    source_identity
+                                ),
+                            }
+                        )
+                    ).hexdigest(),
+                    issues=issues,
                 )
-            ).hexdigest(),
-            issues=issues,
-        )
-        records.append(record)
+            )
         identity_impacts = _identity_impacts(
             row,
             indexes,
@@ -1023,6 +1050,11 @@ def _adapt_frame(
     evaluated = sum(counts.values())
     return ColumnarTransformationBatch(
         records=tuple(records),
+        source_identities=tuple(source_identities),
+        target_identities=tuple(target_identities),
+        target_scopes=tuple(target_scopes),
+        scalar_values=tuple(scalar_value_rows),
+        issues=tuple(issue_rows),
         impacts=tuple(impacts),
         impact_counts=TransformationImpactCounts(
             evaluated_count=evaluated,

@@ -55,10 +55,12 @@ import plan, or permission to write to Odoo.
 
 ## Browser workflow
 
-1. **Project setup** records ownership, classification, retention, and the
-   selected `LOCAL` or `REMOTE` Odoo target.
-2. **Source discovery** stores immutable source bytes, inspects them in a
-   bounded worker, and freezes selected tables as hash-bound datasets.
+1. **Project setup** records ownership, classification, retention, `FILE` or
+   `ODOO` source mode, and the selected `LOCAL` or `REMOTE` Odoo target.
+2. **Source discovery** stores and inspects immutable source bytes for `FILE`
+   projects. `ODOO` projects currently proceed first to read-only target model
+   and capture-eligibility field discovery; bounded record freezing is not yet
+   implemented.
 3. **Target schema** captures an effective Odoo schema snapshot through a
    closed read surface.
 4. **Governed mapping** records business keys, field providers,

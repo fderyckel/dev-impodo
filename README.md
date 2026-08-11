@@ -38,7 +38,10 @@ start a local Odoo stack separately before connecting to it in Impodo.
 
 - Records the migration context, responsible people, data classification, and
   retention details.
-- Adds the governed CSV and XLSX source files and records their hashes.
+- Selects governed CSV/XLSX files or existing Odoo records as the source mode.
+- Adds and hashes source files for file-mode projects. Odoo-source projects can
+  register without an export date or placeholder file and proceed to read-only
+  model/field discovery; bounded Odoo record freezing is the next slice.
 - Configures and optionally tests the read-only Odoo connection.
 
 ### Source discovery and dataset freeze

@@ -373,7 +373,28 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         original_canonical_row = (
             bounded_preparation_module.canonical_row_from_prepared
         )
+        original_columnar_canonical_row = (
+            bounded_preparation_module._canonical_session_row_from_columnar
+        )
+        original_native_batches = (
+            bounded_preparation_module.iter_polars_prepared_batches
+        )
         original_canonical_json = bounded_preparation_module.canonical_json_bytes
+
+        def instrumented_native_batches(*args, **kwargs):
+            for batch in original_native_batches(*args, **kwargs):
+                phase_calls["native_prepared_batches"] = (
+                    phase_calls.get("native_prepared_batches", 0) + 1
+                )
+                phase_calls["python_row_adaptation"] = (
+                    phase_calls.get("python_row_adaptation", 0)
+                    + len(batch.source_rows)
+                )
+                phase_calls["full_prepared_record_construction"] = (
+                    phase_calls.get("full_prepared_record_construction", 0)
+                    + len(batch.records)
+                )
+                yield batch
 
         trace_python_allocations = (
             os.environ.get("IMPODO_PREPARATION_TRACE_PYTHON") == "1"
@@ -506,6 +527,19 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                         "canonical_row_construction",
                         original_canonical_row,
                     ),
+                ),
+                patch.object(
+                    bounded_preparation_module,
+                    "_canonical_session_row_from_columnar",
+                    accumulated(
+                        "canonical_row_json_encoding",
+                        original_columnar_canonical_row,
+                    ),
+                ),
+                patch.object(
+                    bounded_preparation_module,
+                    "iter_polars_prepared_batches",
+                    instrumented_native_batches,
                 ),
                 patch.object(
                     bounded_preparation_module,
@@ -710,7 +744,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 0,
             ),
             "full_prepared_records_constructed": phase_calls.get(
-                "prepared_record_construction",
+                "full_prepared_record_construction",
                 0,
             ),
             "python_cell_callbacks": phase_calls.get(
@@ -718,7 +752,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 0,
             ),
             "python_row_callbacks": (
-                phase_calls.get("row_finish_inclusive", 0)
+                phase_calls.get("python_row_adaptation", 0)
+                + phase_calls.get("row_finish_inclusive", 0)
                 + phase_calls.get("prepared_record_construction", 0)
             ),
             "row_weighted_native_coverage_percent": (
@@ -728,7 +763,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 else 0.0
             ),
             "rule_impact_python_replay_rows": phase_calls.get(
-                "canonical_row_construction",
+                "python_rule_impact_replay",
                 0,
             ),
             "stage_routes": route_by_stage,

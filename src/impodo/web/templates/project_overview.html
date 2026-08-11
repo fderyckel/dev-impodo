@@ -24,7 +24,11 @@
           {% if current_stage.stage_id == "source" %}
             Ready for source check. Confirm the files and tables Impodo should prepare.
           {% elif current_stage.stage_id == "odoo" %}
-            Choose the Odoo records and matching keys needed for this project.
+            {% if project.source_mode.value == "ODOO" %}
+              Choose the Odoo source record type and capture its eligible fields. Freezing records follows in the next slice.
+            {% else %}
+              Choose the Odoo records and matching keys needed for this project.
+            {% endif %}
           {% elif current_stage.stage_id == "match" %}
             Match each source value to its destination in Odoo.
           {% elif current_stage.stage_id == "prepare" %}

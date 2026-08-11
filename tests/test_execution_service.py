@@ -12,7 +12,6 @@ from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
 from impodo.application.execution_service import ExecutionService, execution_api_scope
 from impodo.domain.execution import (
     ExecutionRowStatus,
-    ExecutionRun,
     ExecutionRunStatus,
 )
 from impodo.domain.execution_snapshot import (
@@ -813,7 +812,7 @@ class ExecutionServiceTests(unittest.TestCase):
                         actor=LOCAL_ACTOR,
                         batch_rows=batch_rows,
                     )
-                self.assertIsNone(journal.current)
+                self.assertIsNone(journal.run)
 
     def test_remote_load_serializes_every_scalar_as_odoo_import_text(self):
         snapshot = _snapshot()

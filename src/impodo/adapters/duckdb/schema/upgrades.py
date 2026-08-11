@@ -9,8 +9,24 @@ import duckdb
 
 ProjectSchemaUpgrade = Callable[[duckdb.DuckDBPyConnection], None]
 
+def _upgrade_v1_to_v2(connection: duckdb.DuckDBPyConnection) -> None:
+    """Classify every project from the file-only baseline as FILE origin."""
+
+    connection.execute(
+        """
+        ALTER TABLE project
+        ADD COLUMN source_mode VARCHAR DEFAULT 'FILE'
+        """
+    )
+    connection.execute(
+        "ALTER TABLE project ALTER COLUMN source_mode SET NOT NULL"
+    )
+
+
 # Map the stored version to the function that produces the next version.
-PROJECT_SCHEMA_UPGRADES: dict[int, ProjectSchemaUpgrade] = {}
+PROJECT_SCHEMA_UPGRADES: dict[int, ProjectSchemaUpgrade] = {
+    1: _upgrade_v1_to_v2,
+}
 
 
 def apply_project_schema_upgrades(

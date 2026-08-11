@@ -35,13 +35,9 @@ from impodo.projects import (
     ProjectRegistrationError,
     ProjectService,
     ProjectStatus,
+    SourceMode,
     SourceFile,
-)
-from impodo.workspace_contracts import (
-    MappingWorkingDraft,
-    SourceDataset,
-    SourceDatasetColumn,
-    SourceSelection,
+    registration_problems,
 )
 from impodo.domain.serialization import CanonicalJsonObjectHasher, content_hash
 from impodo.domain.staging.transformation_impact import (
@@ -171,6 +167,85 @@ class ProjectLifecycleTests(unittest.TestCase):
             )
         self.assertIn("At least one source file is required", caught.exception.problems)
 
+    def test_odoo_source_registration_needs_no_export_or_placeholder_file(
+        self,
+    ) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Odoo products round trip",
+            source_system="Odoo 19",
+            source_mode="ODOO",
+        )
+        project = self.service.update_details(
+            project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=project.revision,
+            name=project.name,
+            source_system=project.source_system,
+            export_status="",
+            export_date="",
+            description="Use governed records already in Odoo",
+        )
+        project = self.service.update_governance(
+            project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=project.revision,
+            data_manager="Data Manager",
+            functional_owner="Product Owner",
+            business_unit="Example Business Unit",
+            data_classification="CONFIDENTIAL",
+            retention_days=90,
+            support_access=False,
+        )
+        project = self.service.update_target(
+            project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=project.revision,
+            odoo_connection_mode="REMOTE",
+            odoo_base_url="https://odoo.example.test",
+            odoo_database="odoo_review",
+            intended_applications=("Inventory",),
+        )
+
+        self.assertEqual(project.source_mode, SourceMode.ODOO)
+        self.assertIsNone(project.export_date)
+        self.assertEqual(project.source_files, ())
+        self.assertNotIn(
+            "At least one source file is required",
+            registration_problems(project),
+        )
+        with self.assertRaisesRegex(ProjectError, "do not accept source files"):
+            self.service.add_source_file(
+                project.project_id,
+                actor=LOCAL_ACTOR,
+                expected_revision=project.revision,
+                source_file=SourceFile(
+                    file_id=str(uuid4()),
+                    display_name="placeholder.csv",
+                    stored_name="placeholder.csv",
+                    size_bytes=1,
+                    sha256="f" * 64,
+                    received_at=datetime.now(timezone.utc),
+                ),
+            )
+
+        registered = self.service.register(
+            project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=project.revision,
+        )
+        persisted = self.repository.get(project.project_id)
+        self.assertEqual(registered.status, ProjectStatus.REGISTERED)
+        self.assertEqual(persisted.source_mode, SourceMode.ODOO)
+        manifest = (
+            self.repository.project_directory(project.project_id)
+            / "audit"
+            / f"project-registration-r{registered.revision}.json"
+        )
+        manifest_payload = json.loads(manifest.read_text(encoding="utf-8"))
+        self.assertEqual(manifest_payload["contract_version"], 4)
+        self.assertEqual(manifest_payload["project"]["source_mode"], "ODOO")
+
     def test_duckdb_connections_apply_locked_security_settings(self) -> None:
         with self.repository._connect(  # noqa: SLF001 - adapter contract test
             self.repository.registry_path
@@ -279,7 +354,7 @@ class ProjectLifecycleTests(unittest.TestCase):
         )
         upgrade_calls: list[int] = []
 
-        def upgrade_to_version_two(
+        def upgrade_to_next_version(
             connection: duckdb.DuckDBPyConnection,
         ) -> None:
             upgrade_calls.append(1)
@@ -290,11 +365,11 @@ class ProjectLifecycleTests(unittest.TestCase):
         with (
             patch(
                 "impodo.adapters.duckdb.schema.project.SCHEMA_VERSION",
-                2,
+                SCHEMA_VERSION + 1,
             ),
             patch.dict(
                 PROJECT_SCHEMA_UPGRADES,
-                {1: upgrade_to_version_two},
+                {SCHEMA_VERSION: upgrade_to_next_version},
                 clear=True,
             ),
         ):
@@ -318,8 +393,37 @@ class ProjectLifecycleTests(unittest.TestCase):
                 """
             ).fetchone()
         self.assertEqual(upgrade_calls, [1])
-        self.assertEqual(schema_row, (SCHEMA_GENERATION, 2))
+        self.assertEqual(schema_row, (SCHEMA_GENERATION, SCHEMA_VERSION + 1))
         self.assertEqual(probe_column, ("schema_upgrade_probe",))
+
+    def test_version_one_projects_upgrade_to_file_source_mode(self) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="File baseline project",
+            source_system="CSV",
+        )
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            connection.execute("ALTER TABLE project DROP COLUMN source_mode")
+            connection.execute(
+                "UPDATE schema_version SET version = 1 WHERE singleton_id = 1"
+            )
+
+        upgraded = self.repository.get(project.project_id)
+
+        self.assertEqual(upgraded.source_mode, SourceMode.FILE)
+        with self.repository._connect(database_path) as connection:
+            schema_row = connection.execute(
+                "SELECT generation, version FROM schema_version"
+            ).fetchone()
+            source_mode = connection.execute(
+                "SELECT source_mode FROM project"
+            ).fetchone()
+        self.assertEqual(schema_row, (SCHEMA_GENERATION, SCHEMA_VERSION))
+        self.assertEqual(source_mode, ("FILE",))
 
     def test_failed_project_schema_upgrade_rolls_back(self) -> None:
         project = self.service.create_project(
@@ -341,11 +445,11 @@ class ProjectLifecycleTests(unittest.TestCase):
         with (
             patch(
                 "impodo.adapters.duckdb.schema.project.SCHEMA_VERSION",
-                2,
+                SCHEMA_VERSION + 1,
             ),
             patch.dict(
                 PROJECT_SCHEMA_UPGRADES,
-                {1: fail_upgrade},
+                {SCHEMA_VERSION: fail_upgrade},
                 clear=True,
             ),
             self.assertRaisesRegex(RuntimeError, "injected schema upgrade"),

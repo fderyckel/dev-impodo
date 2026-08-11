@@ -21,6 +21,27 @@
           {% endfor %}
         </select>
       </label>
+      <fieldset>
+        <legend>Where should Impodo read the source data?</legend>
+        <div class="mode-grid">
+          <label class="mode-card">
+            <input type="radio" name="source_mode" value="FILE"
+              {% if values.get('source_mode', 'FILE') == 'FILE' %}checked{% endif %}>
+            <span>
+              <strong>Use files</strong>
+              <small>Upload governed CSV or XLSX exports.</small>
+            </span>
+          </label>
+          <label class="mode-card">
+            <input type="radio" name="source_mode" value="ODOO"
+              {% if values.get('source_mode') == 'ODOO' %}checked{% endif %}>
+            <span>
+              <strong>Use data already in Odoo</strong>
+              <small>Connect read-only and choose existing Odoo records after setup.</small>
+            </span>
+          </label>
+        </div>
+      </fieldset>
       <div class="actions">
         <a class="button secondary" href="/projects">Cancel</a>
         <button class="button primary" type="submit">Start project</button>

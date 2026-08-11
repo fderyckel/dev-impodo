@@ -24,6 +24,7 @@ from ...projects import (
     MigrationProject,
     OdooConnectionMode,
     ProjectStatus,
+    SourceMode,
     SourceFile,
 )
 
@@ -38,6 +39,7 @@ def _project_values(project: MigrationProject) -> list[object]:
         project.project_id,
         project.name,
         project.source_system,
+        project.source_mode.value,
         project.export_status.value,
         project.export_date.isoformat() if project.export_date else None,
         project.description,
@@ -85,6 +87,7 @@ def _project_from_rows(
         project_id=str(data["project_id"]),
         name=str(data["name"]),
         source_system=str(data["source_system"]),
+        source_mode=SourceMode(str(data.get("source_mode") or "FILE")),
         export_status=ExportStatus(str(data["export_status"])),
         export_date=date.fromisoformat(export_date) if export_date else None,
         description=str(data["description"]),

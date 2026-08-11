@@ -515,7 +515,7 @@ class ProjectRepository(DuckDbRepository):
         project: MigrationProject,
     ) -> None:
         connection.execute(
-            f"INSERT INTO project VALUES ({', '.join('?' for _ in range(25))})",
+            f"INSERT INTO project VALUES ({', '.join('?' for _ in range(26))})",
             _project_values(project),
         )
     def _update_project(
@@ -528,6 +528,7 @@ class ProjectRepository(DuckDbRepository):
             UPDATE project SET
                 name = ?,
                 source_system = ?,
+                source_mode = ?,
                 export_status = ?,
                 export_date = ?,
                 description = ?,
@@ -556,11 +557,12 @@ class ProjectRepository(DuckDbRepository):
         )
     def _write_registration_manifest(self, project: MigrationProject) -> Path:
         payload = {
-            "contract_version": 3,
+            "contract_version": 4,
             "project": {
                 "project_id": project.project_id,
                 "name": project.name,
                 "source_system": project.source_system,
+                "source_mode": project.source_mode.value,
                 "export_status": project.export_status.value,
                 "export_date": (
                     project.export_date.isoformat() if project.export_date else None

@@ -22,6 +22,7 @@ from ...projects import (
     ProjectError,
     ProjectRegistrationError,
     ProjectStatus,
+    SourceMode,
     registration_problems,
 )
 from ...secrets import SecretStoreError
@@ -114,13 +115,18 @@ def build_projects_router(context: WebContext) -> APIRouter:
         """Create the minimal draft and enter its governed setup sequence."""
 
         form = await request.form()
-        _secure_form(request, form, {"csrf_token", "name", "source_system"})
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "name", "source_system", "source_mode"},
+        )
         values = _form_values(form)
         try:
             project = context.projects.create_project(
                 actor=context.actor,
                 name=values.get("name", ""),
                 source_system=values.get("source_system", ""),
+                source_mode=values.get("source_mode", SourceMode.FILE.value),
             )
         except ProjectError as error:
             return _render(
@@ -275,8 +281,11 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 "project_governance.html",
                 error,
             )
+        next_page = (
+            "files" if project.source_mode is SourceMode.FILE else "target"
+        )
         return RedirectResponse(
-            f"/projects/{project.project_id}/files",
+            f"/projects/{project.project_id}/{next_page}",
             status_code=303,
         )
 
@@ -286,6 +295,11 @@ def build_projects_router(context: WebContext) -> APIRouter:
         project = _draft_or_redirect(context, project_id)
         if isinstance(project, RedirectResponse):
             return project
+        if project.source_mode is SourceMode.ODOO:
+            return RedirectResponse(
+                f"/projects/{project.project_id}/target",
+                status_code=303,
+            )
         return _render(request, "project_files.html", project=project)
 
     @router.post("/projects/{project_id}/files")
@@ -296,6 +310,14 @@ def build_projects_router(context: WebContext) -> APIRouter:
             form,
             {"csrf_token", "revision", "source_file"},
         )
+        project = _draft_or_redirect(context, project_id)
+        if isinstance(project, RedirectResponse):
+            return project
+        if project.source_mode is SourceMode.ODOO:
+            return RedirectResponse(
+                f"/projects/{project.project_id}/target",
+                status_code=303,
+            )
         upload = form.get("source_file")
         if not isinstance(upload, UploadFile) or not upload.filename:
             return _project_error(

@@ -4,9 +4,10 @@
 
 **Status:** Integrated in the local browser.
 
-One migration project is the governance boundary for one migration scope. It
-may contain multiple source files, datasets, and Odoo models. A project is not
-created per Odoo model.
+One migration project is the governance boundary for one migration scope. Its
+immutable setup chooses one source mode: governed files (`FILE`) or existing
+records in the configured Odoo database (`ODOO`). A project is not created per
+Odoo model.
 
 The browser is the normal authoring interface. Canonical manifests and DuckDB
 records are machine evidence; users do not edit them directly.
@@ -19,20 +20,26 @@ The implemented transition is:
 DRAFT --register--> REGISTERED
 ```
 
-Draft project metadata and source files are editable through revision-checked
-commands. Registration requires:
+Draft project metadata and, for `FILE` mode, source files are editable through
+revision-checked commands. Registration always requires:
 
 - project name and source system;
-- a received source export and export date;
-- at least one governed CSV/XLSX source file;
 - responsible data manager and functional owner;
 - data classification and retention policy;
 - `LOCAL` or `REMOTE` Odoo mode, exact base URL, and database.
 
-Registration freezes the source-file evidence, increments the optimistic
-revision, writes canonical registration evidence, and records an actor-bound
-audit event. Source discovery, schema capture, and mapping then create their
-own versioned artifacts without reopening the registered project.
+`FILE` registration additionally requires a received source export, its export
+date, and at least one governed CSV/XLSX file. `ODOO` registration requires no
+export date or placeholder file and rejects file attachment. Its registered
+next step is read-only Odoo model discovery and capture-eligibility metadata;
+bounded record selection/freezing is not implemented by this slice yet.
+
+Registration freezes the selected source-mode setup, increments the optimistic
+revision, writes version-4 canonical registration evidence, and records an
+actor-bound audit event. Existing schema-version-1 project databases migrate
+forward as `FILE` without changing their source evidence. Source discovery,
+schema capture, and mapping then create their own versioned artifacts without
+reopening the registered project.
 
 `CLOSED` is reserved in the domain model but has no implemented browser
 transition yet.
@@ -49,10 +56,12 @@ exact immutable evidence.
 
 ## Source and target evidence
 
-Source files are stored under generated identifiers, size-bounded, validated
-in an isolated worker, SHA-256 hashed, and immutable after registration.
-Worksheet/table selection and dataset freezing belong to the
-[workspace contract](02-workspace.md).
+In `FILE` mode, source files are stored under generated identifiers,
+size-bounded, validated in an isolated worker, SHA-256 hashed, and immutable
+after registration. Worksheet/table selection and dataset freezing belong to
+the [workspace contract](02-workspace.md). In `ODOO` mode, registration itself
+does not read business records and grants no read or write capability beyond
+the separately authorized target operations.
 
 Target security is controlled by connection mode, not by organizational
 lifecycle labels:

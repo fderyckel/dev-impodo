@@ -1,7 +1,12 @@
 <nav class="steps" aria-label="Project setup steps">
   <a class="{% if step == 'details' %}current{% endif %}" href="/projects/{{ project.project_id }}/details">1. Project</a>
   <a class="{% if step == 'governance' %}current{% endif %}" href="/projects/{{ project.project_id }}/governance">2. People</a>
-  <a class="{% if step == 'files' %}current{% endif %}" href="/projects/{{ project.project_id }}/files">3. Source files</a>
-  <a class="{% if step == 'target' %}current{% endif %}" href="/projects/{{ project.project_id }}/target">4. Connect Odoo</a>
-  <a class="{% if step == 'review' %}current{% endif %}" href="/projects/{{ project.project_id }}/review">5. Confirm</a>
+  {% if project.source_mode.value == 'FILE' %}
+    <a class="{% if step == 'files' %}current{% endif %}" href="/projects/{{ project.project_id }}/files">3. Source files</a>
+    <a class="{% if step == 'target' %}current{% endif %}" href="/projects/{{ project.project_id }}/target">4. Connect Odoo</a>
+    <a class="{% if step == 'review' %}current{% endif %}" href="/projects/{{ project.project_id }}/review">5. Confirm</a>
+  {% else %}
+    <a class="{% if step == 'target' %}current{% endif %}" href="/projects/{{ project.project_id }}/target">3. Connect Odoo</a>
+    <a class="{% if step == 'review' %}current{% endif %}" href="/projects/{{ project.project_id }}/review">4. Confirm</a>
+  {% endif %}
 </nav>

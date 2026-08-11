@@ -141,7 +141,7 @@
         {% endif %}
       </section>
       <div class="actions">
-        <a class="button secondary" href="/projects/{{ project.project_id }}/files">Back</a>
+        <a class="button secondary" href="/projects/{{ project.project_id }}/{% if project.source_mode.value == 'FILE' %}files{% else %}governance{% endif %}">Back</a>
         <button
           class="button secondary"
           type="submit"

@@ -48,6 +48,7 @@ from impodo.projects import (
     MigrationProject,
     OdooConnectionMode,
     ProjectStatus,
+    SourceMode,
     SourceFile,
 )
 from impodo.application.mapping_workspace_service import MappingWorkspaceService
@@ -161,6 +162,55 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             self.schema_repository.get_odoo_model_catalog(self.project.project_id),
             catalog,
         )
+
+    def test_odoo_source_captures_eligibility_schema_before_source_freeze(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(WorkspaceError, "Freeze source datasets"):
+            self.schemas.capture(
+                self.project.project_id,
+                _metadata_snapshot(),
+                actor=LOCAL_ACTOR,
+            )
+
+        odoo_project = replace(
+            self.project,
+            source_mode=SourceMode.ODOO,
+            revision=self.project.revision + 1,
+        )
+        self.project_repository.save(
+            odoo_project,
+            expected_revision=self.project.revision,
+            event_type="TEST_ODOO_SOURCE_MODE",
+            event_detail="",
+            actor=LOCAL_ACTOR,
+        )
+        self.project = odoo_project
+
+        schema = self.schemas.capture(
+            self.project.project_id,
+            _metadata_snapshot(),
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(schema.models[0].name, "res.partner")
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "Freeze the selected Odoo source records",
+        ):
+            self.schemas.govern(
+                self.project.project_id,
+                business_keys=(
+                    BusinessKeyDefinition(
+                        key_id="partner-name",
+                        model="res.partner",
+                        key_fields=("name",),
+                        description="Unique contact name",
+                        status=BusinessKeyStatus.CONFIRMED,
+                    ),
+                ),
+                actor=LOCAL_ACTOR,
+            )
 
     def test_confirm_freeze_capture_and_mapping_are_versioned_and_persisted(
         self,
