@@ -61,7 +61,7 @@ class DerivedEntityRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             selection_row = connection.execute(
                 "SELECT selection_json FROM source_selection WHERE singleton_id = 1"
             ).fetchone()

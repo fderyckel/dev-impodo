@@ -1,5 +1,6 @@
 """Shared DuckDB schema and write-batch settings."""
 
+# Bump for schema changes; older development project databases are unsupported.
 SCHEMA_VERSION = 31
 PREFLIGHT_ROW_BATCH_SIZE = 1_000
 STAGING_ROW_BATCH_SIZE = 1_000

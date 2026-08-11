@@ -1,4 +1,4 @@
-"""Schema-v20 storage for scoped coverage and reviewed resolution."""
+"""DuckDB schema for scoped coverage and reviewed resolution."""
 
 from __future__ import annotations
 
@@ -153,23 +153,5 @@ def create_advanced_coverage_schema(connection: duckdb.DuckDBPyConnection) -> No
             singleton_id INTEGER PRIMARY KEY,
             run_id VARCHAR NOT NULL
         );
-        """
-    )
-    connection.execute(
-        """
-        ALTER TABLE effective_row
-            ADD COLUMN IF NOT EXISTS canonical_row_id VARCHAR;
-        """
-    )
-    connection.execute(
-        """
-        ALTER TABLE quality_run
-            ADD COLUMN IF NOT EXISTS effective_dataset_run_id VARCHAR;
-        ALTER TABLE quality_run
-            ADD COLUMN IF NOT EXISTS effective_dataset_hash VARCHAR;
-        ALTER TABLE normalization_run
-            ADD COLUMN IF NOT EXISTS effective_dataset_run_id VARCHAR;
-        ALTER TABLE normalization_run
-            ADD COLUMN IF NOT EXISTS effective_dataset_hash VARCHAR;
         """
     )

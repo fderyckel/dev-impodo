@@ -115,7 +115,7 @@ class NormalizationRepository(DuckDbRepository):
                 "Prepared review source evidence is invalid"
             ) from error
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             connection.begin()
             try:
                 current_inputs = connection.execute(
@@ -295,7 +295,7 @@ class NormalizationRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             row = connection.execute(
                 self._normalization_summary_query(
                     """WHERE run.run_id = (
@@ -318,7 +318,7 @@ class NormalizationRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             row = connection.execute(
                 "SELECT content_hash, evaluation_json FROM normalization_run WHERE run_id = ?",
                 [canonical_run_id],
@@ -353,7 +353,7 @@ class NormalizationRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             row = connection.execute(
                 "SELECT dry_run_json FROM normalization_run WHERE run_id = ?",
                 [canonical_run_id],
@@ -376,7 +376,7 @@ class NormalizationRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             rows = connection.execute(
                 "SELECT group_json FROM normalization_group WHERE run_id = ? ORDER BY ordinal",
                 [canonical_run_id],
@@ -418,7 +418,7 @@ class NormalizationRepository(DuckDbRepository):
         database_path = self.project_directory(project_id) / "project.duckdb"
         decided_at = datetime.now(timezone.utc)
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             connection.begin()
             try:
                 row = connection.execute(
@@ -497,7 +497,7 @@ class NormalizationRepository(DuckDbRepository):
         database_path = self.project_directory(project_id) / "project.duckdb"
         approved_at = datetime.now(timezone.utc)
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             connection.begin()
             try:
                 row = connection.execute(

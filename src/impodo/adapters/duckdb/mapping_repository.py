@@ -78,7 +78,7 @@ class MappingRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             selection_row = connection.execute(
                 """
                 SELECT selection_json
@@ -300,7 +300,7 @@ class MappingRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             connection.begin()
             try:
                 current = connection.execute(
@@ -443,7 +443,7 @@ class MappingRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT mapping_id, content_hash
@@ -505,7 +505,7 @@ class MappingRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT revision.content_hash, validation.validation_hash,

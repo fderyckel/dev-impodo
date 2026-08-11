@@ -165,7 +165,7 @@ the original source unavailable.
 - changed bound evidence changes the canonical run hash;
 - changed canonical payload with an old content hash is rejected;
 - portable canonical evidence rejects numeric Odoo identifier fields;
-- project databases migrate to the durable staging schema;
+- new project databases include the durable staging schema;
 - canonical headers and rows publish atomically in bounded database batches;
 - failed publication retains the previous current run without partial rows;
 - identical current evidence is idempotent and changed evidence preserves
@@ -197,7 +197,7 @@ certification remain pending.
 - a relationship to a set-aside incoming row propagates to the dependent row;
 - failed atomic publication preserves the previous current quality run;
 - ownership or retention changes invalidate quality without deleting staging;
-- existing projects migrate without presenting stale quality as current;
+- incompatible development project schemas are rejected rather than upgraded;
 - set-aside rows do not enter Odoo record-request planning;
 - the browser shows Ready, Review, Set aside, and Fix setup with technical
   identifiers collapsed;
@@ -222,7 +222,7 @@ certification remain pending.
 - restart retrieval uses stored evidence without connector access;
 - normal result paging reads bounded decision pages from DuckDB rather than an
   in-memory report;
-- schema-v17 history survives migration and is not promoted to current
+- current-schema history is retained without being promoted to current
   preflight evidence;
 - the Review page shows New in Odoo, Different from Odoo, Already matches,
   Needs attention, and Set aside, and disables repeat submission while a
@@ -242,8 +242,7 @@ certification remain pending.
   row outcome;
 - a lost write response is recorded as `OUTCOME_UNKNOWN`, is not retried, and
   blocks the remaining work;
-- schema version 23 migrates to the durable execution tables and version 24
-  migrates to the durable reconciliation tables;
+- new project databases include durable execution and reconciliation tables;
 - committed rows are checked by exact saved ID, remote-create External IDs are
   checked against their expected model and record, and uncertain creates are
   re-matched by the governed business key before retry safety is classified;

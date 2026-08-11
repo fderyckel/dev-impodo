@@ -13,7 +13,6 @@ from impodo.access import Capability, LOCAL_ACTOR
 from impodo.adapters.duckdb.advanced_coverage_repository import (
     AdvancedCoverageRepository,
 )
-from impodo.adapters.duckdb.constants import SCHEMA_VERSION
 from impodo.adapters.duckdb.database import DuckDbDatabase
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
@@ -1603,33 +1602,6 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             )
 
-    def test_schema_21_adds_compact_effective_row_reference_column(self) -> None:
-        database_path = (
-            self.repository.project_directory(self.project.project_id)
-            / "project.duckdb"
-        )
-        with self.repository._connect(database_path) as connection:
-            connection.execute("DROP INDEX effective_row_lookup")
-            connection.execute(
-                "ALTER TABLE effective_row DROP COLUMN canonical_row_id"
-            )
-            connection.execute("UPDATE schema_version SET version = 21")
-
-        restarted = AdvancedCoverageRepository(DuckDbDatabase(self.temporary.name))
-        restarted.get_reference_bundle(self.project.project_id)
-        with restarted._connect(database_path) as connection:
-            version = connection.execute(
-                "SELECT version FROM schema_version"
-            ).fetchone()
-            columns = {
-                str(row[0])
-                for row in connection.execute(
-                    "DESCRIBE effective_row"
-                ).fetchall()
-            }
-
-        self.assertEqual(version, (SCHEMA_VERSION,))
-        self.assertIn("canonical_row_id", columns)
 
 
 if __name__ == "__main__":

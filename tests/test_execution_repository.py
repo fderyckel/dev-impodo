@@ -8,7 +8,6 @@ import unittest
 from uuid import uuid4
 
 from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
-from impodo.adapters.duckdb.constants import SCHEMA_VERSION
 from impodo.adapters.duckdb.database import DuckDbDatabase
 from impodo.adapters.duckdb.execution_repository import ExecutionRepository
 from impodo.adapters.duckdb.reconciliation_repository import ReconciliationRepository
@@ -212,54 +211,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
         self.assertEqual(finished.rows[0].status, ExecutionRowStatus.COMMITTED)
         self.assertEqual(finished.rows[0].odoo_id, 42)
 
-    def test_version_twenty_three_adds_execution_tables(self) -> None:
-        path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
-        with self.projects._connect(path) as connection:
-            connection.execute("DROP TABLE execution_current")
-            connection.execute("DROP TABLE execution_row")
-            connection.execute("DROP TABLE execution_run")
-            connection.execute("UPDATE schema_version SET version = 23")
 
-        self.projects.get(self.project.project_id)
-
-        with self.projects._connect(path) as connection:
-            version = connection.execute("SELECT version FROM schema_version").fetchone()
-            tables = {
-                str(item[0])
-                for item in connection.execute(
-                    """
-                    SELECT table_name FROM information_schema.tables
-                     WHERE table_name LIKE 'execution_%'
-                    """
-                ).fetchall()
-            }
-        self.assertEqual(version, (SCHEMA_VERSION,))
-        self.assertEqual(
-            tables,
-            {"execution_current", "execution_row", "execution_run"},
-        )
-
-    def test_version_thirty_adds_execution_batch_rows(self) -> None:
-        path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
-        with self.projects._connect(path) as connection:
-            connection.execute("ALTER TABLE execution_run DROP COLUMN batch_rows")
-            connection.execute("UPDATE schema_version SET version = 30")
-
-        self.projects.get(self.project.project_id)
-
-        with self.projects._connect(path) as connection:
-            version = connection.execute("SELECT version FROM schema_version").fetchone()
-            columns = {
-                str(item[0])
-                for item in connection.execute(
-                    """
-                    SELECT column_name FROM information_schema.columns
-                     WHERE table_name = 'execution_run'
-                    """
-                ).fetchall()
-            }
-        self.assertEqual(version, (SCHEMA_VERSION,))
-        self.assertIn("batch_rows", columns)
 
     def test_publishes_one_hash_bound_readback_result(self) -> None:
         run = self._run()
@@ -324,28 +276,6 @@ class ExecutionRepositoryTests(unittest.TestCase):
         self.assertEqual(restored.semantic_hash, report.semantic_hash)
         self.assertEqual(restored.verified_count, 3)
 
-    def test_version_twenty_four_adds_reconciliation_tables(self) -> None:
-        path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
-        with self.projects._connect(path) as connection:
-            connection.execute("DROP TABLE reconciliation_current")
-            connection.execute("DROP TABLE reconciliation_run")
-            connection.execute("UPDATE schema_version SET version = 24")
-
-        self.projects.get(self.project.project_id)
-
-        with self.projects._connect(path) as connection:
-            version = connection.execute("SELECT version FROM schema_version").fetchone()
-            tables = {
-                str(item[0])
-                for item in connection.execute(
-                    """
-                    SELECT table_name FROM information_schema.tables
-                     WHERE table_name LIKE 'reconciliation_%'
-                    """
-                ).fetchall()
-            }
-        self.assertEqual(version, (SCHEMA_VERSION,))
-        self.assertEqual(tables, {"reconciliation_current", "reconciliation_run"})
 
 
 if __name__ == "__main__":

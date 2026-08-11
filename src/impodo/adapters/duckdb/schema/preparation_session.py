@@ -77,17 +77,6 @@ def create_preparation_session_schema(
             PRIMARY KEY (session_id, ordinal)
         );
 
-        ALTER TABLE preparation_provisional_row
-            ADD COLUMN IF NOT EXISTS ordinal BIGINT;
-        ALTER TABLE preparation_provisional_row
-            ADD COLUMN IF NOT EXISTS payload_kind VARCHAR DEFAULT 'PREPARED';
-        ALTER TABLE preparation_provisional_row
-            ADD COLUMN IF NOT EXISTS row_id VARCHAR;
-        ALTER TABLE preparation_provisional_row
-            ADD COLUMN IF NOT EXISTS disposition VARCHAR;
-        ALTER TABLE preparation_finalization_row
-            ADD COLUMN IF NOT EXISTS payload_kind VARCHAR DEFAULT 'PREPARED';
-
         CREATE UNIQUE INDEX IF NOT EXISTS preparation_provisional_ordinal
             ON preparation_provisional_row (session_id, ordinal);
 

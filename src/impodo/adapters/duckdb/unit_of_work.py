@@ -1,9 +1,9 @@
 """Hardened DuckDB connections and explicit project transaction scopes.
 
 The factory disables extension loading and external access and bounds memory
-and threads. ``DuckDbUnitOfWork`` migrates before beginning, commits only on a
-clean context exit, rolls back on every exception, and always closes the
-short-lived connection.
+and threads. ``DuckDbUnitOfWork`` validates the schema before beginning,
+commits only on a clean context exit, rolls back on every exception, and
+always closes the short-lived connection.
 """
 
 from __future__ import annotations

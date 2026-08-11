@@ -15,7 +15,8 @@ class DuckDbRepository:
 
     These methods deliberately forward rather than add business decisions.
     Repository subclasses own SQL/evidence semantics; ``DuckDbDatabase`` owns
-    connection policy, migration, audit, invalidation, and unit-of-work setup.
+    connection policy, schema validation, audit, invalidation, and unit-of-work
+    setup.
     """
 
     def __init__(self, database: DuckDbDatabase) -> None:
@@ -92,11 +93,11 @@ class DuckDbRepository:
     ) -> None:
         self._database._initialize_project_database(connection, *args, **kwargs)
 
-    def _migrate_project_database(
+    def _validate_project_database_schema(
         self,
         connection: duckdb.DuckDBPyConnection,
     ) -> None:
-        self._database._migrate_project_database(connection)
+        self._database._validate_project_database_schema(connection)
 
     def _insert_workspace_audit(
         self,

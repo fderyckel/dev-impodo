@@ -147,7 +147,7 @@ class PreflightRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             connection.begin()
             try:
                 target = connection.execute(
@@ -474,7 +474,7 @@ class PreflightRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             count_row = connection.execute(
                 f"SELECT COUNT(*) FROM preflight_decision WHERE {where}",
                 parameters,

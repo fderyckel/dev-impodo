@@ -32,7 +32,6 @@ from impodo.normalization import (
     start_dry_run,
 )
 from impodo.adapters.duckdb.database import DuckDbDatabase
-from impodo.adapters.duckdb.constants import SCHEMA_VERSION
 from impodo.adapters.duckdb.normalization_repository import NormalizationRepository
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
@@ -460,39 +459,6 @@ class NormalizationStoreTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def test_schema_15_project_adds_empty_prepared_review_boundary(self) -> None:
-        database_path = (
-            self.repository.project_directory(self.project.project_id)
-            / "project.duckdb"
-        )
-        tables = (
-            "normalization_current",
-            "normalization_transition",
-            "normalization_group",
-            "normalization_effect",
-            "normalization_run",
-        )
-        with self.repository._connect(database_path) as connection:
-            for table in tables:
-                connection.execute(f"DROP TABLE {table}")
-            connection.execute("UPDATE schema_version SET version = 15")
-
-        self.assertIsNone(
-            self.repository.get_current_normalization_summary(
-                self.project.project_id
-            )
-        )
-        with self.repository._connect(database_path) as connection:
-            version = connection.execute(
-                "SELECT version FROM schema_version"
-            ).fetchone()
-            restored = {
-                str(item[0])
-                for item in connection.execute("SHOW TABLES").fetchall()
-                if str(item[0]).startswith("normalization_")
-            }
-            self.assertEqual(version, (SCHEMA_VERSION,))
-        self.assertEqual(restored, set(tables))
 
     def test_invalid_dry_run_evidence_is_wrapped_at_repository_boundary(
         self,

@@ -83,7 +83,7 @@ class StagingRepository(DuckDbRepository):
                     "Pending prepared-data run identifier is invalid"
                 ) from error
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             connection.begin()
             try:
                 mapping = connection.execute(
@@ -439,7 +439,7 @@ class StagingRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT run.run_id, run.content_hash, run.mapping_id,
@@ -473,7 +473,7 @@ class StagingRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             header = connection.execute(
                 """
                 SELECT content_hash, mapping_id, physical_selection_hash,

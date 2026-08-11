@@ -1,6 +1,6 @@
 """Shared hardened DuckDB boundary for registry and per-project databases.
 
-``DuckDbDatabase`` owns connection configuration, schema migration, contained
+``DuckDbDatabase`` owns connection configuration, schema validation, contained
 project paths, transaction factories, audit helpers, and downstream
 invalidation. Concrete repositories are thin responsibility-specific adapters
 over this shared boundary; they do not open differently configured databases.
@@ -20,8 +20,8 @@ from ...access import Actor
 from ...projects import ProjectNotFoundError
 from .audit import AuditMixin
 from .invalidation import EvidenceInvalidationMixin
-from .migrations.project import ProjectMigrationsMixin
-from .migrations.registry import ensure_registry_schema
+from .schema.project import ProjectSchemaMixin
+from .schema.registry import ensure_registry_schema
 from .unit_of_work import (
     DuckDbConnectionFactory,
     DuckDbUnitOfWork,
@@ -29,13 +29,13 @@ from .unit_of_work import (
 
 
 class DuckDbDatabase(
-    ProjectMigrationsMixin, EvidenceInvalidationMixin, AuditMixin
+    ProjectSchemaMixin, EvidenceInvalidationMixin, AuditMixin
 ):
-    """Shared DuckDB connection, migration, and transaction boundary.
+    """Shared DuckDB connection, schema, and transaction boundary.
 
     The root contains one registry plus a UUID-named directory/database per
     project. DuckDB external access and extension loading are disabled by the
-    connection factory. Migrations run before project reads or writes.
+    connection factory. Schema compatibility is checked before project access.
     """
 
     def __init__(self, root: str | Path) -> None:
@@ -69,7 +69,7 @@ class DuckDbDatabase(
         return DuckDbUnitOfWork(
             self.connection_factory,
             database_path,
-            prepare=self._migrate_project_database,
+            prepare=self._validate_project_database_schema,
         )
 
     def _read_json_rows(
@@ -82,7 +82,7 @@ class DuckDbDatabase(
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             rows = connection.execute(query, parameters or []).fetchall()
         return tuple(str(row[0]) for row in rows)
 
@@ -117,7 +117,7 @@ class DuckDbDatabase(
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             revision = self._project_revision(connection)
             connection.begin()
             try:

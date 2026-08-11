@@ -14,7 +14,6 @@ from uuid import uuid4
 from impodo.access import LOCAL_ACTOR
 from impodo.models import Issue, LogicalReference, PreparedRecord
 from impodo.adapters.duckdb.database import DuckDbDatabase
-from impodo.adapters.duckdb.constants import SCHEMA_VERSION
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
@@ -1207,46 +1206,6 @@ class QualityStoreTests(unittest.TestCase):
             ),
         )
 
-    def test_schema_14_project_migrates_without_showing_stale_quality(self) -> None:
-        database_path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
-        quality_tables = (
-            "quality_current",
-            "quality_quarantine_entry",
-            "source_accounting_link",
-            "source_accounting_entry",
-            "quality_issue",
-            "quality_row_result",
-            "quality_run",
-            "quality_ruleset_current",
-            "quality_ruleset_revision",
-        )
-        with self.projects._connect(database_path) as connection:
-            for table in quality_tables:
-                connection.execute(f"DROP TABLE {table}")
-            connection.execute(
-                "ALTER TABLE readiness_run DROP COLUMN quality_run_id"
-            )
-            connection.execute(
-                "ALTER TABLE readiness_run DROP COLUMN quality_content_hash"
-            )
-            connection.execute("UPDATE schema_version SET version = 14")
-
-        self.assertIsNone(
-            self.quality.get_current_quality_summary(self.project.project_id)
-        )
-        with self.projects._connect(database_path) as connection:
-            version = connection.execute(
-                "SELECT version FROM schema_version"
-            ).fetchone()
-            columns = {
-                str(item[1])
-                for item in connection.execute(
-                    "PRAGMA table_info('readiness_run')"
-                ).fetchall()
-            }
-            self.assertEqual(version, (SCHEMA_VERSION,))
-        self.assertIn("quality_run_id", columns)
-        self.assertIn("quality_content_hash", columns)
 
 
 def _project() -> MigrationProject:

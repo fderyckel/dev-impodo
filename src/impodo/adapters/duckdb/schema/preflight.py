@@ -1,4 +1,4 @@
-"""Schema evolution for durable, protected preflight evidence."""
+"""DuckDB schema for durable, protected preflight evidence."""
 
 from __future__ import annotations
 
@@ -6,23 +6,8 @@ import duckdb
 
 
 def create_preflight_schema(connection: duckdb.DuckDBPyConnection) -> None:
-    """Add Slice 5 evidence without promoting historical readiness rows."""
+    """Create preflight evidence relations and current pointers."""
 
-    for name, definition in (
-        ("normalization_run_id", "VARCHAR DEFAULT ''"),
-        ("normalization_content_hash", "VARCHAR DEFAULT ''"),
-        ("normalization_lifecycle_version", "BIGINT DEFAULT 0"),
-        ("eligible_dataset_hash", "VARCHAR DEFAULT ''"),
-        ("frozen_input_hash", "VARCHAR DEFAULT ''"),
-        ("requirement_plan_hash", "VARCHAR DEFAULT ''"),
-        ("metadata_snapshot_hash", "VARCHAR DEFAULT ''"),
-        ("record_snapshot_hash", "VARCHAR DEFAULT ''"),
-        ("result_hash", "VARCHAR DEFAULT ''"),
-        ("manifest_hash", "VARCHAR DEFAULT ''"),
-    ):
-        connection.execute(
-            f"ALTER TABLE readiness_run ADD COLUMN IF NOT EXISTS {name} {definition}"
-        )
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS preflight_current (
@@ -72,11 +57,5 @@ def create_preflight_schema(connection: duckdb.DuckDBPyConnection) -> None:
             detail VARCHAR NOT NULL,
             PRIMARY KEY (run_id, event_type)
         );
-        """
-    )
-    connection.execute(
-        """
-        ALTER TABLE preflight_decision
-        ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT ''
         """
     )

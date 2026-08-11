@@ -63,7 +63,7 @@ class SourceRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             rows = connection.execute(
                 """
                 SELECT catalog.catalog_json
@@ -88,7 +88,7 @@ class SourceRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             source_rows = connection.execute(
                 "SELECT file_id, sha256 FROM source_file"
             ).fetchall()
@@ -168,7 +168,7 @@ class SourceRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             source = connection.execute(
                 "SELECT sha256 FROM source_file WHERE file_id = ?",
                 [catalog.file_id],
@@ -247,7 +247,7 @@ class SourceRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT source_sha256, catalog_json
@@ -433,7 +433,7 @@ class SourceRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             revision = self._project_revision(connection)
             connection.begin()
             try:

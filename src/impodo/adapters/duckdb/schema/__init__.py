@@ -1,0 +1,2 @@
+"""Current DuckDB schema definitions."""
+

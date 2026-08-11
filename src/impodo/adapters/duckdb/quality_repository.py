@@ -149,7 +149,7 @@ class QualityRepository(DuckDbRepository):
             raise ProjectNotFoundError("Project not found")
         created_at = datetime.now(timezone.utc)
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             connection.begin()
             try:
                 mapping = connection.execute(
@@ -273,7 +273,7 @@ class QualityRepository(DuckDbRepository):
         run_id = str(uuid4())
         summary_counts = _quality_summary_counts(run)
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             connection.begin()
             try:
                 staging = connection.execute(
@@ -524,7 +524,7 @@ class QualityRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT run.run_id, run.content_hash, run.staging_run_id,
@@ -554,7 +554,7 @@ class QualityRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             header = connection.execute(
                 """
                 SELECT content_hash, staging_run_id, staging_content_hash,
@@ -651,7 +651,7 @@ class QualityRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._migrate_project_database(connection)
+            self._validate_project_database_schema(connection)
             current = connection.execute(
                 """
                 SELECT 1 FROM quality_run
