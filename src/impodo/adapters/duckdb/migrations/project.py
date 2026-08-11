@@ -1280,6 +1280,14 @@ class ProjectMigrationsMixin:
                         """
                     )
                     version = 30
+                if version == 30:
+                    connection.execute(
+                        """
+                        ALTER TABLE execution_run
+                        ADD COLUMN IF NOT EXISTS batch_rows INTEGER
+                        """
+                    )
+                    version = 31
                 connection.execute(
                     "UPDATE schema_version SET version = ?",
                     [version],

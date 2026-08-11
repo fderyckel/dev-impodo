@@ -12,6 +12,7 @@ from ...domain.execution import (
     ExecutionRowStatus,
     ExecutionRun,
     ExecutionRunStatus,
+    MAX_CREATE_BATCH_ROWS,
 )
 from ...projects import ProjectNotFoundError
 from ...workspace_errors import WorkspaceError
@@ -41,6 +42,9 @@ class ExecutionRepository(DuckDbRepository):
             run.project_id != project_id
             or run.status is not ExecutionRunStatus.RUNNING
             or run.completed_at is not None
+            or run.batch_rows is None
+            or run.batch_rows < 1
+            or run.batch_rows > MAX_CREATE_BATCH_ROWS
             or not run.rows
             or any(item.status is not ExecutionRowStatus.PLANNED for item in run.rows)
         ):
@@ -80,7 +84,11 @@ class ExecutionRepository(DuckDbRepository):
                     raise WorkspaceError("Another load is already running")
                 connection.execute(
                     """
-                    INSERT INTO execution_run VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO execution_run (
+                        run_id, snapshot_hash, snapshot_root_hash,
+                        preflight_run_id, target_hash, target_database,
+                        batch_rows, status, started_at, started_by, completed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         canonical_run_id,
@@ -89,6 +97,7 @@ class ExecutionRepository(DuckDbRepository):
                         canonical_preflight_id,
                         run.target_hash,
                         run.target_database,
+                        run.batch_rows,
                         run.status.value,
                         run.started_at.isoformat(),
                         run.started_by,
@@ -127,7 +136,8 @@ class ExecutionRepository(DuckDbRepository):
                     revision=revision,
                     event_type="ODOO_LOAD_STARTED",
                     detail=(
-                        f"run {canonical_run_id}: {len(run.rows)} planned row(s)"
+                        f"run {canonical_run_id}: {len(run.rows)} planned row(s), "
+                        f"{run.batch_rows} row(s) per Odoo batch"
                     ),
                     actor=actor,
                 )
@@ -298,8 +308,8 @@ class ExecutionRepository(DuckDbRepository):
             header = connection.execute(
                 """
                 SELECT snapshot_hash, snapshot_root_hash, preflight_run_id,
-                       target_hash, target_database, status, started_at,
-                       started_by, completed_at
+                       target_hash, target_database, batch_rows, status,
+                       started_at, started_by, completed_at
                   FROM execution_run WHERE run_id = ?
                 """,
                 [canonical_run_id],
@@ -321,12 +331,13 @@ class ExecutionRepository(DuckDbRepository):
             preflight_run_id=str(header[2]),
             target_hash=str(header[3]),
             target_database=str(header[4]),
-            status=ExecutionRunStatus(str(header[5])),
-            started_at=datetime.fromisoformat(str(header[6])),
-            started_by=str(header[7]),
+            batch_rows=(int(header[5]) if header[5] is not None else None),
+            status=ExecutionRunStatus(str(header[6])),
+            started_at=datetime.fromisoformat(str(header[7])),
+            started_by=str(header[8]),
             completed_at=(
-                datetime.fromisoformat(str(header[8]))
-                if header[8] is not None
+                datetime.fromisoformat(str(header[9]))
+                if header[9] is not None
                 else None
             ),
             rows=tuple(

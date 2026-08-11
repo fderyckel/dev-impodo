@@ -15,6 +15,7 @@ def create_execution_schema(connection: duckdb.DuckDBPyConnection) -> None:
             preflight_run_id VARCHAR NOT NULL,
             target_hash VARCHAR NOT NULL,
             target_database VARCHAR NOT NULL,
+            batch_rows INTEGER,
             status VARCHAR NOT NULL,
             started_at VARCHAR NOT NULL,
             started_by VARCHAR NOT NULL,

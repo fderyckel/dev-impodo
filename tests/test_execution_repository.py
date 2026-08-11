@@ -105,6 +105,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
             preflight_run_id=self.preflight_id,
             target_hash=TARGET_HASH,
             target_database="odoo19_disposable",
+            batch_rows=10,
             status=ExecutionRunStatus.RUNNING,
             started_at=datetime.now(timezone.utc),
             started_by="Test operator",
@@ -154,6 +155,7 @@ class ExecutionRepositoryTests(unittest.TestCase):
             ),
             finished,
         )
+        self.assertEqual(finished.batch_rows, 10)
         path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
         with self.projects._connect(path) as connection:
             events = connection.execute(
@@ -236,6 +238,28 @@ class ExecutionRepositoryTests(unittest.TestCase):
             tables,
             {"execution_current", "execution_row", "execution_run"},
         )
+
+    def test_version_thirty_adds_execution_batch_rows(self) -> None:
+        path = self.projects.project_directory(self.project.project_id) / "project.duckdb"
+        with self.projects._connect(path) as connection:
+            connection.execute("ALTER TABLE execution_run DROP COLUMN batch_rows")
+            connection.execute("UPDATE schema_version SET version = 30")
+
+        self.projects.get(self.project.project_id)
+
+        with self.projects._connect(path) as connection:
+            version = connection.execute("SELECT version FROM schema_version").fetchone()
+            columns = {
+                str(item[0])
+                for item in connection.execute(
+                    """
+                    SELECT column_name FROM information_schema.columns
+                     WHERE table_name = 'execution_run'
+                    """
+                ).fetchall()
+            }
+        self.assertEqual(version, (SCHEMA_VERSION,))
+        self.assertIn("batch_rows", columns)
 
     def test_publishes_one_hash_bound_readback_result(self) -> None:
         run = self._run()

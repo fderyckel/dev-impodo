@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from ...access import AuthorizationError
+from ...application.execution_service import validated_create_batch_rows
 from ...connectors import ConnectorError
 from ...odoo_writer import OdooWriteError
 from ...odoo_readback import OdooReadbackError
@@ -73,12 +74,14 @@ def build_execution_router(context: WebContext) -> APIRouter:
             {
                 "csrf_token",
                 "snapshot_hash",
+                "batch_rows",
                 "api_key",
                 "remember_api_key",
             },
         )
         project = context.queries.get(project_id)
         try:
+            batch_rows = validated_create_batch_rows(_text(form, "batch_rows"))
             preview = context.execution.current_preview(project_id)
             if preview is None:
                 raise WorkspaceError("Compare the prepared data with Odoo first")
@@ -102,6 +105,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 expected_snapshot_hash=_text(form, "snapshot_hash"),
                 executor=executor,
                 actor=context.actor,
+                batch_rows=batch_rows,
             )
         except (
             AuthorizationError,

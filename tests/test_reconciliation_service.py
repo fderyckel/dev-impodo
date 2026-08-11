@@ -155,6 +155,7 @@ def _run(snapshot, statuses=None):
         preflight_run_id=snapshot.preflight_run_id,
         target_hash=snapshot.target_hash,
         target_database=snapshot.target_database,
+        batch_rows=10,
         status=(
             ExecutionRunStatus.OUTCOME_UNKNOWN
             if statuses and ExecutionRowStatus.OUTCOME_UNKNOWN in statuses

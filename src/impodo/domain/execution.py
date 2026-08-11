@@ -10,6 +10,9 @@ import json
 from ..models import canonical_json_bytes
 
 
+MAX_CREATE_BATCH_ROWS = 50
+
+
 class ExecutionRunStatus(StrEnum):
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
@@ -80,6 +83,7 @@ class ExecutionRun:
     preflight_run_id: str
     target_hash: str
     target_database: str
+    batch_rows: int | None
     status: ExecutionRunStatus
     started_at: datetime
     started_by: str

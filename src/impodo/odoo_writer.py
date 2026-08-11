@@ -19,11 +19,11 @@ from urllib.error import URLError
 from urllib.parse import quote
 
 from .connectors import Json2Config, Transport, _urllib_transport
+from .domain.execution import MAX_CREATE_BATCH_ROWS
 from .models import canonical_json_bytes, target_identity_hash
 from .odoo_scope import OdooApiScope
 
 
-MAX_CREATE_BATCH_ROWS = 50
 MAX_WRITE_BODY_BYTES = 1024 * 1024
 _EXTERNAL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.-]+")
 

@@ -717,7 +717,7 @@ class ExecutionServiceTests(unittest.TestCase):
             "50",
         )
 
-    def test_remote_create_caches_repeated_existing_relation_across_batches(
+    def test_configured_create_batch_size_reuses_existing_relation_lookup(
         self,
     ):
         snapshot = _snapshot()
@@ -758,36 +758,62 @@ class ExecutionServiceTests(unittest.TestCase):
                 "BLOCKED": 0,
             },
         )
-        service, _journal = self._service(
-            relationship_snapshot,
-            mode=OdooConnectionMode.REMOTE,
-        )
-        executor = _Executor(
-            execution_api_scope(relationship_snapshot).semantic_hash
-        )
-
-        run = service.execute(
-            relationship_snapshot.project_id,
-            expected_snapshot_hash=relationship_snapshot.semantic_hash,
-            executor=executor,
-            actor=LOCAL_ACTOR,
-        )
-
-        self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
-        self.assertEqual(len(executor.loads), 6)
-        self.assertEqual(
-            [len(rows) for _model, rows, _external_ids in executor.loads],
-            [10, 10, 10, 10, 10, 1],
-        )
-        self.assertEqual(
-            executor.lookups,
-            [
-                (
-                    "product.category",
-                    (("name", "=", "Existing Category"),),
+        for batch_rows, expected_sizes in (
+            (10, [10, 10, 10, 10, 10, 1]),
+            (50, [50, 1]),
+        ):
+            with self.subTest(batch_rows=batch_rows):
+                service, _journal = self._service(
+                    relationship_snapshot,
+                    mode=OdooConnectionMode.REMOTE,
                 )
-            ],
-        )
+                executor = _Executor(
+                    execution_api_scope(relationship_snapshot).semantic_hash
+                )
+
+                run = service.execute(
+                    relationship_snapshot.project_id,
+                    expected_snapshot_hash=relationship_snapshot.semantic_hash,
+                    executor=executor,
+                    actor=LOCAL_ACTOR,
+                    batch_rows=batch_rows,
+                )
+
+                self.assertEqual(run.status, ExecutionRunStatus.COMPLETED)
+                self.assertEqual(run.batch_rows, batch_rows)
+                self.assertEqual(
+                    [len(rows) for _model, rows, _external_ids in executor.loads],
+                    expected_sizes,
+                )
+                self.assertEqual(
+                    executor.lookups,
+                    [
+                        (
+                            "product.category",
+                            (("name", "=", "Existing Category"),),
+                        )
+                    ],
+                )
+
+    def test_create_batch_size_is_bounded_before_journaling(self):
+        snapshot = _snapshot()
+        executor = _Executor(execution_api_scope(snapshot).semantic_hash)
+
+        for batch_rows in (0, 51, "ten", True):
+            with self.subTest(batch_rows=batch_rows):
+                service, journal = self._service(snapshot)
+                with self.assertRaisesRegex(
+                    Exception,
+                    "Rows per Odoo batch",
+                ):
+                    service.execute(
+                        snapshot.project_id,
+                        expected_snapshot_hash=snapshot.semantic_hash,
+                        executor=executor,
+                        actor=LOCAL_ACTOR,
+                        batch_rows=batch_rows,
+                    )
+                self.assertIsNone(journal.current)
 
     def test_remote_load_serializes_every_scalar_as_odoo_import_text(self):
         snapshot = _snapshot()

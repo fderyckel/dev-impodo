@@ -14,6 +14,7 @@ from ..domain.execution import (
     ExecutionRowStatus,
     ExecutionRun,
     ExecutionRunStatus,
+    MAX_CREATE_BATCH_ROWS,
 )
 from ..domain.execution_snapshot import (
     ExecutionDataset,
@@ -29,7 +30,6 @@ from ..models import (
 )
 from ..odoo_scope import OdooApiScope, OdooModelScope
 from ..odoo_writer import (
-    MAX_CREATE_BATCH_ROWS,
     OdooWriteExecutor,
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
@@ -39,7 +39,7 @@ from ..workspace_errors import WorkspaceError
 from .preflight_service import PreflightService
 
 
-REMOTE_CREATE_BATCH_ROWS = 10
+DEFAULT_CREATE_BATCH_ROWS = 10
 
 
 class ExecutionProjectRepository(Protocol):
@@ -154,9 +154,7 @@ class ExecutionService:
             api_scope=api_scope,
             deferred_create_count=_planned_deferred_create_count(
                 snapshot,
-                remote=(
-                    project.odoo_connection_mode is OdooConnectionMode.REMOTE
-                ),
+                create_batch_rows=DEFAULT_CREATE_BATCH_ROWS,
             ),
             scope_error=_execution_snapshot_error(project, snapshot),
         )
@@ -168,6 +166,7 @@ class ExecutionService:
         expected_snapshot_hash: str,
         executor: OdooWriteExecutor,
         actor: Actor,
+        batch_rows: int | str = DEFAULT_CREATE_BATCH_ROWS,
     ) -> ExecutionRun:
         self.authorization.require(
             actor,
@@ -175,6 +174,7 @@ class ExecutionService:
             project_id=project_id,
         )
         project = self.projects.get(project_id)
+        create_batch_rows = validated_create_batch_rows(batch_rows)
         preview = self.current_preview(project_id)
         if preview is None:
             raise WorkspaceError("Compare the prepared data with Odoo first")
@@ -209,6 +209,7 @@ class ExecutionService:
             preflight_run_id=snapshot.preflight_run_id,
             target_hash=snapshot.target_hash,
             target_database=snapshot.target_database,
+            batch_rows=create_batch_rows,
             status=ExecutionRunStatus.RUNNING,
             started_at=started_at,
             started_by=actor.identity.display_name,
@@ -229,12 +230,6 @@ class ExecutionService:
         }
         deferred_by_row: dict[str, tuple[FieldIntent, ...]] = {}
         stop_after_unknown = False
-        create_batch_rows = (
-            REMOTE_CREATE_BATCH_ROWS
-            if project.odoo_connection_mode is OdooConnectionMode.REMOTE
-            else MAX_CREATE_BATCH_ROWS
-        )
-
         for dataset in sorted(snapshot.datasets, key=lambda item: item.sequence):
             dataset_rows = tuple(
                 row
@@ -978,7 +973,7 @@ def _identity_domain(
 def _planned_deferred_create_count(
     snapshot: ExecutionSnapshot,
     *,
-    remote: bool,
+    create_batch_rows: int,
 ) -> int:
     """Count create rows expected to need the reviewed second relation pass."""
 
@@ -988,7 +983,7 @@ def _planned_deferred_create_count(
     }
     available: dict[tuple[str, str], int] = {}
     count = 0
-    create_batch_rows = REMOTE_CREATE_BATCH_ROWS if remote else MAX_CREATE_BATCH_ROWS
+    create_batch_rows = validated_create_batch_rows(create_batch_rows)
     for dataset in sorted(snapshot.datasets, key=lambda item: item.sequence):
         creates = tuple(
             row
@@ -1012,6 +1007,24 @@ def _planned_deferred_create_count(
                     (row.dataset, _portable_key(row.source_identity))
                 ] = 1
     return count
+
+
+def validated_create_batch_rows(value: int | str) -> int:
+    """Return one bounded Odoo request size chosen for this load run."""
+
+    if isinstance(value, bool):
+        raise WorkspaceError("Rows per Odoo batch must be a whole number")
+    try:
+        batch_rows = int(value)
+    except (TypeError, ValueError) as error:
+        raise WorkspaceError("Rows per Odoo batch must be a whole number") from error
+    if str(value).strip() != str(batch_rows):
+        raise WorkspaceError("Rows per Odoo batch must be a whole number")
+    if batch_rows < 1 or batch_rows > MAX_CREATE_BATCH_ROWS:
+        raise WorkspaceError(
+            f"Rows per Odoo batch must be between 1 and {MAX_CREATE_BATCH_ROWS}"
+        )
+    return batch_rows
 
 
 def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:
