@@ -417,7 +417,7 @@
                       </div>
 
                       {% set value_rules_configured = mapping and (
-                        transform.effective_text_steps
+                        transform.text_steps
                         or transform.case_mode != 'preserve'
                         or transform.formula
                         or transform.decimal_places is not none
@@ -445,7 +445,7 @@
                               <div
                                 class="text-step-quick-start"
                                 data-phone-cleanup-quick-start
-                                {% if transform and transform.effective_text_steps %}hidden{% endif %}
+                                {% if transform and transform.text_steps %}hidden{% endif %}
                               >
                                 <div class="text-step-quick-start-copy">
                                   <strong>Suggested start for this phone field</strong>
@@ -456,7 +456,7 @@
                               </div>
                             {% endif %}
                             <div class="text-step-list" data-text-step-list></div>
-                            <p class="muted" data-text-step-empty {% if transform and transform.effective_text_steps %}hidden{% endif %}>No cleanup steps added.</p>
+                            <p class="muted" data-text-step-empty {% if transform and transform.text_steps %}hidden{% endif %}>No cleanup steps added.</p>
                             <div class="text-step-add">
                               <label>
                                 Add cleanup

@@ -50,11 +50,11 @@ from ..forms import (
 def _text_steps_from_form(
     form,
     field_name: str,
-) -> tuple[TextTransformStep, ...] | None:
-    """Read one bounded ordered sequence; ``None`` means legacy form input."""
+) -> tuple[TextTransformStep, ...]:
+    """Read one bounded ordered sequence from the current browser form."""
 
     if field_name not in form:
-        return None
+        return ()
     raw_value = _text(form, field_name)
     try:
         payload = json.loads(raw_value or "[]")
@@ -136,10 +136,6 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"scalar_decimal_locale_{dataset_index}_{field_index}",
                     f"scalar_date_format_{dataset_index}_{field_index}",
                     f"scalar_timezone_{dataset_index}_{field_index}",
-                    f"scalar_search_{dataset_index}_{field_index}",
-                    f"scalar_replacement_{dataset_index}_{field_index}",
-                    f"scalar_search_mode_{dataset_index}_{field_index}",
-                    f"scalar_replace_all_{dataset_index}_{field_index}",
                     f"scalar_text_steps_{dataset_index}_{field_index}",
                     f"scalar_round_places_{dataset_index}_{field_index}",
                     f"scalar_round_mode_{dataset_index}_{field_index}",
@@ -362,41 +358,6 @@ def _mapping_datasets_from_form(
                             )
                             or "UTC"
                         ),
-                        search_value=(
-                            ""
-                            if text_steps is not None
-                            else _text(
-                                form,
-                                f"scalar_search_{dataset_index}_{field_index}",
-                            )
-                        ),
-                        replacement_value=(
-                            ""
-                            if text_steps is not None
-                            else _text(
-                                form,
-                                f"scalar_replacement_{dataset_index}_{field_index}",
-                            )
-                        ),
-                        search_mode=(
-                            "literal"
-                            if text_steps is not None
-                            else (
-                                _text(
-                                    form,
-                                    f"scalar_search_mode_{dataset_index}_{field_index}",
-                                )
-                                or "literal"
-                            )
-                        ),
-                        replace_all=(
-                            True
-                            if text_steps is not None
-                            else _checked(
-                                form,
-                                f"scalar_replace_all_{dataset_index}_{field_index}",
-                            )
-                        ),
                         decimal_places=_optional_int(
                             _text(
                                 form,
@@ -414,7 +375,7 @@ def _mapping_datasets_from_form(
                             form,
                             f"scalar_formula_{dataset_index}_{field_index}",
                         ),
-                        text_steps=text_steps or (),
+                        text_steps=text_steps,
                     ),
                     validation=ScalarValidationPolicy(
                         exact_length=_optional_int(

@@ -600,7 +600,7 @@ def _mapping_dataset_views(
                     else ()
                 ),
                 "text_steps_json": _text_steps_json(
-                    scalar_by_target[field.name].transform.effective_text_steps
+                    scalar_by_target[field.name].transform.text_steps
                     if field.name in scalar_by_target
                     else ()
                 ),

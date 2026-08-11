@@ -395,7 +395,7 @@ def _validate_transform_policy(
                 target_field=field_mapping.target_field,
             )
         )
-    for step_index, step in enumerate(policy.effective_text_steps):
+    for step_index, step in enumerate(policy.text_steps):
         step_path = f"{path}/transform/text_steps/{step_index}"
         if step.kind == "remove_separators_between_digits":
             if not step.characters:

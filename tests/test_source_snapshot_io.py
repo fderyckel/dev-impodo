@@ -49,7 +49,7 @@ from impodo.source_snapshot_io import (
     open_source_snapshot_batches,
     source_snapshot_batch_rows,
 )
-from impodo.value_rules import ScalarTransformPolicy
+from impodo.value_rules import ScalarTransformPolicy, TextTransformStep
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -235,9 +235,13 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                         replace(
                             name_field,
                             transform=ScalarTransformPolicy(
-                                search_value="^A.*$",
-                                replacement_value="replaced",
-                                search_mode="pattern",
+                                text_steps=(
+                                    TextTransformStep(
+                                        search_value="^A.*$",
+                                        replacement_value="replaced",
+                                        search_mode="pattern",
+                                    ),
+                                ),
                             ),
                         ),
                     ),
@@ -333,9 +337,13 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                         replace(
                             dataset_mapping.fields[0],
                             transform=ScalarTransformPolicy(
-                                search_value="^A.*$",
-                                replacement_value="replaced",
-                                search_mode="pattern",
+                                text_steps=(
+                                    TextTransformStep(
+                                        search_value="^A.*$",
+                                        replacement_value="replaced",
+                                        search_mode="pattern",
+                                    ),
+                                ),
                             ),
                         ),
                     ),

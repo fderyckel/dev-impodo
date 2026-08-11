@@ -2346,7 +2346,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         product_field = revision_by_dataset[product.dataset_id].fields[0]
         self.assertEqual(product_field.transform.case_mode, "sentence")
         self.assertEqual(
-            product_field.transform.effective_text_steps[0].search_value,
+            product_field.transform.text_steps[0].search_value,
             "Imported",
         )
         self.assertEqual(product_field.validation.exact_length, 16)

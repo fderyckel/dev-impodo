@@ -110,24 +110,12 @@ class ScalarTransformPolicy:
     decimal_locale: str = "invariant"
     date_format: str = "iso"
     timezone: str = "UTC"
-    search_value: str = ""
-    replacement_value: str = ""
-    search_mode: str = "literal"
-    replace_all: bool = True
     decimal_places: int | None = None
     rounding_mode: str = "half_up"
     formula: str = ""
     text_steps: tuple[TextTransformStep, ...] = ()
 
     def __post_init__(self) -> None:
-        if len(self.search_value) > MAX_PATTERN_LENGTH:
-            raise ValueError(
-                f"Find text is limited to {MAX_PATTERN_LENGTH} characters"
-            )
-        if len(self.replacement_value) > MAX_RULE_SIZE:
-            raise ValueError(
-                f"Replacement text is limited to {MAX_RULE_SIZE} characters"
-            )
         if len(self.formula) > MAX_FORMULA_LENGTH:
             raise ValueError(
                 f"Formulas are limited to {MAX_FORMULA_LENGTH} characters"
@@ -138,47 +126,12 @@ class ScalarTransformPolicy:
                 "A field cannot contain more than "
                 f"{MAX_TEXT_TRANSFORM_STEPS} text changes"
             )
-        if self.text_steps and (
-            self.search_value
-            or self.replacement_value
-            or self.search_mode != "literal"
-            or not self.replace_all
-        ):
-            raise ValueError(
-                "Ordered text changes cannot be combined with the legacy "
-                "find-and-replace fields"
-            )
-        if not self.text_steps and (self.search_value or self.replacement_value):
-            object.__setattr__(
-                self,
-                "text_steps",
-                (
-                    TextTransformStep(
-                        search_value=self.search_value,
-                        replacement_value=self.replacement_value,
-                        search_mode=self.search_mode,
-                        replace_all=self.replace_all,
-                    ),
-                ),
-            )
-            object.__setattr__(self, "search_value", "")
-            object.__setattr__(self, "replacement_value", "")
-            object.__setattr__(self, "search_mode", "literal")
-            object.__setattr__(self, "replace_all", True)
-
-    @property
-    def effective_text_steps(self) -> tuple[TextTransformStep, ...]:
-        """Return ordered rules, adapting the legacy single-rule contract."""
-
-        return self.text_steps
 
     @property
     def configured_text_steps(self) -> tuple[TextTransformStep, ...]:
         """Return only executable steps while retaining authored order."""
 
-        return tuple(
-            step for step in self.effective_text_steps if step.configured
-        )
+        return tuple(step for step in self.text_steps if step.configured)
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,7 +288,6 @@ def prepare_rule_text(
     policy: ScalarTransformPolicy,
     *,
     formula_context: Mapping[str, Any] | None = None,
-    find_replace_observer: Callable[[bool, bool], None] | None = None,
     text_step_observer: Callable[[int, bool, bool], None] | None = None,
 ) -> str | None:
     """Apply formula, normalization, replacement, and casing to raw input."""
@@ -358,7 +310,7 @@ def prepare_rule_text(
         rendered = rendered.strip()
     if policy.collapse_whitespace:
         rendered = re.sub(r"\s+", " ", rendered)
-    for step_index, step in enumerate(policy.effective_text_steps):
+    for step_index, step in enumerate(policy.text_steps):
         if not step.configured:
             continue
         if (
@@ -375,8 +327,6 @@ def prepare_rule_text(
         if before_replacement != "":
             matched = _text_step_matches(before_replacement, step)
             changed = rendered != before_replacement
-            if find_replace_observer is not None:
-                find_replace_observer(matched, changed)
             if text_step_observer is not None:
                 text_step_observer(step_index, matched, changed)
         if len(rendered) > MAX_RULE_OUTPUT_LENGTH:

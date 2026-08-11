@@ -1003,7 +1003,7 @@ def _transform_steps(
                 f"{path}/transform/{operation.value}",
                 target_field=field.target_field,
             )
-    for step_index, step in enumerate(policy.effective_text_steps):
+    for step_index, step in enumerate(policy.text_steps):
         if not step.configured:
             continue
         operation = (

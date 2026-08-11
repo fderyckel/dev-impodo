@@ -49,7 +49,6 @@ def evaluate_scalar_mapping_value(
     raw_source_value: Any,
     *,
     source_values_by_ordinal: Mapping[int, Any] | None = None,
-    find_replace_observer: Callable[[bool, bool], None] | None = None,
     text_step_observer: Callable[[int, bool, bool], None] | None = None,
 ) -> str | int | Decimal | bool | date | datetime | None:
     """Evaluate one scalar through the shared preview/runtime boundary."""
@@ -66,7 +65,6 @@ def evaluate_scalar_mapping_value(
                 )
             },
         },
-        find_replace_observer=find_replace_observer,
         text_step_observer=text_step_observer,
     )
 
@@ -76,7 +74,6 @@ def canonicalize_scalar_value(
     raw_source_value: Any,
     *,
     formula_context: Mapping[str, Any] | None = None,
-    find_replace_observer: Callable[[bool, bool], None] | None = None,
     text_step_observer: Callable[[int, bool, bool], None] | None = None,
 ) -> str | int | Decimal | bool | date | datetime | None:
     """Apply one browser-authored value provider and transformation policy."""
@@ -121,7 +118,6 @@ def canonicalize_scalar_value(
                 raw_value,
                 mapping.transform,
                 formula_context=rule_context,
-                find_replace_observer=find_replace_observer,
                 text_step_observer=text_step_observer,
             )
         except ScalarRuleError as error:

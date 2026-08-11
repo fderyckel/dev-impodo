@@ -77,7 +77,7 @@ def transformation_rule_impact_definitions(
 
     transform = field.transform
     definitions = []
-    for step_index, step in enumerate(transform.effective_text_steps):
+    for step_index, step in enumerate(transform.text_steps):
         if not step.configured:
             continue
         rule_kind = (

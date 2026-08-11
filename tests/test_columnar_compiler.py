@@ -39,7 +39,11 @@ from impodo.domain.mapping.scalar_values import (
     ScalarValueRuleError,
     evaluate_scalar_mapping_value,
 )
-from impodo.value_rules import ScalarTransformPolicy, ScalarValidationPolicy
+from impodo.value_rules import (
+    ScalarTransformPolicy,
+    ScalarValidationPolicy,
+    TextTransformStep,
+)
 from impodo.workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
@@ -184,10 +188,13 @@ class ColumnarCompilerTests(unittest.TestCase):
                 collapse_whitespace=True,
                 empty_as_null=True,
                 case_mode="lowercase",
-                search_value="-",
-                replacement_value=" ",
-                search_mode="literal",
-                replace_all=False,
+                text_steps=(
+                    TextTransformStep(
+                        search_value="-",
+                        replacement_value=" ",
+                        replace_all=False,
+                    ),
+                ),
             ),
             required=True,
         )
@@ -251,9 +258,13 @@ class ColumnarCompilerTests(unittest.TestCase):
                 replace(
                     base,
                     transform=ScalarTransformPolicy(
-                        search_value=r"\s+",
-                        replacement_value=" ",
-                        search_mode="pattern",
+                        text_steps=(
+                            TextTransformStep(
+                                search_value=r"\s+",
+                                replacement_value=" ",
+                                search_mode="pattern",
+                            ),
+                        ),
                     ),
                 ),
                 "COLUMNAR_PATTERN_REPLACEMENT_UNSUPPORTED",
@@ -458,10 +469,12 @@ class ColumnarOperationParityTests(unittest.TestCase):
                     transform=ScalarTransformPolicy(
                         trim=True,
                         collapse_whitespace=True,
-                        search_value="-",
-                        replacement_value=" ",
-                        search_mode="literal",
-                        replace_all=True,
+                        text_steps=(
+                            TextTransformStep(
+                                search_value="-",
+                                replacement_value=" ",
+                            ),
+                        ),
                         case_mode="uppercase",
                         empty_as_null=True,
                     ),
@@ -656,8 +669,12 @@ def _supported_definition(selection: SourceSelection) -> MappingDefinition:
                 trim=True,
                 collapse_whitespace=True,
                 empty_as_null=True,
-                search_value="-",
-                replacement_value=" ",
+                text_steps=(
+                    TextTransformStep(
+                        search_value="-",
+                        replacement_value=" ",
+                    ),
+                ),
                 case_mode="uppercase",
             ),
         ),

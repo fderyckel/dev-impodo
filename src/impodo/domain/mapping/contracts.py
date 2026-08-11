@@ -466,52 +466,13 @@ def _dataset_mapping_to_dict(
     payload = _portable(asdict(mapping))
     for item in payload.get("fields", ()):
         transform = item.get("transform", {})
-        if contract_version >= 8:
-            steps = list(transform.get("text_steps", ()))
-            if not steps and (
-                transform.get("search_value")
-                or transform.get("replacement_value")
-            ):
-                steps.append(
-                    {
-                        "kind": "find_replace",
-                        "search_value": transform.get("search_value", ""),
-                        "replacement_value": transform.get(
-                            "replacement_value", ""
-                        ),
-                        "search_mode": transform.get("search_mode", "literal"),
-                        "replace_all": bool(transform.get("replace_all", True)),
-                        "characters": "",
-                    }
-                )
-            transform["text_steps"] = steps
-            for name in (
-                "search_value",
-                "replacement_value",
-                "search_mode",
-                "replace_all",
-            ):
-                transform.pop(name, None)
-        elif contract_version >= 3:
-            steps = list(transform.get("text_steps", ()))
+        if contract_version < 8:
+            steps = list(transform.pop("text_steps", ()))
             if steps:
-                if len(steps) != 1 or steps[0].get("kind") != "find_replace":
-                    raise ValueError(
-                        "Legacy mapping contracts cannot contain ordered text changes"
-                    )
-                transform["search_value"] = steps[0].get("search_value", "")
-                transform["replacement_value"] = steps[0].get(
-                    "replacement_value", ""
+                raise ValueError(
+                    "Mapping contract versions below 8 cannot contain "
+                    "ordered text changes"
                 )
-                transform["search_mode"] = steps[0].get(
-                    "search_mode", "literal"
-                )
-                transform["replace_all"] = bool(
-                    steps[0].get("replace_all", True)
-                )
-            transform.pop("text_steps", None)
-        else:
-            transform.pop("text_steps", None)
     if contract_version < 3:
         for item in payload.get("fields", ()):
             item.pop("value_source", None)
@@ -522,10 +483,6 @@ def _dataset_mapping_to_dict(
             item.pop("validation", None)
             transform = item.get("transform", {})
             for name in (
-                "search_value",
-                "replacement_value",
-                "search_mode",
-                "replace_all",
                 "decimal_places",
                 "rounding_mode",
                 "formula",
@@ -557,6 +514,17 @@ def _scalar_field_mapping_from_dict(
     transform_payload = payload.get("transform", {})
     if not isinstance(transform_payload, Mapping):
         raise ValueError("Scalar transform policy must be an object")
+    legacy_text_fields = {
+        "search_value",
+        "replacement_value",
+        "search_mode",
+        "replace_all",
+    }.intersection(transform_payload)
+    if legacy_text_fields:
+        raise ValueError(
+            "Legacy find-and-replace fields are no longer supported; "
+            "use ordered text_steps"
+        )
     validation_payload = payload.get("validation", {})
     if not isinstance(validation_payload, Mapping):
         raise ValueError("Scalar validation policy must be an object")
@@ -593,12 +561,6 @@ def _scalar_field_mapping_from_dict(
                 transform_payload.get("date_format", "iso")
             ),
             timezone=str(transform_payload.get("timezone", "UTC")),
-            search_value=str(transform_payload.get("search_value", "")),
-            replacement_value=str(
-                transform_payload.get("replacement_value", "")
-            ),
-            search_mode=str(transform_payload.get("search_mode", "literal")),
-            replace_all=bool(transform_payload.get("replace_all", True)),
             decimal_places=(
                 int(transform_payload["decimal_places"])
                 if transform_payload.get("decimal_places") is not None

@@ -436,8 +436,12 @@ def _definition(selection: SourceSelection) -> MappingDefinition:
                             trim=True,
                             collapse_whitespace=True,
                             empty_as_null=True,
-                            search_value="-",
-                            replacement_value=" ",
+                            text_steps=(
+                                TextTransformStep(
+                                    search_value="-",
+                                    replacement_value=" ",
+                                ),
+                            ),
                             case_mode="lowercase",
                         ),
                         required=True,

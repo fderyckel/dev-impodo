@@ -228,7 +228,7 @@ def _transformation_rule_impact_views(
             authored_steps = (
                 (step_index, step)
                 for step_index, step in enumerate(
-                    field.transform.effective_text_steps
+                    field.transform.text_steps
                 )
                 if step.configured
             )

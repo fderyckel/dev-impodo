@@ -1024,7 +1024,7 @@ def _apply_scalar_mappings(
                     (
                         (step_index, step)
                         for step_index, step in enumerate(
-                            field.transform.effective_text_steps
+                            field.transform.text_steps
                         )
                         if step.configured
                     ),

@@ -73,17 +73,21 @@ class MappingSemanticValidatorTests(unittest.TestCase):
                 target_field="phone",
                 source_column_key="column:phone",
                 transform=ScalarTransformPolicy(
-                    search_value="^00",
-                    replacement_value="+",
-                    search_mode=search_mode,
+                    text_steps=(
+                        TextTransformStep(
+                            search_value="^00",
+                            replacement_value="+",
+                            search_mode=search_mode,
+                        ),
+                    ),
                 ),
             )
             for value in ("00352 1", "33123", "0044 2", "", None):
                 canonicalize_scalar_value(
                     mapping,
                     value,
-                    find_replace_observer=(
-                        lambda matched, changed: observed.append(
+                    text_step_observer=(
+                        lambda _index, matched, changed: observed.append(
                             (matched, changed)
                         )
                     ),
@@ -175,17 +179,32 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertNotIn("search_value", transform)
         self.assertEqual(len(transform["text_steps"]), 2)
         self.assertEqual(MappingDefinition.from_dict(payload), definition)
-        self.assertNotIn(
-            "transform",
-            replace(definition, contract_version=2).to_dict()["datasets"][0][
-                "fields"
-            ][0],
-        )
+        for legacy_version in (2, 7):
+            with self.subTest(legacy_version=legacy_version):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "versions below 8 cannot contain ordered text changes",
+                ):
+                    replace(
+                        definition,
+                        contract_version=legacy_version,
+                    ).to_dict()
+
+        legacy_payload = definition.to_dict()
+        legacy_payload.pop("content_hash")
+        legacy_transform = legacy_payload["datasets"][0]["fields"][0][
+            "transform"
+        ]
+        legacy_transform.pop("text_steps")
+        legacy_transform["search_value"] = "ab"
+        legacy_transform["replacement_value"] = "x"
+        legacy_transform["search_mode"] = "literal"
+        legacy_transform["replace_all"] = True
         with self.assertRaisesRegex(
             ValueError,
-            "Legacy mapping contracts cannot contain ordered text changes",
+            "Legacy find-and-replace fields are no longer supported",
         ):
-            replace(definition, contract_version=7).to_dict()
+            MappingDefinition.from_dict(legacy_payload)
 
     def test_ordered_cleanup_steps_have_distinct_review_evidence(self) -> None:
         field = ScalarFieldMapping(
@@ -857,8 +876,12 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             literal_value="  abc-007  ",
             transform=ScalarTransformPolicy(
                 trim=True,
-                search_value="-",
-                replacement_value="",
+                text_steps=(
+                    TextTransformStep(
+                        search_value="-",
+                        replacement_value="",
+                    ),
+                ),
                 case_mode="uppercase",
             ),
             validation=ScalarValidationPolicy(

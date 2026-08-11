@@ -6,7 +6,10 @@ import unittest
 
 from starlette.datastructures import FormData
 
-from impodo.web.presenters.mapping_forms import _text_steps_from_form
+from impodo.web.presenters.mapping_forms import (
+    _mapping_allowed_fields,
+    _text_steps_from_form,
+)
 from impodo.web.presenters.mapping_view import _is_phone_field
 
 
@@ -88,7 +91,27 @@ class OrderedTextStepFormTests(unittest.TestCase):
             _text_steps_from_form(tampered, "steps")
         with self.assertRaisesRegex(ValueError, "invalid"):
             _text_steps_from_form(oversized, "steps")
-        self.assertIsNone(_text_steps_from_form(FormData(), "steps"))
+        self.assertEqual(_text_steps_from_form(FormData(), "steps"), ())
+
+    def test_legacy_single_rule_form_names_are_not_allowed(self) -> None:
+        selection = SimpleNamespace(datasets=(SimpleNamespace(),))
+        schema = SimpleNamespace(
+            models=(
+                SimpleNamespace(
+                    name="res.partner",
+                    fields=(SimpleNamespace(type="char"),),
+                ),
+            )
+        )
+        form = FormData((("target_model_0", "res.partner"),))
+
+        allowed = _mapping_allowed_fields(form, selection, schema)
+
+        self.assertIn("scalar_text_steps_0_0", allowed)
+        self.assertNotIn("scalar_search_0_0", allowed)
+        self.assertNotIn("scalar_replacement_0_0", allowed)
+        self.assertNotIn("scalar_search_mode_0_0", allowed)
+        self.assertNotIn("scalar_replace_all_0_0", allowed)
 
 
 if __name__ == "__main__":
