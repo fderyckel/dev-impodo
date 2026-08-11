@@ -4,10 +4,12 @@
 
 **Status:** Active roadmap from 2026-08-10.
 
-This is the only planning document in `docs/plans/`. It contains only work
-that is not yet complete. Completed implementation belongs in Git, release
-evidence belongs in `docs/reports/` and `docs/testing/`, and current behavior
-belongs in architecture, contracts, and operations documentation.
+This is the authoritative cross-product roadmap in `docs/plans/`. Scoped
+implementation proposals may live beside it, but they do not change this
+roadmap's priority order unless explicitly adopted here. Completed
+implementation belongs in Git, release evidence belongs in `docs/reports/`
+and `docs/testing/`, and current behavior belongs in architecture, contracts,
+and operations documentation.
 
 ## Current boundary
 
@@ -24,6 +26,18 @@ The current preparation limits are:
 
 The next unconditional goal is to qualify complete related and mixed-dataset
 workflows at 100,000 physical rows without changing evidence semantics.
+
+The scoped [Odoo source import and round-trip update implementation
+plan](odoo-source-import-plan.md) describes how existing Odoo records could
+become governed Impodo source data. It is a proposal and does not displace the
+unconditional preparation-scale goal above.
+
+The scoped [high-volume transformation architecture implementation
+plan](transformation-scale-architecture-plan.md) expands the first goal with a
+weighted comparison of four architectures, a measured hash policy, a
+columnar/set-based target design, and a phased route for qualifying 16,000
+Products plus 80,000 related BOM lines. It does not raise the current limits
+until its acceptance gates pass.
 
 <a id="1-build-the-columnar-preparation-path-and-raise-the-scale-limit"></a>
 

@@ -32,12 +32,20 @@ product vision uses **Stages A–K** for the end-to-end business lifecycle.
 - [Architecture decisions](decisions/README.md) — accepted decisions that
   constrain implementation.
 
-## Active plan
+## Plans
 
-- [Impodo remaining work](plans/remaining-work.md) — the single forward-looking
-  roadmap for related/mixed 100,000-row preparation, optional clean-package
-  certification, retained remote acceptance, production loading, and
-  conditional gateway or hosted work.
+- [Impodo remaining work](plans/remaining-work.md) — the authoritative
+  forward-looking roadmap for related/mixed 100,000-row preparation, optional
+  clean-package certification, retained remote acceptance, production loading,
+  and conditional gateway or hosted work.
+- [Odoo source import and round-trip update implementation plan](plans/odoo-source-import-plan.md)
+  — scoped proposal for selecting existing Odoo 19 records as immutable
+  Impodo source data, transforming them, and applying guarded updates back to
+  the same database.
+- [High-volume transformation architecture implementation plan](plans/transformation-scale-architecture-plan.md)
+  — weighted comparison of four scale architectures, with a phased proposal
+  for reducing transformation CPU and memory, extending bounded preparation to
+  related Products and BOMs, and retaining governed audit evidence.
 
 ## Contracts
 
