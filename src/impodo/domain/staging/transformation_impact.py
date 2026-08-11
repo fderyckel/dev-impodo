@@ -54,37 +54,58 @@ class TransformationRuleImpact:
 
     @property
     def requires_acknowledgement(self) -> bool:
-        """Return whether a configured rule had no observable match."""
+        """Return whether a configured rule had no observable effect."""
 
-        return self.matched_value_count == 0
+        return self.changed_value_count == 0
 
 
 def transformation_rule_impact_definition(
     dataset_id: str,
     field: ScalarFieldMapping,
 ) -> TransformationRuleImpact | None:
-    """Describe the configured find-and-replace rule for one mapped field."""
+    """Return the first rule for callers reading legacy single-rule mappings."""
+
+    definitions = transformation_rule_impact_definitions(dataset_id, field)
+    return definitions[0] if definitions else None
+
+
+def transformation_rule_impact_definitions(
+    dataset_id: str,
+    field: ScalarFieldMapping,
+) -> tuple[TransformationRuleImpact, ...]:
+    """Describe every configured text rule in authored execution order."""
 
     transform = field.transform
-    if not transform.search_value:
-        return None
-    rule_kind = f"find_replace_{transform.search_mode}"
-    fingerprint = content_hash(
-        {
-            "dataset_id": dataset_id,
-            "target_field": field.target_field,
-            "rule_kind": rule_kind,
-            "search_value": transform.search_value,
-            "replacement_value": transform.replacement_value,
-            "replace_all": transform.replace_all,
-        }
-    )
-    return TransformationRuleImpact(
-        dataset_id=dataset_id,
-        target_field=field.target_field,
-        rule_kind=rule_kind,
-        rule_fingerprint=fingerprint,
-    )
+    definitions = []
+    for step_index, step in enumerate(transform.effective_text_steps):
+        if not step.configured:
+            continue
+        rule_kind = (
+            step.kind
+            if step.kind != "find_replace"
+            else f"find_replace_{step.search_mode}"
+        )
+        fingerprint = content_hash(
+            {
+                "dataset_id": dataset_id,
+                "target_field": field.target_field,
+                "step_index": step_index,
+                "rule_kind": rule_kind,
+                "search_value": step.search_value,
+                "replacement_value": step.replacement_value,
+                "replace_all": step.replace_all,
+                "characters": step.characters,
+            }
+        )
+        definitions.append(
+            TransformationRuleImpact(
+                dataset_id=dataset_id,
+                target_field=field.target_field,
+                rule_kind=rule_kind,
+                rule_fingerprint=fingerprint,
+            )
+        )
+    return tuple(definitions)
 
 
 @dataclass(frozen=True, slots=True)

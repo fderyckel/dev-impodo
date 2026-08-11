@@ -247,7 +247,7 @@ def build_project_navigation(
     rule_review_required = bool(
         revision is not None
         and any(
-            field.transform.search_value
+            field.transform.configured_text_steps
             for dataset in revision.definition.datasets
             for field in dataset.fields
         )

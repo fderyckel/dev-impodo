@@ -38,6 +38,7 @@ from impodo.domain.mapping.validation.validator import MappingSemanticValidator
 from impodo.value_rules import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
+    TextTransformStep,
 )
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
@@ -92,6 +93,81 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(counts("literal"), (3, 0, 0))
         self.assertEqual(counts("pattern"), (3, 2, 2))
 
+    def test_ordered_cleanup_steps_normalize_phone_values(self) -> None:
+        observations: list[tuple[int, bool, bool]] = []
+        mapping = ScalarFieldMapping(
+            target_field="phone",
+            source_column_key="column:phone",
+            transform=ScalarTransformPolicy(
+                text_steps=(
+                    TextTransformStep(
+                        search_value="00",
+                        replacement_value="+",
+                        search_mode="starts_with",
+                        replace_all=False,
+                    ),
+                    TextTransformStep(
+                        kind="remove_separators_between_digits",
+                        characters=" .-",
+                    ),
+                )
+            ),
+        )
+
+        self.assertEqual(
+            canonicalize_scalar_value(
+                mapping,
+                "00352-621.23.45",
+                text_step_observer=(
+                    lambda index, matched, changed: observations.append(
+                        (index, matched, changed)
+                    )
+                ),
+            ),
+            "+3526212345",
+        )
+        self.assertEqual(observations, [(0, True, True), (1, True, True)])
+        self.assertEqual(
+            canonicalize_scalar_value(mapping, "067-77-37-67"),
+            "067773767",
+        )
+        self.assertEqual(
+            canonicalize_scalar_value(mapping, "067.37.67.77"),
+            "067376777",
+        )
+        self.assertEqual(canonicalize_scalar_value(mapping, "120034"), "120034")
+
+    def test_ordered_cleanup_sequence_is_portable_and_order_sensitive(self) -> None:
+        first = TextTransformStep(search_value="ab", replacement_value="x")
+        second = TextTransformStep(search_value="x", replacement_value="y")
+        forward = ScalarFieldMapping(
+            target_field="name",
+            source_column_key="column:name",
+            transform=ScalarTransformPolicy(text_steps=(first, second)),
+        )
+        reverse = replace(
+            forward,
+            transform=ScalarTransformPolicy(text_steps=(second, first)),
+        )
+
+        self.assertEqual(canonicalize_scalar_value(forward, "ab"), "y")
+        self.assertEqual(canonicalize_scalar_value(reverse, "ab"), "x")
+
+        definition = replace(
+            _valid_definition(self.selection, self.governance),
+            datasets=(
+                replace(
+                    _valid_definition(self.selection, self.governance).datasets[0],
+                    fields=(forward,),
+                ),
+            ),
+        )
+        payload = definition.to_dict()
+        transform = payload["datasets"][0]["fields"][0]["transform"]
+        self.assertNotIn("search_value", transform)
+        self.assertEqual(len(transform["text_steps"]), 2)
+        self.assertEqual(MappingDefinition.from_dict(payload), definition)
+
     def test_valid_relationship_mapping_is_deterministic_and_portable(
         self,
     ) -> None:
@@ -115,11 +191,11 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(first.validation_hash, second.validation_hash)
         self.assertEqual(
             definition.content_hash,
-            "sha256:31ee9f6632a532d8ae97408f9eb1f17374bf1a1e9b8263b31f30a31bdb1545ac",
+            "sha256:9778c44cba8bc53efdcafacef4fa38e5bb334c494e71dc69f2272a4faab7c137",
         )
         self.assertEqual(
             first.validation_hash,
-            "sha256:6f8f18ca517eb2addfc70f9d80ede52738b3750c326df1df1f38ab5440cbd1de",
+            "sha256:5a1b5573c978b2766d6ac52578488f2ba8931b7839a906b51516e8a8e8534c14",
         )
         reversed_definition = replace(
             definition,

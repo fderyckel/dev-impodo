@@ -142,7 +142,7 @@ class SchemaRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             schema_row = connection.execute(
                 """
                 SELECT catalog_json

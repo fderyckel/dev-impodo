@@ -41,6 +41,7 @@ class ProjectQueryRepository(Protocol):
 
     def list(self) -> tuple[ProjectSummary, ...]: ...
     def get(self, project_id: str) -> MigrationProject: ...
+    def has_audit_event(self, project_id: str, event_type: str) -> bool: ...
 
 
 class SourceQueryRepository(Protocol):
@@ -175,6 +176,9 @@ class BrowserQueryService:
 
     def get(self, project_id: str) -> MigrationProject:
         return self._projects.get(project_id)
+
+    def has_project_audit_event(self, project_id: str, event_type: str) -> bool:
+        return self._projects.has_audit_event(project_id, event_type)
 
     def get_source_catalogs(
         self, project_id: str

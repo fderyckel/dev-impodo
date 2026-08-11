@@ -81,7 +81,7 @@ from .transformation_impact import (
     _TransformationImpactCollector,
     _display_value,
     _display_values_equal,
-    transformation_rule_impact_definition,
+    transformation_rule_impact_definitions,
 )
 
 
@@ -337,11 +337,9 @@ def evaluate_browser_mapping(
     if impact_collector is not None:
         for dataset_mapping in definition.datasets:
             for field in dataset_mapping.fields:
-                rule = transformation_rule_impact_definition(
-                    dataset_mapping.dataset_id,
-                    field,
-                )
-                if rule is not None:
+                for rule in transformation_rule_impact_definitions(
+                    dataset_mapping.dataset_id, field
+                ):
                     impact_collector.register_rule(rule)
     lookup_by_consumer: dict[
         str,
@@ -1017,25 +1015,38 @@ def _apply_scalar_mappings(
                     values,
                     reference_indexes or {},
                 )
-            rule = transformation_rule_impact_definition(
-                plan.dataset_id,
-                field,
+            rules = transformation_rule_impact_definitions(
+                plan.dataset_id, field
             )
+            rules_by_step = {
+                step_index: rule
+                for (step_index, step), rule in zip(
+                    (
+                        (step_index, step)
+                        for step_index, step in enumerate(
+                            field.transform.effective_text_steps
+                        )
+                        if step.configured
+                    ),
+                    rules,
+                    strict=True,
+                )
+            }
             proposed = evaluate_scalar_mapping_value(
                 field,
                 scalar_input,
                 source_values_by_ordinal=source_values_by_ordinal,
-                find_replace_observer=(
+                text_step_observer=(
                     (
-                        lambda matched, changed, configured=rule: (
+                        lambda step_index, matched, changed, configured=rules_by_step: (
                             impact_collector.record_rule(
-                                configured,
+                                configured[step_index],
                                 matched=matched,
                                 changed=changed,
                             )
                         )
                     )
-                    if impact_collector is not None and rule is not None
+                    if impact_collector is not None and rules_by_step
                     else None
                 ),
             )

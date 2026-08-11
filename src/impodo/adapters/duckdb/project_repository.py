@@ -75,7 +75,7 @@ class ProjectRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             row = connection.execute("SELECT * FROM project").fetchone()
             if row is None:
                 raise ProjectNotFoundError("Project not found")
@@ -90,6 +90,27 @@ class ProjectRepository(DuckDbRepository):
                 """
             ).fetchall()
         return _project_from_rows(data, source_rows)
+
+    def has_audit_event(self, project_id: str, event_type: str) -> bool:
+        """Return whether the project recorded the exact lifecycle event."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            row = connection.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                      FROM audit_event
+                     WHERE event_type = ?
+                )
+                """,
+                [event_type],
+            ).fetchone()
+        return bool(row and row[0])
+
     def list(self) -> tuple[ProjectSummary, ...]:
         """List registry summaries without scanning contained project databases."""
 
@@ -126,7 +147,7 @@ class ProjectRepository(DuckDbRepository):
             raise ProjectNotFoundError("Project not found")
 
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             current = connection.execute(
                 "SELECT revision FROM project"
             ).fetchone()
@@ -196,7 +217,7 @@ class ProjectRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             connection.begin()
             try:
                 current = connection.execute(
@@ -278,7 +299,7 @@ class ProjectRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             connection.begin()
             try:
                 current = connection.execute(
@@ -334,7 +355,7 @@ class ProjectRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             connection.begin()
             try:
                 current = connection.execute(

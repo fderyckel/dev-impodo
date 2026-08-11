@@ -1914,6 +1914,210 @@ document.addEventListener("DOMContentLoaded", () => {
     return String(value);
   };
 
+  const textStepPreset = (step) =>
+    step.kind === "remove_separators_between_digits"
+      ? "remove_separators_between_digits"
+      : step.search_mode || "literal";
+
+  const defaultTextStep = (preset) => ({
+    kind:
+      preset === "remove_separators_between_digits"
+        ? "remove_separators_between_digits"
+        : "find_replace",
+    search_value: "",
+    replacement_value: "",
+    search_mode: ["starts_with", "ends_with", "pattern"].includes(preset)
+      ? preset
+      : "literal",
+    replace_all: !["starts_with", "ends_with"].includes(preset),
+    characters:
+      preset === "remove_separators_between_digits" ? " .-" : "",
+  });
+
+  const readTextSteps = (row) => {
+    const storage = row.querySelector("[data-text-step-storage]");
+    if (!storage?.value) {
+      return [];
+    }
+    try {
+      const steps = JSON.parse(storage.value);
+      return Array.isArray(steps) ? steps : [];
+    } catch (_error) {
+      return [];
+    }
+  };
+
+  const textStepsFromCards = (builder) =>
+    Array.from(builder.querySelectorAll("[data-text-step]")).map((card) => {
+      const preset = card.querySelector("[data-text-step-kind]")?.value || "literal";
+      const separators = Array.from(
+        card.querySelectorAll("[data-text-step-separator]:checked")
+      )
+        .map((control) => control.value)
+        .join("");
+      return {
+        kind:
+          preset === "remove_separators_between_digits"
+            ? "remove_separators_between_digits"
+            : "find_replace",
+        search_value: card.querySelector("[data-text-step-search]")?.value || "",
+        replacement_value:
+          card.querySelector("[data-text-step-replacement]")?.value || "",
+        search_mode: ["starts_with", "ends_with", "pattern"].includes(preset)
+          ? preset
+          : "literal",
+        replace_all: ["starts_with", "ends_with"].includes(preset)
+          ? false
+          : Boolean(card.querySelector("[data-text-step-replace-all]")?.checked),
+        characters: separators,
+      };
+    });
+
+  const syncTextStepStorage = (builder) => {
+    const storage = builder.querySelector("[data-text-step-storage]");
+    if (storage) {
+      storage.value = JSON.stringify(textStepsFromCards(builder));
+    }
+    const empty = builder.querySelector("[data-text-step-empty]");
+    if (empty) {
+      empty.hidden = Boolean(builder.querySelector("[data-text-step]"));
+    }
+  };
+
+  const refreshTextStepCard = (card) => {
+    const preset = card.querySelector("[data-text-step-kind]")?.value || "literal";
+    const separatorFields = card.querySelector("[data-text-step-separators]");
+    const findFields = card.querySelector("[data-text-step-find-fields]");
+    const replaceAll = card.querySelector("[data-text-step-replace-all-label]");
+    if (separatorFields) {
+      separatorFields.hidden = preset !== "remove_separators_between_digits";
+    }
+    if (findFields) {
+      findFields.hidden = preset === "remove_separators_between_digits";
+    }
+    if (replaceAll) {
+      replaceAll.hidden = !["literal", "pattern"].includes(preset);
+    }
+    const searchLabel = card.querySelector("[data-text-step-search-label]");
+    if (searchLabel) {
+      searchLabel.textContent = {
+        literal: "Text to find",
+        starts_with: "Text at the beginning",
+        ends_with: "Text at the end",
+        pattern: "Advanced pattern",
+      }[preset] || "Text to find";
+    }
+    const help = card.querySelector("[data-text-step-help]");
+    if (help) {
+      help.hidden = preset !== "pattern";
+    }
+    const warning = card.querySelector("[data-text-step-warning]");
+    if (warning) {
+      const search = card.querySelector("[data-text-step-search]")?.value || "";
+      const patternToken = search.match(/\^|\$|\[|\]|\.\*/)?.[0];
+      warning.hidden = !(preset === "literal" && patternToken);
+      if (!warning.hidden) {
+        warning.textContent =
+          `${patternToken} is ordinary text here. ` +
+          "Choose a beginning, end, or Advanced pattern cleanup when that is what you mean.";
+      }
+    }
+  };
+
+  const textStepCard = (step, index, count) => {
+    const card = document.createElement("article");
+    card.className = "text-step-card";
+    card.dataset.textStep = "";
+    card.innerHTML = `
+      <div class="text-step-heading">
+        <strong data-text-step-number></strong>
+        <div class="text-step-actions">
+          <button class="button secondary compact" type="button" data-move-text-step="up">Move up</button>
+          <button class="button secondary compact" type="button" data-move-text-step="down">Move down</button>
+          <button class="button danger compact" type="button" data-remove-text-step>Remove</button>
+        </div>
+      </div>
+      <label>What should change?
+        <select data-text-step-kind>
+          <option value="literal">Replace text</option>
+          <option value="starts_with">Replace text at the beginning</option>
+          <option value="ends_with">Replace text at the end</option>
+          <option value="remove_separators_between_digits">Remove separators between numbers</option>
+          <option value="pattern">Advanced pattern</option>
+        </select>
+      </label>
+      <div class="rule-inline-fields" data-text-step-find-fields>
+        <label><span data-text-step-search-label>Text to find</span>
+          <input maxlength="500" data-text-step-search>
+        </label>
+        <label>Replace with
+          <input maxlength="1000" placeholder="Leave empty to remove" data-text-step-replacement>
+        </label>
+      </div>
+      <label class="checkbox rule-checkbox" data-text-step-replace-all-label>
+        <input type="checkbox" data-text-step-replace-all> Replace every match
+      </label>
+      <fieldset class="text-step-separators" data-text-step-separators hidden>
+        <legend>Separators to remove between numbers</legend>
+        <label><input type="checkbox" value=" " data-text-step-separator> Spaces</label>
+        <label><input type="checkbox" value="." data-text-step-separator> Dots</label>
+        <label><input type="checkbox" value="-" data-text-step-separator> Hyphens</label>
+        <label><input type="checkbox" value="/" data-text-step-separator> Slashes</label>
+      </fieldset>
+      <p class="muted" data-text-step-help hidden>For expert use. Save progress to validate the pattern safely.</p>
+      <p class="muted rule-literal-warning" data-text-step-warning role="status" hidden></p>
+    `;
+    card.querySelector("[data-text-step-number]").textContent = `Cleanup ${index + 1}`;
+    const preset = textStepPreset(step);
+    card.querySelector("[data-text-step-kind]").value = preset;
+    card.querySelector("[data-text-step-search]").value = step.search_value || "";
+    card.querySelector("[data-text-step-replacement]").value =
+      step.replacement_value || "";
+    card.querySelector("[data-text-step-replace-all]").checked =
+      step.replace_all !== false;
+    for (const control of card.querySelectorAll("[data-text-step-separator]")) {
+      control.checked = (step.characters || "").includes(control.value);
+    }
+    card.querySelector('[data-move-text-step="up"]').disabled = index === 0;
+    card.querySelector('[data-move-text-step="down"]').disabled =
+      index === count - 1;
+    refreshTextStepCard(card);
+    return card;
+  };
+
+  const renderTextSteps = (builder, steps) => {
+    const list = builder.querySelector("[data-text-step-list]");
+    if (!list) {
+      return;
+    }
+    list.replaceChildren(
+      ...steps.map((step, index) => textStepCard(step, index, steps.length))
+    );
+    syncTextStepStorage(builder);
+  };
+
+  const removeSeparatorsBetweenDigits = (value, characters) => {
+    const separators = new Set(Array.from(characters || ""));
+    let result = "";
+    let index = 0;
+    while (index < value.length) {
+      const character = value[index];
+      if (separators.has(character) && /[0-9]/.test(result.slice(-1))) {
+        let end = index + 1;
+        while (end < value.length && separators.has(value[end])) {
+          end += 1;
+        }
+        if (end < value.length && /[0-9]/.test(value[end])) {
+          index = end;
+          continue;
+        }
+      }
+      result += character;
+      index += 1;
+    }
+    return result;
+  };
+
   const transformPreviewValue = (row, raw, missing) => {
     const trim = row.querySelector("[data-transform-trim]")?.checked;
     const collapse = row.querySelector("[data-transform-collapse]")?.checked;
@@ -1929,19 +2133,27 @@ document.addEventListener("DOMContentLoaded", () => {
     if (value !== null && collapse) {
       value = value.replace(/\s+/g, " ");
     }
-    const searchValue = row.querySelector("[data-rule-search]")?.value || "";
-    const replacementValue =
-      row.querySelector("[data-rule-replacement]")?.value || "";
-    const searchMode =
-      row.querySelector("[data-rule-search-mode]")?.value || "literal";
-    const replaceAll = row.querySelector("[data-rule-replace-all]")?.checked;
-    if (value !== null && searchValue) {
-      if (searchMode === "pattern") {
-        throw new Error("Save to validate the advanced find pattern");
+    for (const step of readTextSteps(row)) {
+      if (value === null) {
+        break;
       }
-      value = replaceAll
-        ? value.split(searchValue).join(replacementValue)
-        : value.replace(searchValue, replacementValue);
+      if (step.kind === "remove_separators_between_digits") {
+        value = removeSeparatorsBetweenDigits(value, step.characters);
+      } else if (step.search_value && step.search_mode === "pattern") {
+        throw new Error("Save to validate the Advanced pattern");
+      } else if (step.search_value && step.search_mode === "starts_with") {
+        if (value.startsWith(step.search_value)) {
+          value = `${step.replacement_value}${value.slice(step.search_value.length)}`;
+        }
+      } else if (step.search_value && step.search_mode === "ends_with") {
+        if (value.endsWith(step.search_value)) {
+          value = `${value.slice(0, -step.search_value.length)}${step.replacement_value}`;
+        }
+      } else if (step.search_value) {
+        value = step.replace_all
+          ? value.split(step.search_value).join(step.replacement_value)
+          : value.replace(step.search_value, step.replacement_value);
+      }
     }
     if (value !== null && caseMode === "uppercase") {
       value = value.toUpperCase();
@@ -2133,6 +2345,60 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  const initializeTextStepBuilder = (row, updateScalarRow) => {
+    const builder = row.querySelector("[data-value-rule-builder]");
+    if (!builder || builder.dataset.textStepsInitialized === "true") {
+      return;
+    }
+    builder.dataset.textStepsInitialized = "true";
+    renderTextSteps(builder, readTextSteps(row));
+    builder.addEventListener("click", (event) => {
+      const add = event.target.closest("[data-add-text-step]");
+      if (add) {
+        const steps = textStepsFromCards(builder);
+        if (steps.length >= 20) {
+          return;
+        }
+        const preset =
+          builder.querySelector("[data-new-text-step-kind]")?.value || "literal";
+        renderTextSteps(builder, [...steps, defaultTextStep(preset)]);
+        updateScalarRow();
+        return;
+      }
+      const card = event.target.closest("[data-text-step]");
+      if (!card) {
+        return;
+      }
+      const steps = textStepsFromCards(builder);
+      const cards = Array.from(builder.querySelectorAll("[data-text-step]"));
+      const index = cards.indexOf(card);
+      if (event.target.closest("[data-remove-text-step]")) {
+        steps.splice(index, 1);
+      } else {
+        const move = event.target.closest("[data-move-text-step]")?.dataset
+          .moveTextStep;
+        const targetIndex = move === "up" ? index - 1 : move === "down" ? index + 1 : index;
+        if (targetIndex === index || targetIndex < 0 || targetIndex >= steps.length) {
+          return;
+        }
+        [steps[index], steps[targetIndex]] = [steps[targetIndex], steps[index]];
+      }
+      renderTextSteps(builder, steps);
+      updateScalarRow();
+    });
+    const syncFromControl = (event) => {
+      const card = event.target.closest("[data-text-step]");
+      if (!card) {
+        return;
+      }
+      refreshTextStepCard(card);
+      syncTextStepStorage(builder);
+      updateScalarRow();
+    };
+    builder.addEventListener("change", syncFromControl);
+    builder.addEventListener("input", syncFromControl);
+  };
+
   const initializeScalarRow = (row) => {
     if (row.dataset.scalarRowInitialized === "true") {
       return;
@@ -2281,6 +2547,7 @@ document.addEventListener("DOMContentLoaded", () => {
         previewProposed.classList.add("preview-error");
       }
     };
+    initializeTextStepBuilder(row, updateScalarRow);
     for (const control of row.querySelectorAll("select, input, textarea")) {
       control.addEventListener("change", updateScalarRow);
       control.addEventListener("input", updateScalarRow);

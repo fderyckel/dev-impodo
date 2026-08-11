@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import duckdb
 
-from ..constants import SCHEMA_VERSION
+from ..constants import SCHEMA_GENERATION, SCHEMA_VERSION
 from .advanced_coverage import create_advanced_coverage_schema
 from .execution import create_execution_schema
 from .preflight import create_preflight_schema
@@ -12,6 +12,7 @@ from .preparation_session import create_preparation_session_schema
 from .prepared_snapshot import create_prepared_snapshot_schema
 from .reconciliation import create_reconciliation_schema
 from .source_snapshot import create_source_snapshot_schema
+from .upgrades import apply_project_schema_upgrades
 
 
 class ProjectSchemaMixin:
@@ -23,8 +24,14 @@ class ProjectSchemaMixin:
     ) -> None:
         connection.execute(
             f"""
-            CREATE TABLE schema_version (version INTEGER NOT NULL);
-            INSERT INTO schema_version VALUES ({SCHEMA_VERSION});
+            CREATE TABLE schema_version (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                generation VARCHAR NOT NULL,
+                version INTEGER NOT NULL
+            );
+            INSERT INTO schema_version VALUES (
+                1, '{SCHEMA_GENERATION}', {SCHEMA_VERSION}
+            );
 
             CREATE TABLE project (
                 project_id VARCHAR PRIMARY KEY,
@@ -542,23 +549,35 @@ class ProjectSchemaMixin:
         create_source_snapshot_schema(connection)
         create_prepared_snapshot_schema(connection)
 
-    def _validate_project_database_schema(
+    def _ensure_project_database_schema(
         self,
         connection: duckdb.DuckDBPyConnection,
     ) -> None:
-        """Reject databases that were not created by this schema revision."""
+        """Validate the schema generation and upgrade supported old versions."""
 
         try:
             row = connection.execute(
-                "SELECT version FROM schema_version"
+                """
+                SELECT generation, version
+                  FROM schema_version
+                 WHERE singleton_id = 1
+                """
             ).fetchone()
-        except duckdb.CatalogException as error:
+        except duckdb.Error as error:
             raise RuntimeError(
-                "Project database schema is incompatible; delete and recreate "
-                "the project"
+                "Project database predates the supported schema baseline"
             ) from error
-        if row is None or int(row[0]) != SCHEMA_VERSION:
+        if row is None or str(row[0]) != SCHEMA_GENERATION:
             raise RuntimeError(
-                "Project database schema is incompatible; delete and recreate "
-                "the project"
+                "Project database predates the supported schema baseline"
             )
+        stored_version = int(row[1])
+        if stored_version > SCHEMA_VERSION:
+            raise RuntimeError(
+                "Project database was created by a newer Impodo version"
+            )
+        apply_project_schema_upgrades(
+            connection,
+            stored_version=stored_version,
+            target_version=SCHEMA_VERSION,
+        )

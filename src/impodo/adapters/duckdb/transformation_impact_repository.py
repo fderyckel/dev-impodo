@@ -50,7 +50,7 @@ class TransformationImpactRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT identity_hash, physical_selection_hash,
@@ -114,7 +114,7 @@ class TransformationImpactRepository(DuckDbRepository):
                 raise ProjectNotFoundError("Project not found")
             created_at = datetime.now(timezone.utc)
             with self._connect(database_path) as connection:
-                self._validate_project_database_schema(connection)
+                self._ensure_project_database_schema(connection)
                 connection.begin()
                 batch: list[list[object]] = []
                 ordinal = 0
@@ -261,7 +261,7 @@ class TransformationImpactRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             run = connection.execute(
                 """
                 SELECT identity_hash
@@ -314,7 +314,7 @@ class TransformationImpactRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             run = connection.execute(
                 """
                 SELECT identity_hash, mapping_content_hash,
@@ -363,7 +363,7 @@ class TransformationImpactRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             stored = connection.execute(
                 """
                 SELECT identity_hash
@@ -473,7 +473,7 @@ class TransformationImpactRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             stored = connection.execute(
                 """
                 SELECT identity_hash

@@ -1,7 +1,7 @@
 """Hardened DuckDB connections and explicit project transaction scopes.
 
 The factory disables extension loading and external access and bounds memory
-and threads. ``DuckDbUnitOfWork`` validates the schema before beginning,
+and threads. ``DuckDbUnitOfWork`` prepares the schema before beginning,
 commits only on a clean context exit, rolls back on every exception, and
 always closes the short-lived connection.
 """

@@ -29,7 +29,7 @@ from ..mapping.descriptions import transformation_rule_summary
 from ..serialization import content_hash, portable
 
 
-COLUMNAR_PROGRAM_CONTRACT_VERSION = 1
+COLUMNAR_PROGRAM_CONTRACT_VERSION = 2
 COLUMNAR_COMPILER_VERSION = 1
 
 
@@ -76,7 +76,10 @@ class ColumnarOperationKind(StrEnum):
     TRIM = "trim"
     COLLAPSE_WHITESPACE = "collapse_whitespace"
     REPLACE_LITERAL = "replace_literal"
+    REPLACE_PREFIX = "replace_prefix"
+    REPLACE_SUFFIX = "replace_suffix"
     REPLACE_PATTERN = "replace_pattern"
+    REMOVE_SEPARATORS_BETWEEN_DIGITS = "remove_separators_between_digits"
     CASE_UPPER = "case_upper"
     CASE_LOWER = "case_lower"
     CASE_SENTENCE = "case_sentence"
@@ -175,10 +178,17 @@ COLUMNAR_CAPABILITY_MATRIX = (
     _native(ColumnarOperationKind.TRIM),
     _native(ColumnarOperationKind.COLLAPSE_WHITESPACE),
     _native(ColumnarOperationKind.REPLACE_LITERAL),
+    _native(ColumnarOperationKind.REPLACE_PREFIX),
+    _native(ColumnarOperationKind.REPLACE_SUFFIX),
     _oracle(
         ColumnarOperationKind.REPLACE_PATTERN,
         "COLUMNAR_PATTERN_REPLACEMENT_UNSUPPORTED",
         "Pattern replacement still requires the Python oracle.",
+    ),
+    _oracle(
+        ColumnarOperationKind.REMOVE_SEPARATORS_BETWEEN_DIGITS,
+        "COLUMNAR_SEPARATOR_REMOVAL_UNSUPPORTED",
+        "Guided separator removal still requires the Python oracle.",
     ),
     _native(ColumnarOperationKind.CASE_UPPER),
     _native(ColumnarOperationKind.CASE_LOWER),
@@ -993,28 +1003,44 @@ def _transform_steps(
                 f"{path}/transform/{operation.value}",
                 target_field=field.target_field,
             )
-    if policy.search_value:
+    for step_index, step in enumerate(policy.effective_text_steps):
+        if not step.configured:
+            continue
         operation = (
-            ColumnarOperationKind.REPLACE_PATTERN
-            if policy.search_mode == "pattern"
-            else ColumnarOperationKind.REPLACE_LITERAL
+            ColumnarOperationKind.REMOVE_SEPARATORS_BETWEEN_DIGITS
+            if step.kind == "remove_separators_between_digits"
+            else {
+                "literal": ColumnarOperationKind.REPLACE_LITERAL,
+                "starts_with": ColumnarOperationKind.REPLACE_PREFIX,
+                "ends_with": ColumnarOperationKind.REPLACE_SUFFIX,
+                "pattern": ColumnarOperationKind.REPLACE_PATTERN,
+            }[step.search_mode]
         )
         result.append(
             ColumnarExpressionStep(
                 operation,
-                text=policy.search_value,
-                replacement=policy.replacement_value,
-                flag=policy.replace_all,
+                text=(
+                    step.characters
+                    if step.kind == "remove_separators_between_digits"
+                    else step.search_value
+                ),
+                replacement=step.replacement_value,
+                integer=step_index,
+                flag=step.replace_all,
                 error_code=(
                     "SOURCE_REPLACEMENT_INVALID"
-                    if operation is ColumnarOperationKind.REPLACE_PATTERN
+                    if operation
+                    in {
+                        ColumnarOperationKind.REPLACE_PATTERN,
+                        ColumnarOperationKind.REMOVE_SEPARATORS_BETWEEN_DIGITS,
+                    }
                     else None
                 ),
             )
         )
         draft.use(
             operation,
-            f"{path}/transform/replacement",
+            f"{path}/transform/text_steps/{step_index}",
             target_field=field.target_field,
         )
     case_operation = _case_operation(policy.case_mode)
@@ -1025,7 +1051,7 @@ def _transform_steps(
             f"{path}/transform/{case_operation.value}",
             target_field=field.target_field,
         )
-    if policy.search_value or policy.formula:
+    if policy.configured_text_steps or policy.formula:
         result.append(
             ColumnarExpressionStep(
                 ColumnarOperationKind.VALIDATE_RULE_OUTPUT_LENGTH,

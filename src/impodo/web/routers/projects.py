@@ -16,7 +16,14 @@ from starlette.datastructures import UploadFile
 from ...access import AuthorizationError, Capability
 from ...intake import SourceIntakeError
 from ...local_stack import LocalStackError
-from ...projects import ProjectConflictError, ProjectError, ProjectRegistrationError, ProjectStatus, registration_problems
+from ...projects import (
+    DataClassification,
+    ProjectConflictError,
+    ProjectError,
+    ProjectRegistrationError,
+    ProjectStatus,
+    registration_problems,
+)
 from ...secrets import SecretStoreError
 from ..security import require_session
 from fastapi import APIRouter
@@ -216,7 +223,20 @@ def build_projects_router(context: WebContext) -> APIRouter:
         project = _draft_or_redirect(context, project_id)
         if isinstance(project, RedirectResponse):
             return project
-        return _render(request, "project_governance.html", project=project)
+        governance_was_saved = context.queries.has_project_audit_event(
+            project_id,
+            "PROJECT_GOVERNANCE_UPDATED",
+        )
+        return _render(
+            request,
+            "project_governance.html",
+            project=project,
+            data_classification_for_form=(
+                project.data_classification.value
+                if governance_was_saved
+                else DataClassification.INTERNAL.value
+            ),
+        )
 
     @router.post("/projects/{project_id}/governance")
     async def project_governance(request: Request, project_id: str):

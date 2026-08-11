@@ -26,8 +26,13 @@ def transformation_rule_summary(field: ScalarFieldMapping) -> str:
         rules.append("Trim")
     if transform.collapse_whitespace:
         rules.append("Collapse spaces")
-    if transform.search_value:
-        rules.append("Find and replace")
+    configured_steps = transform.configured_text_steps
+    if configured_steps:
+        rules.append(
+            "Find and replace"
+            if len(configured_steps) == 1
+            else f"{len(configured_steps)} ordered text changes"
+        )
     if transform.case_mode != "preserve":
         rules.append(f"Case: {transform.case_mode}")
     if transform.empty_as_null:

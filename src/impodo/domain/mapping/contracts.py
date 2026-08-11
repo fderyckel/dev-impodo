@@ -19,13 +19,17 @@ import json
 from typing import Any, Mapping
 from uuid import UUID
 
-from ...value_rules import ScalarTransformPolicy, ScalarValidationPolicy
+from ...value_rules import (
+    ScalarTransformPolicy,
+    ScalarValidationPolicy,
+    TextTransformStep,
+)
 from ..serialization import canonical_json as _canonical_json
 from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
 
-MAPPING_CONTRACT_VERSION = 7
+MAPPING_CONTRACT_VERSION = 8
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 MAX_CONTROL_TOTALS_PER_DATASET = 3
@@ -460,6 +464,52 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    for item in payload.get("fields", ()):
+        transform = item.get("transform", {})
+        if contract_version >= 8:
+            steps = list(transform.get("text_steps", ()))
+            if not steps and (
+                transform.get("search_value")
+                or transform.get("replacement_value")
+            ):
+                steps.append(
+                    {
+                        "kind": "find_replace",
+                        "search_value": transform.get("search_value", ""),
+                        "replacement_value": transform.get(
+                            "replacement_value", ""
+                        ),
+                        "search_mode": transform.get("search_mode", "literal"),
+                        "replace_all": bool(transform.get("replace_all", True)),
+                        "characters": "",
+                    }
+                )
+            transform["text_steps"] = steps
+            for name in (
+                "search_value",
+                "replacement_value",
+                "search_mode",
+                "replace_all",
+            ):
+                transform.pop(name, None)
+        else:
+            steps = list(transform.get("text_steps", ()))
+            if steps:
+                if len(steps) != 1 or steps[0].get("kind") != "find_replace":
+                    raise ValueError(
+                        "Legacy mapping contracts cannot contain ordered text changes"
+                    )
+                transform["search_value"] = steps[0].get("search_value", "")
+                transform["replacement_value"] = steps[0].get(
+                    "replacement_value", ""
+                )
+                transform["search_mode"] = steps[0].get(
+                    "search_mode", "literal"
+                )
+                transform["replace_all"] = bool(
+                    steps[0].get("replace_all", True)
+                )
+            transform.pop("text_steps", None)
     if contract_version < 3:
         for item in payload.get("fields", ()):
             item.pop("value_source", None)
@@ -556,6 +606,10 @@ def _scalar_field_mapping_from_dict(
                 transform_payload.get("rounding_mode", "half_up")
             ),
             formula=str(transform_payload.get("formula", "")),
+            text_steps=tuple(
+                _text_transform_step_from_dict(item)
+                for item in transform_payload.get("text_steps", ())
+            ),
         ),
         validation=ScalarValidationPolicy(
             exact_length=(
@@ -593,6 +647,30 @@ def _scalar_field_mapping_from_dict(
             if payload.get("reference_lookup") is not None
             else None
         ),
+    )
+
+
+def _text_transform_step_from_dict(
+    payload: Mapping[str, Any],
+) -> TextTransformStep:
+    if not isinstance(payload, Mapping) or set(payload).difference(
+        {
+            "kind",
+            "search_value",
+            "replacement_value",
+            "search_mode",
+            "replace_all",
+            "characters",
+        }
+    ):
+        raise ValueError("Ordered text changes are invalid")
+    return TextTransformStep(
+        kind=str(payload.get("kind", "find_replace")),
+        search_value=str(payload.get("search_value", "")),
+        replacement_value=str(payload.get("replacement_value", "")),
+        search_mode=str(payload.get("search_mode", "literal")),
+        replace_all=bool(payload.get("replace_all", True)),
+        characters=str(payload.get("characters", "")),
     )
 
 

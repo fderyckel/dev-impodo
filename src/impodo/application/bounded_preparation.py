@@ -48,7 +48,7 @@ from ..domain.staging.scale import (
 from ..domain.staging.transformation_impact import (
     TransformationImpactRow,
     _TransformationImpactCollector,
-    transformation_rule_impact_definition,
+    transformation_rule_impact_definitions,
 )
 from ..inspection import SourceFileCatalog
 from ..models import Issue, PreparedRecord, canonical_json_bytes
@@ -287,11 +287,9 @@ def prepare_bounded_direct_session(
     )
     for dataset_mapping in definition.datasets:
         for field in dataset_mapping.fields:
-            rule = transformation_rule_impact_definition(
-                dataset_mapping.dataset_id,
-                field,
-            )
-            if rule is not None:
+            for rule in transformation_rule_impact_definitions(
+                dataset_mapping.dataset_id, field
+            ):
                 impact_collector.register_rule(rule)
     reference_indexes = compile_reference_indexes(reference_bundle)
     totals = CompiledControlTotalAccumulator.compile(

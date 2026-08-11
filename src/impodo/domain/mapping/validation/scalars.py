@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Mapping
 
 from ....metadata import TYPE_COMPATIBILITY
@@ -232,7 +233,7 @@ def _validate_scalar(
             or field_mapping.validate_only
             or field_mapping.required
             or field_mapping.required_on_create
-            or field_mapping.transform.search_value
+            or field_mapping.transform.configured_text_steps
             or field_mapping.transform.formula
             or field_mapping.transform.case_mode != "preserve"
             or field_mapping.transform.decimal_places is not None
@@ -394,53 +395,83 @@ def _validate_transform_policy(
                 target_field=field_mapping.target_field,
             )
         )
-    if policy.search_mode not in SEARCH_MODES:
-        issues.append(
-            _issue(
-                "MAPPING_TRANSFORM_INVALID",
-                path,
-                "The find-and-replace mode is unsupported.",
-                "Choose plain text or advanced custom pattern.",
-                dataset=dataset,
-                target_field=field_mapping.target_field,
-            )
-        )
-    elif policy.search_mode == "pattern" and policy.search_value:
-        try:
-            validate_pattern(policy.search_value)
-        except ValueError as error:
+    for step_index, step in enumerate(policy.effective_text_steps):
+        step_path = f"{path}/transform/text_steps/{step_index}"
+        if step.kind == "remove_separators_between_digits":
+            if not step.characters:
+                issues.append(
+                    _issue(
+                        "MAPPING_TRANSFORM_INVALID",
+                        step_path,
+                        "Choose at least one separator to remove.",
+                        "Select spaces, dots, hyphens, or another separator.",
+                        dataset=dataset,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+            elif any(
+                character.isalnum() or character == "+"
+                for character in step.characters
+            ):
+                issues.append(
+                    _issue(
+                        "MAPPING_TRANSFORM_INVALID",
+                        step_path,
+                        "Separator cleanup cannot remove letters, numbers, or plus signs.",
+                        "Choose punctuation or spaces only.",
+                        dataset=dataset,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+            continue
+        if step.search_mode not in SEARCH_MODES:
             issues.append(
                 _issue(
                     "MAPPING_TRANSFORM_INVALID",
-                    path,
-                    str(error),
-                    "Correct the advanced find pattern or use plain text.",
+                    step_path,
+                    "The find-and-replace mode is unsupported.",
+                    "Choose anywhere, beginning, end, or advanced pattern.",
                     dataset=dataset,
                     target_field=field_mapping.target_field,
                 )
             )
-    if policy.replacement_value and not policy.search_value:
-        issues.append(
-            _issue(
-                "MAPPING_TRANSFORM_INVALID",
-                path,
-                "Replacement text was entered without text to find.",
-                "Enter the text to find or clear the replacement.",
-                dataset=dataset,
-                target_field=field_mapping.target_field,
+        elif step.search_mode == "pattern" and step.search_value:
+            try:
+                matcher = validate_pattern(step.search_value)
+                matcher.sub(step.replacement_value, "", count=1)
+            except (re.error, ValueError) as error:
+                issues.append(
+                    _issue(
+                        "MAPPING_TRANSFORM_INVALID",
+                        step_path,
+                        str(error),
+                        "Correct the advanced find pattern or use plain text.",
+                        dataset=dataset,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+        if step.replacement_value and not step.search_value:
+            issues.append(
+                _issue(
+                    "MAPPING_TRANSFORM_INVALID",
+                    step_path,
+                    "Replacement text was entered without text to find.",
+                    "Enter the text to find or clear the replacement.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
             )
-        )
-    if policy.search_value and field_mapping.value_type != "string":
-        issues.append(
-            _issue(
-                "MAPPING_TRANSFORM_INVALID",
-                path,
-                "Find and replace applies only to text values.",
-                "Choose the string value type or clear find and replace.",
-                dataset=dataset,
-                target_field=field_mapping.target_field,
+        if step.search_value and field_mapping.value_type != "string":
+            issues.append(
+                _issue(
+                    "MAPPING_TRANSFORM_INVALID",
+                    step_path,
+                    "Find and replace applies only to text values.",
+                    "Choose the string value type or clear find and replace.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
             )
-        )
     if policy.formula:
         aliases = {
             f"column_{getattr(column, 'ordinal', index + 1)}"

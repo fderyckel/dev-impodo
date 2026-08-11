@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import hashlib
+import json
 from typing import Iterable
 
 from fastapi.responses import RedirectResponse
@@ -28,8 +29,10 @@ from ...domain.mapping.contracts import (
     ScalarValueSource,
 )
 from ...value_rules import (
+    MAX_TEXT_TRANSFORM_STEPS,
     ScalarTransformPolicy,
     ScalarValidationPolicy,
+    TextTransformStep,
 )
 from ...projects import MigrationProject, ProjectStatus
 from ...reference_keys import standard_reference_key
@@ -42,6 +45,42 @@ from ..forms import (
     _texts,
     _value_mappings_from_form,
 )
+
+
+def _text_steps_from_form(
+    form,
+    field_name: str,
+) -> tuple[TextTransformStep, ...] | None:
+    """Read one bounded ordered sequence; ``None`` means legacy form input."""
+
+    if field_name not in form:
+        return None
+    raw_value = _text(form, field_name)
+    try:
+        payload = json.loads(raw_value or "[]")
+    except json.JSONDecodeError as error:
+        raise ValueError("Text cleanup steps could not be read") from error
+    if not isinstance(payload, list) or len(payload) > MAX_TEXT_TRANSFORM_STEPS:
+        raise ValueError("Text cleanup steps are invalid")
+    expected = {
+        "kind",
+        "search_value",
+        "replacement_value",
+        "search_mode",
+        "replace_all",
+        "characters",
+    }
+    steps = []
+    for item in payload:
+        if not isinstance(item, dict) or set(item) != expected:
+            raise ValueError("Text cleanup steps are invalid")
+        if not all(
+            isinstance(item[name], str)
+            for name in expected.difference({"replace_all"})
+        ) or not isinstance(item["replace_all"], bool):
+            raise ValueError("Text cleanup steps are invalid")
+        steps.append(TextTransformStep(**item))
+    return tuple(steps)
 
 
 def _mapping_allowed_fields(form, selection, schema) -> set[str]:
@@ -101,6 +140,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"scalar_replacement_{dataset_index}_{field_index}",
                     f"scalar_search_mode_{dataset_index}_{field_index}",
                     f"scalar_replace_all_{dataset_index}_{field_index}",
+                    f"scalar_text_steps_{dataset_index}_{field_index}",
                     f"scalar_round_places_{dataset_index}_{field_index}",
                     f"scalar_round_mode_{dataset_index}_{field_index}",
                     f"scalar_formula_{dataset_index}_{field_index}",
@@ -252,6 +292,10 @@ def _mapping_datasets_from_form(
             literal_value = _text(
                 form, f"scalar_literal_{dataset_index}_{field_index}"
             )
+            text_steps = _text_steps_from_form(
+                form,
+                f"scalar_text_steps_{dataset_index}_{field_index}",
+            )
             scalar_mappings.append(
                 ScalarFieldMapping(
                     target_field=metadata.name,
@@ -318,24 +362,40 @@ def _mapping_datasets_from_form(
                             )
                             or "UTC"
                         ),
-                        search_value=_text(
-                            form,
-                            f"scalar_search_{dataset_index}_{field_index}",
+                        search_value=(
+                            ""
+                            if text_steps is not None
+                            else _text(
+                                form,
+                                f"scalar_search_{dataset_index}_{field_index}",
+                            )
                         ),
-                        replacement_value=_text(
-                            form,
-                            f"scalar_replacement_{dataset_index}_{field_index}",
+                        replacement_value=(
+                            ""
+                            if text_steps is not None
+                            else _text(
+                                form,
+                                f"scalar_replacement_{dataset_index}_{field_index}",
+                            )
                         ),
                         search_mode=(
-                            _text(
-                                form,
-                                f"scalar_search_mode_{dataset_index}_{field_index}",
+                            "literal"
+                            if text_steps is not None
+                            else (
+                                _text(
+                                    form,
+                                    f"scalar_search_mode_{dataset_index}_{field_index}",
+                                )
+                                or "literal"
                             )
-                            or "literal"
                         ),
-                        replace_all=_checked(
-                            form,
-                            f"scalar_replace_all_{dataset_index}_{field_index}",
+                        replace_all=(
+                            True
+                            if text_steps is not None
+                            else _checked(
+                                form,
+                                f"scalar_replace_all_{dataset_index}_{field_index}",
+                            )
                         ),
                         decimal_places=_optional_int(
                             _text(
@@ -354,6 +414,7 @@ def _mapping_datasets_from_form(
                             form,
                             f"scalar_formula_{dataset_index}_{field_index}",
                         ),
+                        text_steps=text_steps or (),
                     ),
                     validation=ScalarValidationPolicy(
                         exact_length=_optional_int(

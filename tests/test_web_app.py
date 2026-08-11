@@ -850,6 +850,25 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.client.close()
         self.temporary.cleanup()
 
+    def test_new_project_governance_defaults_data_sensitivity_to_internal(
+        self,
+    ) -> None:
+        created = self._post(
+            "/projects/new",
+            {
+                "csrf_token": self.csrf,
+                "name": "Customer migration",
+                "source_system": "Dynamics AX 2012",
+            },
+        )
+        project_id = created.headers["location"].split("/")[2]
+
+        page = self.client.get(f"/projects/{project_id}/governance")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('value="INTERNAL" selected', page.text)
+        self.assertNotIn('value="CONFIDENTIAL" selected', page.text)
+
     def test_remote_connection_status_is_visible_persistent_and_target_bound(
         self,
     ) -> None:
@@ -1993,8 +2012,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Check values", mapping_page.text)
         self.assertIn("Must be exactly", mapping_page.text)
         self.assertIn("The first characters", mapping_page.text)
-        self.assertIn("Plain text (recommended)", mapping_page.text)
-        self.assertIn("data-rule-literal-warning", mapping_page.text)
+        self.assertIn("Add cleanup step", mapping_page.text)
+        self.assertIn("Remove separators between numbers", mapping_page.text)
+        self.assertIn("data-text-step-storage", mapping_page.text)
         self.assertIn("Advanced: custom pattern", mapping_page.text)
         self.assertIn("Advanced: formula or custom calculation", mapping_page.text)
         self.assertIn("Safe formulas only", mapping_page.text)
@@ -2195,10 +2215,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "scalar_literal_2_1": "Imported product",
                 "scalar_type_2_1": "string",
                 "scalar_case_2_1": "sentence",
-                "scalar_search_2_1": "product",
-                "scalar_replacement_2_1": "product",
-                "scalar_search_mode_2_1": "literal",
-                "scalar_replace_all_2_1": "1",
+                "scalar_text_steps_2_1": (
+                    '[{"kind":"find_replace","search_value":"Imported",'
+                    '"replacement_value":"imported","search_mode":"literal",'
+                    '"replace_all":true,"characters":""}]'
+                ),
                 "scalar_exact_length_2_1": "16",
                 "scalar_segment_location_2_1": "first",
                 "scalar_segment_length_2_1": "1",
@@ -2318,7 +2339,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         product_field = revision_by_dataset[product.dataset_id].fields[0]
         self.assertEqual(product_field.transform.case_mode, "sentence")
-        self.assertEqual(product_field.transform.search_value, "product")
+        self.assertEqual(
+            product_field.transform.effective_text_steps[0].search_value,
+            "Imported",
+        )
         self.assertEqual(product_field.validation.exact_length, 16)
         self.assertEqual(product_field.validation.segment_location, "first")
         self.assertEqual(product_field.validation.character_class, "uppercase")

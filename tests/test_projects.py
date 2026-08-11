@@ -10,6 +10,8 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
+import duckdb
+
 from impodo.access import (
     CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
@@ -22,7 +24,8 @@ from impodo.adapters.duckdb.schema_repository import SchemaRepository
 from impodo.adapters.duckdb.transformation_impact_repository import (
     TransformationImpactRepository,
 )
-from impodo.adapters.duckdb.constants import SCHEMA_VERSION
+from impodo.adapters.duckdb.constants import SCHEMA_GENERATION, SCHEMA_VERSION
+from impodo.adapters.duckdb.schema.upgrades import PROJECT_SCHEMA_UPGRADES
 from impodo.projects import (
     OdooConnectionMode,
     ProjectConflictError,
@@ -234,10 +237,10 @@ class ProjectLifecycleTests(unittest.TestCase):
                     intended_models=[],
                 )
 
-    def test_incompatible_project_schema_is_rejected(self) -> None:
+    def test_historical_project_schema_layout_is_rejected(self) -> None:
         project = self.service.create_project(
             actor=LOCAL_ACTOR,
-            name="Disposable development project",
+            name="Historical development project",
             source_system="Legacy source",
         )
         database_path = (
@@ -245,13 +248,118 @@ class ProjectLifecycleTests(unittest.TestCase):
             / "project.duckdb"
         )
         with self.repository._connect(database_path) as connection:
+            connection.execute("DROP TABLE schema_version")
             connection.execute(
-                "UPDATE schema_version SET version = ?",
-                [SCHEMA_VERSION - 1],
+                "CREATE TABLE schema_version (version INTEGER NOT NULL)"
+            )
+            connection.execute("INSERT INTO schema_version VALUES (1)")
+
+        with self.assertRaisesRegex(RuntimeError, "predates.*baseline"):
+            self.repository.get(project.project_id)
+
+    def test_supported_project_schema_upgrades_once_and_atomically(self) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Forward-compatible project",
+            source_system="CSV",
+        )
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+        upgrade_calls: list[int] = []
+
+        def upgrade_to_version_two(
+            connection: duckdb.DuckDBPyConnection,
+        ) -> None:
+            upgrade_calls.append(1)
+            connection.execute(
+                "ALTER TABLE project ADD COLUMN schema_upgrade_probe VARCHAR"
             )
 
-        with self.assertRaisesRegex(RuntimeError, "delete and recreate"):
+        with (
+            patch(
+                "impodo.adapters.duckdb.schema.project.SCHEMA_VERSION",
+                2,
+            ),
+            patch.dict(
+                PROJECT_SCHEMA_UPGRADES,
+                {1: upgrade_to_version_two},
+                clear=True,
+            ),
+        ):
             self.repository.get(project.project_id)
+            self.repository.get(project.project_id)
+
+        with self.repository._connect(database_path) as connection:
+            schema_row = connection.execute(
+                """
+                SELECT generation, version
+                  FROM schema_version
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()
+            probe_column = connection.execute(
+                """
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_name = 'project'
+                   AND column_name = 'schema_upgrade_probe'
+                """
+            ).fetchone()
+        self.assertEqual(upgrade_calls, [1])
+        self.assertEqual(schema_row, (SCHEMA_GENERATION, 2))
+        self.assertEqual(probe_column, ("schema_upgrade_probe",))
+
+    def test_failed_project_schema_upgrade_rolls_back(self) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Rollback-safe project",
+            source_system="CSV",
+        )
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+
+        def fail_upgrade(connection: duckdb.DuckDBPyConnection) -> None:
+            connection.execute(
+                "ALTER TABLE project ADD COLUMN failed_upgrade_probe VARCHAR"
+            )
+            raise RuntimeError("injected schema upgrade failure")
+
+        with (
+            patch(
+                "impodo.adapters.duckdb.schema.project.SCHEMA_VERSION",
+                2,
+            ),
+            patch.dict(
+                PROJECT_SCHEMA_UPGRADES,
+                {1: fail_upgrade},
+                clear=True,
+            ),
+            self.assertRaisesRegex(RuntimeError, "injected schema upgrade"),
+        ):
+            self.repository.get(project.project_id)
+
+        with self.repository._connect(database_path) as connection:
+            version = connection.execute(
+                """
+                SELECT version
+                  FROM schema_version
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()
+            probe_column = connection.execute(
+                """
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_name = 'project'
+                   AND column_name = 'failed_upgrade_probe'
+                """
+            ).fetchone()
+        self.assertEqual(version, (SCHEMA_VERSION,))
+        self.assertIsNone(probe_column)
 
     def test_transformation_impact_snapshot_is_bounded_filterable_and_atomic(
         self,

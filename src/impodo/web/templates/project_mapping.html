@@ -427,7 +427,7 @@
                       </div>
 
                       {% set value_rules_configured = mapping and (
-                        transform.search_value
+                        transform.configured_text_steps
                         or transform.formula
                         or transform.decimal_places is not none
                         or validation_rule.configured
@@ -443,50 +443,28 @@
                           </p>
                           <div data-text-rules>
                             <h4>Make the text consistent</h4>
-                            <p class="muted">Impodo applies these changes to the proposed value. Your registered source stays unchanged.</p>
-                            <div class="rule-inline-fields">
+                            <p class="muted">Add simple cleanup steps in the order Impodo should apply them. Your registered source stays unchanged.</p>
+                            <input
+                              type="hidden"
+                              name="scalar_text_steps_{{ dataset_index }}_{{ field_index }}"
+                              value="{{ row.text_steps_json }}"
+                              data-text-step-storage
+                            >
+                            <div class="text-step-list" data-text-step-list></div>
+                            <p class="muted" data-text-step-empty {% if transform and transform.effective_text_steps %}hidden{% endif %}>No cleanup steps added.</p>
+                            <div class="text-step-add">
                               <label>
-                                Find
-                                <input
-                                  name="scalar_search_{{ dataset_index }}_{{ field_index }}"
-                                  value="{{ transform.search_value if transform else '' }}"
-                                  maxlength="500"
-                                  placeholder="Text to find"
-                                  data-rule-search
-                                >
-                              </label>
-                              <label>
-                                Replace with
-                                <input
-                                  name="scalar_replacement_{{ dataset_index }}_{{ field_index }}"
-                                  value="{{ transform.replacement_value if transform else '' }}"
-                                  maxlength="1000"
-                                  placeholder="Leave empty to remove"
-                                  data-rule-replacement
-                                >
-                              </label>
-                            </div>
-                            <div class="rule-inline-fields compact">
-                              <label>
-                                How to find it
-                                {% set search_mode = transform.search_mode if transform else 'literal' %}
-                                <select name="scalar_search_mode_{{ dataset_index }}_{{ field_index }}" data-rule-search-mode>
-                                  <option value="literal" {% if search_mode == 'literal' %}selected{% endif %}>Plain text (recommended)</option>
-                                  <option value="pattern" {% if search_mode == 'pattern' %}selected{% endif %}>Advanced pattern</option>
+                                Add cleanup
+                                <select data-new-text-step-kind>
+                                  <option value="literal">Replace text</option>
+                                  <option value="starts_with">Replace text at the beginning</option>
+                                  <option value="ends_with">Replace text at the end</option>
+                                  <option value="remove_separators_between_digits">Remove separators between numbers</option>
+                                  <option value="pattern">Advanced pattern</option>
                                 </select>
                               </label>
-                              <label class="checkbox rule-checkbox">
-                                <input
-                                  type="checkbox"
-                                  name="scalar_replace_all_{{ dataset_index }}_{{ field_index }}"
-                                  value="1"
-                                  {% if not transform or transform.replace_all %}checked{% endif %}
-                                  data-rule-replace-all
-                                >
-                                Replace every match
-                              </label>
+                              <button class="button secondary compact" type="button" data-add-text-step>Add cleanup step</button>
                             </div>
-                            <p class="muted rule-literal-warning" data-rule-literal-warning role="status" hidden></p>
 
                             <h4>Check the final text</h4>
                             <div class="rule-inline-fields">

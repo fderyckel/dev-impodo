@@ -53,7 +53,7 @@ class ExecutionRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             connection.begin()
             try:
                 current = connection.execute(
@@ -179,7 +179,7 @@ class ExecutionRepository(DuckDbRepository):
             raise WorkspaceError("Execution outcome is invalid")
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             connection.begin()
             try:
                 for item in rows:
@@ -237,7 +237,7 @@ class ExecutionRepository(DuckDbRepository):
         canonical_run_id = str(UUID(run_id))
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             connection.begin()
             try:
                 current = connection.execute(
@@ -304,7 +304,7 @@ class ExecutionRepository(DuckDbRepository):
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             header = connection.execute(
                 """
                 SELECT snapshot_hash, snapshot_root_hash, preflight_run_id,

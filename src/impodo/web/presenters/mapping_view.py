@@ -279,7 +279,7 @@ def _render_mapping(
     find_replace_configured = bool(
         revision is not None
         and any(
-            field.transform.search_value
+            field.transform.configured_text_steps
             for dataset in revision.definition.datasets
             for field in dataset.fields
         )
@@ -596,6 +596,11 @@ def _mapping_dataset_views(
                 ),
                 "matched_choice_count": len(
                     scalar_by_target[field.name].value_mappings
+                    if field.name in scalar_by_target
+                    else ()
+                ),
+                "text_steps_json": _text_steps_json(
+                    scalar_by_target[field.name].transform.effective_text_steps
                     if field.name in scalar_by_target
                     else ()
                 ),
@@ -998,6 +1003,24 @@ def _value_mappings_json(mappings) -> str:
                 "target_value": item.target_value,
             }
             for item in mappings
+        ],
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+
+
+def _text_steps_json(steps) -> str:
+    return json.dumps(
+        [
+            {
+                "kind": item.kind,
+                "search_value": item.search_value,
+                "replacement_value": item.replacement_value,
+                "search_mode": item.search_mode,
+                "replace_all": item.replace_all,
+                "characters": item.characters,
+            }
+            for item in steps
         ],
         ensure_ascii=True,
         separators=(",", ":"),

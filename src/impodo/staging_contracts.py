@@ -30,9 +30,11 @@ from .source import PreparedBundle
 
 
 STAGING_CONTRACT_VERSION = 5
-BROWSER_EVALUATOR_VERSION = 3
+BROWSER_EVALUATOR_VERSION = 4
 _SUPPORTED_STAGING_CONTRACT_VERSIONS = frozenset({2, 3, 4, STAGING_CONTRACT_VERSION})
-_SUPPORTED_BROWSER_EVALUATOR_VERSIONS = frozenset({1, 2, BROWSER_EVALUATOR_VERSION})
+_SUPPORTED_BROWSER_EVALUATOR_VERSIONS = frozenset(
+    {1, 2, 3, BROWSER_EVALUATOR_VERSION}
+)
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -679,6 +681,7 @@ class CanonicalStagingRun:
             (3, 2),
             (4, 2),
             (5, 3),
+            (5, 4),
         }:
             raise ValueError("Staging and evaluator versions are incompatible")
         if self.contract_version < 3 and self.control_totals:

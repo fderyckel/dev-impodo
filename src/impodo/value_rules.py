@@ -30,11 +30,15 @@ MAX_FORMULA_NODES = 100
 MAX_RULE_TEXT_LENGTH = 10_000
 MAX_RULE_OUTPUT_LENGTH = 1_000_000
 MAX_RULE_SIZE = 10_000
+MAX_TEXT_TRANSFORM_STEPS = 20
 
 CASE_MODES = frozenset(
     {"preserve", "uppercase", "lowercase", "sentence", "title"}
 )
-SEARCH_MODES = frozenset({"literal", "pattern"})
+SEARCH_MODES = frozenset({"literal", "starts_with", "ends_with", "pattern"})
+TEXT_TRANSFORM_KINDS = frozenset(
+    {"find_replace", "remove_separators_between_digits"}
+)
 ROUNDING_MODES = frozenset(
     {"half_up", "half_even", "up", "down", "ceiling", "floor"}
 )
@@ -64,6 +68,38 @@ _ASCII_CLASSES = {
 
 
 @dataclass(frozen=True, slots=True)
+class TextTransformStep:
+    """One bounded text change in an explicitly ordered sequence."""
+
+    kind: str = "find_replace"
+    search_value: str = ""
+    replacement_value: str = ""
+    search_mode: str = "literal"
+    replace_all: bool = True
+    characters: str = ""
+
+    def __post_init__(self) -> None:
+        if self.kind not in TEXT_TRANSFORM_KINDS:
+            raise ValueError("The text-change kind is unsupported")
+        if len(self.search_value) > MAX_PATTERN_LENGTH:
+            raise ValueError(
+                f"Find text is limited to {MAX_PATTERN_LENGTH} characters"
+            )
+        if len(self.replacement_value) > MAX_RULE_SIZE:
+            raise ValueError(
+                f"Replacement text is limited to {MAX_RULE_SIZE} characters"
+            )
+        if len(self.characters) > 50:
+            raise ValueError("Separator cleanup is limited to 50 characters")
+
+    @property
+    def configured(self) -> bool:
+        if self.kind == "remove_separators_between_digits":
+            return bool(self.characters)
+        return bool(self.search_value)
+
+
+@dataclass(frozen=True, slots=True)
 class ScalarTransformPolicy:
     """Guided transformations applied in one documented fixed order."""
 
@@ -81,6 +117,7 @@ class ScalarTransformPolicy:
     decimal_places: int | None = None
     rounding_mode: str = "half_up"
     formula: str = ""
+    text_steps: tuple[TextTransformStep, ...] = ()
 
     def __post_init__(self) -> None:
         if len(self.search_value) > MAX_PATTERN_LENGTH:
@@ -95,6 +132,53 @@ class ScalarTransformPolicy:
             raise ValueError(
                 f"Formulas are limited to {MAX_FORMULA_LENGTH} characters"
             )
+        object.__setattr__(self, "text_steps", tuple(self.text_steps))
+        if len(self.text_steps) > MAX_TEXT_TRANSFORM_STEPS:
+            raise ValueError(
+                "A field cannot contain more than "
+                f"{MAX_TEXT_TRANSFORM_STEPS} text changes"
+            )
+        if self.text_steps and (
+            self.search_value
+            or self.replacement_value
+            or self.search_mode != "literal"
+            or not self.replace_all
+        ):
+            raise ValueError(
+                "Ordered text changes cannot be combined with the legacy "
+                "find-and-replace fields"
+            )
+        if not self.text_steps and (self.search_value or self.replacement_value):
+            object.__setattr__(
+                self,
+                "text_steps",
+                (
+                    TextTransformStep(
+                        search_value=self.search_value,
+                        replacement_value=self.replacement_value,
+                        search_mode=self.search_mode,
+                        replace_all=self.replace_all,
+                    ),
+                ),
+            )
+            object.__setattr__(self, "search_value", "")
+            object.__setattr__(self, "replacement_value", "")
+            object.__setattr__(self, "search_mode", "literal")
+            object.__setattr__(self, "replace_all", True)
+
+    @property
+    def effective_text_steps(self) -> tuple[TextTransformStep, ...]:
+        """Return ordered rules, adapting the legacy single-rule contract."""
+
+        return self.text_steps
+
+    @property
+    def configured_text_steps(self) -> tuple[TextTransformStep, ...]:
+        """Return only executable steps while retaining authored order."""
+
+        return tuple(
+            step for step in self.effective_text_steps if step.configured
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,6 +336,7 @@ def prepare_rule_text(
     *,
     formula_context: Mapping[str, Any] | None = None,
     find_replace_observer: Callable[[bool, bool], None] | None = None,
+    text_step_observer: Callable[[int, bool, bool], None] | None = None,
 ) -> str | None:
     """Apply formula, normalization, replacement, and casing to raw input."""
 
@@ -273,9 +358,12 @@ def prepare_rule_text(
         rendered = rendered.strip()
     if policy.collapse_whitespace:
         rendered = re.sub(r"\s+", " ", rendered)
-    if policy.search_value:
+    for step_index, step in enumerate(policy.effective_text_steps):
+        if not step.configured:
+            continue
         if (
-            policy.search_mode == "pattern"
+            step.kind == "find_replace"
+            and step.search_mode == "pattern"
             and len(rendered) > MAX_RULE_TEXT_LENGTH
         ):
             raise ScalarRuleError(
@@ -283,17 +371,22 @@ def prepare_rule_text(
                 "The value is too long for an advanced find pattern",
             )
         before_replacement = rendered
-        rendered = _replace_text(rendered, policy)
-        if find_replace_observer is not None and before_replacement != "":
-            matched = (
-                policy.search_value in before_replacement
-                if policy.search_mode == "literal"
-                else validate_pattern(policy.search_value).search(
-                    before_replacement
-                )
-                is not None
+        rendered = _replace_text(rendered, step)
+        if before_replacement != "":
+            matched = _text_step_matches(before_replacement, step)
+            changed = rendered != before_replacement
+            if find_replace_observer is not None:
+                find_replace_observer(matched, changed)
+            if text_step_observer is not None:
+                text_step_observer(step_index, matched, changed)
+        if len(rendered) > MAX_RULE_OUTPUT_LENGTH:
+            raise ScalarRuleError(
+                "SOURCE_RULE_OUTPUT_TOO_LONG",
+                (
+                    "A value rule produced more than "
+                    f"{MAX_RULE_OUTPUT_LENGTH} characters"
+                ),
             )
-            find_replace_observer(matched, rendered != before_replacement)
     if policy.case_mode == "uppercase":
         rendered = rendered.upper()
     elif policy.case_mode == "lowercase":
@@ -303,12 +396,15 @@ def prepare_rule_text(
     elif policy.case_mode == "title":
         rendered = rendered.title()
     if (
-        (policy.search_value or policy.formula)
+        (policy.configured_text_steps or policy.formula)
         and len(rendered) > MAX_RULE_OUTPUT_LENGTH
     ):
         raise ScalarRuleError(
             "SOURCE_RULE_OUTPUT_TOO_LONG",
-            f"A value rule produced more than {MAX_RULE_OUTPUT_LENGTH} characters",
+            (
+                "A value rule produced more than "
+                f"{MAX_RULE_OUTPUT_LENGTH} characters"
+            ),
         )
     if policy.empty_as_null and rendered == "":
         return None
@@ -409,22 +505,68 @@ def evaluate_formula(expression: str, context: Mapping[str, Any]) -> Any:
     return result
 
 
-def _replace_text(value: str, policy: ScalarTransformPolicy) -> str:
-    if policy.search_mode == "literal":
-        count = -1 if policy.replace_all else 1
-        return value.replace(policy.search_value, policy.replacement_value, count)
+def _replace_text(value: str, step: TextTransformStep) -> str:
+    if step.kind == "remove_separators_between_digits":
+        return _remove_separators_between_digits(value, step.characters)
+    if step.search_mode == "literal":
+        count = -1 if step.replace_all else 1
+        return value.replace(step.search_value, step.replacement_value, count)
+    if step.search_mode == "starts_with":
+        return (
+            f"{step.replacement_value}{value[len(step.search_value):]}"
+            if value.startswith(step.search_value)
+            else value
+        )
+    if step.search_mode == "ends_with":
+        return (
+            f"{value[:-len(step.search_value)]}{step.replacement_value}"
+            if value.endswith(step.search_value)
+            else value
+        )
     try:
-        matcher = validate_pattern(policy.search_value)
+        matcher = validate_pattern(step.search_value)
         return matcher.sub(
-            policy.replacement_value,
+            step.replacement_value,
             value,
-            count=0 if policy.replace_all else 1,
+            count=0 if step.replace_all else 1,
         )
     except (re.error, ValueError) as error:
         raise ScalarRuleError(
             "SOURCE_REPLACEMENT_INVALID",
             f"Find and replace could not run safely: {error}",
         ) from error
+
+
+def _text_step_matches(value: str, step: TextTransformStep) -> bool:
+    if step.kind == "remove_separators_between_digits":
+        return _remove_separators_between_digits(value, step.characters) != value
+    if step.search_mode == "literal":
+        return step.search_value in value
+    if step.search_mode == "starts_with":
+        return value.startswith(step.search_value)
+    if step.search_mode == "ends_with":
+        return value.endswith(step.search_value)
+    return validate_pattern(step.search_value).search(value) is not None
+
+
+def _remove_separators_between_digits(value: str, characters: str) -> str:
+    separators = frozenset(characters)
+    if not separators:
+        return value
+    result: list[str] = []
+    index = 0
+    while index < len(value):
+        character = value[index]
+        if character in separators and result and result[-1] in "0123456789":
+            end = index + 1
+            while end < len(value) and value[end] in separators:
+                end += 1
+            if end < len(value) and value[end] in "0123456789":
+                index = end
+                continue
+        result.append(character)
+        index += 1
+    return "".join(result)
 
 
 def _sentence_case(value: str) -> str:

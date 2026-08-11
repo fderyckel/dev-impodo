@@ -57,15 +57,26 @@
           {% for item in rule_impact_views %}
             <article class="notice {{ 'warning' if item.requires_acknowledgement and not item.acknowledged else 'success' }}">
               <strong>
-                {{ item.field_label }} rule
+                {{ item.field_label }} · cleanup {{ item.step_number }}
                 {% if item.impact.changed_value_count == 0 %}changed no values{% else %}changed {{ item.impact.changed_value_count }} value{{ 's' if item.impact.changed_value_count != 1 else '' }}{% endif %}
               </strong>
               <p>
-                Find <code>{{ item.search_value }}</code> matched
+                {% if item.impact.rule_kind == 'remove_separators_between_digits' %}
+                  Remove the selected separators when they appear between numbers.
+                {% elif item.impact.rule_kind == 'find_replace_starts_with' %}
+                  Replace <code>{{ item.search_value }}</code> when it appears at the beginning.
+                {% elif item.impact.rule_kind == 'find_replace_ends_with' %}
+                  Replace <code>{{ item.search_value }}</code> when it appears at the end.
+                {% elif item.impact.rule_kind == 'find_replace_literal' %}
+                  Replace the text <code>{{ item.search_value }}</code>.
+                {% else %}
+                  Apply the Advanced pattern <code>{{ item.search_value }}</code>.
+                {% endif %}
+                It matched
                 {{ item.impact.matched_value_count }} of
                 {{ item.impact.evaluated_value_count }} non-empty
                 {{ item.field_label|lower }} value{{ 's' if item.impact.evaluated_value_count != 1 else '' }}.
-                {% if item.impact.rule_kind == 'find_replace_literal' %}Plain text was selected.{% else %}Advanced pattern was selected.{% endif %}
+                {% if item.step_number > 1 %}This cleanup ran after the preceding step{{ 's' if item.step_number > 2 else '' }}.{% endif %}
               </p>
               {% if item.requires_acknowledgement %}
                 <div class="actions">
@@ -76,7 +87,7 @@
                     <form method="post" action="/projects/{{ project.project_id }}/mapping/transformation-impact/acknowledge">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                       <input type="hidden" name="rule_fingerprint" value="{{ item.impact.rule_fingerprint }}">
-                      <button class="button primary" type="submit">Keep this rule unchanged</button>
+                      <button class="button primary" type="submit">Keep this cleanup step</button>
                     </form>
                   {% endif %}
                 </div>

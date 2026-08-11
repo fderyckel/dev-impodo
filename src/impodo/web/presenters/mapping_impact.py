@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from ...domain.staging.transformation_impact import (
     TransformationImpactFilter,
     TransformationImpactIdentity,
+    transformation_rule_impact_definitions,
 )
 from ...domain.mapping.contracts import ScalarValueSource
 from ..constants import (
@@ -218,12 +219,36 @@ def _transformation_rule_impact_views(
         for index, dataset in enumerate(selection.datasets)
     }
     acknowledged = frozenset(snapshot.acknowledged_rule_fingerprints)
+    rule_steps = {}
+    for dataset in revision.definition.datasets:
+        for field in dataset.fields:
+            definitions = transformation_rule_impact_definitions(
+                dataset.dataset_id, field
+            )
+            authored_steps = (
+                (step_index, step)
+                for step_index, step in enumerate(
+                    field.transform.effective_text_steps
+                )
+                if step.configured
+            )
+            for (step_index, step), definition in zip(
+                authored_steps, definitions, strict=True
+            ):
+                rule_steps[definition.rule_fingerprint] = (
+                    step_index,
+                    step,
+                )
     views = []
     for impact in snapshot.report.rule_impacts:
         configured = fields.get((impact.dataset_id, impact.target_field))
         located = datasets.get(impact.dataset_id)
         if configured is None or located is None:
             continue
+        rule_step = rule_steps.get(impact.rule_fingerprint)
+        if rule_step is None:
+            continue
+        step_index, step = rule_step
         dataset_index, dataset = located
         field_label = field_labels.get(
             (dataset.name, impact.target_field),
@@ -240,7 +265,9 @@ def _transformation_rule_impact_views(
             {
                 "impact": impact,
                 "field_label": field_label,
-                "search_value": configured.transform.search_value,
+                "step_number": step_index + 1,
+                "search_value": step.search_value,
+                "replacement_value": step.replacement_value,
                 "requires_acknowledgement": impact.requires_acknowledgement,
                 "acknowledged": (
                     impact.rule_fingerprint in acknowledged
@@ -248,7 +275,15 @@ def _transformation_rule_impact_views(
                 "fix_url": f"{fix_url}#mapping-dataset-{dataset_index}",
             }
         )
-    return tuple(views)
+    return tuple(
+        sorted(
+            views,
+            key=lambda item: (
+                item["field_label"].casefold(),
+                item["step_number"],
+            ),
+        )
+    )
 
 
 def _mapping_field_page_size(value: str | None) -> int:

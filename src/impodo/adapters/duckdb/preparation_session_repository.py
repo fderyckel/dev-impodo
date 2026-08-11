@@ -300,7 +300,7 @@ class PreparationSessionRepository(DuckDbRepository):
         session_id = str(uuid4())
         now = datetime.now(timezone.utc).isoformat()
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             connection.begin()
             try:
                 connection.execute(
@@ -402,7 +402,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT manifest_json
@@ -423,7 +423,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             rows = connection.execute(
                 """
                 SELECT manifest.manifest_json
@@ -440,7 +440,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             rows = connection.execute(
                 """
                 SELECT parquet_storage_key
@@ -463,7 +463,7 @@ class PreparationSessionRepository(DuckDbRepository):
         canonical_session_id = self._session_id(session_id)
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             connection.begin()
             try:
                 self._require_status(
@@ -567,7 +567,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             connection.begin()
             try:
                 self._require_status(
@@ -915,7 +915,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             connection.begin()
             try:
                 current = self._require_status(
@@ -1774,7 +1774,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT status, mapping_id, physical_selection_hash,
@@ -1856,7 +1856,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             row = connection.execute(
                 """
                 SELECT status, mapping_id, mapping_version,
@@ -1911,7 +1911,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             cursor = connection.execute(
                 """
                 SELECT physical_dataset_id, source_row
@@ -1950,7 +1950,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             next_ordinal = 0
             while batch := connection.execute(
                 """
@@ -1995,7 +1995,7 @@ class PreparationSessionRepository(DuckDbRepository):
         if connection is None:
             database_path = self.project_directory(project_id) / "project.duckdb"
             with self._connect(database_path) as owned_connection:
-                self._validate_project_database_schema(owned_connection)
+                self._ensure_project_database_schema(owned_connection)
                 yield from self._iter_bound_impacts(
                     project_id,
                     session_id,
@@ -2050,7 +2050,7 @@ class PreparationSessionRepository(DuckDbRepository):
 
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             connection.begin()
             try:
                 self._require_status(
@@ -2110,7 +2110,7 @@ class PreparationSessionRepository(DuckDbRepository):
         if not database_path.is_file():
             return
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             connection.begin()
             try:
                 exists = connection.execute(
@@ -2142,7 +2142,7 @@ class PreparationSessionRepository(DuckDbRepository):
     def _restart_finalization(self, project_id: str, session_id: str) -> None:
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
-            self._validate_project_database_schema(connection)
+            self._ensure_project_database_schema(connection)
             connection.begin()
             try:
                 status = connection.execute(

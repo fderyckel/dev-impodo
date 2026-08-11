@@ -498,7 +498,7 @@ class MappingWorkspaceService:
                 "confirming"
             )
         find_replace_configured = any(
-            field.transform.search_value
+            field.transform.configured_text_steps
             for dataset in revision.definition.datasets
             for field in dataset.fields
         )
@@ -515,7 +515,7 @@ class MappingWorkspaceService:
                 )
             if review.unacknowledged_rule_impacts:
                 raise WorkspaceError(
-                    "Review every rule that matched no values before confirming"
+                    "Review every cleanup step that changed no values before confirming"
                 )
         existing = self.mappings.get_mapping_submission(
             project_id,

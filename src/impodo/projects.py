@@ -126,7 +126,7 @@ class MigrationProject:
     data_manager: str = ""
     functional_owner: str = ""
     business_unit: str = ""
-    data_classification: DataClassification = DataClassification.CONFIDENTIAL
+    data_classification: DataClassification = DataClassification.INTERNAL
     retention_days: int = 90
     support_access: bool = False
     odoo_connection_mode: OdooConnectionMode | None = None
