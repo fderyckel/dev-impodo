@@ -567,6 +567,19 @@ Additional guarded evidence:
 - `.tmp/transformation-scale-phase7-mac-smoke-stability-guard.json`
 - `.tmp/transformation-scale-phase7-mac-smoke-stability-guard/`
 
+A one-run Mac customer-baseline compatibility probe also confirmed that the
+current production-worker fixture is byte-identical to B0-C: 1,843,410 bytes
+and `sha256:cd28e8...3d8ee`. Its worse first/repeat worker peak was 252.531 MiB
+against the B0-C 268.938 MiB process-tree median, a 6.10-percent reduction.
+That is safely below the absolute 500 MiB gate but does **not** meet the plan's
+30-percent relative-improvement gate. This dirty one-run Mac result is
+diagnostic, not the Windows decision; it makes the previously unenforced gate
+visible instead of allowing an incomplete release qualification.
+
+Evidence:
+
+- `.tmp/transformation-scale-phase7-mac-customer-baseline-compatibility.json`
+
 ### Mac release-shape diagnostics
 
 The first full production-worker Product/BOM attempt found a gap hidden by the
@@ -625,12 +638,40 @@ shape before Windows but do not satisfy the clean three-run Windows gate.
 
 ### Windows release command
 
-On a clean combined revision in PowerShell, run:
+The 30-percent customer-improvement gate needs a same-machine Phase-0 control;
+the Mac artifact cannot qualify Windows. Capture the clean Phase-0 control in
+an isolated worktree first. This deterministic fixture contains no customer or
+Odoo data:
+
+```powershell
+New-Item -ItemType Directory -Force .tmp | Out-Null
+git worktree add ..\dev-impodo-scale-baseline `
+  6c9f16432530269b180e6e9e08be96b1c44dc944
+.\.venv\Scripts\python.exe `
+  ..\dev-impodo-scale-baseline\scripts\benchmark_preparation.py `
+  --runs 3 `
+  --workload customers `
+  --rows 1000 `
+  --columns 150 `
+  --mapped-fields 20 `
+  --timeout-seconds 900 `
+  --output "$PWD\.tmp\transformation-scale-phase0-windows-customer.json"
+```
+
+Revision `6c9f164...` is the clean commit containing the Phase-0 customer
+fixture/instrumentation used by B0-C. The qualification runner rejects a
+different revision, a dirty baseline worktree, fewer than three runs, changed
+fixture bytes, or a different platform/Python/native-runtime set. It compares
+the candidate's worse first/repeat worker peak with the baseline median and
+requires at least 30 percent improvement.
+
+Then, on a clean combined revision in PowerShell, run:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\qualify_transformation_scale.py `
   --profile release `
   --require-release-qualified `
+  --customer-baseline .tmp\transformation-scale-phase0-windows-customer.json `
   --timeout-per-scenario 3600 `
   --output .tmp\transformation-scale-phase7-windows-release.json `
   --evidence-dir .tmp\transformation-scale-phase7-windows-release

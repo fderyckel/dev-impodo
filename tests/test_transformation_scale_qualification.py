@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
 from scripts.qualify_transformation_scale import (
+    CUSTOMER_BASELINE_REVISION,
     TransformationQualificationError,
+    _customer_baseline_evidence,
     _relationship_gates,
     _require_worktree_unchanged,
     _worker_command,
@@ -145,6 +149,80 @@ class TransformationScaleQualificationHarnessTests(unittest.TestCase):
                 "worktree changed",
             ):
                 _require_worktree_unchanged("before")
+
+    def test_release_requires_same_runtime_customer_gain_baseline(self) -> None:
+        candidate = _customer_candidate()
+        missing = _customer_baseline_evidence(None, candidate)
+
+        self.assertFalse(missing["gates"][0]["passed"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "baseline.json"
+            path.write_text(
+                json.dumps(_customer_baseline()),
+                encoding="utf-8",
+            )
+            matching = _customer_baseline_evidence(path, candidate)
+
+            self.assertTrue(all(item["passed"] for item in matching["gates"]))
+            self.assertAlmostEqual(
+                matching["evidence"]["gain_percent"],
+                30.0,
+            )
+
+            changed = _customer_baseline()
+            changed["runs"][0]["runtime_versions"] = {"duckdb": "different"}
+            path.write_text(json.dumps(changed), encoding="utf-8")
+            mismatched = _customer_baseline_evidence(path, candidate)
+
+            gates = {item["name"]: item for item in mismatched["gates"]}
+            self.assertFalse(
+                gates["customer_baseline_same_platform_runtime"]["passed"]
+            )
+
+
+def _customer_candidate() -> dict[str, object]:
+    return {
+        "runs": [
+            {
+                "fixture": {"sha256": "fixture", "size_bytes": 2_000_000},
+                "platform": "Windows-reference",
+                "python": "3.12",
+                "runtime_versions": {"duckdb": "1.5.5"},
+            }
+        ],
+        "summary": {
+            "maximum_first_peak_worker_mib": 200,
+            "maximum_repeat_peak_worker_mib": 210,
+        },
+    }
+
+
+def _customer_baseline() -> dict[str, object]:
+    run = {
+        "fixture": {"sha256": "fixture", "size_bytes": 2_000_000},
+        "platform": "Windows-reference",
+        "python": "3.12",
+        "runtime_versions": {"duckdb": "1.5.5"},
+    }
+    return {
+        "command": {
+            "advanced": False,
+            "columns": 150,
+            "dirty": False,
+            "mapped_fields": 20,
+            "rows": 1_000,
+            "runs": 3,
+            "workload": "customers",
+        },
+        "revision": CUSTOMER_BASELINE_REVISION,
+        "runs": [run, dict(run), dict(run)],
+        "summary": {
+            "median_peak_process_tree_mib": 300,
+            "run_count": 3,
+        },
+        "worktree_dirty": False,
+    }
 
 
 if __name__ == "__main__":

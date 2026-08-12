@@ -26,6 +26,7 @@ from typing import Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 MIB = 1024 * 1024
+CUSTOMER_BASELINE_REVISION = "6c9f16432530269b180e6e9e08be96b1c44dc944"
 
 
 class TransformationQualificationError(RuntimeError):
@@ -64,6 +65,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=ROOT / ".tmp" / "transformation-scale-qualification",
     )
     parser.add_argument("--timeout-per-scenario", type=int, default=3_600)
+    parser.add_argument(
+        "--customer-baseline",
+        type=Path,
+        help=(
+            "Three-run Phase-0 1,000-row customer benchmark captured on the "
+            "same workstation; required for release qualification."
+        ),
+    )
     parser.add_argument(
         "--allow-dirty-worktree",
         action="store_true",
@@ -265,11 +274,18 @@ def run_qualification(arguments: argparse.Namespace) -> dict[str, object]:
     )
 
     is_windows = platform.system() == "Windows"
+    customer_baseline = _customer_baseline_evidence(
+        arguments.customer_baseline,
+        _dict(scenario_reports, "wide_customer_twin_1k")
+        if arguments.profile == "release"
+        else None,
+    )
     context_gates = (
         _gate("release_profile", arguments.profile, "eq", "release"),
         _gate("three_fresh_runs", run_count, "eq", 3),
         _gate("clean_worktree", worktree_dirty, "eq", False),
         _gate("reference_windows_host", is_windows, "eq", True),
+        *customer_baseline["gates"],
     )
     performance_gates_passed = all(
         bool(item["passed"]) for item in gate_results
@@ -282,6 +298,7 @@ def run_qualification(arguments: argparse.Namespace) -> dict[str, object]:
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "commands": commands,
         "context_gates": list(context_gates),
+        "customer_baseline": customer_baseline["evidence"],
         "gate_results": gate_results,
         "performance_gates_passed": performance_gates_passed,
         "platform": platform.platform(),
@@ -482,6 +499,136 @@ def _relationship_gates(
     ]
 
 
+def _customer_baseline_evidence(
+    path: Path | None,
+    candidate: dict[str, object] | None,
+) -> dict[str, object]:
+    applicable = candidate is not None
+    if not applicable:
+        return {
+            "evidence": {"applicable": False, "provided": path is not None},
+            "gates": (),
+        }
+    if path is None:
+        return {
+            "evidence": {
+                "applicable": True,
+                "provided": False,
+                "required_revision": CUSTOMER_BASELINE_REVISION,
+            },
+            "gates": (
+                _gate(
+                    "customer_same_machine_baseline_provided",
+                    False,
+                    "eq",
+                    True,
+                ),
+            ),
+        }
+
+    baseline_path = path.expanduser().resolve()
+    baseline = _load_json(baseline_path)
+    command = _dict(baseline, "command")
+    summary = _dict(baseline, "summary")
+    baseline_runs = _runs(baseline, "customer baseline")
+    candidate_runs = _runs(candidate, "customer candidate")
+    baseline_fixture = _dict(baseline_runs[0], "fixture")
+    candidate_fixture = _dict(candidate_runs[0], "fixture")
+    baseline_platform = baseline_runs[0].get("platform")
+    candidate_platform = candidate_runs[0].get("platform")
+    baseline_python = baseline_runs[0].get("python")
+    candidate_python = candidate_runs[0].get("python")
+    baseline_runtime = baseline_runs[0].get("runtime_versions")
+    candidate_runtime = candidate_runs[0].get("runtime_versions")
+    baseline_peak = _number(summary, "median_peak_process_tree_mib")
+    candidate_summary = _dict(candidate, "summary")
+    candidate_peak = max(
+        _number(candidate_summary, "maximum_first_peak_worker_mib"),
+        _number(candidate_summary, "maximum_repeat_peak_worker_mib"),
+    )
+    gain_percent = (
+        100.0 * (baseline_peak - candidate_peak) / baseline_peak
+        if baseline_peak
+        else 0.0
+    )
+    exact_fixture = (
+        baseline_fixture.get("sha256") == candidate_fixture.get("sha256")
+        and baseline_fixture.get("size_bytes")
+        == candidate_fixture.get("size_bytes")
+        and all(
+            _dict(item, "fixture").get("sha256")
+            == baseline_fixture.get("sha256")
+            and _dict(item, "fixture").get("size_bytes")
+            == baseline_fixture.get("size_bytes")
+            for item in baseline_runs
+        )
+    )
+    exact_runtime = (
+        baseline_platform == candidate_platform
+        and baseline_python == candidate_python
+        and baseline_runtime == candidate_runtime
+        and all(
+            item.get("platform") == baseline_platform
+            and item.get("python") == baseline_python
+            and item.get("runtime_versions") == baseline_runtime
+            for item in baseline_runs
+        )
+    )
+    baseline_shape = (
+        command.get("advanced") is False
+        and command.get("dirty") is False
+        and _number(command, "columns") == 150
+        and _number(command, "mapped_fields") == 20
+        and _number(command, "rows") == 1_000
+        and _number(command, "runs") == 3
+        and command.get("workload") == "customers"
+        and _number(summary, "run_count") == 3
+        and len(baseline_runs) == 3
+    )
+    gates = (
+        _gate("customer_same_machine_baseline_provided", True, "eq", True),
+        _gate(
+            "customer_baseline_revision",
+            baseline.get("revision"),
+            "eq",
+            CUSTOMER_BASELINE_REVISION,
+        ),
+        _gate(
+            "customer_baseline_clean_worktree",
+            baseline.get("worktree_dirty"),
+            "eq",
+            False,
+        ),
+        _gate("customer_baseline_shape", baseline_shape, "eq", True),
+        _gate("customer_baseline_exact_fixture", exact_fixture, "eq", True),
+        _gate(
+            "customer_baseline_same_platform_runtime",
+            exact_runtime,
+            "eq",
+            True,
+        ),
+        _gate(
+            "customer_peak_gain_percent",
+            gain_percent,
+            "gte",
+            30.0,
+        ),
+    )
+    return {
+        "evidence": {
+            "applicable": True,
+            "baseline_peak_process_tree_mib": baseline_peak,
+            "baseline_revision": baseline.get("revision"),
+            "candidate_worst_peak_worker_mib": candidate_peak,
+            "gain_percent": gain_percent,
+            "path": str(baseline_path),
+            "provided": True,
+            "required_revision": CUSTOMER_BASELINE_REVISION,
+        },
+        "gates": gates,
+    }
+
+
 def _gate(
     name: str,
     actual: object,
@@ -492,6 +639,8 @@ def _gate(
         passed = float(actual) < float(threshold)
     elif operator == "gt":
         passed = float(actual) > float(threshold)
+    elif operator == "gte":
+        passed = float(actual) >= float(threshold)
     elif operator == "eq":
         passed = actual == threshold
     else:
@@ -557,6 +706,18 @@ def _dict(value: dict[str, object], key: str) -> dict[str, object]:
     if not isinstance(item, dict):
         raise TransformationQualificationError(f"Missing object: {key}")
     return item
+
+
+def _runs(
+    report: dict[str, object],
+    name: str,
+) -> list[dict[str, object]]:
+    items = report.get("runs")
+    if not isinstance(items, list) or not items:
+        raise TransformationQualificationError(f"Missing runs: {name}")
+    if not all(isinstance(item, dict) for item in items):
+        raise TransformationQualificationError(f"Invalid runs: {name}")
+    return items
 
 
 def _number(value: dict[str, object], key: str) -> float:
