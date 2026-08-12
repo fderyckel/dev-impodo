@@ -45,6 +45,7 @@ from ..workspace_contracts import (
 )
 from ..domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
+    PreparedCanonicalProjection,
     PreparationSessionBindings,
     PreparationSessionSummary,
     PreparedSessionRow,
@@ -232,6 +233,14 @@ class PreparationSessionRepository(Protocol):
         project_id: str,
         session_id: str,
         snapshot: PreparedSnapshot,
+    ) -> None: ...
+
+    def bind_prepared_canonical_projection(
+        self,
+        project_id: str,
+        session_id: str,
+        snapshot: PreparedSnapshot,
+        projection: PreparedCanonicalProjection,
     ) -> None: ...
 
     def prepared_snapshot_storage_keys(self, project_id: str) -> frozenset[str]: ...

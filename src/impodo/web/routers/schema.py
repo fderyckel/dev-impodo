@@ -39,7 +39,11 @@ from ..target_readers import (
     _missing_schema_reader_message,
     _refresh_model_catalog,
     _selected_local_profile,
-    _target_credential_id,
+)
+from ..target_credentials import (
+    TargetCredentialRole,
+    get_target_credential,
+    local_read_credential_binding_hash,
 )
 
 
@@ -180,22 +184,29 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     local_profile,
                     project.intended_models,
                 )
-            else:
-                api_key = context.secret_store.get(
-                    _target_credential_id(project)
+                read_credential_binding_hash = (
+                    local_read_credential_binding_hash(project)
                 )
-                if not api_key:
+            else:
+                credential = get_target_credential(
+                    context.secret_store,
+                    project,
+                    TargetCredentialRole.READ,
+                )
+                if credential is None:
                     raise WorkspaceError(
                         _missing_schema_reader_message(project)
                     )
                 snapshot = await run_in_threadpool(
                     context.schema_reader,
                     project,
-                    api_key,
+                    credential.secret,
                 )
+                read_credential_binding_hash = credential.binding_hash
             schema = context.schema_workspace.capture(
                 project_id,
                 snapshot,
+                read_credential_binding_hash=read_credential_binding_hash,
                 actor=context.actor,
             )
             if local_profile is not None:
@@ -250,6 +261,9 @@ def build_schema_router(context: WebContext) -> APIRouter:
             schema = context.schema_workspace.capture_local_manual(
                 project_id,
                 _manual_schema_models(project, form),
+                read_credential_binding_hash=(
+                    local_read_credential_binding_hash(project)
+                ),
                 actor=context.actor,
             )
         except (ProjectError, WorkspaceError) as error:

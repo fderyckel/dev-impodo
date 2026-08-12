@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from enum import StrEnum
-from typing import Mapping, cast
+from typing import Mapping, Sequence, cast
 
 from ...workspace_contracts import SourceDataset, SourceSelection
 from ..mapping.contracts import (
@@ -31,6 +31,18 @@ from ..serialization import content_hash, portable
 
 COLUMNAR_PROGRAM_CONTRACT_VERSION = 2
 COLUMNAR_COMPILER_VERSION = 1
+
+
+def _optional_string(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+def _optional_integer(value: object) -> int | None:
+    return None if value is None else int(cast(int, value))
+
+
+def _optional_boolean(value: object) -> bool | None:
+    return None if value is None else bool(value)
 
 
 class ColumnarCompilationError(ValueError):
@@ -458,6 +470,186 @@ class ColumnarTransformationProgram:
 
     def to_portable_dict(self) -> dict[str, object]:
         return cast(dict[str, object], portable(asdict(self)))
+
+    @classmethod
+    def from_portable_dict(
+        cls,
+        payload: Mapping[str, object],
+    ) -> "ColumnarTransformationProgram":
+        """Restore one exact persisted native program for value projection."""
+
+        def input_column(value: object) -> ColumnarInputColumn:
+            item = cast(Mapping[str, object], value)
+            return ColumnarInputColumn(
+                stable_key=str(item["stable_key"]),
+                ordinal=int(cast(int, item["ordinal"])),
+                source_name=str(item["source_name"]),
+                candidate_type=str(item["candidate_type"]),
+            )
+
+        def step(value: object) -> ColumnarExpressionStep:
+            item = cast(Mapping[str, object], value)
+            return ColumnarExpressionStep(
+                operation=ColumnarOperationKind(str(item["operation"])),
+                text=_optional_string(item.get("text")),
+                replacement=_optional_string(item.get("replacement")),
+                integer=_optional_integer(item.get("integer")),
+                flag=_optional_boolean(item.get("flag")),
+                character_class=_optional_string(item.get("character_class")),
+                segment_location=_optional_string(item.get("segment_location")),
+                segment_length=_optional_integer(item.get("segment_length")),
+                error_code=_optional_string(item.get("error_code")),
+            )
+
+        def provider(value: object) -> ColumnarValueProviderProgram:
+            item = cast(Mapping[str, object], value)
+            raw_source = item.get("source")
+            return ColumnarValueProviderProgram(
+                operation=ColumnarOperationKind(str(item["operation"])),
+                source=(input_column(raw_source) if raw_source is not None else None),
+                literal_value=_optional_string(item.get("literal_value")),
+                value_mappings=tuple(
+                    (str(pair[0]), str(pair[1]))
+                    for pair in cast(Sequence[Sequence[object]], item["value_mappings"])
+                ),
+                fallback_probe_steps=tuple(
+                    step(item_step)
+                    for item_step in cast(
+                        Sequence[object],
+                        item.get("fallback_probe_steps", ()),
+                    )
+                ),
+                value_mapping_bypasses_transforms=bool(
+                    item.get("value_mapping_bypasses_transforms", True)
+                ),
+            )
+
+        def failures(value: object) -> ColumnarFailureSemantics:
+            item = cast(Mapping[str, object], value)
+            return ColumnarFailureSemantics(
+                required_value_code=str(item["required_value_code"]),
+                parse_value_code=str(item["parse_value_code"]),
+                invalid_rule_value=str(item["invalid_rule_value"]),
+            )
+
+        def scalar(value: object) -> ColumnarScalarFieldProgram:
+            item = cast(Mapping[str, object], value)
+            raw_required = item.get("required_step")
+            return ColumnarScalarFieldProgram(
+                target_field=str(item["target_field"]),
+                output_ordinal=int(cast(int, item["output_ordinal"])),
+                value_type=str(item["value_type"]),
+                source_label=str(item["source_label"]),
+                transformation_rules=str(item["transformation_rules"]),
+                provider=provider(item["provider"]),
+                transform_steps=tuple(
+                    step(item_step)
+                    for item_step in cast(Sequence[object], item["transform_steps"])
+                ),
+                required_step=(
+                    step(raw_required) if raw_required is not None else None
+                ),
+                conversion_step=step(item["conversion_step"]),
+                post_conversion_steps=tuple(
+                    step(item_step)
+                    for item_step in cast(
+                        Sequence[object],
+                        item["post_conversion_steps"],
+                    )
+                ),
+                validation_steps=tuple(
+                    step(item_step)
+                    for item_step in cast(Sequence[object], item["validation_steps"])
+                ),
+                required=bool(item["required"]),
+                required_on_create=bool(item["required_on_create"]),
+                compare=bool(item["compare"]),
+                validate_only=bool(item["validate_only"]),
+                null_policy=str(item["null_policy"]),
+                impact_required=bool(item["impact_required"]),
+                failures=failures(item["failures"]),
+            )
+
+        def identity(value: object) -> ColumnarIdentityComponentProgram:
+            item = cast(Mapping[str, object], value)
+            return ColumnarIdentityComponentProgram(
+                role=str(item["role"]),
+                source_columns=tuple(
+                    input_column(column)
+                    for column in cast(Sequence[object], item["source_columns"])
+                ),
+                source_label=str(item["source_label"]),
+                target_fields=tuple(
+                    str(field)
+                    for field in cast(Sequence[object], item["target_fields"])
+                ),
+                value_type=str(item["value_type"]),
+                normalization_steps=tuple(
+                    step(item_step)
+                    for item_step in cast(
+                        Sequence[object],
+                        item["normalization_steps"],
+                    )
+                ),
+                required=bool(item.get("required", True)),
+                failure_code=str(
+                    item.get("failure_code", "SOURCE_IDENTITY_INVALID")
+                ),
+            )
+
+        def set_requirement(value: object) -> ColumnarSetRequirement:
+            item = cast(Mapping[str, object], value)
+            return ColumnarSetRequirement(
+                operation=ColumnarOperationKind(str(item["operation"])),
+                target_field=_optional_string(item.get("target_field")),
+                name=_optional_string(item.get("name")),
+            )
+
+        program = cls(
+            dataset_id=str(payload["dataset_id"]),
+            dataset_name=str(payload["dataset_name"]),
+            target_model=str(payload["target_model"]),
+            target_mode=str(payload["target_mode"]),
+            mapping_content_hash=str(payload["mapping_content_hash"]),
+            source_selection_hash=str(payload["source_selection_hash"]),
+            schema_hash=str(payload["schema_hash"]),
+            inputs=tuple(
+                input_column(item)
+                for item in cast(Sequence[object], payload["inputs"])
+            ),
+            source_identity=tuple(
+                identity(item)
+                for item in cast(Sequence[object], payload["source_identity"])
+            ),
+            target_identity=tuple(
+                identity(item)
+                for item in cast(Sequence[object], payload["target_identity"])
+            ),
+            target_scope=tuple(
+                identity(item)
+                for item in cast(Sequence[object], payload["target_scope"])
+            ),
+            scalar_fields=tuple(
+                scalar(item)
+                for item in cast(Sequence[object], payload["scalar_fields"])
+            ),
+            set_requirements=tuple(
+                set_requirement(item)
+                for item in cast(Sequence[object], payload["set_requirements"])
+            ),
+            preserve_source_row=bool(payload.get("preserve_source_row", True)),
+            preserve_source_order=bool(payload.get("preserve_source_order", True)),
+            sparse_transformation_impacts=bool(
+                payload.get("sparse_transformation_impacts", True)
+            ),
+            contract_version=int(
+                cast(int, payload.get("contract_version", COLUMNAR_PROGRAM_CONTRACT_VERSION))
+            ),
+            compiler_version=int(
+                cast(int, payload.get("compiler_version", COLUMNAR_COMPILER_VERSION))
+            ),
+        )
+        return program
 
     @property
     def content_hash(self) -> str:

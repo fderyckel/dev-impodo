@@ -146,13 +146,17 @@ def create_local_app(
     """
 
     database = DuckDbDatabase(project_root)
+    resolved_artifacts = artifact_store or LocalArtifactStore(project_root)
     project_repository = ProjectRepository(database)
     derived_entity_repository = DerivedEntityRepository(database)
     source_repository = SourceRepository(database, derived_entity_repository)
     schema_repository = SchemaRepository(database)
     mapping_repository = MappingRepository(database)
-    staging_repository = StagingRepository(database)
-    preparation_session_repository = PreparationSessionRepository(database)
+    staging_repository = StagingRepository(database, resolved_artifacts)
+    preparation_session_repository = PreparationSessionRepository(
+        database,
+        resolved_artifacts,
+    )
     advanced_coverage_repository = AdvancedCoverageRepository(database)
     quality_repository = QualityRepository(database, project_repository)
     normalization_repository = NormalizationRepository(
@@ -164,7 +168,6 @@ def create_local_app(
     reconciliation_repository = ReconciliationRepository(database)
     transformation_impact_repository = TransformationImpactRepository(database)
     resolved_authorization = authorization or CapabilityAuthorizationPolicy()
-    resolved_artifacts = artifact_store or LocalArtifactStore(project_root)
     projects = ProjectService(project_repository, resolved_authorization)
     quality = QualityService(
         mapping_repository,

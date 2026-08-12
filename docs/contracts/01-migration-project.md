@@ -72,10 +72,21 @@ lifecycle labels:
 Changing the target mode, URL, or database changes the target identity and
 invalidates target-derived evidence.
 
-An Odoo API key is not a project field. Remote credentials remain in memory
-or the operating-system credential vault and are bound to the project, mode,
-exact URL, and database. Local no-key discovery keeps selected machine paths
-in process memory only.
+An Odoo API key is not a project field. Read and write credentials occupy
+separate role- and target-specific entries in memory or the operating-system
+credential vault, use separate browser fields and vault service labels, and
+never fall back to one another. Changing the target deletes both roles for the
+old target; deleting the project removes both roles and the retired shared
+entry. Local no-key discovery keeps selected machine paths in process memory
+only.
+
+Each stored role uses a versioned vault envelope with a random generation ID.
+Model and schema catalogues bind the read credential generation through a
+non-secret `read_credential_binding_hash`; re-entering or rotating a key creates
+a new binding without persisting a secret-derived verifier. This is rotation
+evidence, not proof of the authenticated Odoo principal or its current
+permissions. A narrow principal/permission probe remains a separate planned
+contract.
 
 ## Persistence boundary
 

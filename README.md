@@ -43,6 +43,8 @@ start a local Odoo stack separately before connecting to it in Impodo.
   register without an export date or placeholder file and proceed to read-only
   model/field discovery; bounded Odoo record freezing is the next slice.
 - Configures and optionally tests the read-only Odoo connection.
+- Keeps read and write keys in separate target-bound vault roles and browser
+  fields. Loading and read-back never fall back to the setup read key.
 
 ### Source discovery and dataset freeze
 
@@ -59,6 +61,8 @@ start a local Odoo stack separately before connecting to it in Impodo.
   metadata calls.
 - Stores verified model and effective-field snapshots in the project DuckDB
   database, so reopening and mapping do not automatically contact Odoo.
+- Binds those catalogues to a non-secret read-credential generation hash. This
+  records Impodo-side key rotation without claiming Odoo principal identity.
 - Records the target business keys and any company or tenant scope fields.
 - Maps each frozen dataset to an Odoo model and its writable scalar fields.
 - Lets each scalar field use a source column, constant, source fallback, or an
@@ -90,6 +94,8 @@ business key invalidates the active mapping so it must be validated again.
 - Freezes the exact compared rows and field intentions automatically.
 - Shows create, update, and unchanged totals before any write.
 - Requires one explicit **Load into Odoo** action.
+- Requires a separately supplied or stored write key for load and read-back;
+  the read-only setup key cannot authorize execution.
 - Derives an exact per-preview JSON-2 capability from the captured schema and
   confirmed mapping, uses dependency-ordered batches and exact business-key
   updates, and exposes no direct SQL or generic RPC.

@@ -20,6 +20,7 @@ from uuid import UUID, uuid4
 import duckdb
 
 from ...access import Actor
+from ...artifacts import ArtifactStore, LocalArtifactStore
 from ...projects import ProjectNotFoundError
 from ...staging import StagingRunStatus, StagingRunSummary
 from ...staging_contracts import (
@@ -37,6 +38,7 @@ from ...workspace_contracts import SourceSelection
 from ...workspace_errors import WorkspaceError
 from ...domain.serialization import CanonicalJsonObjectHasher
 from ...domain.staging.preparation_session import StoredCanonicalStagingRun
+from .preparation_session_repository import PreparationSessionRepository
 from .repository import DuckDbRepository
 
 
@@ -48,6 +50,14 @@ from .serialization import _canonical_json, _columnar_parameters
 
 class StagingRepository(DuckDbRepository):
     """Implement canonical publication, batched row storage, and reassembly."""
+
+    def __init__(
+        self,
+        database,
+        artifacts: ArtifactStore | None = None,
+    ) -> None:
+        super().__init__(database)
+        self._artifacts = artifacts or LocalArtifactStore(database.root)
 
     def publish_canonical_staging(
         self,
@@ -531,19 +541,46 @@ class StagingRepository(DuckDbRepository):
             hasher.add_value("reconciliation", reconciliation_payload)
             hasher.start_array("rows")
 
-            cursor = connection.execute(
-                """
-                SELECT ordinal, row_json
-                  FROM canonical_staging_row
-                 WHERE run_id = ?
-                 ORDER BY ordinal
-                """,
-                [canonical_run_id],
-            )
             rows: list[CanonicalRow] = []
             expected_ordinal = 0
-            while batch := cursor.fetchmany(STAGING_ROW_BATCH_SIZE):
-                for ordinal, row_text in batch:
+            prepared_backed = connection.execute(
+                """
+                SELECT 1
+                  FROM canonical_staging_row
+                 WHERE run_id = ? AND row_json = ''
+                 LIMIT 1
+                """,
+                [canonical_run_id],
+            ).fetchone()
+            if prepared_backed is not None:
+                encoded_batches = PreparationSessionRepository(
+                    self._database,
+                    self._artifacts,
+                )._iter_direct_encoded_batches(
+                    project_id,
+                    canonical_run_id,
+                    batch_size=STAGING_ROW_BATCH_SIZE,
+                    connection=connection,
+                )
+            else:
+                cursor = connection.execute(
+                    """
+                    SELECT ordinal, row_id, dataset, source_row,
+                           target_model, disposition, row_json
+                      FROM canonical_staging_row
+                     WHERE run_id = ?
+                     ORDER BY ordinal
+                    """,
+                    [canonical_run_id],
+                )
+
+                def stored_batches():
+                    while batch := cursor.fetchmany(STAGING_ROW_BATCH_SIZE):
+                        yield batch
+
+                encoded_batches = stored_batches()
+            for batch in encoded_batches:
+                for ordinal, *_metadata, row_text in batch:
                     if int(ordinal) != expected_ordinal:
                         raise WorkspaceError(
                             "Stored prepared-data row ordering is invalid"

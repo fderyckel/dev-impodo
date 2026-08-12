@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Status:** Repository-checked implementation proposal, revised 2026-08-11.
+**Status:** Repository-checked implementation proposal, revised 2026-08-12.
 
 This document defines a scoped delivery path for using Odoo 19 records as
 governed Impodo source data and, when explicitly authorized, applying reviewed
@@ -17,20 +17,30 @@ comparison, and performs update-only writes. Production authorization remains
 separate from feature completeness.
 
 The repository check found several prerequisites that must be delivered before
-record capture. The first slice below resolves the original file-only
-registration and source-before-schema cycle. Read and write credentials still
-share one vault key, and the existing portable execution snapshot deliberately
-rejects numeric Odoo IDs. The remaining phased sequence resolves those
+record capture. The first two slices resolve the original file-only
+registration/source-before-schema cycle and the shared read/write credential
+slot. The existing portable execution snapshot still deliberately rejects
+numeric Odoo IDs. The remaining phased sequence resolves that and the other
 constraints explicitly rather than treating source capture as an adapter-only
 change.
 
-**Implementation progress (2026-08-11):** Slice 1 is implemented: persisted
-`FILE`/`ODOO` source mode, version-1-to-version-2 project migration, conditional
-registration/file-intake rules, the Odoo-only setup path, and eligibility-schema
-capture before source freeze. Existing file projects migrate to `FILE` and keep
-their workflow. Read/write credential separation and bounded Odoo record
-capture remain subsequent slices; the browser labels record freezing as locked
-rather than presenting it as available.
+**Implementation progress (2026-08-12):**
+
+- Slice 1 is implemented: persisted `FILE`/`ODOO` source mode,
+  version-1-to-version-2 project migration, conditional registration/file-
+  intake rules, the Odoo-only setup path, and eligibility-schema capture before
+  source freeze. Existing file projects migrate to `FILE` and keep their
+  workflow.
+- Slice 2 is implemented: target- and role-specific read/write vault IDs,
+  separate browser fields and operating-system service labels, strict no-
+  fallback retrieval, target-change/project-deletion cleanup, and a non-secret
+  read-credential-generation binding in model/schema evidence. That binding is
+  random and secret-independent; it deliberately does **not** claim to identify
+  the authenticated Odoo principal.
+- Principal/permission probes, principal fingerprints, credential audit events,
+  target-instance identity, and bounded Odoo record capture remain open. The
+  browser labels record freezing as locked rather than presenting it as
+  available.
 
 ## 1. Outcome
 
@@ -112,8 +122,8 @@ Some foundations require refactoring rather than direct reuse:
 - `ExecutionSnapshot` is portable and calls
   `assert_no_numeric_odoo_ids`, so protected IDs must remain in a separate
   execution companion rather than being added to that snapshot; and
-- the same project credential ID is currently used by schema reads, preflight,
-  execution, and reconciliation.
+- principal identity and permission probes are not yet available even though
+  schema reads and execution now use separate credential roles.
 
 ### 2.1 Repository-check findings and required responses
 
@@ -298,6 +308,7 @@ Use distinct names and hashes for distinct facts:
 | `connection_target_hash` | Normalized connection mode, base URL, and database name; replaces the ambiguous generic target-hash usage |
 | `target_instance_hash` | Strong database/deployment identity, such as a narrowly exposed database UUID plus deployment nonce; mandatory for production exact-ID writes |
 | `schema_scope_hash` | Exact permitted model/field metadata and schema contract |
+| `read_credential_binding_hash` | Non-secret, target- and role-bound random vault-generation fingerprint; implemented as rotation evidence, not principal identity |
 | `read_principal_hash` | Stable, non-secret fingerprint of the principal used for metadata, capture, and ordinary comparison reads |
 | `write_principal_hash` | Stable, non-secret fingerprint of the separately approved execution principal; absent until load is configured |
 | `context_hash` | Canonical language, timezone, primary company, ordered allowed-company set, and `active_test` behavior |
@@ -318,6 +329,13 @@ Split the existing credential storage into read and write roles:
 - the two roles have separate vault IDs, UI fields, service labels, permission
   probes, and audit fingerprints; and
 - no route falls back from one role to the other.
+
+The implemented Slice-2 evidence uses `read_credential_binding_hash` until a
+narrow principal probe exists. Rotating or re-entering the same secret creates
+a new binding and therefore distinguishable new evidence without hashing the
+secret. It cannot prove that two different keys authenticate the same user, or
+that an Odoo administrator changed a key's permissions in place; those checks
+remain part of the principal/permission-probe slice and production gates.
 
 Credentials remain in process memory or the operating-system vault and never
 enter DuckDB, snapshots, reports, browser storage, or logs. An optional local
@@ -720,8 +738,11 @@ state. Do not start a later phase whose contract depends on an unmet exit gate.
 - Reorder navigation and schema services so Odoo model discovery and
   capture-eligibility metadata precede source freeze, while later target
   governance still sees the frozen source.
-- Split read and write credential vault IDs, forms, permission probes,
-  principal fingerprints, service labels, and audit events with no fallback.
+- Split read and write credential vault IDs, forms, and service labels with no
+  fallback. **Implemented in Slice 2.**
+- Add narrow permission/principal probes, stable principal fingerprints, and
+  credential lifecycle audit events. **Still open; the implemented credential-
+  generation binding is not a substitute for principal identity.**
 - Define a forward storage/contract migration from version 1 that preserves
   existing `FILE` semantic hashes.
 

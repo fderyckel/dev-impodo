@@ -60,6 +60,7 @@ from impodo.domain.staging.scale import (
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
 )
 from impodo.domain.staging import evaluator as evaluator_module
+from impodo.domain.staging import canonical_projection as canonical_projection_module
 from impodo.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
@@ -366,6 +367,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         original_finalize_session = (
             self.context.preparation.sessions.finalize_direct_session
         )
+        original_projected_rows = (
+            self.context.preparation.sessions
+            ._iter_projected_dataset_encoded_batches
+        )
         original_project_row = evaluator_module.CompiledBrowserRowTransformer.project
         original_finish_row = evaluator_module.CompiledBrowserRowTransformer.finish
         original_scalar_value = evaluator_module.evaluate_scalar_mapping_value
@@ -374,12 +379,15 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             bounded_preparation_module.canonical_row_from_prepared
         )
         original_columnar_canonical_row = (
-            bounded_preparation_module._canonical_session_row_from_columnar
+            bounded_preparation_module.canonical_prepared_session_row
         )
         original_native_batches = (
             bounded_preparation_module.iter_polars_prepared_batches
         )
         original_canonical_json = bounded_preparation_module.canonical_json_bytes
+        original_projection_canonical_json = (
+            canonical_projection_module.canonical_json_bytes
+        )
 
         def instrumented_native_batches(*args, **kwargs):
             for batch in original_native_batches(*args, **kwargs):
@@ -393,6 +401,17 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 phase_calls["full_prepared_record_construction"] = (
                     phase_calls.get("full_prepared_record_construction", 0)
                     + len(batch.records)
+                )
+                yield batch
+
+        def instrumented_projected_rows(*args, **kwargs):
+            phase_calls["prepared_value_projection_scans"] = (
+                phase_calls.get("prepared_value_projection_scans", 0) + 1
+            )
+            for batch in original_projected_rows(*args, **kwargs):
+                phase_calls["prepared_value_projection_rows"] = (
+                    phase_calls.get("prepared_value_projection_rows", 0)
+                    + len(batch)
                 )
                 yield batch
 
@@ -493,6 +512,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     timed("direct_finalization", original_finalize_session),
                 ),
                 patch.object(
+                    self.context.preparation.sessions,
+                    "_iter_projected_dataset_encoded_batches",
+                    instrumented_projected_rows,
+                ),
+                patch.object(
                     source_module.SelectedSourceBatchStream,
                     "iter_batches",
                     timed_iter_batches,
@@ -530,9 +554,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 ),
                 patch.object(
                     bounded_preparation_module,
-                    "_canonical_session_row_from_columnar",
+                    "canonical_prepared_session_row",
                     accumulated(
-                        "canonical_row_json_encoding",
+                        "canonical_index_projection",
                         original_columnar_canonical_row,
                     ),
                 ),
@@ -547,6 +571,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     accumulated(
                         "canonical_serialization",
                         original_canonical_json,
+                    ),
+                ),
+                patch.object(
+                    canonical_projection_module,
+                    "canonical_json_bytes",
+                    accumulated(
+                        "canonical_serialization",
+                        original_projection_canonical_json,
                     ),
                 ),
             )
@@ -742,7 +774,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             "full_canonical_rows_constructed": phase_calls.get(
                 "canonical_row_construction",
                 0,
-            ),
+            )
+            + phase_calls.get("prepared_value_projection_rows", 0),
             "full_prepared_records_constructed": phase_calls.get(
                 "full_prepared_record_construction",
                 0,
@@ -755,6 +788,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 phase_calls.get("python_row_adaptation", 0)
                 + phase_calls.get("row_finish_inclusive", 0)
                 + phase_calls.get("prepared_record_construction", 0)
+                + phase_calls.get("prepared_value_projection_rows", 0)
             ),
             "row_weighted_native_coverage_percent": (
                 100.0
@@ -1860,7 +1894,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             self.assertGreater(len(family_batches), 1)
             self.assertEqual(sum(family_batches), 37)
         canonical_batches = preparation_transport_batches["canonical_rows"]
-        self.assertGreater(len(canonical_batches), 1)
+        self.assertGreaterEqual(len(canonical_batches), 1)
         self.assertEqual(sum(canonical_batches), 37)
         for family in ("identities", "lineage", "physical_rows"):
             family_batches = preparation_transport_batches[family]
@@ -1969,11 +2003,13 @@ class BoundedPreparationParityTests(unittest.TestCase):
                     (SELECT COUNT(*) FROM preparation_lineage),
                     (SELECT COUNT(*) FROM preparation_impact_row),
                     (SELECT COUNT(*) FROM preparation_final_row),
-                    (SELECT COUNT(*) FROM preparation_direct_identity)
+                    (SELECT COUNT(*) FROM preparation_direct_identity),
+                    (SELECT COALESCE(SUM(LENGTH(row_json)), 0)
+                       FROM canonical_staging_row)
                 """
             ).fetchone()
         self.assertEqual(sessions, [("PUBLISHED", 37, 37, 37)])
-        self.assertEqual(temporary_rows, (0, 0, 0, 0, 0))
+        self.assertEqual(temporary_rows, (0, 0, 0, 0, 0, 0))
 
         repeated = self.context.preparation.prepare(
             project_id,

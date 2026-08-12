@@ -17,6 +17,7 @@ from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
 from impodo.adapters.duckdb.source_repository import SourceRepository
+from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.application.bounded_preparation import (
     direct_preparation_row_limit,
     prepare_bounded_direct_session,
@@ -41,7 +42,9 @@ from impodo.inspection import (
     SourceFileCatalog,
     SourceTableCatalog,
 )
+from impodo.models import canonical_json_bytes
 from impodo.projects import MigrationProject, ProjectStatus, SourceFile
+from impodo.staging_contracts import StagingDisposition
 from impodo.source_snapshot_io import (
     SourceSnapshotPublisher,
     load_source_snapshot_table,
@@ -49,6 +52,7 @@ from impodo.source_snapshot_io import (
     source_snapshot_batch_rows,
 )
 from impodo.value_rules import ScalarTransformPolicy, TextTransformStep
+from impodo.workspace_errors import WorkspaceError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -151,6 +155,39 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
         self.assertEqual(len(bounded.run.rows), 2)
         self.assertIsNotNone(bounded.run.validated_content_hash)
+        database_path = (
+            sessions.project_directory(project.project_id) / "project.duckdb"
+        )
+        with sessions._connect(database_path) as connection:
+            storage = connection.execute(
+                """
+                SELECT
+                    (SELECT COALESCE(SUM(LENGTH(row_json)), 0)
+                       FROM canonical_staging_row
+                      WHERE run_id = ?),
+                    (SELECT COUNT(*)
+                       FROM canonical_prepared_projection
+                      WHERE run_id = ?)
+                """,
+                [bounded.session_id, bounded.session_id],
+            ).fetchone()
+        self.assertEqual(storage, (0, 1))
+        expected_encoded_rows = tuple(
+            canonical_json_bytes(row.to_portable_dict()).decode("utf-8")
+            for row in staged.canonical_run.rows
+        )
+        for batch_size in (1, 17, 5_000):
+            with self.subTest(projection_batch_size=batch_size):
+                encoded_rows = tuple(
+                    str(item[-1])
+                    for batch in sessions._iter_direct_encoded_batches(
+                        project.project_id,
+                        bounded.session_id,
+                        batch_size=batch_size,
+                    )
+                    for item in batch
+                )
+                self.assertEqual(encoded_rows, expected_encoded_rows)
         self.assertEqual(
             tuple(bounded.run.rows),
             tuple(staged.canonical_run.rows),
@@ -159,6 +196,20 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             bounded.run.validated_content_hash,
             staged.canonical_run.content_hash,
         )
+        with sessions._connect(database_path) as connection:
+            connection.execute(
+                "DELETE FROM preparation_session_snapshot WHERE session_id = ?",
+                [bounded.session_id],
+            )
+        staging_repository = StagingRepository(self.database, self.artifacts)
+        restored = staging_repository.get_canonical_staging_run(
+            project.project_id,
+            bounded.session_id,
+            expected_content_hash=bounded.run.validated_content_hash,
+        )
+        assert restored is not None
+        self.assertEqual(restored.rows, staged.canonical_run.rows)
+        self.assertEqual(restored.content_hash, staged.canonical_run.content_hash)
         with patch(
             "impodo.application.bounded_preparation.write_polars_prepared_snapshot",
             side_effect=AssertionError("reused preparation reran Polars"),
@@ -212,6 +263,100 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             ["", None, "text"],
         )
         self.assertEqual([row.number for row in rows], [2, 3, 4])
+
+    def test_prepared_backed_duplicate_issues_are_sparse_overlays(self) -> None:
+        project, source_file, catalog = self._registered_csv(
+            b"Code,Name,Active\nC1,Alpha,true\nC1,Beta,false\n"
+        )
+        selection = _selection_for(project, source_file, catalog)
+        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
+            project,
+            selection,
+            selection.datasets[0],
+            catalog,
+            source_file,
+        ).snapshot
+        sessions = PreparationSessionRepository(self.database, self.artifacts)
+        bounded = prepare_bounded_direct_session(
+            project,
+            _direct_mapping(selection),
+            1,
+            selection,
+            selection,
+            (catalog,),
+            self.artifacts,
+            None,
+            sessions,
+            actor=LOCAL_ACTOR,
+            source_snapshots=(snapshot,),
+        )
+
+        rows = tuple(bounded.run.rows)
+        self.assertTrue(
+            all(row.disposition is StagingDisposition.BLOCKED for row in rows)
+        )
+        self.assertTrue(
+            all(
+                any(
+                    issue.code == "SOURCE_IDENTITY_DUPLICATE"
+                    for issue in row.issues
+                )
+                for row in rows
+            )
+        )
+        database_path = (
+            sessions.project_directory(project.project_id) / "project.duckdb"
+        )
+        with sessions._connect(database_path) as connection:
+            storage = connection.execute(
+                """
+                SELECT
+                    (SELECT COALESCE(SUM(LENGTH(row_json)), 0)
+                       FROM canonical_staging_row WHERE run_id = ?),
+                    (SELECT COUNT(*) FROM canonical_staging_row_issue
+                      WHERE run_id = ?)
+                """,
+                [bounded.session_id, bounded.session_id],
+            ).fetchone()
+        self.assertEqual(storage, (0, 2))
+
+    def test_prepared_backed_projection_detects_artifact_corruption(self) -> None:
+        project, source_file, catalog = self._registered_csv(
+            b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
+        )
+        selection = _selection_for(project, source_file, catalog)
+        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
+            project,
+            selection,
+            selection.datasets[0],
+            catalog,
+            source_file,
+        ).snapshot
+        sessions = PreparationSessionRepository(self.database, self.artifacts)
+        bounded = prepare_bounded_direct_session(
+            project,
+            _direct_mapping(selection),
+            1,
+            selection,
+            selection,
+            (catalog,),
+            self.artifacts,
+            None,
+            sessions,
+            actor=LOCAL_ACTOR,
+            source_snapshots=(snapshot,),
+        )
+        storage_key = next(
+            iter(sessions.prepared_snapshot_storage_keys(project.project_id))
+        )
+        artifact_path = self.root / project.project_id / storage_key
+        artifact_path.write_bytes(artifact_path.read_bytes()[:16])
+
+        with self.assertRaisesRegex(
+            WorkspaceError,
+            "artifact could not be verified",
+        ):
+            tuple(bounded.run.rows)
 
     def test_unsupported_mapping_uses_one_dataset_wide_python_fallback(self) -> None:
         project, source_file, catalog = self._registered_csv(

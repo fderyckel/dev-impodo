@@ -75,6 +75,10 @@ from impodo.domain.staging.transformation_impact import (
 from impodo.secrets import MemorySecretStore
 from impodo.staging_contracts import CanonicalControlTotal
 from impodo.web.app import create_local_app
+from impodo.web.target_credentials import (
+    TargetCredentialRole,
+    get_target_credential,
+)
 from impodo.web.target_readers import _source_value_choices
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
@@ -882,6 +886,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         project_id = created.headers["location"].split("/")[2]
+        target_form = self.client.get(f"/projects/{project_id}/target")
+        self.assertIn('name="read_api_key"', target_form.text)
+        self.assertIn('name="remember_read_api_key"', target_form.text)
+        self.assertNotIn('name="write_api_key"', target_form.text)
 
         tested = self.client.post(
             f"/projects/{project_id}/target",
@@ -891,7 +899,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://edu-ucaps.odoo.com",
                 "odoo_database": "edu-ucaps",
-                "api_key": "remote-secret-key",
+                "read_api_key": "remote-secret-key",
                 "action": "test",
             },
             headers=POST_HEADERS,
@@ -912,12 +920,27 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn(">Check again</button>", result.text)
         self.assertRegex(result.text, r"data-local-stack-entry\s+hidden")
         self.assertNotIn("remote-secret-key", result.text)
+        project = self.app.state.context.projects.repository.get(project_id)
+        self.assertEqual(
+            get_target_credential(
+                self.secrets,
+                project,
+                TargetCredentialRole.READ,
+            ).secret,
+            "remote-secret-key",
+        )
+        self.assertIsNone(
+            get_target_credential(
+                self.secrets,
+                project,
+                TargetCredentialRole.WRITE,
+            )
+        )
 
         refreshed = self.client.get(f"/projects/{project_id}/target")
         self.assertIn("The Odoo connection is ready.", refreshed.text)
         self.assertEqual(len(self.connection_calls), 1)
 
-        project = self.app.state.context.projects.repository.get(project_id)
         changed = self.client.post(
             f"/projects/{project_id}/target",
             data={
@@ -939,6 +962,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             changed_target.text,
         )
         self.assertNotIn("Read-only access to edu-ucaps succeeded.", changed_target.text)
+        self.assertEqual(self.secrets.values, {})
 
         script = self.client.get("/static/app.js")
         self.assertIn("resetRemoteConnectionStatus", script.text)
@@ -2185,6 +2209,33 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(captured.status_code, 303)
         self.assertEqual(self.schema_calls, [(project_id, "super-secret-token")])
+        project = self.app.state.context.projects.repository.get(project_id)
+        read_credential = get_target_credential(
+            self.secrets,
+            project,
+            TargetCredentialRole.READ,
+        )
+        assert read_credential is not None
+        model_catalog = (
+            self.app.state.context.schema_workspace.schemas.get_odoo_model_catalog(
+                project_id
+            )
+        )
+        schema_catalog = (
+            self.app.state.context.schema_workspace.schemas.get_odoo_schema_catalog(
+                project_id
+            )
+        )
+        assert model_catalog is not None
+        assert schema_catalog is not None
+        self.assertEqual(
+            model_catalog.read_credential_binding_hash,
+            read_credential.binding_hash,
+        )
+        self.assertEqual(
+            schema_catalog.read_credential_binding_hash,
+            read_credential.binding_hash,
+        )
         schema_page = self.client.get(captured.headers["location"])
         self.assertIn("Tell Impodo how to find existing records", schema_page.text)
         self.assertIn("How should Impodo find an existing Contact?", schema_page.text)
@@ -2963,6 +3014,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("reviewed captured Odoo fields", load_page.text)
         self.assertIn("small batches in dependency order", load_page.text)
         self.assertIn("stop without retrying", load_page.text)
+        self.assertIn('name="write_api_key"', load_page.text)
+        self.assertIn('name="remember_write_api_key"', load_page.text)
+        self.assertIn("setup read key is never reused here", load_page.text)
 
         class FakeWriteExecutor:
             target_hash = load_preview.snapshot.target_hash
@@ -3033,24 +3087,47 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 return ()
 
         fake_writer = FakeWriteExecutor()
-        self.app.state.context.write_executor_factory = (
-            lambda _project, _api_key, _scope: fake_writer
+        write_factory_keys = []
+        readback_factory_keys = []
+
+        def write_factory(_project, api_key, _scope):
+            write_factory_keys.append(api_key)
+            return fake_writer
+
+        def readback_factory(_project, api_key, _scope):
+            readback_factory_keys.append(api_key)
+            return FakeReadbackReader(fake_writer)
+
+        self.app.state.context.write_executor_factory = write_factory
+        self.app.state.context.readback_reader_factory = readback_factory
+        missing_write_key = self.client.post(
+            f"/projects/{project_id}/load",
+            data={
+                "csrf_token": self.csrf,
+                "snapshot_hash": load_preview.snapshot.semantic_hash,
+                "batch_rows": "10",
+            },
+            headers=POST_HEADERS,
         )
-        self.app.state.context.readback_reader_factory = (
-            lambda _project, _api_key, _scope: FakeReadbackReader(fake_writer)
-        )
+        self.assertEqual(missing_write_key.status_code, 422)
+        self.assertIn("Enter a separate Odoo write API key", missing_write_key.text)
+        self.assertEqual(write_factory_keys, [])
+        self.assertEqual(readback_factory_keys, [])
+
         loaded = self.client.post(
             f"/projects/{project_id}/load",
             data={
                 "csrf_token": self.csrf,
                 "snapshot_hash": load_preview.snapshot.semantic_hash,
-                "api_key": "load-secret",
+                "write_api_key": "load-secret",
                 "batch_rows": "10",
             },
             headers=POST_HEADERS,
             follow_redirects=False,
         )
         self.assertEqual(loaded.status_code, 303, loaded.text)
+        self.assertEqual(write_factory_keys, ["load-secret"])
+        self.assertEqual(readback_factory_keys, ["load-secret"])
         outcome_page = self.client.get(loaded.headers["location"])
         self.assertIn("Odoo read-back complete", outcome_page.text)
         self.assertIn("Verified in Odoo", outcome_page.text)
@@ -3311,6 +3388,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(len(self.connection_calls), 1)
         self.assertEqual(self.connection_calls[0][1], "local-only-key")
+        self.assertEqual(self.secrets.values, {})
 
     def test_first_identity_mapping_save_persists_without_validation(self) -> None:
         project_id, dataset, business_key = self._mapping_ready_project(

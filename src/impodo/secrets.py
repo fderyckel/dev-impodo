@@ -14,7 +14,8 @@ import keyring
 from keyring.errors import KeyringError
 
 
-SERVICE_NAME = "Impodo Odoo read-only"
+READ_SERVICE_NAME = "Impodo Odoo read-only"
+WRITE_SERVICE_NAME = "Impodo Odoo write"
 
 
 class SecretStoreError(RuntimeError):
@@ -49,7 +50,10 @@ class CredentialVault:
         if credential_id in self._session:
             return self._session[credential_id]
         try:
-            return keyring.get_password(SERVICE_NAME, credential_id)
+            return keyring.get_password(
+                _service_name(credential_id),
+                credential_id,
+            )
         except KeyringError as error:
             raise SecretStoreError(
                 "Windows Credential Manager is unavailable"
@@ -64,7 +68,11 @@ class CredentialVault:
         self._session[credential_id] = clean_secret
         if persistent:
             try:
-                keyring.set_password(SERVICE_NAME, credential_id, clean_secret)
+                keyring.set_password(
+                    _service_name(credential_id),
+                    credential_id,
+                    clean_secret,
+                )
             except KeyringError as error:
                 raise SecretStoreError(
                     "Could not save the API key in Windows Credential Manager"
@@ -75,8 +83,9 @@ class CredentialVault:
 
         self._session.pop(credential_id, None)
         try:
-            if keyring.get_password(SERVICE_NAME, credential_id) is not None:
-                keyring.delete_password(SERVICE_NAME, credential_id)
+            service_name = _service_name(credential_id)
+            if keyring.get_password(service_name, credential_id) is not None:
+                keyring.delete_password(service_name, credential_id)
         except KeyringError as error:
             raise SecretStoreError(
                 "Could not delete the API key from Windows Credential Manager"
@@ -104,3 +113,12 @@ class MemorySecretStore:
         """Remove a test secret if present."""
 
         self.values.pop(credential_id, None)
+
+
+def _service_name(credential_id: str) -> str:
+    """Route role-prefixed IDs while retaining the legacy read namespace."""
+
+    parts = credential_id.rsplit(":", 2)
+    if len(parts) == 3 and parts[1] == "write":
+        return WRITE_SERVICE_NAME
+    return READ_SERVICE_NAME

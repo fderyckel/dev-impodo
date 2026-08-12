@@ -47,6 +47,7 @@ from ..domain.serialization import content_hash
 
 
 _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
+_CONTENT_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class SchemaProjectReader(Protocol):
@@ -145,6 +146,7 @@ class SchemaWorkspaceService:
         project_id: str,
         snapshot: RecordSnapshot,
         *,
+        read_credential_binding_hash: str,
         actor: Actor,
     ) -> OdooModelCatalog:
         """Store concrete model choices returned by the connected Odoo."""
@@ -163,6 +165,7 @@ class SchemaWorkspaceService:
             raise WorkspaceError(
                 "Configure the Odoo target before discovering models"
             )
+        _validate_read_credential_binding_hash(read_credential_binding_hash)
         if not snapshot.complete:
             raise WorkspaceError("Odoo model discovery response is incomplete")
         if snapshot.fingerprint.target_hash != _target_identity_hash(project):
@@ -223,6 +226,7 @@ class SchemaWorkspaceService:
         target_hash = _target_identity_hash(project)
         content = {
             "target_hash": target_hash,
+            "read_credential_binding_hash": read_credential_binding_hash,
             "fingerprint": snapshot.fingerprint.portable_dict(),
             "models": [asdict(model) for model in ordered],
         }
@@ -236,6 +240,7 @@ class SchemaWorkspaceService:
             odoo_version=snapshot.fingerprint.odoo_version,
             models=ordered,
             content_hash=content_hash(content),
+            read_credential_binding_hash=read_credential_binding_hash,
         )
         self.schemas.save_odoo_model_catalog(
             project_id,
@@ -249,11 +254,13 @@ class SchemaWorkspaceService:
         project_id: str,
         snapshot: MetadataSnapshot,
         *,
+        read_credential_binding_hash: str,
         actor: Actor,
     ) -> OdooSchemaCatalog:
         """Capture a verified catalog through the connected read-only reader."""
 
         project, permitted = self._capture_context(project_id, actor=actor)
+        _validate_read_credential_binding_hash(read_credential_binding_hash)
         if not snapshot.complete:
             raise WorkspaceError("Odoo schema response is incomplete")
         if set(snapshot.models) != permitted:
@@ -276,6 +283,15 @@ class SchemaWorkspaceService:
         if not snapshot.fingerprint.odoo_version.startswith("19."):
             raise WorkspaceError("Odoo schema capture requires Odoo 19")
         discovered = self.schemas.get_odoo_model_catalog(project_id)
+        if (
+            discovered is not None
+            and discovered.read_credential_binding_hash
+            != read_credential_binding_hash
+        ):
+            raise WorkspaceError(
+                "The Odoo read credential changed; refresh the model catalogue "
+                "before capturing schema"
+            )
         discovered_labels = (
             {model.name: model.label for model in discovered.models}
             if discovered
@@ -319,6 +335,7 @@ class SchemaWorkspaceService:
             odoo_version=snapshot.fingerprint.odoo_version,
             fingerprint=snapshot.fingerprint.portable_dict(),
             origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash=read_credential_binding_hash,
             actor=actor,
         )
 
@@ -327,11 +344,13 @@ class SchemaWorkspaceService:
         project_id: str,
         models: Iterable[SchemaModel],
         *,
+        read_credential_binding_hash: str,
         actor: Actor,
     ) -> OdooSchemaCatalog:
         """Store an explicitly unverified schema draft for local work."""
 
         project, permitted = self._capture_context(project_id, actor=actor)
+        _validate_read_credential_binding_hash(read_credential_binding_hash)
         if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
             raise WorkspaceError(
                 "A manual schema draft is available only for Local Odoo"
@@ -353,6 +372,7 @@ class SchemaWorkspaceService:
                 "module_versions": {},
             },
             origin=SchemaOrigin.LOCAL_MANUAL,
+            read_credential_binding_hash=read_credential_binding_hash,
             actor=actor,
         )
 
@@ -429,6 +449,7 @@ class SchemaWorkspaceService:
         odoo_version: str,
         fingerprint: Mapping[str, object],
         origin: SchemaOrigin,
+        read_credential_binding_hash: str,
         actor: Actor,
     ) -> OdooSchemaCatalog:
         target_hash = content_hash(
@@ -445,6 +466,7 @@ class SchemaWorkspaceService:
         )
         content = {
             "target_hash": target_hash,
+            "read_credential_binding_hash": read_credential_binding_hash,
             "fingerprint": fingerprint,
             "origin": origin.value,
             "models": [asdict(model) for model in models],
@@ -460,6 +482,7 @@ class SchemaWorkspaceService:
             models=models,
             content_hash=content_hash(content),
             origin=origin,
+            read_credential_binding_hash=read_credential_binding_hash,
         )
         self.schemas.save_odoo_schema_catalog(
             project.project_id,
@@ -579,6 +602,11 @@ def _target_identity_hash(project: MigrationProject) -> str:
         base_url=project.odoo_base_url,
         database=project.odoo_database,
     )
+
+
+def _validate_read_credential_binding_hash(value: str) -> None:
+    if not _CONTENT_HASH.fullmatch(value):
+        raise WorkspaceError("Odoo read credential binding is invalid")
 
 
 def _split_module_names(value: object) -> tuple[str, ...]:

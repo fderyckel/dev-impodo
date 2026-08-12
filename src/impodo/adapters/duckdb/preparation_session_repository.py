@@ -12,10 +12,14 @@ from typing import overload
 from uuid import UUID, uuid4
 
 from ...access import Actor
+from ..polars_transformation import iter_polars_prepared_batches
+from ...artifacts import ArtifactStore, ArtifactStoreError, LocalArtifactStore
+from ...domain.staging.canonical_projection import canonical_prepared_session_row
 from ...domain.serialization import CanonicalJsonObjectHasher
 from ...domain.prepared_snapshot import PreparedSnapshot
 from ...domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
+    PreparedCanonicalProjection,
     PreparationSessionBindings,
     PreparationSessionStatus,
     PreparationSessionSummary,
@@ -194,6 +198,14 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
     def iter_encoded_batches(self, connection, batch_size: int):
         """Read exact stored JSON through the publication transaction."""
 
+        if self._direct:
+            yield from self._repository._iter_direct_encoded_batches(
+                self._project_id,
+                self._session_id,
+                batch_size=batch_size,
+                connection=connection,
+            )
+            return
         table = (
             "canonical_staging_row"
             if self._direct
@@ -254,6 +266,14 @@ class _SessionImpacts:
 
 class PreparationSessionRepository(DuckDbRepository):
     """Persist provisional rows and expose a bounded canonical publication."""
+
+    def __init__(
+        self,
+        database,
+        artifacts: ArtifactStore | None = None,
+    ) -> None:
+        super().__init__(database)
+        self._artifacts = artifacts or LocalArtifactStore(database.root)
 
     def _connect(self, path):
         """Use a smaller hardened buffer allowance for bounded session work."""
@@ -530,6 +550,120 @@ class PreparationSessionRepository(DuckDbRepository):
                         canonical_session_id,
                         snapshot.dataset_id,
                         snapshot.content_hash,
+                    ],
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def bind_prepared_canonical_projection(
+        self,
+        project_id: str,
+        session_id: str,
+        snapshot: PreparedSnapshot,
+        projection: PreparedCanonicalProjection,
+    ) -> None:
+        """Bind one native direct dataset to its immutable value carrier."""
+
+        if (
+            snapshot.project_id != project_id
+            or snapshot.dataset_id != projection.dataset_id
+            or snapshot.row_count != projection.row_count
+            or snapshot.transformation_program_hash
+            != projection.program.content_hash
+        ):
+            raise WorkspaceError(
+                "Prepared canonical projection does not match its snapshot"
+            )
+        canonical_session_id = self._session_id(session_id)
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        encoded = _canonical_json(projection.to_portable_dict())
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            connection.begin()
+            try:
+                self._require_status(
+                    connection,
+                    canonical_session_id,
+                    PreparationSessionStatus.BUILDING,
+                )
+                bindings = connection.execute(
+                    """
+                    SELECT source_selection_hash, mapping_hash, schema_hash,
+                           source_hashes_json
+                      FROM preparation_session
+                     WHERE session_id = ?
+                    """,
+                    [canonical_session_id],
+                ).fetchone()
+                if bindings is None:
+                    raise WorkspaceError("Preparation session was not found")
+                try:
+                    source_hashes = json.loads(str(bindings[3]))
+                except (TypeError, ValueError) as error:
+                    raise WorkspaceError(
+                        "Preparation session source bindings are invalid"
+                    ) from error
+                if (
+                    projection.program.source_selection_hash != str(bindings[0])
+                    or projection.program.mapping_content_hash != str(bindings[1])
+                    or projection.program.schema_hash != str(bindings[2])
+                    or not isinstance(source_hashes, dict)
+                    or source_hashes.get(projection.dataset)
+                    != projection.source_hash
+                ):
+                    raise WorkspaceError(
+                        "Prepared canonical projection bindings changed"
+                    )
+                snapshot_binding = connection.execute(
+                    """
+                    SELECT 1
+                      FROM preparation_session_snapshot
+                     WHERE session_id = ? AND dataset_id = ?
+                       AND content_hash = ?
+                    """,
+                    [
+                        canonical_session_id,
+                        snapshot.dataset_id,
+                        snapshot.content_hash,
+                    ],
+                ).fetchone()
+                if snapshot_binding is None:
+                    raise WorkspaceError(
+                        "Prepared snapshot is not bound to the session"
+                    )
+                overlap = connection.execute(
+                    """
+                    SELECT 1
+                      FROM canonical_prepared_projection
+                     WHERE run_id = ?
+                       AND ordinal_start < ?
+                       AND ordinal_start + row_count > ?
+                    """,
+                    [
+                        canonical_session_id,
+                        projection.ordinal_start + projection.row_count,
+                        projection.ordinal_start,
+                    ],
+                ).fetchone()
+                if overlap is not None:
+                    raise WorkspaceError(
+                        "Prepared canonical projection ordinals overlap"
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO canonical_prepared_projection
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        canonical_session_id,
+                        projection.dataset_id,
+                        projection.dataset,
+                        projection.ordinal_start,
+                        projection.row_count,
+                        snapshot.content_hash,
+                        encoded,
                     ],
                 )
                 connection.commit()
@@ -1110,30 +1244,19 @@ class PreparationSessionRepository(DuckDbRepository):
             ]
             duplicate_counts_by_ordinal = dict(duplicate_batch)
             ordinals = [item[0] for item in duplicate_batch]
-            with self._connect(database_path) as connection:
-                batch = connection.execute(
-                    """
-                    SELECT ordinal, row_json
-                      FROM canonical_staging_row
-                     WHERE run_id = ?
-                       AND ordinal IN (SELECT unnest(?))
-                     ORDER BY ordinal
-                    """,
-                    [canonical_session_id, ordinals],
-                ).fetchall()
-            if len(batch) != len(ordinals):
+            rows_by_ordinal = self._direct_rows_by_ordinal(
+                project_id,
+                canonical_session_id,
+                ordinals,
+            )
+            if len(rows_by_ordinal) != len(ordinals):
                 raise WorkspaceError(
                     "Direct duplicate rows are incomplete"
                 )
             values: list[list[object]] = []
-            for ordinal, row_text in batch:
-                identity_count = duplicate_counts_by_ordinal[int(ordinal)]
-                try:
-                    row = CanonicalRow.from_dict(json.loads(str(row_text)))
-                except (TypeError, ValueError) as error:
-                    raise WorkspaceError(
-                        "Stored direct preparation row is invalid"
-                    ) from error
+            for ordinal in ordinals:
+                identity_count = duplicate_counts_by_ordinal[ordinal]
+                row = rows_by_ordinal[ordinal]
                 duplicate = Issue(
                     code="SOURCE_IDENTITY_DUPLICATE",
                     message=(
@@ -1319,40 +1442,28 @@ class PreparationSessionRepository(DuckDbRepository):
                 for ordinal, base_disposition in identity_batch
             }
             ordinals = list(base_by_ordinal)
-            with self._connect(database_path) as connection:
-                batch = connection.execute(
-                    """
-                    SELECT ordinal, row_json
-                      FROM canonical_staging_row
-                     WHERE run_id = ?
-                       AND ordinal IN (SELECT unnest(?))
-                     ORDER BY ordinal
-                    """,
-                    [session_id, ordinals],
-                ).fetchall()
-            if len(batch) != len(ordinals):
+            rows_by_ordinal = self._direct_rows_by_ordinal(
+                project_id,
+                session_id,
+                ordinals,
+            )
+            if len(rows_by_ordinal) != len(ordinals):
                 raise WorkspaceError(
                     "Direct duplicate rows are incomplete"
                 )
             values: list[list[object]] = []
-            for ordinal, row_text in batch:
-                try:
-                    row = CanonicalRow.from_dict(json.loads(str(row_text)))
-                    row = replace(
-                        row,
-                        disposition=StagingDisposition(
-                            base_by_ordinal[int(ordinal)]
-                        ),
-                        issues=tuple(
-                            issue
-                            for issue in row.issues
-                            if issue.code != "SOURCE_IDENTITY_DUPLICATE"
-                        ),
-                    )
-                except (TypeError, ValueError) as error:
-                    raise WorkspaceError(
-                        "Stored direct preparation row is invalid"
-                    ) from error
+            for ordinal in ordinals:
+                row = replace(
+                    rows_by_ordinal[ordinal],
+                    disposition=StagingDisposition(
+                        base_by_ordinal[ordinal]
+                    ),
+                    issues=tuple(
+                        issue
+                        for issue in rows_by_ordinal[ordinal].issues
+                        if issue.code != "SOURCE_IDENTITY_DUPLICATE"
+                    ),
+                )
                 values.append(
                     [
                         int(ordinal),
@@ -1419,6 +1530,34 @@ class PreparationSessionRepository(DuckDbRepository):
     ) -> None:
         if not values:
             return
+        overlay_rows: list[list[object]] = []
+        ordinals = [int(item[0]) for item in values]
+        for ordinal, _disposition, row_text, finalized in values:
+            if not bool(finalized):
+                continue
+            try:
+                row = CanonicalRow.from_dict(json.loads(str(row_text)))
+            except (TypeError, ValueError) as error:
+                raise WorkspaceError(
+                    "Stored direct preparation row is invalid"
+                ) from error
+            duplicate_issues = tuple(
+                issue
+                for issue in row.issues
+                if issue.code == "SOURCE_IDENTITY_DUPLICATE"
+            )
+            if len(duplicate_issues) != 1:
+                raise WorkspaceError(
+                    "Direct duplicate issue evidence is invalid"
+                )
+            overlay_rows.append(
+                [
+                    run_id,
+                    int(ordinal),
+                    0,
+                    _canonical_json(duplicate_issues[0].to_portable_dict()),
+                ]
+            )
         database_path = self.project_directory(project_id) / "project.duckdb"
         with self._connect(database_path) as connection:
             connection.begin()
@@ -1427,7 +1566,10 @@ class PreparationSessionRepository(DuckDbRepository):
                     """
                     UPDATE canonical_staging_row AS target
                        SET disposition = updates.disposition,
-                           row_json = updates.row_json
+                           row_json = CASE
+                               WHEN target.row_json = '' THEN ''
+                               ELSE updates.row_json
+                           END
                       FROM (
                           SELECT unnest(?) AS ordinal,
                                  unnest(?) AS disposition,
@@ -1439,6 +1581,22 @@ class PreparationSessionRepository(DuckDbRepository):
                     """,
                     [*_columnar_parameters(values), run_id],
                 )
+                connection.execute(
+                    """
+                    DELETE FROM canonical_staging_row_issue
+                     WHERE run_id = ?
+                       AND ordinal IN (SELECT unnest(?))
+                    """,
+                    [run_id, ordinals],
+                )
+                if overlay_rows:
+                    connection.execute(
+                        """
+                        INSERT INTO canonical_staging_row_issue
+                        SELECT unnest(?), unnest(?), unnest(?), unnest(?)
+                        """,
+                        _columnar_parameters(overlay_rows),
+                    )
                 connection.execute(
                     """
                     UPDATE preparation_direct_identity AS target
@@ -2440,65 +2598,53 @@ class PreparationSessionRepository(DuckDbRepository):
             reconciliation.to_portable_dict(),
         )
         hasher.start_array("rows")
-        database_path = self.project_directory(project_id) / "project.duckdb"
         expected_ordinal = 0
-        with self._connect(database_path) as connection:
-            while batch := connection.execute(
-                """
-                SELECT ordinal, row_id, dataset, source_row, target_model,
-                       disposition, row_json
-                  FROM canonical_staging_row
-                 WHERE run_id = ? AND ordinal >= ?
-                 ORDER BY ordinal
-                 LIMIT ?
-                """,
-                [
-                    run_id,
-                    expected_ordinal,
-                    PREPARATION_SESSION_ROW_BATCH_SIZE,
-                ],
-            ).fetchall():
-                for (
-                    ordinal,
-                    row_id,
-                    dataset,
-                    source_row,
-                    target_model,
-                    disposition,
-                    row_text,
-                ) in batch:
-                    if int(ordinal) != expected_ordinal:
-                        raise WorkspaceError(
-                            "Stored direct preparation rows are not contiguous"
-                        )
-                    encoded = str(row_text)
-                    try:
-                        row = CanonicalRow.from_dict(json.loads(encoded))
-                        validate_canonical_row_bindings(
-                            row,
-                            source_selection_hash=(
-                                bindings.source_selection_hash
-                            ),
-                            mapping_hash=bindings.mapping_hash,
-                            schema_hash=bindings.schema_hash,
-                            derived_plan_hash=bindings.derived_plan_hash,
-                        )
-                    except (TypeError, ValueError) as error:
-                        raise WorkspaceError(
-                            "Stored direct preparation row is invalid"
-                        ) from error
-                    if (
-                        row.row_id != str(row_id)
-                        or row.dataset != str(dataset)
-                        or row.source_row != int(source_row)
-                        or row.target_model != str(target_model)
-                        or row.disposition.value != str(disposition)
-                    ):
-                        raise WorkspaceError(
-                            "Stored direct preparation row metadata is inconsistent"
-                        )
-                    hasher.add_encoded_array_item(encoded)
-                    expected_ordinal += 1
+        for batch in self._iter_direct_encoded_batches(
+            project_id,
+            run_id,
+            batch_size=PREPARATION_SESSION_ROW_BATCH_SIZE,
+        ):
+            for (
+                ordinal,
+                row_id,
+                dataset,
+                source_row,
+                target_model,
+                disposition,
+                row_text,
+            ) in batch:
+                if int(ordinal) != expected_ordinal:
+                    raise WorkspaceError(
+                        "Stored direct preparation rows are not contiguous"
+                    )
+                encoded = str(row_text)
+                try:
+                    row = CanonicalRow.from_dict(json.loads(encoded))
+                    validate_canonical_row_bindings(
+                        row,
+                        source_selection_hash=(
+                            bindings.source_selection_hash
+                        ),
+                        mapping_hash=bindings.mapping_hash,
+                        schema_hash=bindings.schema_hash,
+                        derived_plan_hash=bindings.derived_plan_hash,
+                    )
+                except (TypeError, ValueError) as error:
+                    raise WorkspaceError(
+                        "Stored direct preparation row is invalid"
+                    ) from error
+                if (
+                    row.row_id != str(row_id)
+                    or row.dataset != str(dataset)
+                    or row.source_row != int(source_row)
+                    or row.target_model != str(target_model)
+                    or row.disposition.value != str(disposition)
+                ):
+                    raise WorkspaceError(
+                        "Stored direct preparation row metadata is inconsistent"
+                    )
+                hasher.add_encoded_array_item(encoded)
+                expected_ordinal += 1
         hasher.end_array()
         hasher.add_value("schema_hash", bindings.schema_hash)
         hasher.add_value(
@@ -2506,6 +2652,363 @@ class PreparationSessionRepository(DuckDbRepository):
             bindings.source_selection_hash,
         )
         return hasher.finish(), expected_ordinal
+
+    def _iter_direct_encoded_batches(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        batch_size: int,
+        connection=None,
+    ):
+        """Yield stored or prepared-backed canonical JSON in ordinal order."""
+
+        if connection is None:
+            database_path = self.project_directory(project_id) / "project.duckdb"
+            with self._connect(database_path) as owned_connection:
+                self._ensure_project_database_schema(owned_connection)
+                yield from self._iter_direct_encoded_batches(
+                    project_id,
+                    run_id,
+                    batch_size=batch_size,
+                    connection=owned_connection,
+                )
+            return
+        canonical_run_id = self._session_id(run_id)
+        raw_projections = connection.execute(
+            """
+            SELECT projection.ordinal_start, projection.row_count,
+                   projection.projection_json, manifest.manifest_json
+              FROM canonical_prepared_projection AS projection
+              JOIN prepared_snapshot_manifest AS manifest
+                ON manifest.content_hash = projection.prepared_snapshot_hash
+               AND manifest.dataset_id = projection.dataset_id
+             WHERE projection.run_id = ?
+             ORDER BY projection.ordinal_start
+            """,
+            [canonical_run_id],
+        ).fetchall()
+        projections: list[
+            tuple[int, int, PreparedCanonicalProjection, PreparedSnapshot]
+        ] = []
+        for ordinal_start, row_count, projection_text, manifest_text in (
+            raw_projections
+        ):
+            try:
+                projection = PreparedCanonicalProjection.from_portable_dict(
+                    json.loads(str(projection_text))
+                )
+                snapshot = PreparedSnapshot.from_json(str(manifest_text))
+            except (TypeError, ValueError) as error:
+                raise WorkspaceError(
+                    "Prepared canonical projection is invalid"
+                ) from error
+            if (
+                projection.ordinal_start != int(ordinal_start)
+                or projection.row_count != int(row_count)
+                or projection.dataset_id != snapshot.dataset_id
+                or projection.row_count != snapshot.row_count
+                or projection.program.content_hash
+                != snapshot.transformation_program_hash
+                or projection.program.mapping_content_hash
+                != snapshot.mapping_hash
+                or projection.program.schema_hash != snapshot.schema_hash
+            ):
+                raise WorkspaceError(
+                    "Prepared canonical projection metadata changed"
+                )
+            projections.append(
+                (
+                    int(ordinal_start),
+                    int(row_count),
+                    projection,
+                    snapshot,
+                )
+            )
+
+        next_ordinal = 0
+        for ordinal_start, row_count, projection, snapshot in projections:
+            if ordinal_start < next_ordinal:
+                raise WorkspaceError(
+                    "Prepared canonical projection ordinals overlap"
+                )
+            yield from self._iter_stored_direct_encoded_batches(
+                connection,
+                canonical_run_id,
+                start=next_ordinal,
+                stop=ordinal_start,
+                batch_size=batch_size,
+            )
+            projection_end = ordinal_start + row_count
+            counts = connection.execute(
+                """
+                SELECT COUNT(*),
+                       COUNT(*) FILTER (WHERE row_json = '')
+                  FROM canonical_staging_row
+                 WHERE run_id = ?
+                   AND ordinal >= ? AND ordinal < ?
+                """,
+                [canonical_run_id, ordinal_start, projection_end],
+            ).fetchone()
+            if counts is None or int(counts[0]) != row_count:
+                raise WorkspaceError(
+                    "Prepared canonical row index is incomplete"
+                )
+            empty_count = int(counts[1])
+            if empty_count == 0:
+                yield from self._iter_stored_direct_encoded_batches(
+                    connection,
+                    canonical_run_id,
+                    start=ordinal_start,
+                    stop=projection_end,
+                    batch_size=batch_size,
+                )
+            elif empty_count == row_count:
+                yield from self._iter_projected_dataset_encoded_batches(
+                    project_id,
+                    canonical_run_id,
+                    projection,
+                    snapshot,
+                    batch_size=batch_size,
+                    connection=connection,
+                )
+            else:
+                raise WorkspaceError(
+                    "Prepared canonical value storage is inconsistent"
+                )
+            next_ordinal = projection_end
+        yield from self._iter_stored_direct_encoded_batches(
+            connection,
+            canonical_run_id,
+            start=next_ordinal,
+            stop=None,
+            batch_size=batch_size,
+        )
+
+    @staticmethod
+    def _iter_stored_direct_encoded_batches(
+        connection,
+        run_id: str,
+        *,
+        start: int,
+        stop: int | None,
+        batch_size: int,
+    ):
+        next_ordinal = start
+        while True:
+            if stop is not None and next_ordinal >= stop:
+                return
+            limit = (
+                batch_size
+                if stop is None
+                else min(batch_size, stop - next_ordinal)
+            )
+            batch = connection.execute(
+                """
+                SELECT ordinal, row_id, dataset, source_row, target_model,
+                       disposition, row_json
+                  FROM canonical_staging_row
+                 WHERE run_id = ? AND ordinal >= ?
+                   AND (? IS NULL OR ordinal < ?)
+                 ORDER BY ordinal
+                 LIMIT ?
+                """,
+                [run_id, next_ordinal, stop, stop, limit],
+            ).fetchall()
+            if not batch:
+                return
+            yield batch
+            next_ordinal += len(batch)
+
+    def _iter_projected_dataset_encoded_batches(
+        self,
+        project_id: str,
+        run_id: str,
+        projection: PreparedCanonicalProjection,
+        snapshot: PreparedSnapshot,
+        *,
+        batch_size: int,
+        connection,
+    ):
+        try:
+            artifact_context = self._artifacts.materialize_prepared_snapshot(
+                project_id,
+                snapshot.parquet_storage_key,
+                expected_sha256=snapshot.parquet_sha256,
+            )
+            with artifact_context as path:
+                local_offset = 0
+                for native_batch in iter_polars_prepared_batches(
+                    path,
+                    snapshot,
+                    None,
+                    projection.program,
+                    batch_size=batch_size,
+                    materialize_records=False,
+                    collect_impacts=False,
+                ):
+                    start = projection.ordinal_start + local_offset
+                    stop = start + len(native_batch.source_rows)
+                    metadata = connection.execute(
+                        """
+                        SELECT ordinal, row_id, dataset, source_row,
+                               target_model, disposition
+                          FROM canonical_staging_row
+                         WHERE run_id = ?
+                           AND ordinal >= ? AND ordinal < ?
+                         ORDER BY ordinal
+                        """,
+                        [run_id, start, stop],
+                    ).fetchall()
+                    if len(metadata) != len(native_batch.source_rows):
+                        raise WorkspaceError(
+                            "Prepared canonical row index is incomplete"
+                        )
+                    issue_rows = connection.execute(
+                        """
+                        SELECT ordinal, issue_ordinal, issue_json
+                          FROM canonical_staging_row_issue
+                         WHERE run_id = ?
+                           AND ordinal >= ? AND ordinal < ?
+                         ORDER BY ordinal, issue_ordinal
+                        """,
+                        [run_id, start, stop],
+                    ).fetchall()
+                    overlays: dict[int, list[CanonicalIssue]] = {}
+                    for ordinal, _issue_ordinal, issue_text in issue_rows:
+                        try:
+                            issue = CanonicalIssue.from_dict(
+                                json.loads(str(issue_text))
+                            )
+                        except (TypeError, ValueError) as error:
+                            raise WorkspaceError(
+                                "Prepared canonical row issue is invalid"
+                            ) from error
+                        overlays.setdefault(int(ordinal), []).append(issue)
+                    encoded_batch = []
+                    values = zip(
+                        metadata,
+                        native_batch.source_rows,
+                        native_batch.source_identities,
+                        native_batch.target_identities,
+                        native_batch.target_scopes,
+                        native_batch.scalar_values,
+                        native_batch.issues,
+                        strict=True,
+                    )
+                    for (
+                        metadata_row,
+                        source_row,
+                        source_identity,
+                        target_identity,
+                        target_scope,
+                        scalar_values,
+                        issues,
+                    ) in values:
+                        ordinal = int(metadata_row[0])
+                        projected = canonical_prepared_session_row(
+                            dataset=projection.dataset,
+                            source_row=source_row,
+                            target_model=projection.program.target_model,
+                            source_identity=source_identity,
+                            target_identity=target_identity,
+                            target_scope=target_scope,
+                            scalar_values=scalar_values,
+                            issues=issues,
+                            ordinal=ordinal,
+                            mode=projection.mode,
+                            source_hash=projection.source_hash,
+                            source_selection_hash=(
+                                projection.program.source_selection_hash
+                            ),
+                            mapping_hash=(
+                                projection.program.mapping_content_hash
+                            ),
+                            schema_hash=projection.program.schema_hash,
+                            field_sources=projection.field_sources,
+                            physical_dataset_id=(
+                                projection.physical_dataset_id
+                            ),
+                        )
+                        try:
+                            row = CanonicalRow.from_dict(
+                                json.loads(projected.row_json)
+                            )
+                        except (TypeError, ValueError) as error:
+                            raise WorkspaceError(
+                                "Projected canonical row is invalid"
+                            ) from error
+                        overlay = tuple(overlays.get(ordinal, ()))
+                        stored_disposition = StagingDisposition(
+                            str(metadata_row[5])
+                        )
+                        if overlay or row.disposition is not stored_disposition:
+                            row = replace(
+                                row,
+                                disposition=stored_disposition,
+                                issues=(*row.issues, *overlay),
+                            )
+                        if (
+                            row.row_id != str(metadata_row[1])
+                            or row.dataset != str(metadata_row[2])
+                            or row.source_row != int(metadata_row[3])
+                            or row.target_model != str(metadata_row[4])
+                        ):
+                            raise WorkspaceError(
+                                "Prepared canonical row index changed"
+                            )
+                        encoded_batch.append(
+                            (
+                                ordinal,
+                                row.row_id,
+                                row.dataset,
+                                row.source_row,
+                                row.target_model,
+                                row.disposition.value,
+                                _canonical_json(row.to_portable_dict()),
+                            )
+                        )
+                    yield encoded_batch
+                    local_offset += len(native_batch.source_rows)
+                if local_offset != projection.row_count:
+                    raise WorkspaceError(
+                        "Prepared canonical projection row count changed"
+                    )
+        except ArtifactStoreError as error:
+            raise WorkspaceError(
+                "Prepared canonical value artifact could not be verified"
+            ) from error
+
+    def _direct_rows_by_ordinal(
+        self,
+        project_id: str,
+        run_id: str,
+        ordinals: Sequence[int],
+    ) -> dict[int, CanonicalRow]:
+        wanted = {int(item) for item in ordinals}
+        if not wanted:
+            return {}
+        rows: dict[int, CanonicalRow] = {}
+        maximum = max(wanted)
+        for batch in self._iter_direct_encoded_batches(
+            project_id,
+            run_id,
+            batch_size=PREPARATION_SESSION_ROW_BATCH_SIZE,
+        ):
+            for ordinal, *_metadata, row_text in batch:
+                observed = int(ordinal)
+                if observed in wanted:
+                    try:
+                        rows[observed] = CanonicalRow.from_dict(
+                            json.loads(str(row_text))
+                        )
+                    except (TypeError, ValueError) as error:
+                        raise WorkspaceError(
+                            "Stored direct preparation row is invalid"
+                        ) from error
+                if observed >= maximum:
+                    return rows
+        return rows
 
     def _load_final_row_range(
         self,
@@ -2518,6 +3021,20 @@ class PreparationSessionRepository(DuckDbRepository):
     ) -> tuple[CanonicalRow, ...]:
         if stop <= start:
             return ()
+        if direct:
+            rows: list[CanonicalRow] = []
+            for batch in self._iter_direct_encoded_batches(
+                project_id,
+                session_id,
+                batch_size=PREPARATION_SESSION_ROW_BATCH_SIZE,
+            ):
+                for ordinal, *_metadata, row_text in batch:
+                    observed = int(ordinal)
+                    if observed >= stop:
+                        return tuple(rows)
+                    if observed >= start:
+                        rows.append(self._canonical_row(str(row_text)))
+            return tuple(rows)
         database_path = self.project_directory(project_id) / "project.duckdb"
         table = (
             "canonical_staging_row" if direct else "preparation_final_row"
@@ -2544,6 +3061,21 @@ class PreparationSessionRepository(DuckDbRepository):
         *,
         direct: bool = False,
     ) -> Iterator[CanonicalRow]:
+        if direct:
+            next_ordinal = 0
+            for batch in self._iter_direct_encoded_batches(
+                project_id,
+                session_id,
+                batch_size=PREPARATION_SESSION_ROW_BATCH_SIZE,
+            ):
+                for ordinal, *_metadata, row_text in batch:
+                    if int(ordinal) != next_ordinal:
+                        raise WorkspaceError(
+                            "Stored preparation final rows are not contiguous"
+                        )
+                    next_ordinal += 1
+                    yield self._canonical_row(str(row_text))
+            return
         database_path = self.project_directory(project_id) / "project.duckdb"
         table = (
             "canonical_staging_row" if direct else "preparation_final_row"
@@ -2629,6 +3161,14 @@ class PreparationSessionRepository(DuckDbRepository):
             [canonical, StagingRunStatus.PENDING.value],
         ).fetchone()
         if pending is not None:
+            connection.execute(
+                "DELETE FROM canonical_staging_row_issue WHERE run_id = ?",
+                [canonical],
+            )
+            connection.execute(
+                "DELETE FROM canonical_prepared_projection WHERE run_id = ?",
+                [canonical],
+            )
             connection.execute(
                 "DELETE FROM canonical_staging_row WHERE run_id = ?",
                 [canonical],

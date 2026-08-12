@@ -151,13 +151,13 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="execution_run_id" value="{{ preview.current_run.run_id }}">
           <label>
-            Odoo API key
-            <input type="password" name="api_key" autocomplete="current-password" {% if not has_stored_key %}required{% endif %}>
-            <small>{% if has_stored_key %}Leave empty to use the saved key.{% else %}Required to read the written records back from Odoo.{% endif %}</small>
+            Odoo write API key
+            <input type="password" name="write_api_key" autocomplete="current-password" {% if not has_stored_write_key %}required{% endif %}>
+            <small>{% if has_stored_write_key %}Leave empty to use the saved write key.{% else %}Enter the separate write key used for loading and read-back; the setup read key is never reused here.{% endif %}</small>
           </label>
           <label class="checkbox">
-            <input type="checkbox" name="remember_api_key">
-            <span>Remember this key on this computer</span>
+            <input type="checkbox" name="remember_write_api_key">
+            <span>Remember this write key on this computer</span>
           </label>
           <button class="button primary" type="submit">Verify in Odoo</button>
         </form>
@@ -209,13 +209,13 @@
           </small>
         </label>
         <label>
-          Odoo API key
-          <input type="password" name="api_key" autocomplete="current-password" {% if not has_stored_key %}required{% endif %}>
-          <small>{% if has_stored_key %}A saved key is available; leave this empty to use it.{% else %}Required by Odoo's JSON-2 API for this exact target.{% endif %}</small>
+          Odoo write API key
+          <input type="password" name="write_api_key" autocomplete="current-password" {% if not has_stored_write_key %}required{% endif %}>
+          <small>{% if has_stored_write_key %}A saved write key is available; leave this empty to use it.{% else %}Enter a separate write key for loading and read-back on this exact target. The setup read key is never reused here.{% endif %}</small>
         </label>
         <label class="checkbox">
-          <input type="checkbox" name="remember_api_key">
-          <span>Remember this key on this computer</span>
+          <input type="checkbox" name="remember_write_api_key">
+          <span>Remember this write key on this computer</span>
         </label>
         <button class="button primary" type="submit">Load into Odoo</button>
       </form>

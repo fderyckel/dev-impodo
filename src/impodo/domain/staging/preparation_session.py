@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Mapping, Sequence
 
+from ..compiler.columnar_transformation import ColumnarTransformationProgram
 from ...models import (
     Issue,
     PreparedRecord,
@@ -86,6 +87,84 @@ class CanonicalPreparedSessionRow:
     source_identity: tuple[Any, ...]
     row_json: str
     physical_sources: Mapping[str, tuple[int, ...]]
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedCanonicalProjection:
+    """Versioned recipe for reconstructing direct canonical value rows."""
+
+    dataset_id: str
+    dataset: str
+    ordinal_start: int
+    row_count: int
+    mode: str
+    source_hash: str
+    physical_dataset_id: str
+    field_sources: Mapping[str, tuple[str, ...]]
+    program: ColumnarTransformationProgram
+    contract_version: int = 1
+
+    def __post_init__(self) -> None:
+        if (
+            self.dataset_id != self.program.dataset_id
+            or self.dataset != self.program.dataset_name
+            or self.mode != self.program.target_mode
+            or self.physical_dataset_id != self.dataset_id
+            or self.ordinal_start < 0
+            or self.row_count < 0
+            or self.contract_version != 1
+        ):
+            raise ValueError("Prepared canonical projection is invalid")
+
+    def to_portable_dict(self) -> dict[str, Any]:
+        return {
+            "contract_version": self.contract_version,
+            "dataset_id": self.dataset_id,
+            "dataset": self.dataset,
+            "ordinal_start": self.ordinal_start,
+            "row_count": self.row_count,
+            "mode": self.mode,
+            "source_hash": self.source_hash,
+            "physical_dataset_id": self.physical_dataset_id,
+            "field_sources": {
+                field: list(sources)
+                for field, sources in sorted(self.field_sources.items())
+            },
+            "program": self.program.to_portable_dict(),
+            "program_hash": self.program.content_hash,
+        }
+
+    @classmethod
+    def from_portable_dict(
+        cls,
+        payload: Mapping[str, Any],
+    ) -> "PreparedCanonicalProjection":
+        program_payload = payload.get("program")
+        if not isinstance(program_payload, Mapping):
+            raise ValueError("Prepared canonical projection program is invalid")
+        program = ColumnarTransformationProgram.from_portable_dict(
+            program_payload
+        )
+        if payload.get("program_hash") != program.content_hash:
+            raise ValueError("Prepared canonical projection program changed")
+        raw_field_sources = payload.get("field_sources", {})
+        if not isinstance(raw_field_sources, Mapping):
+            raise ValueError("Prepared canonical field sources are invalid")
+        return cls(
+            dataset_id=str(payload["dataset_id"]),
+            dataset=str(payload["dataset"]),
+            ordinal_start=int(payload["ordinal_start"]),
+            row_count=int(payload["row_count"]),
+            mode=str(payload["mode"]),
+            source_hash=str(payload["source_hash"]),
+            physical_dataset_id=str(payload["physical_dataset_id"]),
+            field_sources={
+                str(field): tuple(str(source) for source in sources)
+                for field, sources in raw_field_sources.items()
+            },
+            program=program,
+            contract_version=int(payload.get("contract_version", 0)),
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -10,7 +10,6 @@ boundary and are never passed into the preflight domain or report.
 from __future__ import annotations
 
 from collections import Counter
-import hashlib
 
 from starlette.concurrency import run_in_threadpool
 
@@ -40,6 +39,11 @@ from .constants import (
     VALUE_MATCH_MAX_TARGET_CHOICES,
 )
 from .context import WebContext
+from .target_credentials import (
+    TargetCredentialRole,
+    get_target_credential,
+    local_read_credential_binding_hash,
+)
 
 
 def _test_connection(
@@ -171,18 +175,25 @@ async def _refresh_model_catalog(
             project,
             local_profile,
         )
+        read_credential_binding_hash = local_read_credential_binding_hash(project)
     else:
-        api_key = context.secret_store.get(_target_credential_id(project))
-        if not api_key:
+        credential = get_target_credential(
+            context.secret_store,
+            project,
+            TargetCredentialRole.READ,
+        )
+        if credential is None:
             raise WorkspaceError(_missing_schema_reader_message(project))
         snapshot = await run_in_threadpool(
             context.model_catalog_reader,
             project,
-            api_key,
+            credential.secret,
         )
+        read_credential_binding_hash = credential.binding_hash
     catalog = context.schema_workspace.discover_models(
         project.project_id,
         snapshot,
+        read_credential_binding_hash=read_credential_binding_hash,
         actor=context.actor,
     )
     if local_profile is not None:
@@ -274,10 +285,14 @@ def _read_readiness_snapshots(
             record_requests,
             related_models=related_models,
         )
-    api_key = context.secret_store.get(_target_credential_id(project))
-    if not api_key:
+    credential = get_target_credential(
+        context.secret_store,
+        project,
+        TargetCredentialRole.READ,
+    )
+    if credential is None:
         raise SecretStoreError(
-            "Enter an Odoo API key for this remote target before checking data."
+            "Enter the Odoo read API key for this remote target before checking data."
         )
     if project.odoo_connection_mode is None:
         raise WorkspaceError("Configure the Odoo target before checking data")
@@ -285,7 +300,7 @@ def _read_readiness_snapshots(
         Json2Config(
             base_url=project.odoo_base_url,
             database=project.odoo_database,
-            api_key=api_key,
+            api_key=credential.secret,
             connection_mode=project.odoo_connection_mode.value,
         )
     )
@@ -475,23 +490,3 @@ def _relationship_value_choices(
         tuple(sorted(choices, key=lambda item: item["label"].casefold())),
         ambiguous,
     )
-
-
-def _target_credential_id(project: MigrationProject) -> str:
-    """Bind a stored API key to one project and exact Odoo destination."""
-
-    connection_mode = (
-        project.odoo_connection_mode.value
-        if project.odoo_connection_mode
-        else ""
-    )
-    target = "\0".join(
-        (
-            project.project_id,
-            connection_mode,
-            project.odoo_base_url,
-            project.odoo_database,
-        )
-    ).encode("utf-8")
-    digest = hashlib.sha256(target).hexdigest()[:24]
-    return f"{project.project_id}:{digest}"

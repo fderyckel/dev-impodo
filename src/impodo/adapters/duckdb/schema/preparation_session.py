@@ -153,5 +153,13 @@ def create_preparation_session_schema(
             ON preparation_direct_identity (
                 session_id, dataset, identity_hash
             );
+
+        CREATE TABLE IF NOT EXISTS canonical_staging_row_issue (
+            run_id VARCHAR NOT NULL,
+            ordinal BIGINT NOT NULL,
+            issue_ordinal INTEGER NOT NULL,
+            issue_json VARCHAR NOT NULL,
+            PRIMARY KEY (run_id, ordinal, issue_ordinal)
+        );
         """
     )

@@ -201,6 +201,7 @@ class OdooModelCatalog:
     odoo_version: str
     models: tuple[OdooModelSummary, ...]
     content_hash: str
+    read_credential_binding_hash: str = ""
 
     def to_json(self) -> str:
         """Serialize the target-bound persistent-model choices."""
@@ -230,6 +231,10 @@ class OdooModelCatalog:
                 for model in payload["models"]
             ),
             content_hash=payload["content_hash"],
+            read_credential_binding_hash=payload.get(
+                "read_credential_binding_hash",
+                "",
+            ),
         )
 
 
@@ -259,6 +264,7 @@ class OdooSchemaCatalog:
     models: tuple[SchemaModel, ...]
     content_hash: str
     origin: SchemaOrigin = SchemaOrigin.LIVE_API
+    read_credential_binding_hash: str = ""
 
     def to_json(self) -> str:
         """Serialize the complete captured schema and provenance deterministically."""
@@ -310,6 +316,10 @@ class OdooSchemaCatalog:
             ),
             content_hash=payload["content_hash"],
             origin=SchemaOrigin(payload.get("origin", SchemaOrigin.LIVE_API)),
+            read_credential_binding_hash=payload.get(
+                "read_credential_binding_hash",
+                "",
+            ),
         )
 
 

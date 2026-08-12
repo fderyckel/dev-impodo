@@ -1911,7 +1911,7 @@ document.addEventListener("DOMContentLoaded", () => {
   updateLocalStackVisibility();
 
   for (const control of targetForm?.querySelectorAll(
-    '[name="odoo_base_url"], [name="odoo_database"], [name="api_key"]'
+    '[name="odoo_base_url"], [name="odoo_database"], [name="read_api_key"]'
   ) || []) {
     control.addEventListener("input", () => {
       const selected = connectionModes.find((item) => item.checked);

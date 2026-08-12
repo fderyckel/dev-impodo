@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 import unittest
@@ -17,6 +17,7 @@ from impodo.domain.compiler.columnar_transformation import (
     ColumnarOperationKind,
     ColumnarScalarFieldProgram,
     ColumnarSupport,
+    ColumnarTransformationProgram,
     compile_columnar_transformation_program,
     compile_columnar_transformation_programs,
 )
@@ -175,6 +176,11 @@ class ColumnarCompilerTests(unittest.TestCase):
                 ColumnarOperationKind.CONTROL_TOTAL,
             ),
         )
+        restored = ColumnarTransformationProgram.from_portable_dict(
+            first.program.to_portable_dict()
+        )
+        self.assertEqual(restored, first.program)
+        self.assertEqual(restored.content_hash, first.program.content_hash)
 
     def test_fallback_and_value_match_order_are_explicit(self) -> None:
         field = ScalarFieldMapping(

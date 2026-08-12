@@ -63,6 +63,7 @@ from impodo.workspace_errors import WorkspaceError
 
 
 ROOT = Path(__file__).resolve().parents[1]
+READ_CREDENTIAL_BINDING_HASH = "sha256:" + "9" * 64
 
 
 class WorkspaceLifecycleTests(unittest.TestCase):
@@ -149,6 +150,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         catalog = self.schemas.discover_models(
             self.project.project_id,
             _model_catalog_snapshot(),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
         )
 
@@ -163,6 +165,36 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             catalog,
         )
 
+    def test_schema_capture_rejects_a_different_read_credential_generation(
+        self,
+    ) -> None:
+        self.schemas.discover_models(
+            self.project.project_id,
+            _model_catalog_snapshot(),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
+            actor=LOCAL_ACTOR,
+        )
+        self.sources.confirm_source(
+            self.project.project_id,
+            self.source.file_id,
+            selected_table_keys=("csv",),
+            warnings_acknowledged=False,
+            actor=LOCAL_ACTOR,
+        )
+        self.sources.freeze_selection(
+            self.project.project_id,
+            dataset_names={(self.source.file_id, "csv"): "customers"},
+            actor=LOCAL_ACTOR,
+        )
+
+        with self.assertRaisesRegex(WorkspaceError, "credential changed"):
+            self.schemas.capture(
+                self.project.project_id,
+                _metadata_snapshot(),
+                read_credential_binding_hash="sha256:" + "8" * 64,
+                actor=LOCAL_ACTOR,
+            )
+
     def test_odoo_source_captures_eligibility_schema_before_source_freeze(
         self,
     ) -> None:
@@ -170,6 +202,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             self.schemas.capture(
                 self.project.project_id,
                 _metadata_snapshot(),
+                read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
                 actor=LOCAL_ACTOR,
             )
 
@@ -190,6 +223,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         schema = self.schemas.capture(
             self.project.project_id,
             _metadata_snapshot(),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
         )
 
@@ -239,6 +273,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         schema = self.schemas.capture(
             self.project.project_id,
             _metadata_snapshot(),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(schema.models[0].name, "res.partner")
@@ -404,6 +439,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                     ),
                 ),
             ),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(schema.origin, SchemaOrigin.LOCAL_MANUAL)
@@ -466,6 +502,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         schema = self.schemas.capture(
             self.project.project_id,
             _metadata_snapshot(),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
         )
         governance = self.schemas.govern(
@@ -554,6 +591,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         recaptured = self.schemas.capture(
             self.project.project_id,
             _metadata_snapshot(),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
         )
         self.assertNotEqual(recaptured.captured_at, schema.captured_at)
@@ -706,6 +744,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.schemas.capture(
             self.project.project_id,
             _metadata_snapshot(),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
         )
         governance = self.schemas.govern(
@@ -775,6 +814,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.schemas.capture(
             self.project.project_id,
             _metadata_snapshot(),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
             actor=LOCAL_ACTOR,
         )
         self.assertEqual(

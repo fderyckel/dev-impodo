@@ -114,7 +114,7 @@ allocator, database, and engine memory; it is not evidence of a Python leak.
 | --- | --- | --- |
 | Phase 0: truthful admission and B0 telemetry | Complete | B0/B0-C above; exact customer workbook remains an external diagnostic input |
 | Phase 1: remove post-Polars replay | In progress — B1a objectless projection retained | CPU -3.48%, peak RSS -3.72%; zero rule replay/full domain rows, but 100,000 Python row adaptations remain |
-| Phase 2: prepared values plus narrow index | Not started | Pending B2 comparison |
+| Phase 2: prepared values plus narrow index | Complete for direct native datasets | Canonical row JSON 223,966,700 → 0 chars; peak RSS -20.63%, DB used -39.80%; CPU regression is assigned to Phase 3/4 repeated projectors |
 | Phase 3: sparse multi-dataset quality | Not started | Pending B3 comparison |
 | Phase 4: construct normalization once | Not started | Pending B4 comparison |
 | Phase 5: set-based product/BOM relationships | Not started | Pending B5 comparison |
@@ -172,3 +172,46 @@ B1a, median CPU and wall time were worse and peak RSS was noisier; the change
 was removed. Its diagnostic evidence remains in
 `.tmp/transformation-scale-phase1-objectless-identity-cache-products-100k.json`
 and is not an accepted checkpoint.
+
+## B2 — prepared values plus narrow canonical index
+
+Captured on 2026-08-12 with the same three-run, fresh-process 100,000-row
+Products fixture as B0. Direct native runs now bind a versioned projection
+descriptor to the existing immutable `PreparedSnapshot` and store only the
+canonical row index in DuckDB. Compatibility readers reconstruct the exact
+canonical stream from the SHA-256-verified Parquet artifact. Duplicate identity
+issues are sparse overlay facts; Python-fallback and derived rows retain the
+legacy payload until their own bounded artifact route exists.
+
+| Metric | B0 median | B2 median | Gain |
+| --- | ---: | ---: | ---: |
+| CPU | 50.091 s | 75.792 s | -51.31% |
+| Wall time | 45.842 s | 74.488 s | -62.49% |
+| Peak RSS | 830.953 MiB | 659.500 MiB | **20.63%** (171.453 MiB) |
+| Ending RSS | 655.547 MiB | 653.531 MiB | **0.31%** |
+| DuckDB file | 277.262 MiB | 196.262 MiB | **29.21%** |
+| DuckDB used pages | 226.750 MiB | 136.500 MiB | **39.80%** |
+| Total project storage | 313.000 MiB | 232.000 MiB | **25.88%** |
+
+The persisted logical JSON footprint fell from 308,534,240 to 84,567,540
+characters, a **72.59% reduction**. In particular,
+`canonical_staging_row.row_json` fell from 223,966,700 characters to zero.
+Prepared values remain in the existing 1.397 MiB compressed Parquet snapshot;
+they are not copied into a second canonical value artifact.
+
+The staging, quality, and normalization hashes remain exactly identical to B0
+and B1a. Parity is tested across projector batch sizes 1, 17, and 5,000, after
+the temporary session-to-snapshot binding is removed, and for sparse duplicate
+overlays. Truncating the prepared artifact causes the projector to fail closed.
+The forward schema upgrade adds the projection and sparse-issue tables without
+changing prior canonical rows.
+
+The CPU regression is measured and understood, not accepted as the final data
+plane. Telemetry records five complete compatibility projection scans and
+500,000 projected canonical rows during one 100,000-row preparation. Those
+passes serve final staging hashing, quality evaluation/publication, source
+accounting, and normalization. Phase 3 must replace the quality/accounting
+passes with set-based defaults plus sparse exceptions; Phase 4 must consume
+durable effect and eligibility facts without reconstructing the canonical
+stream again. B2 therefore closes the Phase 2 storage and projector contract
+while leaving the combined Phase 1 vectorization gate open.

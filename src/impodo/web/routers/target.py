@@ -21,7 +21,15 @@ from ..presenters.summary import (
     _require_local_stack_start,
     _require_local_stack_stop,
 )
-from ..target_readers import _selected_local_profile, _target_credential_id
+from ..target_readers import _selected_local_profile
+from ..target_credentials import (
+    TargetCredentialRole,
+    delete_target_credentials,
+    get_target_credential,
+    store_target_credential,
+    target_read_credential_id,
+    target_write_credential_id,
+)
 
 
 def build_target_router(context: WebContext) -> APIRouter:
@@ -171,6 +179,8 @@ def build_target_router(context: WebContext) -> APIRouter:
                 "odoo_base_url",
                 "odoo_database",
                 "intended_applications",
+                "read_api_key",
+                "remember_read_api_key",
                 "api_key",
                 "remember_api_key",
                 "action",
@@ -180,6 +190,7 @@ def build_target_router(context: WebContext) -> APIRouter:
         remote_test_requested = False
         show_local_results = False
         try:
+            previous_project = context.queries.get(project_id)
             project = context.projects.update_target(
                 project_id,
                 actor=context.actor,
@@ -189,6 +200,18 @@ def build_target_router(context: WebContext) -> APIRouter:
                 odoo_database=_text(form, "odoo_database"),
                 intended_applications=form.getlist("intended_applications"),
             )
+            target_changed = (
+                target_read_credential_id(previous_project)
+                != target_read_credential_id(project)
+                or target_write_credential_id(previous_project)
+                != target_write_credential_id(project)
+            )
+            if target_changed:
+                delete_target_credentials(
+                    context.secret_store,
+                    previous_project,
+                )
+                context.remote_connections.clear(project_id)
             action = _text(form, "action")
             local_test_requested = (
                 action == "test"
@@ -198,14 +221,27 @@ def build_target_router(context: WebContext) -> APIRouter:
                 action == "test"
                 and project.odoo_connection_mode is OdooConnectionMode.REMOTE
             )
-            submitted_key = _text(form, "api_key")
-            credential_id = _target_credential_id(project)
+            submitted_key = _text(form, "read_api_key") or _text(
+                form,
+                "api_key",
+            )
             if submitted_key:
                 context.remote_connections.clear(project_id)
-                context.secret_store.set(
-                    credential_id,
+                read_credential = store_target_credential(
+                    context.secret_store,
+                    project,
+                    TargetCredentialRole.READ,
                     submitted_key,
-                    persistent="remember_api_key" in form,
+                    persistent=(
+                        "remember_read_api_key" in form
+                        or "remember_api_key" in form
+                    ),
+                )
+            else:
+                read_credential = get_target_credential(
+                    context.secret_store,
+                    project,
+                    TargetCredentialRole.READ,
                 )
             if action == "test":
                 local_profile = _selected_local_profile(context, project)
@@ -243,8 +279,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                         odoo_version=fingerprint.odoo_version,
                     )
                 else:
-                    api_key = context.secret_store.get(credential_id)
-                    if not api_key:
+                    if read_credential is None:
                         if (
                             project.odoo_connection_mode
                             is OdooConnectionMode.LOCAL
@@ -261,7 +296,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                     fingerprint = await run_in_threadpool(
                         context.connection_tester,
                         project,
-                        api_key,
+                        read_credential.secret,
                     )
                     if remote_test_requested:
                         context.remote_connections.mark_checked(

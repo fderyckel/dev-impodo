@@ -171,11 +171,12 @@ def write_polars_prepared_snapshot(
 def iter_polars_prepared_batches(
     path: str | Path,
     prepared_snapshot: PreparedSnapshot,
-    source_snapshot: SourceSnapshot,
+    source_snapshot: SourceSnapshot | None,
     program: ColumnarTransformationProgram,
     *,
     batch_size: int = POLARS_TRANSFORMATION_BATCH_ROWS,
     materialize_records: bool = True,
+    collect_impacts: bool = True,
 ) -> Iterator[ColumnarTransformationBatch]:
     """Adapt a verified prepared artifact without re-running transformations.
 
@@ -203,9 +204,10 @@ def iter_polars_prepared_batches(
         cache=False,
         parallel="auto",
     ).select(layout.output_columns)
-    rule_observations, rule_expressions = _compile_rule_observations(
-        program,
-        layout,
+    rule_observations, rule_expressions = (
+        _compile_rule_observations(program, layout)
+        if collect_impacts
+        else ((), ())
     )
     if rule_expressions:
         lazy = lazy.with_columns(rule_expressions).select(
@@ -238,6 +240,7 @@ def iter_polars_prepared_batches(
                 layout,
                 rule_observations,
                 materialize_records=materialize_records,
+                collect_impacts=collect_impacts,
             )
             for source_row in batch.source_rows:
                 if source_row <= previous_source_row:
@@ -390,20 +393,25 @@ def _execution_layout(
 
 def _validate_prepared_bindings(
     prepared: PreparedSnapshot,
-    source: SourceSnapshot,
+    source: SourceSnapshot | None,
     program: ColumnarTransformationProgram,
 ) -> None:
     if (
-        prepared.project_id != source.project_id
-        or prepared.dataset_id != source.dataset_id
-        or prepared.dataset_name != source.dataset_name
-        or prepared.dataset_id != program.dataset_id
+        prepared.dataset_id != program.dataset_id
         or prepared.dataset_name != program.dataset_name
-        or prepared.source_snapshot_hash != source.content_hash
         or prepared.mapping_hash != program.mapping_content_hash
         or prepared.schema_hash != program.schema_hash
         or prepared.transformation_program_hash != program.content_hash
-        or prepared.row_count != source.row_count
+        or (
+            source is not None
+            and (
+                prepared.project_id != source.project_id
+                or prepared.dataset_id != source.dataset_id
+                or prepared.dataset_name != source.dataset_name
+                or prepared.source_snapshot_hash != source.content_hash
+                or prepared.row_count != source.row_count
+            )
+        )
     ):
         raise SourceLoadError(
             "Prepared snapshot does not match its transformation inputs"
@@ -920,6 +928,7 @@ def _adapt_frame(
     rule_observations: tuple[_RuleObservationLayout, ...],
     *,
     materialize_records: bool,
+    collect_impacts: bool,
 ) -> ColumnarTransformationBatch:
     indexes = {name: index for index, name in enumerate(frame.columns)}
     records: list[PreparedRecord] = []
@@ -1023,30 +1032,31 @@ def _adapt_frame(
                     issues=issues,
                 )
             )
-        identity_impacts = _identity_impacts(
-            row,
-            indexes,
-            source_row,
-            program,
-            layout,
-            raw_by_ordinal,
-        )
-        impacts.extend(identity_impacts)
-        counts["changed"] += len(identity_impacts)
-        for index, scalar_layout in scalar_by_index.items():
-            impact, outcome = _scalar_impact(
+        if collect_impacts:
+            identity_impacts = _identity_impacts(
                 row,
                 indexes,
                 source_row,
-                index,
-                scalar_layout,
-                errors,
+                program,
+                layout,
                 raw_by_ordinal,
-                program.dataset_name,
             )
-            counts[outcome] += 1
-            if impact is not None:
-                impacts.append(impact)
+            impacts.extend(identity_impacts)
+            counts["changed"] += len(identity_impacts)
+            for index, scalar_layout in scalar_by_index.items():
+                impact, outcome = _scalar_impact(
+                    row,
+                    indexes,
+                    source_row,
+                    index,
+                    scalar_layout,
+                    errors,
+                    raw_by_ordinal,
+                    program.dataset_name,
+                )
+                counts[outcome] += 1
+                if impact is not None:
+                    impacts.append(impact)
     evaluated = sum(counts.values())
     return ColumnarTransformationBatch(
         records=tuple(records),

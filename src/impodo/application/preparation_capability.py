@@ -169,7 +169,11 @@ def compile_preparation_capability(
             stage="canonical_adaptation",
             behavior=PreparationRouteBehavior.BOUNDED_DURABLE,
             supported_rows=transformation_limit,
-            reason_codes=("ROW_JSON_COMPATIBILITY_PATH",),
+            reason_codes=(
+                "PREPARED_SNAPSHOT_VALUE_PROJECTION"
+                if native
+                else "ROW_JSON_COMPATIBILITY_PATH",
+            ),
         )
     else:
         transformation_limit = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT

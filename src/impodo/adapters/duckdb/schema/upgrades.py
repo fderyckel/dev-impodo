@@ -23,9 +23,39 @@ def _upgrade_v1_to_v2(connection: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+def _upgrade_v2_to_v3(connection: duckdb.DuckDBPyConnection) -> None:
+    """Add prepared-backed canonical projection and sparse issue facts."""
+
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS canonical_prepared_projection (
+            run_id VARCHAR NOT NULL,
+            dataset_id VARCHAR NOT NULL,
+            dataset VARCHAR NOT NULL,
+            ordinal_start BIGINT NOT NULL,
+            row_count BIGINT NOT NULL,
+            prepared_snapshot_hash VARCHAR NOT NULL,
+            projection_json VARCHAR NOT NULL,
+            PRIMARY KEY (run_id, dataset_id),
+            UNIQUE (run_id, dataset),
+            UNIQUE (run_id, ordinal_start)
+        );
+
+        CREATE TABLE IF NOT EXISTS canonical_staging_row_issue (
+            run_id VARCHAR NOT NULL,
+            ordinal BIGINT NOT NULL,
+            issue_ordinal INTEGER NOT NULL,
+            issue_json VARCHAR NOT NULL,
+            PRIMARY KEY (run_id, ordinal, issue_ordinal)
+        );
+        """
+    )
+
+
 # Map the stored version to the function that produces the next version.
 PROJECT_SCHEMA_UPGRADES: dict[int, ProjectSchemaUpgrade] = {
     1: _upgrade_v1_to_v2,
+    2: _upgrade_v2_to_v3,
 }
 
 

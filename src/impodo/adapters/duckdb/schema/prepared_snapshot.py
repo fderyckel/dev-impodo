@@ -42,5 +42,18 @@ def create_prepared_snapshot_schema(
             dataset_id VARCHAR PRIMARY KEY,
             content_hash VARCHAR NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS canonical_prepared_projection (
+            run_id VARCHAR NOT NULL,
+            dataset_id VARCHAR NOT NULL,
+            dataset VARCHAR NOT NULL,
+            ordinal_start BIGINT NOT NULL,
+            row_count BIGINT NOT NULL,
+            prepared_snapshot_hash VARCHAR NOT NULL,
+            projection_json VARCHAR NOT NULL,
+            PRIMARY KEY (run_id, dataset_id),
+            UNIQUE (run_id, dataset),
+            UNIQUE (run_id, ordinal_start)
+        );
         """
     )

@@ -25,7 +25,11 @@ from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..security import require_session
-from ..target_readers import _target_credential_id
+from ..target_credentials import (
+    TargetCredentialRole,
+    get_target_credential,
+    store_target_credential,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,11 +104,15 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 status_code=303,
             )
         try:
-            has_stored_key = bool(
-                context.secret_store.get(_target_credential_id(project))
+            has_stored_write_key = bool(
+                get_target_credential(
+                    context.secret_store,
+                    project,
+                    TargetCredentialRole.WRITE,
+                )
             )
         except SecretStoreError:
-            has_stored_key = False
+            has_stored_write_key = False
         reconciliation = context.reconciliation.current(project_id)
         if reconciliation is not None:
             load_rows = reconciliation.rows
@@ -147,7 +155,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 if load_row_page.page < load_row_page.page_count
                 else None
             ),
-            has_stored_key=has_stored_key,
+            has_stored_write_key=has_stored_write_key,
             error=error,
             status_code=status_code,
         )
@@ -167,6 +175,8 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 "csrf_token",
                 "snapshot_hash",
                 "batch_rows",
+                "write_api_key",
+                "remember_write_api_key",
                 "api_key",
                 "remember_api_key",
             },
@@ -177,15 +187,32 @@ def build_execution_router(context: WebContext) -> APIRouter:
             preview = context.execution.current_preview(project_id)
             if preview is None:
                 raise WorkspaceError("Compare the prepared data with Odoo first")
-            credential_id = _target_credential_id(project)
-            submitted_key = _text(form, "api_key")
+            submitted_key = _text(form, "write_api_key") or _text(
+                form,
+                "api_key",
+            )
             if submitted_key:
-                context.secret_store.set(
-                    credential_id,
+                write_credential = store_target_credential(
+                    context.secret_store,
+                    project,
+                    TargetCredentialRole.WRITE,
                     submitted_key,
-                    persistent="remember_api_key" in form,
+                    persistent=(
+                        "remember_write_api_key" in form
+                        or "remember_api_key" in form
+                    ),
                 )
-            api_key = submitted_key or context.secret_store.get(credential_id) or ""
+            else:
+                write_credential = get_target_credential(
+                    context.secret_store,
+                    project,
+                    TargetCredentialRole.WRITE,
+                )
+            if write_credential is None:
+                raise SecretStoreError(
+                    "Enter a separate Odoo write API key for this exact target"
+                )
+            api_key = write_credential.secret
             executor = context.write_executor_factory(
                 project,
                 api_key,
@@ -244,6 +271,8 @@ def build_execution_router(context: WebContext) -> APIRouter:
             {
                 "csrf_token",
                 "execution_run_id",
+                "write_api_key",
+                "remember_write_api_key",
                 "api_key",
                 "remember_api_key",
             },
@@ -253,15 +282,32 @@ def build_execution_router(context: WebContext) -> APIRouter:
             preview = context.execution.current_preview(project_id)
             if preview is None:
                 raise WorkspaceError("Compare the prepared data with Odoo first")
-            credential_id = _target_credential_id(project)
-            submitted_key = _text(form, "api_key")
+            submitted_key = _text(form, "write_api_key") or _text(
+                form,
+                "api_key",
+            )
             if submitted_key:
-                context.secret_store.set(
-                    credential_id,
+                write_credential = store_target_credential(
+                    context.secret_store,
+                    project,
+                    TargetCredentialRole.WRITE,
                     submitted_key,
-                    persistent="remember_api_key" in form,
+                    persistent=(
+                        "remember_write_api_key" in form
+                        or "remember_api_key" in form
+                    ),
                 )
-            api_key = submitted_key or context.secret_store.get(credential_id) or ""
+            else:
+                write_credential = get_target_credential(
+                    context.secret_store,
+                    project,
+                    TargetCredentialRole.WRITE,
+                )
+            if write_credential is None:
+                raise SecretStoreError(
+                    "Enter a separate Odoo write API key for this exact target"
+                )
+            api_key = write_credential.secret
             reader = context.readback_reader_factory(
                 project,
                 api_key,

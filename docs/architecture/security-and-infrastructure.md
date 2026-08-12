@@ -126,9 +126,14 @@ rest depends on full-disk encryption and operating-system access controls.
 ### Secrets
 
 - Remote read API keys and disposable-target load API keys remain in memory or
-  the local credential vault.
-- Stored credential identifiers are bound to the project, connection mode,
-  URL, and database.
+  the local credential vault under separate read/write service labels.
+- Stored credential identifiers and versioned envelopes are bound to the
+  project, role, connection mode, URL, and database. Read-side routes retrieve
+  only the read role; write and read-back routes retrieve only the write role,
+  with no legacy or cross-role fallback.
+- Model and schema evidence records a random, secret-independent read-
+  credential-generation hash. It detects an Impodo-side credential rotation
+  but is not represented as an Odoo principal or permission fingerprint.
 - Credentials are excluded from project databases, mappings, reports, browser
   storage, and logs.
 - Authenticated redirects are refused; API keys and Odoo error bodies are
@@ -164,6 +169,8 @@ only when all of these are true:
 - the per-preview API scope matches the exact captured models, lookup fields,
   readable fields, and writable fields;
 - no earlier run already consumed that snapshot; and
+- a separate target-bound write credential is supplied or already stored; the
+  setup read credential is never substituted; and
 - the operator makes one explicit **Load into Odoo** request with the execute
   capability.
 
