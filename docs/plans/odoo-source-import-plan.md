@@ -83,12 +83,25 @@ change.
   history on invalidation, and delete the key/artifacts with the project. A
   protected execution-origin contract reuses existing execution row hashes and
   source ordinals rather than adding signatures or duplicating numeric IDs.
+- Slice 8 implements the Phase-3 live reader boundary. A service-generated
+  request has no generic method, raw domain, field path, or arbitrary context
+  surface. It validates explicit Tier-1 eligibility metadata, obtains one
+  matching high-water ID, streams fixed 500-row keyset pages as typed columns,
+  enforces request/response/value/row/snapshot limits before unbounded
+  materialization, preserves type-dependent `false`/null/empty-text semantics,
+  and exposes bounded non-authoritative samples. The application service
+  rechecks the current selection, complete schema scope, connection, read
+  principal, permission, company/locale context, and schema at both ends.
+  Native-page interval consistency and connection-only target assurance remain
+  explicit limitations. Local and remote live capture both use the governed
+  JSON-2 read credential; the privileged local no-key shell is not a business-
+  record capture fallback.
 - The current permission hash covers directly observed group membership and
   model-level read outcomes, not a complete fingerprint of all ACL/record-rule
   definitions. Local no-key shell metadata also remains explicitly unverified.
   Local no-key write-principal parity, strong target-instance identity,
-  live bounded record capture, value-artifact publication, and production write
-  feasibility beyond the explicit unsupported disposition remain open.
+  value-artifact publication and production write feasibility beyond the
+  explicit unsupported disposition remain open.
 
 ### Slices 1–6 scale-architecture audit
 
@@ -895,17 +908,25 @@ state. Do not start a later phase whose contract depends on an unmet exit gate.
 
 ### Phase 3 — Closed, bounded Odoo-source reader
 
+**Status:** Implemented in Slice 8. The reader terminates at a validated typed
+page stream; immutable values/provenance publication remains Phase 4.
+
 **Deliverables**
 
 - Add the separate capture port and service-generated request planner.
+  **Implemented.**
 - Extend schema metadata and enforce Tier-1 field, filter, model, and context
-  policies.
+  policies. **Implemented; missing eligibility metadata fails closed.**
 - Implement a transport-level HTTP response-byte cap and per-value/row/page/
-  snapshot accounting before materialization.
+  snapshot accounting before materialization. **Implemented.**
 - Implement high-water keyset paging, strict projection/order validation,
   `maximum_rows + 1`, bounded sampling, cancellation, and safe error redaction.
+  **Implemented.**
 - Verify connection, instance, read principal, context, and schema scope at both
-  ends of capture.
+  ends of capture. **Implemented for every available assurance: connection,
+  principal, observed permissions, protected context, and complete schema are
+  checked at both ends; instance assurance remains explicitly
+  `CONNECTION_ONLY`, with no invented instance fingerprint.**
 
 **Tests**
 
@@ -917,11 +938,18 @@ state. Do not start a later phase whose contract depends on an unmet exit gate.
 - ACL, record-rule, company, archived, timeout, and cancellation failures; and
 - call counts that scale by pages rather than records.
 
+The implemented boundary suite covers these cases, including type-dependent
+`false` handling and the absence of hashing in the adapter hot path. A local
+in-process 10,000-row/20-page transport exercise completed in 0.46 seconds
+with 0.54 MiB traced peak after the synthetic source dataset was allocated;
+it made 21 record requests (one high-water plus 20 pages). This is a seam
+measurement, not an Odoo/network or Phase-4 publication qualification.
+
 **Exit gate**
 
 - The reader returns a bounded validated page stream and honest consistency
   accounting through a closed read-only surface. It makes no claim of a
-  database-wide point-in-time snapshot.
+  database-wide point-in-time snapshot. **Met.**
 
 ### Phase 4 — Streaming publication and browser capture
 

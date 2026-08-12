@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 import re
 from typing import Callable
+from uuid import UUID
 
 from ..workspace_contracts import OdooSchemaCatalog, SchemaField
 from .odoo_capture import (
@@ -27,12 +28,15 @@ from .odoo_source_policy import (
     ODOO_SOURCE_POLICY_HASH,
     TargetInstanceAssurance,
 )
+from .serialization import canonical_json
 
 
 CaptureScalar = bool | int | str | date | datetime | None
 CancellationProbe = Callable[[], bool]
 
 _FIELD_NAME = re.compile(r"[a-z_][a-z0-9_]{0,127}")
+_MODEL_NAME = re.compile(r"[a-z_][a-z0-9_.]{0,127}")
+_HASH = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 class OdooSourceCaptureError(RuntimeError):
@@ -105,8 +109,57 @@ class OdooSourceCaptureRequest:
 
     def __post_init__(self) -> None:
         policy = CURRENT_ODOO_SOURCE_POLICY
+        try:
+            UUID(self.project_id)
+            UUID(self.selection_id)
+        except (AttributeError, ValueError) as error:
+            raise OdooSourceCaptureConfigurationError(
+                "Odoo capture request identity is invalid"
+            ) from error
+        if (
+            isinstance(self.selection_version, bool)
+            or not isinstance(self.selection_version, int)
+            or self.selection_version < 1
+            or not isinstance(self.model, str)
+            or _MODEL_NAME.fullmatch(self.model) is None
+            or any(
+                not isinstance(value, str) or _HASH.fullmatch(value) is None
+                for value in (
+                    self.selection_hash,
+                    self.policy_hash,
+                    self.expected_connection_target_hash,
+                    self.expected_schema_scope_hash,
+                    self.expected_read_principal_hash,
+                    self.expected_read_permission_hash,
+                    self.expected_context_hash,
+                )
+            )
+        ):
+            raise OdooSourceCaptureConfigurationError(
+                "Odoo capture request binding is invalid"
+            )
+        integer_limits = (
+            self.maximum_rows,
+            self.page_size,
+            self.max_sample_rows,
+            self.max_request_bytes,
+            self.max_response_bytes,
+            self.max_value_bytes,
+            self.max_row_bytes,
+            self.max_snapshot_bytes,
+        )
+        if any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in integer_limits
+        ):
+            raise OdooSourceCaptureConfigurationError(
+                "Odoo capture request limits are invalid"
+            )
         if (
             self.policy_hash != ODOO_SOURCE_POLICY_HASH
+            or not isinstance(self.filter_policy, OdooCaptureFilterPolicy)
+            or self.consistency
+            is not OdooCaptureConsistency.KEYSET_HIGH_WATER_INTERVAL
             or self.page_size != policy.page_size
             or self.maximum_rows < 1
             or self.maximum_rows > policy.max_rows
@@ -124,25 +177,53 @@ class OdooSourceCaptureRequest:
         projection = tuple(self.projection)
         if (
             not projection
+            or len(projection) > policy.max_fields
+            or any(
+                not isinstance(item, OdooCaptureFieldProjection)
+                for item in projection
+            )
             or tuple(item.name for item in projection)
             != tuple(sorted({item.name for item in projection}))
         ):
             raise OdooSourceCaptureConfigurationError(
                 "Odoo capture projection must be sorted and unique"
             )
-        if self.schema_model_names != tuple(sorted(set(self.schema_model_names))):
+        clauses = tuple(self.filter_clauses)
+        if (
+            len(clauses) > policy.max_filter_clauses
+            or any(
+                not isinstance(item, OdooCaptureFilterClause) for item in clauses
+            )
+            or tuple(sorted(clauses, key=lambda item: item.field_name)) != clauses
+            or len({item.field_name for item in clauses}) != len(clauses)
+            or len(
+                canonical_json([item.to_dict() for item in clauses]).encode("utf-8")
+            )
+            > policy.max_filter_bytes
+        ):
+            raise OdooSourceCaptureConfigurationError(
+                "Odoo capture request filters are invalid"
+            )
+        schema_model_names = tuple(self.schema_model_names)
+        if (
+            not schema_model_names
+            or any(
+                not isinstance(item, str) or _MODEL_NAME.fullmatch(item) is None
+                for item in schema_model_names
+            )
+            or schema_model_names != tuple(sorted(set(schema_model_names)))
+            or self.model not in schema_model_names
+        ):
             raise OdooSourceCaptureConfigurationError(
                 "Odoo capture schema scope is invalid"
             )
+        object.__setattr__(self, "projection", projection)
+        object.__setattr__(self, "filter_clauses", clauses)
+        object.__setattr__(self, "schema_model_names", schema_model_names)
 
     @property
     def field_names(self) -> tuple[str, ...]:
         return tuple(item.name for item in self.projection)
-
-    @property
-    def field_types(self) -> dict[str, str]:
-        return {item.name: item.field_type for item in self.projection}
-
 
 @dataclass(frozen=True, slots=True)
 class OdooCaptureValueColumn:
@@ -151,6 +232,21 @@ class OdooCaptureValueColumn:
     field_name: str
     field_type: str
     values: tuple[CaptureScalar, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.field_name, str)
+            or _FIELD_NAME.fullmatch(self.field_name) is None
+            or self.field_type not in ODOO_CAPTURE_FIELD_TYPES
+            or any(
+                not _capture_value_matches_type(self.field_type, value)
+                for value in self.values
+            )
+        ):
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo capture value column is invalid"
+            )
+        object.__setattr__(self, "values", tuple(self.values))
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +271,11 @@ class OdooCapturePage:
         ):
             raise OdooSourceCaptureConsistencyError(
                 "Odoo capture page columns have different lengths"
+            )
+        column_names = tuple(column.field_name for column in self.columns)
+        if not column_names or column_names != tuple(sorted(set(column_names))):
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo capture page value columns are invalid"
             )
         # Reuse the protected provenance contract for the exact origin checks.
         OdooOriginBatch(
@@ -215,6 +316,29 @@ class OdooCaptureAccounting:
     consistency: OdooCaptureConsistency
     target_instance_assurance: TargetInstanceAssurance
     consistency_limitation: str
+
+    def __post_init__(self) -> None:
+        if (
+            self.high_water_id < 0
+            or self.row_count < 0
+            or self.row_count > CURRENT_ODOO_SOURCE_POLICY.max_rows
+            or self.page_count < 0
+            or self.page_count > self.row_count
+            or self.record_request_count != self.page_count + 1
+            or self.response_bytes < 1
+            or self.normalized_bytes < 0
+            or self.capture_started_at.tzinfo is None
+            or self.capture_finished_at.tzinfo is None
+            or self.capture_finished_at < self.capture_started_at
+            or self.consistency
+            is not OdooCaptureConsistency.KEYSET_HIGH_WATER_INTERVAL
+            or self.target_instance_assurance
+            is not CURRENT_ODOO_SOURCE_POLICY.target_instance_assurance
+            or not self.consistency_limitation.strip()
+        ):
+            raise OdooSourceCaptureConsistencyError(
+                "Odoo capture accounting is invalid"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -408,3 +532,19 @@ def normalize_odoo_datetime(value: str) -> datetime:
             "Odoo returned an invalid datetime value"
         ) from error
     return parsed.replace(tzinfo=timezone.utc)
+
+
+def _capture_value_matches_type(field_type: str, value: CaptureScalar) -> bool:
+    if value is None:
+        return True
+    if field_type == "boolean":
+        return isinstance(value, bool)
+    if field_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if field_type in {"char", "text", "selection"}:
+        return isinstance(value, str)
+    if field_type == "date":
+        return isinstance(value, date) and not isinstance(value, datetime)
+    if field_type == "datetime":
+        return isinstance(value, datetime) and value.tzinfo is not None
+    return False

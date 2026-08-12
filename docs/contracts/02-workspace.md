@@ -49,7 +49,8 @@ does not freeze rows. Each immutable revision binds:
 - unique technical field names from the closed scalar set: boolean, character,
   text, integer, date, datetime, and selection;
 - stable column identities derived from model and technical field name;
-- active-only or active-plus-archived policy, with no raw caller domain;
+- active-only, active-plus-archived, or all-matching policy plus bounded
+  structured direct-field clauses, with no raw caller domain;
 - a maximum of 50 fields, at most 10,000 rows, and a fixed 500-row future page
   contract;
 - the exact current Odoo-source policy hash, including byte/disk/history limits,
@@ -74,8 +75,16 @@ repository stores bounded typed ID/write-date columns under project-scoped
 AES-256-GCM, with one logical payload root, one exact ciphertext root, strict
 manifest serialization, authorization, quota, retention, invalidation, and
 deletion. Bulk captured values remain one governed typed source artifact and
-are not duplicated into that sidecar. The live Odoo reader and values-artifact
-publisher are still absent.
+are not duplicated into that sidecar. The live Odoo reader is a separate
+authorized port: it accepts only a service-generated request, verifies the
+exact target, principal, protected context, observed permission, and complete
+schema before and after capture, and yields validated typed 500-row pages using
+one frozen high-water ID and keyset bounds. HTTP response, request, value, row,
+and total snapshot bytes are bounded before unbounded materialization. It
+performs no row hashing and exposes no generic method, raw domain, arbitrary
+context, or field-path input. Its sample is bounded and non-authoritative;
+native pages are honestly an interval capture rather than one database-wide
+transaction. The values-artifact publisher is still absent.
 
 ## Confirmation and dataset freeze
 

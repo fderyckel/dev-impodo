@@ -14,10 +14,12 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from ..connectors import (
     ConnectorError,
+    Json2CaptureIdentityProbe,
     Json2Config,
     Json2ReadConnector,
     MetadataRequest,
     MetadataSnapshot,
+    Transport,
 )
 from ..domain.odoo_capture import (
     OdooCaptureFilterOperator,
@@ -30,7 +32,6 @@ from ..domain.odoo_source_capture import (
     OdooCapturePage,
     OdooCaptureSample,
     OdooCaptureValueColumn,
-    OdooSourceCaptureCancelled,
     OdooSourceCaptureConfigurationError,
     OdooSourceCaptureConsistencyError,
     OdooSourceCaptureLimitError,
@@ -94,10 +95,10 @@ class Json2OdooSourceCapture:
         """Freshly verify connection, principal, permission, and base context."""
 
         try:
-            return self._probe_connector(
+            return self._identity_probe(
                 request,
                 cancellation=cancellation,
-            )._probe_capture_identity(
+            ).probe_capture_identity(
                 request.schema_model_names
             )
         except ConnectorError as error:
@@ -218,6 +219,20 @@ class Json2OdooSourceCapture:
         context: Mapping[str, Any] | None = None,
         cancellation: CancellationProbe | None = None,
     ) -> Json2ReadConnector:
+        config, transport = self._probe_parts(
+            request,
+            context=context,
+            cancellation=cancellation,
+        )
+        return Json2ReadConnector(config, transport=transport, now=self._now)
+
+    def _probe_parts(
+        self,
+        request: OdooSourceCaptureRequest,
+        *,
+        context: Mapping[str, Any] | None = None,
+        cancellation: CancellationProbe | None = None,
+    ) -> tuple[Json2Config, Transport]:
         config = Json2Config(
             base_url=self._config.base_url,
             database=self._config.database,
@@ -225,7 +240,8 @@ class Json2OdooSourceCapture:
             connection_mode=self._config.connection_mode,
             timeout_seconds=self._config.timeout_seconds,
             page_size=request.page_size,
-            retries=self._config.retries,
+            # The raw bounded transport below owns the one retry loop.
+            retries=0,
             context=dict(context or {}),
             relevant_modules=self._config.relevant_modules,
         )
@@ -256,7 +272,23 @@ class Json2OdooSourceCapture:
                     "Odoo capture probe returned malformed JSON"
                 ) from error
 
-        return Json2ReadConnector(config, transport=parsed_transport, now=self._now)
+        return config, parsed_transport
+
+    def _identity_probe(
+        self,
+        request: OdooSourceCaptureRequest,
+        *,
+        cancellation: CancellationProbe | None,
+    ) -> Json2CaptureIdentityProbe:
+        config, transport = self._probe_parts(
+            request,
+            cancellation=cancellation,
+        )
+        return Json2CaptureIdentityProbe(
+            config,
+            transport=transport,
+            now=self._now,
+        )
 
     def _search_read(
         self,

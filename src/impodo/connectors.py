@@ -1201,6 +1201,29 @@ class Json2ReadConnector:
         raise ConnectorTransportError("Odoo JSON-2 read failed")
 
 
+class Json2CaptureIdentityProbe:
+    """Dedicated closed probe returning ephemeral protected capture context."""
+
+    def __init__(
+        self,
+        config: Json2Config,
+        *,
+        transport: Transport | None = None,
+        now: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._reader = Json2ReadConnector(
+            config,
+            transport=transport,
+            now=now,
+        )
+
+    def probe_capture_identity(
+        self,
+        models: Sequence[str],
+    ) -> tuple[OdooReadIdentity, ProtectedOdooReadContext]:
+        return self._reader._probe_capture_identity(models)
+
+
 class Json2WriteIdentityConnector:
     """Closed JSON-2 probe for a separate write/read-back credential."""
 
