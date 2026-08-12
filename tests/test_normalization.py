@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 from impodo.access import LOCAL_ACTOR
 from impodo.application.bounded_normalization import (
     BoundedNormalizationUnsupported,
-    build_bounded_normalization_evaluation,
 )
 from impodo.application.bounded_quality import build_bounded_quality_run
 from impodo.application.normalization_service import NormalizationService
@@ -27,7 +26,6 @@ from impodo.domain.mapping.contracts import (
     DatasetMapping,
     ScalarFieldMapping,
 )
-from impodo.domain.staging.transformation_impact import TransformationImpactRow
 from impodo.normalization import (
     NormalizationCandidate,
     NormalizationEvaluation,
@@ -43,7 +41,6 @@ from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.projects import DataClassification
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.quality import default_quality_ruleset, evaluate_quality
-from impodo.staging_contracts import CanonicalIssue
 from impodo.workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
@@ -90,22 +87,6 @@ def _quality(project, staging, rows):
     )
 
 
-class _ReplayableImpacts:
-    def __init__(
-        self,
-        rows: tuple[tuple[TransformationImpactRow, str], ...],
-    ) -> None:
-        self._rows = rows
-
-    def iter_bound_rows(self, *, connection=None):
-        del connection
-        yield from self._rows
-
-    def __iter__(self):
-        for impact, _row_id in self._rows:
-            yield impact
-
-
 class NormalizationEvaluationTests(unittest.TestCase):
     def test_high_volume_bounded_rejection_never_materializes(self) -> None:
         project = _project()
@@ -134,9 +115,7 @@ class NormalizationEvaluationTests(unittest.TestCase):
         repository = MagicMock()
         service = NormalizationService(repository, MagicMock())
         mapping = _mapping()
-        revision = SimpleNamespace(
-            definition=SimpleNamespace(datasets=(mapping,))
-        )
+        revision = SimpleNamespace(definition=SimpleNamespace(datasets=(mapping,)))
         selection = SimpleNamespace(
             datasets=(
                 SimpleNamespace(
@@ -153,8 +132,7 @@ class NormalizationEvaluationTests(unittest.TestCase):
                 side_effect=BoundedNormalizationUnsupported,
             ),
             patch(
-                "impodo.application.normalization_service."
-                "evaluate_normalization",
+                "impodo.application.normalization_service.evaluate_normalization",
                 side_effect=AssertionError("whole-run fallback executed"),
             ),
             self.assertRaisesRegex(
@@ -176,7 +154,7 @@ class NormalizationEvaluationTests(unittest.TestCase):
                     content_hash=materialized_quality.content_hash,
                     run_id="quality:1",
                 ),
-                _ReplayableImpacts(()),
+                (),
                 {"file:1": SOURCE_HASH},
                 actor=LOCAL_ACTOR,
                 allow_materialized_fallback=False,
@@ -184,126 +162,9 @@ class NormalizationEvaluationTests(unittest.TestCase):
 
         repository.publish_normalization_run.assert_not_called()
 
-    def test_bounded_dirty_evidence_matches_complete_evaluator(self) -> None:
-        project = _project()
-        rows = (
-            _canonical_row(
-                "5",
-                2,
-                source_identity=("A",),
-                target_identity=("SAME",),
-            ),
-            _canonical_row(
-                "6",
-                3,
-                source_identity=("B",),
-                target_identity=("SAME",),
-            ),
-            replace(
-                _canonical_row(
-                    "7",
-                    4,
-                    source_identity=("C",),
-                    target_identity=("SAFE",),
-                ),
-                issues=(
-                    CanonicalIssue(
-                        code="SOURCE_VALUE_REVIEW",
-                        message="Review this source value",
-                        severity="warning",
-                        dataset="contacts",
-                        source_row=4,
-                        field="name",
-                    ),
-                ),
-            ),
-        )
-        staging = _staging(project.project_id, rows)
-        stored_staging = _stored_staging(staging)
-        ruleset = default_quality_ruleset(
-            project_id=project.project_id,
-            mapping_hash=MAPPING_HASH,
-            schema_hash=SCHEMA_HASH,
-            datasets=("contacts",),
-        )
-        expected_quality = evaluate_quality(
-            project=project,
-            staging=staging,
-            physical_rows={"dataset:contacts": (2, 3, 4)},
-            ruleset=ruleset,
-        )
-        bounded_quality = build_bounded_quality_run(
-            project=project,
-            staging=stored_staging,
-            physical_rows={"dataset:contacts": (2, 3, 4)},
-            ruleset=ruleset,
-            published_staging_content_hash=staging.content_hash,
-        )
-        candidates = tuple(
-            NormalizationCandidate(
-                dataset="contacts",
-                source_row=row.source_row,
-                source_label="Name",
-                target_field="name",
-                raw_display=f" {row.source_row} ",
-                proposed_display=str(row.source_row),
-                rules="Source + Trim",
-                outcome="changed",
-            )
-            for row in rows
-        )
-        expected = evaluate_normalization(
-            project=project,
-            staging=staging,
-            quality=expected_quality,
-            mappings={"contacts": _mapping()},
-            candidates=candidates,
-        )
-        impacts = _ReplayableImpacts(
-            tuple(
-                (
-                    TransformationImpactRow(
-                        dataset=candidate.dataset,
-                        source_row=candidate.source_row,
-                        source_column=candidate.source_label,
-                        target_field=candidate.target_field,
-                        raw_value=candidate.raw_display,
-                        proposed_value=candidate.proposed_display,
-                        rules=candidate.rules,
-                        outcome=candidate.outcome,
-                    ),
-                    row.row_id,
-                )
-                for candidate, row in zip(candidates, rows, strict=True)
-            )
-        )
-        bounded = build_bounded_normalization_evaluation(
-            project=project,
-            staging=stored_staging,
-            quality=bounded_quality,
-            mappings={"contacts": _mapping()},
-            impact_rows=impacts,
-            staging_content_hash=staging.content_hash,
-            quality_content_hash=expected_quality.content_hash,
-            effective=None,
-        )
-        materialized = NormalizationEvaluation(
-            project_id=bounded.project_id,
-            staging_content_hash=bounded.staging_content_hash,
-            quality_content_hash=bounded.quality_content_hash,
-            mapping_hash=bounded.mapping_hash,
-            schema_hash=bounded.schema_hash,
-            policy_hash=bounded.policy_hash,
-            retention_context_hash=bounded.retention_context_hash,
-            eligible_dataset_hash=bounded.eligible_dataset_hash,
-            effects=tuple(sorted(bounded.effects, key=lambda item: item.effect_id)),
-            groups=bounded.groups,
-            effective_dataset_hash=bounded.effective_dataset_hash,
-        )
-
-        self.assertEqual(materialized.to_json(), expected.to_json())
-
-    def test_no_change_still_requires_final_approval_and_unknown_policy_blocks(self) -> None:
+    def test_no_change_still_requires_final_approval_and_unknown_policy_blocks(
+        self,
+    ) -> None:
         project = _project()
         rows = (_canonical_row("5", 2),)
         staging = _staging(project.project_id, rows)
@@ -546,7 +407,6 @@ class NormalizationStoreTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-
     def test_invalid_dry_run_evidence_is_wrapped_at_repository_boundary(
         self,
     ) -> None:
@@ -590,7 +450,9 @@ class NormalizationStoreTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(count, (0,))
 
-    def test_review_decisions_survive_refresh_and_frozen_publish_is_idempotent(self) -> None:
+    def test_review_decisions_survive_refresh_and_frozen_publish_is_idempotent(
+        self,
+    ) -> None:
         row = _canonical_row("5", 2)
         rows = (row,)
         staging_run = _staging(self.project.project_id, rows)
@@ -649,9 +511,7 @@ class NormalizationStoreTests(unittest.TestCase):
                 follow_redirects=False,
             )
             self.assertEqual(launched.status_code, 303)
-            page = client.get(
-                f"/projects/{self.project.project_id}/normalization"
-            )
+            page = client.get(f"/projects/{self.project.project_id}/normalization")
             self.assertEqual(page.status_code, 200)
             self.assertIn("Review what Impodo prepared", page.text)
             self.assertIn("Approve all prepared data", page.text)
@@ -751,9 +611,7 @@ class NormalizationStoreTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
         self.assertIsNone(
-            self.repository.get_current_normalization_summary(
-                self.project.project_id
-            )
+            self.repository.get_current_normalization_summary(self.project.project_id)
         )
         database_path = (
             self.repository.project_directory(self.project.project_id)

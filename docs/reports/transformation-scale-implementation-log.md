@@ -129,11 +129,13 @@ allocator, database, and engine memory; it is not evidence of a Python leak.
 | Phase 4: construct normalization once | Complete for direct native datasets | 152,000 → 76,000 effect constructions on the 4,000×19 fixture; CPU -3.19%, peak RSS -13.03%, DB used -4.21%; exact hashes retained |
 | Phase 5: set-based product/BOM relationships | Complete for direct multi-dataset product/BOM; derived/grouped cardinality changes remain materialized and capped | Peak RSS -45.65%, ending RSS -57.10%; CPU +10.82%, DB used +48.06% for durable edges |
 | Phase 6: conditional transport/hash optimization | Complete for the Phase-5 relationship path | Relationship DB overhead 46.5 → 5.5 MiB; set-based CPU is now 22.78% below materialization; Arrow/hash changes rejected |
-| Phase 7: qualification and limit decision | In progress — portable worker harness and Mac smoke complete | Clean Windows release profile remains required before any limit change |
+| Phase 7: qualification and limit decision | Closeout in progress — legacy/dead-code removal and Mac diagnostics complete | Native per-row adaptation must be removed and observed vectorization evidence added before the clean Windows release profile can authorize a limit change |
 
-The 16,000-product/80,000-BOM shape remains capped at 25,000 rows until Phase 3
-and Phase 5 remove the materializing quality and relationship routes. This is a
-truthful capacity limit, not a regression in the intended final capability.
+The 16,000-product/80,000-BOM shape remains capped until the clean Phase 7
+Windows qualification authorizes a limit change. Derived/grouped
+cardinality-changing routes remain separately materialized and capped at
+25,000 rows. These are truthful capacity limits, not regressions in the
+intended final capability.
 
 ## B1a — objectless native projection (intermediate)
 
@@ -635,6 +637,46 @@ Evidence:
 
 These are dirty-worktree, one-run Mac diagnostics. They validate the final
 shape before Windows but do not satisfy the clean three-run Windows gate.
+
+### Phase 7 legacy/dead-code closeout
+
+The implementation closeout removes the superseded preparation and benchmark
+routes instead of carrying compatibility code during development:
+
+- deleted the pre-direct-session `begin_session` / provisional-row /
+  `finalize_session` API, codecs, repository branches, tests, and six obsolete
+  DuckDB tables/indexes;
+- renamed the remaining live session count from `provisional_row_count` to
+  `staged_row_count`, and advanced the development schema generation to `s9`
+  so older development databases fail closed rather than silently retaining
+  the deleted layout;
+- deleted the pre-Phase-4 in-memory normalization replay and alternate
+  publication transport; bounded normalization now requires the durable
+  construct-once ledger;
+- removed the replay-control switch from the current benchmark harness; and
+- deleted the completed DuckDB and relationship transport experiment scripts
+  and their benchmark-only tests. Their conclusions and retained evidence stay
+  recorded in this report.
+
+The supported 50,000-row Python semantic route and 25,000-row
+derived/materialized route remain intentionally active. The materialized side
+of `benchmark_relationships.py` also remains because the release qualification
+uses it as the semantic oracle for the set-based relationship path. None of
+these are compatibility fallbacks for the deleted preparation-session design.
+
+The legacy/dead-code portion of Phase 7 closeout is complete. Phase 7 itself is
+not yet closed: the Phase-1 checkpoint still reports per-row canonical metadata
+adaptation on the native route, while the architecture requires zero Python
+row/cell callbacks and no full prepared/canonical objects in the high-volume
+data plane. The qualification runner now fails closed when the 100,000-row
+direct or 96,000-row related worker evidence lacks the complete observed
+vectorization report; a Windows run can no longer authorize a limit change on
+CPU/RSS results alone.
+
+Route limits and operator messages remain unchanged until that execution path
+and evidence gate are complete and the clean three-run Windows qualification
+passes every correctness, CPU, memory, storage, vectorization, repeatability,
+and customer-improvement gate below.
 
 ### Windows release command
 

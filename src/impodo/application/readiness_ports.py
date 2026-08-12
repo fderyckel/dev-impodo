@@ -48,7 +48,6 @@ from ..domain.staging.preparation_session import (
     PreparedCanonicalProjection,
     PreparationSessionBindings,
     PreparationSessionSummary,
-    PreparedSessionRow,
     StoredCanonicalStagingRun,
 )
 from ..domain.staging.transformation_impact import (
@@ -75,15 +74,11 @@ class PreparationSourceRepository(Protocol):
         """Return the frozen physical source selection."""
         ...
 
-    def get_mapping_source_selection(
-        self, project_id: str
-    ) -> SourceSelection | None:
+    def get_mapping_source_selection(self, project_id: str) -> SourceSelection | None:
         """Return the effective selection seen by mapping and staging."""
         ...
 
-    def get_source_catalogs(
-        self, project_id: str
-    ) -> tuple[SourceFileCatalog, ...]:
+    def get_source_catalogs(self, project_id: str) -> tuple[SourceFileCatalog, ...]:
         """Return inspected catalogs used to materialize the selected rows."""
         ...
 
@@ -97,9 +92,7 @@ class PreparationSourceRepository(Protocol):
 class PreparationDerivedRepository(Protocol):
     """Load optional virtual datasets inserted between source and mapping."""
 
-    def get_derived_entity_plan(
-        self, project_id: str
-    ) -> DerivedEntityPlan | None:
+    def get_derived_entity_plan(self, project_id: str) -> DerivedEntityPlan | None:
         """Return the current derived-entity plan, if the project has one."""
         ...
 
@@ -148,12 +141,6 @@ class PreparationStagingRepository(Protocol):
 class PreparationSessionRepository(Protocol):
     """Store unpublished bounded batches until canonical publication succeeds."""
 
-    def begin_session(
-        self,
-        project_id: str,
-        bindings: PreparationSessionBindings,
-    ) -> PreparationSessionSummary: ...
-
     def begin_direct_session(
         self,
         project_id: str,
@@ -162,26 +149,11 @@ class PreparationSessionRepository(Protocol):
         actor: Actor,
     ) -> PreparationSessionSummary: ...
 
-    def append_provisional_rows(
-        self,
-        project_id: str,
-        session_id: str,
-        rows: Sequence[PreparedSessionRow],
-    ) -> None: ...
-
     def append_impacts(
         self,
         project_id: str,
         session_id: str,
         rows: Sequence[TransformationImpactRow],
-    ) -> None: ...
-
-    def append_session_batch(
-        self,
-        project_id: str,
-        session_id: str,
-        rows: Sequence[PreparedSessionRow | CanonicalPreparedSessionRow],
-        impacts: Sequence[TransformationImpactRow],
     ) -> None: ...
 
     def append_direct_rows(
@@ -190,22 +162,6 @@ class PreparationSessionRepository(Protocol):
         session_id: str,
         rows: Sequence[CanonicalPreparedSessionRow],
     ) -> None: ...
-
-    def finalize_session(
-        self,
-        project_id: str,
-        session_id: str,
-        *,
-        modes: Mapping[str, str],
-        field_sources: Mapping[str, Mapping[str, tuple[str, ...]]],
-        dataset_evidence: Mapping[
-            str,
-            tuple[str, StagingDatasetRole, int, str],
-        ],
-        run_issues: Sequence[Issue],
-        control_totals: Sequence[CanonicalControlTotal],
-        impact_report: TransformationImpactReport,
-    ) -> StoredCanonicalStagingRun: ...
 
     def finalize_direct_session(
         self,
@@ -266,6 +222,7 @@ class PreparationSessionRepository(Protocol):
         failure_code: str,
     ) -> None: ...
 
+
 class QualityMappingRepository(Protocol):
     """Supply the published and editable mapping state used by Stage F."""
 
@@ -275,9 +232,7 @@ class QualityMappingRepository(Protocol):
         """Return the published mapping to which checks must be bound."""
         ...
 
-    def get_mapping_working_draft(
-        self, project_id: str
-    ) -> MappingWorkingDraft | None:
+    def get_mapping_working_draft(self, project_id: str) -> MappingWorkingDraft | None:
         """Return the draft used to detect unsaved semantic changes."""
         ...
 
@@ -285,9 +240,7 @@ class QualityMappingRepository(Protocol):
 class QualitySourceRepository(Protocol):
     """Supply the effective datasets against which quality rules are scoped."""
 
-    def get_mapping_source_selection(
-        self, project_id: str
-    ) -> SourceSelection | None:
+    def get_mapping_source_selection(self, project_id: str) -> SourceSelection | None:
         """Return effective datasets/names used to scope generated rules."""
         ...
 
@@ -295,9 +248,7 @@ class QualitySourceRepository(Protocol):
 class QualityRepository(Protocol):
     """Persist versioned rulesets and their hash-bound quality evaluations."""
 
-    def get_current_quality_ruleset(
-        self, project_id: str
-    ) -> QualityRuleSet | None:
+    def get_current_quality_ruleset(self, project_id: str) -> QualityRuleSet | None:
         """Return the ruleset selected by the current pointer."""
         ...
 
@@ -323,9 +274,7 @@ class QualityRepository(Protocol):
         """Atomically persist a full overlay and advance the current pointer."""
         ...
 
-    def get_current_quality_summary(
-        self, project_id: str
-    ) -> QualityRunSummary | None:
+    def get_current_quality_summary(self, project_id: str) -> QualityRunSummary | None:
         """Return the current quality lifecycle/count projection."""
         ...
 
@@ -340,6 +289,7 @@ class NormalizationRepository(Protocol):
     Implementations must use lifecycle versions for optimistic concurrency so
     two reviewers cannot silently overwrite one another's decisions.
     """
+
     def publish_normalization_run(
         self,
         project_id: str,
@@ -352,6 +302,7 @@ class NormalizationRepository(Protocol):
     ) -> NormalizationRunSummary:
         """Create review evidence bound to staging, quality, and source hashes."""
         ...
+
     def get_current_normalization_summary(
         self, project_id: str
     ) -> NormalizationRunSummary | None:
@@ -364,9 +315,7 @@ class NormalizationRepository(Protocol):
         """Reload immutable effects and groups for a review run."""
         ...
 
-    def get_normalization_dry_run(
-        self, project_id: str, run_id: str
-    ) -> DryRun | None:
+    def get_normalization_dry_run(self, project_id: str, run_id: str) -> DryRun | None:
         """Reload the mutable, versioned decision state for a review run."""
         ...
 
@@ -375,6 +324,7 @@ class NormalizationRepository(Protocol):
     ) -> tuple[tuple[NormalizationReviewGroup, ...], int]:
         """Return review groups plus the automatic affected-record count."""
         ...
+
     def decide_normalization_group(
         self,
         project_id: str,
@@ -388,6 +338,7 @@ class NormalizationRepository(Protocol):
     ) -> NormalizationRunSummary:
         """Record one group decision and return the updated lifecycle summary."""
         ...
+
     def approve_and_freeze_normalization(
         self,
         project_id: str,
@@ -416,9 +367,7 @@ class NormalizationRepository(Protocol):
 class PreflightStagingRepository(Protocol):
     """Load the current Stage-E summary and its immutable canonical rows."""
 
-    def get_current_staging_summary(
-        self, project_id: str
-    ) -> StagingRunSummary | None:
+    def get_current_staging_summary(self, project_id: str) -> StagingRunSummary | None:
         """Return the staging run selected by the current pointer."""
         ...
 
@@ -436,9 +385,7 @@ class PreflightStagingRepository(Protocol):
 class PreflightQualityRepository(Protocol):
     """Load the current Stage-F eligibility summary and full overlay."""
 
-    def get_current_quality_summary(
-        self, project_id: str
-    ) -> QualityRunSummary | None:
+    def get_current_quality_summary(self, project_id: str) -> QualityRunSummary | None:
         """Return the quality run selected by the current pointer."""
         ...
 
@@ -457,6 +404,7 @@ class PreflightEffectiveRepository(Protocol):
         """Return current effective rows, if advanced resolution is active."""
         ...
 
+
 class PreflightNormalizationRepository(Protocol):
     """Load Stage-G freeze identity and its versioned approval evidence."""
 
@@ -466,9 +414,7 @@ class PreflightNormalizationRepository(Protocol):
         """Return the current review run and eligible-dataset hash."""
         ...
 
-    def get_normalization_dry_run(
-        self, project_id: str, run_id: str
-    ) -> DryRun | None:
+    def get_normalization_dry_run(self, project_id: str, run_id: str) -> DryRun | None:
         """Return the approval state used to prove the run is frozen."""
         ...
 
@@ -484,9 +430,7 @@ class PreflightProjectRepository(Protocol):
 class PreflightSourceRepository(Protocol):
     """Load the effective frozen selection used by the submitted mapping."""
 
-    def get_mapping_source_selection(
-        self, project_id: str
-    ) -> SourceSelection | None:
+    def get_mapping_source_selection(self, project_id: str) -> SourceSelection | None:
         """Return stable dataset/column identities used to compile Stage H."""
         ...
 
@@ -494,15 +438,11 @@ class PreflightSourceRepository(Protocol):
 class PreflightSchemaRepository(Protocol):
     """Load the captured target field contract used during mapping."""
 
-    def get_odoo_schema_catalog(
-        self, project_id: str
-    ) -> OdooSchemaCatalog | None:
+    def get_odoo_schema_catalog(self, project_id: str) -> OdooSchemaCatalog | None:
         """Return the exact captured Odoo field metadata."""
         ...
 
-    def get_schema_governance(
-        self, project_id: str
-    ) -> SchemaGovernance | None:
+    def get_schema_governance(self, project_id: str) -> SchemaGovernance | None:
         """Return governance binding the mapping to the schema catalog."""
         ...
 
@@ -547,6 +487,7 @@ class PreflightRepository(Protocol):
     ) -> ReadinessReport | None:
         """Return the current report only when every supplied binding matches."""
         ...
+
     def save_readiness_report(
         self,
         project_id: str,
@@ -560,6 +501,7 @@ class PreflightRepository(Protocol):
     ) -> None:
         """Atomically store header, streamed rows, snapshots, pointer, and audit."""
         ...
+
     def get_readiness_rows(
         self,
         project_id: str,

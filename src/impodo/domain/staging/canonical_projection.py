@@ -71,7 +71,7 @@ def canonical_prepared_session_row(
     physical_dataset_id: str,
     encode_payload: bool = True,
 ) -> CanonicalPreparedSessionRow:
-    """Build exact canonical metadata and optionally its compatibility JSON."""
+    """Build exact canonical metadata and optionally its canonical payload."""
 
     physical_sources = {physical_dataset_id: (source_row,)}
     lineage = {
@@ -85,20 +85,22 @@ def canonical_prepared_session_row(
         "physical_dataset_id": physical_dataset_id,
         "physical_source_rows": [source_row],
         "field_sources": {
-            field: list(sources)
-            for field, sources in sorted(field_sources.items())
+            field: list(sources) for field, sources in sorted(field_sources.items())
         },
     }
     portable_source_identity = portable_value(source_identity)
-    row_id = "sha256:" + sha256(
-        canonical_json_bytes(
-            {
-                "lineage": lineage,
-                "target_model": target_model,
-                "source_identity": portable_source_identity,
-            }
-        )
-    ).hexdigest()
+    row_id = (
+        "sha256:"
+        + sha256(
+            canonical_json_bytes(
+                {
+                    "lineage": lineage,
+                    "target_model": target_model,
+                    "source_identity": portable_source_identity,
+                }
+            )
+        ).hexdigest()
+    )
     disposition = (
         StagingDisposition.BLOCKED.value
         if any(item.blocking for item in issues)
@@ -161,7 +163,5 @@ def canonical_prepared_session_row(
             target_identity=target_identity,
             target_scope=target_scope,
         ),
-        issues=tuple(
-            CanonicalIssue.from_dict(item) for item in canonical_issues
-        ),
+        issues=tuple(CanonicalIssue.from_dict(item) for item in canonical_issues),
     )

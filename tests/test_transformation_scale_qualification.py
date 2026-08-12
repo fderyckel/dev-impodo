@@ -54,9 +54,55 @@ class TransformationScaleQualificationHarnessTests(unittest.TestCase):
         }
 
         self.assertTrue(gates[f"{scenario.name}.first_peak_worker_mib"]["passed"])
+        self.assertFalse(gates[f"{scenario.name}.repeat_peak_worker_mib"]["passed"])
         self.assertFalse(
-            gates[f"{scenario.name}.repeat_peak_worker_mib"]["passed"]
+            gates[f"{scenario.name}.vectorization.evidence_present"]["passed"]
         )
+
+    def test_high_volume_release_requires_complete_vectorization_evidence(
+        self,
+    ) -> None:
+        scenario = scenarios("release")[0]
+        report = {
+            "summary": {
+                "maximum_first_peak_worker_mib": 700,
+                "maximum_first_cpu_seconds": 90,
+                "maximum_first_wall_seconds": 100,
+                "maximum_parent_repeat_delta_mib": 20,
+                "maximum_repeat_peak_worker_mib": 700,
+                "maximum_repeat_cpu_seconds": 95,
+                "maximum_repeat_wall_seconds": 110,
+                "run_count": 3,
+            },
+            "vectorization_report": {
+                "bounded_execution_plan_verified": True,
+                "full_canonical_rows_constructed": 0,
+                "full_prepared_records_constructed": 0,
+                "global_operations_classification": "SET_GLOBAL",
+                "optimized_plan_verified": True,
+                "python_cell_callbacks": 0,
+                "python_row_callbacks": 0,
+                "row_weighted_native_coverage_percent": 100.0,
+                "rule_impact_python_replay_rows": 0,
+            },
+        }
+
+        gates = {
+            item["name"]: item
+            for item in _worker_gates(
+                scenario,
+                report,
+                expected_runs=3,
+            )
+        }
+
+        vectorization = [
+            item
+            for name, item in gates.items()
+            if name.startswith(f"{scenario.name}.vectorization.")
+        ]
+        self.assertTrue(vectorization)
+        self.assertTrue(all(item["passed"] for item in vectorization))
 
     def test_relationship_gates_inspect_each_set_based_run(self) -> None:
         report = {
@@ -77,8 +123,7 @@ class TransformationScaleQualificationHarnessTests(unittest.TestCase):
         }
 
         gates = {
-            item["name"]: item
-            for item in _relationship_gates(report, expected_runs=2)
+            item["name"]: item for item in _relationship_gates(report, expected_runs=2)
         }
 
         self.assertTrue(gates["relationship_semantic_parity.wall_seconds"]["passed"])
@@ -123,9 +168,7 @@ class TransformationScaleQualificationHarnessTests(unittest.TestCase):
 
     def test_related_worker_command_is_cross_platform_argument_list(self) -> None:
         scenario = next(
-            item
-            for item in scenarios("smoke")
-            if item.workload == "product-bom"
+            item for item in scenarios("smoke") if item.workload == "product-bom"
         )
         command = _worker_command(
             scenario,
@@ -176,9 +219,7 @@ class TransformationScaleQualificationHarnessTests(unittest.TestCase):
             mismatched = _customer_baseline_evidence(path, candidate)
 
             gates = {item["name"]: item for item in mismatched["gates"]}
-            self.assertFalse(
-                gates["customer_baseline_same_platform_runtime"]["passed"]
-            )
+            self.assertFalse(gates["customer_baseline_same_platform_runtime"]["passed"])
 
 
 def _customer_candidate() -> dict[str, object]:

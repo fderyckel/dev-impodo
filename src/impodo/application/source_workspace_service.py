@@ -24,9 +24,7 @@ from uuid import uuid4
 from ..access import Actor, AuthorizationPolicy, Capability
 from ..artifacts import ArtifactStore, ArtifactStoreError
 from ..domain.source_snapshot import (
-    SOURCE_READER_CONTRACT_VERSION,
     SourceSnapshot,
-    source_snapshot_logical_hash,
 )
 from ..domain.odoo_capture import (
     MAX_ODOO_CAPTURE_ROWS,
@@ -46,8 +44,6 @@ from ..projects import MigrationProject, ProjectStatus, SourceMode
 from ..source import SourceLoadError
 from ..source_snapshot_io import (
     SourceSnapshotPublisher,
-    source_snapshot_schema,
-    validate_snapshot_for_dataset,
 )
 from ..workspace_contracts import (
     SourceConfiguration,
@@ -547,38 +543,6 @@ class SourceWorkspaceService:
                 source_file = source_files.get(binding.file_id)
                 if catalog is None or source_file is None:
                     raise WorkspaceError("Frozen source evidence is incomplete")
-                schema = source_snapshot_schema(dataset)
-                logical_hash = source_snapshot_logical_hash(
-                    project_id=project_id,
-                    dataset_id=dataset.dataset_id,
-                    dataset_name=dataset.name,
-                    file_id=binding.file_id,
-                    table_key=binding.table_key,
-                    source_sha256=(
-                        "sha256:"
-                        + binding.source_sha256.removeprefix("sha256:")
-                    ),
-                    catalog_hash=binding.catalog_hash,
-                    physical_selection_hash=selection.content_hash,
-                    reader_contract_version=SOURCE_READER_CONTRACT_VERSION,
-                    schema_hash=schema.content_hash,
-                    row_count=dataset.row_count,
-                )
-                existing = self.sources.find_source_snapshot(
-                    project_id,
-                    dataset.dataset_id,
-                    logical_hash,
-                )
-                if existing is not None:
-                    validate_snapshot_for_dataset(selection, dataset, existing)
-                    with self.artifacts.materialize_source_snapshot(
-                        project_id,
-                        existing.parquet_storage_key,
-                        expected_sha256=existing.parquet_sha256,
-                    ):
-                        pass
-                    snapshots.append(existing)
-                    continue
                 snapshots.append(
                     self.snapshot_publisher.publish(
                         project,

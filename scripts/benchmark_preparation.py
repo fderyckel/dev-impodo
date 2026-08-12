@@ -52,11 +52,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dirty", action="store_true")
     parser.add_argument("--advanced", action="store_true")
     parser.add_argument(
-        "--normalization-replay-control",
-        action="store_true",
-        help="Measure the pre-Phase-4 two-pass normalization route.",
-    )
-    parser.add_argument(
         "--trace-python-allocations",
         action="store_true",
         help=(
@@ -105,9 +100,6 @@ def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
             "dirty": arguments.dirty,
             "effect_fields": arguments.effect_fields,
             "mapped_fields": arguments.mapped_fields,
-            "normalization_replay_control": (
-                arguments.normalization_replay_control
-            ),
             "rows": arguments.rows,
             "runs": arguments.runs,
             "workload": arguments.workload,
@@ -158,18 +150,14 @@ def summarize(results: Iterable[dict[str, object]]) -> dict[str, object]:
         "run_count": len(items),
     }
     optional_metrics = {
-        "median_cpu_system_seconds": lambda item: item.get(
-            "cpu_system_seconds"
-        ),
+        "median_cpu_system_seconds": lambda item: item.get("cpu_system_seconds"),
         "median_cpu_user_seconds": lambda item: item.get("cpu_user_seconds"),
         "median_database_used_mib": lambda item: (
             dict(item["storage"])["database_used_bytes"] / (1024 * 1024)
             if isinstance(item.get("storage"), dict)
             else None
         ),
-        "median_peak_process_tree_mib": lambda item: item.get(
-            "peak_process_tree_mib"
-        ),
+        "median_peak_process_tree_mib": lambda item: item.get("peak_process_tree_mib"),
         "median_project_storage_mib": lambda item: (
             dict(item["storage"])["project_storage_bytes"] / (1024 * 1024)
             if isinstance(item.get("storage"), dict)
@@ -231,16 +219,9 @@ def _run_once(
             "IMPODO_PREPARATION_BENCHMARK_REVISION": revision,
             "IMPODO_PREPARATION_SCALE_COLUMNS": str(arguments.columns),
             "IMPODO_PREPARATION_SCALE_DIRTY": "1" if arguments.dirty else "0",
-            "IMPODO_PREPARATION_SCALE_EFFECT_FIELDS": str(
-                arguments.effect_fields
-            ),
+            "IMPODO_PREPARATION_SCALE_EFFECT_FIELDS": str(arguments.effect_fields),
             "IMPODO_PREPARATION_SCALE_JSON": "1",
-            "IMPODO_PREPARATION_SCALE_MAPPED_FIELDS": str(
-                arguments.mapped_fields
-            ),
-            "IMPODO_PREPARATION_NORMALIZATION_REPLAY_CONTROL": (
-                "1" if arguments.normalization_replay_control else "0"
-            ),
+            "IMPODO_PREPARATION_SCALE_MAPPED_FIELDS": str(arguments.mapped_fields),
             "IMPODO_PREPARATION_SCALE_ROWS": str(arguments.rows),
             "IMPODO_PREPARATION_TRACE_PYTHON": (
                 "1" if arguments.trace_python_allocations else "0"
@@ -261,9 +242,7 @@ def _run_once(
     combined_output = completed.stdout + "\n" + completed.stderr
     if completed.returncode != 0:
         tail = "\n".join(combined_output.splitlines()[-40:])
-        raise PreparationBenchmarkError(
-            f"Benchmark child {run_number} failed:\n{tail}"
-        )
+        raise PreparationBenchmarkError(f"Benchmark child {run_number} failed:\n{tail}")
     result = extract_result(combined_output)
     result["fresh_process_run"] = run_number
     return result
@@ -290,10 +269,9 @@ def _require_comparable_results(results: tuple[dict[str, object], ...]) -> None:
         fixture = result.get("fixture")
         if not isinstance(first_fixture, dict) or not isinstance(fixture, dict):
             raise PreparationBenchmarkError("Benchmark fixture evidence is missing")
-        if (
-            fixture.get("sha256") != first_fixture.get("sha256")
-            or fixture.get("size_bytes") != first_fixture.get("size_bytes")
-        ):
+        if fixture.get("sha256") != first_fixture.get("sha256") or fixture.get(
+            "size_bytes"
+        ) != first_fixture.get("size_bytes"):
             raise PreparationBenchmarkError(
                 "Fresh-process benchmark fixtures are not byte-identical"
             )
@@ -366,9 +344,7 @@ def compare_reports(
             "absolute_change": after - before,
             "baseline": before,
             "candidate": after,
-            "gain_percent": (
-                ((before - after) / before) * 100 if before else None
-            ),
+            "gain_percent": (((before - after) / before) * 100 if before else None),
         }
     return {
         "baseline_revision": str(baseline.get("revision", "unknown")),
@@ -416,12 +392,8 @@ def _validate_arguments(arguments: argparse.Namespace) -> None:
                 "Benchmark output parent directory does not exist"
             )
     compare_to = getattr(arguments, "compare_to", None)
-    if compare_to is not None and not (
-        compare_to.expanduser().resolve().is_file()
-    ):
-        raise PreparationBenchmarkError(
-            "Benchmark comparison file was not found"
-        )
+    if compare_to is not None and not (compare_to.expanduser().resolve().is_file()):
+        raise PreparationBenchmarkError("Benchmark comparison file was not found")
 
 
 def _revision() -> str:

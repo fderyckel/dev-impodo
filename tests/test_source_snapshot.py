@@ -7,6 +7,7 @@ import json
 import math
 from pathlib import PurePosixPath, PureWindowsPath
 import unittest
+from unittest.mock import patch
 
 from impodo.domain.source_snapshot import (
     EncodedSourceCell,
@@ -20,6 +21,7 @@ from impodo.domain.source_snapshot import (
     source_snapshot_storage_key,
     source_value_column,
 )
+from impodo.domain.source_binding import FileSourceBinding
 
 
 HASH_A = "sha256:" + "a" * 64
@@ -194,7 +196,7 @@ class SourceSnapshotManifestTests(unittest.TestCase):
         self.assertEqual(restored, snapshot)
         self.assertEqual(restored.content_hash, snapshot.content_hash)
         parts = PurePosixPath(snapshot.parquet_storage_key).parts
-        self.assertEqual(parts[:4], ("snapshots", "source", "v2", "1" * 24))
+        self.assertEqual(parts[:4], ("snapshots", "source", "v3", "1" * 24))
         self.assertEqual(len(parts), 5)
         self.assertRegex(parts[4], r"^[0-9a-f]{64}\.parquet$")
 
@@ -208,6 +210,18 @@ class SourceSnapshotManifestTests(unittest.TestCase):
         self.assertEqual(first.logical_hash, second.logical_hash)
         self.assertNotEqual(first.parquet_storage_key, second.parquet_storage_key)
         self.assertNotEqual(first.content_hash, second.content_hash)
+
+    def test_creation_calculates_the_snapshot_logical_root_once(self) -> None:
+        from impodo.domain import source_snapshot as contract
+
+        with patch.object(
+            contract,
+            "source_snapshot_logical_hash",
+            wraps=contract.source_snapshot_logical_hash,
+        ) as calculate:
+            _snapshot()
+
+        self.assertEqual(calculate.call_count, 1)
 
     def test_changed_governed_input_changes_logical_hash_and_path(self) -> None:
         first = _snapshot()
@@ -233,7 +247,7 @@ class SourceSnapshotManifestTests(unittest.TestCase):
     def test_storage_key_rejects_caller_controlled_path_segments(self) -> None:
         self.assertEqual(
             source_snapshot_storage_key(DATASET_ID, HASH_A, HASH_B),
-            "snapshots/source/v2/"
+            "snapshots/source/v3/"
             + "1" * 24
             + "/e9c0bd0498a3b16db3ea90d302340b4d"
             + "f50a5583de5270971a2b207d101ffd8a.parquet",
@@ -261,7 +275,7 @@ class SourceSnapshotManifestTests(unittest.TestCase):
 
         self.assertLessEqual(len(str(path)), 259)
 
-    def test_legacy_v1_storage_key_is_rejected(self) -> None:
+    def test_non_current_storage_key_is_rejected(self) -> None:
         snapshot = _snapshot()
         payload = json.loads(snapshot.to_json())
         payload["parquet_storage_key"] = (
@@ -304,13 +318,19 @@ def _snapshot(
         project_id="project-1",
         dataset_id=DATASET_ID,
         dataset_name="products",
-        file_id="file-1",
-        table_key="csv",
-        source_sha256=HASH_A,
-        catalog_hash=HASH_B,
+        source=FileSourceBinding(
+            file_id="file-1",
+            table_key="csv",
+            source_sha256=HASH_A,
+            catalog_hash=HASH_B,
+            encoding="utf-8",
+            delimiter=",",
+            header_row=1,
+        ),
         physical_selection_hash=HASH_C,
         schema=_schema(),
         row_count=row_count,
+        data_logical_hash=HASH_B,
         parquet_sha256=parquet_sha256,
         created_at=created_at,
     )

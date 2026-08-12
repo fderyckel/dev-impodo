@@ -93,6 +93,15 @@ class ArtifactStore(Protocol):
         """Yield one contained temporary workspace for a Parquet snapshot."""
         ...
 
+    def ensure_source_snapshot_capacity(
+        self,
+        project_id: str,
+        *,
+        required_bytes: int,
+    ) -> None:
+        """Fail before target I/O when snapshot publication lacks disk headroom."""
+        ...
+
     def publish_source_snapshot(
         self,
         project_id: str,
@@ -112,6 +121,10 @@ class ArtifactStore(Protocol):
         expected_sha256: str,
     ) -> ContextManager[Path]:
         """Expose one hash-verified immutable source snapshot for reading."""
+        ...
+
+    def source_snapshot_size(self, project_id: str, storage_key: str) -> int:
+        """Return contained immutable snapshot bytes without rehashing them."""
         ...
 
     def cleanup_source_snapshots(
@@ -302,6 +315,24 @@ class LocalArtifactStore:
         finally:
             shutil.rmtree(workspace, ignore_errors=True)
 
+    def ensure_source_snapshot_capacity(
+        self,
+        project_id: str,
+        *,
+        required_bytes: int,
+    ) -> None:
+        """Check conservative free-space headroom without touching source data."""
+
+        if required_bytes < 1:
+            raise ArtifactStoreError("Snapshot capacity requirement must be positive")
+        project = self._project_directory(project_id)
+        if project.is_symlink() or not project.is_dir():
+            raise ArtifactStoreError("Project artifact directory is missing")
+        if shutil.disk_usage(project).free < required_bytes:
+            raise ArtifactSizeError(
+                "Insufficient free space for bounded source snapshot publication"
+            )
+
     def publish_source_snapshot(
         self,
         project_id: str,
@@ -354,6 +385,14 @@ class LocalArtifactStore:
         if _file_sha256(path) != _canonical_sha256(expected_sha256):
             raise ArtifactStoreError("Stored source snapshot failed hash verification")
         yield path
+
+    def source_snapshot_size(self, project_id: str, storage_key: str) -> int:
+        """Read exact artifact size after its publication hash check."""
+
+        path = self._source_snapshot_path(project_id, storage_key, create=False)
+        if path.is_symlink() or not path.is_file():
+            raise ArtifactStoreError("Stored source snapshot is missing")
+        return path.stat().st_size
 
     def cleanup_source_snapshots(
         self,
@@ -427,18 +466,14 @@ class LocalArtifactStore:
             )
         actual_hash = _file_sha256(source)
         if actual_hash != _canonical_sha256(expected_sha256):
-            raise ArtifactStoreError(
-                "Prepared snapshot changed before publication"
-            )
+            raise ArtifactStoreError("Prepared snapshot changed before publication")
         final = self._prepared_snapshot_path(
             project_id,
             storage_key,
             create=True,
         )
         if final.is_symlink():
-            raise ArtifactStoreError(
-                "Prepared snapshots must not be symbolic links"
-            )
+            raise ArtifactStoreError("Prepared snapshots must not be symbolic links")
         if final.exists():
             if not final.is_file() or _file_sha256(final) != actual_hash:
                 raise ArtifactStoreError(
@@ -552,9 +587,7 @@ class LocalArtifactStore:
     ) -> None:
         """Remove a failed unpublished projection without touching run history."""
 
-        path = self._report_path(
-            project_id, run_id, filename, create=False
-        )
+        path = self._report_path(project_id, run_id, filename, create=False)
         path.unlink(missing_ok=True)
         try:
             path.parent.rmdir()
@@ -652,16 +685,12 @@ class LocalArtifactStore:
             snapshots.mkdir(exist_ok=True)
         prepared = snapshots / "prepared"
         if prepared.is_symlink():
-            raise ArtifactStoreError(
-                "Prepared snapshots must not be a symbolic link"
-            )
+            raise ArtifactStoreError("Prepared snapshots must not be a symbolic link")
         if create:
             prepared.mkdir(exist_ok=True)
         resolved = prepared.resolve()
         if resolved.parent != snapshots.resolve():
-            raise ArtifactStoreError(
-                "Prepared snapshot directory escapes the project"
-            )
+            raise ArtifactStoreError("Prepared snapshot directory escapes the project")
         return resolved
 
     def _prepared_snapshot_path(
@@ -739,7 +768,11 @@ class LocalArtifactStore:
     ) -> Path:
         canonical_run_id = str(UUID(run_id))
         name = Path(filename)
-        if name.name != filename or not filename or name.suffix not in {".json", ".xlsx"}:
+        if (
+            name.name != filename
+            or not filename
+            or name.suffix not in {".json", ".xlsx"}
+        ):
             raise ArtifactStoreError("Invalid report artifact name")
         project = self._project_directory(project_id)
         reports = project / "reports"

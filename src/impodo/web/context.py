@@ -22,6 +22,7 @@ from ..access import Actor, AuthorizationPolicy
 from ..application.browser_queries import BrowserQueryService
 from ..application.mapping_workspace_service import MappingWorkspaceService
 from ..application.normalization_service import NormalizationService
+from ..application.odoo_capture_publication_service import OdooCapturePublicationService
 from ..application.odoo_provenance_service import OdooProvenanceService
 from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
@@ -117,6 +118,7 @@ class WebContext:
     execution: ExecutionService
     reconciliation: ReconciliationService
     transformation_impacts: TransformationImpactService
+    odoo_capture_publication: OdooCapturePublicationService
     odoo_provenance: OdooProvenanceService
     artifacts: ArtifactStore
     actor: Actor

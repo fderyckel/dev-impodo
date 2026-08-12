@@ -1,7 +1,7 @@
 """Define deterministic evidence for immutable columnar source snapshots.
 
-CSV and XLSX remain governed ingestion formats.  A later adapter will encode
-each accepted source cell into two Parquet columns: an ordinal-derived UTF-8
+CSV, XLSX, and Odoo remain governed ingestion formats.  The publication adapters
+encode each accepted source cell into two Parquet columns: an ordinal-derived UTF-8
 value column containing the exact Python text used by current scalar mapping
 semantics, and a compact unsigned kind column used to restore the original
 source scalar for the Python oracle.  This mapping-independent representation
@@ -9,13 +9,12 @@ keeps user headers out of physical paths and column identifiers, preserves
 mixed XLSX columns, and lets a Polars plan project only the value columns it
 needs.
 
-This module is a domain contract only.  Slice 1 deliberately does not publish
-Parquet files or change the production source reader.
+This module is the current domain contract shared by file and Odoo publication.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import IntEnum
@@ -26,11 +25,12 @@ import re
 from typing import Any, Iterable
 
 from .serialization import canonical_json, content_hash
+from .source_binding import SourceBinding, source_binding_from_dict
 
 
-SOURCE_SNAPSHOT_CONTRACT_VERSION = 1
-SOURCE_SNAPSHOT_STORAGE_LAYOUT_VERSION = 2
-SOURCE_READER_CONTRACT_VERSION = 1
+SOURCE_SNAPSHOT_CONTRACT_VERSION = 2
+SOURCE_SNAPSHOT_STORAGE_LAYOUT_VERSION = 3
+SOURCE_READER_CONTRACT_VERSION = 2
 SOURCE_ROW_COLUMN = "__impodo_source_row"
 SOURCE_VALUE_PHYSICAL_TYPE = "utf8"
 SOURCE_KIND_PHYSICAL_TYPE = "uint8"
@@ -158,9 +158,7 @@ class EncodedSourceCell:
                     "Invalid encoded decimal source cell"
                 ) from error
             if not value.is_finite():
-                raise SourceSnapshotContractError(
-                    "Invalid encoded decimal source cell"
-                )
+                raise SourceSnapshotContractError("Invalid encoded decimal source cell")
             return value
         if self.kind is SourceCellKind.DATE:
             try:
@@ -348,10 +346,8 @@ class SourceSnapshotSchema:
                 if not isinstance(item, dict):
                     raise TypeError
                 if (
-                    item.get("value_physical_type")
-                    != SOURCE_VALUE_PHYSICAL_TYPE
-                    or item.get("kind_physical_type")
-                    != SOURCE_KIND_PHYSICAL_TYPE
+                    item.get("value_physical_type") != SOURCE_VALUE_PHYSICAL_TYPE
+                    or item.get("kind_physical_type") != SOURCE_KIND_PHYSICAL_TYPE
                 ):
                     raise SourceSnapshotContractError(
                         "Source column physical type is not canonical"
@@ -387,34 +383,31 @@ class SourceSnapshot:
     project_id: str
     dataset_id: str
     dataset_name: str
-    file_id: str
-    table_key: str
-    source_sha256: str
-    catalog_hash: str
+    source: SourceBinding
     physical_selection_hash: str
     reader_contract_version: int
     schema: SourceSnapshotSchema
     row_count: int
+    data_logical_hash: str
     logical_hash: str
     parquet_storage_key: str
     parquet_sha256: str
     created_at: datetime
+    _calculate_bindings: InitVar[bool] = False
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, _calculate_bindings: bool) -> None:
         for value, label in (
             (self.project_id, "project ID"),
             (self.dataset_name, "dataset name"),
-            (self.file_id, "source file ID"),
-            (self.table_key, "source table key"),
         ):
             if not value:
-                raise SourceSnapshotContractError(f"Source snapshot {label} is required")
+                raise SourceSnapshotContractError(
+                    f"Source snapshot {label} is required"
+                )
         _dataset_digest(self.dataset_id)
         for value, label in (
-            (self.source_sha256, "source hash"),
-            (self.catalog_hash, "catalog hash"),
             (self.physical_selection_hash, "physical selection hash"),
-            (self.logical_hash, "logical hash"),
+            (self.data_logical_hash, "data logical hash"),
             (self.parquet_sha256, "Parquet hash"),
         ):
             _hash_digest(value, label)
@@ -428,7 +421,25 @@ class SourceSnapshot:
             raise SourceSnapshotContractError(
                 "Source snapshot creation time must be timezone-aware"
             )
-        if self.logical_hash != self.expected_logical_hash:
+        expected_logical_hash = self.expected_logical_hash
+        if _calculate_bindings:
+            if self.logical_hash or self.parquet_storage_key:
+                raise SourceSnapshotContractError(
+                    "New source snapshot already has calculated bindings"
+                )
+            object.__setattr__(self, "logical_hash", expected_logical_hash)
+            object.__setattr__(
+                self,
+                "parquet_storage_key",
+                source_snapshot_storage_key(
+                    self.dataset_id,
+                    expected_logical_hash,
+                    self.parquet_sha256,
+                ),
+            )
+        else:
+            _hash_digest(self.logical_hash, "logical hash")
+        if self.logical_hash != expected_logical_hash:
             raise SourceSnapshotContractError("Source snapshot logical hash is invalid")
         expected_key = source_snapshot_storage_key(
             self.dataset_id,
@@ -447,50 +458,30 @@ class SourceSnapshot:
         project_id: str,
         dataset_id: str,
         dataset_name: str,
-        file_id: str,
-        table_key: str,
-        source_sha256: str,
-        catalog_hash: str,
+        source: SourceBinding,
         physical_selection_hash: str,
         schema: SourceSnapshotSchema,
         row_count: int,
+        data_logical_hash: str,
         parquet_sha256: str,
         created_at: datetime,
         reader_contract_version: int = SOURCE_READER_CONTRACT_VERSION,
     ) -> "SourceSnapshot":
-        logical_hash = source_snapshot_logical_hash(
-            project_id=project_id,
-            dataset_id=dataset_id,
-            dataset_name=dataset_name,
-            file_id=file_id,
-            table_key=table_key,
-            source_sha256=source_sha256,
-            catalog_hash=catalog_hash,
-            physical_selection_hash=physical_selection_hash,
-            reader_contract_version=reader_contract_version,
-            schema_hash=schema.content_hash,
-            row_count=row_count,
-        )
         return cls(
             project_id=project_id,
             dataset_id=dataset_id,
             dataset_name=dataset_name,
-            file_id=file_id,
-            table_key=table_key,
-            source_sha256=source_sha256,
-            catalog_hash=catalog_hash,
+            source=source,
             physical_selection_hash=physical_selection_hash,
             reader_contract_version=reader_contract_version,
             schema=schema,
             row_count=row_count,
-            logical_hash=logical_hash,
-            parquet_storage_key=source_snapshot_storage_key(
-                dataset_id,
-                logical_hash,
-                parquet_sha256,
-            ),
+            data_logical_hash=data_logical_hash,
+            logical_hash="",
+            parquet_storage_key="",
             parquet_sha256=parquet_sha256,
             created_at=created_at,
+            _calculate_bindings=True,
         )
 
     @property
@@ -499,14 +490,12 @@ class SourceSnapshot:
             project_id=self.project_id,
             dataset_id=self.dataset_id,
             dataset_name=self.dataset_name,
-            file_id=self.file_id,
-            table_key=self.table_key,
-            source_sha256=self.source_sha256,
-            catalog_hash=self.catalog_hash,
+            source=self.source,
             physical_selection_hash=self.physical_selection_hash,
             reader_contract_version=self.reader_contract_version,
             schema_hash=self.schema.content_hash,
             row_count=self.row_count,
+            data_logical_hash=self.data_logical_hash,
         )
 
     @property
@@ -523,12 +512,11 @@ class SourceSnapshot:
 
     def to_portable_dict(self) -> dict[str, object]:
         return {
-            "catalog_hash": self.catalog_hash,
             "content_hash": self.content_hash,
             "created_at": self.created_at.isoformat(),
+            "data_logical_hash": self.data_logical_hash,
             "dataset_id": self.dataset_id,
             "dataset_name": self.dataset_name,
-            "file_id": self.file_id,
             "logical_hash": self.logical_hash,
             "parquet_sha256": self.parquet_sha256,
             "parquet_storage_key": self.parquet_storage_key,
@@ -537,8 +525,7 @@ class SourceSnapshot:
             "reader_contract_version": self.reader_contract_version,
             "row_count": self.row_count,
             "schema": self.schema.to_portable_dict(),
-            "source_sha256": self.source_sha256,
-            "table_key": self.table_key,
+            "source": self.source.to_dict(),
         }
 
     def to_json(self) -> str:
@@ -551,18 +538,36 @@ class SourceSnapshot:
             schema_payload = payload["schema"]
             if not isinstance(payload, dict) or not isinstance(schema_payload, dict):
                 raise TypeError
+            expected_keys = {
+                "content_hash",
+                "created_at",
+                "data_logical_hash",
+                "dataset_id",
+                "dataset_name",
+                "logical_hash",
+                "parquet_sha256",
+                "parquet_storage_key",
+                "physical_selection_hash",
+                "project_id",
+                "reader_contract_version",
+                "row_count",
+                "schema",
+                "source",
+            }
+            if set(payload) != expected_keys:
+                raise SourceSnapshotContractError(
+                    "Source snapshot manifest does not match the current contract"
+                )
             snapshot = cls(
                 project_id=str(payload["project_id"]),
                 dataset_id=str(payload["dataset_id"]),
                 dataset_name=str(payload["dataset_name"]),
-                file_id=str(payload["file_id"]),
-                table_key=str(payload["table_key"]),
-                source_sha256=str(payload["source_sha256"]),
-                catalog_hash=str(payload["catalog_hash"]),
+                source=source_binding_from_dict(payload["source"]),
                 physical_selection_hash=str(payload["physical_selection_hash"]),
                 reader_contract_version=int(payload["reader_contract_version"]),
                 schema=SourceSnapshotSchema.from_portable_dict(schema_payload),
                 row_count=int(payload["row_count"]),
+                data_logical_hash=str(payload["data_logical_hash"]),
                 logical_hash=str(payload["logical_hash"]),
                 parquet_storage_key=str(payload["parquet_storage_key"]),
                 parquet_sha256=str(payload["parquet_sha256"]),
@@ -632,31 +637,28 @@ def source_snapshot_logical_hash(
     project_id: str,
     dataset_id: str,
     dataset_name: str,
-    file_id: str,
-    table_key: str,
-    source_sha256: str,
-    catalog_hash: str,
+    source: SourceBinding,
     physical_selection_hash: str,
     reader_contract_version: int,
     schema_hash: str,
     row_count: int,
+    data_logical_hash: str,
 ) -> str:
     """Hash governed logical content independently of write time and file bytes."""
 
+    _hash_digest(data_logical_hash, "data logical hash")
     return content_hash(
         {
-            "catalog_hash": catalog_hash,
             "contract_version": SOURCE_SNAPSHOT_CONTRACT_VERSION,
+            "data_logical_hash": data_logical_hash,
             "dataset_id": dataset_id,
             "dataset_name": dataset_name,
-            "file_id": file_id,
             "physical_selection_hash": physical_selection_hash,
             "project_id": project_id,
             "reader_contract_version": reader_contract_version,
             "row_count": row_count,
             "schema_hash": schema_hash,
-            "source_sha256": source_sha256,
-            "table_key": table_key,
+            "source": source.to_dict(),
         }
     )
 

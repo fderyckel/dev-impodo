@@ -35,7 +35,9 @@ from ..access import (
 from ..application.browser_queries import BrowserQueryService
 from ..application.mapping_workspace_service import MappingWorkspaceService
 from ..application.normalization_service import NormalizationService
+from ..application.odoo_capture_publication_service import OdooCapturePublicationService
 from ..application.odoo_provenance_service import OdooProvenanceService
+from ..application.odoo_source_capture_service import OdooSourceCaptureService
 from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
 from ..application.reconciliation_service import ReconciliationService
@@ -77,6 +79,7 @@ from ..projects import (
     ProjectCompatibilityError,
     ProjectNotFoundError,
     ProjectService,
+    SourceMode,
 )
 from ..secrets import CredentialVault, SecretStore
 from .context import (
@@ -176,7 +179,29 @@ def create_local_app(
     transformation_impact_repository = TransformationImpactRepository(database)
     resolved_authorization = authorization or CapabilityAuthorizationPolicy()
     resolved_secret_store = secret_store or CredentialVault()
-    odoo_provenance_repository = OdooProvenanceRepository(database)
+    odoo_provenance_repository = OdooProvenanceRepository(
+        database,
+        resolved_artifacts,
+    )
+    odoo_provenance_service = OdooProvenanceService(
+        project_repository,
+        source_repository,
+        odoo_provenance_repository,
+        resolved_secret_store,
+        resolved_authorization,
+    )
+    odoo_capture_publication = OdooCapturePublicationService(
+        OdooSourceCaptureService(
+            project_repository,
+            source_repository,
+            schema_repository,
+            resolved_authorization,
+        ),
+        source_repository,
+        odoo_provenance_service,
+        odoo_provenance_repository,
+        resolved_artifacts,
+    )
     projects = ProjectService(project_repository, resolved_authorization)
     quality = QualityService(
         mapping_repository,
@@ -290,13 +315,8 @@ def create_local_app(
             resolved_artifacts,
             resolved_authorization,
         ),
-        odoo_provenance=OdooProvenanceService(
-            project_repository,
-            source_repository,
-            odoo_provenance_repository,
-            resolved_secret_store,
-            resolved_authorization,
-        ),
+        odoo_capture_publication=odoo_capture_publication,
+        odoo_provenance=odoo_provenance_service,
         artifacts=resolved_artifacts,
         actor=actor,
         authorization=resolved_authorization,
@@ -322,6 +342,15 @@ def create_local_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
+            for summary in project_repository.list():
+                try:
+                    project = project_repository.get(summary.project_id)
+                except ProjectCompatibilityError:
+                    continue
+                if project.source_mode is SourceMode.ODOO:
+                    odoo_provenance_repository.recover_incomplete_publications(
+                        project.project_id
+                    )
             yield
         finally:
             if context.preparation_jobs is not None:

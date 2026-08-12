@@ -84,7 +84,12 @@ and total snapshot bytes are bounded before unbounded materialization. It
 performs no row hashing and exposes no generic method, raw domain, arbitrary
 context, or field-path input. Its sample is bounded and non-authoritative;
 native pages are honestly an interval capture rather than one database-wide
-transaction. The values-artifact publisher is still absent.
+transaction. The current publication service streams those pages into the
+generic tagged Parquet source snapshot and the protected origin sidecar, then
+promotes their source/provenance pointers together after target access ends.
+It preflights disk headroom, bounds temporary and final artifacts, and removes
+unreferenced candidates on startup/failure. Browser capture confirmation and
+progress/cancellation controls remain to be wired.
 
 ## Confirmation and dataset freeze
 
@@ -106,7 +111,10 @@ reader and published as an immutable Parquet `SourceSnapshot`. The manifest
 binds the selection, source/catalog hashes, stable column schema, original
 source-row numbers, row count, reader version, logical hash, exact Parquet
 hash, and content-addressed storage key. Selection and per-dataset snapshot
-pointers advance together in one DuckDB transaction.
+pointers advance together in one DuckDB transaction. Odoo publication uses
+the same current `SourceSnapshot` manifest and tagged Parquet schema, adding a
+logical data root calculated from the same encoded batches written to the
+candidate. It does not re-decode the Parquet file to hash values again.
 
 After freezing, normal mapping preview and preparation resolve and hash-check
 the Parquet snapshot rather than reopen CSV/XLSX. The original registered file

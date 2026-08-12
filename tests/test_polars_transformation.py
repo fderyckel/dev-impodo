@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
-from hashlib import sha256
 from pathlib import Path
 import tempfile
 import unittest
@@ -35,13 +34,11 @@ from impodo.domain.mapping.contracts import (
     ValueMapping,
 )
 from impodo.domain.source_snapshot import (
-    EncodedSourceCell,
-    SOURCE_ROW_COLUMN,
     SourceSnapshot,
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
-from impodo.domain.source_binding import FileSourceBinding, require_file_source
+from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.staging.evaluator import compile_browser_row_transformer
 from impodo.domain.staging.transformation_impact import (
@@ -50,6 +47,7 @@ from impodo.domain.staging.transformation_impact import (
 )
 from impodo.models import PreparedRecord
 from impodo.source import CompiledPreparedRowTransformer, SourceRow
+from impodo.source_snapshot_io import SourceSnapshotCandidateWriter
 from impodo.value_rules import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
@@ -236,18 +234,12 @@ class PolarsTransformationParityTests(unittest.TestCase):
         self.assertTrue(all(not batch.records for batch in batches))
         self.assertEqual(
             tuple(
-                identity
-                for batch in batches
-                for identity in batch.source_identities
+                identity for batch in batches for identity in batch.source_identities
             ),
             tuple(record.source_identity for record in expected_records),
         )
         self.assertEqual(
-            tuple(
-                values
-                for batch in batches
-                for values in batch.scalar_values
-            ),
+            tuple(values for batch in batches for values in batch.scalar_values),
             tuple(record.scalar_values for record in expected_records),
         )
 
@@ -282,9 +274,7 @@ class PolarsTransformationParityTests(unittest.TestCase):
                     replace(
                         dataset,
                         fields=tuple(
-                            ordered_name
-                            if field.target_field == "name"
-                            else field
+                            ordered_name if field.target_field == "name" else field
                             for field in dataset.fields
                         ),
                     ),
@@ -759,38 +749,26 @@ def _write_snapshot(
         )
         for item in dataset.columns
     )
-    data: dict[str, list[object]] = {
-        SOURCE_ROW_COLUMN: [row.number for row in rows]
-    }
-    polars_schema: dict[str, pl.DataType] = {SOURCE_ROW_COLUMN: pl.Int64}
-    for column in schema.columns:
-        encoded = [
-            EncodedSourceCell.from_python(row.values.get(column.source_name))
-            for row in rows
-        ]
-        data[column.value_column] = [item.text for item in encoded]
-        data[column.kind_column] = [int(item.kind) for item in encoded]
-        polars_schema[column.value_column] = pl.String
-        polars_schema[column.kind_column] = pl.UInt8
-    path = root / "source.parquet"
-    pl.DataFrame(data, schema=polars_schema, strict=True).write_parquet(path)
-    parquet_hash = "sha256:" + sha256(path.read_bytes()).hexdigest()
-    binding = require_file_source(dataset.source)
+    writer = SourceSnapshotCandidateWriter(
+        root,
+        schema,
+        batch_rows=max(1, len(rows)),
+    )
+    writer.append_source_rows(rows)
+    candidate = writer.finalize()
     snapshot = SourceSnapshot.create(
         project_id=selection.project_id,
         dataset_id=dataset.dataset_id,
         dataset_name=dataset.name,
-        file_id=binding.file_id,
-        table_key=binding.table_key,
-        source_sha256=binding.source_sha256,
-        catalog_hash=binding.catalog_hash,
+        source=dataset.source,
         physical_selection_hash=selection.content_hash,
         schema=schema,
         row_count=len(rows),
-        parquet_sha256=parquet_hash,
+        data_logical_hash=candidate.data_logical_hash,
+        parquet_sha256=candidate.parquet_sha256,
         created_at=selection.created_at,
     )
-    return path, snapshot
+    return candidate.path, snapshot
 
 
 if __name__ == "__main__":

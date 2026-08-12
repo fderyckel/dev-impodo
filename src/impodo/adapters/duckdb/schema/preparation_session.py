@@ -1,4 +1,4 @@
-"""Temporary durable storage for bounded Stage-E preparation sessions."""
+"""Durable scratch storage for bounded Stage-E preparation sessions."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import duckdb
 def create_preparation_session_schema(
     connection: duckdb.DuckDBPyConnection,
 ) -> None:
-    """Create unpublished row, lineage, impact, and finalized-row relations."""
+    """Create current session, lineage, impact, and review relations."""
 
     connection.execute(
         """
@@ -31,32 +31,13 @@ def create_preparation_session_schema(
             reconciliation_json VARCHAR,
             dataset_reconciliation_json VARCHAR,
             impact_report_json VARCHAR,
-            provisional_row_count BIGINT NOT NULL,
+            staged_row_count BIGINT NOT NULL,
             canonical_row_count BIGINT NOT NULL,
             impact_row_count BIGINT NOT NULL,
             created_at VARCHAR NOT NULL,
             updated_at VARCHAR NOT NULL,
             failure_code VARCHAR
         );
-
-        CREATE TABLE IF NOT EXISTS preparation_provisional_row (
-            session_id VARCHAR NOT NULL,
-            ordinal BIGINT NOT NULL,
-            dataset VARCHAR NOT NULL,
-            source_row BIGINT NOT NULL,
-            target_model VARCHAR NOT NULL,
-            identity_hash VARCHAR NOT NULL,
-            payload_kind VARCHAR NOT NULL,
-            row_id VARCHAR,
-            disposition VARCHAR,
-            record_json VARCHAR NOT NULL,
-            PRIMARY KEY (session_id, dataset, source_row)
-        );
-
-        CREATE INDEX IF NOT EXISTS preparation_identity_lookup
-            ON preparation_provisional_row (
-                session_id, dataset, identity_hash, source_row
-            );
 
         CREATE TABLE IF NOT EXISTS preparation_identity_group (
             session_id VARCHAR NOT NULL,
@@ -65,20 +46,6 @@ def create_preparation_session_schema(
             identity_count BIGINT NOT NULL,
             PRIMARY KEY (session_id, dataset, identity_hash)
         );
-
-        CREATE TABLE IF NOT EXISTS preparation_finalization_row (
-            session_id VARCHAR NOT NULL,
-            ordinal BIGINT NOT NULL,
-            payload_kind VARCHAR NOT NULL,
-            record_json VARCHAR NOT NULL,
-            identity_count BIGINT NOT NULL,
-            physical_dataset_ids_json VARCHAR NOT NULL,
-            physical_source_rows_json VARCHAR NOT NULL,
-            PRIMARY KEY (session_id, ordinal)
-        );
-
-        CREATE UNIQUE INDEX IF NOT EXISTS preparation_provisional_ordinal
-            ON preparation_provisional_row (session_id, ordinal);
 
         CREATE TABLE IF NOT EXISTS preparation_lineage (
             session_id VARCHAR NOT NULL,
@@ -160,24 +127,6 @@ def create_preparation_session_schema(
         CREATE INDEX IF NOT EXISTS preparation_normalization_finding_lookup
             ON preparation_normalization_finding (
                 session_id, group_id, issue_id
-            );
-
-        CREATE TABLE IF NOT EXISTS preparation_final_row (
-            session_id VARCHAR NOT NULL,
-            ordinal BIGINT NOT NULL,
-            row_id VARCHAR NOT NULL,
-            dataset VARCHAR NOT NULL,
-            source_row BIGINT NOT NULL,
-            target_model VARCHAR NOT NULL,
-            disposition VARCHAR NOT NULL,
-            row_json VARCHAR NOT NULL,
-            PRIMARY KEY (session_id, ordinal),
-            UNIQUE (session_id, row_id)
-        );
-
-        CREATE INDEX IF NOT EXISTS preparation_final_row_lookup
-            ON preparation_final_row (
-                session_id, dataset, source_row, row_id
             );
 
         CREATE TABLE IF NOT EXISTS preparation_direct_identity (

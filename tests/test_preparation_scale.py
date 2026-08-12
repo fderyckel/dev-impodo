@@ -30,7 +30,6 @@ from impodo.application.preparation_capability import (
     compile_preparation_capability,
 )
 from impodo.artifacts import LocalArtifactStore
-from impodo.adapters.duckdb import preparation_session_repository as session_module
 from impodo.domain.coverage import (
     CoverageApplicability,
     CoverageDeclaration,
@@ -101,9 +100,7 @@ from impodo.workspace_contracts import MappingWorkingDraft
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PREPARATION_SCALE_ROWS = int(
-    os.environ.get("IMPODO_PREPARATION_SCALE_ROWS", "100000")
-)
+PREPARATION_SCALE_ROWS = int(os.environ.get("IMPODO_PREPARATION_SCALE_ROWS", "100000"))
 PREPARATION_SCALE_COLUMNS = int(
     os.environ.get("IMPODO_PREPARATION_SCALE_COLUMNS", "30")
 )
@@ -123,16 +120,9 @@ PREPARATION_SCALE_PRODUCTS = int(
 PREPARATION_SCALE_BOM_LINES = int(
     os.environ.get("IMPODO_PREPARATION_SCALE_BOM_LINES", "80000")
 )
-PREPARATION_SCALE_DIRTY = (
-    os.environ.get("IMPODO_PREPARATION_SCALE_DIRTY") == "1"
-)
-PREPARATION_NORMALIZATION_REPLAY_CONTROL = (
-    os.environ.get("IMPODO_PREPARATION_NORMALIZATION_REPLAY_CONTROL") == "1"
-)
+PREPARATION_SCALE_DIRTY = os.environ.get("IMPODO_PREPARATION_SCALE_DIRTY") == "1"
 PREPARATION_BENCHMARK_PREFIX = "IMPODO_PREPARATION_BENCHMARK_JSON="
-PREPARATION_WORKER_BENCHMARK_PREFIX = (
-    "IMPODO_PREPARATION_WORKER_BENCHMARK_JSON="
-)
+PREPARATION_WORKER_BENCHMARK_PREFIX = "IMPODO_PREPARATION_WORKER_BENCHMARK_JSON="
 
 
 def _benchmark_uuid(label: str) -> UUID:
@@ -220,13 +210,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         if PREPARATION_SCALE_MAPPED_FIELDS < 3:
             self.fail("The benchmark requires identity, changed, and numeric fields")
         if not 1 <= PREPARATION_SCALE_EFFECT_FIELDS < PREPARATION_SCALE_MAPPED_FIELDS:
-            self.fail(
-                "Effect fields must be positive and exclude the identity field"
-            )
+            self.fail("Effect fields must be positive and exclude the identity field")
         if PREPARATION_SCALE_WORKLOAD not in {"products", "bom", "customers"}:
             self.fail(
-                "The benchmark workload must be 'products', 'bom', or "
-                "'customers'"
+                "The benchmark workload must be 'products', 'bom', or 'customers'"
             )
 
         fixture_started = perf_counter()
@@ -244,13 +231,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         if os.environ.get("IMPODO_PREPARATION_ADVANCED") == "1":
             self._enable_advanced_coverage(project_id)
         revision = self.context.preparation.mappings.get_mapping_revision(project_id)
-        physical_selection = (
-            self.context.preparation.sources.get_source_selection(project_id)
+        physical_selection = self.context.preparation.sources.get_source_selection(
+            project_id
         )
         effective_selection = (
-            self.context.preparation.sources.get_mapping_source_selection(
-                project_id
-            )
+            self.context.preparation.sources.get_mapping_source_selection(project_id)
         )
         assert revision is not None
         assert physical_selection is not None
@@ -273,9 +258,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 self.context.preparation.quality.current_ruleset(project_id)
             ),
             reference_bundle=(
-                self.context.preparation.resolution.current_reference_bundle(
-                    project_id
-                )
+                self.context.preparation.resolution.current_reference_bundle(project_id)
                 if self.context.preparation.resolution is not None
                 else None
             ),
@@ -302,12 +285,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 phase_cpu_seconds[name] = cpu_seconds
                 phase_calls[name] = 1
                 return
-            phase_wall_seconds[name] = (
-                phase_wall_seconds.get(name, 0.0) + wall_seconds
-            )
-            phase_cpu_seconds[name] = (
-                phase_cpu_seconds.get(name, 0.0) + cpu_seconds
-            )
+            phase_wall_seconds[name] = phase_wall_seconds.get(name, 0.0) + wall_seconds
+            phase_cpu_seconds[name] = phase_cpu_seconds.get(name, 0.0) + cpu_seconds
             phase_calls[name] = phase_calls.get(name, 0) + 1
 
         def timed(name, callback):
@@ -364,15 +343,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 yield batch
 
         original_stage = preparation_module.stage_browser_mapping
-        original_bounded_stage = (
-            preparation_module.prepare_bounded_direct_session
-        )
-        original_publish = (
-            self.context.preparation.staging.publish_canonical_staging
-        )
-        original_reload = (
-            self.context.preparation.staging.get_canonical_staging_run
-        )
+        original_bounded_stage = preparation_module.prepare_bounded_direct_session
+        original_publish = self.context.preparation.staging.publish_canonical_staging
+        original_reload = self.context.preparation.staging.get_canonical_staging_run
         original_quality = self.context.preparation.quality.evaluate_and_publish
         original_quality_evaluation = quality_module.build_bounded_quality_run
         original_quality_persistence = (
@@ -384,31 +357,23 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         original_normalization_aggregation = (
             normalization_module.build_bounded_normalization_evaluation
         )
-        original_normalization_persistence = (
-            self.context.preparation.normalization.repository
-            ._insert_normalization_evidence
-        )
+        original_normalization_persistence = self.context.preparation.normalization.repository._insert_normalization_evidence
         original_normalization_effect = (
             bounded_normalization_module._BoundedNormalizationEffects._effect
         )
-        original_append_rows = (
-            self.context.preparation.sessions.append_direct_rows
-        )
+        original_append_rows = self.context.preparation.sessions.append_direct_rows
         original_append_impacts = self.context.preparation.sessions.append_impacts
         original_finalize_session = (
             self.context.preparation.sessions.finalize_direct_session
         )
         original_projected_rows = (
-            self.context.preparation.sessions
-            ._iter_projected_dataset_encoded_batches
+            self.context.preparation.sessions._iter_projected_dataset_encoded_batches
         )
         original_project_row = evaluator_module.CompiledBrowserRowTransformer.project
         original_finish_row = evaluator_module.CompiledBrowserRowTransformer.finish
         original_scalar_value = evaluator_module.evaluate_scalar_mapping_value
         original_prepare_row = source_module.CompiledPreparedRowTransformer.transform
-        original_canonical_row = (
-            bounded_preparation_module.canonical_row_from_prepared
-        )
+        original_canonical_row = bounded_preparation_module.canonical_row_from_prepared
         original_columnar_canonical_row = (
             bounded_preparation_module.canonical_prepared_session_row
         )
@@ -425,14 +390,12 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 phase_calls["native_prepared_batches"] = (
                     phase_calls.get("native_prepared_batches", 0) + 1
                 )
-                phase_calls["python_row_adaptation"] = (
-                    phase_calls.get("python_row_adaptation", 0)
-                    + len(batch.source_rows)
-                )
-                phase_calls["full_prepared_record_construction"] = (
-                    phase_calls.get("full_prepared_record_construction", 0)
-                    + len(batch.records)
-                )
+                phase_calls["python_row_adaptation"] = phase_calls.get(
+                    "python_row_adaptation", 0
+                ) + len(batch.source_rows)
+                phase_calls["full_prepared_record_construction"] = phase_calls.get(
+                    "full_prepared_record_construction", 0
+                ) + len(batch.records)
                 yield batch
 
         def instrumented_projected_rows(*args, **kwargs):
@@ -440,10 +403,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 phase_calls.get("prepared_value_projection_scans", 0) + 1
             )
             for batch in original_projected_rows(*args, **kwargs):
-                phase_calls["prepared_value_projection_rows"] = (
-                    phase_calls.get("prepared_value_projection_rows", 0)
-                    + len(batch)
-                )
+                phase_calls["prepared_value_projection_rows"] = phase_calls.get(
+                    "prepared_value_projection_rows", 0
+                ) + len(batch)
                 yield batch
 
         def instrumented_normalization_effect(*args, **kwargs):
@@ -472,8 +434,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
             stack.enter_context(
                 patch(
-                    "impodo.domain.staging.evaluator."
-                    "require_supported_browser_scale",
+                    "impodo.domain.staging.evaluator.require_supported_browser_scale",
                 )
             )
             patches = (
@@ -502,8 +463,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     timed("quality", original_quality),
                 ),
                 patch(
-                    "impodo.application.quality_service."
-                    "build_bounded_quality_run",
+                    "impodo.application.quality_service.build_bounded_quality_run",
                     timed("quality_evaluation", original_quality_evaluation),
                 ),
                 patch.object(
@@ -628,14 +588,6 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
             for active_patch in patches:
                 stack.enter_context(active_patch)
-            if PREPARATION_NORMALIZATION_REPLAY_CONTROL:
-                stack.enter_context(
-                    patch.object(
-                        session_module._SessionImpacts,
-                        "prepare_normalization_facts",
-                        None,
-                    )
-                )
             normalization = self.context.preparation.prepare(
                 project_id,
                 actor=self.context.actor,
@@ -644,22 +596,18 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         cpu_seconds = process_time() - cpu_started
         process_cpu_finished = process.cpu_times()
         if trace_python_allocations:
-            python_traced_current, python_traced_peak = (
-                tracemalloc.get_traced_memory()
-            )
+            python_traced_current, python_traced_peak = tracemalloc.get_traced_memory()
             tracemalloc.stop()
         else:
             python_traced_current = 0
             python_traced_peak = 0
 
-        staging = (
-            self.context.preparation.staging.get_current_staging_summary(
-                project_id
-            )
+        staging = self.context.preparation.staging.get_current_staging_summary(
+            project_id
         )
         quality = self.context.preparation.quality.current_summary(project_id)
-        current_normalization = (
-            self.context.preparation.normalization.current_summary(project_id)
+        current_normalization = self.context.preparation.normalization.current_summary(
+            project_id
         )
         self.assertIsNotNone(staging)
         self.assertIsNotNone(quality)
@@ -676,29 +624,19 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             self.context.preparation.sources.get_current_source_snapshots(project_id)
         )
         snapshot_bytes = sum(
-            (
-                self.root
-                / project_id
-                / snapshot.parquet_storage_key
-            ).stat().st_size
+            (self.root / project_id / snapshot.parquet_storage_key).stat().st_size
             for snapshot in source_snapshots
         )
         prepared_snapshots = (
             self.context.preparation.sessions.current_prepared_snapshots(project_id)
         )
         prepared_snapshot_bytes = sum(
-            (
-                self.root
-                / project_id
-                / snapshot.parquet_storage_key
-            ).stat().st_size
+            (self.root / project_id / snapshot.parquet_storage_key).stat().st_size
             for snapshot in prepared_snapshots
         )
         with self.context.preparation.staging._connect(database_path) as connection:
             connection.execute("CHECKPOINT")
-            database_size_row = connection.execute(
-                "PRAGMA database_size"
-            ).fetchone()
+            database_size_row = connection.execute("PRAGMA database_size").fetchone()
             memory_rows = connection.execute(
                 "SELECT memory_usage_bytes, temporary_storage_bytes "
                 "FROM duckdb_memory()"
@@ -781,19 +719,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             "database_free_bytes": block_size * int(database_size_row[5]),
             "database_used_bytes": block_size * int(database_size_row[4]),
             "duckdb_current_memory_bytes": sum(int(item[0]) for item in memory_rows),
-            "duckdb_current_temporary_bytes": sum(
-                int(item[1]) for item in memory_rows
-            ),
+            "duckdb_current_temporary_bytes": sum(int(item[1]) for item in memory_rows),
             "parquet_bytes": parquet_bytes,
             "prepared_snapshot_bytes": prepared_snapshot_bytes,
             "physical_quality_row_count": int(physical_quality_counts[0]),
-            "physical_source_accounting_count": int(
-                physical_quality_counts[1]
-            ),
+            "physical_source_accounting_count": int(physical_quality_counts[1]),
             "project_storage_bytes": project_storage_bytes,
             "serialized_characters_by_table": {
-                str(table): int(characters)
-                for table, characters in serialized_rows
+                str(table): int(characters) for table, characters in serialized_rows
             },
             "source_snapshot_bytes": snapshot_bytes,
             "wal_size": str(database_size_row[6]),
@@ -810,8 +743,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             serialized_characters,
         ) = (int(item) for item in counters)
         phase_text = ", ".join(
-            f"{name}={seconds:.3f}s"
-            for name, seconds in phase_wall_seconds.items()
+            f"{name}={seconds:.3f}s" for name, seconds in phase_wall_seconds.items()
         )
         primary_phase_names = tuple(
             name
@@ -859,8 +791,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             ),
             "row_weighted_native_coverage_percent": (
                 100.0
-                if route_by_stage.get("transformation")
-                == "NATIVE_COLUMNAR"
+                if route_by_stage.get("transformation") == "NATIVE_COLUMNAR"
                 else 0.0
             ),
             "rule_impact_python_replay_rows": phase_calls.get(
@@ -877,8 +808,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             f"columns={PREPARATION_SCALE_COLUMNS}, "
             f"mapped_fields={PREPARATION_SCALE_MAPPED_FIELDS}, "
             f"effect_fields={PREPARATION_SCALE_EFFECT_FIELDS}, "
-            "normalization_fact_route="
-            f"{'replay-control' if PREPARATION_NORMALIZATION_REPLAY_CONTROL else 'durable'}, "
+            "normalization_fact_route=durable, "
             f"fixture={fixture_seconds:.3f}s, total={elapsed:.3f}s, "
             f"fixture_peak={fixture_peak_mib:.1f} MiB, "
             f"peak={peak_mib:.1f} MiB, ending_rss={ending_mib:.1f} MiB, "
@@ -943,20 +873,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     "staging": staging.content_hash,
                 },
                 "mapped_fields": PREPARATION_SCALE_MAPPED_FIELDS,
-                "normalization_fact_route": (
-                    "replay-control"
-                    if PREPARATION_NORMALIZATION_REPLAY_CONTROL
-                    else "durable"
-                ),
+                "normalization_fact_route": "durable",
                 "peak_working_set_mib": peak_mib,
                 "peak_process_tree_mib": peak_tree_mib,
                 "phase_calls": phase_calls,
                 "phase_cpu_seconds": phase_cpu_seconds,
                 "phase_checkpoint_rss_mib": {
                     name: value / (1024 * 1024)
-                    for name, value in sorted(
-                        phase_checkpoint_rss_bytes.items()
-                    )
+                    for name, value in sorted(phase_checkpoint_rss_bytes.items())
                 },
                 "phase_wall_seconds": phase_wall_seconds,
                 "phase_reconciliation": {
@@ -1032,8 +956,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         self.assertEqual(
             phase_calls.get("normalization_effect_construction", 0),
-            normalization_effects
-            * (2 if PREPARATION_NORMALIZATION_REPLAY_CONTROL else 1),
+            normalization_effects,
         )
         self.assertEqual(staging.failed_control_total_count, 0)
 
@@ -1065,9 +988,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         process = psutil.Process()
         source_snapshots = (
-            self.context.preparation.sources.get_current_source_snapshots(
-                project_id
-            )
+            self.context.preparation.sources.get_current_source_snapshots(project_id)
         )
         phase_seconds: dict[str, float] = {}
 
@@ -1089,18 +1010,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         original_prepared_batches = (
             bounded_preparation_module.iter_polars_prepared_batches
         )
-        original_project_row = (
-            evaluator_module.CompiledBrowserRowTransformer.project
-        )
-        original_finish_row = (
-            evaluator_module.CompiledBrowserRowTransformer.finish
-        )
-        original_prepare_row = (
-            source_module.CompiledPreparedRowTransformer.transform
-        )
-        original_canonical_adapter = (
-            bounded_preparation_module._canonical_session_row
-        )
+        original_project_row = evaluator_module.CompiledBrowserRowTransformer.project
+        original_finish_row = evaluator_module.CompiledBrowserRowTransformer.finish
+        original_prepare_row = source_module.CompiledPreparedRowTransformer.transform
+        original_canonical_adapter = bounded_preparation_module._canonical_session_row
 
         def timed_prepared_batches(*args, **kwargs):
             iterator = original_prepared_batches(*args, **kwargs)
@@ -1300,19 +1213,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     break
                 sleep(0.05)
             else:
-                self.fail(
-                    "Background preparation did not finish within ten minutes"
-                )
+                self.fail("Background preparation did not finish within ten minutes")
             self.assertEqual(
                 current.status,
                 PreparationJobStatus.SUCCEEDED,
                 msg=f"{current.failure_code}: {current.failure_message}",
             )
             worker_deadline = perf_counter() + 5
-            while (
-                manager.worker_alive(job.job_id)
-                and perf_counter() < worker_deadline
-            ):
+            while manager.worker_alive(job.job_id) and perf_counter() < worker_deadline:
                 sleep(0.01)
             self.assertFalse(manager.worker_alive(job.job_id))
             return (
@@ -1323,9 +1231,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
         def storage_evidence() -> dict[str, int]:
             database_path = self.root / project_id / "project.duckdb"
-            with self.context.preparation.staging._connect(
-                database_path
-            ) as connection:
+            with self.context.preparation.staging._connect(database_path) as connection:
                 connection.execute("CHECKPOINT")
                 database_size_row = connection.execute(
                     "PRAGMA database_size"
@@ -1345,30 +1251,26 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             }
 
         first_seconds, first_cpu_seconds, first_peak = run_attempt()
-        first_staging = (
-            self.context.preparation.staging.get_current_staging_summary(
-                project_id
-            )
-        )
-        first_quality = self.context.preparation.quality.current_summary(
+        first_staging = self.context.preparation.staging.get_current_staging_summary(
             project_id
         )
-        first_normalization = (
-            self.context.preparation.normalization.current_summary(project_id)
+        first_quality = self.context.preparation.quality.current_summary(project_id)
+        first_normalization = self.context.preparation.normalization.current_summary(
+            project_id
         )
         first_storage = storage_evidence()
         parent_rss_after_first = parent_process.memory_info().rss
-        prepared = (
-            self.context.preparation.sessions.current_prepared_snapshots(
-                project_id
-            )
+        prepared = self.context.preparation.sessions.current_prepared_snapshots(
+            project_id
         )
         expected_prepared_count = 2 if related_product_bom else 1
         self.assertEqual(len(prepared), expected_prepared_count)
         prepared_modified = {
             item.parquet_storage_key: (
                 self.root / project_id / item.parquet_storage_key
-            ).stat().st_mtime_ns
+            )
+            .stat()
+            .st_mtime_ns
             for item in prepared
         }
         for source_file in project.source_files:
@@ -1378,16 +1280,12 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
 
         repeat_seconds, repeat_cpu_seconds, repeat_peak = run_attempt()
-        repeated_staging = (
-            self.context.preparation.staging.get_current_staging_summary(
-                project_id
-            )
-        )
-        repeated_quality = self.context.preparation.quality.current_summary(
+        repeated_staging = self.context.preparation.staging.get_current_staging_summary(
             project_id
         )
-        repeated_normalization = (
-            self.context.preparation.normalization.current_summary(project_id)
+        repeated_quality = self.context.preparation.quality.current_summary(project_id)
+        repeated_normalization = self.context.preparation.normalization.current_summary(
+            project_id
         )
         repeat_storage = storage_evidence()
         parent_rss_after_repeat = parent_process.memory_info().rss
@@ -1412,16 +1310,16 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             first_normalization.content_hash,
         )
         self.assertEqual(
-            self.context.preparation.sessions.current_prepared_snapshots(
-                project_id
-            ),
+            self.context.preparation.sessions.current_prepared_snapshots(project_id),
             prepared,
         )
         self.assertEqual(
             {
                 item.parquet_storage_key: (
                     self.root / project_id / item.parquet_storage_key
-                ).stat().st_mtime_ns
+                )
+                .stat()
+                .st_mtime_ns
                 for item in prepared
             },
             prepared_modified,
@@ -1683,14 +1581,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     dataset_id=products.dataset_id,
                     target_model="product.template",
                     mode=MappingTargetMode.UPSERT,
-                    source_identity_column_keys=(
-                        products.columns[0].stable_key,
-                    ),
+                    source_identity_column_keys=(products.columns[0].stable_key,),
                     target_identity=(
                         IdentityComponentMapping(
-                            source_column_keys=(
-                                products.columns[0].stable_key,
-                            ),
+                            source_column_keys=(products.columns[0].stable_key,),
                             target_fields=("default_code",),
                         ),
                     ),
@@ -1729,9 +1623,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                         RelationshipMapping(
                             target_field="product_id",
                             kind="many2one",
-                            source_column_keys=(
-                                bom_lines.columns[2].stable_key,
-                            ),
+                            source_column_keys=(bom_lines.columns[2].stable_key,),
                             resolver=RelationshipResolver(
                                 origin=ResolverOrigin.DATASET,
                                 dataset_id=products.dataset_id,
@@ -1911,9 +1803,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         selection = self.context.sources.freeze_selection(
             registered.project_id,
             dataset_names={
-                (source.file_id, "csv"): (
-                    _dataset_name(PREPARATION_SCALE_WORKLOAD)
-                )
+                (source.file_id, "csv"): (_dataset_name(PREPARATION_SCALE_WORKLOAD))
             },
             actor=self.context.actor,
         )
@@ -2002,9 +1892,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                             ),
                             expected_total=str(row_count),
                             unit=(
-                                "unit"
-                                if PREPARATION_SCALE_WORKLOAD == "bom"
-                                else "EUR"
+                                "unit" if PREPARATION_SCALE_WORKLOAD == "bom" else "EUR"
                             ),
                         ),
                     ),
@@ -2083,7 +1971,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     family=family,
                     applicability=(
                         CoverageApplicability.APPLICABLE
-                        if family in {
+                        if family
+                        in {
                             CoverageFamily.TC_09,
                             CoverageFamily.TC_14,
                             CoverageFamily.TC_15,
@@ -2094,7 +1983,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     ),
                     rationale=(
                         "Included in the deterministic Slice 6 scale fixture."
-                        if family in {
+                        if family
+                        in {
                             CoverageFamily.TC_09,
                             CoverageFamily.TC_14,
                             CoverageFamily.TC_15,
@@ -2104,7 +1994,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                         else "Not required by this deterministic scale fixture."
                     ),
                     datasets=(dataset_name,)
-                    if family in {
+                    if family
+                    in {
                         CoverageFamily.TC_09,
                         CoverageFamily.TC_14,
                         CoverageFamily.TC_15,
@@ -2234,7 +2125,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             mapping_hash=base.mapping_hash,
             schema_hash=base.schema_hash,
             rules=tuple(
-                sorted((*base.rules, approved_code, count_boundary), key=lambda item: item.rule_id)
+                sorted(
+                    (*base.rules, approved_code, count_boundary),
+                    key=lambda item: item.rule_id,
+                )
             ),
             coverage_scope_hash=scope.content_hash,
             reference_bundle_hash=bundle.content_hash,
@@ -2314,9 +2208,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             "source_entries": [],
             "source_links": [],
         }
-        original_quality_batches = (
-            quality_repository.iter_encoded_json_batches
-        )
+        original_quality_batches = quality_repository.iter_encoded_json_batches
 
         def count_quality_batches(*args, **kwargs):
             for batch in original_quality_batches(*args, **kwargs):
@@ -2357,29 +2249,11 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 elif keys == {"physical_dataset_id", "source_row"}:
                     family = "physical_rows"
                 else:
-                    raise AssertionError(
-                        "Unexpected preparation transport shape"
-                    )
-                preparation_transport_batches[family].append(
-                    batch.row_count
-                )
+                    raise AssertionError("Unexpected preparation transport shape")
+                preparation_transport_batches[family].append(batch.row_count)
                 yield batch
 
         with (
-            patch.object(
-                self.context.preparation.sessions,
-                "append_provisional_rows",
-                side_effect=AssertionError(
-                    "direct preparation must not copy canonical rows into provisional storage"
-                ),
-            ),
-            patch.object(
-                self.context.preparation.sessions,
-                "finalize_session",
-                side_effect=AssertionError(
-                    "direct preparation must not copy canonical rows into final-session storage"
-                ),
-            ),
             patch.object(
                 self.context.preparation.staging,
                 "get_canonical_staging_run",
@@ -2394,8 +2268,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 ),
             ),
             patch(
-                "impodo.adapters.duckdb.quality_repository."
-                "DUCKDB_JSON_BATCH_MAX_BYTES",
+                "impodo.adapters.duckdb.quality_repository.DUCKDB_JSON_BATCH_MAX_BYTES",
                 2_000,
             ),
             patch.object(
@@ -2474,12 +2347,10 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertIsNotNone(stored_quality)
         assert stored_quality is not None
         self.assertEqual(stored_quality.to_json(), expected_quality.to_json())
-        quality_page = (
-            self.context.preparation.quality.quality.get_quality_review_page(
-                project_id,
-                quality_summary.run_id,
-                page_size=17,
-            )
+        quality_page = self.context.preparation.quality.quality.get_quality_review_page(
+            project_id,
+            quality_summary.run_id,
+            page_size=17,
         )
         self.assertEqual(quality_page.matching_count, 37)
         self.assertEqual(
@@ -2538,8 +2409,8 @@ class BoundedPreparationParityTests(unittest.TestCase):
             published_staging_content_hash=summary.content_hash,
             published_quality_content_hash=quality_summary.content_hash,
         )
-        normalization_summary = (
-            self.context.preparation.normalization.current_summary(project_id)
+        normalization_summary = self.context.preparation.normalization.current_summary(
+            project_id
         )
         self.assertIsNotNone(normalization_summary)
         assert normalization_summary is not None
@@ -2547,12 +2418,9 @@ class BoundedPreparationParityTests(unittest.TestCase):
             normalization_summary.content_hash,
             expected_normalization.content_hash,
         )
-        stored_normalization = (
-            self.context.preparation.normalization.repository
-            .get_normalization_evaluation(
-                project_id,
-                normalization_summary.run_id,
-            )
+        stored_normalization = self.context.preparation.normalization.repository.get_normalization_evaluation(
+            project_id,
+            normalization_summary.run_id,
         )
         self.assertIsNotNone(stored_normalization)
         assert stored_normalization is not None
@@ -2564,7 +2432,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         with self.context.preparation.staging._connect(database_path) as connection:
             sessions = connection.execute(
                 """
-                SELECT status, provisional_row_count, canonical_row_count,
+                SELECT status, staged_row_count, canonical_row_count,
                        impact_row_count
                   FROM preparation_session
                 """
@@ -2572,10 +2440,8 @@ class BoundedPreparationParityTests(unittest.TestCase):
             temporary_rows = connection.execute(
                 """
                 SELECT
-                    (SELECT COUNT(*) FROM preparation_provisional_row),
                     (SELECT COUNT(*) FROM preparation_lineage),
                     (SELECT COUNT(*) FROM preparation_impact_row),
-                    (SELECT COUNT(*) FROM preparation_final_row),
                     (SELECT COUNT(*) FROM preparation_direct_identity),
                     (SELECT COUNT(*)
                        FROM preparation_normalization_group_seed),
@@ -2586,16 +2452,14 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 """
             ).fetchone()
         self.assertEqual(sessions, [("PUBLISHED", 37, 37, 37)])
-        self.assertEqual(temporary_rows, (0, 0, 0, 0, 0, 0, 0, 0))
+        self.assertEqual(temporary_rows, (0, 0, 0, 0, 0, 0))
 
         repeated = self.context.preparation.prepare(
             project_id,
             actor=self.context.actor,
         )
-        repeated_staging = (
-            self.context.preparation.staging.get_current_staging_summary(
-                project_id
-            )
+        repeated_staging = self.context.preparation.staging.get_current_staging_summary(
+            project_id
         )
         self.assertIsNotNone(repeated_staging)
         assert repeated_staging is not None
@@ -2683,9 +2547,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         )
         from impodo.adapters.duckdb import preparation_session_repository
 
-        original_batches = (
-            preparation_session_repository.iter_encoded_json_batches
-        )
+        original_batches = preparation_session_repository.iter_encoded_json_batches
 
         def fail_after_first_canonical_batch(*args, **kwargs):
             for batch in original_batches(*args, **kwargs):
@@ -2737,9 +2599,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         )
         from impodo.adapters.duckdb import preparation_session_repository
 
-        original_batches = (
-            preparation_session_repository.iter_encoded_json_batches
-        )
+        original_batches = preparation_session_repository.iter_encoded_json_batches
 
         def reject_canonical_json_batches(*args, **kwargs):
             for batch in original_batches(*args, **kwargs):
@@ -2786,9 +2646,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         )
         from impodo.adapters.duckdb import preparation_session_repository
 
-        original_batches = (
-            preparation_session_repository.iter_encoded_json_batches
-        )
+        original_batches = preparation_session_repository.iter_encoded_json_batches
 
         def fail_after_first_physical_batch(*args, **kwargs):
             for batch in original_batches(*args, **kwargs):
@@ -2843,9 +2701,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         )
         from impodo.adapters.duckdb import preparation_session_repository
 
-        original_batches = (
-            preparation_session_repository.iter_encoded_json_batches
-        )
+        original_batches = preparation_session_repository.iter_encoded_json_batches
 
         def fail_after_first_impact_batch(*args, **kwargs):
             for batch in original_batches(*args, **kwargs):
@@ -2949,8 +2805,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             )
         )
         original_copy = (
-            self.context.preparation.sessions
-            ._copy_normalization_effects_to_run
+            self.context.preparation.sessions._copy_normalization_effects_to_run
         )
 
         def fail_after_copy(*args, **kwargs):
@@ -3135,9 +2990,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 )
 
         self.assertIsNone(
-            self.context.preparation.staging.get_current_staging_summary(
-                project_id
-            )
+            self.context.preparation.staging.get_current_staging_summary(project_id)
         )
         database_path = self.root / project_id / "project.duckdb"
         with self.context.preparation.staging._connect(database_path) as connection:
@@ -3348,9 +3201,7 @@ def _catalog(
             candidate_type="decimal" if index == 2 else "string",
             null_count=0,
             non_null_count=row_count,
-            distinct_count=(
-                row_count if index in {0, 1} else 1 if index == 2 else 100
-            ),
+            distinct_count=(row_count if index in {0, 1} else 1 if index == 2 else 100),
             distinct_count_is_exact=True,
             duplicate_count=(
                 0

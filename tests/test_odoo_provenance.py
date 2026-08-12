@@ -29,6 +29,7 @@ from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.adapters.protected_odoo_provenance import (
     ProtectedOdooProvenanceError,
 )
+from impodo.artifacts import LocalArtifactStore
 from impodo.application.odoo_provenance_service import OdooProvenanceService
 from impodo.domain.odoo_capture import (
     OdooCaptureFilterPolicy,
@@ -44,6 +45,11 @@ from impodo.domain.odoo_provenance import (
 )
 from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from impodo.domain.serialization import content_hash
+from impodo.domain.source_snapshot import (
+    SourceSnapshot,
+    SourceSnapshotColumn,
+    SourceSnapshotSchema,
+)
 from impodo.projects import (
     MigrationProject,
     OdooConnectionMode,
@@ -51,11 +57,15 @@ from impodo.projects import (
     SourceMode,
 )
 from impodo.secrets import MemorySecretStore, SecretStoreError
+from impodo.source_snapshot_io import SourceSnapshotCandidateWriter
 from impodo.workspace_contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,
     SchemaOrigin,
+    SourceDataset,
+    SourceDatasetColumn,
+    SourceSelection,
 )
 from impodo.workspace_errors import WorkspaceError
 
@@ -73,7 +83,11 @@ class OdooProvenanceTests(unittest.TestCase):
         derived = DerivedEntityRepository(self.database)
         self.sources = SourceRepository(self.database, derived)
         self.schemas = SchemaRepository(self.database)
-        self.repository = OdooProvenanceRepository(self.database)
+        self.artifacts = LocalArtifactStore(self.temporary.name)
+        self.repository = OdooProvenanceRepository(
+            self.database,
+            self.artifacts,
+        )
         self.secrets = MemorySecretStore()
         self.service = OdooProvenanceService(
             self.projects,
@@ -180,7 +194,10 @@ class OdooProvenanceTests(unittest.TestCase):
         header, restored_batches = decoded or (None, ())
         self.assertEqual(header, OdooCaptureOriginHeader(high_water_id=99))
         self.assertEqual(restored_batches, batches)
-        self.assertEqual(self.service.history(self.project.project_id, actor=LOCAL_ACTOR), (manifest,))
+        self.assertEqual(
+            self.service.history(self.project.project_id, actor=LOCAL_ACTOR),
+            (manifest,),
+        )
         artifact = (
             Path(self.temporary.name)
             / self.project.project_id
@@ -207,7 +224,7 @@ class OdooProvenanceTests(unittest.TestCase):
 
         self.assertEqual(OdooCaptureManifest.from_json(manifest.to_json()), manifest)
         payload = json.loads(manifest.to_json())
-        payload["legacy_origin_rows"] = []
+        payload["unexpected_origin_rows"] = []
         with self.assertRaisesRegex(OdooProvenanceError, "shape"):
             OdooCaptureManifest.from_json(json.dumps(payload))
         with self.assertRaisesRegex(OdooProvenanceError, "manifest hash"):
@@ -243,13 +260,16 @@ class OdooProvenanceTests(unittest.TestCase):
         self.assertEqual(manifest.column_stable_keys, selection.column_stable_keys)
 
     def test_hash_count_is_artifact_level_not_row_level(self) -> None:
-        with patch(
-            "impodo.adapters.protected_odoo_provenance.sha256",
-            wraps=sha256,
-        ) as stream_hash, patch(
-            "impodo.adapters.duckdb.odoo_provenance_repository.sha256",
-            wraps=sha256,
-        ) as repository_verification:
+        with (
+            patch(
+                "impodo.adapters.protected_odoo_provenance.sha256",
+                wraps=sha256,
+            ) as stream_hash,
+            patch(
+                "impodo.adapters.duckdb.odoo_provenance_repository.sha256",
+                wraps=sha256,
+            ) as repository_verification,
+        ):
             self._publish(self._batches())
 
         # One logical payload root, one ciphertext root, and one required
@@ -293,22 +313,17 @@ class OdooProvenanceTests(unittest.TestCase):
                 now=self.now + timedelta(hours=1),
             )
 
-    def test_quota_failure_preserves_last_valid_pointer_and_cleans_candidate(self) -> None:
+    def test_quota_failure_preserves_last_valid_pointer_and_cleans_candidate(
+        self,
+    ) -> None:
         first = self._publish(self._batches())
-        constrained = OdooProvenanceService(
-            self.projects,
-            self.sources,
-            OdooProvenanceRepository(
-                self.database,
-                history_quota_bytes=(
-                    first.data_size_bytes + first.provenance_size_bytes
-                ),
-            ),
-            self.secrets,
-            CapabilityAuthorizationPolicy(),
+        constrained = OdooProvenanceRepository(
+            self.database,
+            self.artifacts,
+            history_quota_bytes=(first.data_size_bytes + first.provenance_size_bytes),
         )
         with self.assertRaisesRegex(WorkspaceError, "history quota"):
-            self._publish(self._batches(), service=constrained)
+            self._publish(self._batches(), repository=constrained)
 
         self.assertEqual(self.repository.get_current(self.project.project_id), first)
         self.assertEqual(
@@ -386,6 +401,56 @@ class OdooProvenanceTests(unittest.TestCase):
             / manifest.provenance_storage_key
         )
         self.assertFalse(artifact.exists())
+        self.assertFalse(
+            (
+                Path(self.temporary.name)
+                / self.project.project_id
+                / manifest.data_storage_key
+            ).exists()
+        )
+        self.assertIsNone(self.sources.get_source_selection(self.project.project_id))
+
+    def test_purge_preserves_a_value_artifact_reused_by_retained_history(self) -> None:
+        first = self._publish(self._batches())
+        self.repository.invalidate_current(
+            self.project.project_id,
+            reason="RECAPTURE",
+            actor=LOCAL_ACTOR,
+        )
+        unique_artifact_quota = OdooProvenanceRepository(
+            self.database,
+            self.artifacts,
+            history_quota_bytes=(
+                first.data_size_bytes + 2 * first.provenance_size_bytes
+            ),
+        )
+        second = self._publish(
+            self._batches(),
+            repository=unique_artifact_quota,
+            capture_finished_at=self.now + timedelta(days=1),
+        )
+        self.assertEqual(first.data_storage_key, second.data_storage_key)
+        self.repository.invalidate_current(
+            self.project.project_id,
+            reason="TEST_HISTORY",
+            actor=LOCAL_ACTOR,
+        )
+
+        purged = self.repository.purge_expired_history(
+            self.project.project_id,
+            now=self.now + timedelta(days=1, minutes=2),
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(purged, 1)
+        self.assertEqual(self.repository.history(self.project.project_id), (second,))
+        self.assertTrue(
+            (
+                Path(self.temporary.name)
+                / self.project.project_id
+                / second.data_storage_key
+            ).is_file()
+        )
 
     def test_authorization_is_checked_before_protected_repository_access(self) -> None:
         unauthorized = Actor(
@@ -450,21 +515,114 @@ class OdooProvenanceTests(unittest.TestCase):
         self,
         batches: tuple[OdooOriginBatch, ...],
         *,
-        service: OdooProvenanceService | None = None,
+        repository: OdooProvenanceRepository | None = None,
+        capture_finished_at: datetime | None = None,
     ) -> OdooCaptureManifest:
-        return (service or self.service).publish_capture_origins(
+        row_count = sum(batch.row_count for batch in batches)
+        finished_at = capture_finished_at or self.now + timedelta(minutes=1)
+        columns = (
+            SourceDatasetColumn(
+                1, "active", self.selection.column_stable_keys[0], "boolean"
+            ),
+            SourceDatasetColumn(
+                2, "name", self.selection.column_stable_keys[1], "string"
+            ),
+        )
+        schema = SourceSnapshotSchema.create(
+            SourceSnapshotColumn.create(
+                ordinal=item.ordinal,
+                stable_key=item.stable_key,
+                source_name=item.source_name,
+                candidate_type=item.candidate_type,
+            )
+            for item in columns
+        )
+        current = self.sources.get_source_selection(self.project.project_id)
+        version = current.version + 1 if current else 1
+        dataset = SourceDataset(
+            dataset_id=self.selection.dataset_id,
+            name=self.selection.dataset_name,
+            source=self.selection.source_binding,
+            row_count=row_count,
+            columns=columns,
+        )
+        selection = SourceSelection(
+            selection_id=str(uuid4()),
+            version=version,
+            project_id=self.project.project_id,
+            created_at=finished_at,
+            created_by=LOCAL_ACTOR.identity.display_name,
+            datasets=(dataset,),
+            content_hash=content_hash(
+                {
+                    "project_id": self.project.project_id,
+                    "version": version,
+                    "datasets": [dataset.to_dict()],
+                }
+            ),
+        )
+        with self.artifacts.prepare_source_snapshot(
+            self.project.project_id
+        ) as workspace:
+            writer = SourceSnapshotCandidateWriter(
+                workspace,
+                schema,
+                batch_rows=500,
+            )
+            for batch in batches:
+                writer.append_columnar_page(
+                    first_row_ordinal=batch.first_row_ordinal,
+                    values_by_name={
+                        "active": tuple(True for _ in batch.odoo_ids),
+                        "name": tuple(f"Name {item}" for item in batch.odoo_ids),
+                    },
+                )
+            candidate = writer.finalize()
+            snapshot = SourceSnapshot.create(
+                project_id=self.project.project_id,
+                dataset_id=dataset.dataset_id,
+                dataset_name=dataset.name,
+                source=dataset.source,
+                physical_selection_hash=selection.content_hash,
+                schema=schema,
+                row_count=row_count,
+                data_logical_hash=candidate.data_logical_hash,
+                parquet_sha256=candidate.parquet_sha256,
+                created_at=selection.created_at,
+            )
+            self.artifacts.publish_source_snapshot(
+                self.project.project_id,
+                candidate.path,
+                snapshot.parquet_storage_key,
+                expected_sha256=candidate.parquet_sha256,
+            )
+        protected = self.service.prepare_capture_origins(
             self.project.project_id,
             actor=LOCAL_ACTOR,
             header=OdooCaptureOriginHeader(high_water_id=99),
             batches=batches,
-            row_count=sum(batch.row_count for batch in batches),
-            data_logical_hash=HASHES[6],
-            data_sha256=HASHES[7],
-            data_storage_key="snapshots/values.parquet",
-            data_size_bytes=123,
-            capture_started_at=self.now,
-            capture_finished_at=self.now + timedelta(minutes=1),
+            row_count=row_count,
+            data_logical_hash=candidate.data_logical_hash,
+            data_sha256=candidate.parquet_sha256,
+            data_storage_key=snapshot.parquet_storage_key,
+            data_size_bytes=candidate.size_bytes,
+            capture_started_at=finished_at - timedelta(minutes=1),
+            capture_finished_at=finished_at,
         )
+        publisher = repository or self.repository
+        try:
+            publisher.publish_complete_capture(
+                self.project.project_id,
+                protected.manifest,
+                protected.encrypted_bytes,
+                selection,
+                snapshot,
+                actor=LOCAL_ACTOR,
+            )
+        except Exception:
+            publisher.recover_incomplete_publications(self.project.project_id)
+            raise
+        return protected.manifest
 
     def _selection(
         self,

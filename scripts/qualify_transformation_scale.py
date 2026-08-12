@@ -287,12 +287,8 @@ def run_qualification(arguments: argparse.Namespace) -> dict[str, object]:
         _gate("reference_windows_host", is_windows, "eq", True),
         *customer_baseline["gates"],
     )
-    performance_gates_passed = all(
-        bool(item["passed"]) for item in gate_results
-    )
-    context_gates_passed = all(
-        bool(item["passed"]) for item in context_gates
-    )
+    performance_gates_passed = all(bool(item["passed"]) for item in gate_results)
+    context_gates_passed = all(bool(item["passed"]) for item in context_gates)
     release_qualified = performance_gates_passed and context_gates_passed
     return {
         "captured_at": datetime.now(timezone.utc).isoformat(),
@@ -358,9 +354,7 @@ def _relationship_command(
     runs: int,
     evidence_path: Path,
 ) -> list[str]:
-    products, bom_lines = (
-        (16_000, 80_000) if profile == "release" else (100, 500)
-    )
+    products, bom_lines = (16_000, 80_000) if profile == "release" else (100, 500)
     return [
         sys.executable,
         str(ROOT / "scripts" / "benchmark_relationships.py"),
@@ -385,7 +379,7 @@ def _worker_gates(
 ) -> list[dict[str, object]]:
     summary = _dict(report, "summary")
     prefix = scenario.name
-    return [
+    gates = [
         _gate(
             f"{prefix}.fresh_run_count",
             _number(summary, "run_count"),
@@ -447,6 +441,88 @@ def _worker_gates(
             64.0,
         ),
     ]
+    if scenario.name in {
+        "direct_products_100k",
+        "related_product_bom_96k",
+    }:
+        gates.extend(_vectorization_gates(scenario, report))
+    return gates
+
+
+def _vectorization_gates(
+    scenario: WorkerScenario,
+    report: dict[str, object],
+) -> list[dict[str, object]]:
+    """Fail closed until observed execution satisfies the plan contract."""
+
+    prefix = f"{scenario.name}.vectorization"
+    raw = report.get("vectorization_report")
+    if not isinstance(raw, dict):
+        return [
+            _gate(
+                f"{prefix}.evidence_present",
+                False,
+                "eq",
+                True,
+            )
+        ]
+    return [
+        _gate(f"{prefix}.evidence_present", True, "eq", True),
+        _gate(
+            f"{prefix}.native_coverage_percent",
+            raw.get("row_weighted_native_coverage_percent"),
+            "eq",
+            100.0,
+        ),
+        _gate(
+            f"{prefix}.python_row_callbacks",
+            raw.get("python_row_callbacks"),
+            "eq",
+            0,
+        ),
+        _gate(
+            f"{prefix}.python_cell_callbacks",
+            raw.get("python_cell_callbacks"),
+            "eq",
+            0,
+        ),
+        _gate(
+            f"{prefix}.prepared_records_constructed",
+            raw.get("full_prepared_records_constructed"),
+            "eq",
+            0,
+        ),
+        _gate(
+            f"{prefix}.canonical_rows_constructed",
+            raw.get("full_canonical_rows_constructed"),
+            "eq",
+            0,
+        ),
+        _gate(
+            f"{prefix}.rule_impact_replay_rows",
+            raw.get("rule_impact_python_replay_rows"),
+            "eq",
+            0,
+        ),
+        _gate(
+            f"{prefix}.global_operations",
+            raw.get("global_operations_classification"),
+            "eq",
+            "SET_GLOBAL",
+        ),
+        _gate(
+            f"{prefix}.optimized_plan_verified",
+            raw.get("optimized_plan_verified"),
+            "eq",
+            True,
+        ),
+        _gate(
+            f"{prefix}.bounded_execution_plan_verified",
+            raw.get("bounded_execution_plan_verified"),
+            "eq",
+            True,
+        ),
+    ]
 
 
 def _relationship_gates(
@@ -462,9 +538,7 @@ def _relationship_gates(
     hybrids = []
     for pair in runs:
         if not isinstance(pair, dict):
-            raise TransformationQualificationError(
-                "Relationship parity run is invalid"
-            )
+            raise TransformationQualificationError("Relationship parity run is invalid")
         hybrid = pair.get("set_based_hybrid")
         if not isinstance(hybrid, dict):
             raise TransformationQualificationError(
@@ -553,11 +627,9 @@ def _customer_baseline_evidence(
     )
     exact_fixture = (
         baseline_fixture.get("sha256") == candidate_fixture.get("sha256")
-        and baseline_fixture.get("size_bytes")
-        == candidate_fixture.get("size_bytes")
+        and baseline_fixture.get("size_bytes") == candidate_fixture.get("size_bytes")
         and all(
-            _dict(item, "fixture").get("sha256")
-            == baseline_fixture.get("sha256")
+            _dict(item, "fixture").get("sha256") == baseline_fixture.get("sha256")
             and _dict(item, "fixture").get("size_bytes")
             == baseline_fixture.get("size_bytes")
             for item in baseline_runs
@@ -729,9 +801,7 @@ def _number(value: dict[str, object], key: str) -> float:
 
 def _validate_arguments(arguments: argparse.Namespace) -> None:
     if arguments.timeout_per_scenario < 1:
-        raise TransformationQualificationError(
-            "Scenario timeout must be positive"
-        )
+        raise TransformationQualificationError("Scenario timeout must be positive")
     output = arguments.output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
 
@@ -784,17 +854,13 @@ def _worktree_fingerprint() -> str:
         check=False,
     )
     if status.returncode or diff.returncode or untracked.returncode:
-        raise TransformationQualificationError(
-            "Cannot fingerprint the Git worktree"
-        )
+        raise TransformationQualificationError("Cannot fingerprint the Git worktree")
     digest = sha256()
     digest.update(status.stdout)
     digest.update(b"\0")
     digest.update(diff.stdout)
     try:
-        for relative_bytes in sorted(
-            filter(None, untracked.stdout.split(b"\0"))
-        ):
+        for relative_bytes in sorted(filter(None, untracked.stdout.split(b"\0"))):
             path = ROOT / os.fsdecode(relative_bytes)
             digest.update(b"\0untracked\0")
             digest.update(relative_bytes)

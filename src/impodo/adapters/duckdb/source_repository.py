@@ -24,7 +24,6 @@ from ...domain.source_snapshot import (
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
-from ...domain.source_binding import require_file_source
 from ...domain.odoo_capture import ODOO_CAPTURE_FIELD_TYPES, OdooCaptureSelection
 from ...inspection import SourceFileCatalog, SourceInspectionError
 from ...projects import ProjectNotFoundError, ProjectStatus, SourceMode
@@ -686,7 +685,6 @@ def _snapshot_matches_dataset(
     snapshot: SourceSnapshot,
     dataset: SourceDataset,
 ) -> bool:
-    binding = require_file_source(dataset.source)
     expected_schema = SourceSnapshotSchema.create(
         SourceSnapshotColumn.create(
             ordinal=column.ordinal,
@@ -698,11 +696,7 @@ def _snapshot_matches_dataset(
     )
     return (
         snapshot.dataset_name == dataset.name
-        and snapshot.file_id == binding.file_id
-        and snapshot.table_key == binding.table_key
-        and snapshot.source_sha256
-        == f"sha256:{binding.source_sha256.removeprefix('sha256:').casefold()}"
-        and snapshot.catalog_hash == binding.catalog_hash
+        and snapshot.source == dataset.source
         and snapshot.row_count == dataset.row_count
         and snapshot.schema == expected_schema
     )

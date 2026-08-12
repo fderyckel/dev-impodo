@@ -120,6 +120,7 @@ class ProjectSchemaMixin:
                 selection_hash VARCHAR NOT NULL,
                 dataset_id VARCHAR NOT NULL,
                 row_count BIGINT NOT NULL,
+                data_storage_key VARCHAR NOT NULL,
                 data_size_bytes BIGINT NOT NULL,
                 provenance_size_bytes BIGINT NOT NULL,
                 provenance_storage_key VARCHAR NOT NULL UNIQUE,

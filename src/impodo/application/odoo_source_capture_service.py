@@ -91,6 +91,7 @@ class OdooSourceCaptureResult:
     """Completed read accounting; Phase 4 owns artifact publication."""
 
     request: OdooSourceCaptureRequest
+    selection: OdooCaptureSelection
     accounting: OdooCaptureAccounting
 
 
@@ -114,13 +115,17 @@ class OdooSourceCaptureService:
         project_id: str,
         gateway: OdooSourceCapturePort,
         *,
-        consume_page: Callable[[OdooCapturePage], None],
+        consume_page_factory: Callable[
+            [OdooSourceCaptureRequest, OdooCaptureSelection],
+            Callable[[OdooCapturePage], None],
+        ],
         actor: Actor,
         cancellation: CancellationProbe | None = None,
     ) -> OdooSourceCaptureResult:
         """Validate at both ends and pass each bounded typed page to one sink."""
 
-        request, schema = self._context(project_id, actor=actor)
+        request, schema, selection = self._context(project_id, actor=actor)
+        consume_page = consume_page_factory(request, selection)
         require_not_cancelled(cancellation)
         identity, protected_context = gateway.probe_identity(
             request,
@@ -181,7 +186,11 @@ class OdooSourceCaptureService:
             ),
         )
         require_not_cancelled(cancellation)
-        return OdooSourceCaptureResult(request=request, accounting=accounting)
+        return OdooSourceCaptureResult(
+            request=request,
+            selection=selection,
+            accounting=accounting,
+        )
 
     def sample(
         self,
@@ -194,7 +203,7 @@ class OdooSourceCaptureService:
     ) -> OdooCaptureSample:
         """Return a bounded, explicitly non-authoritative sample."""
 
-        request, schema = self._context(project_id, actor=actor)
+        request, schema, _ = self._context(project_id, actor=actor)
         identity, protected_context = gateway.probe_identity(
             request,
             cancellation=cancellation,
@@ -226,7 +235,11 @@ class OdooSourceCaptureService:
         project_id: str,
         *,
         actor: Actor,
-    ) -> tuple[OdooSourceCaptureRequest, OdooSchemaCatalog]:
+    ) -> tuple[
+        OdooSourceCaptureRequest,
+        OdooSchemaCatalog,
+        OdooCaptureSelection,
+    ]:
         self._authorization.require(
             actor,
             Capability.SOURCE_CAPTURE,
@@ -250,7 +263,7 @@ class OdooSourceCaptureService:
             raise WorkspaceError(
                 "Live Odoo source capture requires authenticated schema evidence"
             )
-        return plan_odoo_source_capture(selection, schema), schema
+        return plan_odoo_source_capture(selection, schema), schema, selection
 
 
 def _require_identity(
@@ -288,13 +301,10 @@ def _require_live_schema(
     stored_models = {item.name: item for item in stored.models}
     for model_name, model in live.models.items():
         stored_model = stored_models[model_name]
-        if (
-            set(model.fields) != {item.name for item in stored_model.fields}
-            or tuple(model.unique_constraints) != tuple(stored_model.unique_constraints)
-        ):
-            raise OdooSourceCaptureConsistencyError(
-                "Odoo capture schema changed"
-            )
+        if set(model.fields) != {item.name for item in stored_model.fields} or tuple(
+            model.unique_constraints
+        ) != tuple(stored_model.unique_constraints):
+            raise OdooSourceCaptureConsistencyError("Odoo capture schema changed")
         stored_fields = {item.name: item for item in stored_model.fields}
         if any(
             not _same_field(stored_fields[name], field)

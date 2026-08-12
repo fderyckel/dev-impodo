@@ -7,10 +7,7 @@ approval freezes the exact eligible-dataset hash for Stage H consumption.
 
 from __future__ import annotations
 
-from .constants import (
-    DUCKDB_JSON_BATCH_MAX_BYTES,
-    NORMALIZATION_ROW_BATCH_SIZE,
-)
+from .constants import NORMALIZATION_ROW_BATCH_SIZE
 
 from datetime import (
     datetime,
@@ -43,26 +40,7 @@ from .project_repository import ProjectRepository
 from .repository import DuckDbRepository
 
 
-
-
-
-from .serialization import (
-    _canonical_json,
-    _columnar_parameters,
-    iter_encoded_json_batches,
-)
-
-
-_NORMALIZATION_EFFECT_JSON_STRUCTURE = """[{
-    "effect_id":"VARCHAR",
-    "group_id":"VARCHAR",
-    "row_id":"VARCHAR",
-    "dataset":"VARCHAR",
-    "source_row":"BIGINT",
-    "target_field":"VARCHAR",
-    "eligible":"BOOLEAN",
-    "effect_json":"VARCHAR"
-}]"""
+from .serialization import _canonical_json, _columnar_parameters
 
 
 class NormalizationRepository(DuckDbRepository):
@@ -153,7 +131,8 @@ class NormalizationRepository(DuckDbRepository):
                         str(current_inputs[7])
                         if current_inputs[7] is not None
                         else None
-                    ) != evaluation.effective_dataset_hash
+                    )
+                    != evaluation.effective_dataset_hash
                 ):
                     raise WorkspaceError(
                         "Prepared review no longer matches the current data"
@@ -322,6 +301,7 @@ class NormalizationRepository(DuckDbRepository):
         if summary is None:
             raise WorkspaceError("Prepared review was not published")
         return summary
+
     def get_current_normalization_summary(
         self,
         project_id: str,
@@ -343,6 +323,7 @@ class NormalizationRepository(DuckDbRepository):
                 )
             ).fetchone()
         return self._normalization_summary(project_id, row) if row else None
+
     def get_normalization_evaluation(
         self,
         project_id: str,
@@ -378,6 +359,7 @@ class NormalizationRepository(DuckDbRepository):
             return NormalizationEvaluation.from_dict(payload)
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Stored prepared review is invalid") from error
+
     def get_normalization_dry_run(
         self,
         project_id: str,
@@ -400,7 +382,10 @@ class NormalizationRepository(DuckDbRepository):
         try:
             return DryRun.from_json(str(row[0]))
         except (TypeError, ValueError) as error:
-            raise WorkspaceError("Stored prepared review decision is invalid") from error
+            raise WorkspaceError(
+                "Stored prepared review decision is invalid"
+            ) from error
+
     def get_normalization_review_groups(
         self,
         project_id: str,
@@ -432,12 +417,10 @@ class NormalizationRepository(DuckDbRepository):
                 [canonical_run_id],
             ).fetchone()
         return (
-            tuple(
-                self._normalization_group_from_json(str(item[0]))
-                for item in rows
-            ),
+            tuple(self._normalization_group_from_json(str(item[0])) for item in rows),
             int(count[0]) if count else 0,
         )
+
     def decide_normalization_group(
         self,
         project_id: str,
@@ -500,14 +483,22 @@ class NormalizationRepository(DuckDbRepository):
                     canonical_run_id,
                     expected_version=expected_version,
                     dry_run=updated,
-                    event_type=("PREPARED_CHANGE_ACCEPTED" if approve else "PREPARED_CHANGE_SENT_BACK"),
+                    event_type=(
+                        "PREPARED_CHANGE_ACCEPTED"
+                        if approve
+                        else "PREPARED_CHANGE_SENT_BACK"
+                    ),
                     actor=actor,
                     occurred_at=decided_at,
                 )
                 self._insert_workspace_audit(
                     connection,
                     revision=self._project_revision(connection),
-                    event_type=("PREPARED_CHANGE_ACCEPTED" if approve else "PREPARED_CHANGE_SENT_BACK"),
+                    event_type=(
+                        "PREPARED_CHANGE_ACCEPTED"
+                        if approve
+                        else "PREPARED_CHANGE_SENT_BACK"
+                    ),
                     detail=f"run {canonical_run_id}: group {group_id}",
                     actor=actor,
                 )
@@ -519,6 +510,7 @@ class NormalizationRepository(DuckDbRepository):
         if summary is None:
             raise WorkspaceError("Prepared review is no longer current")
         return summary
+
     def approve_and_freeze_normalization(
         self,
         project_id: str,
@@ -672,6 +664,7 @@ class NormalizationRepository(DuckDbRepository):
                 "effective_dataset_hash": evaluation.effective_dataset_hash,
             }
         )
+
     @staticmethod
     def _insert_normalization_evidence(
         connection: duckdb.DuckDBPyConnection,
@@ -693,56 +686,48 @@ class NormalizationRepository(DuckDbRepository):
                 "iter_encoded_batches",
                 None,
             )
-            if callable(copy_to_run) and callable(encoded_reader):
-                copied_effect_count = int(copy_to_run(connection, run_id))
-                if copied_effect_count != evaluation.effect_count:
-                    raise WorkspaceError(
-                        "Stored normalization effects are incomplete"
-                    )
-                hashed_effect_count = 0
-                for batch in encoded_reader(
-                    connection,
-                    NORMALIZATION_ROW_BATCH_SIZE,
-                ):
-                    for effect_json in batch:
-                        hasher.add_encoded_array_item(str(effect_json))
-                        hashed_effect_count += 1
-                if hashed_effect_count != evaluation.effect_count:
-                    raise WorkspaceError(
-                        "Stored normalization effect order is incomplete"
-                    )
-            else:
-                NormalizationRepository._insert_replayed_normalization_effects(
-                    connection,
-                    run_id,
-                    evaluation,
-                    hasher,
+            if not callable(copy_to_run) or not callable(encoded_reader):
+                raise WorkspaceError(
+                    "Stored normalization effects require durable transport"
                 )
+            copied_effect_count = int(copy_to_run(connection, run_id))
+            if copied_effect_count != evaluation.effect_count:
+                raise WorkspaceError("Stored normalization effects are incomplete")
+            hashed_effect_count = 0
+            for batch in encoded_reader(
+                connection,
+                NORMALIZATION_ROW_BATCH_SIZE,
+            ):
+                for effect_json in batch:
+                    hasher.add_encoded_array_item(str(effect_json))
+                    hashed_effect_count += 1
+            if hashed_effect_count != evaluation.effect_count:
+                raise WorkspaceError("Stored normalization effect order is incomplete")
         else:
             for start in range(
                 0,
                 len(evaluation.effects),
                 NORMALIZATION_ROW_BATCH_SIZE,
             ):
-                batch = evaluation.effects[
-                    start : start + NORMALIZATION_ROW_BATCH_SIZE
-                ]
+                batch = evaluation.effects[start : start + NORMALIZATION_ROW_BATCH_SIZE]
                 values = []
                 for offset, item in enumerate(batch):
                     item_json = _canonical_json(item.to_portable_dict())
                     hasher.add_encoded_array_item(item_json)
-                    values.append([
-                        run_id,
-                        start + offset,
-                        item.effect_id,
-                        item.group_id,
-                        item.row_id,
-                        item.dataset,
-                        item.source_row,
-                        item.target_field,
-                        item.eligible,
-                        item_json,
-                    ])
+                    values.append(
+                        [
+                            run_id,
+                            start + offset,
+                            item.effect_id,
+                            item.group_id,
+                            item.row_id,
+                            item.dataset,
+                            item.source_row,
+                            item.target_field,
+                            item.eligible,
+                            item_json,
+                        ]
+                    )
                 connection.execute(
                     """
                     INSERT INTO normalization_effect (
@@ -768,17 +753,19 @@ class NormalizationRepository(DuckDbRepository):
             for offset, item in enumerate(batch):
                 item_json = _canonical_json(item.to_portable_dict())
                 hasher.add_encoded_array_item(item_json)
-                values.append([
-                    run_id,
-                    start + offset,
-                    item.group_id,
-                    item.kind.value,
-                    item.outcome.value,
-                    item.dataset,
-                    item.target_field,
-                    item.requires_decision,
-                    item_json,
-                ])
+                values.append(
+                    [
+                        run_id,
+                        start + offset,
+                        item.group_id,
+                        item.kind.value,
+                        item.outcome.value,
+                        item.dataset,
+                        item.target_field,
+                        item.requires_decision,
+                        item_json,
+                    ]
+                )
             connection.execute(
                 """
                 INSERT INTO normalization_group (
@@ -808,112 +795,6 @@ class NormalizationRepository(DuckDbRepository):
         return hasher.finish()
 
     @staticmethod
-    def _insert_replayed_normalization_effects(
-        connection: duckdb.DuckDBPyConnection,
-        run_id: str,
-        evaluation: StoredNormalizationEvaluation,
-        hasher: CanonicalJsonObjectHasher,
-    ) -> None:
-        """Retain the bounded small-fixture transport as a parity oracle."""
-
-        connection.execute(
-            """
-            CREATE TEMP TABLE normalization_pending_effect (
-                effect_id VARCHAR PRIMARY KEY,
-                group_id VARCHAR NOT NULL,
-                row_id VARCHAR NOT NULL,
-                dataset VARCHAR NOT NULL,
-                source_row BIGINT NOT NULL,
-                target_field VARCHAR NOT NULL,
-                eligible BOOLEAN NOT NULL,
-                effect_json VARCHAR NOT NULL
-            )
-            """
-        )
-        batch_reader = getattr(evaluation.effects, "iter_batches", None)
-        if not callable(batch_reader):
-            raise WorkspaceError(
-                "Stored normalization effects are not replayable"
-            )
-        effect_count = 0
-        for batch in batch_reader(connection, NORMALIZATION_ROW_BATCH_SIZE):
-            transport_rows = (
-                {
-                    "effect_id": item.effect_id,
-                    "group_id": item.group_id,
-                    "row_id": item.row_id,
-                    "dataset": item.dataset,
-                    "source_row": item.source_row,
-                    "target_field": item.target_field,
-                    "eligible": item.eligible,
-                    "effect_json": _canonical_json(item.to_portable_dict()),
-                }
-                for item in batch
-            )
-            for encoded_batch in iter_encoded_json_batches(
-                transport_rows,
-                max_rows=NORMALIZATION_ROW_BATCH_SIZE,
-                max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
-            ):
-                connection.execute(
-                    """
-                    INSERT INTO normalization_pending_effect
-                    SELECT
-                        item.effect_id,
-                        item.group_id,
-                        item.row_id,
-                        item.dataset,
-                        item.source_row,
-                        item.target_field,
-                        item.eligible,
-                        item.effect_json
-                      FROM (
-                        SELECT UNNEST(
-                            from_json_strict(CAST(? AS JSON), ?)
-                        ) AS item
-                      )
-                    """,
-                    [
-                        encoded_batch.payload,
-                        _NORMALIZATION_EFFECT_JSON_STRUCTURE,
-                    ],
-                )
-                effect_count += encoded_batch.row_count
-        if effect_count != evaluation.effect_count:
-            raise WorkspaceError("Stored normalization effects are incomplete")
-        connection.execute(
-            """
-            INSERT INTO normalization_effect (
-                run_id, ordinal, effect_id, group_id, row_id, dataset,
-                source_row, target_field, eligible, effect_json
-            )
-            SELECT ?, ROW_NUMBER() OVER (ORDER BY effect_id) - 1,
-                   effect_id, group_id, row_id, dataset, source_row,
-                   target_field, eligible, effect_json
-              FROM normalization_pending_effect
-            """,
-            [run_id],
-        )
-        cursor = connection.execute(
-            """
-            SELECT effect_json
-              FROM normalization_effect
-             WHERE run_id = ?
-             ORDER BY ordinal
-            """,
-            [run_id],
-        )
-        hashed_effect_count = 0
-        while batch := cursor.fetchmany(NORMALIZATION_ROW_BATCH_SIZE):
-            for (effect_json,) in batch:
-                hasher.add_encoded_array_item(str(effect_json))
-                hashed_effect_count += 1
-        if hashed_effect_count != evaluation.effect_count:
-            raise WorkspaceError(
-                "Stored normalization effect order is incomplete"
-            )
-
-    @staticmethod
     def _normalization_summary_query(where: str) -> str:
         return f"""
             SELECT run.run_id, run.content_hash, run.staging_run_id,
@@ -928,6 +809,7 @@ class NormalizationRepository(DuckDbRepository):
               FROM normalization_run AS run
               {where}
         """
+
     @staticmethod
     def _normalization_summary(
         project_id: str,
@@ -936,7 +818,9 @@ class NormalizationRepository(DuckDbRepository):
         try:
             dry_run = DryRun.from_json(str(row[16]))
         except (TypeError, ValueError) as error:
-            raise WorkspaceError("Stored prepared review decision is invalid") from error
+            raise WorkspaceError(
+                "Stored prepared review decision is invalid"
+            ) from error
         return NormalizationRunSummary(
             run_id=str(row[0]),
             project_id=project_id,
@@ -963,18 +847,21 @@ class NormalizationRepository(DuckDbRepository):
                 str(row[18]) if len(row) > 18 and row[18] is not None else None
             ),
         )
+
     @staticmethod
     def _normalization_run_id(run_id: str) -> str:
         try:
             return str(UUID(run_id))
         except (ValueError, AttributeError) as error:
             raise WorkspaceError("Prepared review identifier is invalid") from error
+
     @staticmethod
     def _normalization_group_from_json(value: str) -> NormalizationReviewGroup:
         try:
             return NormalizationReviewGroup.from_dict(json.loads(value))
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Stored prepared change is invalid") from error
+
     @staticmethod
     def _save_normalization_transition(
         connection: duckdb.DuckDBPyConnection,

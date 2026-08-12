@@ -96,11 +96,25 @@ change.
   explicit limitations. Local and remote live capture both use the governed
   JSON-2 read credential; the privileged local no-key shell is not a business-
   record capture fallback.
+- Slice 9 implements the Phase-4 publication core. Odoo Tier-1 value pages feed
+  the same current tagged Parquet source-snapshot contract used by the offline
+  transformation path. Each cell is encoded once; the logical data root is
+  updated from those encoded column batches, and the exact Parquet hash is one
+  artifact boundary. Protected origins remain a narrow encrypted sidecar. Disk
+  headroom is checked before target I/O, value/provenance candidates are byte-
+  bounded, and one short DuckDB transaction advances the source selection,
+  source snapshot, and protected manifest pointers after all target reads end.
+  Cancellation, quota, retention, pointer-rollback, and restart/orphan cleanup
+  preserve the previous valid roots. Quota and purge operate on distinct value
+  storage keys, so a content-addressed value artifact reused by retained
+  manifests is counted once and is not deleted early. The core service is
+  composed in the local app; the Phase-4 browser action/progress/cancellation
+  experience remains the next slice.
 - The current permission hash covers directly observed group membership and
   model-level read outcomes, not a complete fingerprint of all ACL/record-rule
   definitions. Local no-key shell metadata also remains explicitly unverified.
-  Local no-key write-principal parity, strong target-instance identity,
-  value-artifact publication and production write feasibility beyond the
+  Local no-key write-principal parity, strong target-instance identity, the
+  browser capture workflow, and production write feasibility beyond the
   explicit unsupported disposition remain open.
 
 ### Slices 1–6 scale-architecture audit
@@ -198,8 +212,9 @@ Some foundations require refactoring rather than direct reuse:
 - `SchemaWorkspaceService._capture_context` currently requires a frozen source
   selection, which creates a cycle when Odoo field metadata is needed to choose
   Odoo source fields;
-- `SourceDataset` and `SourceSnapshot` require file-specific identifiers, and
-  the current logical snapshot hash has no Odoo row-data hash;
+- the generic `SourceDataset`/`SourceSnapshot` contract and shared tagged
+  Parquet writer are now origin-neutral, while the browser still needs to call
+  the composed Odoo publication service;
 - the live reader uses offset pagination and materializes all returned records,
   neither of which is suitable for source capture;
 - `ExecutionSnapshot` is portable and calls
@@ -953,16 +968,26 @@ measurement, not an Odoo/network or Phase-4 publication qualification.
 
 ### Phase 4 — Streaming publication and browser capture
 
+**Status:** Publication core implemented in Slice 9. Browser action, progress,
+and cancellation wiring remains open, so the Phase-4 exit gate is not yet met.
+
 **Deliverables**
 
 - Stream Tier-1 source values and protected provenance to bounded Parquet and
-  sidecar candidates while computing hashes once.
+  sidecar candidates while computing hashes once. **Implemented in the core:
+  the logical value root is updated from the same encoded column batches, with
+  no decode/reserialize hash pass or row hash.**
 - Verify all candidates and atomically advance history/current pointers in a
-  short DuckDB transaction after Odoo access completes.
+  short DuckDB transaction after Odoo access completes. **Implemented for the
+  source selection, source snapshot, and protected capture manifest.**
 - Add disk preflight, candidate lifecycle, startup cleanup, project history
-  quota, cancellation, and failure recovery.
+  quota, cancellation, and failure recovery. **Implemented at the publication
+  service/repository boundary, including retention of the previous current
+  roots on injected transaction failure.**
 - Add the source-mode, identity/model, selection, sample, confirmation,
-  progress, cancellation, and current-version browser experience.
+  progress, cancellation, and current-version browser experience. **The setup,
+  identity/model, selection, and sample foundations exist; capture confirmation,
+  progress/cancellation, and current-version presentation remain Slice 10.**
 
 **Tests**
 
@@ -978,7 +1003,8 @@ measurement, not an Odoo/network or Phase-4 publication qualification.
 
 - A user can freeze, restart, reopen, replace, and audit an Odoo snapshot with
   zero Odoo traffic after publication; any failed candidate leaves the last
-  valid version current.
+  valid version current. **Met by the publication core and its readers, but not
+  yet through the browser; Phase 4 remains open until Slice 10.**
 
 ### Phase 5 — Pinned identity, mapping, and preparation
 

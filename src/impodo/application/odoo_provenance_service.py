@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import os
 from typing import Iterable, Protocol
@@ -27,15 +28,6 @@ from ..workspace_errors import WorkspaceError
 
 class OdooProvenanceStore(Protocol):
     """Protected repository port kept separate from portable source storage."""
-
-    def publish(
-        self,
-        project_id: str,
-        manifest: OdooCaptureManifest,
-        encrypted_candidate: bytes,
-        *,
-        actor: Actor,
-    ) -> None: ...
 
     def get_current(self, project_id: str) -> OdooCaptureManifest | None: ...
 
@@ -71,6 +63,14 @@ class OdooCaptureSelectionReader(Protocol):
     ) -> OdooCaptureSelection | None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class OdooCaptureProvenanceCandidate:
+    """Encrypted bounded origins and the complete manifest awaiting promotion."""
+
+    manifest: OdooCaptureManifest
+    encrypted_bytes: bytes
+
+
 class OdooProvenanceService:
     """Enforce authorization, encryption-key isolation, and retention."""
 
@@ -88,7 +88,7 @@ class OdooProvenanceService:
         self._secrets = secrets
         self._authorization = authorization
 
-    def publish_capture_origins(
+    def prepare_capture_origins(
         self,
         project_id: str,
         *,
@@ -102,8 +102,8 @@ class OdooProvenanceService:
         data_size_bytes: int,
         capture_started_at: datetime,
         capture_finished_at: datetime,
-    ) -> OdooCaptureManifest:
-        """Publish only origins; bulk source values remain in their typed artifact."""
+    ) -> OdooCaptureProvenanceCandidate:
+        """Encode origins once and return a candidate for atomic publication."""
 
         self._authorization.require(
             actor,
@@ -150,10 +150,7 @@ class OdooProvenanceService:
         retention_until = capture_finished_at.astimezone(timezone.utc) + timedelta(
             days=project.retention_days
         )
-        storage_key = (
-            "captures/"
-            f"{encoded.artifact_hash.removeprefix('sha256:')}.iprv"
-        )
+        storage_key = f"captures/{encoded.artifact_hash.removeprefix('sha256:')}.iprv"
         manifest = OdooCaptureManifest.create(
             manifest_id=manifest_id,
             selection=selection,
@@ -171,17 +168,12 @@ class OdooProvenanceService:
             capture_started_at=capture_started_at,
             capture_finished_at=capture_finished_at,
             retention_until=retention_until,
-            created_by=(
-                f"{actor.identity.issuer}:{actor.identity.subject_id}"
-            ),
+            created_by=(f"{actor.identity.issuer}:{actor.identity.subject_id}"),
         )
-        self._provenance.publish(
-            project_id,
-            manifest,
-            encoded.encrypted_bytes,
-            actor=actor,
+        return OdooCaptureProvenanceCandidate(
+            manifest=manifest,
+            encrypted_bytes=encoded.encrypted_bytes,
         )
-        return manifest
 
     def current_manifest(
         self,
@@ -310,7 +302,9 @@ class OdooProvenanceService:
             self._secrets.set(key_id, encoded, persistent=True)
             return key
         try:
-            key = base64.b64decode(encoded.encode("ascii"), altchars=b"-_", validate=True)
+            key = base64.b64decode(
+                encoded.encode("ascii"), altchars=b"-_", validate=True
+            )
         except (ValueError, UnicodeError) as error:
             raise SecretStoreError("Protected Odoo evidence key is invalid") from error
         if len(key) != 32:

@@ -7,14 +7,6 @@ from enum import StrEnum
 from typing import Any, Mapping, Sequence
 
 from ..compiler.columnar_transformation import ColumnarTransformationProgram
-from ...models import (
-    Issue,
-    PreparedRecord,
-    Severity,
-    portable_issue,
-    portable_value,
-    restore_portable_value,
-)
 from ...staging_contracts import (
     CanonicalControlTotal,
     CanonicalIssue,
@@ -60,18 +52,10 @@ class PreparationSessionSummary:
     session_id: str
     status: PreparationSessionStatus
     bindings: PreparationSessionBindings
-    provisional_row_count: int = 0
+    staged_row_count: int = 0
     canonical_row_count: int = 0
     impact_row_count: int = 0
     failure_code: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedSessionRow:
-    """One provisional prepared record plus normalized physical lineage."""
-
-    record: PreparedRecord
-    physical_sources: Mapping[str, tuple[int, ...]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,9 +130,7 @@ class PreparedCanonicalProjection:
         program_payload = payload.get("program")
         if not isinstance(program_payload, Mapping):
             raise ValueError("Prepared canonical projection program is invalid")
-        program = ColumnarTransformationProgram.from_portable_dict(
-            program_payload
-        )
+        program = ColumnarTransformationProgram.from_portable_dict(program_payload)
         if payload.get("program_hash") != program.content_hash:
             raise ValueError("Prepared canonical projection program changed")
         raw_field_sources = payload.get("field_sources", {})
@@ -195,71 +177,6 @@ class StoredCanonicalStagingRun:
     evaluator_version: int
     contract_version: int
     validated_content_hash: str | None = None
-
-
-def prepared_record_to_portable_dict(record: PreparedRecord) -> dict[str, Any]:
-    """Encode one typed provisional record without losing reference meaning."""
-
-    return {
-        "dataset": record.dataset,
-        "source_row": record.source_row,
-        "target_model": record.target_model,
-        "source_identity": portable_value(record.source_identity),
-        "target_identity": portable_value(record.target_identity),
-        "target_scope": portable_value(record.target_scope),
-        "scalar_values": portable_value(record.scalar_values),
-        "references": portable_value(record.references),
-        "source_trace_id": record.source_trace_id,
-        "issues": [portable_issue(issue) for issue in record.issues],
-    }
-
-
-def prepared_record_from_portable_dict(
-    payload: Mapping[str, Any],
-) -> PreparedRecord:
-    """Restore one provisional record and validate immutable collection shapes."""
-
-    source_identity = restore_portable_value(payload.get("source_identity", ()))
-    target_identity = restore_portable_value(payload.get("target_identity", ()))
-    target_scope = restore_portable_value(payload.get("target_scope", ()))
-    scalar_values = restore_portable_value(payload.get("scalar_values", {}))
-    references = restore_portable_value(payload.get("references", {}))
-    if not all(
-        isinstance(value, tuple)
-        for value in (source_identity, target_identity, target_scope)
-    ):
-        raise ValueError("Prepared session identities are invalid")
-    if not isinstance(scalar_values, dict) or not isinstance(references, dict):
-        raise ValueError("Prepared session values are invalid")
-    return PreparedRecord(
-        dataset=str(payload["dataset"]),
-        source_row=int(payload["source_row"]),
-        target_model=str(payload["target_model"]),
-        source_identity=source_identity,
-        target_identity=target_identity,
-        target_scope=target_scope,
-        scalar_values=scalar_values,
-        references=references,
-        source_trace_id=str(payload.get("source_trace_id", "")),
-        issues=tuple(
-            issue_from_portable_dict(item)
-            for item in payload.get("issues", ())
-        ),
-    )
-
-
-def issue_from_portable_dict(payload: Mapping[str, Any]) -> Issue:
-    """Restore existing structured issue evidence from session storage."""
-
-    return Issue(
-        code=str(payload["code"]),
-        message=str(payload["message"]),
-        severity=Severity(str(payload.get("severity", Severity.ERROR.value))),
-        dataset=(str(payload["dataset"]) if payload.get("dataset") else None),
-        row=(int(payload["row"]) if payload.get("row") is not None else None),
-        field=(str(payload["field"]) if payload.get("field") else None),
-        affected_count=int(payload.get("affected_count", 1)),
-    )
 
 
 def transformation_impact_to_portable_dict(

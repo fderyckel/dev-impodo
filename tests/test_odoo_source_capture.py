@@ -122,9 +122,7 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
                     [page.first_row_ordinal for page in pages],
                     ([1, 501] if count == 501 else ([1] if count else [])),
                 )
-                self.assertTrue(
-                    all(len(page.odoo_ids) <= 500 for page in pages)
-                )
+                self.assertTrue(all(len(page.odoo_ids) <= 500 for page in pages))
 
     def test_maximum_plus_one_fails_closed(self) -> None:
         session = self._adapter(DatasetTransport(_rows(501))).open_capture(
@@ -233,7 +231,9 @@ class OdooSourceCaptureAdapterTests(unittest.TestCase):
         )
         self.assertNotIn("offset", transport.calls[-1])
 
-    def test_sample_is_one_non_authoritative_call_and_type_decoding_is_exact(self) -> None:
+    def test_sample_is_one_non_authoritative_call_and_type_decoding_is_exact(
+        self,
+    ) -> None:
         transport = DatasetTransport(_rows(3))
         sample = self._adapter(transport).sample(
             _request(),
@@ -410,7 +410,7 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
         result = self.service.capture(
             self.project_id,
             gateway,
-            consume_page=pages.append,
+            consume_page_factory=lambda request, selection: pages.append,
             actor=LOCAL_ACTOR,
         )
 
@@ -428,7 +428,7 @@ class OdooSourceCaptureServiceTests(unittest.TestCase):
             self.service.capture(
                 self.project_id,
                 gateway,
-                consume_page=lambda page: None,
+                consume_page_factory=lambda request, selection: lambda page: None,
                 actor=LOCAL_ACTOR,
             )
 

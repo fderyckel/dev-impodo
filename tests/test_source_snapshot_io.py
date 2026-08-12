@@ -133,12 +133,15 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             [record.scalar_values["name"] for record in staged.prepared.records],
             [" Alpha ", None],
         )
-        with patch(
-            "impodo.application.bounded_preparation.compile_browser_row_transformer",
-            side_effect=AssertionError("supported snapshot used the Python oracle"),
-        ), patch(
-            "impodo.application.bounded_preparation.canonical_row_from_prepared",
-            side_effect=AssertionError("native path built CanonicalRow"),
+        with (
+            patch(
+                "impodo.application.bounded_preparation.compile_browser_row_transformer",
+                side_effect=AssertionError("supported snapshot used the Python oracle"),
+            ),
+            patch(
+                "impodo.application.bounded_preparation.canonical_row_from_prepared",
+                side_effect=AssertionError("native path built CanonicalRow"),
+            ),
         ):
             bounded = prepare_bounded_direct_session(
                 self.projects.get(project.project_id),
@@ -153,7 +156,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
                 source_snapshots=snapshots,
                 columnar_batch_size=1,
-        )
+            )
         self.assertEqual(len(bounded.run.rows), 2)
         self.assertIsNotNone(bounded.run.validated_content_hash)
         database_path = (
@@ -270,13 +273,17 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             b"Code,Name,Active\nC1,Alpha,true\nC1,Beta,false\n"
         )
         selection = _selection_for(project, source_file, catalog)
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            project,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                project,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
         sessions = PreparationSessionRepository(self.database, self.artifacts)
         bounded = prepare_bounded_direct_session(
             project,
@@ -298,10 +305,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
         self.assertTrue(
             all(
-                any(
-                    issue.code == "SOURCE_IDENTITY_DUPLICATE"
-                    for issue in row.issues
-                )
+                any(issue.code == "SOURCE_IDENTITY_DUPLICATE" for issue in row.issues)
                 for row in rows
             )
         )
@@ -326,13 +330,17 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
         )
         selection = _selection_for(project, source_file, catalog)
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            project,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                project,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
         sessions = PreparationSessionRepository(self.database, self.artifacts)
         bounded = prepare_bounded_direct_session(
             project,
@@ -364,13 +372,17 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
         )
         selection = _selection_for(project, source_file, catalog)
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            project,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                project,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
         definition = _direct_mapping(selection)
         dataset_mapping = definition.datasets[0]
         name_field = dataset_mapping.fields[0]
@@ -454,13 +466,17 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
         selection = _selection_for(project, source_file, catalog)
         definition = _direct_mapping(selection)
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            project,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                project,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
 
         self.assertEqual(
             direct_preparation_row_limit(
@@ -512,13 +528,17 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
         )
         selection = _selection_for(project, source_file, catalog)
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            project,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                project,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
         sessions = PreparationSessionRepository(self.database)
 
         with (
@@ -543,9 +563,7 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
                 source_snapshots=(snapshot,),
             )
 
-        prepared_root = (
-            self.root / project.project_id / "snapshots" / "prepared"
-        )
+        prepared_root = self.root / project.project_id / "snapshots" / "prepared"
         self.assertEqual(tuple(prepared_root.rglob("*.parquet")), ())
         self.assertEqual(
             sessions.prepared_snapshot_storage_keys(project.project_id),
@@ -557,13 +575,17 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             b"Code,Name,Active\nC1,Alpha,true\nC2,Beta,false\n"
         )
         selection = _selection_for(project, source_file, catalog)
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            project,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                project,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
         sessions = PreparationSessionRepository(self.database)
         definition = _direct_mapping(selection)
 
@@ -613,13 +635,17 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
 
     def test_mixed_xlsx_scalars_round_trip_through_parquet(self) -> None:
         project, source_file, catalog, selection = self._registered_xlsx()
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            project,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                project,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
         with self.artifacts.materialize_source_snapshot(
             project.project_id,
             snapshot.parquet_storage_key,
@@ -640,13 +666,17 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
     def test_snapshot_hash_mismatch_and_truncation_fail_closed(self) -> None:
         project, source_file, catalog = self._registered_csv(b"Code\nC1\n")
         selection = _selection_for(project, source_file, catalog)
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            project,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                project,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
         path = self.root / project.project_id / snapshot.parquet_storage_key
         path.write_bytes(path.read_bytes()[:16])
         with self.assertRaisesRegex(ArtifactStoreError, "hash verification"):
@@ -704,13 +734,17 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
     def test_failed_pointer_transaction_preserves_previous_selection(self) -> None:
         project, source_file, catalog = self._registered_csv(b"Code\nC1\n")
         first = _selection_for(project, source_file, catalog)
-        first_snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            project,
-            first,
-            first.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        first_snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                project,
+                first,
+                first.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
         self.repository.publish_source_selection_with_snapshots(
             project.project_id,
             first,
@@ -727,13 +761,11 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             project_id=project.project_id,
             dataset_id=second.datasets[0].dataset_id,
             dataset_name=second.datasets[0].name,
-            file_id=source_file.file_id,
-            table_key="csv",
-            source_sha256="sha256:" + source_file.sha256,
-            catalog_hash=catalog.content_hash,
+            source=second.datasets[0].source,
             physical_selection_hash=second.content_hash,
             schema=first_snapshot.schema,
             row_count=1,
+            data_logical_hash=first_snapshot.data_logical_hash,
             parquet_sha256=first_snapshot.parquet_sha256,
             created_at=datetime.now(timezone.utc),
         )
@@ -764,13 +796,17 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
     def test_cleanup_removes_only_unregistered_snapshot_files(self) -> None:
         project, source_file, catalog = self._registered_csv(b"Code\nC1\n")
         selection = _selection_for(project, source_file, catalog)
-        snapshot = SourceSnapshotPublisher(self.artifacts).publish(
-            project,
-            selection,
-            selection.datasets[0],
-            catalog,
-            source_file,
-        ).snapshot
+        snapshot = (
+            SourceSnapshotPublisher(self.artifacts)
+            .publish(
+                project,
+                selection,
+                selection.datasets[0],
+                catalog,
+                source_file,
+            )
+            .snapshot
+        )
         snapshot_path = self.root / project.project_id / snapshot.parquet_storage_key
         self.assertEqual(
             self.artifacts.cleanup_source_snapshots(
@@ -835,7 +871,9 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         )
         headers = content.splitlines()[0].decode("utf-8").split(",")
         row_count = len(content.splitlines()) - 1
-        columns = tuple(_column(index, name, row_count) for index, name in enumerate(headers, 1))
+        columns = tuple(
+            _column(index, name, row_count) for index, name in enumerate(headers, 1)
+        )
         table = SourceTableCatalog(
             table_key="csv",
             name="customers",
