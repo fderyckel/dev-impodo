@@ -3008,6 +3008,22 @@ class PreparationSessionRepository(DuckDbRepository):
                     "DELETE FROM preparation_normalization_finding WHERE session_id = ?",
                     [canonical_session_id],
                 )
+                connection.execute(
+                    """
+                    CREATE TEMP TABLE normalization_pending_effect (
+                        run_id VARCHAR NOT NULL,
+                        ordinal BIGINT NOT NULL,
+                        effect_id VARCHAR PRIMARY KEY,
+                        group_id VARCHAR NOT NULL,
+                        row_id VARCHAR NOT NULL,
+                        dataset VARCHAR NOT NULL,
+                        source_row BIGINT NOT NULL,
+                        target_field VARCHAR NOT NULL,
+                        eligible BOOLEAN NOT NULL,
+                        effect_json VARCHAR NOT NULL
+                    )
+                    """
+                )
                 construction_ordinal = 0
                 pending_effects: list[list[object]] = []
                 pending_group_seeds: list[list[object]] = []
@@ -3161,7 +3177,7 @@ class PreparationSessionRepository(DuckDbRepository):
                            ),
                            COUNT(DISTINCT group_id),
                            COUNT(DISTINCT (dataset, source_row))
-                      FROM normalization_effect
+                      FROM normalization_pending_effect
                      WHERE run_id = ?
                     """,
                     [canonical_session_id, canonical_session_id],
@@ -3174,7 +3190,7 @@ class PreparationSessionRepository(DuckDbRepository):
                            COUNT(*) FILTER (WHERE effect.eligible),
                            COUNT(*) FILTER (WHERE NOT effect.eligible)
                       FROM preparation_normalization_group_seed AS seed
-                      JOIN normalization_effect AS effect
+                      JOIN normalization_pending_effect AS effect
                         ON effect.run_id = seed.session_id
                        AND effect.group_id = seed.group_id
                      WHERE seed.session_id = ?
@@ -3200,7 +3216,7 @@ class PreparationSessionRepository(DuckDbRepository):
                                        5
                                    )
                                ) AS effect_id
-                          FROM normalization_effect
+                          FROM normalization_pending_effect
                          WHERE run_id = ? AND eligible
                          GROUP BY run_id, group_id
                     )
@@ -3208,7 +3224,7 @@ class PreparationSessionRepository(DuckDbRepository):
                            json_extract_string(effect.effect_json, '$.before'),
                            json_extract_string(effect.effect_json, '$.after')
                       FROM top_effect
-                      JOIN normalization_effect AS effect
+                      JOIN normalization_pending_effect AS effect
                         ON effect.run_id = top_effect.run_id
                        AND effect.group_id = top_effect.group_id
                        AND effect.effect_id = top_effect.effect_id
@@ -3236,6 +3252,15 @@ class PreparationSessionRepository(DuckDbRepository):
                     """,
                     [canonical_session_id],
                 ).fetchall()
+                connection.execute(
+                    """
+                    INSERT INTO normalization_effect
+                    SELECT run_id, ordinal, effect_id, group_id, row_id,
+                           dataset, source_row, target_field, eligible,
+                           effect_json
+                      FROM normalization_pending_effect
+                    """
+                )
                 connection.commit()
             except Exception:
                 connection.rollback()
@@ -3263,7 +3288,7 @@ class PreparationSessionRepository(DuckDbRepository):
     def _insert_prepared_normalization_effects(connection, rows) -> None:
         connection.execute(
             """
-            INSERT OR IGNORE INTO normalization_effect
+            INSERT OR IGNORE INTO normalization_pending_effect
             SELECT
                 CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
                 CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),

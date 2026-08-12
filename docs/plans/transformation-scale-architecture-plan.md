@@ -428,8 +428,9 @@ normalization effects before quality or lineage facts are counted.
 - the spawned preparation worker releases native allocator high-water memory
   when the process exits, while only small progress messages cross back to the
   browser process;
-- DuckDB connections are hardened, the preparation-session connection uses a
-  96 MB buffer-manager limit and one thread, and Polars defaults to one thread;
+- DuckDB connections are hardened, the preparation-session connection uses one
+  thread and a bounded buffer-manager limit (raised from the proposal's 96 MB
+  to a measured 192 MB during Phase 7), and Polars defaults to one thread;
   and
 - current hashes bind source snapshots, mapping/schema revisions, prepared
   artifacts, canonical staging, quality, normalization, preflight, and

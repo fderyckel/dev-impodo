@@ -411,7 +411,7 @@ therefore starts a new exact DuckDB schema generation rather than assuming an
 upgrade from databases created by the earlier generation. This follows that
 refactor's fail-closed current-schema policy.
 
-The final combined worktree passes 536 discovered unit/integration tests; 13
+The final combined worktree passes 555 discovered unit/integration tests; 13
 existing live or scale probes remain opt-in and were skipped. The Phase-5
 Python files pass Ruff, `git diff --check` passes, relationship parity passes
 across Polars batch sizes, and the three-pair 96,000-row benchmark passes its
@@ -539,12 +539,68 @@ also retained exact staging/quality semantics.
 
 Evidence:
 
-- `.tmp/transformation-scale-phase7-mac-smoke.json`
-- `.tmp/transformation-scale-phase7-mac-smoke/`
+- `.tmp/transformation-scale-phase7-mac-smoke-final.json`
+- `.tmp/transformation-scale-phase7-mac-smoke-final/`
 
 This proves the harness and production repeat path on macOS; it is not release
 qualification. The evidence truthfully reports `release_qualified: false`
 because it is a one-run smoke profile on a dirty non-Windows worktree.
+
+### Mac release-shape diagnostics
+
+The first full production-worker Product/BOM attempt found a gap hidden by the
+B5/B6 repository benchmark. The 96,000-row project produces 96,000 trim effects
+in addition to its 80,000 relationship edges. The preparation-session DuckDB
+connection was capped at 96 MB and failed in normalization at 91.2 MiB used.
+The first failure was during encoded-effect insertion; after that was isolated,
+the original full-window query for only five examples per group hit the same
+ceiling later.
+
+The retained fix is deliberately small:
+
+- replace the `ROW_NUMBER()` window over every eligible effect with one
+  deterministic top-five `arg_min` aggregate per compact group, then parse only
+  the selected effect JSON rows;
+- retain the faster transaction-local effect relation and one bulk promotion
+  into the immutable run, rather than maintaining every final index per batch;
+  and
+- set the one-thread preparation-session buffer limit to 192 MB. Both 96 MB
+  and 128 MB failed the release-shape transaction; 192 MB is the first retained
+  candidate and remains far below the 900 MiB process gate.
+
+The final one-run Mac diagnostics passed both first and repeat workers:
+
+| Fixture/attempt | CPU | Wall | Worker peak | DuckDB used | DuckDB file | Project storage |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Products 100k first | 41.390 s | 40.790 s | 630.063 MiB | 79.500 MiB | 140.512 MiB | 176.250 MiB |
+| Products 100k repeat | 43.547 s | 42.838 s | 628.844 MiB | 85.500 MiB | 186.012 MiB | 188.276 MiB |
+| Products 16k + BOM 80k first | 40.117 s | 39.654 s | 672.172 MiB | 142.250 MiB | 230.262 MiB | 241.181 MiB |
+| Products 16k + BOM 80k repeat | 42.582 s | 42.238 s | 634.625 MiB | 171.250 MiB | 371.012 MiB | 372.455 MiB |
+
+The direct fixture retains more than 119 MiB of headroom against its 750 MiB
+design target and more than 269 MiB against the hard worker gate. The related
+fixture retains more than 227 MiB against the hard gate. Parent RSS after both
+repeat attempts was below its pre-job value. CPU and wall remain well below
+120 seconds.
+
+The related repeat database file is larger than its used-page count because
+DuckDB retains allocated/free blocks and Impodo retains immutable run history.
+The release report therefore records file bytes, used/free pages, and total
+project storage separately; it does not describe the 371 MiB allocated file as
+371 MiB of live logical evidence. Repeat added 29.0 MiB of used pages while
+retaining the prior audit run.
+
+Both fixtures deleted their registered source artifact(s) before repeat,
+reused unchanged prepared snapshots, emitted identical first/repeat staging,
+quality, and normalization hashes, exited each worker, and made no Odoo call.
+
+Evidence:
+
+- `.tmp/transformation-scale-phase7-mac-products-100k-worker.json`
+- `.tmp/transformation-scale-phase7-mac-product-bom-96k-worker.json`
+
+These are dirty-worktree, one-run Mac diagnostics. They validate the final
+shape before Windows but do not satisfy the clean three-run Windows gate.
 
 ### Windows release command
 

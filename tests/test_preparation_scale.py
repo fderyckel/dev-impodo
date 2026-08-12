@@ -1264,18 +1264,6 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         project = self.context.queries.get(project_id)
         selection = self.context.queries.get_source_selection(project_id)
         assert selection is not None
-        if os.environ.get("IMPODO_PREPARATION_DIRECT_DIAGNOSTIC") == "1":
-            normalization = self.context.preparation.prepare(
-                project_id,
-                actor=self.context.actor,
-                progress=lambda phase, completed, total, message: print(
-                    "Direct related diagnostic: "
-                    f"phase={phase.value}, completed={completed}, "
-                    f"total={total}, message={message}"
-                ),
-            )
-            self.assertTrue(normalization.run_id)
-            return
         manager = self.context.preparation_jobs
         assert manager is not None
         parent_process = psutil.Process()
