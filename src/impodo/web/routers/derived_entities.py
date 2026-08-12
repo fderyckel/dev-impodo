@@ -314,7 +314,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             {"csrf_token", "expected_parent_version"},
         )
         try:
-            plan = context.derived_entities.delete_rule(
+            context.derived_entities.delete_rule(
                 project_id,
                 rule_id,
                 expected_parent_version=_optional_int(

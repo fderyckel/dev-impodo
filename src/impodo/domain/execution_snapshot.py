@@ -229,7 +229,7 @@ class ExecutionSnapshot:
     @classmethod
     def from_json(cls, value: str) -> "ExecutionSnapshot":
         payload = json.loads(value)
-        if int(payload.get("contract_version", 0)) != EXECUTION_SNAPSHOT_VERSION:
+        if int(payload["contract_version"]) != EXECUTION_SNAPSHOT_VERSION:
             raise ValueError("Execution snapshot contract version is unsupported")
         mapping = dict(payload["mapping"])
         preparation = dict(payload["preparation"])

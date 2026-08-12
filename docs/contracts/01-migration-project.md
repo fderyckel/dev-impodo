@@ -72,13 +72,19 @@ lifecycle labels:
 Changing the target mode, URL, or database changes the target identity and
 invalidates target-derived evidence.
 
+That identity is explicitly the `connection_target_hash`: mode, normalized
+endpoint, and database name. It is not a strong database-instance identity.
+The current Odoo-source policy records connection-only assurance and disables
+native production writes because restore/clone identity and atomic
+compare-and-write are unavailable through the closed JSON-2 surface.
+
 An Odoo API key is not a project field. Read and write credentials occupy
 separate role- and target-specific entries in memory or the operating-system
 credential vault, use separate browser fields and vault service labels, and
 never fall back to one another. Changing the target deletes both roles for the
-old target; deleting the project removes both roles and the retired shared
-entry. Local no-key discovery keeps selected machine paths in process memory
-only.
+old target; deleting the project removes both roles. Each present entry
+produces a non-secret registry removal receipt that survives project deletion.
+Local no-key discovery keeps selected machine paths in process memory only.
 
 Each stored role uses a versioned vault envelope with a random generation ID.
 Model and schema catalogues bind the read credential generation through a

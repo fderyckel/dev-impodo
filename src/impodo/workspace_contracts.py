@@ -255,7 +255,8 @@ class OdooModelCatalog:
     """Lightweight model choices discovered from one exact Odoo target."""
 
     project_id: str
-    target_hash: str
+    connection_target_hash: str
+    policy_hash: str
     captured_at: datetime
     captured_by: str
     connection_mode: str
@@ -280,7 +281,8 @@ class OdooModelCatalog:
         payload = json.loads(value)
         return cls(
             project_id=payload["project_id"],
-            target_hash=payload["target_hash"],
+            connection_target_hash=payload["connection_target_hash"],
+            policy_hash=payload["policy_hash"],
             captured_at=datetime.fromisoformat(payload["captured_at"]),
             captured_by=payload["captured_by"],
             connection_mode=payload["connection_mode"],
@@ -314,13 +316,14 @@ class SchemaOrigin(StrEnum):
 class OdooSchemaCatalog:
     """Hold the exact permitted-model Odoo schema captured for mapping.
 
-    ``target_hash`` binds the configured Odoo identity and selected model
-    scope. ``origin`` distinguishes authenticated/live evidence from an
-    explicitly unverified local draft that cannot support submission.
+    ``connection_target_hash`` binds the configured endpoint/database identity;
+    ``content_hash`` is the exact schema-scope hash. ``origin`` distinguishes
+    authenticated/live evidence from an explicitly unverified local draft that
+    cannot support submission.
     """
 
     project_id: str
-    target_hash: str
+    policy_hash: str
     captured_at: datetime
     captured_by: str
     connection_mode: str
@@ -347,7 +350,7 @@ class OdooSchemaCatalog:
         payload = json.loads(value)
         return cls(
             project_id=payload["project_id"],
-            target_hash=payload["target_hash"],
+            policy_hash=payload["policy_hash"],
             captured_at=datetime.fromisoformat(payload["captured_at"]),
             captured_by=payload["captured_by"],
             connection_mode=payload["connection_mode"],

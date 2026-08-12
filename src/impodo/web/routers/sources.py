@@ -13,6 +13,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 from ...domain.odoo_capture import ODOO_CAPTURE_FIELD_TYPES
+from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ...inspection import SourceInspectionError, SourceInspectionOptions
 from ...projects import ProjectStatus, SourceMode
 from ...workspace_errors import WorkspaceError
@@ -379,6 +380,7 @@ def _render_odoo_capture_selection(
         selected_field_names=selected_field_names,
         dataset_name_default=dataset_name_default,
         current=current,
+        capture_policy=CURRENT_ODOO_SOURCE_POLICY,
         error=error,
         status_code=status_code,
     )

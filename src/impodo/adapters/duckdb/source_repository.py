@@ -392,6 +392,7 @@ class SourceRepository(DuckDbRepository):
             )
             if (
                 selection.project_id != project_id
+                or selection.policy_hash != schema.policy_hash
                 or selection.connection_target_hash
                 != schema.connection_target_hash
                 or selection.schema_scope_hash != schema.content_hash

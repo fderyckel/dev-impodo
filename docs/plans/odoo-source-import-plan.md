@@ -59,11 +59,21 @@ change.
   browser can save this bounded plan and explicitly states that it performs no
   Odoo request and freezes no rows. The project database likewise supports one
   exact current schema generation; it contains no upgrade path.
+- Slice 6 closes the current architecture/policy decisions in executable
+  evidence. Each capture plan and Odoo source binding now binds one policy hash
+  fixing Odoo 19 JSON-2, same-target protected-ID update-only semantics,
+  Tier-1 types, request/response/value/row/snapshot/temp/history limits, and
+  restricted-evidence handling. Native JSON-2 target identity is explicitly
+  connection-only and production writes are `PRODUCTION_WRITE_UNSUPPORTED`
+  because restore/clone identity and atomic compare-and-write are unavailable.
+  Schema contracts use distinct connection-target and schema-scope hashes.
+  Target changes and project deletion now create non-secret credential-removal
+  receipts outside the deletable project database.
 - The current permission hash covers directly observed group membership and
   model-level read outcomes, not a complete fingerprint of all ACL/record-rule
   definitions. Local no-key shell metadata also remains explicitly unverified.
-  Local no-key write-principal parity, credential-removal audit receipts,
-  target-instance identity, protected row-origin/capture manifests, quotas,
+  Local no-key write-principal parity, strong target-instance identity,
+  protected row-origin/capture manifests, enforced quotas,
   retention enforcement, and live bounded record capture remain open.
 
 ## 1. Outcome

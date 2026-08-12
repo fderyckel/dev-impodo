@@ -16,7 +16,7 @@ from ...application.preparation_capability import (
 from ...domain.errors import ReadinessError
 from ...domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
-    BROWSER_EVALUATION_ROW_LIMIT,
+    MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
     browser_evaluation_scale,
 )
 from ...local_stack import LocalStackError
@@ -173,7 +173,7 @@ def _render_summary(
             derived_plan,
         )
     )
-    scale_limit = BROWSER_EVALUATION_ROW_LIMIT
+    scale_limit = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
     if bounded_direct:
         scale_limit = BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
     if (

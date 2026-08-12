@@ -409,6 +409,7 @@ def prepare_bounded_direct_session(
                                 target_identity,
                                 target_scope,
                                 scalar_values,
+                                references,
                                 issues,
                             ) in enumerate(
                                 zip(
@@ -417,6 +418,7 @@ def prepare_bounded_direct_session(
                                     native_batch.target_identities,
                                     native_batch.target_scopes,
                                     native_batch.scalar_values,
+                                    native_batch.references,
                                     native_batch.issues,
                                     strict=True,
                                 )
@@ -434,6 +436,7 @@ def prepare_bounded_direct_session(
                                         target_identity=target_identity,
                                         target_scope=target_scope,
                                         scalar_values=scalar_values,
+                                        references=references,
                                         issues=issues,
                                         ordinal=(
                                             dataset_offsets[
@@ -635,6 +638,7 @@ def _canonical_session_row(
         disposition=canonical.disposition,
         source_identity=canonical.source_identity,
         row_json=canonical_json_bytes(canonical.to_portable_dict()).decode("utf-8"),
+        references=record.references,
         physical_sources=physical_sources,
         record_label=canonical_quality_record_label(
             canonical.source_identity,

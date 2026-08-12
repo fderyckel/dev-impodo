@@ -82,6 +82,7 @@ class OdooSourceBinding:
 
     capture_selection_hash: str
     model: str
+    policy_hash: str
     connection_target_hash: str
     schema_scope_hash: str
     read_principal_hash: str
@@ -93,6 +94,7 @@ class OdooSourceBinding:
             raise SourceBindingContractError("Odoo source model is invalid")
         for value, label in (
             (self.capture_selection_hash, "capture selection hash"),
+            (self.policy_hash, "source policy hash"),
             (self.connection_target_hash, "connection target hash"),
             (self.schema_scope_hash, "schema scope hash"),
             (self.read_principal_hash, "read principal hash"),
@@ -114,6 +116,7 @@ class OdooSourceBinding:
             "origin": self.origin.value,
             "capture_selection_hash": self.capture_selection_hash,
             "model": self.model,
+            "policy_hash": self.policy_hash,
             "connection_target_hash": self.connection_target_hash,
             "schema_scope_hash": self.schema_scope_hash,
             "read_principal_hash": self.read_principal_hash,
@@ -200,6 +203,7 @@ def source_binding_from_dict(value: object) -> SourceBinding:
                     "origin",
                     "capture_selection_hash",
                     "model",
+                    "policy_hash",
                     "connection_target_hash",
                     "schema_scope_hash",
                     "read_principal_hash",
@@ -210,6 +214,7 @@ def source_binding_from_dict(value: object) -> SourceBinding:
             return OdooSourceBinding(
                 capture_selection_hash=str(value["capture_selection_hash"]),
                 model=str(value["model"]),
+                policy_hash=str(value["policy_hash"]),
                 connection_target_hash=str(value["connection_target_hash"]),
                 schema_scope_hash=str(value["schema_scope_hash"]),
                 read_principal_hash=str(value["read_principal_hash"]),

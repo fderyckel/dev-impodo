@@ -64,8 +64,8 @@ class SourceInspectionTests(unittest.TestCase):
         restored = SourceFileCatalog.from_json(catalog.to_json())
         self.assertEqual(restored, catalog)
 
-    def test_legacy_catalog_json_keeps_its_original_hash_shape(self) -> None:
-        path = self.directory / "legacy.xlsx"
+    def test_noncurrent_catalog_json_is_rejected(self) -> None:
+        path = self.directory / "noncurrent.xlsx"
         workbook = Workbook()
         worksheet = workbook.active
         worksheet.append(["code", "name"])
@@ -80,16 +80,15 @@ class SourceInspectionTests(unittest.TestCase):
             for named_table in table["named_tables"]:
                 named_table.pop("disposition")
                 named_table.pop("message")
-        legacy_json = json.dumps(
+        noncurrent_json = json.dumps(
             payload,
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,
         )
 
-        restored = SourceFileCatalog.from_json(legacy_json)
-
-        self.assertEqual(restored.to_json(), legacy_json)
+        with self.assertRaisesRegex(SourceInspectionError, "current contract"):
+            SourceFileCatalog.from_json(noncurrent_json)
 
     def test_xlsx_inventory_finds_sheets_named_tables_and_warnings(self) -> None:
         path = self.directory / "products.xlsx"

@@ -38,7 +38,13 @@ from ..domain.staging.transformation_impact import (
     TransformationRuleImpact,
     _display_value,
 )
-from ..models import Issue, PreparedRecord, canonical_json_bytes, portable_value
+from ..models import (
+    Issue,
+    LogicalReference,
+    PreparedRecord,
+    canonical_json_bytes,
+    portable_value,
+)
 from ..source import SourceLoadError
 from ..source_snapshot_io import validate_source_snapshot_path
 from ..domain.staging.fields import synthetic_field
@@ -68,6 +74,7 @@ class ColumnarTransformationBatch:
     target_identities: tuple[tuple[Any, ...], ...]
     target_scopes: tuple[tuple[Any, ...], ...]
     scalar_values: tuple[Mapping[str, Any], ...]
+    references: tuple[Mapping[str, Any], ...]
     issues: tuple[tuple[Issue, ...], ...]
     impacts: tuple[TransformationImpactRow, ...]
     impact_counts: TransformationImpactCounts
@@ -123,6 +130,7 @@ class _ExecutionLayout:
     source_identity: tuple[_IdentityComponentLayout, ...]
     target_identity: tuple[_IdentityComponentLayout, ...]
     target_scope: tuple[_IdentityComponentLayout, ...]
+    relationships: tuple[_IdentityComponentLayout, ...]
     output_columns: tuple[str, ...]
 
 
@@ -182,7 +190,7 @@ def iter_polars_prepared_batches(
 
     The production direct path consumes the bounded column arrays and leaves
     ``records`` empty.  The optional record projection remains the small-fixture
-    semantic oracle used by parity tests and legacy callers.
+    semantic oracle used by parity tests and bounded record projections.
     """
 
     if batch_size < 1:
@@ -306,11 +314,32 @@ def _compile_lazy_transformation(
     target_scope, scope_prepared, scope_values, scope_issues = (
         _compile_identity_group(program.target_scope, "target_scope")
     )
-    for expressions in (source_prepared, target_prepared, scope_prepared):
+    relationships, relationship_prepared, relationship_values, relationship_issues = (
+        _compile_identity_group(
+            tuple(item.key for item in program.relationships),
+            "relationship",
+        )
+    )
+    for expressions in (
+        source_prepared,
+        target_prepared,
+        scope_prepared,
+        relationship_prepared,
+    ):
         prepared_expressions.extend(expressions)
-    for expressions in (source_values, target_values, scope_values):
+    for expressions in (
+        source_values,
+        target_values,
+        scope_values,
+        relationship_values,
+    ):
         value_expressions.extend(expressions)
-    for groups in (source_identity, target_identity, target_scope):
+    for groups in (
+        source_identity,
+        target_identity,
+        target_scope,
+        relationships,
+    ):
         for component in groups:
             for item in component.values:
                 final_columns.append(item.normalized_alias)
@@ -326,6 +355,7 @@ def _compile_lazy_transformation(
         *scalar_issue_expressions,
         *target_issues,
         *scope_issues,
+        *relationship_issues,
     ]
     lazy = lazy.with_columns(
         pl.concat_list(issue_expressions).list.drop_nulls().alias(_ISSUE_COLUMN)
@@ -338,6 +368,7 @@ def _compile_lazy_transformation(
             source_identity=source_identity,
             target_identity=target_identity,
             target_scope=target_scope,
+            relationships=relationships,
             output_columns=tuple(final_columns),
         ),
     )
@@ -364,6 +395,10 @@ def _execution_layout(
         program.target_scope,
         "target_scope",
     )[0]
+    relationships = _compile_identity_group(
+        tuple(item.key for item in program.relationships),
+        "relationship",
+    )[0]
     output_columns = [SOURCE_ROW_COLUMN]
     for item in program.inputs:
         output_columns.extend(
@@ -375,7 +410,12 @@ def _execution_layout(
             output_columns.append(scalar.value_alias)
         if scalar.fallback_alias is not None:
             output_columns.append(scalar.fallback_alias)
-    for groups in (source_identity, target_identity, target_scope):
+    for groups in (
+        source_identity,
+        target_identity,
+        target_scope,
+        relationships,
+    ):
         for component in groups:
             for item in component.values:
                 output_columns.append(item.normalized_alias)
@@ -387,6 +427,7 @@ def _execution_layout(
         source_identity=source_identity,
         target_identity=target_identity,
         target_scope=target_scope,
+        relationships=relationships,
         output_columns=tuple(output_columns),
     )
 
@@ -868,7 +909,10 @@ def _compile_identity_group(
             if value_alias != normalized_alias:
                 value_expressions.append(value.alias(value_alias))
             error = (
-                pl.when(pl.col(normalized_alias).is_null())
+                pl.when(
+                    pl.col(normalized_alias).is_null()
+                    & pl.lit(component.required)
+                )
                 .then(pl.lit(_ERROR_REQUIRED))
                 .when(parse_invalid)
                 .then(pl.lit(_ERROR_PARSE))
@@ -947,6 +991,7 @@ def _adapt_frame(
     target_identities: list[tuple[Any, ...]] = []
     target_scopes: list[tuple[Any, ...]] = []
     scalar_value_rows: list[Mapping[str, Any]] = []
+    reference_rows: list[Mapping[str, Any]] = []
     issue_rows: list[tuple[Issue, ...]] = []
     scalar_by_index = {index: item for index, item in enumerate(layout.scalars)}
     identity_by_kind = {
@@ -991,6 +1036,28 @@ def _adapt_frame(
             _identity_value(row, indexes, item, errors)
             for item in identity_by_kind["target_scope"]
         )
+        references = {
+            relationship.target_field: (
+                None
+                if not key or all(value is None for value in key)
+                else LogicalReference(
+                    origin="incoming",
+                    key=key,
+                    dataset=relationship.parent_dataset_name,
+                )
+            )
+            for relationship, component in zip(
+                program.relationships,
+                layout.relationships,
+                strict=True,
+            )
+            for key in (
+                tuple(
+                    _identity_value(row, indexes, item, errors)
+                    for item in component.values
+                ),
+            )
+        }
         issues = _row_issues(
             row,
             indexes,
@@ -1004,6 +1071,7 @@ def _adapt_frame(
         target_identities.append(target_identity)
         target_scopes.append(target_scope)
         scalar_value_rows.append(scalar_values)
+        reference_rows.append(references)
         issue_rows.append(issues)
         if materialize_records:
             records.append(
@@ -1015,7 +1083,7 @@ def _adapt_frame(
                     target_identity=target_identity,
                     target_scope=target_scope,
                     scalar_values=scalar_values,
-                    references={},
+                    references=references,
                     source_trace_id="sha256:"
                     + sha256(
                         canonical_json_bytes(
@@ -1064,6 +1132,7 @@ def _adapt_frame(
         target_identities=tuple(target_identities),
         target_scopes=tuple(target_scopes),
         scalar_values=tuple(scalar_value_rows),
+        references=tuple(reference_rows),
         issues=tuple(issue_rows),
         impacts=tuple(impacts),
         impact_counts=TransformationImpactCounts(
@@ -1402,6 +1471,28 @@ def _row_issues(
                         field=item.source_stable_key,
                     )
                 )
+    for relationship, component in zip(
+        program.relationships,
+        layout.relationships,
+        strict=True,
+    ):
+        for item in component.values:
+            error = errors.get((item.role, item.error_index))
+            if error is None:
+                continue
+            issues.append(
+                Issue(
+                    code=relationship.key.failure_code,
+                    message=_identity_error_message(
+                        error,
+                        item,
+                        raw_by_ordinal[item.source_ordinal],
+                    ),
+                    dataset=program.dataset_name,
+                    row=source_row,
+                    field=relationship.target_field,
+                )
+            )
     return tuple(issues)
 
 

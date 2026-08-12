@@ -74,8 +74,8 @@ from impodo.domain.staging.evaluator import evaluate_browser_mapping
 from impodo.domain.staging.transformation_impact import _display_values_equal
 from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
-    BROWSER_EVALUATION_ROW_LIMIT,
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+    MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
     browser_evaluation_scale,
     require_supported_browser_scale,
 )
@@ -326,16 +326,8 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         self.assertEqual(restored.content_hash, direct.canonical_run.content_hash)
         self.assertEqual(restored.to_json(), direct.canonical_run.to_json())
 
-        legacy = replace(
-            direct.canonical_run,
-            contract_version=2,
-            evaluator_version=1,
-            compiled_plan_hash=None,
-            control_totals=(),
-        )
-        restored_legacy = CanonicalStagingRun.from_json(legacy.to_json())
-        self.assertEqual(restored_legacy.content_hash, legacy.content_hash)
-        self.assertNotIn("control_totals", legacy.to_portable_dict())
+        with self.assertRaisesRegex(ValueError, "version is unsupported"):
+            replace(direct.canonical_run, contract_version=2)
 
         changed_definition = replace(
             definition,
@@ -625,7 +617,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             datasets=(
                 replace(
                     physical.datasets[0],
-                    row_count=BROWSER_EVALUATION_ROW_LIMIT + 1,
+                    row_count=MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT + 1,
                 ),
             ),
         )
@@ -814,7 +806,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             preview_rows=tuple(rows),
         )
         catalog = SourceFileCatalog(
-            contract_version=1,
+            contract_version=2,
             file_id=file_id,
             display_name="bom.csv",
             source_sha256=digest,
@@ -992,7 +984,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             preview_rows=tuple(rows),
         )
         catalog = SourceFileCatalog(
-            contract_version=1,
+            contract_version=2,
             file_id=file_id,
             display_name="products.csv",
             source_sha256=digest,

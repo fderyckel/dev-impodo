@@ -52,6 +52,8 @@ does not freeze rows. Each immutable revision binds:
 - active-only or active-plus-archived policy, with no raw caller domain;
 - a maximum of 50 fields, at most 10,000 rows, and a fixed 500-row future page
   contract;
+- the exact current Odoo-source policy hash, including byte/disk/history limits,
+  protected-data handling, and production-write disposition;
 - connection-target, schema-scope, read-principal, observed-permission, and
   context hashes; and
 - actor, timestamp, version, and deterministic content hash.
@@ -62,6 +64,13 @@ active plan. Recapturing schema, changing target/model scope, or saving a new
 plan invalidates dependent current evidence while preserving immutable
 revisions. Only current authenticated schema evidence can authorize a plan; an
 unverified local manual draft cannot.
+
+The current policy fixes Odoo 19 JSON-2, same-target protected-ID update-only
+semantics, and connection-only instance assurance. It explicitly marks native
+production writes unsupported: JSON-2 cannot prove restore/clone identity or
+perform the required atomic compare-and-write operation. Captured IDs and
+business values are restricted evidence and require application-level
+encryption before persistence; live row capture is therefore still absent.
 
 ## Confirmation and dataset freeze
 

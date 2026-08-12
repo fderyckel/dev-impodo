@@ -1020,7 +1020,7 @@ def _catalog(
         ),
     )
     return SourceFileCatalog(
-        contract_version=1,
+        contract_version=2,
         file_id=source.file_id,
         display_name=source.display_name,
         source_sha256=source.sha256,

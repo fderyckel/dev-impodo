@@ -33,7 +33,11 @@ from ..context import WebContext
 from ..forms import _form_values, _revision, _secure_form, _text
 from ..presenters.common import _flash, _project_error, _render
 from ..presenters.mapping_forms import _draft_or_redirect
-from ..target_credentials import delete_target_credentials
+from ..target_credentials import (
+    TargetCredentialRemovalReason,
+    audit_removed_target_credentials,
+    delete_target_credentials,
+)
 
 
 def build_projects_router(context: WebContext) -> APIRouter:
@@ -75,7 +79,17 @@ def build_projects_router(context: WebContext) -> APIRouter:
             )
             context.local_stack.forget_project(project.project_id)
             context.remote_connections.clear(project.project_id)
-            delete_target_credentials(context.secret_store, project)
+            removal_receipts = delete_target_credentials(
+                context.secret_store,
+                project,
+                reason=TargetCredentialRemovalReason.PROJECT_DELETED,
+            )
+            audit_removed_target_credentials(
+                context.projects,
+                project,
+                removal_receipts,
+                actor=context.actor,
+            )
             deleted = await run_in_threadpool(
                 context.projects.delete_project,
                 project.project_id,

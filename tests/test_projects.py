@@ -189,6 +189,58 @@ class ProjectLifecycleTests(unittest.TestCase):
         )
         self.assertNotIn("secret", str(event).casefold())
 
+    def test_credential_removal_receipt_survives_project_deletion(self) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Removal receipt",
+            source_system="Odoo",
+        )
+        removed_at = datetime.now(timezone.utc)
+        receipt_hash = "sha256:" + "a" * 64
+        connection_hash = "sha256:" + "b" * 64
+        binding_hash = "sha256:" + "c" * 64
+
+        self.service.record_credential_removal_receipt(
+            receipt_hash=receipt_hash,
+            project_id=project.project_id,
+            role="READ",
+            reason="PROJECT_DELETED",
+            connection_target_hash=connection_hash,
+            credential_binding_hash=binding_hash,
+            storage_class="OPERATING_SYSTEM_VAULT",
+            removed_at=removed_at,
+            actor=LOCAL_ACTOR,
+        )
+        self.service.delete_project(
+            project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=project.revision,
+        )
+
+        with self.repository._connect(self.repository.registry_path) as connection:
+            receipt = connection.execute(
+                """
+                SELECT project_id, credential_role, removal_reason,
+                       connection_target_hash, credential_binding_hash,
+                       storage_class, actor_subject
+                  FROM credential_removal_receipt
+                 WHERE receipt_hash = ?
+                """,
+                [receipt_hash],
+            ).fetchone()
+        self.assertEqual(
+            receipt,
+            (
+                project.project_id,
+                "READ",
+                "PROJECT_DELETED",
+                connection_hash,
+                binding_hash,
+                "OPERATING_SYSTEM_VAULT",
+                LOCAL_ACTOR.identity.subject_id,
+            ),
+        )
+
     def test_registration_fails_closed_until_every_requirement_exists(self) -> None:
         project = self.service.create_project(
             actor=LOCAL_ACTOR,

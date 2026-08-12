@@ -340,13 +340,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 error=str(error),
                 status_code=422,
             )
-        project, revision, physical_selection, effective_selection, plan = evidence
-        identity = _transformation_impact_identity(
-            revision,
-            physical_selection,
-            effective_selection,
-            plan,
-        )
+        project, revision, _physical_selection, effective_selection, _plan = evidence
 
         try:
             await run_in_threadpool(
@@ -620,7 +614,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     message = "Matches checked and ready to confirm."
                 _flash(request, message)
             else:
-                submission = await run_in_threadpool(
+                await run_in_threadpool(
                     context.mapping_workspace.submit_current,
                     project_id,
                     datasets=datasets,

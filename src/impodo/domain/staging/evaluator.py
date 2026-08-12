@@ -78,6 +78,7 @@ from .fields import synthetic_field
 from .scale import require_supported_browser_scale
 from .transformation_impact import (
     TransformationImpactReport,
+    TransformationImpactRow,
     _TransformationImpactCollector,
     _display_value,
     _display_values_equal,

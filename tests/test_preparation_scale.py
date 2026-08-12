@@ -1822,8 +1822,8 @@ class BoundedPreparationParityTests(unittest.TestCase):
             create=True,
             return_value={},
         ):
-            legacy_impacts = []
-            legacy = preparation_module.stage_browser_mapping(
+            materialized_impacts = []
+            materialized = preparation_module.stage_browser_mapping(
                 project,
                 revision.definition,
                 physical,
@@ -1833,7 +1833,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 self.artifacts,
                 collect_transformation_impact=True,
                 transformation_detail_limit=0,
-                transformation_impact_sink=legacy_impacts.append,
+                transformation_impact_sink=materialized_impacts.append,
             )
 
         from impodo.adapters.duckdb import (
@@ -1972,7 +1972,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertGreater(len(impact_batches), 1)
         self.assertEqual(
             sum(impact_batches),
-            len(legacy_impacts),
+            len(materialized_impacts),
         )
 
         summary = self.context.preparation.staging.get_current_staging_summary(
@@ -1986,8 +1986,8 @@ class BoundedPreparationParityTests(unittest.TestCase):
         )
         self.assertIsNotNone(stored)
         assert stored is not None
-        self.assertEqual(summary.content_hash, legacy.canonical_run.content_hash)
-        self.assertEqual(stored.to_json(), legacy.canonical_run.to_json())
+        self.assertEqual(summary.content_hash, materialized.canonical_run.content_hash)
+        self.assertEqual(stored.to_json(), materialized.canonical_run.to_json())
         ruleset = self.context.preparation.quality.current_ruleset(project_id)
         quality_summary = self.context.preparation.quality.current_summary(project_id)
         self.assertIsNotNone(ruleset)
@@ -1996,8 +1996,8 @@ class BoundedPreparationParityTests(unittest.TestCase):
         assert quality_summary is not None
         expected_quality = evaluate_quality(
             project=project,
-            staging=legacy.canonical_run,
-            physical_rows=dict(legacy.physical_rows),
+            staging=materialized.canonical_run,
+            physical_rows=dict(materialized.physical_rows),
             ruleset=ruleset,
             published_staging_content_hash=summary.content_hash,
         )
@@ -2050,7 +2050,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         }
         expected_normalization = evaluate_normalization(
             project=project,
-            staging=legacy.canonical_run,
+            staging=materialized.canonical_run,
             quality=expected_quality,
             mappings=mappings,
             candidates=(
@@ -2065,7 +2065,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
                     outcome=item.outcome,
                     message=item.message,
                 )
-                for item in legacy_impacts
+                for item in materialized_impacts
             ),
             published_staging_content_hash=summary.content_hash,
             published_quality_content_hash=quality_summary.content_hash,
@@ -2793,7 +2793,7 @@ def _catalog(
         for index, name in enumerate(headers)
     )
     return SourceFileCatalog(
-        contract_version=1,
+        contract_version=2,
         file_id=source.file_id,
         display_name=source.display_name,
         source_sha256=source.sha256,

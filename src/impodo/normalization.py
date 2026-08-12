@@ -38,7 +38,6 @@ from .staging_contracts import CanonicalStagingRun
 
 NORMALIZATION_CONTRACT_VERSION = 2
 NORMALIZATION_EVALUATOR_VERSION = 2
-_SUPPORTED_NORMALIZATION_VERSIONS = {(1, 1), (2, 2)}
 NORMALIZATION_POLICY_VERSION = 1
 NORMALIZATION_EXAMPLE_LIMIT = 5
 
@@ -301,17 +300,17 @@ class NormalizationEvaluation:
     contract_version: int = NORMALIZATION_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if (self.contract_version, self.evaluator_version) not in _SUPPORTED_NORMALIZATION_VERSIONS:
+        if (
+            self.contract_version != NORMALIZATION_CONTRACT_VERSION
+            or self.evaluator_version != NORMALIZATION_EVALUATOR_VERSION
+        ):
             raise ValueError("Normalization evidence version is unsupported")
-        if self.contract_version >= 2:
-            if self.effective_dataset_hash is None:
-                raise ValueError("Current normalization evidence requires resolved data")
-            _require_hash(
-                self.effective_dataset_hash,
-                "normalization effective-dataset hash",
-            )
-        elif self.effective_dataset_hash is not None:
-            raise ValueError("Legacy normalization evidence cannot bind resolved data")
+        if self.effective_dataset_hash is None:
+            raise ValueError("Current normalization evidence requires resolved data")
+        _require_hash(
+            self.effective_dataset_hash,
+            "normalization effective-dataset hash",
+        )
         if not self.project_id:
             raise ValueError("Normalization evidence requires a project")
         for value, label in (
@@ -381,8 +380,7 @@ class NormalizationEvaluation:
             "effects": [item.to_portable_dict() for item in self.effects],
             "groups": [item.to_portable_dict() for item in self.groups],
         }
-        if self.contract_version >= 2:
-            payload["effective_dataset_hash"] = self.effective_dataset_hash
+        payload["effective_dataset_hash"] = self.effective_dataset_hash
         if include_hash:
             payload["content_hash"] = self.content_hash
         return payload
@@ -397,7 +395,7 @@ class NormalizationEvaluation:
         """Load an evaluation and verify its persisted content hash."""
 
         evaluation = cls(
-            contract_version=int(payload.get("contract_version", 0)),
+            contract_version=int(payload["contract_version"]),
             evaluator_version=int(payload.get("evaluator_version", 0)),
             project_id=str(payload["project_id"]),
             staging_content_hash=str(payload["staging_content_hash"]),
@@ -453,7 +451,10 @@ class StoredNormalizationEvaluation:
     contract_version: int = NORMALIZATION_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if (self.contract_version, self.evaluator_version) not in _SUPPORTED_NORMALIZATION_VERSIONS:
+        if (
+            self.contract_version != NORMALIZATION_CONTRACT_VERSION
+            or self.evaluator_version != NORMALIZATION_EVALUATOR_VERSION
+        ):
             raise ValueError("Normalization evidence version is unsupported")
         if not self.project_id or self.effect_count < 0 or self.changed_record_count < 0:
             raise ValueError("Stored normalization evidence is incomplete")

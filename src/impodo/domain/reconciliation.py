@@ -163,7 +163,7 @@ class ReconciliationRun:
     @classmethod
     def from_json(cls, value: str) -> "ReconciliationRun":
         payload = json.loads(value)
-        if int(payload.get("contract_version", 0)) != RECONCILIATION_CONTRACT_VERSION:
+        if int(payload["contract_version"]) != RECONCILIATION_CONTRACT_VERSION:
             raise ValueError("Reconciliation contract version is unsupported")
         run = cls(
             reconciliation_id=str(payload["reconciliation_id"]),

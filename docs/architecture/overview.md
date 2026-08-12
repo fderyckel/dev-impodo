@@ -100,7 +100,8 @@ Important evidence is immutable or versioned:
 - confirmed source selections and target schema captures are hash-bound;
 - mapping revisions and submissions are immutable;
 - audit events retain stable actor identities;
-- target-derived evidence is bound to a neutral target fingerprint;
+- target-derived evidence names its connection-target, schema-scope,
+  principal/context, and policy hashes explicitly;
 - portable outputs use business keys rather than numeric Odoo IDs.
 
 Numeric Odoo IDs are permitted only inside target-specific snapshots and

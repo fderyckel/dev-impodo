@@ -31,10 +31,6 @@ from .source import PreparedBundle
 
 STAGING_CONTRACT_VERSION = 5
 BROWSER_EVALUATOR_VERSION = 4
-_SUPPORTED_STAGING_CONTRACT_VERSIONS = frozenset({2, 3, 4, STAGING_CONTRACT_VERSION})
-_SUPPORTED_BROWSER_EVALUATOR_VERSIONS = frozenset(
-    {1, 2, 3, BROWSER_EVALUATOR_VERSION}
-)
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -272,10 +268,8 @@ class CanonicalLineage:
         if self.physical_dataset_id not in sources:
             raise ValueError("Canonical primary source is absent from physical lineage")
         if tuple(sources[self.physical_dataset_id]) != self.physical_source_rows:
-            # The primary fields remain the compatibility surface for callers
-            # using dataclasses.replace on legacy, single-source lineage.
-            # Keep the redundant map synchronized instead of retaining stale
-            # coordinates from the replaced value.
+            # Keep the primary coordinate and complete lineage map synchronized
+            # when callers replace one side of the redundant current invariant.
             sources[self.physical_dataset_id] = self.physical_source_rows
         normalized: dict[str, tuple[int, ...]] = {}
         for dataset_id, source_rows in sorted(sources.items()):
@@ -668,24 +662,13 @@ class CanonicalStagingRun:
             _require_hash(value, label)
         if self.derived_plan_hash is not None:
             _require_hash(self.derived_plan_hash, "derived_plan_hash")
-        if self.contract_version >= 4:
-            if self.compiled_plan_hash is None:
-                raise ValueError("Current staging evidence requires a compiled plan")
-            _require_hash(self.compiled_plan_hash, "compiled_plan_hash")
-        if self.contract_version not in _SUPPORTED_STAGING_CONTRACT_VERSIONS:
+        if self.compiled_plan_hash is None:
+            raise ValueError("Current staging evidence requires a compiled plan")
+        _require_hash(self.compiled_plan_hash, "compiled_plan_hash")
+        if self.contract_version != STAGING_CONTRACT_VERSION:
             raise ValueError("Staging contract version is unsupported")
-        if self.evaluator_version not in _SUPPORTED_BROWSER_EVALUATOR_VERSIONS:
+        if self.evaluator_version != BROWSER_EVALUATOR_VERSION:
             raise ValueError("Browser evaluator version is unsupported")
-        if (self.contract_version, self.evaluator_version) not in {
-            (2, 1),
-            (3, 2),
-            (4, 2),
-            (5, 3),
-            (5, 4),
-        }:
-            raise ValueError("Staging and evaluator versions are incompatible")
-        if self.contract_version < 3 and self.control_totals:
-            raise ValueError("Legacy staging evidence cannot contain control totals")
         if not self.project_id or not self.mapping_id:
             raise ValueError("Staging run must identify its project and mapping")
         expected_order = tuple(sorted(self.rows, key=_row_order))
@@ -768,12 +751,10 @@ class CanonicalStagingRun:
             "issues": [item.to_portable_dict() for item in self.issues],
             "reconciliation": self.reconciliation.to_portable_dict(),
         }
-        if self.contract_version >= 3:
-            payload["control_totals"] = [
-                item.to_portable_dict() for item in self.control_totals
-            ]
-        if self.contract_version >= 4:
-            payload["compiled_plan_hash"] = self.compiled_plan_hash
+        payload["control_totals"] = [
+            item.to_portable_dict() for item in self.control_totals
+        ]
+        payload["compiled_plan_hash"] = self.compiled_plan_hash
         if include_hash:
             payload["content_hash"] = self.content_hash
         return payload
@@ -787,9 +768,28 @@ class CanonicalStagingRun:
     def from_dict(cls, payload: Mapping[str, Any]) -> "CanonicalStagingRun":
         """Load a run and enforce versions, reconciliation, and content hash."""
 
+        if set(payload) != {
+            "contract_version",
+            "evaluator_version",
+            "project_id",
+            "mapping_id",
+            "physical_selection_hash",
+            "source_selection_hash",
+            "mapping_hash",
+            "schema_hash",
+            "derived_plan_hash",
+            "compiled_plan_hash",
+            "datasets",
+            "rows",
+            "issues",
+            "reconciliation",
+            "control_totals",
+            "content_hash",
+        }:
+            raise ValueError("Staging fields do not match the current contract")
         run = cls(
-            contract_version=int(payload.get("contract_version", 0)),
-            evaluator_version=int(payload.get("evaluator_version", 0)),
+            contract_version=int(payload["contract_version"]),
+            evaluator_version=int(payload["evaluator_version"]),
             project_id=str(payload["project_id"]),
             mapping_id=str(payload["mapping_id"]),
             physical_selection_hash=str(payload["physical_selection_hash"]),
@@ -803,14 +803,14 @@ class CanonicalStagingRun:
             ),
             datasets=tuple(
                 StagingDatasetReconciliation.from_dict(item)
-                for item in payload.get("datasets", ())
+                for item in payload["datasets"]
             ),
             rows=tuple(
                 CanonicalRow.from_dict(item)
-                for item in payload.get("rows", ())
+                for item in payload["rows"]
             ),
             issues=tuple(
-                CanonicalIssue.from_dict(item) for item in payload.get("issues", ())
+                CanonicalIssue.from_dict(item) for item in payload["issues"]
             ),
             reconciliation=StagingReconciliation.from_dict(
                 dict(payload["reconciliation"])
@@ -822,10 +822,10 @@ class CanonicalStagingRun:
             ),
             control_totals=tuple(
                 CanonicalControlTotal.from_dict(item)
-                for item in payload.get("control_totals", ())
+                for item in payload["control_totals"]
             ),
         )
-        if payload.get("content_hash") != run.content_hash:
+        if payload["content_hash"] != run.content_hash:
             raise ValueError("Canonical staging content hash is invalid")
         return run
 

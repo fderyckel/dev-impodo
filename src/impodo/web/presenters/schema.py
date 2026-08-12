@@ -264,7 +264,7 @@ def _render_derived_entities(
         project.source_system.casefold(),
     ).strip("_")[:40]
     if not namespace or not namespace[0].isalpha():
-        namespace = "legacy"
+        namespace = "imported_data"
     return _render(
         request,
         "project_derived_entities.html",

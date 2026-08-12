@@ -13,6 +13,12 @@ from impodo.domain.odoo_capture import (
     odoo_column_stable_key,
     odoo_dataset_id,
 )
+from impodo.domain.odoo_source_policy import (
+    CURRENT_ODOO_SOURCE_POLICY,
+    ProductionWriteDisposition,
+    ProtectedEvidenceEncryption,
+    TargetInstanceAssurance,
+)
 from impodo.domain.source_binding import FileSourceBinding, SourceOriginKind
 from impodo.workspace_contracts import (
     SourceDataset,
@@ -81,6 +87,11 @@ class OdooCaptureContractTests(unittest.TestCase):
         self.assertEqual(binding.origin, SourceOriginKind.ODOO)
         self.assertEqual(binding.capture_selection_hash, selection.content_hash)
         self.assertEqual(
+            selection.policy_hash,
+            CURRENT_ODOO_SOURCE_POLICY.content_hash,
+        )
+        self.assertEqual(binding.policy_hash, selection.policy_hash)
+        self.assertEqual(
             selection.dataset_id,
             odoo_dataset_id(selection.project_id, selection.model),
         )
@@ -109,6 +120,27 @@ class OdooCaptureContractTests(unittest.TestCase):
         payload["retired_field"] = "ignored-by-old-builds"
         with self.assertRaisesRegex(OdooCaptureContractError, "current contract"):
             OdooCaptureSelection.from_json(json.dumps(payload))
+        with self.assertRaisesRegex(OdooCaptureContractError, "current source policy"):
+            replace(selection, policy_hash="sha256:" + "9" * 64)
+
+    def test_current_policy_fails_closed_for_production_writes(self) -> None:
+        policy = CURRENT_ODOO_SOURCE_POLICY
+
+        self.assertEqual(policy.odoo_major_version, 19)
+        self.assertEqual(policy.api, "JSON-2")
+        self.assertEqual(
+            policy.target_instance_assurance,
+            TargetInstanceAssurance.CONNECTION_ONLY,
+        )
+        self.assertEqual(
+            policy.production_write_disposition,
+            ProductionWriteDisposition.PRODUCTION_WRITE_UNSUPPORTED,
+        )
+        self.assertEqual(
+            policy.protected_evidence_encryption,
+            ProtectedEvidenceEncryption.APPLICATION_LEVEL_REQUIRED,
+        )
+        self.assertGreater(policy.max_project_history_bytes, policy.max_snapshot_bytes)
 
     @staticmethod
     def _selection() -> OdooCaptureSelection:

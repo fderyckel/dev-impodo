@@ -11,7 +11,6 @@ import unittest
 from impodo.domain.source_snapshot import (
     EncodedSourceCell,
     SOURCE_ROW_COLUMN,
-    SOURCE_SNAPSHOT_CONTRACT_VERSION,
     SourceCellKind,
     SourceSnapshot,
     SourceSnapshotColumn,

@@ -15,6 +15,7 @@ from impodo.secrets import (
 )
 from impodo.web.target_credentials import (
     TargetCredentialRole,
+    TargetCredentialRemovalReason,
     delete_target_credentials,
     get_target_credential,
     local_read_credential_binding_hash,
@@ -167,9 +168,27 @@ class TargetCredentialTests(unittest.TestCase):
                 secret,
                 persistent=False,
             )
-        delete_target_credentials(self.store, self.project)
+        receipts = delete_target_credentials(
+            self.store,
+            self.project,
+            reason=TargetCredentialRemovalReason.PROJECT_DELETED,
+        )
 
         self.assertEqual(self.store.values, {})
+        self.assertEqual(
+            {receipt.role for receipt in receipts},
+            {TargetCredentialRole.READ, TargetCredentialRole.WRITE},
+        )
+        self.assertTrue(
+            all(receipt.credential_binding_hash for receipt in receipts)
+        )
+        self.assertTrue(
+            all(
+                receipt.reason
+                is TargetCredentialRemovalReason.PROJECT_DELETED
+                for receipt in receipts
+            )
+        )
 
     def test_local_no_key_binding_is_stable_and_target_bound(self) -> None:
         local = replace(

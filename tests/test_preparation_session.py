@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -14,11 +16,19 @@ from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
 )
 from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.application.bounded_quality import (
+    build_bounded_quality_run,
+    materialize_staging_run,
+)
 from impodo.domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
     PreparationSessionBindings,
     PreparationSessionStatus,
     PreparedSessionRow,
+)
+from impodo.domain.staging.canonical_projection import (
+    canonical_quality_identity_key,
+    canonical_quality_record_label,
 )
 from impodo.domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.staging.transformation_impact import (
@@ -27,6 +37,13 @@ from impodo.domain.staging.transformation_impact import (
 )
 from impodo.models import LogicalReference, PreparedRecord, canonical_json_bytes
 from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
+from impodo.quality import (
+    QualityOutcomePolicy,
+    QualityRuleFamily,
+    QualityRun,
+    default_quality_ruleset,
+    evaluate_quality,
+)
 from impodo.staging_contracts import (
     BROWSER_EVALUATOR_VERSION,
     STAGING_CONTRACT_VERSION,
@@ -617,6 +634,400 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             ),
             second,
         )
+
+    def test_relationship_edges_resolve_set_wise_and_preserve_explicit_states(
+        self,
+    ) -> None:
+        bindings = replace(
+            self.bindings,
+            source_hashes={"bom": SOURCE_HASH, "products": SOURCE_HASH},
+        )
+        session = self.repository.begin_direct_session(
+            self.project.project_id,
+            bindings,
+            actor=LOCAL_ACTOR,
+        )
+
+        def direct_row(
+            *,
+            ordinal: int,
+            dataset: str,
+            source_row: int,
+            identity: str,
+            reference: str | None = None,
+        ) -> CanonicalPreparedSessionRow:
+            logical = (
+                LogicalReference(
+                    origin="incoming",
+                    key=(reference,),
+                    dataset="products",
+                )
+                if reference is not None
+                else None
+            )
+            record = PreparedRecord(
+                dataset=dataset,
+                source_row=source_row,
+                target_model=(
+                    "mrp.bom.line" if dataset == "bom" else "product.product"
+                ),
+                source_identity=(identity,),
+                target_identity=(identity,),
+                target_scope=(),
+                scalar_values={"name": identity},
+                references=(
+                    {"product_id": logical} if logical is not None else {}
+                ),
+            )
+            canonical = canonical_row_from_prepared(
+                record,
+                mode="upsert",
+                source_hash=SOURCE_HASH,
+                source_selection_hash=SELECTION_HASH,
+                mapping_hash=MAPPING_HASH,
+                schema_hash=SCHEMA_HASH,
+                derived_plan_hash=None,
+                field_sources={"name": ("column:name",)},
+                physical_dataset_id=f"dataset:{dataset}",
+                physical_source_rows=(source_row,),
+            )
+            return CanonicalPreparedSessionRow(
+                row_id=canonical.row_id,
+                ordinal=ordinal,
+                dataset=canonical.dataset,
+                source_row=canonical.source_row,
+                target_model=canonical.target_model,
+                disposition=canonical.disposition,
+                source_identity=canonical.source_identity,
+                row_json=canonical_json_bytes(
+                    canonical.to_portable_dict()
+                ).decode("utf-8"),
+                references=record.references,
+                physical_sources={f"dataset:{dataset}": (source_row,)},
+                record_label=canonical_quality_record_label(
+                    canonical.source_identity,
+                    canonical.target_identity,
+                    canonical.source_row,
+                ),
+                quality_identity_key=canonical_quality_identity_key(
+                    dataset=canonical.dataset,
+                    target_model=canonical.target_model,
+                    target_identity=canonical.target_identity,
+                    target_scope=canonical.target_scope,
+                ),
+            )
+
+        rows = (
+            direct_row(
+                ordinal=0,
+                dataset="bom",
+                source_row=2,
+                identity="BOM-1",
+                reference="P1",
+            ),
+            direct_row(
+                ordinal=1,
+                dataset="bom",
+                source_row=3,
+                identity="BOM-2",
+                reference="MISSING",
+            ),
+            direct_row(
+                ordinal=2,
+                dataset="bom",
+                source_row=4,
+                identity="BOM-3",
+                reference="P2",
+            ),
+            direct_row(
+                ordinal=3,
+                dataset="bom",
+                source_row=5,
+                identity="BOM-4",
+                reference="P2",
+            ),
+            direct_row(
+                ordinal=4,
+                dataset="products",
+                source_row=2,
+                identity="P1",
+            ),
+            direct_row(
+                ordinal=5,
+                dataset="products",
+                source_row=3,
+                identity="P2",
+            ),
+            direct_row(
+                ordinal=6,
+                dataset="products",
+                source_row=4,
+                identity="P2",
+            ),
+            direct_row(
+                ordinal=7,
+                dataset="products",
+                source_row=5,
+                identity="P3",
+                reference="P2",
+            ),
+            direct_row(
+                ordinal=8,
+                dataset="products",
+                source_row=6,
+                identity="P4",
+                reference="P3",
+            ),
+            direct_row(
+                ordinal=9,
+                dataset="products",
+                source_row=7,
+                identity="P5",
+                reference="P4",
+            ),
+            direct_row(
+                ordinal=10,
+                dataset="products",
+                source_row=8,
+                identity="C1",
+                reference="C2",
+            ),
+            direct_row(
+                ordinal=11,
+                dataset="products",
+                source_row=9,
+                identity="C2",
+                reference="C1",
+            ),
+        )
+        self.repository.append_direct_rows(
+            self.project.project_id,
+            session.session_id,
+            rows,
+        )
+        stored = self.repository.finalize_direct_session(
+            self.project.project_id,
+            session.session_id,
+            dataset_evidence={
+                "bom": (
+                    "dataset:bom",
+                    StagingDatasetRole.CHILD,
+                    4,
+                    "mrp.bom.line",
+                ),
+                "products": (
+                    "dataset:products",
+                    StagingDatasetRole.PARENT,
+                    8,
+                    "product.product",
+                ),
+            },
+            run_issues=(),
+            control_totals=(),
+            impact_report=TransformationImpactReport(
+                mapping_content_hash=MAPPING_HASH,
+                evaluated_count=0,
+                changed_count=0,
+                fallback_count=0,
+                null_count=0,
+                invalid_count=0,
+                provided_count=0,
+                unchanged_count=0,
+                rows=(),
+                detail_limit=0,
+            ),
+        )
+
+        database_path = (
+            Path(self.temporary.name)
+            / self.project.project_id
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            states = connection.execute(
+                """
+                SELECT normalized_key_json, match_state, resolution_state,
+                       match_count, resolved_parent_row_id IS NOT NULL
+                  FROM preparation_relationship_edge
+                 WHERE session_id = ?
+                 ORDER BY child_ordinal
+                """,
+                [session.session_id],
+            ).fetchall()
+        self.assertEqual(
+            states,
+            [
+                ('["P1"]', "UNIQUE", "RESOLVED", 1, True),
+                ('["MISSING"]', "MISSING", "MISSING", 0, False),
+                ('["P2"]', "DUPLICATE", "AMBIGUOUS", 2, False),
+                ('["P2"]', "DUPLICATE", "AMBIGUOUS", 2, False),
+                ('["P2"]', "DUPLICATE", "AMBIGUOUS", 2, False),
+                ('["P3"]', "UNIQUE", "RESOLVED", 1, True),
+                ('["P4"]', "UNIQUE", "RESOLVED", 1, True),
+                ('["C2"]', "UNIQUE", "RESOLVED", 1, True),
+                ('["C1"]', "UNIQUE", "RESOLVED", 1, True),
+            ],
+        )
+
+        duplicate_parent_ids = tuple(
+            row.row_id
+            for row in stored.rows
+            if row.dataset == "products"
+            and row.source_identity == ("P2",)
+        )
+        execute_count = 0
+        original_connect = self.repository._connect
+
+        class CountingConnection:
+            def __init__(self, connection):
+                self.connection = connection
+
+            def execute(self, *args, **kwargs):
+                nonlocal execute_count
+                execute_count += 1
+                return self.connection.execute(*args, **kwargs)
+
+            def __getattr__(self, name):
+                return getattr(self.connection, name)
+
+        @contextmanager
+        def counting_connect(path):
+            with original_connect(path) as connection:
+                yield CountingConnection(connection)
+
+        with (
+            patch.object(self.repository, "_connect", counting_connect),
+            patch.object(
+                self.repository,
+                "_ensure_project_database_schema",
+                return_value=None,
+            ),
+        ):
+            findings = stored.rows.bounded_relationship_findings(
+                duplicate_parent_ids,
+                ("bom", "products"),
+            )
+        self.assertEqual(execute_count, 9)
+        self.assertEqual(
+            tuple((str(item[2]), int(item[3]), str(item[7])) for item in findings),
+            (
+                ("bom", 3, "MISSING"),
+                ("bom", 4, "AMBIGUOUS"),
+                ("bom", 5, "AMBIGUOUS"),
+                ("products", 5, "AMBIGUOUS"),
+                ("products", 6, "UNSAFE_PARENT"),
+                ("products", 7, "UNSAFE_PARENT"),
+            ),
+        )
+
+        materialized = materialize_staging_run(stored)
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("bom", "products"),
+        )
+        physical_rows = {
+            "dataset:bom": (2, 3, 4, 5),
+            "dataset:products": (2, 3, 4, 5, 6, 7, 8, 9),
+        }
+        expected = evaluate_quality(
+            project=self.project,
+            staging=materialized,
+            physical_rows=physical_rows,
+            ruleset=ruleset,
+            published_staging_content_hash=stored.validated_content_hash,
+        )
+        with patch.object(
+            self.repository,
+            "_bounded_relationship_findings",
+            wraps=self.repository._bounded_relationship_findings,
+        ) as relationship_pass:
+            bounded = build_bounded_quality_run(
+                project=self.project,
+                staging=stored,
+                physical_rows=physical_rows,
+                ruleset=ruleset,
+                published_staging_content_hash=(
+                    stored.validated_content_hash or ""
+                ),
+            )
+        self.assertEqual(relationship_pass.call_count, 1)
+        observed = QualityRun(
+            project_id=bounded.project_id,
+            staging_content_hash=bounded.staging_content_hash,
+            ruleset_hash=bounded.ruleset_hash,
+            mapping_hash=bounded.mapping_hash,
+            schema_hash=bounded.schema_hash,
+            retention_context_hash=bounded.retention_context_hash,
+            row_results=tuple(bounded.row_results),
+            source_accounting=tuple(bounded.source_accounting),
+            issues=tuple(bounded.issues),
+            quarantine=tuple(bounded.quarantine),
+            effective_dataset_hash=bounded.effective_dataset_hash,
+            evaluator_version=bounded.evaluator_version,
+            contract_version=bounded.contract_version,
+        )
+        self.assertEqual(observed.row_results, expected.row_results)
+        self.assertEqual(observed.source_accounting, expected.source_accounting)
+        self.assertEqual(observed.issues, expected.issues)
+        self.assertEqual(observed.quarantine, expected.quarantine)
+        self.assertEqual(observed.to_json(), expected.to_json())
+
+        warning_ruleset = replace(
+            ruleset,
+            rules=tuple(
+                replace(rule, outcome=QualityOutcomePolicy.WARNING)
+                if rule.family is QualityRuleFamily.RELATIONSHIP_READINESS
+                else rule
+                for rule in ruleset.rules
+            ),
+        )
+        warning_expected = evaluate_quality(
+            project=self.project,
+            staging=materialized,
+            physical_rows=physical_rows,
+            ruleset=warning_ruleset,
+            published_staging_content_hash=stored.validated_content_hash,
+        )
+        warning_bounded = build_bounded_quality_run(
+            project=self.project,
+            staging=stored,
+            physical_rows=physical_rows,
+            ruleset=warning_ruleset,
+            published_staging_content_hash=stored.validated_content_hash or "",
+        )
+        warning_observed = replace(
+            observed,
+            ruleset_hash=warning_bounded.ruleset_hash,
+            row_results=tuple(warning_bounded.row_results),
+            source_accounting=tuple(warning_bounded.source_accounting),
+            issues=tuple(warning_bounded.issues),
+            quarantine=tuple(warning_bounded.quarantine),
+            effective_dataset_hash=warning_bounded.effective_dataset_hash,
+        )
+        self.assertEqual(
+            warning_observed.to_json(),
+            warning_expected.to_json(),
+        )
+
+        with self.repository._connect(database_path) as connection:
+            connection.execute(
+                "UPDATE canonical_staging_run SET status = 'PUBLISHED' "
+                "WHERE run_id = ?",
+                [session.session_id],
+            )
+        self.repository.mark_published(
+            self.project.project_id,
+            session.session_id,
+        )
+        with self.repository._connect(database_path) as connection:
+            retained_edges = connection.execute(
+                "SELECT COUNT(*) FROM preparation_relationship_edge "
+                "WHERE session_id = ?",
+                [session.session_id],
+            ).fetchone()
+        self.assertEqual(retained_edges, (9,))
 
 
 if __name__ == "__main__":

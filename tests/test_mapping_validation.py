@@ -54,6 +54,7 @@ from impodo.workspace_contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
+from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 
 
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
@@ -181,32 +182,17 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertNotIn("search_value", transform)
         self.assertEqual(len(transform["text_steps"]), 2)
         self.assertEqual(MappingDefinition.from_dict(payload), definition)
-        for legacy_version in (2, 7):
-            with self.subTest(legacy_version=legacy_version):
-                with self.assertRaisesRegex(
-                    ValueError,
-                    "versions below 8 cannot contain ordered text changes",
-                ):
-                    replace(
-                        definition,
-                        contract_version=legacy_version,
-                    ).to_dict()
+        for noncurrent_version in (2, 7):
+            with self.subTest(noncurrent_version=noncurrent_version):
+                with self.assertRaisesRegex(ValueError, "version is unsupported"):
+                    replace(definition, contract_version=noncurrent_version)
 
-        legacy_payload = definition.to_dict()
-        legacy_payload.pop("content_hash")
-        legacy_transform = legacy_payload["datasets"][0]["fields"][0][
-            "transform"
-        ]
-        legacy_transform.pop("text_steps")
-        legacy_transform["search_value"] = "ab"
-        legacy_transform["replacement_value"] = "x"
-        legacy_transform["search_mode"] = "literal"
-        legacy_transform["replace_all"] = True
-        with self.assertRaisesRegex(
-            ValueError,
-            "Legacy find-and-replace fields are no longer supported",
-        ):
-            MappingDefinition.from_dict(legacy_payload)
+        noncurrent_payload = definition.to_dict()
+        noncurrent_payload["datasets"][0]["fields"][0]["transform"][
+            "retired_field"
+        ] = "value"
+        with self.assertRaisesRegex(ValueError, "current contract"):
+            MappingDefinition.from_dict(noncurrent_payload)
 
     def test_ordered_cleanup_steps_have_distinct_review_evidence(self) -> None:
         field = ScalarFieldMapping(
@@ -1052,20 +1038,10 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             ["MAPPING_ODOO_DEFAULT_UNVERIFIED"],
         )
 
-    def test_version_two_mapping_hash_remains_readable(self) -> None:
+    def test_noncurrent_mapping_contract_is_rejected(self) -> None:
         current = _valid_definition(self.selection, self.governance)
-        version_two = replace(current, contract_version=2)
-
-        payload = version_two.to_dict()
-        serialized_field = payload["datasets"][0]["fields"][0]
-
-        self.assertNotIn("value_source", serialized_field)
-        self.assertNotIn("literal_value", serialized_field)
-        self.assertNotIn("transform", serialized_field)
-        self.assertEqual(
-            MappingDefinition.from_dict(payload),
-            version_two,
-        )
+        with self.assertRaisesRegex(ValueError, "version is unsupported"):
+            replace(current, contract_version=2)
 
 
 def _valid_definition(
@@ -1235,7 +1211,7 @@ def _field(
 def _schema_catalog() -> OdooSchemaCatalog:
     return OdooSchemaCatalog(
         project_id="project:test",
-        target_hash="sha256:target",
+        policy_hash=CURRENT_ODOO_SOURCE_POLICY.content_hash,
         captured_at=NOW,
         captured_by="Test operator",
         connection_mode="LOCAL",

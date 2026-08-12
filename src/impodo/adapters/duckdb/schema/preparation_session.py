@@ -195,6 +195,43 @@ def create_preparation_session_schema(
                 session_id, dataset, identity_hash
             );
 
+        CREATE TABLE IF NOT EXISTS preparation_relationship_edge (
+            session_id VARCHAR NOT NULL,
+            child_ordinal BIGINT NOT NULL,
+            child_row_id VARCHAR NOT NULL,
+            child_dataset VARCHAR NOT NULL,
+            child_source_row BIGINT NOT NULL,
+            target_field VARCHAR NOT NULL,
+            item_ordinal INTEGER NOT NULL,
+            parent_dataset VARCHAR NOT NULL,
+            normalized_key_json VARCHAR NOT NULL,
+            parent_identity_hash VARCHAR NOT NULL,
+            match_state VARCHAR NOT NULL CHECK (
+                match_state IN ('PENDING', 'MISSING', 'UNIQUE', 'DUPLICATE')
+            ),
+            resolution_state VARCHAR NOT NULL CHECK (
+                resolution_state IN (
+                    'PENDING', 'MISSING', 'AMBIGUOUS',
+                    'RESOLVED', 'UNSAFE_PARENT'
+                )
+            ),
+            match_count BIGINT NOT NULL CHECK (match_count >= 0),
+            resolved_parent_row_id VARCHAR,
+            PRIMARY KEY (
+                session_id, child_ordinal, target_field, item_ordinal
+            )
+        );
+
+        CREATE INDEX IF NOT EXISTS preparation_relationship_parent_lookup
+            ON preparation_relationship_edge (
+                session_id, parent_identity_hash, resolved_parent_row_id
+            );
+
+        CREATE INDEX IF NOT EXISTS preparation_relationship_child_lookup
+            ON preparation_relationship_edge (
+                session_id, child_row_id, resolution_state
+            );
+
         CREATE TABLE IF NOT EXISTS canonical_staging_row_issue (
             run_id VARCHAR NOT NULL,
             ordinal BIGINT NOT NULL,

@@ -928,6 +928,83 @@ def _build_indexed_quality_run(
         issue_map[issue.issue_id] = issue
         row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
 
+    relationship_finder = getattr(
+        staging.rows,
+        "bounded_relationship_findings",
+        None,
+    )
+    if callable(relationship_finder):
+        unsafe_dispositions = {
+            QualityDisposition.BLOCKED,
+            QualityDisposition.QUARANTINED,
+            QualityDisposition.EXCLUDED,
+        }
+        initially_unsafe = tuple(
+            sorted(
+                row_id
+                for row_id, (row, _physical_id, _physical_row)
+                in row_metadata.items()
+                if _effective_disposition(
+                    row,
+                    (
+                        issue_map[issue_id]
+                        for issue_id in row_issue_ids.get(row_id, ())
+                    ),
+                )
+                in unsafe_dispositions
+            )
+        )
+        propagating_datasets = tuple(
+            sorted(
+                dataset
+                for (dataset, family), rule in rules_by_family.items()
+                if family is QualityRuleFamily.RELATIONSHIP_READINESS
+                and rule.outcome is not QualityOutcomePolicy.WARNING
+            )
+        )
+        relationship_message = (
+            "The linked incoming record is missing, ambiguous or set aside. "
+            "This dependent record was also set aside."
+        )
+        for raw in relationship_finder(
+            initially_unsafe,
+            propagating_datasets,
+        ):
+            (
+                _ordinal,
+                row_id,
+                dataset,
+                source_row,
+                disposition,
+                physical_id,
+                physical_row,
+                _resolution_state,
+            ) = raw
+            row = register(
+                row_id,
+                dataset,
+                source_row,
+                disposition,
+                physical_id,
+                physical_row,
+            )
+            rule = rules_by_family.get(
+                (row.dataset, QualityRuleFamily.RELATIONSHIP_READINESS)
+            )
+            if rule is None:
+                continue
+            issue = _quality_issue(
+                project,
+                rule,
+                row,
+                "INCOMING_RELATIONSHIP_NOT_READY",
+                relationship_message,
+                (),
+                policy=rule.outcome,
+            )
+            issue_map[issue.issue_id] = issue
+            row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+
     summary_counts = {
         "ready_count": disposition_counts[StagingDisposition.CANDIDATE]
         + disposition_counts[StagingDisposition.REFERENCE],

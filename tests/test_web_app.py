@@ -92,6 +92,7 @@ from impodo.workspace_contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
+from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -3818,7 +3819,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         schema = context.schema_workspace.schemas.get_odoo_schema_catalog(project_id)
         self.assertNotEqual(
-            schema.target_hash,
+            schema.content_hash,
             target_identity_hash(
                 connection_mode="LOCAL",
                 base_url="http://127.0.0.1:8069",
@@ -4878,9 +4879,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         schema = OdooSchemaCatalog(
             project_id=registered.project_id,
-            # A schema bundle hash includes its selected model scope and is
-            # intentionally different from the live target fingerprint.
-            target_hash="sha256:" + "5" * 64,
+            policy_hash=CURRENT_ODOO_SOURCE_POLICY.content_hash,
             captured_at=now,
             captured_by=context.actor.identity.display_name,
             connection_mode=registered.odoo_connection_mode.value,

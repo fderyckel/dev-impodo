@@ -101,6 +101,7 @@ from impodo.workspace_contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
+from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 
 
 HASH_A = "sha256:" + "a" * 64
@@ -555,7 +556,7 @@ class ReferenceDataTests(unittest.TestCase):
         )
         catalog = OdooSchemaCatalog(
             project_id="project-1",
-            target_hash=HASH_A,
+            policy_hash=CURRENT_ODOO_SOURCE_POLICY.content_hash,
             captured_at=NOW,
             captured_by="Data Manager",
             connection_mode="LOCAL",

@@ -59,6 +59,7 @@ def canonical_prepared_session_row(
     target_identity: tuple[Any, ...],
     target_scope: tuple[Any, ...],
     scalar_values: Mapping[str, Any],
+    references: Mapping[str, Any],
     issues: tuple[Issue, ...],
     ordinal: int,
     mode: str,
@@ -133,7 +134,7 @@ def canonical_prepared_session_row(
             "target_identity": portable_value(target_identity),
             "target_scope": portable_value(target_scope),
             "proposed_values": portable_value(scalar_values),
-            "references": {},
+            "references": portable_value(references),
             "issues": canonical_issues,
             "lineage": lineage,
         }
@@ -147,6 +148,7 @@ def canonical_prepared_session_row(
         disposition=StagingDisposition(disposition),
         source_identity=source_identity,
         row_json=row_json,
+        references=references,
         physical_sources=physical_sources,
         record_label=canonical_quality_record_label(
             source_identity,

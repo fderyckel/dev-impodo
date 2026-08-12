@@ -158,6 +158,42 @@ class ProjectRepository(DuckDbRepository):
                 connection.rollback()
                 raise
 
+    def record_credential_removal_receipt(
+        self,
+        *,
+        receipt_hash: str,
+        project_id: str,
+        role: str,
+        reason: str,
+        connection_target_hash: str,
+        credential_binding_hash: str | None,
+        storage_class: str,
+        removed_at: datetime,
+        actor: Actor,
+    ) -> None:
+        """Retain a non-secret vault-removal receipt after project deletion."""
+
+        with self._connect(self.registry_path) as connection:
+            connection.execute(
+                """
+                INSERT INTO credential_removal_receipt
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    receipt_hash,
+                    project_id,
+                    role,
+                    reason,
+                    connection_target_hash,
+                    credential_binding_hash,
+                    storage_class,
+                    removed_at.isoformat(),
+                    actor.identity.issuer,
+                    actor.identity.subject_id,
+                    actor.identity.display_name,
+                ],
+            )
+
     def list(self) -> tuple[ProjectSummary, ...]:
         """List registry summaries without scanning contained project databases."""
 

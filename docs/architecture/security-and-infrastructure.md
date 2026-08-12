@@ -120,8 +120,11 @@ policy decision.
 - DuckDB external access and extension autoload are disabled, and connections
   have bounded memory and threads.
 
-Application-level project encryption is not implemented. Confidentiality at
-rest depends on full-disk encryption and operating-system access controls.
+Application-level project encryption is not implemented. Existing portable
+project evidence therefore depends on full-disk encryption and operating-
+system access controls. Odoo numeric IDs and captured business values are a
+separate restricted evidence class and must not be persisted until an
+application-encrypted protected repository is implemented.
 
 ### Secrets
 
@@ -148,6 +151,10 @@ rest depends on full-disk encryption and operating-system access controls.
 - Successful credential storage or replacement adds an actor-bound DuckDB
   audit event containing the random credential-generation binding and storage
   class. Secrets and raw Odoo identity values remain excluded.
+- Target change and project deletion remove both role-qualified vault entries.
+  Each entry that existed produces an actor-bound, non-secret registry receipt
+  containing its binding hash when recoverable, storage class, target hash, and
+  removal reason. The receipt survives project-directory deletion.
 - Credentials are excluded from project databases, mappings, reports, browser
   storage, and logs.
 - Authenticated redirects are refused; API keys and Odoo error bodies are
@@ -218,6 +225,11 @@ retry-safe merely because read-back could not find them.
 This is a disposable-target migration capability, not authorization for a
 production cutover, arbitrary Odoo business actions, or direct database
 writes.
+
+The current Odoo-source policy records native production writes as
+`PRODUCTION_WRITE_UNSUPPORTED`. JSON-2 proves the configured endpoint/database,
+not a restored or cloned database instance, and separate read/write requests
+cannot provide the required atomic compare-and-write transaction.
 
 ## Infrastructure dependency
 

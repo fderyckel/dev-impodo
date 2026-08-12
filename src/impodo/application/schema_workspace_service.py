@@ -27,6 +27,7 @@ from ..domain.schema.governance import (
     SchemaGovernance,
 )
 from ..models import OdooReadIdentity, target_identity_hash
+from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ..projects import (
     MigrationProject,
     OdooConnectionMode,
@@ -229,9 +230,10 @@ class SchemaWorkspaceService:
         ordered = tuple(
             sorted(models, key=lambda item: (item.label.casefold(), item.name))
         )
-        target_hash = _target_identity_hash(project)
+        connection_target_hash = _target_identity_hash(project)
         content = {
-            "target_hash": target_hash,
+            "connection_target_hash": connection_target_hash,
+            "policy_hash": CURRENT_ODOO_SOURCE_POLICY.content_hash,
             "read_credential_binding_hash": read_credential_binding_hash,
             **identity_hashes,
             "fingerprint": snapshot.fingerprint.portable_dict(),
@@ -239,7 +241,8 @@ class SchemaWorkspaceService:
         }
         catalog = OdooModelCatalog(
             project_id=project_id,
-            target_hash=target_hash,
+            connection_target_hash=connection_target_hash,
+            policy_hash=CURRENT_ODOO_SOURCE_POLICY.content_hash,
             captured_at=datetime.now(timezone.utc),
             captured_by=actor.identity.display_name,
             connection_mode=snapshot.fingerprint.connection_mode,
@@ -322,7 +325,8 @@ class SchemaWorkspaceService:
         discovered_labels = (
             {model.name: model.label for model in discovered.models}
             if discovered
-            and discovered.target_hash == _target_identity_hash(project)
+            and discovered.connection_target_hash == _target_identity_hash(project)
+            and discovered.policy_hash == CURRENT_ODOO_SOURCE_POLICY.content_hash
             else {}
         )
         missing_discovered = permitted - set(discovered_labels)
@@ -488,20 +492,9 @@ class SchemaWorkspaceService:
         identity_hashes: Mapping[str, str],
         actor: Actor,
     ) -> OdooSchemaCatalog:
-        target_hash = content_hash(
-            {
-                "mode": (
-                    project.odoo_connection_mode.value
-                    if project.odoo_connection_mode
-                    else None
-                ),
-                "url": project.odoo_base_url,
-                "database": project.odoo_database,
-                "models": sorted(model.name for model in models),
-            }
-        )
         content = {
-            "target_hash": target_hash,
+            "connection_target_hash": str(fingerprint["target_hash"]),
+            "policy_hash": CURRENT_ODOO_SOURCE_POLICY.content_hash,
             "read_credential_binding_hash": read_credential_binding_hash,
             **identity_hashes,
             "fingerprint": fingerprint,
@@ -510,7 +503,7 @@ class SchemaWorkspaceService:
         }
         catalog = OdooSchemaCatalog(
             project_id=project.project_id,
-            target_hash=target_hash,
+            policy_hash=CURRENT_ODOO_SOURCE_POLICY.content_hash,
             captured_at=datetime.now(timezone.utc),
             captured_by=actor.identity.display_name,
             connection_mode=connection_mode,

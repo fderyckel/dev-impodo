@@ -12,7 +12,12 @@
 
   <div class="notice warning">
     <strong>This page saves a capture plan only.</strong>
-    Saving it makes no Odoo request and freezes no records. The next implementation slice will execute the plan through the read-only Odoo connector.
+    Saving it makes no Odoo request and freezes no records. Live row capture is not available in the current build.
+  </div>
+
+  <div class="notice warning">
+    <strong>Production updates are disabled.</strong>
+    Native JSON-2 currently proves the configured connection, not a restored or cloned database instance, and does not provide Impodo's required atomic compare-and-write transaction.
   </div>
 
   {% if not schema %}
@@ -24,7 +29,7 @@
   {% elif schema.origin.value != 'LIVE_API' or not schema.connection_target_hash or not schema.read_principal_hash or not schema.read_permission_hash or not schema.read_context_hash %}
     <section class="form-card">
       <h2>Refresh authenticated Odoo details</h2>
-      <p>An unverified or legacy schema cannot authorize an Odoo source capture.</p>
+      <p>Only current verified schema evidence can authorize an Odoo source capture.</p>
       <a class="button primary" href="/projects/{{ project.project_id }}/schema">Refresh Odoo details</a>
     </section>
   {% else %}
@@ -114,6 +119,9 @@
         <p>Selection hash: <code>{{ current.content_hash }}</code></p>
         <p>Source-binding hash: <code>{{ current.source_binding.source_evidence_hash }}</code></p>
         <p>Consistency contract: <code>{{ current.consistency.value }}</code> with fixed pages of {{ current.page_size }}.</p>
+        <p>Source policy: <code>{{ current.policy_hash }}</code>.</p>
+        <p>Target identity assurance: <code>{{ capture_policy.target_instance_assurance.value }}</code>.</p>
+        <p>Production write disposition: <code>{{ capture_policy.production_write_disposition.value }}</code>.</p>
       </details>
     </section>
   {% endif %}

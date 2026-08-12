@@ -519,14 +519,12 @@ class StagingRepository(DuckDbRepository):
                 ) from error
 
             hasher = CanonicalJsonObjectHasher()
-            if contract_version >= 4:
-                hasher.add_value(
-                    "compiled_plan_hash",
-                    str(header[7]) if header[7] else None,
-                )
+            hasher.add_value(
+                "compiled_plan_hash",
+                str(header[7]) if header[7] else None,
+            )
             hasher.add_value("contract_version", contract_version)
-            if contract_version >= 3:
-                hasher.add_value("control_totals", control_totals_payload)
+            hasher.add_value("control_totals", control_totals_payload)
             hasher.add_value("datasets", datasets_payload)
             hasher.add_value(
                 "derived_plan_hash",

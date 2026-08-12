@@ -27,6 +27,9 @@ from impodo.domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
+    RelationshipMapping,
+    RelationshipResolver,
+    ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
     ValueMapping,
@@ -137,6 +140,61 @@ class PolarsTransformationParityTests(unittest.TestCase):
                 self.assertEqual(collector.report(), expected_report)
                 self.assertTrue(observed_batch_sizes)
                 self.assertLessEqual(max(observed_batch_sizes), chunk_size)
+
+    def test_incoming_relationship_keys_match_python_oracle_across_batches(
+        self,
+    ) -> None:
+        dataset_mapping = replace(
+            self.definition.datasets[0],
+            relationships=(
+                RelationshipMapping(
+                    target_field="parent_id",
+                    kind="many2one",
+                    source_column_keys=("product.category",),
+                    resolver=RelationshipResolver(
+                        origin=ResolverOrigin.DATASET,
+                        dataset_id=DATASET_ID,
+                    ),
+                ),
+            ),
+        )
+        definition = replace(
+            self.definition,
+            datasets=(dataset_mapping,),
+        )
+        expected_records, _expected_report = _python_oracle(
+            definition,
+            self.selection,
+            self.rows,
+        )
+        decision = compile_columnar_transformation_program(
+            definition,
+            self.selection,
+            DATASET_ID,
+        )
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        assert decision.program is not None
+        destination, prepared = _write_prepared_snapshot(
+            self.root,
+            self.path,
+            self.snapshot,
+            decision.program,
+        )
+
+        for chunk_size in (1, 3, POLARS_TRANSFORMATION_BATCH_ROWS):
+            with self.subTest(chunk_size=chunk_size):
+                records = tuple(
+                    record
+                    for batch in iter_polars_prepared_batches(
+                        destination,
+                        prepared,
+                        self.snapshot,
+                        decision.program,
+                        batch_size=chunk_size,
+                    )
+                    for record in batch.records
+                )
+                self.assertEqual(records, expected_records)
 
     def test_production_projection_skips_full_prepared_record_objects(self) -> None:
         expected_records, _expected_report = _python_oracle(

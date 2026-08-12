@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Mapping, Sequence
 
@@ -87,6 +87,7 @@ class CanonicalPreparedSessionRow:
     source_identity: tuple[Any, ...]
     row_json: str
     physical_sources: Mapping[str, tuple[int, ...]]
+    references: Mapping[str, Any] = field(default_factory=dict)
     record_label: str = ""
     quality_identity_key: str | None = None
     issues: tuple[CanonicalIssue, ...] = ()
@@ -166,7 +167,7 @@ class PreparedCanonicalProjection:
                 for field, sources in raw_field_sources.items()
             },
             program=program,
-            contract_version=int(payload.get("contract_version", 0)),
+            contract_version=int(payload["contract_version"]),
         )
 
 

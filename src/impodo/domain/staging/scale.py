@@ -11,8 +11,6 @@ from ..errors import ReadinessError
 MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT = 25_000
 BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT = 50_000
 COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT = 100_000
-# Backward-compatible name for callers using the materializing evaluator.
-BROWSER_EVALUATION_ROW_LIMIT = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,7 +18,7 @@ class BrowserEvaluationScale:
     """Plain-language supported-size decision for one preparation path."""
 
     physical_rows: int
-    supported_limit: int = BROWSER_EVALUATION_ROW_LIMIT
+    supported_limit: int = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
 
     @property
     def supported(self) -> bool:
@@ -32,7 +30,7 @@ class BrowserEvaluationScale:
 def browser_evaluation_scale(
     selection: SourceSelection,
     *,
-    supported_limit: int = BROWSER_EVALUATION_ROW_LIMIT,
+    supported_limit: int = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 ) -> BrowserEvaluationScale:
     """Count frozen physical rows once, before derived datasets expand them."""
 
@@ -47,7 +45,7 @@ def browser_evaluation_scale(
 def require_supported_browser_scale(
     selection: SourceSelection,
     *,
-    supported_limit: int = BROWSER_EVALUATION_ROW_LIMIT,
+    supported_limit: int = MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 ) -> None:
     """Stop Stage E before loading data when the project exceeds the limit."""
 

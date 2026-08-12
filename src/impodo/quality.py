@@ -26,9 +26,7 @@ from .staging_contracts import CanonicalIssue, CanonicalRow, CanonicalStagingRun
 
 QUALITY_CONTRACT_VERSION = 2
 QUALITY_EVALUATOR_VERSION = 2
-_SUPPORTED_QUALITY_VERSIONS = {(1, 1), (2, 2)}
 QUALITY_RULESET_CONTRACT_VERSION = 2
-_SUPPORTED_QUALITY_RULESET_VERSIONS = {1, 2}
 MAX_MANAGER_RULES_PER_DATASET = 3
 MANDATORY_QUALITY_FAMILIES = (
     "REQUIRED_VALUES",
@@ -244,7 +242,7 @@ class QualityRuleSet:
     contract_version: int = QUALITY_RULESET_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if self.contract_version not in _SUPPORTED_QUALITY_RULESET_VERSIONS:
+        if self.contract_version != QUALITY_RULESET_CONTRACT_VERSION:
             raise ValueError("Quality-rule contract version is unsupported")
         if not self.ruleset_id or not self.project_id or self.version < 1:
             raise ValueError("Quality-rule set identity is invalid")
@@ -275,7 +273,7 @@ class QualityRuleSet:
             item.source is QualityRuleSource.SCOPE_APPROVED for item in self.rules
         )
         if advanced:
-            if self.contract_version < 2 or self.coverage_scope_hash is None:
+            if self.coverage_scope_hash is None:
                 raise ValueError("Advanced quality checks require an approved scope")
             _require_hash(self.coverage_scope_hash, "quality coverage-scope hash")
         if any(
@@ -300,9 +298,8 @@ class QualityRuleSet:
             "schema_hash": self.schema_hash,
             "rules": [item.to_portable_dict() for item in self.rules],
         }
-        if self.contract_version >= 2:
-            payload["coverage_scope_hash"] = self.coverage_scope_hash
-            payload["reference_bundle_hash"] = self.reference_bundle_hash
+        payload["coverage_scope_hash"] = self.coverage_scope_hash
+        payload["reference_bundle_hash"] = self.reference_bundle_hash
         return _hash(payload)
 
     @property
@@ -324,9 +321,8 @@ class QualityRuleSet:
             "schema_hash": self.schema_hash,
             "rules": [item.to_portable_dict() for item in self.rules],
         }
-        if self.contract_version >= 2:
-            payload["coverage_scope_hash"] = self.coverage_scope_hash
-            payload["reference_bundle_hash"] = self.reference_bundle_hash
+        payload["coverage_scope_hash"] = self.coverage_scope_hash
+        payload["reference_bundle_hash"] = self.reference_bundle_hash
         if include_hash:
             payload["content_hash"] = self.content_hash
         return payload
@@ -341,7 +337,7 @@ class QualityRuleSet:
         """Load a ruleset and verify its persisted content hash."""
 
         ruleset = cls(
-            contract_version=int(payload.get("contract_version", 0)),
+            contract_version=int(payload["contract_version"]),
             ruleset_id=str(payload["ruleset_id"]),
             project_id=str(payload["project_id"]),
             version=int(payload["version"]),
@@ -629,14 +625,14 @@ class QualityRun:
     contract_version: int = QUALITY_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if (self.contract_version, self.evaluator_version) not in _SUPPORTED_QUALITY_VERSIONS:
+        if (
+            self.contract_version != QUALITY_CONTRACT_VERSION
+            or self.evaluator_version != QUALITY_EVALUATOR_VERSION
+        ):
             raise ValueError("Quality evidence version is unsupported")
-        if self.contract_version >= 2:
-            if self.effective_dataset_hash is None:
-                raise ValueError("Current quality evidence requires an effective dataset")
-            _require_hash(self.effective_dataset_hash, "quality effective-dataset hash")
-        elif self.effective_dataset_hash is not None:
-            raise ValueError("Legacy quality evidence cannot bind an effective dataset")
+        if self.effective_dataset_hash is None:
+            raise ValueError("Current quality evidence requires an effective dataset")
+        _require_hash(self.effective_dataset_hash, "quality effective-dataset hash")
         if not self.project_id:
             raise ValueError("Quality evidence identity is incomplete")
         for value, label in ((self.staging_content_hash, "quality staging hash"), (self.ruleset_hash, "quality ruleset hash"), (self.mapping_hash, "quality mapping hash"), (self.schema_hash, "quality schema hash"), (self.retention_context_hash, "quality retention hash")):
@@ -740,8 +736,7 @@ class QualityRun:
             "issues": [item.to_portable_dict() for item in self.issues],
             "quarantine": [item.to_portable_dict() for item in self.quarantine],
         }
-        if self.contract_version >= 2:
-            payload["effective_dataset_hash"] = self.effective_dataset_hash
+        payload["effective_dataset_hash"] = self.effective_dataset_hash
         if include_hash:
             payload["content_hash"] = self.content_hash
         return payload
@@ -756,7 +751,7 @@ class QualityRun:
         """Load a run, enforcing reconciliation and its content hash."""
 
         run = cls(
-            contract_version=int(payload.get("contract_version", 0)),
+            contract_version=int(payload["contract_version"]),
             evaluator_version=int(payload.get("evaluator_version", 0)),
             project_id=str(payload["project_id"]),
             staging_content_hash=str(payload["staging_content_hash"]),
@@ -813,7 +808,10 @@ class StoredQualityRun:
     contract_version: int = QUALITY_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if (self.contract_version, self.evaluator_version) not in _SUPPORTED_QUALITY_VERSIONS:
+        if (
+            self.contract_version != QUALITY_CONTRACT_VERSION
+            or self.evaluator_version != QUALITY_EVALUATOR_VERSION
+        ):
             raise ValueError("Quality evidence version is unsupported")
         if not self.project_id:
             raise ValueError("Quality evidence identity is incomplete")

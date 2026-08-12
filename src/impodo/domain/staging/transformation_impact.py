@@ -59,16 +59,6 @@ class TransformationRuleImpact:
         return self.changed_value_count == 0
 
 
-def transformation_rule_impact_definition(
-    dataset_id: str,
-    field: ScalarFieldMapping,
-) -> TransformationRuleImpact | None:
-    """Return the first rule for callers reading legacy single-rule mappings."""
-
-    definitions = transformation_rule_impact_definitions(dataset_id, field)
-    return definitions[0] if definitions else None
-
-
 def transformation_rule_impact_definitions(
     dataset_id: str,
     field: ScalarFieldMapping,

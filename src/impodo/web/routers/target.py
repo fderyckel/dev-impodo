@@ -24,6 +24,8 @@ from ..presenters.summary import (
 from ..target_readers import _selected_local_profile
 from ..target_credentials import (
     TargetCredentialRole,
+    TargetCredentialRemovalReason,
+    audit_removed_target_credentials,
     audit_stored_target_credential,
     delete_target_credentials,
     get_target_credential,
@@ -208,9 +210,16 @@ def build_target_router(context: WebContext) -> APIRouter:
                 != target_write_credential_id(project)
             )
             if target_changed:
-                delete_target_credentials(
+                removal_receipts = delete_target_credentials(
                     context.secret_store,
                     previous_project,
+                    reason=TargetCredentialRemovalReason.TARGET_CHANGED,
+                )
+                audit_removed_target_credentials(
+                    context.projects,
+                    previous_project,
+                    removal_receipts,
+                    actor=context.actor,
                 )
                 context.remote_connections.clear(project_id)
             action = _text(form, "action")

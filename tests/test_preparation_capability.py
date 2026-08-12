@@ -9,11 +9,9 @@ from impodo.application.preparation_capability import (
     PreparationRouteBehavior,
     compile_preparation_capability,
 )
-from impodo.domain.errors import ReadinessError
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.staging.scale import (
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
-    MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 )
 from impodo.workspace_contracts import (
     SourceDataset,

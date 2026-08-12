@@ -32,7 +32,6 @@ from .domain.source_snapshot import (
     SOURCE_KIND_PHYSICAL_TYPE,
     SOURCE_ROW_COLUMN,
     SOURCE_VALUE_PHYSICAL_TYPE,
-    SourceCellKind,
     SourceSnapshot,
     SourceSnapshotColumn,
     SourceSnapshotContractError,

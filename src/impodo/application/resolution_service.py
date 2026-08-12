@@ -165,7 +165,7 @@ class ResolutionService:
     ) -> tuple[EffectiveDataset | None, ResolutionSummary | None]:
         """Resolve current prepared rows or pause for explicit duplicate review.
 
-        Projects without an approved resolution policy retain the legacy
+        Projects without an approved resolution policy use the direct
         pass-through path. Once a policy exists, even a zero-candidate result
         is frozen as an immutable effective dataset before quality runs.
         """

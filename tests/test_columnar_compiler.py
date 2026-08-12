@@ -378,6 +378,122 @@ class ColumnarCompilerTests(unittest.TestCase):
             {"COLUMNAR_NON_DIRECT_DATASET_UNSUPPORTED"},
         )
 
+    def test_incoming_many2one_compiles_native_key_once_for_set_resolution(
+        self,
+    ) -> None:
+        parent = self.selection.datasets[0]
+        bom_id = "dataset:fedcba9876543210fedcba98"
+        bom = SourceDataset(
+            dataset_id=bom_id,
+            name="bom",
+            source=FileSourceBinding(
+                file_id="file-bom",
+                table_key="sheet:bom",
+                source_sha256=HASH_C,
+                catalog_hash=HASH_B,
+                encoding=None,
+                delimiter=None,
+                header_row=1,
+            ),
+            row_count=500,
+            columns=(
+                SourceDatasetColumn(
+                    ordinal=1,
+                    source_name="line_id",
+                    stable_key="bom.line_id",
+                    candidate_type="string",
+                ),
+                SourceDatasetColumn(
+                    ordinal=2,
+                    source_name="product_id",
+                    stable_key="bom.product_id",
+                    candidate_type="string",
+                ),
+            ),
+        )
+        selection = replace(self.selection, datasets=(parent, bom))
+        definition = MappingDefinition(
+            mapping_id="mapping-product-bom",
+            source_selection_hash=selection.content_hash,
+            schema_hash=HASH_B,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=parent.dataset_id,
+                    target_model="product.product",
+                    source_identity_column_keys=("product.id",),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=("product.id",),
+                            target_fields=("default_code",),
+                        ),
+                    ),
+                ),
+                DatasetMapping(
+                    dataset_id=bom_id,
+                    target_model="mrp.bom.line",
+                    source_identity_column_keys=("bom.line_id",),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=("bom.line_id",),
+                            target_fields=("x_import_key",),
+                        ),
+                    ),
+                    relationships=(
+                        RelationshipMapping(
+                            target_field="product_id",
+                            kind="many2one",
+                            source_column_keys=("bom.product_id",),
+                            resolver=RelationshipResolver(
+                                origin=ResolverOrigin.DATASET,
+                                dataset_id=parent.dataset_id,
+                            ),
+                            required=True,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        decision = compile_columnar_transformation_program(
+            definition,
+            selection,
+            bom_id,
+        )
+
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        assert decision.program is not None
+        self.assertEqual(len(decision.program.relationships), 1)
+        relationship = decision.program.relationships[0]
+        self.assertEqual(relationship.parent_dataset_name, "products")
+        self.assertEqual(
+            tuple(
+                item.operation
+                for item in relationship.key.normalization_steps
+            ),
+            (
+                ColumnarOperationKind.TRIM,
+                ColumnarOperationKind.EMPTY_AS_NULL,
+                ColumnarOperationKind.PARSE_STRING,
+            ),
+        )
+        operations = {
+            item.operation for item in decision.capability_uses
+        }
+        self.assertIn(
+            ColumnarOperationKind.RELATIONSHIP_KEY_NORMALIZATION,
+            operations,
+        )
+        self.assertIn(
+            ColumnarOperationKind.RELATIONSHIP_RESOLUTION,
+            operations,
+        )
+        self.assertEqual(
+            ColumnarTransformationProgram.from_portable_dict(
+                decision.program.to_portable_dict()
+            ),
+            decision.program,
+        )
+
     def test_one_unsupported_field_forces_whole_dataset_fallback(self) -> None:
         supported = ScalarFieldMapping(
             target_field="name",

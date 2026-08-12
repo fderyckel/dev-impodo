@@ -15,16 +15,17 @@ import json
 import re
 from uuid import UUID
 
+from .odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from .serialization import canonical_json, content_hash
 from .source_binding import OdooSourceBinding, SourceOriginKind
 
 
-ODOO_CAPTURE_CONTRACT_VERSION = 1
-MAX_ODOO_CAPTURE_FIELDS = 50
-MAX_ODOO_CAPTURE_ROWS = 10_000
-ODOO_CAPTURE_PAGE_SIZE = 500
+ODOO_CAPTURE_CONTRACT_VERSION = 2
+MAX_ODOO_CAPTURE_FIELDS = CURRENT_ODOO_SOURCE_POLICY.max_fields
+MAX_ODOO_CAPTURE_ROWS = CURRENT_ODOO_SOURCE_POLICY.max_rows
+ODOO_CAPTURE_PAGE_SIZE = CURRENT_ODOO_SOURCE_POLICY.page_size
 ODOO_CAPTURE_FIELD_TYPES = frozenset(
-    {"boolean", "char", "date", "datetime", "integer", "selection", "text"}
+    CURRENT_ODOO_SOURCE_POLICY.capture_field_types
 )
 
 _DATASET_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}")
@@ -69,6 +70,7 @@ class OdooCaptureSelection:
     max_rows: int
     page_size: int
     consistency: OdooCaptureConsistency
+    policy_hash: str
     connection_target_hash: str
     schema_scope_hash: str
     read_principal_hash: str
@@ -124,6 +126,7 @@ class OdooCaptureSelection:
                 "Odoo capture page size is not the fixed bounded value"
             )
         for value, label in (
+            (self.policy_hash, "policy hash"),
             (self.connection_target_hash, "connection target hash"),
             (self.schema_scope_hash, "schema scope hash"),
             (self.read_principal_hash, "read principal hash"),
@@ -132,6 +135,10 @@ class OdooCaptureSelection:
             (self.content_hash, "content hash"),
         ):
             _require_hash(value, label)
+        if self.policy_hash != CURRENT_ODOO_SOURCE_POLICY.content_hash:
+            raise OdooCaptureContractError(
+                "Odoo capture selection does not use the current source policy"
+            )
         if self.created_at.tzinfo is None:
             raise OdooCaptureContractError(
                 "Odoo capture creation time must be timezone-aware"
@@ -174,6 +181,7 @@ class OdooCaptureSelection:
             "max_rows": max_rows,
             "model": model,
             "page_size": ODOO_CAPTURE_PAGE_SIZE,
+            "policy_hash": CURRENT_ODOO_SOURCE_POLICY.content_hash,
             "project_id": project_id,
             "read_permission_hash": read_permission_hash,
             "read_principal_hash": read_principal_hash,
@@ -192,6 +200,7 @@ class OdooCaptureSelection:
             max_rows=max_rows,
             page_size=ODOO_CAPTURE_PAGE_SIZE,
             consistency=OdooCaptureConsistency.KEYSET_HIGH_WATER_INTERVAL,
+            policy_hash=CURRENT_ODOO_SOURCE_POLICY.content_hash,
             connection_target_hash=connection_target_hash,
             schema_scope_hash=schema_scope_hash,
             read_principal_hash=read_principal_hash,
@@ -216,6 +225,7 @@ class OdooCaptureSelection:
             read_principal_hash=self.read_principal_hash,
             read_permission_hash=self.read_permission_hash,
             context_hash=self.context_hash,
+            policy_hash=self.policy_hash,
         )
 
     @property
@@ -245,6 +255,7 @@ class OdooCaptureSelection:
             "max_rows": self.max_rows,
             "model": self.model,
             "page_size": self.page_size,
+            "policy_hash": self.policy_hash,
             "project_id": self.project_id,
             "read_permission_hash": self.read_permission_hash,
             "read_principal_hash": self.read_principal_hash,
@@ -280,6 +291,7 @@ class OdooCaptureSelection:
                     "max_rows",
                     "page_size",
                     "consistency",
+                    "policy_hash",
                     "connection_target_hash",
                     "schema_scope_hash",
                     "read_principal_hash",
@@ -302,6 +314,7 @@ class OdooCaptureSelection:
                 max_rows=int(payload["max_rows"]),
                 page_size=int(payload["page_size"]),
                 consistency=OdooCaptureConsistency(payload["consistency"]),
+                policy_hash=str(payload["policy_hash"]),
                 connection_target_hash=str(payload["connection_target_hash"]),
                 schema_scope_hash=str(payload["schema_scope_hash"]),
                 read_principal_hash=str(payload["read_principal_hash"]),
@@ -355,9 +368,8 @@ def odoo_column_stable_key(model: str, field_name: str) -> str:
     return f"odoo-column:{digest[:24]}"
 
 
-def _require_hash(value: str, label: str, *, allow_bare: bool = False) -> None:
-    candidate = value if value.startswith("sha256:") else f"sha256:{value}"
-    if _HASH.fullmatch(candidate) is None or (not allow_bare and candidate != value):
+def _require_hash(value: str, label: str) -> None:
+    if _HASH.fullmatch(value) is None:
         raise OdooCaptureContractError(f"Odoo capture {label} is invalid")
 
 

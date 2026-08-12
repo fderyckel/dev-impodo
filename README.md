@@ -47,6 +47,8 @@ start a local Odoo stack separately before connecting to it in Impodo.
 - Configures and optionally tests the read-only Odoo connection.
 - Keeps read and write keys in separate target-bound vault roles and browser
   fields. Loading and read-back never fall back to the setup read key.
+- Records non-secret removal receipts when target changes or project deletion
+  remove stored target credentials.
 
 ### Source discovery and dataset freeze
 
@@ -61,6 +63,9 @@ start a local Odoo stack separately before connecting to it in Impodo.
   eligible scalar fields, active/archive policy, and at most 10,000 rows. The
   browser distinguishes this plan from the later live read and immutable
   snapshot publication.
+- Binds every Odoo capture plan to one executable policy covering Tier-1
+  fields, limits, protected-data handling, connection-only target assurance,
+  and the explicit `PRODUCTION_WRITE_UNSUPPORTED` native JSON-2 disposition.
 
 ### Target schema and governed mapping
 

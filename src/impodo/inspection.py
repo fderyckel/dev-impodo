@@ -16,7 +16,7 @@ See ``docs/architecture/python-code-map.md`` and
 from __future__ import annotations
 
 import csv
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields as dataclass_fields, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
@@ -165,6 +165,10 @@ class SourceFileCatalog:
     tables: tuple[SourceTableCatalog, ...]
     warnings: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        if self.contract_version != CATALOG_CONTRACT_VERSION:
+            raise SourceInspectionError("Source catalog contract version is unsupported")
+
     @property
     def content_hash(self) -> str:
         """Bind confirmations to the exact generated catalog."""
@@ -175,11 +179,6 @@ class SourceFileCatalog:
         """Return deterministic JSON suitable for DuckDB and portable evidence."""
 
         payload = asdict(self)
-        if self.contract_version < 2:
-            for table in payload["tables"]:
-                for named_table in table.get("named_tables", ()):
-                    named_table.pop("disposition", None)
-                    named_table.pop("message", None)
         payload["inspected_at"] = self.inspected_at.isoformat()
         return json.dumps(
             payload,
@@ -194,6 +193,7 @@ class SourceFileCatalog:
 
         try:
             payload = json.loads(value)
+            _require_dataclass_fields(payload, SourceFileCatalog, "source catalog")
             return cls(
                 contract_version=int(payload["contract_version"]),
                 file_id=str(payload["file_id"]),
@@ -218,6 +218,8 @@ class SourceFileCatalog:
                 warnings=tuple(str(item) for item in payload.get("warnings", ())),
             )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            if isinstance(error, SourceInspectionError):
+                raise
             raise SourceInspectionError("Stored source catalog is invalid") from error
 
 
@@ -1416,6 +1418,11 @@ def _hash_file(path: Path) -> tuple[int, str]:
 
 
 def _table_from_payload(payload: dict[str, Any]) -> SourceTableCatalog:
+    _require_dataclass_fields(payload, SourceTableCatalog, "source table")
+    for column in payload["columns"]:
+        _require_dataclass_fields(column, SourceColumnProfile, "source column")
+    for table in payload["named_tables"]:
+        _require_dataclass_fields(table, NamedTableCatalog, "named table")
     return SourceTableCatalog(
         table_key=str(payload["table_key"]),
         name=str(payload["name"]),
@@ -1474,7 +1481,7 @@ def _table_from_payload(payload: dict[str, Any]) -> SourceTableCatalog:
                 name=str(table["name"]),
                 display_name=str(table["display_name"]),
                 cell_range=str(table["cell_range"]),
-                disposition=str(table.get("disposition", "DISTINCT")),
+                disposition=str(table["disposition"]),
                 message=(
                     str(table["message"])
                     if table.get("message") is not None
@@ -1508,3 +1515,15 @@ def _table_from_payload(payload: dict[str, Any]) -> SourceTableCatalog:
         merged_range_count=int(payload.get("merged_range_count", 0)),
         warnings=tuple(str(item) for item in payload.get("warnings", ())),
     )
+
+
+def _require_dataclass_fields(
+    payload: object,
+    contract: type[object],
+    label: str,
+) -> None:
+    expected = {item.name for item in dataclass_fields(contract)}
+    if not isinstance(payload, dict) or set(payload) != expected:
+        raise SourceInspectionError(
+            f"Stored {label} does not match the current contract"
+        )

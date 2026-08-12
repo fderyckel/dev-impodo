@@ -35,7 +35,7 @@ from ...domain.staging.transformation_impact import (
     TransformationImpactReport,
     TransformationImpactRow,
 )
-from ...models import Issue, canonical_json_bytes, portable_value
+from ...models import Issue, LogicalReference, canonical_json_bytes, portable_value
 from ...normalization import NormalizationEffect
 from ...projects import ProjectNotFoundError
 from ...quality import QualityIssue
@@ -108,6 +108,18 @@ _DIRECT_LINEAGE_JSON_STRUCTURE = """[{
 _DIRECT_PHYSICAL_ROW_JSON_STRUCTURE = """[{
     "physical_dataset_id":"VARCHAR",
     "source_row":"BIGINT"
+}]"""
+
+_DIRECT_RELATIONSHIP_JSON_STRUCTURE = """[{
+    "child_ordinal":"BIGINT",
+    "child_row_id":"VARCHAR",
+    "child_dataset":"VARCHAR",
+    "child_source_row":"BIGINT",
+    "target_field":"VARCHAR",
+    "item_ordinal":"INTEGER",
+    "parent_dataset":"VARCHAR",
+    "normalized_key_json":"VARCHAR",
+    "parent_identity_hash":"VARCHAR"
 }]"""
 
 # A canonical row can legally be much larger than the normal JSON envelope.
@@ -244,6 +256,22 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
             physical_rows,
         )
 
+    def bounded_relationship_findings(
+        self,
+        unsafe_row_ids: Sequence[str],
+        propagating_datasets: Sequence[str],
+    ):
+        """Resolve and propagate relationship readiness set-wise."""
+
+        if not self._direct:
+            return ()
+        return self._repository._bounded_relationship_findings(
+            self._project_id,
+            self._session_id,
+            unsafe_row_ids,
+            propagating_datasets,
+        )
+
     def iter_quality_index_batches(self, connection, batch_size: int):
         """Yield narrow row decisions through the publisher transaction."""
 
@@ -350,7 +378,7 @@ class _SessionImpacts:
         )
 
     def iter_normalization_effects(self):
-        """Decode durable facts only for bounded compatibility readers."""
+        """Decode durable facts for the bounded normalization reader."""
 
         yield from self._repository._iter_prepared_normalization_effects(
             self._project_id,
@@ -967,6 +995,79 @@ class PreparationSessionRepository(DuckDbRepository):
                         "Prepared identity fact batch is incomplete"
                     )
 
+                relationship_rows = (
+                    {
+                        "child_ordinal": item.ordinal,
+                        "child_row_id": item.row_id,
+                        "child_dataset": item.dataset,
+                        "child_source_row": item.source_row,
+                        "target_field": target_field,
+                        "item_ordinal": item_ordinal,
+                        "parent_dataset": reference.dataset,
+                        "normalized_key_json": _canonical_json(
+                            portable_value(reference.key)
+                        ),
+                        "parent_identity_hash": "sha256:"
+                        + sha256(
+                            canonical_json_bytes(
+                                {
+                                    "dataset": reference.dataset,
+                                    "source_identity": portable_value(
+                                        reference.key
+                                    ),
+                                }
+                            )
+                        ).hexdigest(),
+                    }
+                    for item in rows
+                    for target_field, raw_reference in sorted(
+                        item.references.items()
+                    )
+                    for references in (
+                        raw_reference
+                        if isinstance(raw_reference, tuple)
+                        else (raw_reference,)
+                    ,)
+                    for item_ordinal, reference in enumerate(references)
+                    if isinstance(reference, LogicalReference)
+                    and reference.origin == "incoming"
+                    and reference.dataset
+                )
+                for encoded_batch in iter_encoded_json_batches(
+                    relationship_rows,
+                    max_rows=PREPARATION_SESSION_ROW_BATCH_SIZE,
+                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO preparation_relationship_edge (
+                            session_id, child_ordinal, child_row_id,
+                            child_dataset, child_source_row, target_field,
+                            item_ordinal, parent_dataset,
+                            normalized_key_json, parent_identity_hash,
+                            match_state, resolution_state, match_count,
+                            resolved_parent_row_id
+                        )
+                        SELECT
+                            ?, item.child_ordinal, item.child_row_id,
+                            item.child_dataset, item.child_source_row,
+                            item.target_field, item.item_ordinal,
+                            item.parent_dataset, item.normalized_key_json,
+                            item.parent_identity_hash, 'PENDING', 'PENDING',
+                            0, NULL
+                          FROM (
+                            SELECT UNNEST(
+                                from_json_strict(CAST(? AS JSON), ?)
+                            ) AS item
+                          )
+                        """,
+                        [
+                            canonical_session_id,
+                            encoded_batch.payload,
+                            _DIRECT_RELATIONSHIP_JSON_STRUCTURE,
+                        ],
+                    )
+
                 lineage_rows = (
                     {
                         "dataset": item.dataset,
@@ -1414,6 +1515,11 @@ class PreparationSessionRepository(DuckDbRepository):
                 values,
             )
 
+        self._resolve_relationship_edges(
+            project_id,
+            canonical_session_id,
+        )
+
         reconciliation, datasets = self._reconciliation(
             project_id,
             canonical_session_id,
@@ -1533,6 +1639,100 @@ class PreparationSessionRepository(DuckDbRepository):
                 connection.rollback()
                 raise
         return self.load_stored_run(project_id, canonical_session_id)
+
+    def _resolve_relationship_edges(
+        self,
+        project_id: str,
+        session_id: str,
+    ) -> None:
+        """Classify every incoming reference with one set-based parent join."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        with self._connect(database_path) as connection:
+            connection.begin()
+            try:
+                self._require_status(
+                    connection,
+                    session_id,
+                    PreparationSessionStatus.FINALIZING,
+                )
+                connection.execute(
+                    """
+                    WITH matches AS (
+                        SELECT edge.child_ordinal, edge.target_field,
+                               edge.item_ordinal,
+                               COUNT(parent_identity.ordinal) AS match_count,
+                               MIN(parent.row_id) AS parent_row_id,
+                               MIN(parent.disposition) AS parent_disposition
+                          FROM preparation_relationship_edge AS edge
+                          LEFT JOIN preparation_direct_identity AS parent_identity
+                            ON parent_identity.session_id = edge.session_id
+                           AND parent_identity.dataset = edge.parent_dataset
+                           AND parent_identity.identity_hash =
+                               edge.parent_identity_hash
+                          LEFT JOIN canonical_staging_row AS parent
+                            ON parent.run_id = parent_identity.session_id
+                           AND parent.ordinal = parent_identity.ordinal
+                         WHERE edge.session_id = ?
+                         GROUP BY edge.child_ordinal, edge.target_field,
+                                  edge.item_ordinal
+                    )
+                    UPDATE preparation_relationship_edge AS edge
+                       SET match_count = matches.match_count,
+                           match_state = CASE
+                               WHEN matches.match_count = 0 THEN 'MISSING'
+                               WHEN matches.match_count = 1 THEN 'UNIQUE'
+                               ELSE 'DUPLICATE'
+                           END,
+                           resolution_state = CASE
+                               WHEN matches.match_count = 0 THEN 'MISSING'
+                               WHEN matches.match_count > 1 THEN 'AMBIGUOUS'
+                               WHEN matches.parent_disposition IN
+                                    ('CANDIDATE', 'REFERENCE')
+                                   THEN 'RESOLVED'
+                               ELSE 'UNSAFE_PARENT'
+                           END,
+                           resolved_parent_row_id = CASE
+                               WHEN matches.match_count = 1
+                                   THEN matches.parent_row_id
+                               ELSE NULL
+                           END
+                      FROM matches
+                     WHERE edge.session_id = ?
+                       AND edge.child_ordinal = matches.child_ordinal
+                       AND edge.target_field = matches.target_field
+                       AND edge.item_ordinal = matches.item_ordinal
+                    """,
+                    [session_id, session_id],
+                )
+                invalid = connection.execute(
+                    """
+                    SELECT 1
+                      FROM preparation_relationship_edge AS edge
+                      LEFT JOIN canonical_staging_row AS child
+                        ON child.run_id = edge.session_id
+                       AND child.ordinal = edge.child_ordinal
+                       AND child.row_id = edge.child_row_id
+                     WHERE edge.session_id = ?
+                       AND (
+                           child.row_id IS NULL
+                           OR edge.match_state = 'PENDING'
+                           OR edge.resolution_state = 'PENDING'
+                           OR (edge.match_state = 'UNIQUE') !=
+                              (edge.resolved_parent_row_id IS NOT NULL)
+                       )
+                     LIMIT 1
+                    """,
+                    [session_id],
+                ).fetchone()
+                if invalid is not None:
+                    raise WorkspaceError(
+                        "Prepared relationship facts are incomplete"
+                    )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
     def _restart_direct_finalization(
         self,
@@ -2237,21 +2437,10 @@ class PreparationSessionRepository(DuckDbRepository):
             if header is None:
                 return None
             row_count = int(header[0])
-            projection = connection.execute(
-                """
-                SELECT COALESCE(SUM(row_count), 0), COUNT(*)
-                  FROM canonical_prepared_projection
-                 WHERE run_id = ?
-                """,
-                [session_id],
-            ).fetchone()
             if (
                 row_count == 0
-                or int(header[1]) != row_count
+                or int(header[1]) not in {0, row_count}
                 or int(header[2]) != row_count
-                or projection is None
-                or int(projection[0]) != row_count
-                or int(projection[1]) == 0
             ):
                 return None
             invalid_order = connection.execute(
@@ -2401,6 +2590,157 @@ class PreparationSessionRepository(DuckDbRepository):
                 "collisions": tuple(collisions),
                 "exception_rows": tuple(exception_rows),
             }
+
+    def _bounded_relationship_findings(
+        self,
+        project_id: str,
+        session_id: str,
+        unsafe_row_ids: Sequence[str],
+        propagating_datasets: Sequence[str],
+    ) -> tuple[tuple[object, ...], ...]:
+        """Return only affected children after one recursive set operation."""
+
+        canonical_session_id = self._session_id(session_id)
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            relationship_count = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                      FROM preparation_relationship_edge
+                     WHERE session_id = ?
+                    """,
+                    [canonical_session_id],
+                ).fetchone()[0]
+            )
+            if relationship_count == 0:
+                return ()
+            connection.begin()
+            try:
+                connection.execute(
+                    """
+                    CREATE TEMP TABLE relationship_initial_unsafe (
+                        row_id VARCHAR PRIMARY KEY
+                    )
+                    """
+                )
+                if unsafe_row_ids:
+                    connection.execute(
+                        """
+                        INSERT INTO relationship_initial_unsafe
+                        SELECT DISTINCT CAST(unnest(?) AS VARCHAR)
+                        """,
+                        [list(unsafe_row_ids)],
+                    )
+                connection.execute(
+                    """
+                    CREATE TEMP TABLE relationship_propagating_dataset (
+                        dataset VARCHAR PRIMARY KEY
+                    )
+                    """
+                )
+                if propagating_datasets:
+                    connection.execute(
+                        """
+                        INSERT INTO relationship_propagating_dataset
+                        SELECT DISTINCT CAST(unnest(?) AS VARCHAR)
+                        """,
+                        [list(propagating_datasets)],
+                    )
+                connection.execute(
+                    """
+                    UPDATE preparation_relationship_edge
+                       SET resolution_state = CASE
+                           WHEN match_state = 'MISSING' THEN 'MISSING'
+                           WHEN match_state = 'DUPLICATE' THEN 'AMBIGUOUS'
+                           WHEN match_state = 'UNIQUE' THEN 'RESOLVED'
+                           ELSE 'PENDING'
+                       END
+                     WHERE session_id = ?
+                    """,
+                    [canonical_session_id],
+                )
+                connection.execute(
+                    """
+                    CREATE TEMP TABLE relationship_unsafe AS
+                    WITH RECURSIVE unsafe(row_id) AS (
+                        SELECT row_id
+                          FROM relationship_initial_unsafe
+                        UNION
+                        SELECT child_row_id
+                          FROM preparation_relationship_edge AS edge
+                          JOIN relationship_propagating_dataset AS allowed
+                            ON allowed.dataset = edge.child_dataset
+                         WHERE edge.session_id = ?
+                           AND edge.resolution_state IN ('MISSING', 'AMBIGUOUS')
+                        UNION
+                        SELECT edge.child_row_id
+                          FROM preparation_relationship_edge AS edge
+                          JOIN unsafe AS parent
+                            ON parent.row_id = edge.resolved_parent_row_id
+                         WHERE edge.session_id = ?
+                           AND edge.match_state = 'UNIQUE'
+                           AND edge.child_dataset IN (
+                               SELECT dataset
+                                 FROM relationship_propagating_dataset
+                           )
+                    )
+                    SELECT DISTINCT row_id FROM unsafe
+                    """,
+                    [canonical_session_id, canonical_session_id],
+                )
+                connection.execute(
+                    """
+                    UPDATE preparation_relationship_edge AS edge
+                       SET resolution_state = CASE
+                           WHEN edge.match_state = 'MISSING' THEN 'MISSING'
+                           WHEN edge.match_state = 'DUPLICATE' THEN 'AMBIGUOUS'
+                           WHEN parent.row_id IS NOT NULL THEN 'UNSAFE_PARENT'
+                           ELSE 'RESOLVED'
+                       END
+                      FROM (
+                          SELECT row_id FROM relationship_unsafe
+                      ) AS parent
+                     WHERE edge.session_id = ?
+                       AND edge.match_state = 'UNIQUE'
+                       AND edge.resolved_parent_row_id = parent.row_id
+                    """,
+                    [canonical_session_id],
+                )
+                findings = tuple(
+                    connection.execute(
+                        """
+                        SELECT child.ordinal, child.row_id, child.dataset,
+                               child.source_row, child.disposition,
+                               lineage.physical_dataset_id,
+                               lineage.physical_source_row,
+                               MIN(edge.resolution_state) AS resolution_state
+                          FROM preparation_relationship_edge AS edge
+                          JOIN canonical_staging_row AS child
+                            ON child.run_id = edge.session_id
+                           AND child.ordinal = edge.child_ordinal
+                           AND child.row_id = edge.child_row_id
+                          JOIN preparation_lineage AS lineage
+                            ON lineage.session_id = child.run_id
+                           AND lineage.dataset = child.dataset
+                           AND lineage.output_source_row = child.source_row
+                         WHERE edge.session_id = ?
+                           AND edge.resolution_state != 'RESOLVED'
+                         GROUP BY child.ordinal, child.row_id, child.dataset,
+                                  child.source_row, child.disposition,
+                                  lineage.physical_dataset_id,
+                                  lineage.physical_source_row
+                         ORDER BY child.ordinal
+                        """,
+                        [canonical_session_id],
+                    ).fetchall()
+                )
+                connection.commit()
+                return findings
+            except Exception:
+                connection.rollback()
+                raise
 
     def _iter_quality_index_batches(
         self,
@@ -3190,7 +3530,23 @@ class PreparationSessionRepository(DuckDbRepository):
                         """,
                         [str(dataset_id), str(content_hash)],
                     )
-                self._delete_session_rows(connection, session_id)
+                canonical_status = connection.execute(
+                    """
+                    SELECT status
+                      FROM canonical_staging_run
+                     WHERE run_id = ?
+                    """,
+                    [self._session_id(session_id)],
+                ).fetchone()
+                self._delete_session_rows(
+                    connection,
+                    session_id,
+                    retain_relationships=(
+                        canonical_status is not None
+                        and str(canonical_status[0])
+                        != StagingRunStatus.PENDING.value
+                    ),
+                )
                 connection.execute(
                     """
                     UPDATE preparation_session
@@ -3848,6 +4204,7 @@ class PreparationSessionRepository(DuckDbRepository):
                         native_batch.target_identities,
                         native_batch.target_scopes,
                         native_batch.scalar_values,
+                        native_batch.references,
                         native_batch.issues,
                         strict=True,
                     )
@@ -3858,6 +4215,7 @@ class PreparationSessionRepository(DuckDbRepository):
                         target_identity,
                         target_scope,
                         scalar_values,
+                        references,
                         issues,
                     ) in values:
                         ordinal = int(metadata_row[0])
@@ -3869,6 +4227,7 @@ class PreparationSessionRepository(DuckDbRepository):
                             target_identity=target_identity,
                             target_scope=target_scope,
                             scalar_values=scalar_values,
+                            references=references,
                             issues=issues,
                             ordinal=ordinal,
                             mode=projection.mode,
@@ -4090,7 +4449,12 @@ class PreparationSessionRepository(DuckDbRepository):
         return row
 
     @staticmethod
-    def _delete_session_rows(connection, session_id: str) -> None:
+    def _delete_session_rows(
+        connection,
+        session_id: str,
+        *,
+        retain_relationships: bool = False,
+    ) -> None:
         canonical = PreparationSessionRepository._session_id(session_id)
         connection.execute(
             """
@@ -4111,6 +4475,7 @@ class PreparationSessionRepository(DuckDbRepository):
             "preparation_lineage",
             "preparation_finalization_row",
             "preparation_identity_group",
+            "preparation_relationship_edge",
             "preparation_direct_identity",
             "preparation_provisional_row",
             "preparation_session_snapshot",
@@ -4129,6 +4494,8 @@ class PreparationSessionRepository(DuckDbRepository):
         }
         for table in session_tables:
             if table not in available_tables:
+                continue
+            if retain_relationships and table == "preparation_relationship_edge":
                 continue
             connection.execute(
                 f"DELETE FROM {table} WHERE session_id = ?",

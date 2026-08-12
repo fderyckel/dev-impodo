@@ -239,6 +239,23 @@ class ProjectRepository(Protocol):
 
         ...
 
+    def record_credential_removal_receipt(
+        self,
+        *,
+        receipt_hash: str,
+        project_id: str,
+        role: str,
+        reason: str,
+        connection_target_hash: str,
+        credential_binding_hash: str | None,
+        storage_class: str,
+        removed_at: datetime,
+        actor: Actor,
+    ) -> None:
+        """Persist a non-secret removal receipt outside project evidence."""
+
+        ...
+
 
 class ProjectService:
     """Own Stage A lifecycle operations independently of HTTP and DuckDB.
@@ -569,6 +586,72 @@ class ProjectService:
                 f"binding {binding_hash}; storage "
                 f"{'OPERATING_SYSTEM_VAULT' if persistent else 'SESSION'}"
             ),
+            actor=actor,
+        )
+
+    def record_credential_removal_receipt(
+        self,
+        *,
+        receipt_hash: str,
+        project_id: str,
+        role: str,
+        reason: str,
+        connection_target_hash: str,
+        credential_binding_hash: str | None,
+        storage_class: str,
+        removed_at: datetime,
+        actor: Actor,
+    ) -> None:
+        """Retain one actor-bound receipt after a vault entry is removed."""
+
+        canonical_project_id = _canonical_project_id(project_id)
+        normalized_role = role.strip().upper()
+        normalized_reason = reason.strip().upper()
+        normalized_storage = storage_class.strip().upper()
+        if normalized_role not in {"READ", "WRITE"}:
+            raise ProjectError("Credential removal role is invalid")
+        if normalized_reason not in {"TARGET_CHANGED", "PROJECT_DELETED"}:
+            raise ProjectError("Credential removal reason is invalid")
+        if normalized_storage not in {
+            "SESSION",
+            "OPERATING_SYSTEM_VAULT",
+            "UNKNOWN",
+        }:
+            raise ProjectError("Credential removal storage class is invalid")
+        for value, label in (
+            (receipt_hash, "receipt"),
+            (connection_target_hash, "connection target"),
+        ):
+            if re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
+                raise ProjectError(f"Credential removal {label} hash is invalid")
+        if (
+            credential_binding_hash is not None
+            and re.fullmatch(
+                r"sha256:[0-9a-f]{64}", credential_binding_hash
+            )
+            is None
+        ):
+            raise ProjectError("Credential removal binding hash is invalid")
+        if removed_at.tzinfo is None:
+            raise ProjectError("Credential removal time must be timezone-aware")
+        self.authorization.require(
+            actor,
+            (
+                Capability.PROJECT_DELETE
+                if normalized_reason == "PROJECT_DELETED"
+                else Capability.PROJECT_EDIT
+            ),
+            project_id=canonical_project_id,
+        )
+        self.repository.record_credential_removal_receipt(
+            receipt_hash=receipt_hash,
+            project_id=canonical_project_id,
+            role=normalized_role,
+            reason=normalized_reason,
+            connection_target_hash=connection_target_hash,
+            credential_binding_hash=credential_binding_hash,
+            storage_class=normalized_storage,
+            removed_at=removed_at,
             actor=actor,
         )
 

@@ -23,7 +23,7 @@ from ..models import (
     restore_portable_value,
 )
 from ..staging_contracts import CanonicalLineage, CanonicalRow, StagingDisposition
-from .serialization import canonical_json, content_hash
+from .serialization import content_hash
 
 
 RESOLUTION_POLICY_CONTRACT_VERSION = 1
@@ -252,7 +252,7 @@ class ResolutionPolicy:
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ResolutionPolicy":
         result = cls(
-            contract_version=int(payload.get("contract_version", 0)),
+            contract_version=int(payload["contract_version"]),
             policy_id=str(payload["policy_id"]),
             project_id=str(payload["project_id"]),
             version=int(payload["version"]),
@@ -447,7 +447,7 @@ class ResolutionEvaluation:
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ResolutionEvaluation":
         result = cls(
-            contract_version=int(payload.get("contract_version", 0)),
+            contract_version=int(payload["contract_version"]),
             scorer_version=int(payload.get("scorer_version", 0)),
             project_id=str(payload["project_id"]),
             staging_content_hash=str(payload["staging_content_hash"]),
@@ -553,7 +553,7 @@ class ResolutionDecision:
     def from_dict(cls, payload: Mapping[str, Any]) -> "ResolutionDecision":
         actor = dict(payload["actor"])
         result = cls(
-            contract_version=int(payload.get("contract_version", 0)),
+            contract_version=int(payload["contract_version"]),
             decision_id=str(payload["decision_id"]),
             evaluation_hash=str(payload["evaluation_hash"]),
             group_id=str(payload["group_id"]),
@@ -855,7 +855,7 @@ class EffectiveDataset:
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "EffectiveDataset":
         result = cls(
-            contract_version=int(payload.get("contract_version", 0)),
+            contract_version=int(payload["contract_version"]),
             project_id=str(payload["project_id"]),
             staging_content_hash=str(payload["staging_content_hash"]),
             policy_hash=str(payload["policy_hash"]),

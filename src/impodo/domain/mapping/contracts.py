@@ -335,6 +335,10 @@ class MappingDefinition:
     datasets: tuple[DatasetMapping, ...]
     contract_version: int = MAPPING_CONTRACT_VERSION
 
+    def __post_init__(self) -> None:
+        if self.contract_version != MAPPING_CONTRACT_VERSION:
+            raise ValueError("Mapping contract version is unsupported")
+
     @property
     def content_hash(self) -> str:
         """Return the deterministic semantic identity of the complete mapping."""
@@ -342,7 +346,7 @@ class MappingDefinition:
         return _content_hash(self.to_dict(include_hash=False))
 
     def to_dict(self, *, include_hash: bool = True) -> dict[str, Any]:
-        """Return a canonically ordered, version-aware portable representation."""
+        """Return the canonically ordered current portable representation."""
 
         payload = {
             "mapping_id": self.mapping_id,
@@ -350,7 +354,7 @@ class MappingDefinition:
             "source_selection_hash": self.source_selection_hash,
             "schema_hash": self.schema_hash,
             "datasets": [
-                _dataset_mapping_to_dict(item, self.contract_version)
+                _dataset_mapping_to_dict(item)
                 for item in sorted(
                     (
                         replace(
@@ -396,20 +400,26 @@ class MappingDefinition:
     def from_dict(cls, payload: Mapping[str, Any]) -> "MappingDefinition":
         """Restore one mapping contract and reject a supplied bad hash."""
 
+        if set(payload) != {
+            "mapping_id",
+            "contract_version",
+            "source_selection_hash",
+            "schema_hash",
+            "datasets",
+            "content_hash",
+        }:
+            raise ValueError("Mapping fields do not match the current contract")
         definition = cls(
             mapping_id=str(payload["mapping_id"]),
-            contract_version=int(
-                payload.get("contract_version", MAPPING_CONTRACT_VERSION)
-            ),
+            contract_version=int(payload["contract_version"]),
             source_selection_hash=str(payload["source_selection_hash"]),
             schema_hash=str(payload["schema_hash"]),
             datasets=tuple(
                 _dataset_mapping_from_dict(item)
-                for item in payload.get("datasets", ())
+                for item in payload["datasets"]
             ),
         )
-        expected = payload.get("content_hash")
-        if expected is not None and expected != definition.content_hash:
+        if payload["content_hash"] != definition.content_hash:
             raise ValueError("Mapping-definition content hash is invalid")
         return definition
 
@@ -461,51 +471,8 @@ def _dataset_mapping_from_dict(payload: Mapping[str, Any]) -> DatasetMapping:
 
 def _dataset_mapping_to_dict(
     mapping: DatasetMapping,
-    contract_version: int,
 ) -> dict[str, Any]:
-    payload = _portable(asdict(mapping))
-    for item in payload.get("fields", ()):
-        transform = item.get("transform", {})
-        if contract_version < 8:
-            steps = list(transform.pop("text_steps", ()))
-            if steps:
-                raise ValueError(
-                    "Mapping contract versions below 8 cannot contain "
-                    "ordered text changes"
-                )
-    if contract_version < 3:
-        for item in payload.get("fields", ()):
-            item.pop("value_source", None)
-            item.pop("literal_value", None)
-            item.pop("transform", None)
-    if contract_version < 4:
-        for item in payload.get("fields", ()):
-            item.pop("validation", None)
-            transform = item.get("transform", {})
-            for name in (
-                "decimal_places",
-                "rounding_mode",
-                "formula",
-            ):
-                transform.pop(name, None)
-    if contract_version < 5:
-        for item in payload.get("fields", ()):
-            item.pop("value_mappings", None)
-        for component in (
-            *payload.get("target_identity", ()),
-            *payload.get("target_scope", ()),
-        ):
-            resolver = component.get("resolver")
-            if resolver:
-                resolver.pop("value_mappings", None)
-        for relation in payload.get("relationships", ()):
-            relation.get("resolver", {}).pop("value_mappings", None)
-    if contract_version < 6:
-        payload.pop("control_totals", None)
-    if contract_version < 7:
-        for item in payload.get("fields", ()):
-            item.pop("reference_lookup", None)
-    return payload
+    return _portable(asdict(mapping))
 
 
 def _scalar_field_mapping_from_dict(
@@ -514,20 +481,13 @@ def _scalar_field_mapping_from_dict(
     transform_payload = payload.get("transform", {})
     if not isinstance(transform_payload, Mapping):
         raise ValueError("Scalar transform policy must be an object")
-    legacy_text_fields = {
-        "search_value",
-        "replacement_value",
-        "search_mode",
-        "replace_all",
-    }.intersection(transform_payload)
-    if legacy_text_fields:
-        raise ValueError(
-            "Legacy find-and-replace fields are no longer supported; "
-            "use ordered text_steps"
-        )
+    if set(transform_payload) != set(asdict(ScalarTransformPolicy())):
+        raise ValueError("Scalar transform fields do not match the current contract")
     validation_payload = payload.get("validation", {})
     if not isinstance(validation_payload, Mapping):
         raise ValueError("Scalar validation policy must be an object")
+    if set(validation_payload) != set(asdict(ScalarValidationPolicy())):
+        raise ValueError("Scalar validation fields do not match the current contract")
     return ScalarFieldMapping(
         target_field=str(payload.get("target_field", "")),
         source_column_key=(

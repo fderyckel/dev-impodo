@@ -200,7 +200,7 @@ class CoverageScopeRevision:
     def from_dict(cls, payload: Mapping[str, Any]) -> "CoverageScopeRevision":
         actor = dict(payload["approved_by"])
         result = cls(
-            contract_version=int(payload.get("contract_version", 0)),
+            contract_version=int(payload["contract_version"]),
             scope_id=str(payload["scope_id"]),
             project_id=str(payload["project_id"]),
             version=int(payload["version"]),
@@ -349,7 +349,7 @@ class ReferenceDataSet:
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ReferenceDataSet":
         result = cls(
-            contract_version=int(payload.get("contract_version", 0)),
+            contract_version=int(payload["contract_version"]),
             reference_id=str(payload["reference_id"]),
             version=int(payload["version"]),
             name=str(payload["name"]),
@@ -410,7 +410,7 @@ class ReferenceBundle:
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ReferenceBundle":
         result = cls(
-            contract_version=int(payload.get("contract_version", 0)),
+            contract_version=int(payload["contract_version"]),
             project_id=str(payload["project_id"]),
             datasets=tuple(
                 ReferenceDataSet.from_dict(item)

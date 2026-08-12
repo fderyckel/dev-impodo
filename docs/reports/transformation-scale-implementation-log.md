@@ -24,6 +24,16 @@ fixture-byte, count, semantic-hash, platform, or runtime drift. Use:
   --compare-to .tmp/transformation-scale-instrumented-baseline-products-100k.json
 ```
 
+For the related reference shape, use the paired same-code control. It runs the
+materialized and set-based routes in separate fresh processes and refuses a
+staging-hash or semantic-summary difference:
+
+```bash
+.venv/bin/python scripts/benchmark_relationships.py \
+  --runs 3 --products 16000 --bom-lines 80000 --batch-size 5000 \
+  --output .tmp/transformation-scale-phase5-product-bom-96k-final.json
+```
+
 Python traced allocations must be measured in a separate run with
 `--trace-python-allocations`, because `tracemalloc` changes CPU and memory
 behavior.
@@ -117,7 +127,7 @@ allocator, database, and engine memory; it is not evidence of a Python leak.
 | Phase 2: prepared values plus narrow index | Complete for direct native datasets | Canonical row JSON 223,966,700 → 0 chars; peak RSS -20.63%, DB used -39.80%; CPU regression is assigned to Phase 3/4 repeated projectors |
 | Phase 3: sparse multi-dataset quality | Complete for direct native datasets | 5 → 2 prepared-value scans; clean quality/accounting physical rows 200,000 → 0; exact logical hashes retained |
 | Phase 4: construct normalization once | Complete for direct native datasets | 152,000 → 76,000 effect constructions on the 4,000×19 fixture; CPU -3.19%, peak RSS -13.03%, DB used -4.21%; exact hashes retained |
-| Phase 5: set-based product/BOM relationships | Not started | Pending B5 comparison |
+| Phase 5: set-based product/BOM relationships | Complete for direct multi-dataset product/BOM; derived/grouped cardinality changes remain materialized and capped | Peak RSS -45.65%, ending RSS -57.10%; CPU +10.82%, DB used +48.06% for durable edges |
 | Phase 6: conditional transport/hash optimization | Not started | Only if measurements justify it |
 | Phase 7: qualification and limit decision | Not started | Three fresh Windows attempts per fixture |
 
@@ -181,7 +191,7 @@ descriptor to the existing immutable `PreparedSnapshot` and store only the
 canonical row index in DuckDB. Compatibility readers reconstruct the exact
 canonical stream from the SHA-256-verified Parquet artifact. Duplicate identity
 issues are sparse overlay facts; Python-fallback and derived rows retain the
-legacy payload until their own bounded artifact route exists.
+materialized row payload until their own bounded artifact route exists.
 
 | Metric | B0 median | B2 median | Gain |
 | --- | ---: | ---: | ---: |
@@ -332,3 +342,77 @@ Evidence:
 
 - `.tmp/transformation-scale-phase4-effect-heavy-replay-control-4k-final.json`
 - `.tmp/transformation-scale-phase4-effect-heavy-durable-4k-final.json`
+
+## B5 — set-based product/BOM relationships
+
+Captured on 2026-08-12 with the immediate reference shape: 16,000 Products,
+80,000 BOM lines, and one incoming product reference per line. The paired
+control uses the existing complete materialized relationship evaluator. The
+candidate persists normalized relationship edges while rows are ingested,
+classifies them with one set-based parent join, and performs unsafe-parent
+propagation with one recursive DuckDB relation. Both routes use the same
+canonical rows and execute in separate fresh processes.
+
+The timed interval includes bounded canonical ingestion, relationship fact
+construction, finalization, and quality. Project setup is excluded. All six
+processes emitted the same 96,000-row staging hash and the same quality summary:
+96,000 ready rows, zero blocked rows, zero issues, and zero quarantine entries.
+The candidate classified all 80,000 edges as `RESOLVED`.
+
+| Metric | Materialized control | B5 set-based | Gain |
+| --- | ---: | ---: | ---: |
+| CPU | 27.777 s | 30.784 s | **-10.82%** |
+| Wall time | 27.988 s | 31.093 s | **-11.09%** |
+| Peak RSS | 796.281 MiB | 432.766 MiB | **45.65%** (363.516 MiB) |
+| Ending RSS | 749.266 MiB | 321.422 MiB | **57.10%** |
+| DuckDB file | 141.512 MiB | 169.512 MiB | **-19.79%** (+28.000 MiB) |
+| DuckDB used pages | 96.750 MiB | 143.250 MiB | **-48.06%** (+46.500 MiB) |
+
+This is an intentional memory-for-durable-evidence trade-off, not a claim that
+every metric improved. The 363.516 MiB median peak reduction creates the needed
+headroom below the 900 MiB worker gate. The 3.006 CPU-second regression and
+46.500 MiB of used pages buy explicit, auditable `UNIQUE`, `MISSING`,
+`DUPLICATE`, `RESOLVED`, `AMBIGUOUS`, and `UNSAFE_PARENT` states plus bounded
+dependency propagation. Phase 6 may benchmark the edge transport and physical
+encoding, but must not remove those semantics merely to recover space.
+
+Bounded parity tests cover unique, missing, duplicate/ambiguous, fan-out, a
+three-level unsafe chain, and a safe cycle. The exact materialized quality JSON
+is preserved for blocking and warning relationship policies. Relationship-key
+normalization is compiled into the same Polars program as scalar and identity
+work, then reused to construct the incoming reference; quality invokes the
+set-based relationship pass once regardless of edge count. Its regression test
+locks that pass to nine fixed SQL statements for populated initial-unsafe and
+propagation inputs; edge count cannot add a query. No Odoo call occurs in
+transformation or relationship resolution.
+
+This completes the direct multi-dataset product/BOM slice of Phase 5. It does
+not raise the limit for `DerivedEntityPlan`, related source splits, structural
+joins, unions, or group aggregates where output cardinality or lineage changes.
+Those cases still fail high-volume admission into the existing materialized
+route. Their hybrid value-artifact and multi-source-lineage work remains a
+separate Phase 5 continuation rather than being misreported as supported.
+
+The stable row IDs, canonical references, lineage bindings, and staging hash
+remain unchanged, so a later Impodo transformation and repeat Odoo export can
+still match and update the same rows. Odoo comparison and writing remain later
+stages and are not part of this benchmark.
+
+Evidence:
+
+- `.tmp/transformation-scale-phase5-product-bom-96k-final.json`
+
+### Cross-thread compatibility and validation
+
+The concurrent Odoo-source refactor was audited before and after B5. Its
+current-only project/source contracts do not reintroduce a materialized
+relationship path or weaken frozen source/prepared-snapshot verification. B5
+therefore starts a new exact DuckDB schema generation rather than assuming an
+upgrade from databases created by the earlier generation. This follows that
+refactor's fail-closed current-schema policy.
+
+The final combined worktree passes 535 discovered unit/integration tests; 13
+existing live or scale probes remain opt-in and were skipped. The Phase-5
+Python files pass Ruff, `git diff --check` passes, relationship parity passes
+across Polars batch sizes, and the three-pair 96,000-row benchmark passes its
+staging-hash and semantic-summary equality guards.

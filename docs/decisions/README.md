@@ -191,3 +191,56 @@ assumptions.
   remain separate delivery and security milestones;
 - contract tests must run against each future repository, artifact, identity,
   authorization, and job adapter.
+
+## ADR-009 — Odoo source round trips are target-bound and update-only
+
+**Status:** Accepted
+
+**Decision:** An Odoo-source row may round-trip only to the same configured
+target and original protected record identity. Missing records block; there is
+no business-key or create fallback. Numeric IDs remain in separately authorized
+protected evidence and never enter portable mappings, rows, reports, or
+execution snapshots.
+
+**Consequences:**
+
+- source capture, preparation, comparison, and execution bind one policy hash;
+- refresh creates new evidence and invalidates dependent current pointers;
+- the current file and Odoo source representations have no compatibility
+  decoder or database upgrade path.
+
+## ADR-010 — Native JSON-2 production writes are unsupported
+
+**Status:** Accepted
+
+**Decision:** The current native Odoo 19 JSON-2 profile provides
+connection-only identity assurance. Endpoint, mode, and database name cannot
+distinguish a restored or cloned database, and independent JSON-2 read/write
+requests cannot implement Impodo's required atomic compare-and-write
+transaction. The executable policy therefore records
+`PRODUCTION_WRITE_UNSUPPORTED`.
+
+**Consequences:**
+
+- bounded read-only Odoo-source capture may proceed;
+- existing write support remains explicitly disposable-target capability;
+- production enablement requires a new current architecture with strong
+  instance identity and one server-side atomic operation, not a hidden fallback.
+
+## ADR-011 — Odoo IDs and captured business values are restricted evidence
+
+**Status:** Accepted
+
+**Decision:** Protected Odoo-source evidence is classified
+`RESTRICTED_TARGET_EVIDENCE`. Application-level encryption is required before
+row-origin or captured-value persistence is implemented. It is excluded from
+backups unless explicitly approved and is deleted on project deletion or
+retention expiry.
+
+**Consequences:**
+
+- full-disk encryption alone is insufficient for the future protected store;
+- row capture cannot persist protected values before the encrypted repository
+  slice passes its authorization, retention, quota, backup, and deletion gates;
+- credential removal produces actor-bound, non-secret registry receipts that
+  survive project deletion.

@@ -8,7 +8,7 @@ from impodo.catalog import TargetCatalog
 from impodo.connectors import SnapshotConnector
 from impodo.domain.compiler import compile_profile_document
 from impodo.metadata import validate_plan_metadata
-from impodo.models import FieldMetadata, ModelMetadata, TargetRecord
+from impodo.models import TargetRecord
 from impodo.planner import plan_metadata_requests
 from impodo.profile import load_profile
 

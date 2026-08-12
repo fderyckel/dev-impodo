@@ -9,7 +9,7 @@ identities and source trace IDs, never environment-local numeric Odoo IDs.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields as dataclass_fields
 from datetime import datetime, timezone
 import json
 from typing import Mapping
@@ -120,6 +120,10 @@ class ReadinessReport:
     rows: tuple[ReadinessRow, ...]
     contract_version: int = READINESS_CONTRACT_VERSION
 
+    def __post_init__(self) -> None:
+        if self.contract_version != READINESS_CONTRACT_VERSION:
+            raise ValueError("Readiness report contract version is unsupported")
+
     @property
     def ready_count(self) -> int:
         """Count rows ready for a future import-plan decision."""
@@ -198,12 +202,14 @@ class ReadinessReport:
 
     @classmethod
     def from_json(cls, value: str) -> "ReadinessReport":
-        """Load a supported report contract, including legacy versions."""
+        """Load the exact current report contract."""
 
         payload = json.loads(value)
-        contract_version = int(payload.get("contract_version", 0))
-        if contract_version not in {3, 4, READINESS_CONTRACT_VERSION}:
-            raise ValueError("Readiness report contract version is unsupported")
+        _require_dataclass_fields(payload, ReadinessReport, "readiness report")
+        for item in payload["datasets"]:
+            _require_dataclass_fields(item, ReadinessDataset, "readiness dataset")
+        for item in payload["rows"]:
+            _require_dataclass_fields(item, ReadinessRow, "readiness row")
         return cls(
             run_id=str(payload["run_id"]),
             project_id=str(payload["project_id"]),
@@ -214,38 +220,44 @@ class ReadinessReport:
             staging_content_hash=str(payload["staging_content_hash"]),
             quality_run_id=str(payload["quality_run_id"]),
             quality_content_hash=str(payload["quality_content_hash"]),
-            normalization_run_id=str(payload.get("normalization_run_id", "")),
-            normalization_content_hash=str(
-                payload.get("normalization_content_hash", "")
-            ),
+            normalization_run_id=str(payload["normalization_run_id"]),
+            normalization_content_hash=str(payload["normalization_content_hash"]),
             normalization_lifecycle_version=int(
-                payload.get("normalization_lifecycle_version", 0)
+                payload["normalization_lifecycle_version"]
             ),
-            eligible_dataset_hash=str(payload.get("eligible_dataset_hash", "")),
-            frozen_input_hash=str(payload.get("frozen_input_hash", "")),
-            requirement_plan_hash=str(payload.get("requirement_plan_hash", "")),
-            metadata_snapshot_hash=str(payload.get("metadata_snapshot_hash", "")),
-            record_snapshot_hash=str(payload.get("record_snapshot_hash", "")),
-            result_hash=str(payload.get("result_hash", "")),
-            manifest_hash=str(payload.get("manifest_hash", "")),
+            eligible_dataset_hash=str(payload["eligible_dataset_hash"]),
+            frozen_input_hash=str(payload["frozen_input_hash"]),
+            requirement_plan_hash=str(payload["requirement_plan_hash"]),
+            metadata_snapshot_hash=str(payload["metadata_snapshot_hash"]),
+            record_snapshot_hash=str(payload["record_snapshot_hash"]),
+            result_hash=str(payload["result_hash"]),
+            manifest_hash=str(payload["manifest_hash"]),
             target_hash=str(payload["target_hash"]),
-            target_database=str(payload.get("target_database", "")),
-            target_odoo_version=str(payload.get("target_odoo_version", "")),
-            target_snapshot_at=str(payload.get("target_snapshot_at", "")),
+            target_database=str(payload["target_database"]),
+            target_odoo_version=str(payload["target_odoo_version"]),
+            target_snapshot_at=str(payload["target_snapshot_at"]),
             target_module_versions={
                 str(key): str(item)
-                for key, item in dict(
-                    payload.get("target_module_versions", {})
-                ).items()
+                for key, item in dict(payload["target_module_versions"]).items()
             },
             checked_at=datetime.fromisoformat(str(payload["checked_at"])),
             checked_by=str(payload["checked_by"]),
             datasets=tuple(
-                ReadinessDataset(**item) for item in payload.get("datasets", ())
+                ReadinessDataset(**item) for item in payload["datasets"]
             ),
-            rows=tuple(ReadinessRow(**item) for item in payload.get("rows", ())),
-            contract_version=contract_version,
+            rows=tuple(ReadinessRow(**item) for item in payload["rows"]),
+            contract_version=int(payload["contract_version"]),
         )
+
+
+def _require_dataclass_fields(
+    payload: object,
+    contract: type[object],
+    label: str,
+) -> None:
+    expected = {item.name for item in dataclass_fields(contract)}
+    if not isinstance(payload, dict) or set(payload) != expected:
+        raise ValueError(f"Stored {label} does not match the current contract")
 
 
 def _readiness_report(

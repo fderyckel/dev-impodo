@@ -428,7 +428,7 @@ def build_bounded_normalization_evaluation(
                 )
             )
     else:
-        # Small-fixture compatibility oracle. Admitted direct runs always use
+        # Small-fixture semantic oracle. Admitted direct runs always use
         # the durable branch above and never allocate these whole-run sets.
         effects = effect_factory
         accumulators: dict[str, _GroupAccumulator] = {}

@@ -49,6 +49,7 @@ from impodo.workspace_contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
+from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from impodo.workspace_errors import WorkspaceError
 from impodo.web.presenters.mapping_view import _mapping_dataset_views
 
@@ -252,7 +253,7 @@ class DerivedEntityPreviewTests(unittest.TestCase):
         effective = mapping_source_selection(selection, plan, (catalog,))
         schema = OdooSchemaCatalog(
             project_id=selection.project_id,
-            target_hash="sha256:" + "1" * 64,
+            policy_hash=CURRENT_ODOO_SOURCE_POLICY.content_hash,
             captured_at=datetime.now(timezone.utc),
             captured_by="Test operator",
             connection_mode="LOCAL",
@@ -378,7 +379,7 @@ class DerivedEntityPreviewTests(unittest.TestCase):
 
         schema = OdooSchemaCatalog(
             project_id=selection.project_id,
-            target_hash="sha256:" + "1" * 64,
+            policy_hash=CURRENT_ODOO_SOURCE_POLICY.content_hash,
             captured_at=datetime.now(timezone.utc),
             captured_by="Test operator",
             connection_mode="LOCAL",

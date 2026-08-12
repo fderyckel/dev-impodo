@@ -15,7 +15,7 @@ HASH = "sha256:" + "a" * 64
 class PracticalPreparationPathTests(unittest.TestCase):
     """Keep Slice 6 facilities optional for an ordinary preparation run."""
 
-    def test_missing_advanced_inputs_produce_the_legacy_pass_through_path(self) -> None:
+    def test_missing_advanced_inputs_produce_the_direct_pass_through_path(self) -> None:
         repository = Mock()
         repository.get_validated_reference_bundle.return_value = None
         repository.get_resolution_policy.return_value = None
