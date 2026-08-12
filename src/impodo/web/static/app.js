@@ -1896,7 +1896,7 @@ document.addEventListener("DOMContentLoaded", () => {
       localStackEntry.hidden = !localMode;
     }
     for (const entry of apiKeyEntries) {
-      entry.hidden = localMode;
+      entry.hidden = localMode && entry.dataset.showLocal !== "true";
     }
     if (remoteConnectionStatus) {
       remoteConnectionStatus.hidden = localMode;
@@ -3132,6 +3132,90 @@ document.addEventListener("DOMContentLoaded", () => {
     if (statusUrl) {
       pollPreparation();
     }
+    window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
+  }
+
+  const odooCaptureJob = document.querySelector("[data-odoo-capture-job]");
+  if (odooCaptureJob) {
+    const statusUrl = odooCaptureJob.dataset.statusUrl;
+    const state = odooCaptureJob.querySelector("[data-odoo-capture-state]");
+    const message = odooCaptureJob.querySelector("[data-odoo-capture-message]");
+    const progress = odooCaptureJob.querySelector("[data-odoo-capture-progress]");
+    const percent = odooCaptureJob.querySelector("[data-odoo-capture-percent]");
+    const rows = odooCaptureJob.querySelector("[data-odoo-capture-rows]");
+    const accounting = odooCaptureJob.querySelector("[data-odoo-capture-accounting]");
+    const spinner = odooCaptureJob.querySelector("[data-odoo-capture-spinner]");
+    const activeActions = odooCaptureJob.querySelector("[data-odoo-capture-active]");
+    const cancelButton = odooCaptureJob.querySelector("[data-odoo-capture-cancel]");
+    const failed = odooCaptureJob.querySelector("[data-odoo-capture-failed]");
+    const failure = odooCaptureJob.querySelector("[data-odoo-capture-failure]");
+    const cancelled = odooCaptureJob.querySelector("[data-odoo-capture-cancelled]");
+    const complete = odooCaptureJob.querySelector("[data-odoo-capture-complete]");
+    const continueLink = odooCaptureJob.querySelector("[data-odoo-capture-continue]");
+    let pollTimer;
+
+    const showCaptureStatus = (job) => {
+      const active = job.status === "QUEUED" || job.status === "RUNNING";
+      if (message) message.textContent = job.message;
+      if (progress) progress.value = job.progress_percent;
+      if (percent) percent.textContent = `${job.progress_percent}%`;
+      if (rows) {
+        rows.textContent = job.completed_rows
+          ? `${Number(job.completed_rows).toLocaleString()} records read`
+          : "No record page completed yet";
+      }
+      if (accounting) {
+        accounting.textContent = `${Number(job.page_count).toLocaleString()} page(s) · ${Number(job.response_bytes).toLocaleString()} response bytes · ${Number(job.normalized_bytes).toLocaleString()} normalized bytes`;
+      }
+      if (spinner) spinner.hidden = !active;
+      if (activeActions) activeActions.hidden = !active;
+      if (cancelButton && job.cancel_requested) {
+        cancelButton.disabled = true;
+        cancelButton.textContent = "Stopping safely…";
+      }
+      if (state) {
+        state.classList.remove("ready", "review", "blocked");
+        state.textContent = active
+          ? "In progress"
+          : job.status === "SUCCEEDED"
+            ? "Frozen"
+            : job.status === "FAILED"
+              ? "Could not finish"
+              : "Stopped";
+        state.classList.add(
+          active ? "review" : job.status === "SUCCEEDED" ? "ready" : "blocked"
+        );
+      }
+      if (job.status === "FAILED") {
+        if (failed) failed.hidden = false;
+        if (failure) failure.textContent = job.failure_message;
+      } else if (job.status === "CANCELLED") {
+        if (cancelled) cancelled.hidden = false;
+      } else if (job.status === "SUCCEEDED") {
+        if (complete) complete.hidden = false;
+        if (continueLink && job.redirect_url) continueLink.href = job.redirect_url;
+        if (job.redirect_url) window.location.assign(job.redirect_url);
+      }
+      return active;
+    };
+
+    const pollOdooCapture = async () => {
+      try {
+        const response = await fetch(statusUrl, {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error("Capture progress is temporarily unavailable");
+        if (showCaptureStatus(await response.json())) {
+          pollTimer = window.setTimeout(pollOdooCapture, 750);
+        }
+      } catch {
+        if (message) message.textContent = "Reconnecting to capture…";
+        pollTimer = window.setTimeout(pollOdooCapture, 1500);
+      }
+    };
+
+    if (statusUrl) pollOdooCapture();
     window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
   }
 

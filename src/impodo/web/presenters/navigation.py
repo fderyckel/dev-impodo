@@ -95,6 +95,10 @@ _TEMPLATE_LOCATION = {
         "source",
         "Define bounded Odoo capture",
     ),
+    "project_odoo_capture_progress.html": (
+        "source",
+        "Freeze Odoo records",
+    ),
     "project_datasets.html": ("source", "Choose tables"),
     "project_derived_entities.html": (
         "source",
@@ -163,6 +167,12 @@ def build_project_navigation(
             if schema is not None
             else None
         )
+        try:
+            frozen_source = context.queries.get_source_selection(
+                current_project.project_id
+            )
+        except WorkspaceError:
+            frozen_source = None
         stages = [
             _stage(
                 current_project.project_id,
@@ -200,14 +210,16 @@ def build_project_navigation(
                 ),
                 status=(
                     "complete"
-                    if capture_selection is not None
+                    if frozen_source is not None
                     else ("current" if schema is not None else "locked")
                 ),
                 status_label=(
-                    "Capture plan saved"
-                    if capture_selection is not None
+                    "Frozen"
+                    if frozen_source is not None
                     else (
-                        "Define capture plan"
+                        "Ready to freeze"
+                        if capture_selection is not None
+                        else "Define capture plan"
                         if schema is not None
                         else "Capture Odoo fields first"
                     )
@@ -219,6 +231,13 @@ def build_project_navigation(
                         "Define bounded capture",
                         "/sources",
                         complete=capture_selection is not None,
+                    ),
+                    _page(
+                        current_project.project_id,
+                        "odoo-capture",
+                        "Freeze Odoo records",
+                        "/sources#current-capture",
+                        complete=frozen_source is not None,
                     ),
                 ) if schema is not None else (),
             ),
@@ -644,7 +663,10 @@ def _navigation(
             for stage in stages
             if stage.status in {"current", "attention"}
         ),
-        stages[-1],
+        next(
+            (stage for stage in reversed(stages) if stage.available),
+            stages[-1],
+        ),
     )
     active_stages = tuple(
         replace(

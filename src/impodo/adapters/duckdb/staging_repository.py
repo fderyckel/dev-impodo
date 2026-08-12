@@ -32,7 +32,6 @@ from ...staging_contracts import (
     CanonicalStagingRun,
     StagingDatasetReconciliation,
     StagingReconciliation,
-    validate_canonical_row_bindings,
 )
 from ...workspace_contracts import SourceSelection
 from ...workspace_errors import WorkspaceError
@@ -40,9 +39,6 @@ from ...domain.serialization import CanonicalJsonObjectHasher
 from ...domain.staging.preparation_session import StoredCanonicalStagingRun
 from .preparation_session_repository import PreparationSessionRepository
 from .repository import DuckDbRepository
-
-
-
 
 
 from .serialization import _canonical_json, _columnar_parameters
@@ -242,35 +238,32 @@ class StagingRepository(DuckDbRepository):
                               NULL, NULL, NULL)
                         """,
                         [
-                        run_id,
-                        run_content_hash,
-                        run.mapping_id,
-                        mapping_version,
-                        run.physical_selection_hash,
-                        run.source_selection_hash,
-                        run.mapping_hash,
-                        run.schema_hash,
-                        run.derived_plan_hash,
-                        run.compiled_plan_hash,
-                        run.contract_version,
-                        run.evaluator_version,
-                        StagingRunStatus.PUBLISHED.value,
-                        published_at.isoformat(),
-                        actor.identity.display_name,
-                        len(run.rows),
-                        _canonical_json(
-                            [item.to_portable_dict() for item in run.issues]
-                        ),
-                        _canonical_json(run.reconciliation.to_portable_dict()),
-                        _canonical_json(
-                            [item.to_portable_dict() for item in run.datasets]
-                        ),
-                        _canonical_json(
-                            [
-                                item.to_portable_dict()
-                                for item in run.control_totals
-                            ]
-                        ),
+                            run_id,
+                            run_content_hash,
+                            run.mapping_id,
+                            mapping_version,
+                            run.physical_selection_hash,
+                            run.source_selection_hash,
+                            run.mapping_hash,
+                            run.schema_hash,
+                            run.derived_plan_hash,
+                            run.compiled_plan_hash,
+                            run.contract_version,
+                            run.evaluator_version,
+                            StagingRunStatus.PUBLISHED.value,
+                            published_at.isoformat(),
+                            actor.identity.display_name,
+                            len(run.rows),
+                            _canonical_json(
+                                [item.to_portable_dict() for item in run.issues]
+                            ),
+                            _canonical_json(run.reconciliation.to_portable_dict()),
+                            _canonical_json(
+                                [item.to_portable_dict() for item in run.datasets]
+                            ),
+                            _canonical_json(
+                                [item.to_portable_dict() for item in run.control_totals]
+                            ),
                         ],
                     )
                 stored_count = connection.execute(
@@ -381,16 +374,10 @@ class StagingRepository(DuckDbRepository):
             run.contract_version,
             run.evaluator_version,
             len(run.rows),
-            _canonical_json(
-                [item.to_portable_dict() for item in run.issues]
-            ),
+            _canonical_json([item.to_portable_dict() for item in run.issues]),
             _canonical_json(run.reconciliation.to_portable_dict()),
-            _canonical_json(
-                [item.to_portable_dict() for item in run.datasets]
-            ),
-            _canonical_json(
-                [item.to_portable_dict() for item in run.control_totals]
-            ),
+            _canonical_json([item.to_portable_dict() for item in run.datasets]),
+            _canonical_json([item.to_portable_dict() for item in run.control_totals]),
         )
         actual = (
             str(header[1]),
@@ -410,9 +397,7 @@ class StagingRepository(DuckDbRepository):
             str(header[16]),
         )
         if actual != expected:
-            raise WorkspaceError(
-                "Pending prepared-data evidence is inconsistent"
-            )
+            raise WorkspaceError("Pending prepared-data evidence is inconsistent")
         stored = connection.execute(
             """
             SELECT COUNT(*), COUNT(DISTINCT ordinal),
@@ -435,10 +420,9 @@ class StagingRepository(DuckDbRepository):
         if not content_hash.startswith("sha256:") or len(content_hash) != 71:
             raise WorkspaceError("Pending prepared-data hash is invalid")
         if run.validated_content_hash != content_hash:
-            raise WorkspaceError(
-                "Pending prepared-data hash changed unexpectedly"
-            )
+            raise WorkspaceError("Pending prepared-data hash changed unexpectedly")
         return content_hash
+
     def get_current_staging_summary(
         self,
         project_id: str,
@@ -466,6 +450,7 @@ class StagingRepository(DuckDbRepository):
                 """
             ).fetchone()
         return self._staging_summary(project_id, row) if row else None
+
     def get_canonical_staging_run(
         self,
         project_id: str,
@@ -587,9 +572,7 @@ class StagingRepository(DuckDbRepository):
                     encoded_row = str(row_text)
                     hasher.add_encoded_array_item(encoded_row)
                     try:
-                        rows.append(
-                            CanonicalRow.from_dict(json.loads(encoded_row))
-                        )
+                        rows.append(CanonicalRow.from_dict(json.loads(encoded_row)))
                     except (TypeError, ValueError) as error:
                         raise WorkspaceError(
                             "Stored prepared-data row evidence is invalid"
@@ -612,12 +595,8 @@ class StagingRepository(DuckDbRepository):
                 compiled_plan_hash=str(header[7]) if header[7] else None,
                 contract_version=contract_version,
                 evaluator_version=evaluator_version,
-                issues=tuple(
-                    CanonicalIssue.from_dict(item) for item in issues_payload
-                ),
-                reconciliation=StagingReconciliation.from_dict(
-                    reconciliation_payload
-                ),
+                issues=tuple(CanonicalIssue.from_dict(item) for item in issues_payload),
+                reconciliation=StagingReconciliation.from_dict(reconciliation_payload),
                 datasets=tuple(
                     StagingDatasetReconciliation.from_dict(item)
                     for item in datasets_payload
@@ -630,6 +609,7 @@ class StagingRepository(DuckDbRepository):
             )
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Stored prepared-data evidence is invalid") from error
+
     @staticmethod
     def _insert_canonical_rows(
         connection: duckdb.DuckDBPyConnection,
@@ -677,40 +657,27 @@ class StagingRepository(DuckDbRepository):
                         raise WorkspaceError(
                             "Stored preparation rows are not contiguous"
                         )
-                    try:
-                        row = CanonicalRow.from_dict(json.loads(str(row_json)))
-                        validate_canonical_row_bindings(
-                            row,
-                            source_selection_hash=run.source_selection_hash,
-                            mapping_hash=run.mapping_hash,
-                            schema_hash=run.schema_hash,
-                            derived_plan_hash=run.derived_plan_hash,
-                        )
-                    except (TypeError, ValueError) as error:
-                        raise WorkspaceError(
-                            "Stored preparation row is invalid"
-                        ) from error
+                    encoded = str(row_json)
                     if (
-                        row.row_id != str(row_id)
-                        or row.dataset != str(dataset)
-                        or row.source_row != int(source_row)
-                        or row.target_model != str(target_model)
-                        or row.disposition.value != str(disposition)
+                        not encoded
+                        or not str(row_id)
+                        or not str(dataset)
+                        or int(source_row) < 1
+                        or not str(target_model)
                     ):
                         raise WorkspaceError(
                             "Stored preparation row metadata is inconsistent"
                         )
-                    encoded = str(row_json)
                     hasher.add_encoded_array_item(encoded)
                     values.append(
                         [
                             run_id,
                             expected_ordinal,
-                            row.row_id,
-                            row.dataset,
-                            row.source_row,
-                            row.target_model,
-                            row.disposition.value,
+                            str(row_id),
+                            str(dataset),
+                            int(source_row),
+                            str(target_model),
+                            str(disposition),
                             encoded,
                         ]
                     )
@@ -739,16 +706,18 @@ class StagingRepository(DuckDbRepository):
             for offset, row in enumerate(batch):
                 row_json = _canonical_json(row.to_portable_dict())
                 hasher.add_encoded_array_item(row_json)
-                values.append([
-                    run_id,
-                    start + offset,
-                    row.row_id,
-                    row.dataset,
-                    row.source_row,
-                    row.target_model,
-                    row.disposition.value,
-                    row_json,
-                ])
+                values.append(
+                    [
+                        run_id,
+                        start + offset,
+                        row.row_id,
+                        row.dataset,
+                        row.source_row,
+                        row.target_model,
+                        row.disposition.value,
+                        row_json,
+                    ]
+                )
             connection.execute(
                 """
                 INSERT INTO canonical_staging_row (
@@ -765,6 +734,7 @@ class StagingRepository(DuckDbRepository):
         hasher.add_value("schema_hash", run.schema_hash)
         hasher.add_value("source_selection_hash", run.source_selection_hash)
         return hasher.finish()
+
     @staticmethod
     def _staging_summary(
         project_id: str,
@@ -787,9 +757,7 @@ class StagingRepository(DuckDbRepository):
             status=StagingRunStatus(str(row[6])),
             published_at=datetime.fromisoformat(str(row[7])),
             published_by=str(row[8]),
-            reconciliation=StagingReconciliation.from_dict(
-                json.loads(str(row[9]))
-            ),
+            reconciliation=StagingReconciliation.from_dict(json.loads(str(row[9]))),
             datasets=tuple(
                 StagingDatasetReconciliation.from_dict(item)
                 for item in json.loads(str(row[10]))

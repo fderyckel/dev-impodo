@@ -59,15 +59,15 @@
             placeholder="For example: odoo19_migration"
             value="{{ project.odoo_database or local_stack.database_hint }}">
         </label>
-        <label data-api-key-entry
-          {% if not project.odoo_connection_mode or project.odoo_connection_mode.value != "REMOTE" %}hidden{% endif %}>
-          Read-only access key from your administrator
+        <label data-api-key-entry data-show-local="{{ 'true' if project.source_mode.value == 'ODOO' else 'false' }}"
+          {% if project.odoo_connection_mode and project.odoo_connection_mode.value == "LOCAL" and project.source_mode.value != "ODOO" %}hidden{% endif %}>
+          Read-only Odoo API key from your administrator
           <input type="password" name="read_api_key" autocomplete="off">
-          <small>Used only for target checks, metadata, and preflight reads. It is never used to load data and is not placed in the project data.</small>
+          <small>{% if project.source_mode.value == 'ODOO' %}Required to freeze Odoo source records through the governed JSON-2 reader.{% else %}Used only for target checks, metadata, and preflight reads.{% endif %} It is never used to load data and is not placed in the project data.</small>
         </label>
       </div>
-      <label class="checkbox" data-api-key-entry
-        {% if not project.odoo_connection_mode or project.odoo_connection_mode.value != "REMOTE" %}hidden{% endif %}>
+      <label class="checkbox" data-api-key-entry data-show-local="{{ 'true' if project.source_mode.value == 'ODOO' else 'false' }}"
+        {% if project.odoo_connection_mode and project.odoo_connection_mode.value == "LOCAL" and project.source_mode.value != "ODOO" %}hidden{% endif %}>
         <input type="checkbox" name="remember_read_api_key">
         Remember this read-only key securely on this computer.
       </label>

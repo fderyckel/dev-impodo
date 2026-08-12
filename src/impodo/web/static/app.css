@@ -2666,41 +2666,59 @@ label.model-choice input {
   margin: 0;
 }
 
-.preparation-progress-card {
+.preparation-progress-card,
+.capture-progress-card {
   max-width: 760px;
 }
 
-.preparation-progress-page [hidden] {
+.preparation-progress-page [hidden],
+.capture-progress-page [hidden] {
   display: none !important;
 }
 
 .preparation-progress-heading,
 .preparation-progress-numbers,
-.preparation-progress-actions {
+.preparation-progress-actions,
+.capture-progress-heading,
+.capture-progress-numbers,
+.capture-progress-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
 }
 
-.preparation-progress-card progress {
+.preparation-progress-card progress,
+.capture-progress-card progress {
   width: 100%;
   height: 1rem;
   margin: 1.2rem 0 .55rem;
   accent-color: var(--impodo-red);
 }
 
-.preparation-progress-numbers {
+.preparation-progress-numbers,
+.capture-progress-numbers {
   margin-bottom: 1rem;
 }
 
-.preparation-progress-actions {
+.preparation-progress-actions,
+.capture-progress-actions {
   justify-content: flex-start;
   margin: 1rem 0;
 }
 
-.preparation-progress-actions form {
+.preparation-progress-actions form,
+.capture-progress-actions form {
   margin: 0;
+}
+
+.capture-confirmation {
+  margin: 1rem 0;
+}
+
+.capture-history-list {
+  display: grid;
+  gap: .65rem;
 }
 
 .optional-workflow {
@@ -3417,6 +3435,18 @@ a.impact-card:focus-visible,
   }
 
   .actions .button {
+    width: 100%;
+  }
+
+  .capture-progress-heading,
+  .capture-progress-numbers,
+  .capture-progress-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .capture-progress-actions form,
+  .capture-progress-actions .button {
     width: 100%;
   }
 

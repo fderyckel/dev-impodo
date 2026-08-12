@@ -205,19 +205,22 @@ class TransformationImpactIdentity:
     def content_hash(self) -> str:
         """Hash every input/version that determines a reusable snapshot."""
 
-        return "sha256:" + sha256(
-            canonical_json_bytes(
-                {
-                    "physical_selection_hash": self.physical_selection_hash,
-                    "source_selection_hash": self.source_selection_hash,
-                    "mapping_content_hash": self.mapping_content_hash,
-                    "schema_hash": self.schema_hash,
-                    "derived_plan_hash": self.derived_plan_hash,
-                    "contract_version": self.contract_version,
-                    "evaluator_version": self.evaluator_version,
-                }
-            )
-        ).hexdigest()
+        return (
+            "sha256:"
+            + sha256(
+                canonical_json_bytes(
+                    {
+                        "physical_selection_hash": self.physical_selection_hash,
+                        "source_selection_hash": self.source_selection_hash,
+                        "mapping_content_hash": self.mapping_content_hash,
+                        "schema_hash": self.schema_hash,
+                        "derived_plan_hash": self.derived_plan_hash,
+                        "contract_version": self.contract_version,
+                        "evaluator_version": self.evaluator_version,
+                    }
+                )
+            ).hexdigest()
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -457,6 +460,23 @@ class _TransformationImpactCollector:
                 self.sink(impact)
             if len(self.rows) < self.detail_limit:
                 self.rows.append(impact)
+        for rule_impact in rule_impacts:
+            self.record_rule_precomputed(rule_impact)
+
+    def record_persisted_precomputed(
+        self,
+        counts: TransformationImpactCounts,
+        rule_impacts: tuple[TransformationRuleImpact, ...] = (),
+    ) -> None:
+        """Merge facts already persisted by a native set-based projection."""
+
+        self.evaluated_count += counts.evaluated_count
+        self.changed_count += counts.changed_count
+        self.fallback_count += counts.fallback_count
+        self.null_count += counts.null_count
+        self.invalid_count += counts.invalid_count
+        self.provided_count += counts.provided_count
+        self.unchanged_count += counts.unchanged_count
         for rule_impact in rule_impacts:
             self.record_rule_precomputed(rule_impact)
 

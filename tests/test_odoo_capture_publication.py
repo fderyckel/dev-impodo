@@ -30,6 +30,7 @@ from impodo.domain.odoo_source_capture import (
     OdooCaptureValueColumn,
 )
 from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
+from impodo.odoo_capture_jobs import OdooCapturePhase
 from impodo.domain.source_snapshot import SourceSnapshotColumn, SourceSnapshotSchema
 from impodo.models import (
     FieldMetadata,
@@ -193,6 +194,35 @@ class OdooCapturePublicationTests(unittest.TestCase):
         self.assertEqual(gateway.calls, [])
         self.assertIsNone(self.repository.get_current(self.project.project_id))
         self.assertIsNone(self.sources.get_source_selection(self.project.project_id))
+
+    def test_progress_reuses_stream_accounting_without_an_extra_read(self) -> None:
+        gateway = _Gateway(self.schema, self.now)
+        updates = []
+
+        publication = self.service.publish(
+            self.project.project_id,
+            gateway,
+            actor=LOCAL_ACTOR,
+            progress=updates.append,
+        )
+
+        self.assertEqual(
+            tuple(update.phase for update in updates),
+            (
+                OdooCapturePhase.VERIFYING,
+                OdooCapturePhase.READING,
+                OdooCapturePhase.FINALIZING,
+                OdooCapturePhase.PUBLISHING,
+            ),
+        )
+        self.assertEqual(updates[1].completed_rows, 2)
+        self.assertEqual(updates[1].page_count, 1)
+        self.assertEqual(updates[1].response_bytes, 100)
+        self.assertEqual(updates[-1].response_bytes, 102)
+        self.assertEqual(publication.page_count, 1)
+        self.assertEqual(
+            gateway.calls, ["identity", "schema", "open", "identity", "schema"]
+        )
 
     def test_logical_value_root_is_page_size_invariant_for_tier_one_values(
         self,

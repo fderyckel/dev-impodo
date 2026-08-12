@@ -60,6 +60,7 @@ POLARS_TRANSFORMATION_BATCH_ROWS = 1_000
 PREPARED_PARQUET_ROW_GROUP_ROWS = 5_000
 PREPARED_PARQUET_COMPRESSION = "zstd"
 _ISSUE_COLUMN = "__impodo_columnar_issues"
+PREPARED_ORDINAL_COLUMN = "__impodo_prepared_ordinal"
 _ERROR_REQUIRED = "__required__"
 _ERROR_PREPARED_REQUIRED = "__prepared_required__"
 _ERROR_PARSE = "__parse__"
@@ -213,9 +214,7 @@ def iter_polars_prepared_batches(
         parallel="auto",
     ).select(layout.output_columns)
     rule_observations, rule_expressions = (
-        _compile_rule_observations(program, layout)
-        if collect_impacts
-        else ((), ())
+        _compile_rule_observations(program, layout) if collect_impacts else ((), ())
     )
     if rule_expressions:
         lazy = lazy.with_columns(rule_expressions).select(
@@ -266,6 +265,73 @@ def iter_polars_prepared_batches(
         raise SourceLoadError("Prepared source row count is invalid")
 
 
+def summarize_polars_rule_impacts(
+    path: str | Path,
+    prepared_snapshot: PreparedSnapshot,
+    program: ColumnarTransformationProgram,
+) -> tuple[TransformationRuleImpact, ...]:
+    """Aggregate configured rule observations without adapting source rows."""
+
+    _validate_prepared_bindings(prepared_snapshot, None, program)
+    prepared_path = Path(path).resolve()
+    layout = _execution_layout(program)
+    physical_schema_hash = _read_prepared_schema_hash(
+        prepared_path,
+        expected_columns=layout.output_columns,
+    )
+    if physical_schema_hash != prepared_snapshot.physical_schema_hash:
+        raise SourceLoadError("Prepared snapshot physical schema changed")
+    observations, expressions = _compile_rule_observations(program, layout)
+    if not observations:
+        return ()
+    lazy = pl.scan_parquet(
+        prepared_path,
+        glob=False,
+        low_memory=True,
+        rechunk=False,
+        cache=False,
+        parallel="auto",
+    ).with_columns(expressions)
+    aggregate_batches = lazy.select(
+        *(
+            pl.col(alias).sum().alias(alias)
+            for observation in observations
+            for alias in (
+                observation.evaluated_alias,
+                observation.matched_alias,
+                observation.changed_alias,
+            )
+        )
+    ).collect_batches(
+        chunk_size=1,
+        maintain_order=True,
+        engine="streaming",
+    )
+    try:
+        aggregate = next(aggregate_batches)
+    except StopIteration as error:
+        raise SourceLoadError("Prepared rule impact summary is missing") from error
+    try:
+        next(aggregate_batches)
+    except StopIteration:
+        pass
+    else:
+        raise SourceLoadError("Prepared rule impact summary is ambiguous")
+    values = aggregate.row(0, named=True)
+    return tuple(
+        TransformationRuleImpact(
+            dataset_id=observation.rule.dataset_id,
+            target_field=observation.rule.target_field,
+            rule_kind=observation.rule.rule_kind,
+            rule_fingerprint=observation.rule.rule_fingerprint,
+            evaluated_value_count=int(values[observation.evaluated_alias] or 0),
+            matched_value_count=int(values[observation.matched_alias] or 0),
+            changed_value_count=int(values[observation.changed_alias] or 0),
+        )
+        for observation in observations
+    )
+
+
 def _compile_lazy_transformation(
     path: Path,
     program: ColumnarTransformationProgram,
@@ -287,7 +353,7 @@ def _compile_lazy_transformation(
     prepared_expressions: list[pl.Expr] = []
     value_expressions: list[pl.Expr] = []
     scalar_issue_expressions: list[pl.Expr] = []
-    final_columns = list(raw_columns)
+    final_columns = [PREPARED_ORDINAL_COLUMN, *raw_columns]
     scalar_layouts: list[_ScalarLayout] = []
     for index, field in enumerate(program.scalar_fields):
         layout, prepared, value, error = _compile_scalar(index, field)
@@ -311,8 +377,8 @@ def _compile_lazy_transformation(
     target_identity, target_prepared, target_values, target_issues = (
         _compile_identity_group(program.target_identity, "target_identity")
     )
-    target_scope, scope_prepared, scope_values, scope_issues = (
-        _compile_identity_group(program.target_scope, "target_scope")
+    target_scope, scope_prepared, scope_values, scope_issues = _compile_identity_group(
+        program.target_scope, "target_scope"
     )
     relationships, relationship_prepared, relationship_values, relationship_issues = (
         _compile_identity_group(
@@ -362,7 +428,7 @@ def _compile_lazy_transformation(
     )
     final_columns.append(_ISSUE_COLUMN)
     return (
-        lazy.select(final_columns),
+        lazy.with_row_index(PREPARED_ORDINAL_COLUMN).select(final_columns),
         _ExecutionLayout(
             scalars=tuple(scalar_layouts),
             source_identity=source_identity,
@@ -399,7 +465,7 @@ def _execution_layout(
         tuple(item.key for item in program.relationships),
         "relationship",
     )[0]
-    output_columns = [SOURCE_ROW_COLUMN]
+    output_columns = [PREPARED_ORDINAL_COLUMN, SOURCE_ROW_COLUMN]
     for item in program.inputs:
         output_columns.extend(
             (source_value_column(item.ordinal), source_kind_column(item.ordinal))
@@ -480,6 +546,17 @@ def _validate_prepared_physical_file(
             parallel="none",
         ).select(
             pl.len().alias("row_count"),
+            pl.col(PREPARED_ORDINAL_COLUMN)
+            .null_count()
+            .alias("null_prepared_ordinals"),
+            pl.col(PREPARED_ORDINAL_COLUMN)
+            .n_unique()
+            .alias("unique_prepared_ordinals"),
+            pl.col(PREPARED_ORDINAL_COLUMN)
+            .is_sorted()
+            .alias("prepared_ordinals_sorted"),
+            pl.col(PREPARED_ORDINAL_COLUMN).first().alias("first_prepared_ordinal"),
+            pl.col(PREPARED_ORDINAL_COLUMN).last().alias("last_prepared_ordinal"),
             pl.col(SOURCE_ROW_COLUMN).null_count().alias("null_source_rows"),
             pl.col(SOURCE_ROW_COLUMN).n_unique().alias("unique_source_rows"),
             pl.col(SOURCE_ROW_COLUMN).is_sorted().alias("source_rows_sorted"),
@@ -492,9 +569,7 @@ def _validate_prepared_physical_file(
         try:
             frame = next(iterator)
         except StopIteration as error:
-            raise SourceLoadError(
-                "Prepared snapshot accounting is missing"
-            ) from error
+            raise SourceLoadError("Prepared snapshot accounting is missing") from error
         try:
             next(iterator)
         except StopIteration:
@@ -507,10 +582,25 @@ def _validate_prepared_physical_file(
         raise SourceLoadError("Prepared snapshot accounting is unreadable") from error
     if frame.height != 1:
         raise SourceLoadError("Prepared snapshot accounting is invalid")
-    row_count, null_rows, unique_rows, rows_sorted = frame.row(0)
+    (
+        row_count,
+        null_ordinals,
+        unique_ordinals,
+        ordinals_sorted,
+        first_ordinal,
+        last_ordinal,
+        null_rows,
+        unique_rows,
+        rows_sorted,
+    ) = frame.row(0)
     observed = int(row_count)
     if (
         observed != expected_row_count
+        or int(null_ordinals) != 0
+        or int(unique_ordinals) != observed
+        or not bool(ordinals_sorted)
+        or (observed > 0 and int(first_ordinal) != 0)
+        or (observed > 0 and int(last_ordinal) != observed - 1)
         or int(null_rows) != 0
         or int(unique_rows) != observed
         or not bool(rows_sorted)
@@ -589,9 +679,7 @@ def _compile_scalar(
         prepared_column,
         field.conversion_step,
     )
-    error = pl.when(output_too_long).then(
-        pl.lit("SOURCE_RULE_OUTPUT_TOO_LONG")
-    )
+    error = pl.when(output_too_long).then(pl.lit("SOURCE_RULE_OUTPUT_TOO_LONG"))
     if field.required_step is not None:
         error = error.when(prepared_column.is_null()).then(pl.lit(_ERROR_REQUIRED))
     error = error.when(parse_invalid).then(pl.lit(_ERROR_PARSE))
@@ -611,9 +699,7 @@ def _compile_scalar(
         field.required_step is not None
         and field.conversion_step.operation is ColumnarOperationKind.PARSE_STRING
     ):
-        error = error.when(prepared_column == "").then(
-            pl.lit(_ERROR_PREPARED_REQUIRED)
-        )
+        error = error.when(prepared_column == "").then(pl.lit(_ERROR_PREPARED_REQUIRED))
     error = error.otherwise(pl.lit(None, dtype=pl.String))
     return (
         _ScalarLayout(
@@ -743,9 +829,7 @@ def _conversion_expression(
     if operation is ColumnarOperationKind.PARSE_DECIMAL:
         normalized, valid = _decimal_expression(prepared, step.text)
         return (
-            pl.when(valid)
-            .then(normalized)
-            .otherwise(pl.lit(None, dtype=pl.String)),
+            pl.when(valid).then(normalized).otherwise(pl.lit(None, dtype=pl.String)),
             prepared.is_not_null() & ~valid,
         )
     if operation is ColumnarOperationKind.PARSE_BOOLEAN:
@@ -798,9 +882,7 @@ def _decimal_expression(
         "invariant": r"^[+-]?\d+(?:\.\d+)?$",
         "en_US": r"^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$",
         "de_DE": r"^[+-]?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d+)?$",
-        "fr_FR": (
-            r"^[+-]?(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:,\d+)?$"
-        ),
+        "fr_FR": (r"^[+-]?(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:,\d+)?$"),
     }
     if locale not in patterns:
         raise ValueError("Unsupported native decimal locale")
@@ -879,9 +961,7 @@ def _compile_identity_group(
             ColumnarExpressionStep(ColumnarOperationKind.PARSE_STRING),
         )
         text_steps = tuple(
-            step
-            for step in component.normalization_steps
-            if step is not conversion
+            step for step in component.normalization_steps if step is not conversion
         )
         for source_index, source in enumerate(component.source_columns):
             normalized_alias = (
@@ -909,10 +989,7 @@ def _compile_identity_group(
             if value_alias != normalized_alias:
                 value_expressions.append(value.alias(value_alias))
             error = (
-                pl.when(
-                    pl.col(normalized_alias).is_null()
-                    & pl.lit(component.required)
-                )
+                pl.when(pl.col(normalized_alias).is_null() & pl.lit(component.required))
                 .then(pl.lit(_ERROR_REQUIRED))
                 .when(parse_invalid)
                 .then(pl.lit(_ERROR_PARSE))
@@ -1091,9 +1168,7 @@ def _adapt_frame(
                                 "dataset": program.dataset_name,
                                 "source_row": source_row,
                                 "target_model": program.target_model,
-                                "source_identity": portable_value(
-                                    source_identity
-                                ),
+                                "source_identity": portable_value(source_identity),
                             }
                         )
                     ).hexdigest(),
@@ -1144,9 +1219,7 @@ def _adapt_frame(
             provided_count=counts["provided"],
             unchanged_count=counts["unchanged"],
         ),
-        rule_impacts=tuple(
-            rule_impacts[key] for key in sorted(rule_impacts)
-        ),
+        rule_impacts=tuple(rule_impacts[key] for key in sorted(rule_impacts)),
         source_rows=tuple(source_rows),
     )
 
@@ -1265,9 +1338,7 @@ def _compile_rule_observations(
                 continue
             if operation is ColumnarOperationKind.VALIDATE_RULE_OUTPUT_LENGTH:
                 continue
-            raise ValueError(
-                f"Unsupported native text operation {operation.value}"
-            )
+            raise ValueError(f"Unsupported native text operation {operation.value}")
     return tuple(observations), tuple(expressions)
 
 
@@ -1296,15 +1367,9 @@ def _aggregate_rule_observations(
             target_field=observation.rule.target_field,
             rule_kind=observation.rule.rule_kind,
             rule_fingerprint=observation.rule.rule_fingerprint,
-            evaluated_value_count=int(
-                aggregates[observation.evaluated_alias] or 0
-            ),
-            matched_value_count=int(
-                aggregates[observation.matched_alias] or 0
-            ),
-            changed_value_count=int(
-                aggregates[observation.changed_alias] or 0
-            ),
+            evaluated_value_count=int(aggregates[observation.evaluated_alias] or 0),
+            matched_value_count=int(aggregates[observation.matched_alias] or 0),
+            changed_value_count=int(aggregates[observation.changed_alias] or 0),
         )
         for observation in observations
     }
@@ -1535,8 +1600,7 @@ def _scalar_error_messages(
             if item.operation is ColumnarOperationKind.VALIDATE_EXACT_LENGTH
         )
         message = (
-            f"Expected exactly {step.integer} characters; "
-            f"found {len(str(prepared))}"
+            f"Expected exactly {step.integer} characters; found {len(str(prepared))}"
         )
         return error, message, message
     if error == "SOURCE_TEXT_SEGMENT_INVALID":
@@ -1640,8 +1704,7 @@ def _scalar_impact(
     else:
         impact_value_alias = (
             layout.prepared_alias
-            if field.conversion_step.operation
-            is ColumnarOperationKind.PARSE_STRING
+            if field.conversion_step.operation is ColumnarOperationKind.PARSE_STRING
             else layout.value_alias
         )
         proposed = _canonical_adapter_value(
@@ -1652,9 +1715,8 @@ def _scalar_impact(
         message = ""
         if field.provider.operation is ColumnarOperationKind.USE_CONSTANT:
             outcome = "provided"
-        elif (
-            layout.fallback_alias is not None
-            and bool(row[indexes[layout.fallback_alias]])
+        elif layout.fallback_alias is not None and bool(
+            row[indexes[layout.fallback_alias]]
         ):
             outcome = "fallback"
         elif proposed is None and raw[1] != int(SourceCellKind.NULL):
@@ -1709,8 +1771,10 @@ def _source_repr(text: object, kind_value: int) -> str:
 __all__ = [
     "POLARS_TRANSFORMATION_BATCH_ROWS",
     "PREPARED_PARQUET_ROW_GROUP_ROWS",
+    "PREPARED_ORDINAL_COLUMN",
     "ColumnarPreparedSnapshotCandidate",
     "ColumnarTransformationBatch",
     "iter_polars_prepared_batches",
+    "summarize_polars_rule_impacts",
     "write_polars_prepared_snapshot",
 ]

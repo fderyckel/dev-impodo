@@ -14,6 +14,7 @@ from collections import Counter
 from starlette.concurrency import run_in_threadpool
 
 from ..artifacts import ArtifactStoreError
+from ..adapters.odoo_source_capture import Json2OdooSourceCapture
 from ..connectors import (
     Json2Config,
     Json2ReadConnector,
@@ -45,6 +46,24 @@ from .target_credentials import (
     get_target_credential,
     local_read_credential_binding_hash,
 )
+
+
+def _source_capture_reader(
+    project: MigrationProject,
+    api_key: str,
+) -> Json2OdooSourceCapture:
+    """Build the one governed JSON-2 business-record capture adapter."""
+
+    if project.odoo_connection_mode is None:
+        raise ProjectError("Configure the Odoo target before source capture")
+    return Json2OdooSourceCapture(
+        Json2Config(
+            base_url=project.odoo_base_url,
+            database=project.odoo_database,
+            api_key=api_key,
+            connection_mode=project.odoo_connection_mode.value,
+        )
+    )
 
 
 def _test_connection(
@@ -190,7 +209,12 @@ async def _refresh_model_catalog(
     """Refresh persistent model choices through the configured read-only target."""
 
     local_profile = _selected_local_profile(context, project)
-    if local_profile is not None:
+    credential = get_target_credential(
+        context.secret_store,
+        project,
+        TargetCredentialRole.READ,
+    )
+    if local_profile is not None and credential is None:
         snapshot = await run_in_threadpool(
             context.local_odoo_reader.get_model_catalog,
             project,
@@ -199,11 +223,6 @@ async def _refresh_model_catalog(
         read_credential_binding_hash = local_read_credential_binding_hash(project)
         read_identity = None
     else:
-        credential = get_target_credential(
-            context.secret_store,
-            project,
-            TargetCredentialRole.READ,
-        )
         if credential is None:
             raise WorkspaceError(_missing_schema_reader_message(project))
         read_identity = await run_in_threadpool(
@@ -225,7 +244,7 @@ async def _refresh_model_catalog(
         read_identity=read_identity,
         actor=context.actor,
     )
-    if local_profile is not None:
+    if local_profile is not None and credential is None:
         context.local_stack.mark_metadata_ready(
             project.project_id,
             database=catalog.database,

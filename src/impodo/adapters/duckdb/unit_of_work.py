@@ -37,6 +37,7 @@ class DuckDbConnectionFactory:
         memory_limit: str | None = None,
         threads: str | None = None,
         preserve_insertion_order: bool | None = None,
+        enable_external_access: bool | None = None,
     ) -> Iterator[duckdb.DuckDBPyConnection]:
         """Yield one hardened connection and close it on every exit path."""
 
@@ -49,6 +50,8 @@ class DuckDbConnectionFactory:
             config["preserve_insertion_order"] = str(
                 preserve_insertion_order
             ).casefold()
+        if enable_external_access is not None:
+            config["enable_external_access"] = str(enable_external_access).casefold()
         connection = duckdb.connect(str(path), config=config)
         try:
             yield connection

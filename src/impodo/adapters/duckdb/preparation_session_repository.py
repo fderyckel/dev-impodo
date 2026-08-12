@@ -11,6 +11,8 @@ import re
 from typing import overload
 from uuid import UUID, uuid4
 
+import duckdb
+
 from ...access import Actor
 from ..polars_transformation import iter_polars_prepared_batches
 from ...artifacts import ArtifactStore, ArtifactStoreError, LocalArtifactStore
@@ -51,8 +53,17 @@ from ...workspace_errors import WorkspaceError
 from .constants import (
     DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES,
     DUCKDB_JSON_BATCH_MAX_BYTES,
+    NATIVE_PREPARED_PROJECTION_MEMORY_LIMIT,
     PREPARATION_SESSION_MEMORY_LIMIT,
     PREPARATION_SESSION_ROW_BATCH_SIZE,
+    PREPARED_VALUE_PROJECTOR_MEMORY_LIMIT,
+    STAGING_ROW_BATCH_SIZE,
+)
+from .native_prepared_projection import (
+    NativePreparedProjectionResult,
+    append_clean_native_projection,
+    projected_encoded_rows_sql,
+    supports_clean_native_projection,
 )
 from .repository import DuckDbRepository
 from .serialization import (
@@ -63,6 +74,7 @@ from .serialization import (
 
 
 _FAILURE_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+_STAGING_DISPOSITIONS = frozenset(item.value for item in StagingDisposition)
 
 _PREPARATION_IMPACT_JSON_STRUCTURE = """[{
     "ordinal":"BIGINT",
@@ -347,6 +359,17 @@ class PreparationSessionRepository(DuckDbRepository):
             memory_limit=PREPARATION_SESSION_MEMORY_LIMIT,
             threads="1",
             preserve_insertion_order=False,
+        )
+
+    def _connect_prepared(self, path):
+        """Allow only internal hash-verified prepared Parquet scans."""
+
+        return self._database.connection_factory.connect(
+            path,
+            memory_limit=NATIVE_PREPARED_PROJECTION_MEMORY_LIMIT,
+            threads="1",
+            preserve_insertion_order=False,
+            enable_external_access=True,
         )
 
     def begin_direct_session(
@@ -1063,6 +1086,83 @@ class PreparationSessionRepository(DuckDbRepository):
                     ],
                 )
                 connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def append_native_prepared_projection(
+        self,
+        project_id: str,
+        session_id: str,
+        snapshot: PreparedSnapshot,
+        projection: PreparedCanonicalProjection,
+        path,
+        control_fields: tuple[str, ...] = (),
+    ) -> NativePreparedProjectionResult | None:
+        """Project one complete clean native dataset without Python row objects."""
+
+        if not projection.set_based_projection:
+            raise ValueError("Native projection route metadata is required")
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        with self._connect_prepared(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            if not supports_clean_native_projection(
+                connection,
+                path,
+                projection.program,
+                control_fields,
+            ):
+                return None
+
+        self.bind_prepared_canonical_projection(
+            project_id,
+            session_id,
+            snapshot,
+            projection,
+        )
+        canonical_session_id = self._session_id(session_id)
+        with self._connect_prepared(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            connection.begin()
+            try:
+                self._require_status(
+                    connection,
+                    canonical_session_id,
+                    PreparationSessionStatus.BUILDING,
+                )
+                pending = connection.execute(
+                    """
+                    SELECT 1
+                      FROM canonical_staging_run
+                     WHERE run_id = ? AND status = ?
+                    """,
+                    [canonical_session_id, StagingRunStatus.PENDING.value],
+                ).fetchone()
+                if pending is None:
+                    raise WorkspaceError("Direct preparation run is not pending")
+                result = append_clean_native_projection(
+                    connection,
+                    path=path,
+                    session_id=canonical_session_id,
+                    projection=projection,
+                    control_fields=control_fields,
+                )
+                observed = connection.execute(
+                    """
+                    SELECT COUNT(*)
+                      FROM canonical_staging_row
+                     WHERE run_id = ? AND ordinal >= ? AND ordinal < ?
+                    """,
+                    [
+                        canonical_session_id,
+                        projection.ordinal_start,
+                        projection.ordinal_start + projection.row_count,
+                    ],
+                ).fetchone()
+                if observed is None or int(observed[0]) != projection.row_count:
+                    raise WorkspaceError("Native canonical row index is incomplete")
+                connection.commit()
+                return result
             except Exception:
                 connection.rollback()
                 raise
@@ -3121,7 +3221,7 @@ class PreparationSessionRepository(DuckDbRepository):
         for batch in self._iter_direct_encoded_batches(
             project_id,
             run_id,
-            batch_size=PREPARATION_SESSION_ROW_BATCH_SIZE,
+            batch_size=STAGING_ROW_BATCH_SIZE,
         ):
             for (
                 ordinal,
@@ -3136,30 +3236,19 @@ class PreparationSessionRepository(DuckDbRepository):
                     raise WorkspaceError(
                         "Stored direct preparation rows are not contiguous"
                     )
-                encoded = str(row_text)
-                try:
-                    row = CanonicalRow.from_dict(json.loads(encoded))
-                    validate_canonical_row_bindings(
-                        row,
-                        source_selection_hash=(bindings.source_selection_hash),
-                        mapping_hash=bindings.mapping_hash,
-                        schema_hash=bindings.schema_hash,
-                        derived_plan_hash=bindings.derived_plan_hash,
-                    )
-                except (TypeError, ValueError) as error:
-                    raise WorkspaceError(
-                        "Stored direct preparation row is invalid"
-                    ) from error
                 if (
-                    row.row_id != str(row_id)
-                    or row.dataset != str(dataset)
-                    or row.source_row != int(source_row)
-                    or row.target_model != str(target_model)
-                    or row.disposition.value != str(disposition)
+                    not str(row_id)
+                    or not str(dataset)
+                    or int(source_row) < 1
+                    or not str(target_model)
+                    or str(disposition) not in _STAGING_DISPOSITIONS
                 ):
                     raise WorkspaceError(
                         "Stored direct preparation row metadata is inconsistent"
                     )
+                encoded = str(row_text)
+                if not encoded:
+                    raise WorkspaceError("Stored direct preparation row is invalid")
                 hasher.add_encoded_array_item(encoded)
                 expected_ordinal += 1
         hasher.end_array()
@@ -3339,6 +3428,83 @@ class PreparationSessionRepository(DuckDbRepository):
                 expected_sha256=snapshot.parquet_sha256,
             )
             with artifact_context as path:
+                if projection.set_based_projection:
+                    base_disposition = (
+                        StagingDisposition.REFERENCE.value
+                        if projection.mode == "reference"
+                        else StagingDisposition.CANDIDATE.value
+                    )
+                    exception = connection.execute(
+                        """
+                        SELECT 1
+                          FROM canonical_staging_row AS row
+                          LEFT JOIN canonical_staging_row_issue AS issue
+                            ON issue.run_id = row.run_id
+                           AND issue.ordinal = row.ordinal
+                         WHERE row.run_id = ?
+                           AND row.ordinal >= ? AND row.ordinal < ?
+                           AND (row.disposition <> ? OR issue.ordinal IS NOT NULL)
+                         LIMIT 1
+                        """,
+                        [
+                            run_id,
+                            projection.ordinal_start,
+                            projection.ordinal_start + projection.row_count,
+                            base_disposition,
+                        ],
+                    ).fetchone()
+                    if exception is None:
+                        query = projected_encoded_rows_sql(
+                            projection,
+                        )
+                        projection_connection = duckdb.connect(
+                            ":memory:",
+                            config={
+                                "allow_community_extensions": "false",
+                                "autoinstall_known_extensions": "false",
+                                "autoload_known_extensions": "false",
+                                "enable_external_access": "true",
+                                "lock_configuration": "true",
+                                "memory_limit": PREPARED_VALUE_PROJECTOR_MEMORY_LIMIT,
+                                "threads": "1",
+                            },
+                        )
+                        try:
+                            local_offset = 0
+                            while local_offset < projection.row_count:
+                                local_stop = min(
+                                    local_offset + batch_size,
+                                    projection.row_count,
+                                )
+                                start = projection.ordinal_start + local_offset
+                                stop = projection.ordinal_start + local_stop
+                                batch = projection_connection.execute(
+                                    query,
+                                    [str(path), local_offset, local_stop],
+                                ).fetchall()
+                                metadata = connection.execute(
+                                    """
+                                    SELECT ordinal, row_id, dataset, source_row,
+                                           target_model, disposition
+                                      FROM canonical_staging_row
+                                     WHERE run_id = ?
+                                       AND ordinal >= ? AND ordinal < ?
+                                     ORDER BY ordinal
+                                    """,
+                                    [run_id, start, stop],
+                                ).fetchall()
+                                if len(batch) != local_stop - local_offset or tuple(
+                                    row[:6] for row in batch
+                                ) != tuple(metadata):
+                                    raise WorkspaceError(
+                                        "Prepared canonical row index changed"
+                                    )
+                                yield batch
+                                local_offset = local_stop
+                            return
+                        finally:
+                            projection_connection.close()
+
                 local_offset = 0
                 for native_batch in iter_polars_prepared_batches(
                     path,

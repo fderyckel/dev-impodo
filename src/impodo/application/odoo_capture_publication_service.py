@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from threading import RLock
-from typing import Protocol
+from typing import Callable, Protocol
 from uuid import uuid4
 
 from ..access import Actor
@@ -22,6 +22,7 @@ from ..domain.odoo_source_capture import (
 )
 from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from ..domain.serialization import content_hash
+from ..odoo_capture_jobs import OdooCapturePhase, OdooCaptureProgress
 from ..domain.source_snapshot import (
     SourceSnapshot,
     SourceSnapshotColumn,
@@ -92,6 +93,7 @@ class OdooCapturePublicationService:
         *,
         actor: Actor,
         cancellation: CancellationProbe | None = None,
+        progress: Callable[[OdooCaptureProgress], None] | None = None,
     ) -> OdooCapturePublication:
         """Serialize project publication so cleanup cannot race another capture."""
 
@@ -101,6 +103,7 @@ class OdooCapturePublicationService:
                 gateway,
                 actor=actor,
                 cancellation=cancellation,
+                progress=progress,
             )
 
     def _publish(
@@ -110,10 +113,12 @@ class OdooCapturePublicationService:
         *,
         actor: Actor,
         cancellation: CancellationProbe | None = None,
+        progress: Callable[[OdooCaptureProgress], None] | None = None,
     ) -> OdooCapturePublication:
         """Capture once, encode each value once, then promote all roots together."""
 
         policy = CURRENT_ODOO_SOURCE_POLICY
+        _report_progress(progress, OdooCapturePhase.VERIFYING, total_rows=0)
         self._publications.recover_incomplete_publications(project_id)
         self._artifacts.ensure_source_snapshot_capacity(
             project_id,
@@ -125,9 +130,15 @@ class OdooCapturePublicationService:
                 columns: tuple[SourceDatasetColumn, ...] = ()
                 schema: SourceSnapshotSchema | None = None
                 origins: list[OdooOriginBatch] = []
+                maximum_rows = 0
+                completed_rows = 0
+                page_count = 0
+                response_bytes = 0
+                normalized_bytes = 0
 
                 def prepare_consumer(request, selection):
-                    nonlocal writer, columns, schema
+                    nonlocal writer, columns, schema, maximum_rows
+                    maximum_rows = request.maximum_rows
                     columns = tuple(
                         SourceDatasetColumn(
                             ordinal=index,
@@ -163,6 +174,8 @@ class OdooCapturePublicationService:
                     return consume_page
 
                 def consume_page(page: OdooCapturePage) -> None:
+                    nonlocal completed_rows, page_count
+                    nonlocal response_bytes, normalized_bytes
                     if writer is None:
                         raise WorkspaceError("Odoo capture writer is not initialized")
                     writer.append_columnar_page(
@@ -172,6 +185,19 @@ class OdooCapturePublicationService:
                         },
                     )
                     origins.append(page.origin_batch)
+                    completed_rows += page.row_count
+                    page_count += 1
+                    response_bytes += page.response_bytes
+                    normalized_bytes += page.normalized_bytes
+                    _report_progress(
+                        progress,
+                        OdooCapturePhase.READING,
+                        completed_rows=completed_rows,
+                        total_rows=maximum_rows,
+                        page_count=page_count,
+                        response_bytes=response_bytes,
+                        normalized_bytes=normalized_bytes,
+                    )
 
                 result = self._captures.capture(
                     project_id,
@@ -186,6 +212,15 @@ class OdooCapturePublicationService:
                     raise WorkspaceError("Odoo capture writer is not initialized")
                 candidate = writer.finalize()
                 accounting = result.accounting
+                _report_progress(
+                    progress,
+                    OdooCapturePhase.FINALIZING,
+                    completed_rows=accounting.row_count,
+                    total_rows=result.request.maximum_rows,
+                    page_count=accounting.page_count,
+                    response_bytes=accounting.response_bytes,
+                    normalized_bytes=accounting.normalized_bytes,
+                )
                 if candidate.row_count != accounting.row_count:
                     raise SourceLoadError(
                         "Odoo values and capture accounting row counts differ"
@@ -241,6 +276,15 @@ class OdooCapturePublicationService:
                     capture_finished_at=accounting.capture_finished_at,
                 )
                 require_not_cancelled(cancellation)
+                _report_progress(
+                    progress,
+                    OdooCapturePhase.PUBLISHING,
+                    completed_rows=accounting.row_count,
+                    total_rows=result.request.maximum_rows,
+                    page_count=accounting.page_count,
+                    response_bytes=accounting.response_bytes,
+                    normalized_bytes=accounting.normalized_bytes,
+                )
                 self._publications.publish_complete_capture(
                     project_id,
                     protected.manifest,
@@ -258,6 +302,31 @@ class OdooCapturePublicationService:
         except Exception:
             self._publications.recover_incomplete_publications(project_id)
             raise
+
+
+def _report_progress(
+    callback: Callable[[OdooCaptureProgress], None] | None,
+    phase: OdooCapturePhase,
+    *,
+    total_rows: int,
+    completed_rows: int = 0,
+    page_count: int = 0,
+    response_bytes: int = 0,
+    normalized_bytes: int = 0,
+) -> None:
+    """Report counters already produced by the stream; never rescan or rehash."""
+
+    if callback is not None:
+        callback(
+            OdooCaptureProgress(
+                phase=phase,
+                completed_rows=completed_rows,
+                total_rows=total_rows,
+                page_count=page_count,
+                response_bytes=response_bytes,
+                normalized_bytes=normalized_bytes,
+            )
+        )
 
 
 def _candidate_type(field_type: str) -> str:

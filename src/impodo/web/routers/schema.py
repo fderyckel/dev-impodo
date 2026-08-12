@@ -177,7 +177,12 @@ def build_schema_router(context: WebContext) -> APIRouter:
         project = context.queries.get(project_id)
         try:
             local_profile = _selected_local_profile(context, project)
-            if local_profile is not None:
+            credential = get_target_credential(
+                context.secret_store,
+                project,
+                TargetCredentialRole.READ,
+            )
+            if local_profile is not None and credential is None:
                 snapshot = await run_in_threadpool(
                     context.local_odoo_reader.get_model_metadata,
                     project,
@@ -189,11 +194,6 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 )
                 read_identity = None
             else:
-                credential = get_target_credential(
-                    context.secret_store,
-                    project,
-                    TargetCredentialRole.READ,
-                )
                 if credential is None:
                     raise WorkspaceError(
                         _missing_schema_reader_message(project)
@@ -217,7 +217,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 read_identity=read_identity,
                 actor=context.actor,
             )
-            if local_profile is not None:
+            if local_profile is not None and credential is None:
                 catalog = context.queries.get_odoo_model_catalog(project_id)
                 context.local_stack.mark_metadata_ready(
                     project_id,

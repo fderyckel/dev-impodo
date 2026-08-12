@@ -163,6 +163,16 @@ class PreparationSessionRepository(Protocol):
         rows: Sequence[CanonicalPreparedSessionRow],
     ) -> None: ...
 
+    def append_native_prepared_projection(
+        self,
+        project_id: str,
+        session_id: str,
+        snapshot: PreparedSnapshot,
+        projection: PreparedCanonicalProjection,
+        path: object,
+        control_fields: tuple[str, ...] = (),
+    ) -> object | None: ...
+
     def finalize_direct_session(
         self,
         project_id: str,

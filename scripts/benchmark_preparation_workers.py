@@ -87,22 +87,18 @@ def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
         results.append(result)
     comparable_results = tuple(results)
     _require_comparable_results(comparable_results)
-    return {
+    report = {
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "command": {
             "bom_lines": (
-                arguments.bom_lines
-                if arguments.workload == "product-bom"
-                else None
+                arguments.bom_lines if arguments.workload == "product-bom" else None
             ),
             "columns": arguments.columns,
             "dirty": arguments.dirty,
             "effect_fields": arguments.effect_fields,
             "mapped_fields": arguments.mapped_fields,
             "products": (
-                arguments.products
-                if arguments.workload == "product-bom"
-                else None
+                arguments.products if arguments.workload == "product-bom" else None
             ),
             "rows": arguments.rows,
             "runs": arguments.runs,
@@ -115,6 +111,10 @@ def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
         "worktree_fingerprint": worktree_fingerprint,
         "worktree_dirty": worktree_dirty,
     }
+    vectorization = comparable_results[0].get("vectorization_report")
+    if isinstance(vectorization, dict):
+        report["vectorization_report"] = vectorization
+    return report
 
 
 def summarize(results: Iterable[dict[str, object]]) -> dict[str, object]:
@@ -134,8 +134,7 @@ def summarize(results: Iterable[dict[str, object]]) -> dict[str, object]:
             "project_storage_bytes",
         ):
             values = tuple(
-                float(_storage(item)[metric]) / (1024 * 1024)
-                for item in attempt_items
+                float(_storage(item)[metric]) / (1024 * 1024) for item in attempt_items
             )
             summary[f"median_{attempt}_{metric.removesuffix('_bytes')}_mib"] = (
                 statistics.median(values)
@@ -189,12 +188,8 @@ def _run_once(
             "IMPODO_PREPARATION_BENCHMARK_REVISION": revision,
             "IMPODO_PREPARATION_SCALE_COLUMNS": str(arguments.columns),
             "IMPODO_PREPARATION_SCALE_DIRTY": "1" if arguments.dirty else "0",
-            "IMPODO_PREPARATION_SCALE_EFFECT_FIELDS": str(
-                arguments.effect_fields
-            ),
-            "IMPODO_PREPARATION_SCALE_MAPPED_FIELDS": str(
-                arguments.mapped_fields
-            ),
+            "IMPODO_PREPARATION_SCALE_EFFECT_FIELDS": str(arguments.effect_fields),
+            "IMPODO_PREPARATION_SCALE_MAPPED_FIELDS": str(arguments.mapped_fields),
             "IMPODO_PREPARATION_SCALE_PRODUCTS": str(arguments.products),
             "IMPODO_PREPARATION_SCALE_BOM_LINES": str(arguments.bom_lines),
             "IMPODO_PREPARATION_SCALE_ROWS": str(arguments.rows),
@@ -237,6 +232,7 @@ def _require_comparable_results(
         "revision",
         "rows",
         "runtime_versions",
+        "vectorization_report",
         "workload",
     )
     first_fixture = _fixture(first)
@@ -376,17 +372,13 @@ def _worktree_fingerprint() -> str:
         check=False,
     )
     if status.returncode or diff.returncode or untracked.returncode:
-        raise PreparationWorkerBenchmarkError(
-            "Cannot fingerprint the Git worktree"
-        )
+        raise PreparationWorkerBenchmarkError("Cannot fingerprint the Git worktree")
     digest = sha256()
     digest.update(status.stdout)
     digest.update(b"\0")
     digest.update(diff.stdout)
     try:
-        for relative_bytes in sorted(
-            filter(None, untracked.stdout.split(b"\0"))
-        ):
+        for relative_bytes in sorted(filter(None, untracked.stdout.split(b"\0"))):
             path = ROOT / os.fsdecode(relative_bytes)
             digest.update(b"\0untracked\0")
             digest.update(relative_bytes)

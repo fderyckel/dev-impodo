@@ -23,7 +23,9 @@ from ..application.browser_queries import BrowserQueryService
 from ..application.mapping_workspace_service import MappingWorkspaceService
 from ..application.normalization_service import NormalizationService
 from ..application.odoo_capture_publication_service import OdooCapturePublicationService
+from ..application.odoo_capture_job_service import OdooCaptureJobManager
 from ..application.odoo_provenance_service import OdooProvenanceService
+from ..application.odoo_source_capture_service import OdooSourceCapturePort
 from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
 from ..application.reconciliation_service import ReconciliationService
@@ -88,6 +90,9 @@ OdooWriteExecutorFactory = Callable[
 OdooReadbackReaderFactory = Callable[
     [MigrationProject, str, OdooApiScope], OdooReadbackReader
 ]
+OdooSourceCaptureFactory = Callable[
+    [MigrationProject, str], OdooSourceCapturePort
+]
 
 
 @dataclass(slots=True)
@@ -119,6 +124,7 @@ class WebContext:
     reconciliation: ReconciliationService
     transformation_impacts: TransformationImpactService
     odoo_capture_publication: OdooCapturePublicationService
+    odoo_capture_jobs: OdooCaptureJobManager | None
     odoo_provenance: OdooProvenanceService
     artifacts: ArtifactStore
     actor: Actor
@@ -132,6 +138,7 @@ class WebContext:
     schema_reader: SchemaReader
     model_catalog_reader: ModelCatalogReader
     readiness_reader: BrowserReadinessReader | None
+    source_capture_factory: OdooSourceCaptureFactory
     write_executor_factory: OdooWriteExecutorFactory
     readback_reader_factory: OdooReadbackReaderFactory
     local_stack: LocalStackService

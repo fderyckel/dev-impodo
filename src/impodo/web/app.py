@@ -36,6 +36,7 @@ from ..application.browser_queries import BrowserQueryService
 from ..application.mapping_workspace_service import MappingWorkspaceService
 from ..application.normalization_service import NormalizationService
 from ..application.odoo_capture_publication_service import OdooCapturePublicationService
+from ..application.odoo_capture_job_service import OdooCaptureJobManager
 from ..application.odoo_provenance_service import OdooProvenanceService
 from ..application.odoo_source_capture_service import OdooSourceCaptureService
 from ..application.preflight_service import PreflightService
@@ -88,6 +89,7 @@ from .context import (
     ModelCatalogReader,
     OdooWriteExecutorFactory,
     OdooReadbackReaderFactory,
+    OdooSourceCaptureFactory,
     ReadIdentityProbe,
     SchemaReader,
     WriteIdentityProbe,
@@ -99,6 +101,7 @@ from .target_readers import (
     _read_schema,
     _probe_read_identity,
     _test_connection,
+    _source_capture_reader,
 )
 from .target_writers import _probe_write_identity, _readback_reader, _write_executor
 from .routers.derived_entities import build_derived_entities_router
@@ -132,6 +135,7 @@ def create_local_app(
     schema_reader: SchemaReader | None = None,
     model_catalog_reader: ModelCatalogReader | None = None,
     readiness_reader: BrowserReadinessReader | None = None,
+    source_capture_factory: OdooSourceCaptureFactory | None = None,
     write_executor_factory: OdooWriteExecutorFactory | None = None,
     readback_reader_factory: OdooReadbackReaderFactory | None = None,
     actor: Actor = LOCAL_ACTOR,
@@ -141,6 +145,7 @@ def create_local_app(
     local_stack_service: LocalStackService | None = None,
     local_odoo_reader: LocalOdooMetadataReader | None = None,
     preparation_jobs_enabled: bool = True,
+    odoo_capture_jobs_enabled: bool = True,
 ) -> FastAPI:
     """Construct the loopback FastAPI application for migration Stages A–K.
 
@@ -255,6 +260,11 @@ def create_local_app(
     preparation_jobs = (
         PreparationJobManager(project_root) if preparation_jobs_enabled else None
     )
+    odoo_capture_jobs = (
+        OdooCaptureJobManager(odoo_capture_publication)
+        if odoo_capture_jobs_enabled
+        else None
+    )
     context = WebContext(
         queries=BrowserQueryService(
             project_repository,
@@ -316,6 +326,7 @@ def create_local_app(
             resolved_authorization,
         ),
         odoo_capture_publication=odoo_capture_publication,
+        odoo_capture_jobs=odoo_capture_jobs,
         odoo_provenance=odoo_provenance_service,
         artifacts=resolved_artifacts,
         actor=actor,
@@ -329,6 +340,7 @@ def create_local_app(
         schema_reader=schema_reader or _read_schema,
         model_catalog_reader=model_catalog_reader or _read_model_catalog,
         readiness_reader=readiness_reader,
+        source_capture_factory=source_capture_factory or _source_capture_reader,
         write_executor_factory=write_executor_factory or _write_executor,
         readback_reader_factory=readback_reader_factory or _readback_reader,
         local_stack=local_stack_service or LocalStackService(),
@@ -355,6 +367,8 @@ def create_local_app(
         finally:
             if context.preparation_jobs is not None:
                 context.preparation_jobs.shutdown()
+            if context.odoo_capture_jobs is not None:
+                context.odoo_capture_jobs.shutdown()
 
     app = FastAPI(
         title="Impodo",

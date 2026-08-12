@@ -288,6 +288,7 @@ def _run_preparation_worker(
             root,
             actor=actor,
             preparation_jobs_enabled=False,
+            odoo_capture_jobs_enabled=False,
         )
         context = app.state.context
 

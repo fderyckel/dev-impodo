@@ -2,7 +2,7 @@
 
 # This build supports one exact current schema. A contract change starts a new
 # generation; projects from another generation are rejected, never upgraded.
-SCHEMA_GENERATION = "impodo-project-2026-08-current-s9"
+SCHEMA_GENERATION = "impodo-project-2026-08-current-s10"
 SCHEMA_VERSION = 1
 PREFLIGHT_ROW_BATCH_SIZE = 1_000
 STAGING_ROW_BATCH_SIZE = 1_000
@@ -17,3 +17,10 @@ PREPARATION_SESSION_ROW_BATCH_SIZE = 5_000
 # the bounded 96,000-effect Product/BOM normalization transaction. 192 MB keeps
 # the one-thread session below the 900 MiB worker gate without repeated OOMs.
 PREPARATION_SESSION_MEMORY_LIMIT = "192MB"
+# The 96,000-row relationship fact transaction needs the same bounded pool;
+# 128 MB failed before quality. Canonical value pages use a separate pool so
+# both buffers are never live on one connection.
+NATIVE_PREPARED_PROJECTION_MEMORY_LIMIT = "192MB"
+# A 1,000-row wide canonical JSON page needs this fixed expression-plan pool.
+# Range predicates are pushed into the prepared Parquet scan.
+PREPARED_VALUE_PROJECTOR_MEMORY_LIMIT = "192MB"

@@ -123,13 +123,13 @@ allocator, database, and engine memory; it is not evidence of a Python leak.
 | Checkpoint | Status | Performance evidence |
 | --- | --- | --- |
 | Phase 0: truthful admission and B0 telemetry | Complete | B0/B0-C above; exact customer workbook remains an external diagnostic input |
-| Phase 1: remove post-Polars replay | In progress — B1a objectless projection retained | CPU -3.48%, peak RSS -3.72%; zero rule replay/full domain rows, but 100,000 Python row adaptations remain |
+| Phase 1: remove post-Polars replay | Complete for admitted native datasets | Production workers report 100% native coverage, zero Python row/cell callbacks, zero full prepared/canonical objects, and exact prior hashes |
 | Phase 2: prepared values plus narrow index | Complete for direct native datasets | Canonical row JSON 223,966,700 → 0 chars; peak RSS -20.63%, DB used -39.80%; CPU regression is assigned to Phase 3/4 repeated projectors |
 | Phase 3: sparse multi-dataset quality | Complete for direct native datasets | 5 → 2 prepared-value scans; clean quality/accounting physical rows 200,000 → 0; exact logical hashes retained |
 | Phase 4: construct normalization once | Complete for direct native datasets | 152,000 → 76,000 effect constructions on the 4,000×19 fixture; CPU -3.19%, peak RSS -13.03%, DB used -4.21%; exact hashes retained |
 | Phase 5: set-based product/BOM relationships | Complete for direct multi-dataset product/BOM; derived/grouped cardinality changes remain materialized and capped | Peak RSS -45.65%, ending RSS -57.10%; CPU +10.82%, DB used +48.06% for durable edges |
 | Phase 6: conditional transport/hash optimization | Complete for the Phase-5 relationship path | Relationship DB overhead 46.5 → 5.5 MiB; set-based CPU is now 22.78% below materialization; Arrow/hash changes rejected |
-| Phase 7: qualification and limit decision | Closeout in progress — legacy/dead-code removal and Mac diagnostics complete | Native per-row adaptation must be removed and observed vectorization evidence added before the clean Windows release profile can authorize a limit change |
+| Phase 7: qualification and limit decision | Engineering closeout complete; Windows release decision pending | Mac 100k/96k first-repeat diagnostics pass resource, repeatability, exact-hash, worker-exit, source-deletion, and observed vectorization gates |
 
 The 16,000-product/80,000-BOM shape remains capped until the clean Phase 7
 Windows qualification authorizes a limit change. Derived/grouped
@@ -647,7 +647,7 @@ routes instead of carrying compatibility code during development:
   `finalize_session` API, codecs, repository branches, tests, and six obsolete
   DuckDB tables/indexes;
 - renamed the remaining live session count from `provisional_row_count` to
-  `staged_row_count`, and advanced the development schema generation to `s9`
+  `staged_row_count`, and advanced the development schema generation to `s10`
   so older development databases fail closed rather than silently retaining
   the deleted layout;
 - deleted the pre-Phase-4 in-memory normalization replay and alternate
@@ -664,19 +664,54 @@ of `benchmark_relationships.py` also remains because the release qualification
 uses it as the semantic oracle for the set-based relationship path. None of
 these are compatibility fallbacks for the deleted preparation-session design.
 
-The legacy/dead-code portion of Phase 7 closeout is complete. Phase 7 itself is
-not yet closed: the Phase-1 checkpoint still reports per-row canonical metadata
-adaptation on the native route, while the architecture requires zero Python
-row/cell callbacks and no full prepared/canonical objects in the high-volume
-data plane. The qualification runner now fails closed when the 100,000-row
-direct or 96,000-row related worker evidence lacks the complete observed
-vectorization report; a Windows run can no longer authorize a limit change on
-CPU/RSS results alone.
+The Phase-7 engineering closeout is complete. The native high-volume route now
+projects prepared Parquet into the narrow canonical index, identity, lineage,
+relationship, impact, and control-total relations with set-based DuckDB plans.
+It constructs no Python prepared/canonical row objects and performs no Python
+row/cell callbacks. The prepared artifact carries a verified zero-based ordinal
+so bounded canonical pages push their range predicate into the Parquet scan
+without recomputing a whole-dataset window. The bounded semantic route remains
+only for whole datasets whose issue/value shape is not eligible for the exact
+set-based projector; there is no per-row fallback.
 
-Route limits and operator messages remain unchanged until that execution path
-and evidence gate are complete and the clean three-run Windows qualification
-passes every correctness, CPU, memory, storage, vectorization, repeatability,
-and customer-improvement gate below.
+The worker evidence now includes the observed vectorization report consumed by
+the qualification gates. The optimized-plan flag is derived from a sanitized
+DuckDB `EXPLAIN`: it requires a Parquet scan, a prepared-ordinal filter, and no
+Python scan or window operator. The release fixtures report 100-percent native
+coverage, `SET_GLOBAL` global operations, zero Python row/cell callbacks, zero
+full prepared/canonical objects, zero rule replay, and verified bounded plans.
+
+The final one-run Mac diagnostics retain the exact pre-change staging, quality,
+and normalization hashes:
+
+| Fixture/attempt | CPU before → after | Wall before → after | Peak before → after | DuckDB used before → after |
+| --- | ---: | ---: | ---: | ---: |
+| Products 100k first | 41.390 → 19.844 s (**52.05%**) | 40.790 → 19.058 s (**53.28%**) | 630.063 → 729.500 MiB (-15.78%) | 79.50 → 79.00 MiB (**0.63%**) |
+| Products 100k repeat | 43.547 → 19.494 s (**55.23%**) | 42.838 → 18.729 s (**56.28%**) | 628.844 → 680.062 MiB (-8.14%) | 85.50 → 85.75 MiB (-0.29%) |
+| Products/BOM 96k first | 40.117 → 21.286 s (**46.94%**) | 39.654 → 20.599 s (**48.05%**) | 672.172 → 644.016 MiB (**4.19%**) | 142.25 → 140.50 MiB (**1.23%**) |
+| Products/BOM 96k repeat | 42.582 → 23.932 s (**43.80%**) | 42.238 → 23.241 s (**44.98%**) | 634.625 → 595.016 MiB (**6.24%**) | 171.25 → 170.00 MiB (**0.73%**) |
+
+The direct 100k peak trade-off is explicit: native set projection consumes more
+RSS than the prior Python adaptation route but remains 20.5 MiB below the 750
+MiB design gate and 170.5 MiB below the hard worker gate. It more than halves
+CPU/wall time and slightly reduces live DuckDB use. The related route improves
+both CPU and memory; its repeat allocated database/project footprint also falls
+by about 31 MiB while live pages remain effectively flat.
+
+Evidence:
+
+- `.tmp/transformation-scale-phase7-native-projection-products-100k-final-mac-diagnostic.json`
+- `.tmp/transformation-scale-phase7-native-projection-product-bom-96k-final-mac-diagnostic.json`
+
+These are dirty-worktree one-run Mac engineering diagnostics, not release
+qualification. The qualification runner fails closed when the 100,000-row
+direct or 96,000-row related worker evidence lacks any observed vectorization
+field. A Windows run can no longer authorize a limit change on CPU/RSS results
+alone.
+
+Route limits and operator messages remain unchanged until the clean three-run
+Windows qualification passes every correctness, CPU, memory, storage,
+vectorization, repeatability, and customer-improvement gate below.
 
 ### Windows release command
 

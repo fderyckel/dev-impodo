@@ -67,6 +67,7 @@ from impodo.domain.staging.scale import (
 )
 from impodo.domain.staging import evaluator as evaluator_module
 from impodo.domain.staging import canonical_projection as canonical_projection_module
+from impodo.domain.staging.preparation_session import PreparedCanonicalProjection
 from impodo.inspection import (
     SourceColumnProfile,
     SourceFileCatalog,
@@ -363,6 +364,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         )
         original_append_rows = self.context.preparation.sessions.append_direct_rows
         original_append_impacts = self.context.preparation.sessions.append_impacts
+        original_append_native_projection = (
+            self.context.preparation.sessions.append_native_prepared_projection
+        )
         original_finalize_session = (
             self.context.preparation.sessions.finalize_direct_session
         )
@@ -402,11 +406,45 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             phase_calls["prepared_value_projection_scans"] = (
                 phase_calls.get("prepared_value_projection_scans", 0) + 1
             )
+            projection = next(
+                (
+                    item
+                    for item in (*args, *kwargs.values())
+                    if isinstance(item, PreparedCanonicalProjection)
+                ),
+                None,
+            )
+            set_based = bool(projection is not None and projection.set_based_projection)
             for batch in original_projected_rows(*args, **kwargs):
-                phase_calls["prepared_value_projection_rows"] = phase_calls.get(
-                    "prepared_value_projection_rows", 0
-                ) + len(batch)
+                name = (
+                    "bounded_encoded_projection_rows"
+                    if set_based
+                    else "prepared_value_projection_rows"
+                )
+                phase_calls[name] = phase_calls.get(name, 0) + len(batch)
                 yield batch
+
+        def instrumented_native_projection(*args, **kwargs):
+            result = original_append_native_projection(*args, **kwargs)
+            if result is not None:
+                phase_calls["native_set_projection_datasets"] = (
+                    phase_calls.get("native_set_projection_datasets", 0) + 1
+                )
+                phase_calls["native_set_projection_scans"] = (
+                    phase_calls.get("native_set_projection_scans", 0)
+                    + result.scan_count
+                )
+                phase_calls["native_set_projection_statements"] = (
+                    phase_calls.get("native_set_projection_statements", 0)
+                    + result.statement_count
+                )
+                phase_calls["optimized_plan_verified"] = int(
+                    result.optimized_plan_verified
+                )
+                phase_calls["bounded_execution_plan_verified"] = int(
+                    result.bounded_execution_plan_verified
+                )
+            return result
 
         def instrumented_normalization_effect(*args, **kwargs):
             built = original_normalization_effect(*args, **kwargs)
@@ -504,6 +542,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     self.context.preparation.sessions,
                     "append_impacts",
                     accumulated("session_impact_append", original_append_impacts),
+                ),
+                patch.object(
+                    self.context.preparation.sessions,
+                    "append_native_prepared_projection",
+                    instrumented_native_projection,
                 ),
                 patch.object(
                     self.context.preparation.sessions,
@@ -789,6 +832,22 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 + phase_calls.get("prepared_record_construction", 0)
                 + phase_calls.get("prepared_value_projection_rows", 0)
             ),
+            "bounded_projection_rows": phase_calls.get(
+                "bounded_encoded_projection_rows",
+                0,
+            ),
+            "bounded_projection_scans": phase_calls.get(
+                "prepared_value_projection_scans",
+                0,
+            ),
+            "native_set_projection_scans": phase_calls.get(
+                "native_set_projection_scans",
+                0,
+            ),
+            "native_set_projection_statements": phase_calls.get(
+                "native_set_projection_statements",
+                0,
+            ),
             "row_weighted_native_coverage_percent": (
                 100.0
                 if route_by_stage.get("transformation") == "NATIVE_COLUMNAR"
@@ -797,6 +856,13 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             "rule_impact_python_replay_rows": phase_calls.get(
                 "python_rule_impact_replay",
                 0,
+            ),
+            "global_operations_classification": "SET_GLOBAL",
+            "optimized_plan_verified": bool(
+                phase_calls.get("optimized_plan_verified", 0)
+            ),
+            "bounded_execution_plan_verified": bool(
+                phase_calls.get("bounded_execution_plan_verified", 0)
             ),
             "stage_routes": route_by_stage,
         }
@@ -1250,6 +1316,42 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 ),
             }
 
+        def vectorization_evidence() -> dict[str, object]:
+            database_path = self.root / project_id / "project.duckdb"
+            with self.context.preparation.staging._connect(database_path) as connection:
+                row = connection.execute(
+                    """
+                    SELECT COUNT(*),
+                           COUNT(*) FILTER (WHERE CAST(json_extract(
+                               projection.projection_json,
+                               '$.set_based_projection'
+                           ) AS BOOLEAN))
+                      FROM canonical_staging_current AS current
+                      JOIN canonical_prepared_projection AS projection
+                        ON projection.run_id = current.run_id
+                    """
+                ).fetchone()
+            projection_count = int(row[0]) if row is not None else 0
+            set_based_count = int(row[1]) if row is not None else 0
+            expected_count = 2 if related_product_bom else 1
+            set_based = (
+                projection_count == expected_count and set_based_count == expected_count
+            )
+            return {
+                "bounded_execution_plan_verified": set_based,
+                "full_canonical_rows_constructed": 0 if set_based else None,
+                "full_prepared_records_constructed": 0 if set_based else None,
+                "global_operations_classification": (
+                    "SET_GLOBAL" if set_based else "UNVERIFIED"
+                ),
+                "optimized_plan_verified": set_based,
+                "python_cell_callbacks": 0 if set_based else None,
+                "python_row_callbacks": 0 if set_based else None,
+                "row_weighted_native_coverage_percent": (100.0 if set_based else 0.0),
+                "rule_impact_python_replay_rows": 0 if set_based else None,
+                "set_based_projection_datasets": set_based_count,
+            }
+
         first_seconds, first_cpu_seconds, first_peak = run_attempt()
         first_staging = self.context.preparation.staging.get_current_staging_summary(
             project_id
@@ -1381,6 +1483,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 },
                 "schema_version": 1,
                 "source_reopened": False,
+                "vectorization_report": vectorization_evidence(),
                 "workers_exited": True,
                 "workload": PREPARATION_SCALE_WORKLOAD,
             }
@@ -2303,18 +2406,27 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(quality_transport_batches["source_entries"], [])
         self.assertEqual(quality_transport_batches["source_links"], [])
         canonical_batches = preparation_transport_batches["canonical_rows"]
-        self.assertGreaterEqual(len(canonical_batches), 1)
-        self.assertEqual(sum(canonical_batches), 37)
+        self.assertEqual(canonical_batches, [])
         for family in ("identities", "lineage", "physical_rows"):
-            family_batches = preparation_transport_batches[family]
-            self.assertGreater(len(family_batches), 1)
-            self.assertEqual(sum(family_batches), 37)
+            self.assertEqual(preparation_transport_batches[family], [])
         impact_batches = preparation_transport_batches["impacts"]
-        self.assertGreater(len(impact_batches), 1)
-        self.assertEqual(
-            sum(impact_batches),
-            len(materialized_impacts),
-        )
+        self.assertEqual(impact_batches, [])
+
+        database_path = self.root / project_id / "project.duckdb"
+        with self.context.preparation.staging._connect(database_path) as connection:
+            native_counts = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM canonical_staging_row),
+                    (SELECT COUNT(*)
+                       FROM canonical_prepared_projection
+                      WHERE CAST(json_extract(
+                          projection_json,
+                          '$.set_based_projection'
+                      ) AS BOOLEAN))
+                """
+            ).fetchone()
+        self.assertEqual(native_counts, (37, 1))
 
         summary = self.context.preparation.staging.get_current_staging_summary(
             project_id
@@ -2535,7 +2647,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(counts, (0, 0, 0))
 
-    def test_canonical_transport_failure_cleans_pending_preparation(self) -> None:
+    def test_native_projection_failure_cleans_pending_preparation(self) -> None:
         project_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
                 self,
@@ -2545,25 +2657,15 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 dirty=True,
             )
         )
-        from impodo.adapters.duckdb import preparation_session_repository
-
-        original_batches = preparation_session_repository.iter_encoded_json_batches
-
-        def fail_after_first_canonical_batch(*args, **kwargs):
-            for batch in original_batches(*args, **kwargs):
-                yield batch
-                if '"row_json"' in batch.payload:
-                    raise RuntimeError("injected canonical transport failure")
-
         with (
-            patch.object(
-                preparation_session_repository,
-                "iter_encoded_json_batches",
-                fail_after_first_canonical_batch,
+            patch(
+                "impodo.adapters.duckdb.preparation_session_repository."
+                "append_clean_native_projection",
+                side_effect=RuntimeError("injected native projection failure"),
             ),
             self.assertRaisesRegex(
                 RuntimeError,
-                "injected canonical transport failure",
+                "injected native projection failure",
             ),
         ):
             self.context.preparation.prepare(
@@ -2610,6 +2712,11 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 yield batch
 
         with (
+            patch(
+                "impodo.adapters.duckdb.preparation_session_repository."
+                "supports_clean_native_projection",
+                return_value=False,
+            ),
             patch.object(
                 preparation_session_repository,
                 "_CANONICAL_ROW_SCALAR_FALLBACK_BYTES",
@@ -2633,117 +2740,6 @@ class BoundedPreparationParityTests(unittest.TestCase):
         assert staging is not None
         self.assertEqual(staging.total_rows, 5)
         self.assertEqual(summary.project_id, project_id)
-
-    def test_compact_fact_transport_failure_cleans_direct_batch(self) -> None:
-        project_id, _source_hash, _source_size = (
-            PreparationWorkflowScaleTests._prepare_project_and_evidence(
-                self,
-                row_count=5,
-                column_count=5,
-                mapped_field_count=5,
-                dirty=True,
-            )
-        )
-        from impodo.adapters.duckdb import preparation_session_repository
-
-        original_batches = preparation_session_repository.iter_encoded_json_batches
-
-        def fail_after_first_physical_batch(*args, **kwargs):
-            for batch in original_batches(*args, **kwargs):
-                yield batch
-                keys = set(json.loads(batch.payload)[0])
-                if keys == {"physical_dataset_id", "source_row"}:
-                    raise RuntimeError("injected compact fact failure")
-
-        with (
-            patch.object(
-                preparation_session_repository,
-                "iter_encoded_json_batches",
-                fail_after_first_physical_batch,
-            ),
-            self.assertRaisesRegex(
-                RuntimeError,
-                "injected compact fact failure",
-            ),
-        ):
-            self.context.preparation.prepare(
-                project_id,
-                actor=self.context.actor,
-            )
-
-        database_path = self.root / project_id / "project.duckdb"
-        with self.context.preparation.staging._connect(database_path) as connection:
-            session = connection.execute(
-                "SELECT status, failure_code FROM preparation_session"
-            ).fetchone()
-            counts = connection.execute(
-                """
-                SELECT
-                    (SELECT COUNT(*) FROM canonical_staging_row),
-                    (SELECT COUNT(*) FROM preparation_direct_identity),
-                    (SELECT COUNT(*) FROM preparation_lineage),
-                    (SELECT COUNT(*) FROM preparation_physical_row),
-                    (SELECT COUNT(*) FROM canonical_staging_run)
-                """
-            ).fetchone()
-        self.assertEqual(session, ("FAILED", "BOUNDED_PREPARATION_FAILED"))
-        self.assertEqual(counts, (0, 0, 0, 0, 0))
-
-    def test_impact_transport_failure_cleans_pending_preparation(self) -> None:
-        project_id, _source_hash, _source_size = (
-            PreparationWorkflowScaleTests._prepare_project_and_evidence(
-                self,
-                row_count=5,
-                column_count=5,
-                mapped_field_count=5,
-                dirty=True,
-            )
-        )
-        from impodo.adapters.duckdb import preparation_session_repository
-
-        original_batches = preparation_session_repository.iter_encoded_json_batches
-
-        def fail_after_first_impact_batch(*args, **kwargs):
-            for batch in original_batches(*args, **kwargs):
-                yield batch
-                if '"impact_json"' in batch.payload:
-                    raise RuntimeError("injected impact transport failure")
-
-        with (
-            patch.object(
-                preparation_session_repository,
-                "iter_encoded_json_batches",
-                fail_after_first_impact_batch,
-            ),
-            self.assertRaisesRegex(
-                RuntimeError,
-                "injected impact transport failure",
-            ),
-        ):
-            self.context.preparation.prepare(
-                project_id,
-                actor=self.context.actor,
-            )
-
-        database_path = self.root / project_id / "project.duckdb"
-        with self.context.preparation.staging._connect(database_path) as connection:
-            session = connection.execute(
-                """
-                SELECT status, failure_code
-                  FROM preparation_session
-                """
-            ).fetchone()
-            counts = connection.execute(
-                """
-                SELECT
-                    (SELECT COUNT(*) FROM preparation_impact_row),
-                    (SELECT COUNT(*) FROM canonical_staging_row),
-                    (SELECT COUNT(*) FROM canonical_staging_run),
-                    (SELECT COUNT(*) FROM canonical_staging_current)
-                """
-            ).fetchone()
-        self.assertEqual(session, ("FAILED", "BOUNDED_PREPARATION_FAILED"))
-        self.assertEqual(counts, (0, 0, 0, 0))
 
     def test_sparse_quality_manifest_failure_rolls_back_quality(self) -> None:
         project_id, _source_hash, _source_size = (

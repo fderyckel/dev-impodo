@@ -13,7 +13,7 @@ from .serialization import canonical_json, content_hash
 
 PREPARED_SNAPSHOT_CONTRACT_VERSION = 1
 PREPARED_SNAPSHOT_STORAGE_LAYOUT_VERSION = 2
-PREPARED_WRITER_CONTRACT_VERSION = 1
+PREPARED_WRITER_CONTRACT_VERSION = 2
 
 _DATASET_ID = re.compile(r"dataset:([0-9a-f]{24})")
 _SHA256 = re.compile(r"sha256:([0-9a-f]{64})")

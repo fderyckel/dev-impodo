@@ -90,7 +90,8 @@ class PreparedCanonicalProjection:
     physical_dataset_id: str
     field_sources: Mapping[str, tuple[str, ...]]
     program: ColumnarTransformationProgram
-    contract_version: int = 1
+    set_based_projection: bool = False
+    contract_version: int = 2
 
     def __post_init__(self) -> None:
         if (
@@ -100,7 +101,7 @@ class PreparedCanonicalProjection:
             or self.physical_dataset_id != self.dataset_id
             or self.ordinal_start < 0
             or self.row_count < 0
-            or self.contract_version != 1
+            or self.contract_version != 2
         ):
             raise ValueError("Prepared canonical projection is invalid")
 
@@ -118,6 +119,7 @@ class PreparedCanonicalProjection:
                 field: list(sources)
                 for field, sources in sorted(self.field_sources.items())
             },
+            "set_based_projection": self.set_based_projection,
             "program": self.program.to_portable_dict(),
             "program_hash": self.program.content_hash,
         }
@@ -149,6 +151,7 @@ class PreparedCanonicalProjection:
                 for field, sources in raw_field_sources.items()
             },
             program=program,
+            set_based_projection=bool(payload.get("set_based_projection", False)),
             contract_version=int(payload["contract_version"]),
         )
 

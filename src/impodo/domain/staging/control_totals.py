@@ -15,7 +15,6 @@ from ...workspace_contracts import SourceSelection
 from ..errors import ReadinessError
 
 
-
 @dataclass(slots=True)
 class _ControlFieldState:
     """Mutable constant-size accumulator shared by controls on one field."""
@@ -40,9 +39,7 @@ class CompiledControlTotalAccumulator:
         definition: MappingDefinition,
         selection: SourceSelection,
     ) -> "CompiledControlTotalAccumulator":
-        dataset_name_by_id = {
-            item.dataset_id: item.name for item in selection.datasets
-        }
+        dataset_name_by_id = {item.dataset_id: item.name for item in selection.datasets}
         states: dict[str, dict[str, _ControlFieldState]] = {}
         for dataset in definition.datasets:
             dataset_name = dataset_name_by_id[dataset.dataset_id]
@@ -85,6 +82,29 @@ class CompiledControlTotalAccumulator:
             state.actual += Decimal(value)
             state.included += 1
 
+    def target_fields(self, dataset: str) -> tuple[str, ...]:
+        """Return the stable fields needed by a native aggregate plan."""
+
+        return tuple(sorted(self.states.get(dataset, {})))
+
+    def add_precomputed(
+        self,
+        dataset: str,
+        *,
+        target_field: str,
+        actual_total: str,
+        included_rows: int,
+        empty_rows: int,
+    ) -> None:
+        """Merge one exact set-based total without receiving row values."""
+
+        state = self.states.get(dataset, {}).get(target_field)
+        if state is None or included_rows < 0 or empty_rows < 0:
+            raise ReadinessError("Native control-total evidence is invalid")
+        state.actual += Decimal(actual_total)
+        state.included += included_rows
+        state.empty += empty_rows
+
     def report(self) -> tuple[CanonicalControlTotal, ...]:
         """Build the existing deterministic portable total evidence."""
 
@@ -94,19 +114,22 @@ class CompiledControlTotalAccumulator:
             states = self.states[dataset_name]
             for control in dataset.control_totals:
                 state = states[control.target_field]
-                control_id = "sha256:" + sha256(
-                    canonical_json_bytes(
-                        {
-                            "mapping_hash": self.definition.content_hash,
-                            "dataset": dataset_name,
-                            "name": control.name,
-                            "target_field": control.target_field,
-                            "expected_total": control.expected_total,
-                            "unit": control.unit,
-                            "tolerance": control.tolerance,
-                        }
-                    )
-                ).hexdigest()
+                control_id = (
+                    "sha256:"
+                    + sha256(
+                        canonical_json_bytes(
+                            {
+                                "mapping_hash": self.definition.content_hash,
+                                "dataset": dataset_name,
+                                "name": control.name,
+                                "target_field": control.target_field,
+                                "expected_total": control.expected_total,
+                                "unit": control.unit,
+                                "tolerance": control.tolerance,
+                            }
+                        )
+                    ).hexdigest()
+                )
                 results.append(
                     CanonicalControlTotal(
                         control_id=control_id,
@@ -122,7 +145,6 @@ class CompiledControlTotalAccumulator:
                     )
                 )
         return tuple(sorted(results, key=lambda item: item.control_id))
-
 
 
 def _evaluate_control_totals(

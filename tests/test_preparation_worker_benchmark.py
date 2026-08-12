@@ -50,6 +50,12 @@ class PreparationWorkerBenchmarkHarnessTests(unittest.TestCase):
             {"source_reopened": True},
             {"prepared_snapshot_reused": False},
             {"hashes": {"staging": "different"}},
+            {
+                "vectorization_report": {
+                    **dict(first["vectorization_report"]),
+                    "python_row_callbacks": 1,
+                }
+            },
         )
         for mutation in mutations:
             changed = {**_result(), **mutation}
@@ -107,6 +113,17 @@ def _result(
         "runtime_versions": {"duckdb": "1"},
         "schema_version": 1,
         "source_reopened": False,
+        "vectorization_report": {
+            "bounded_execution_plan_verified": True,
+            "full_canonical_rows_constructed": 0,
+            "full_prepared_records_constructed": 0,
+            "global_operations_classification": "SET_GLOBAL",
+            "optimized_plan_verified": True,
+            "python_cell_callbacks": 0,
+            "python_row_callbacks": 0,
+            "row_weighted_native_coverage_percent": 100.0,
+            "rule_impact_python_replay_rows": 0,
+        },
         "workers_exited": True,
         "workload": "products",
     }

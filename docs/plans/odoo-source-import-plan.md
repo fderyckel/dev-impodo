@@ -108,14 +108,23 @@ change.
   preserve the previous valid roots. Quota and purge operate on distinct value
   storage keys, so a content-addressed value artifact reused by retained
   manifests is counted once and is not deleted early. The core service is
-  composed in the local app; the Phase-4 browser action/progress/cancellation
-  experience remains the next slice.
+  composed in the local app.
+- Slice 10 completes the Phase-4 browser workflow. Exact current-selection
+  confirmation enqueues one background capture per project, reports phase,
+  page, row, response-byte, and normalized-byte counters from the existing
+  one-pass stream, and cancels at bounded reader checkpoints. Stale forms and
+  credential generations fail before target I/O. Local and remote capture both
+  construct the same governed JSON-2 adapter from the role-qualified read
+  credential; the local shell remains metadata-only. The source page presents
+  the current published row count and immutable retained manifest history with
+  zero Odoo traffic. A failed, stopped, or restarted candidate never replaces
+  the previous current roots.
 - The current permission hash covers directly observed group membership and
   model-level read outcomes, not a complete fingerprint of all ACL/record-rule
   definitions. Local no-key shell metadata also remains explicitly unverified.
   Local no-key write-principal parity, strong target-instance identity, the
-  browser capture workflow, and production write feasibility beyond the
-  explicit unsupported disposition remain open.
+  production write feasibility beyond the explicit unsupported disposition
+  remain open.
 
 ### Slices 1–6 scale-architecture audit
 
@@ -968,8 +977,8 @@ measurement, not an Odoo/network or Phase-4 publication qualification.
 
 ### Phase 4 — Streaming publication and browser capture
 
-**Status:** Publication core implemented in Slice 9. Browser action, progress,
-and cancellation wiring remains open, so the Phase-4 exit gate is not yet met.
+**Status:** Implemented in Slices 9 and 10. Slice 9 owns one-pass publication;
+Slice 10 owns the governed browser action and session-scoped job control plane.
 
 **Deliverables**
 
@@ -985,9 +994,9 @@ and cancellation wiring remains open, so the Phase-4 exit gate is not yet met.
   service/repository boundary, including retention of the previous current
   roots on injected transaction failure.**
 - Add the source-mode, identity/model, selection, sample, confirmation,
-  progress, cancellation, and current-version browser experience. **The setup,
-  identity/model, selection, and sample foundations exist; capture confirmation,
-  progress/cancellation, and current-version presentation remain Slice 10.**
+  progress, cancellation, and current-version browser experience.
+  **Implemented. Confirmation is selection- and credential-generation-bound;
+  progress reuses stream accounting and current/history reopening is offline.**
 
 **Tests**
 
@@ -1003,8 +1012,7 @@ and cancellation wiring remains open, so the Phase-4 exit gate is not yet met.
 
 - A user can freeze, restart, reopen, replace, and audit an Odoo snapshot with
   zero Odoo traffic after publication; any failed candidate leaves the last
-  valid version current. **Met by the publication core and its readers, but not
-  yet through the browser; Phase 4 remains open until Slice 10.**
+  valid version current. **Met.**
 
 ### Phase 5 — Pinned identity, mapping, and preparation
 

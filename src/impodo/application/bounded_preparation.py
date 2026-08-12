@@ -11,6 +11,7 @@ from ..access import Actor
 from ..adapters.polars_transformation import (
     POLARS_TRANSFORMATION_BATCH_ROWS,
     iter_polars_prepared_batches,
+    summarize_polars_rule_impacts,
     write_polars_prepared_snapshot,
 )
 from ..artifacts import ArtifactStore, ArtifactStoreError
@@ -125,15 +126,9 @@ def supports_bounded_direct_preparation(
 
     if plan is not None:
         return False
-    physical = {
-        (item.dataset_id, item.name) for item in physical_selection.datasets
-    }
-    effective = {
-        (item.dataset_id, item.name) for item in effective_selection.datasets
-    }
-    return physical == effective and len(physical) == len(
-        physical_selection.datasets
-    )
+    physical = {(item.dataset_id, item.name) for item in physical_selection.datasets}
+    effective = {(item.dataset_id, item.name) for item in effective_selection.datasets}
+    return physical == effective and len(physical) == len(physical_selection.datasets)
 
 
 def direct_preparation_row_limit(
@@ -150,19 +145,13 @@ def direct_preparation_row_limit(
         )
     except ColumnarCompilationError:
         return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
-    if any(
-        item.support is not ColumnarSupport.SUPPORTED
-        for item in decisions
-    ):
+    if any(item.support is not ColumnarSupport.SUPPORTED for item in decisions):
         return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
     snapshots = tuple(source_snapshots)
     snapshots_by_id = {item.dataset_id: item for item in snapshots}
-    datasets_by_id = {
-        item.dataset_id: item for item in effective_selection.datasets
-    }
-    if (
-        len(snapshots_by_id) != len(snapshots)
-        or set(snapshots_by_id) != set(datasets_by_id)
+    datasets_by_id = {item.dataset_id: item for item in effective_selection.datasets}
+    if len(snapshots_by_id) != len(snapshots) or set(snapshots_by_id) != set(
+        datasets_by_id
     ):
         return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
     try:
@@ -214,17 +203,16 @@ def prepare_bounded_direct_session(
     schema_hash = definition.schema_hash
     if definition.source_selection_hash != source_selection_hash:
         raise ReadinessError("The submitted mapping no longer matches its source data")
-    if reference_bundle is not None and reference_bundle.project_id != project.project_id:
+    if (
+        reference_bundle is not None
+        and reference_bundle.project_id != project.project_id
+    ):
         raise ReadinessError("Reference data belongs to another project")
     if columnar_batch_size < 1:
         raise ValueError("Columnar transformation batch size must be positive")
 
-    physical_by_id = {
-        item.dataset_id: item for item in physical_selection.datasets
-    }
-    effective_by_id = {
-        item.dataset_id: item for item in effective_selection.datasets
-    }
+    physical_by_id = {item.dataset_id: item for item in physical_selection.datasets}
+    effective_by_id = {item.dataset_id: item for item in effective_selection.datasets}
     mapping_by_id = {item.dataset_id: item for item in definition.datasets}
     if (
         len(physical_by_id) != len(physical_selection.datasets)
@@ -235,9 +223,7 @@ def prepare_bounded_direct_session(
         raise ReadinessError("Prepared direct datasets are incomplete or duplicated")
 
     compiled_plan = compile_browser_mapping(definition, effective_selection)
-    compiled_by_name = {
-        item.name: item for item in compiled_plan.datasets
-    }
+    compiled_by_name = {item.name: item for item in compiled_plan.datasets}
     columnar_by_id = {
         item.dataset_id: item
         for item in compile_columnar_transformation_programs(
@@ -246,20 +232,14 @@ def prepare_bounded_direct_session(
         )
     }
     source_hashes = {
-        item.name: item.source_evidence_hash
-        for item in effective_selection.datasets
+        item.name: item.source_evidence_hash for item in effective_selection.datasets
     }
-    modes = {
-        dataset.name: dataset.target.mode
-        for dataset in compiled_plan.datasets
-    }
+    modes = {dataset.name: dataset.target.mode for dataset in compiled_plan.datasets}
     field_sources = canonical_field_sources(
         definition,
         effective_selection,
     )
-    snapshot_by_dataset = {
-        item.dataset_id: item for item in (source_snapshots or ())
-    }
+    snapshot_by_dataset = {item.dataset_id: item for item in (source_snapshots or ())}
     if source_snapshots is not None and (
         len(snapshot_by_dataset) != len(physical_selection.datasets)
         or set(snapshot_by_dataset) != set(physical_by_id)
@@ -337,8 +317,7 @@ def prepare_bounded_direct_session(
                 raise ReadinessError("Frozen source evidence is incomplete")
             named_range = (
                 table_catalog.named_tables[0].cell_range
-                if table_catalog.kind == "NAMED_TABLE"
-                and table_catalog.named_tables
+                if table_catalog.kind == "NAMED_TABLE" and table_catalog.named_tables
                 else None
             )
             snapshot = snapshot_by_dataset.get(physical.dataset_id)
@@ -366,30 +345,71 @@ def prepare_bounded_direct_session(
                         sessions,
                         session.session_id,
                     )
-                    sessions.bind_prepared_canonical_projection(
-                        project.project_id,
-                        session.session_id,
-                        prepared_snapshot,
-                        PreparedCanonicalProjection(
-                            dataset_id=effective.dataset_id,
-                            dataset=effective.name,
-                            ordinal_start=dataset_offsets[effective.dataset_id],
-                            row_count=prepared_snapshot.row_count,
-                            mode=modes[effective.name],
-                            source_hash=source_hashes[effective.name],
-                            physical_dataset_id=physical.dataset_id,
-                            field_sources=field_sources.get(
-                                effective.name,
-                                {},
-                            ),
-                            program=columnar.program,
+                    projection = PreparedCanonicalProjection(
+                        dataset_id=effective.dataset_id,
+                        dataset=effective.name,
+                        ordinal_start=dataset_offsets[effective.dataset_id],
+                        row_count=prepared_snapshot.row_count,
+                        mode=modes[effective.name],
+                        source_hash=source_hashes[effective.name],
+                        physical_dataset_id=physical.dataset_id,
+                        field_sources=field_sources.get(
+                            effective.name,
+                            {},
                         ),
+                        program=columnar.program,
                     )
                     with artifacts.materialize_prepared_snapshot(
                         project.project_id,
                         prepared_snapshot.parquet_storage_key,
                         expected_sha256=prepared_snapshot.parquet_sha256,
                     ) as path:
+                        native_projection = sessions.append_native_prepared_projection(
+                            project.project_id,
+                            session.session_id,
+                            prepared_snapshot,
+                            replace(
+                                projection,
+                                set_based_projection=True,
+                            ),
+                            path,
+                            totals.target_fields(effective.name),
+                        )
+                        if native_projection is not None:
+                            for control in native_projection.control_totals:
+                                totals.add_precomputed(
+                                    effective.name,
+                                    target_field=control.target_field,
+                                    actual_total=control.actual_total,
+                                    included_rows=control.included_rows,
+                                    empty_rows=control.empty_rows,
+                                )
+                            impact_collector.record_persisted_precomputed(
+                                native_projection.impact_counts,
+                                summarize_polars_rule_impacts(
+                                    path,
+                                    prepared_snapshot,
+                                    columnar.program,
+                                ),
+                            )
+                            row_count = native_projection.row_count
+                            completed_rows += row_count
+                            if batch_progress is not None:
+                                batch_progress(completed_rows, total_rows)
+                            dataset_evidence[effective.name] = (
+                                physical.dataset_id,
+                                StagingDatasetRole.DIRECT,
+                                row_count,
+                                mapping.target_model,
+                            )
+                            continue
+
+                        sessions.bind_prepared_canonical_projection(
+                            project.project_id,
+                            session.session_id,
+                            prepared_snapshot,
+                            projection,
+                        )
                         for native_batch in iter_polars_prepared_batches(
                             path,
                             prepared_snapshot,
@@ -439,28 +459,20 @@ def prepare_bounded_direct_session(
                                         references=references,
                                         issues=issues,
                                         ordinal=(
-                                            dataset_offsets[
-                                                effective.dataset_id
-                                            ]
+                                            dataset_offsets[effective.dataset_id]
                                             + row_count
                                             + batch_index
                                         ),
                                         mode=modes[effective.name],
-                                        source_hash=source_hashes[
-                                            effective.name
-                                        ],
-                                        source_selection_hash=(
-                                            source_selection_hash
-                                        ),
+                                        source_hash=source_hashes[effective.name],
+                                        source_selection_hash=(source_selection_hash),
                                         mapping_hash=mapping_hash,
                                         schema_hash=schema_hash,
                                         field_sources=field_sources.get(
                                             effective.name,
                                             {},
                                         ),
-                                        physical_dataset_id=(
-                                            physical.dataset_id
-                                        ),
+                                        physical_dataset_id=(physical.dataset_id),
                                         encode_payload=False,
                                     )
                                 )
@@ -705,9 +717,7 @@ def _prepared_snapshot_for_program(
             source_snapshot.parquet_storage_key,
             expected_sha256=source_snapshot.parquet_sha256,
         ) as source_path:
-            with artifacts.prepare_prepared_snapshot(
-                project.project_id
-            ) as workspace:
+            with artifacts.prepare_prepared_snapshot(project.project_id) as workspace:
                 candidate_path = workspace / "prepared.parquet"
                 candidate = write_polars_prepared_snapshot(
                     source_path,

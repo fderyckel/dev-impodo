@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from html import unescape
 from io import BytesIO
 import json
@@ -55,10 +55,16 @@ from impodo.domain.mapping.contracts import (
 )
 from impodo.domain.mapping.validation.evidence import MappingValidationStatus
 from impodo.domain.source_binding import FileSourceBinding
+from impodo.domain.odoo_source_capture import (
+    OdooCaptureAccounting,
+    OdooCapturePage,
+    OdooCaptureValueColumn,
+)
 from impodo.models import (
     FieldMetadata,
     ModelMetadata,
     OdooReadIdentity,
+    ProtectedOdooReadContext,
     TargetFingerprint,
     TargetRecord,
     target_identity_hash,
@@ -118,6 +124,23 @@ def _wait_for_preparation(
                 return payload
         time.sleep(0.05)
     raise AssertionError("background preparation did not finish in time")
+
+
+def _wait_for_odoo_capture(
+    client: TestClient,
+    progress_url: str,
+    *,
+    timeout: float = 5.0,
+) -> dict[str, object]:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        response = client.get(f"{progress_url}/status")
+        if response.status_code == 200:
+            payload = response.json()
+            if payload["status"] not in {"QUEUED", "RUNNING"}:
+                return payload
+        time.sleep(0.02)
+    raise AssertionError("background Odoo capture did not finish in time")
 
 
 class LocalBrowserSecurityTests(unittest.TestCase):
@@ -1663,6 +1686,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
             governance.headers["location"],
             f"/projects/{project_id}/target",
         )
+        target_page = self.client.get(governance.headers["location"])
+        self.assertIn(
+            "Required to freeze Odoo source records through the governed JSON-2 reader",
+            target_page.text,
+        )
         files = self.client.get(
             f"/projects/{project_id}/files",
             follow_redirects=False,
@@ -1740,7 +1768,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         source_page = self.client.get(f"/projects/{project_id}/sources")
         self.assertEqual(source_page.status_code, 200)
         self.assertIn("Define a bounded Odoo capture", source_page.text)
-        self.assertIn("Saving it makes no Odoo request", source_page.text)
+        self.assertIn("Freezing is read-only", source_page.text)
         calls_before_selection = len(self.schema_calls)
         selected = self._post(
             f"/projects/{project_id}/sources/odoo-selection",
@@ -1763,7 +1791,52 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(selection.field_names, ("name",))
         saved_page = self.client.get(selected.headers["location"])
         self.assertIn("Capture plan version 1", saved_page.text)
-        self.assertIn("freezes no records", saved_page.text)
+        self.assertIn("Freeze these Odoo records", saved_page.text)
+        self.assertIn("Ready to freeze", saved_page.text)
+
+        stale = self._post(
+            f"/projects/{project_id}/sources/odoo-capture",
+            {
+                "csrf_token": self.csrf,
+                "selection_id": selection.selection_id,
+                "selection_hash": "sha256:" + "0" * 64,
+                "confirm_capture": "1",
+            },
+        )
+        self.assertEqual(stale.status_code, 422)
+        self.assertIn("out of date", stale.text)
+
+        schema = self.app.state.context.queries.get_odoo_schema_catalog(project_id)
+        self.assertIsNotNone(schema)
+        gateway = _BrowserOdooCaptureGateway(project, schema)
+        self.app.state.context.source_capture_factory = (
+            lambda selected_project, _secret: gateway
+        )
+        started = self._post(
+            f"/projects/{project_id}/sources/odoo-capture",
+            {
+                "csrf_token": self.csrf,
+                "selection_id": selection.selection_id,
+                "selection_hash": selection.content_hash,
+                "confirm_capture": "1",
+            },
+        )
+        self.assertEqual(started.status_code, 303)
+        progress_url = started.headers["location"]
+        progress_page = self.client.get(progress_url)
+        self.assertIn("data-odoo-capture-job", progress_page.text)
+        finished = _wait_for_odoo_capture(self.client, progress_url)
+        self.assertEqual(finished["status"], "SUCCEEDED", finished)
+        self.assertEqual(finished["completed_rows"], 2)
+        self.assertEqual(finished["page_count"], 1)
+        calls_after_capture = tuple(gateway.calls)
+
+        frozen_page = self.client.get(finished["redirect_url"])
+        self.assertEqual(tuple(gateway.calls), calls_after_capture)
+        self.assertIn("Current frozen Odoo source", frozen_page.text)
+        self.assertIn("2</dd>", frozen_page.text)
+        self.assertIn("Immutable audit history", frozen_page.text)
+        self.assertIn("Frozen", frozen_page.text)
 
     def test_complete_project_setup_registration_without_yaml(self) -> None:
         created = self._post(
@@ -4963,6 +5036,30 @@ def _browser_schema(project) -> MetadataSnapshot:
                         type="char",
                         label="Name",
                         required=True,
+                        stored=True,
+                        computed=False,
+                        has_inverse=False,
+                        related=False,
+                        translated=False,
+                        company_dependent=False,
+                        searchable=True,
+                        sortable=True,
+                        exportable=True,
+                    ),
+                    "write_date": FieldMetadata(
+                        name="write_date",
+                        type="datetime",
+                        label="Last Updated on",
+                        readonly=True,
+                        stored=True,
+                        computed=False,
+                        has_inverse=False,
+                        related=False,
+                        translated=False,
+                        company_dependent=False,
+                        searchable=True,
+                        sortable=True,
+                        exportable=True,
                     ),
                     "ref": FieldMetadata(
                         name="ref",
@@ -4998,6 +5095,85 @@ def _browser_schema(project) -> MetadataSnapshot:
             )
         },
     )
+
+
+class _BrowserOdooCaptureGateway:
+    def __init__(self, project, schema: OdooSchemaCatalog) -> None:
+        self.project = project
+        self.schema = schema
+        self.now = datetime.now(timezone.utc)
+        self.calls: list[str] = []
+        self.context = ProtectedOdooReadContext(
+            language="en_US",
+            timezone="UTC",
+            primary_company_id=1,
+            allowed_company_ids=(1,),
+        )
+
+    def probe_identity(self, request, *, cancellation=None):
+        self.calls.append("identity")
+        return (
+            OdooReadIdentity(
+                target_hash=self.schema.connection_target_hash,
+                principal_hash=self.schema.read_principal_hash,
+                permission_hash=self.schema.read_permission_hash,
+                context_hash=self.schema.read_context_hash,
+                readable_models=request.schema_model_names,
+                observed_at=self.now.isoformat(),
+            ),
+            self.context,
+        )
+
+    def probe_schema(self, request, context, *, cancellation=None):
+        self.calls.append("schema")
+        return _browser_schema(self.project)
+
+    def open_capture(self, request, context, *, cancellation=None):
+        self.calls.append("open")
+        return _BrowserOdooCaptureSession(request, self.now)
+
+    def sample(self, request, context, *, limit, cancellation=None):
+        raise AssertionError("Freeze action does not run a sample")
+
+
+class _BrowserOdooCaptureSession:
+    def __init__(self, request, now: datetime) -> None:
+        self._page = OdooCapturePage(
+            first_row_ordinal=1,
+            odoo_ids=(11, 12),
+            write_dates=(now, now + timedelta(seconds=1)),
+            columns=(
+                OdooCaptureValueColumn(
+                    field_name="name",
+                    field_type="char",
+                    values=("Alice", "Bob"),
+                ),
+            ),
+            response_bytes=100,
+            normalized_bytes=20,
+        )
+        self._accounting = OdooCaptureAccounting(
+            high_water_id=12,
+            row_count=2,
+            page_count=1,
+            record_request_count=2,
+            response_bytes=102,
+            normalized_bytes=20,
+            capture_started_at=now,
+            capture_finished_at=now + timedelta(seconds=2),
+            consistency=request.consistency,
+            target_instance_assurance=request.target_instance_assurance,
+            consistency_limitation=(
+                "Native pages are not one database-wide point-in-time snapshot."
+            ),
+        )
+
+    def pages(self):
+        return iter((self._page,))
+
+    @property
+    def accounting(self):
+        return self._accounting
 
 
 def _browser_model_catalog(project) -> RecordSnapshot:
