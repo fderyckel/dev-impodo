@@ -452,6 +452,7 @@ class SourceRepository(DuckDbRepository):
                     """,
                     [selection.selection_id, selection.version],
                 )
+                connection.execute("DELETE FROM odoo_capture_manifest_current")
                 connection.execute("DELETE FROM source_selection")
                 connection.execute("DELETE FROM source_snapshot_current")
                 connection.execute("DELETE FROM derived_entity_plan_current")

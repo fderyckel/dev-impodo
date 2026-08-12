@@ -112,9 +112,6 @@ _DIRECT_PHYSICAL_ROW_JSON_STRUCTURE = """[{
 
 _DIRECT_RELATIONSHIP_JSON_STRUCTURE = """[{
     "child_ordinal":"BIGINT",
-    "child_row_id":"VARCHAR",
-    "child_dataset":"VARCHAR",
-    "child_source_row":"BIGINT",
     "target_field":"VARCHAR",
     "item_ordinal":"INTEGER",
     "parent_dataset":"VARCHAR",
@@ -998,9 +995,6 @@ class PreparationSessionRepository(DuckDbRepository):
                 relationship_rows = (
                     {
                         "child_ordinal": item.ordinal,
-                        "child_row_id": item.row_id,
-                        "child_dataset": item.dataset,
-                        "child_source_row": item.source_row,
                         "target_field": target_field,
                         "item_ordinal": item_ordinal,
                         "parent_dataset": reference.dataset,
@@ -1041,17 +1035,15 @@ class PreparationSessionRepository(DuckDbRepository):
                     connection.execute(
                         """
                         INSERT INTO preparation_relationship_edge (
-                            session_id, child_ordinal, child_row_id,
-                            child_dataset, child_source_row, target_field,
+                            session_id, child_ordinal, target_field,
                             item_ordinal, parent_dataset,
                             normalized_key_json, parent_identity_hash,
                             match_state, resolution_state, match_count,
-                            resolved_parent_row_id
+                            resolved_parent_ordinal
                         )
                         SELECT
-                            ?, item.child_ordinal, item.child_row_id,
-                            item.child_dataset, item.child_source_row,
-                            item.target_field, item.item_ordinal,
+                            ?, item.child_ordinal, item.target_field,
+                            item.item_ordinal,
                             item.parent_dataset, item.normalized_key_json,
                             item.parent_identity_hash, 'PENDING', 'PENDING',
                             0, NULL
@@ -1662,7 +1654,7 @@ class PreparationSessionRepository(DuckDbRepository):
                         SELECT edge.child_ordinal, edge.target_field,
                                edge.item_ordinal,
                                COUNT(parent_identity.ordinal) AS match_count,
-                               MIN(parent.row_id) AS parent_row_id,
+                               MIN(parent_identity.ordinal) AS parent_ordinal,
                                MIN(parent.disposition) AS parent_disposition
                           FROM preparation_relationship_edge AS edge
                           LEFT JOIN preparation_direct_identity AS parent_identity
@@ -1692,9 +1684,9 @@ class PreparationSessionRepository(DuckDbRepository):
                                    THEN 'RESOLVED'
                                ELSE 'UNSAFE_PARENT'
                            END,
-                           resolved_parent_row_id = CASE
+                           resolved_parent_ordinal = CASE
                                WHEN matches.match_count = 1
-                                   THEN matches.parent_row_id
+                                   THEN matches.parent_ordinal
                                ELSE NULL
                            END
                       FROM matches
@@ -1712,14 +1704,13 @@ class PreparationSessionRepository(DuckDbRepository):
                       LEFT JOIN canonical_staging_row AS child
                         ON child.run_id = edge.session_id
                        AND child.ordinal = edge.child_ordinal
-                       AND child.row_id = edge.child_row_id
                      WHERE edge.session_id = ?
                        AND (
                            child.row_id IS NULL
                            OR edge.match_state = 'PENDING'
                            OR edge.resolution_state = 'PENDING'
                            OR (edge.match_state = 'UNIQUE') !=
-                              (edge.resolved_parent_row_id IS NOT NULL)
+                              (edge.resolved_parent_ordinal IS NOT NULL)
                        )
                      LIMIT 1
                     """,
@@ -2664,31 +2655,44 @@ class PreparationSessionRepository(DuckDbRepository):
                 connection.execute(
                     """
                     CREATE TEMP TABLE relationship_unsafe AS
-                    WITH RECURSIVE unsafe(row_id) AS (
-                        SELECT row_id
-                          FROM relationship_initial_unsafe
+                    WITH RECURSIVE unsafe(ordinal) AS (
+                        SELECT row.ordinal
+                          FROM canonical_staging_row AS row
+                          JOIN relationship_initial_unsafe AS initial
+                            ON initial.row_id = row.row_id
+                         WHERE row.run_id = ?
                         UNION
-                        SELECT child_row_id
+                        SELECT edge.child_ordinal
                           FROM preparation_relationship_edge AS edge
+                          JOIN canonical_staging_row AS child
+                            ON child.run_id = edge.session_id
+                           AND child.ordinal = edge.child_ordinal
                           JOIN relationship_propagating_dataset AS allowed
-                            ON allowed.dataset = edge.child_dataset
+                            ON allowed.dataset = child.dataset
                          WHERE edge.session_id = ?
                            AND edge.resolution_state IN ('MISSING', 'AMBIGUOUS')
                         UNION
-                        SELECT edge.child_row_id
+                        SELECT edge.child_ordinal
                           FROM preparation_relationship_edge AS edge
                           JOIN unsafe AS parent
-                            ON parent.row_id = edge.resolved_parent_row_id
+                            ON parent.ordinal = edge.resolved_parent_ordinal
+                          JOIN canonical_staging_row AS child
+                            ON child.run_id = edge.session_id
+                           AND child.ordinal = edge.child_ordinal
                          WHERE edge.session_id = ?
                            AND edge.match_state = 'UNIQUE'
-                           AND edge.child_dataset IN (
+                           AND child.dataset IN (
                                SELECT dataset
                                  FROM relationship_propagating_dataset
                            )
                     )
-                    SELECT DISTINCT row_id FROM unsafe
+                    SELECT DISTINCT ordinal FROM unsafe
                     """,
-                    [canonical_session_id, canonical_session_id],
+                    [
+                        canonical_session_id,
+                        canonical_session_id,
+                        canonical_session_id,
+                    ],
                 )
                 connection.execute(
                     """
@@ -2696,15 +2700,15 @@ class PreparationSessionRepository(DuckDbRepository):
                        SET resolution_state = CASE
                            WHEN edge.match_state = 'MISSING' THEN 'MISSING'
                            WHEN edge.match_state = 'DUPLICATE' THEN 'AMBIGUOUS'
-                           WHEN parent.row_id IS NOT NULL THEN 'UNSAFE_PARENT'
+                           WHEN parent.ordinal IS NOT NULL THEN 'UNSAFE_PARENT'
                            ELSE 'RESOLVED'
                        END
                       FROM (
-                          SELECT row_id FROM relationship_unsafe
+                          SELECT ordinal FROM relationship_unsafe
                       ) AS parent
                      WHERE edge.session_id = ?
                        AND edge.match_state = 'UNIQUE'
-                       AND edge.resolved_parent_row_id = parent.row_id
+                       AND edge.resolved_parent_ordinal = parent.ordinal
                     """,
                     [canonical_session_id],
                 )
@@ -2720,7 +2724,6 @@ class PreparationSessionRepository(DuckDbRepository):
                           JOIN canonical_staging_row AS child
                             ON child.run_id = edge.session_id
                            AND child.ordinal = edge.child_ordinal
-                           AND child.row_id = edge.child_row_id
                           JOIN preparation_lineage AS lineage
                             ON lineage.session_id = child.run_id
                            AND lineage.dataset = child.dataset
@@ -3005,23 +3008,6 @@ class PreparationSessionRepository(DuckDbRepository):
                     "DELETE FROM preparation_normalization_finding WHERE session_id = ?",
                     [canonical_session_id],
                 )
-                connection.execute(
-                    """
-                    CREATE TEMP TABLE normalization_pending_effect (
-                        run_id VARCHAR NOT NULL,
-                        ordinal BIGINT NOT NULL,
-                        effect_id VARCHAR PRIMARY KEY,
-                        group_id VARCHAR NOT NULL,
-                        row_id VARCHAR NOT NULL,
-                        dataset VARCHAR NOT NULL,
-                        source_row BIGINT NOT NULL,
-                        target_field VARCHAR NOT NULL,
-                        eligible BOOLEAN NOT NULL,
-                        effect_json VARCHAR NOT NULL
-                    )
-                    """
-                )
-
                 construction_ordinal = 0
                 pending_effects: list[list[object]] = []
                 pending_group_seeds: list[list[object]] = []
@@ -3175,7 +3161,7 @@ class PreparationSessionRepository(DuckDbRepository):
                            ),
                            COUNT(DISTINCT group_id),
                            COUNT(DISTINCT (dataset, source_row))
-                      FROM normalization_pending_effect
+                      FROM normalization_effect
                      WHERE run_id = ?
                     """,
                     [canonical_session_id, canonical_session_id],
@@ -3188,7 +3174,7 @@ class PreparationSessionRepository(DuckDbRepository):
                            COUNT(*) FILTER (WHERE effect.eligible),
                            COUNT(*) FILTER (WHERE NOT effect.eligible)
                       FROM preparation_normalization_group_seed AS seed
-                      JOIN normalization_pending_effect AS effect
+                      JOIN normalization_effect AS effect
                         ON effect.run_id = seed.session_id
                        AND effect.group_id = seed.group_id
                      WHERE seed.session_id = ?
@@ -3201,21 +3187,33 @@ class PreparationSessionRepository(DuckDbRepository):
                 ).fetchall()
                 example_rows = connection.execute(
                     """
-                    SELECT group_id, source_row,
-                           json_extract_string(effect_json, '$.before'),
-                           json_extract_string(effect_json, '$.after')
-                      FROM (
-                            SELECT group_id, source_row, row_id, effect_id,
-                                   effect_json,
-                                   ROW_NUMBER() OVER (
-                                       PARTITION BY group_id
-                                       ORDER BY source_row, row_id, effect_id
-                                   ) AS example_ordinal
-                              FROM normalization_pending_effect
-                             WHERE run_id = ? AND eligible
-                           ) AS ranked
-                     WHERE example_ordinal <= 5
-                     ORDER BY group_id, source_row, row_id, effect_id
+                    WITH top_effect AS (
+                        SELECT run_id, group_id,
+                               UNNEST(
+                                   arg_min(
+                                       effect_id,
+                                       struct_pack(
+                                           source_row := source_row,
+                                           row_id := row_id,
+                                           effect_id := effect_id
+                                       ),
+                                       5
+                                   )
+                               ) AS effect_id
+                          FROM normalization_effect
+                         WHERE run_id = ? AND eligible
+                         GROUP BY run_id, group_id
+                    )
+                    SELECT effect.group_id, effect.source_row,
+                           json_extract_string(effect.effect_json, '$.before'),
+                           json_extract_string(effect.effect_json, '$.after')
+                      FROM top_effect
+                      JOIN normalization_effect AS effect
+                        ON effect.run_id = top_effect.run_id
+                       AND effect.group_id = top_effect.group_id
+                       AND effect.effect_id = top_effect.effect_id
+                     ORDER BY effect.group_id, effect.source_row,
+                              effect.row_id, effect.effect_id
                     """,
                     [canonical_session_id],
                 ).fetchall()
@@ -3238,15 +3236,6 @@ class PreparationSessionRepository(DuckDbRepository):
                     """,
                     [canonical_session_id],
                 ).fetchall()
-                connection.execute(
-                    """
-                    INSERT INTO normalization_effect
-                    SELECT run_id, ordinal, effect_id, group_id, row_id,
-                           dataset, source_row, target_field, eligible,
-                           effect_json
-                      FROM normalization_pending_effect
-                    """
-                )
                 connection.commit()
             except Exception:
                 connection.rollback()
@@ -3274,7 +3263,7 @@ class PreparationSessionRepository(DuckDbRepository):
     def _insert_prepared_normalization_effects(connection, rows) -> None:
         connection.execute(
             """
-            INSERT OR IGNORE INTO normalization_pending_effect
+            INSERT OR IGNORE INTO normalization_effect
             SELECT
                 CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
                 CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),

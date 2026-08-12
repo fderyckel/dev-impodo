@@ -68,9 +68,14 @@ unverified local manual draft cannot.
 The current policy fixes Odoo 19 JSON-2, same-target protected-ID update-only
 semantics, and connection-only instance assurance. It explicitly marks native
 production writes unsupported: JSON-2 cannot prove restore/clone identity or
-perform the required atomic compare-and-write operation. Captured IDs and
-business values are restricted evidence and require application-level
-encryption before persistence; live row capture is therefore still absent.
+perform the required atomic compare-and-write operation. Numeric IDs and other
+target-bound provenance are restricted sidecar evidence. The current protected
+repository stores bounded typed ID/write-date columns under project-scoped
+AES-256-GCM, with one logical payload root, one exact ciphertext root, strict
+manifest serialization, authorization, quota, retention, invalidation, and
+deletion. Bulk captured values remain one governed typed source artifact and
+are not duplicated into that sidecar. The live Odoo reader and values-artifact
+publisher are still absent.
 
 ## Confirmation and dataset freeze
 

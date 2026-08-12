@@ -54,7 +54,7 @@ from impodo.workspace_contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
-from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 
 
 NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
@@ -1211,7 +1211,7 @@ def _field(
 def _schema_catalog() -> OdooSchemaCatalog:
     return OdooSchemaCatalog(
         project_id="project:test",
-        policy_hash=CURRENT_ODOO_SOURCE_POLICY.content_hash,
+        policy_hash=ODOO_SOURCE_POLICY_HASH,
         captured_at=NOW,
         captured_by="Test operator",
         connection_mode="LOCAL",

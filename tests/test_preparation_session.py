@@ -847,7 +847,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             states = connection.execute(
                 """
                 SELECT normalized_key_json, match_state, resolution_state,
-                       match_count, resolved_parent_row_id IS NOT NULL
+                       match_count, resolved_parent_ordinal IS NOT NULL
                   FROM preparation_relationship_edge
                  WHERE session_id = ?
                  ORDER BY child_ordinal
@@ -1027,7 +1027,12 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
                 "WHERE session_id = ?",
                 [session.session_id],
             ).fetchone()
+            relationship_indexes = connection.execute(
+                "SELECT COUNT(*) FROM duckdb_indexes() "
+                "WHERE table_name = 'preparation_relationship_edge'"
+            ).fetchone()
         self.assertEqual(retained_edges, (9,))
+        self.assertEqual(relationship_indexes, (0,))
 
 
 if __name__ == "__main__":

@@ -114,6 +114,25 @@ class ProjectSchemaMixin:
                 version INTEGER NOT NULL
             );
 
+            CREATE TABLE odoo_capture_manifest_revision (
+                manifest_id VARCHAR PRIMARY KEY,
+                content_hash VARCHAR NOT NULL UNIQUE,
+                selection_hash VARCHAR NOT NULL,
+                dataset_id VARCHAR NOT NULL,
+                row_count BIGINT NOT NULL,
+                data_size_bytes BIGINT NOT NULL,
+                provenance_size_bytes BIGINT NOT NULL,
+                provenance_storage_key VARCHAR NOT NULL UNIQUE,
+                retention_until VARCHAR NOT NULL,
+                captured_at VARCHAR NOT NULL,
+                manifest_json VARCHAR NOT NULL
+            );
+
+            CREATE TABLE odoo_capture_manifest_current (
+                singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                manifest_id VARCHAR NOT NULL
+            );
+
             CREATE TABLE odoo_schema_catalog (
                 singleton_id INTEGER PRIMARY KEY,
                 catalog_json VARCHAR NOT NULL

@@ -30,6 +30,8 @@ class Capability(StrEnum):
     SOURCE_INSPECT = "source.inspect"
     SOURCE_CONFIGURE = "source.configure"
     SOURCE_SELECT = "source.select"
+    PROTECTED_EVIDENCE_READ = "protected_evidence.read"
+    PROTECTED_EVIDENCE_MANAGE = "protected_evidence.manage"
     SCHEMA_DISCOVER = "schema.discover"
     SCHEMA_GOVERN = "schema.govern"
     MAPPING_EDIT = "mapping.edit"

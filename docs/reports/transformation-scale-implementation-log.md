@@ -128,8 +128,8 @@ allocator, database, and engine memory; it is not evidence of a Python leak.
 | Phase 3: sparse multi-dataset quality | Complete for direct native datasets | 5 → 2 prepared-value scans; clean quality/accounting physical rows 200,000 → 0; exact logical hashes retained |
 | Phase 4: construct normalization once | Complete for direct native datasets | 152,000 → 76,000 effect constructions on the 4,000×19 fixture; CPU -3.19%, peak RSS -13.03%, DB used -4.21%; exact hashes retained |
 | Phase 5: set-based product/BOM relationships | Complete for direct multi-dataset product/BOM; derived/grouped cardinality changes remain materialized and capped | Peak RSS -45.65%, ending RSS -57.10%; CPU +10.82%, DB used +48.06% for durable edges |
-| Phase 6: conditional transport/hash optimization | Not started | Only if measurements justify it |
-| Phase 7: qualification and limit decision | Not started | Three fresh Windows attempts per fixture |
+| Phase 6: conditional transport/hash optimization | Complete for the Phase-5 relationship path | Relationship DB overhead 46.5 → 5.5 MiB; set-based CPU is now 22.78% below materialization; Arrow/hash changes rejected |
+| Phase 7: qualification and limit decision | In progress — portable worker harness and Mac smoke complete | Clean Windows release profile remains required before any limit change |
 
 The 16,000-product/80,000-BOM shape remains capped at 25,000 rows until Phase 3
 and Phase 5 remove the materializing quality and relationship routes. This is a
@@ -411,8 +411,157 @@ therefore starts a new exact DuckDB schema generation rather than assuming an
 upgrade from databases created by the earlier generation. This follows that
 refactor's fail-closed current-schema policy.
 
-The final combined worktree passes 535 discovered unit/integration tests; 13
+The final combined worktree passes 536 discovered unit/integration tests; 13
 existing live or scale probes remain opt-in and were skipped. The Phase-5
 Python files pass Ruff, `git diff --check` passes, relationship parity passes
 across Polars batch sizes, and the three-pair 96,000-row benchmark passes its
 staging-hash and semantic-summary equality guards.
+
+## B6 — relationship storage and transport
+
+Captured on 2026-08-12 against the same 16,000-Product/80,000-BOM fixture and
+paired fresh-process control as B5. The Phase-5 edge schema had two ART indexes
+covering parent hashes, resolved row hashes, child row hashes, and states. No
+production relationship query performs a selective point lookup: resolution
+and propagation intentionally consume the whole pending session with hash joins
+and one recursive relation. Maintaining those indexes therefore paid CPU and
+storage for the wrong access pattern.
+
+Phase 6 removes both indexes and stores immutable child and resolved-parent
+ordinals instead of repeating their 71-character canonical row IDs, child
+dataset, and child source row on every edge. Audit-facing row IDs and coordinates
+remain exactly derivable by joining the edge to the immutable canonical row
+index. The edge still stores the target field, parent dataset, normalized key,
+parent identity hash, match count, and explicit match/resolution states. Tests
+assert that no relationship index is recreated and that the populated
+relationship pass remains exactly nine SQL statements.
+
+Because this changes the exact current physical schema after the concurrent
+source refactor had introduced `current-s6`, the combined project generation is
+`current-s7`. Older generations fail closed and are not implicitly upgraded.
+
+| Metric | Materialized control | B6 set-based | Gain |
+| --- | ---: | ---: | ---: |
+| CPU | 29.690 s | 22.926 s | **22.78%** |
+| Wall time | 29.901 s | 23.244 s | **22.26%** |
+| Peak RSS | 806.297 MiB | 446.328 MiB | **44.64%** (359.969 MiB) |
+| Ending RSS | 755.266 MiB | 439.266 MiB | **41.84%** |
+| DuckDB file | 143.262 MiB | 146.512 MiB | -2.27% (+3.250 MiB) |
+| DuckDB used pages | 97.250 MiB | 102.750 MiB | -5.66% (+5.500 MiB) |
+
+Relative to the B5 set-based median, B6 reduces the DuckDB file by 23.000 MiB
+and used pages by 40.500 MiB. The durable relationship overhead relative to its
+paired materialized control falls from 46.500 to 5.500 MiB, an **88.17%**
+reduction. CPU also improves by 7.858 seconds relative to B5, although that
+cross-capture comparison remains secondary to the paired B6 result. Peak RSS
+remains in the same 433–446 MiB band and far below the 900 MiB gate.
+
+### Rejected transport and hash changes
+
+The integrated 80,000-edge transport spike includes value construction and
+insertion in 5,000-row batches:
+
+| Transport | Median | Decision |
+| --- | ---: | --- |
+| Current bounded typed JSON | 0.277 s | Retain |
+| DuckDB column arrays | 0.258 s | Reject: only 0.019 s faster |
+| Parameterized `executemany` | 8.684 s | Reject |
+| Polars/Arrow registration | 0.133 s | Reject dependency: saves only 0.144 s |
+
+Arrow required an otherwise absent 34.2 MiB `pyarrow` package for this isolated
+probe. It is not added to Impodo for a sub-150-millisecond microbenchmark gain
+with no demonstrated end-to-end CPU/RSS benefit. A separate 96,000-row
+canonical transport probe found column arrays 0.388 seconds faster than typed
+JSON; the 80,000-impact difference was 0.029 seconds. Neither is material
+against a 23-second integrated run, and changing them would enlarge the memory
+and parity surface.
+
+No hash-root ADR is introduced. Exact logical staging/quality hashes and
+artifact-byte verification are no longer a limiting cost in the integrated
+profile, so replacing them with ordered chunk roots would add compatibility and
+forensic complexity without a measured need. No row signature or weaker
+artifact verification was introduced.
+
+All B6 runs retain the exact B5 staging hash
+`sha256:4836b65a…b6b`, 96,000 ready rows, zero issues/quarantine, and 80,000
+`RESOLVED` edges. Stable canonical row IDs and references remain unchanged for
+later re-transformation and repeat Odoo export/update.
+
+Evidence:
+
+- `.tmp/transformation-scale-phase6-narrow-edge-96k-final.json`
+- `.tmp/transformation-scale-phase6-relationship-transport-final.json`
+
+## B7 — first/repeat worker qualification
+
+Phase 7 now has one portable qualification command rather than a manual list of
+probes. Every workload attempt creates a fresh outer process and then performs
+first and repeat preparation in separate production worker processes. The
+harness records worker CPU, wall time, peak working set, parent memory delta,
+DuckDB file/used pages, total project storage, fixture identity, and exact
+staging/quality/normalization hashes. It rejects a missing worker exit, a
+changed hash, a changed fixture/runtime, source reopening, or prepared-snapshot
+replacement.
+
+The related fixture is an actual two-source Impodo project, not only the B5/B6
+repository benchmark. It registers 16,000 Products and 80,000 BOM lines as two
+immutable CSV sources, maps a required BOM `product_id` through a dataset
+resolver, and runs the normal background preparation service. Before the
+repeat attempt, the harness deletes both registered CSV artifacts. Repeat can
+therefore succeed only through the two immutable prepared snapshots. Their
+identities and modification timestamps must remain unchanged, and the staging,
+quality, and normalization hashes must match the first attempt. This directly
+protects later re-transformation and repeat Odoo export/update behavior.
+
+The release matrix contains:
+
+- 100,000 direct Products rows, with the 750 MiB design target;
+- the 1,000-row/150-column customer structural twin, with the 500 MiB gate;
+- 16,000 Products plus 80,000 related BOM lines;
+- a 4,000-row/19-effect-per-row fixture;
+- its dirty/duplicate-identity counterpart; and
+- the paired materialized/set-based relationship semantic oracle.
+
+The 100,000-row mixed/derived route is deliberately not presented as a raised
+capability. Derived/grouped cardinality-changing plans remain materialized and
+capped; Phase 7 qualifies only the direct and direct-related capabilities that
+Phases 2–6 made bounded.
+
+### Mac harness smoke
+
+The Mac smoke profile passed all 27 executable performance/reclamation gates.
+Each workload completed first and repeat preparation in about 1.2–1.5 seconds,
+worker peaks were 228–254 MiB, and parent repeat deltas were 0.28–0.67 MiB.
+The related smoke case prepared 100 Products plus 500 BOM lines, reused both
+prepared snapshots after both sources were deleted, and retained identical
+staging, quality, and normalization hashes. The separate relationship oracle
+also retained exact staging/quality semantics.
+
+Evidence:
+
+- `.tmp/transformation-scale-phase7-mac-smoke.json`
+- `.tmp/transformation-scale-phase7-mac-smoke/`
+
+This proves the harness and production repeat path on macOS; it is not release
+qualification. The evidence truthfully reports `release_qualified: false`
+because it is a one-run smoke profile on a dirty non-Windows worktree.
+
+### Windows release command
+
+On a clean combined revision in PowerShell, run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\qualify_transformation_scale.py `
+  --profile release `
+  --require-release-qualified `
+  --timeout-per-scenario 3600 `
+  --output .tmp\transformation-scale-phase7-windows-release.json `
+  --evidence-dir .tmp\transformation-scale-phase7-windows-release
+```
+
+If the combined worktree cannot yet be clean, add
+`--allow-dirty-worktree` only for a diagnostic release-shape run and omit
+`--require-release-qualified`. Such a run can expose Windows failures but can
+never authorize a route-limit change. Limits and browser/operations messages
+remain unchanged until the clean Windows report says
+`release_qualified: true`.

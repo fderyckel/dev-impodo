@@ -6,9 +6,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 import re
 
-from .serialization import content_hash
-
-
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[a-z_][a-z0-9_.]{0,127}")
 
@@ -109,7 +106,9 @@ class OdooSourceBinding:
 
     @property
     def source_evidence_hash(self) -> str:
-        return content_hash(self.to_dict())
+        """Reuse the selection boundary hash; do not wrap and rehash it."""
+
+        return self.capture_selection_hash
 
     def to_dict(self) -> dict[str, object]:
         return {

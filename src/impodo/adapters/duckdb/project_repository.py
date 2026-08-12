@@ -54,8 +54,16 @@ class ProjectRepository(DuckDbRepository):
         self._mark_registry_sync_pending(project.project_id)
         project_dir = self.project_directory(project.project_id)
         project_dir.mkdir(parents=False, exist_ok=False)
-        for child in ("inbox", "staging", "snapshots", "reports", "audit"):
+        for child in (
+            "inbox",
+            "staging",
+            "snapshots",
+            "protected",
+            "reports",
+            "audit",
+        ):
             (project_dir / child).mkdir()
+        (project_dir / "protected").chmod(0o700)
         database_path = project_dir / "project.duckdb"
         with self._connect(database_path) as connection:
             self._initialize_project_database(connection)
@@ -345,6 +353,7 @@ class ProjectRepository(DuckDbRepository):
                     connection.execute(
                         "DELETE FROM odoo_capture_selection_current"
                     )
+                    connection.execute("DELETE FROM odoo_capture_manifest_current")
                     connection.execute("DELETE FROM schema_governance_current")
                     connection.execute("DELETE FROM mapping_current")
                     self._invalidate_canonical_staging(
@@ -456,6 +465,7 @@ class ProjectRepository(DuckDbRepository):
                 self._update_project(connection, project)
                 connection.execute("DELETE FROM odoo_schema_catalog")
                 connection.execute("DELETE FROM odoo_capture_selection_current")
+                connection.execute("DELETE FROM odoo_capture_manifest_current")
                 connection.execute("DELETE FROM schema_governance_current")
                 connection.execute("DELETE FROM mapping_current")
                 self._invalidate_canonical_staging(

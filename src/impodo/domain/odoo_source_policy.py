@@ -30,7 +30,7 @@ class ProductionWriteDisposition(StrEnum):
 
 
 class ProtectedEvidenceEncryption(StrEnum):
-    """At-rest decision for numeric IDs and captured Odoo business values."""
+    """At-rest decision for target-bound provenance and difference evidence."""
 
     APPLICATION_LEVEL_REQUIRED = "APPLICATION_LEVEL_REQUIRED"
 
@@ -67,13 +67,6 @@ class OdooSourcePolicy:
         """Return the canonical semantic policy payload."""
 
         return asdict(self)
-
-    @property
-    def content_hash(self) -> str:
-        """Bind source evidence to the exact current policy."""
-
-        return content_hash(self.to_dict())
-
 
 CURRENT_ODOO_SOURCE_POLICY = OdooSourcePolicy(
     contract_version=ODOO_SOURCE_POLICY_CONTRACT_VERSION,
@@ -120,3 +113,7 @@ CURRENT_ODOO_SOURCE_POLICY = OdooSourcePolicy(
     backup_rule="EXCLUDED_UNLESS_EXPLICITLY_APPROVED",
     deletion_rule="RETENTION_EXPIRY_OR_PROJECT_DELETION",
 )
+
+# The policy is immutable process metadata. Canonicalize and hash it exactly
+# once, then reuse this fixed boundary value in every catalog and manifest.
+ODOO_SOURCE_POLICY_HASH = content_hash(CURRENT_ODOO_SOURCE_POLICY.to_dict())

@@ -35,6 +35,7 @@ from ..access import (
 from ..application.browser_queries import BrowserQueryService
 from ..application.mapping_workspace_service import MappingWorkspaceService
 from ..application.normalization_service import NormalizationService
+from ..application.odoo_provenance_service import OdooProvenanceService
 from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
 from ..application.reconciliation_service import ReconciliationService
@@ -56,6 +57,7 @@ from ..adapters.duckdb.database import DuckDbDatabase
 from ..adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from ..adapters.duckdb.mapping_repository import MappingRepository
 from ..adapters.duckdb.normalization_repository import NormalizationRepository
+from ..adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
 from ..adapters.duckdb.preflight_repository import PreflightRepository
 from ..adapters.duckdb.execution_repository import ExecutionRepository
 from ..adapters.duckdb.reconciliation_repository import ReconciliationRepository
@@ -173,6 +175,8 @@ def create_local_app(
     reconciliation_repository = ReconciliationRepository(database)
     transformation_impact_repository = TransformationImpactRepository(database)
     resolved_authorization = authorization or CapabilityAuthorizationPolicy()
+    resolved_secret_store = secret_store or CredentialVault()
+    odoo_provenance_repository = OdooProvenanceRepository(database)
     projects = ProjectService(project_repository, resolved_authorization)
     quality = QualityService(
         mapping_repository,
@@ -286,11 +290,18 @@ def create_local_app(
             resolved_artifacts,
             resolved_authorization,
         ),
+        odoo_provenance=OdooProvenanceService(
+            project_repository,
+            source_repository,
+            odoo_provenance_repository,
+            resolved_secret_store,
+            resolved_authorization,
+        ),
         artifacts=resolved_artifacts,
         actor=actor,
         authorization=resolved_authorization,
         jobs=job_dispatcher or InlineJobDispatcher(),
-        secret_store=secret_store or CredentialVault(),
+        secret_store=resolved_secret_store,
         launch_token=launch_token or secrets.token_urlsafe(32),
         connection_tester=connection_tester or _test_connection,
         read_identity_probe=read_identity_probe or _probe_read_identity,

@@ -8,14 +8,17 @@ hash to row data and a separately authorized protected origin sidecar.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass
 from datetime import datetime
 from enum import StrEnum
 import json
 import re
 from uuid import UUID
 
-from .odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from .odoo_source_policy import (
+    CURRENT_ODOO_SOURCE_POLICY,
+    ODOO_SOURCE_POLICY_HASH,
+)
 from .serialization import canonical_json, content_hash
 from .source_binding import OdooSourceBinding, SourceOriginKind
 
@@ -80,8 +83,9 @@ class OdooCaptureSelection:
     created_by: str
     content_hash: str
     contract_version: int = ODOO_CAPTURE_CONTRACT_VERSION
+    _calculate_content_hash: InitVar[bool] = False
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, _calculate_content_hash: bool) -> None:
         if self.contract_version != ODOO_CAPTURE_CONTRACT_VERSION:
             raise OdooCaptureContractError(
                 "Unsupported Odoo capture selection contract version"
@@ -132,10 +136,9 @@ class OdooCaptureSelection:
             (self.read_principal_hash, "read principal hash"),
             (self.read_permission_hash, "read permission hash"),
             (self.context_hash, "context hash"),
-            (self.content_hash, "content hash"),
         ):
             _require_hash(value, label)
-        if self.policy_hash != CURRENT_ODOO_SOURCE_POLICY.content_hash:
+        if self.policy_hash != ODOO_SOURCE_POLICY_HASH:
             raise OdooCaptureContractError(
                 "Odoo capture selection does not use the current source policy"
             )
@@ -145,7 +148,16 @@ class OdooCaptureSelection:
             )
         if not self.created_by.strip() or len(self.created_by) > 256:
             raise OdooCaptureContractError("Odoo capture actor is invalid")
-        if self.content_hash != self.expected_content_hash:
+        expected_content_hash = content_hash(self._semantic_dict())
+        if _calculate_content_hash:
+            if self.content_hash:
+                raise OdooCaptureContractError(
+                    "New Odoo capture selection already has a content hash"
+                )
+            object.__setattr__(self, "content_hash", expected_content_hash)
+        else:
+            _require_hash(self.content_hash, "content hash")
+        if self.content_hash != expected_content_hash:
             raise OdooCaptureContractError(
                 "Odoo capture selection content hash is invalid"
             )
@@ -170,25 +182,6 @@ class OdooCaptureSelection:
         created_at: datetime,
         created_by: str,
     ) -> OdooCaptureSelection:
-        values: dict[str, object] = {
-            "contract_version": ODOO_CAPTURE_CONTRACT_VERSION,
-            "connection_target_hash": connection_target_hash,
-            "consistency": OdooCaptureConsistency.KEYSET_HIGH_WATER_INTERVAL,
-            "context_hash": context_hash,
-            "dataset_name": dataset_name,
-            "field_names": field_names,
-            "filter_policy": filter_policy,
-            "max_rows": max_rows,
-            "model": model,
-            "page_size": ODOO_CAPTURE_PAGE_SIZE,
-            "policy_hash": CURRENT_ODOO_SOURCE_POLICY.content_hash,
-            "project_id": project_id,
-            "read_permission_hash": read_permission_hash,
-            "read_principal_hash": read_principal_hash,
-            "schema_scope_hash": schema_scope_hash,
-            "selection_id": selection_id,
-            "version": version,
-        }
         return cls(
             selection_id=selection_id,
             version=version,
@@ -200,7 +193,7 @@ class OdooCaptureSelection:
             max_rows=max_rows,
             page_size=ODOO_CAPTURE_PAGE_SIZE,
             consistency=OdooCaptureConsistency.KEYSET_HIGH_WATER_INTERVAL,
-            policy_hash=CURRENT_ODOO_SOURCE_POLICY.content_hash,
+            policy_hash=ODOO_SOURCE_POLICY_HASH,
             connection_target_hash=connection_target_hash,
             schema_scope_hash=schema_scope_hash,
             read_principal_hash=read_principal_hash,
@@ -208,12 +201,9 @@ class OdooCaptureSelection:
             context_hash=context_hash,
             created_at=created_at,
             created_by=created_by,
-            content_hash=content_hash(values),
+            content_hash="",
+            _calculate_content_hash=True,
         )
-
-    @property
-    def expected_content_hash(self) -> str:
-        return content_hash(self._semantic_dict())
 
     @property
     def source_binding(self) -> OdooSourceBinding:

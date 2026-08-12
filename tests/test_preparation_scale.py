@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import csv
 from contextlib import ExitStack
 from dataclasses import replace
 from datetime import datetime, timezone
+from hashlib import sha256
 from importlib.metadata import PackageNotFoundError, version as package_version
 import json
 import os
@@ -46,6 +48,9 @@ from impodo.domain.mapping.contracts import (
     IdentityComponentMapping,
     MappingDefinition,
     MappingTargetMode,
+    RelationshipMapping,
+    RelationshipResolver,
+    ResolverOrigin,
     ScalarFieldMapping,
 )
 from impodo.domain.mapping.validation.evidence import (
@@ -112,6 +117,12 @@ PREPARATION_SCALE_WORKLOAD = os.environ.get(
     "IMPODO_PREPARATION_SCALE_WORKLOAD",
     "products",
 ).casefold()
+PREPARATION_SCALE_PRODUCTS = int(
+    os.environ.get("IMPODO_PREPARATION_SCALE_PRODUCTS", "16000")
+)
+PREPARATION_SCALE_BOM_LINES = int(
+    os.environ.get("IMPODO_PREPARATION_SCALE_BOM_LINES", "80000")
+)
 PREPARATION_SCALE_DIRTY = (
     os.environ.get("IMPODO_PREPARATION_SCALE_DIRTY") == "1"
 )
@@ -119,6 +130,9 @@ PREPARATION_NORMALIZATION_REPLAY_CONTROL = (
     os.environ.get("IMPODO_PREPARATION_NORMALIZATION_REPLAY_CONTROL") == "1"
 )
 PREPARATION_BENCHMARK_PREFIX = "IMPODO_PREPARATION_BENCHMARK_JSON="
+PREPARATION_WORKER_BENCHMARK_PREFIX = (
+    "IMPODO_PREPARATION_WORKER_BENCHMARK_JSON="
+)
 
 
 def _benchmark_uuid(label: str) -> UUID:
@@ -127,6 +141,8 @@ def _benchmark_uuid(label: str) -> UUID:
     fixture_key = (
         f"{PREPARATION_SCALE_WORKLOAD}:"
         f"{PREPARATION_SCALE_ROWS}:"
+        f"{PREPARATION_SCALE_PRODUCTS}:"
+        f"{PREPARATION_SCALE_BOM_LINES}:"
         f"{PREPARATION_SCALE_COLUMNS}:"
         f"{PREPARATION_SCALE_MAPPED_FIELDS}:"
         f"{int(PREPARATION_SCALE_DIRTY)}"
@@ -1214,28 +1230,58 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
 
         import psutil
 
-        if PREPARATION_SCALE_ROWS > COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:
+        related_product_bom = PREPARATION_SCALE_WORKLOAD == "product-bom"
+        effective_rows = (
+            PREPARATION_SCALE_PRODUCTS + PREPARATION_SCALE_BOM_LINES
+            if related_product_bom
+            else PREPARATION_SCALE_ROWS
+        )
+        if effective_rows > COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:
             self.skipTest(
                 "The production background probe honors the current "
                 f"{COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:,}-row "
                 "columnar-direct safety limit"
             )
 
-        project_id, _source_sha256, _source_size_bytes = (
-            self._prepare_project_and_evidence(
-                row_count=PREPARATION_SCALE_ROWS,
-                column_count=PREPARATION_SCALE_COLUMNS,
-                mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
-                dirty=PREPARATION_SCALE_DIRTY,
+        if related_product_bom:
+            project_id, source_sha256, source_size_bytes = (
+                self._prepare_related_product_bom_project_and_evidence(
+                    product_count=PREPARATION_SCALE_PRODUCTS,
+                    bom_line_count=PREPARATION_SCALE_BOM_LINES,
+                    column_count=PREPARATION_SCALE_COLUMNS,
+                    mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
+                )
             )
-        )
+        else:
+            project_id, source_sha256, source_size_bytes = (
+                self._prepare_project_and_evidence(
+                    row_count=PREPARATION_SCALE_ROWS,
+                    column_count=PREPARATION_SCALE_COLUMNS,
+                    mapped_field_count=PREPARATION_SCALE_MAPPED_FIELDS,
+                    dirty=PREPARATION_SCALE_DIRTY,
+                )
+            )
         project = self.context.queries.get(project_id)
         selection = self.context.queries.get_source_selection(project_id)
         assert selection is not None
+        if os.environ.get("IMPODO_PREPARATION_DIRECT_DIAGNOSTIC") == "1":
+            normalization = self.context.preparation.prepare(
+                project_id,
+                actor=self.context.actor,
+                progress=lambda phase, completed, total, message: print(
+                    "Direct related diagnostic: "
+                    f"phase={phase.value}, completed={completed}, "
+                    f"total={total}, message={message}"
+                ),
+            )
+            self.assertTrue(normalization.run_id)
+            return
         manager = self.context.preparation_jobs
         assert manager is not None
+        parent_process = psutil.Process()
+        parent_rss_before_jobs = parent_process.memory_info().rss
 
-        def run_attempt() -> tuple[float, int]:
+        def run_attempt() -> tuple[float, float, int]:
             job = manager.enqueue(
                 project_id,
                 project.name,
@@ -1244,15 +1290,21 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             )
             started = perf_counter()
             peak_worker_bytes = 0
+            worker_cpu_seconds = 0.0
             deadline = started + 600
             while perf_counter() < deadline:
                 current = manager.get(project_id, job.job_id)
                 worker_pid = manager.worker_pid(job.job_id)
                 if worker_pid is not None:
                     try:
-                        peak_worker_bytes = max(
-                            peak_worker_bytes,
-                            psutil.Process(worker_pid).memory_info().rss,
+                        worker_process = psutil.Process(worker_pid)
+                        memory = worker_process.memory_info()
+                        working_set = getattr(memory, "peak_wset", memory.rss)
+                        peak_worker_bytes = max(peak_worker_bytes, working_set)
+                        cpu_times = worker_process.cpu_times()
+                        worker_cpu_seconds = max(
+                            worker_cpu_seconds,
+                            float(cpu_times.user + cpu_times.system),
                         )
                     except psutil.NoSuchProcess:
                         pass
@@ -1275,48 +1327,98 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             ):
                 sleep(0.01)
             self.assertFalse(manager.worker_alive(job.job_id))
-            return perf_counter() - started, peak_worker_bytes
+            return (
+                perf_counter() - started,
+                worker_cpu_seconds,
+                peak_worker_bytes,
+            )
 
-        first_seconds, first_peak = run_attempt()
+        def storage_evidence() -> dict[str, int]:
+            database_path = self.root / project_id / "project.duckdb"
+            with self.context.preparation.staging._connect(
+                database_path
+            ) as connection:
+                connection.execute("CHECKPOINT")
+                database_size_row = connection.execute(
+                    "PRAGMA database_size"
+                ).fetchone()
+            assert database_size_row is not None
+            block_size = int(database_size_row[2])
+            project_directory = self.root / project_id
+            return {
+                "database_file_bytes": database_path.stat().st_size,
+                "database_free_bytes": block_size * int(database_size_row[5]),
+                "database_used_bytes": block_size * int(database_size_row[4]),
+                "project_storage_bytes": sum(
+                    item.stat().st_size
+                    for item in project_directory.rglob("*")
+                    if item.is_file()
+                ),
+            }
+
+        first_seconds, first_cpu_seconds, first_peak = run_attempt()
         first_staging = (
             self.context.preparation.staging.get_current_staging_summary(
                 project_id
             )
         )
+        first_quality = self.context.preparation.quality.current_summary(
+            project_id
+        )
         first_normalization = (
             self.context.preparation.normalization.current_summary(project_id)
         )
+        first_storage = storage_evidence()
+        parent_rss_after_first = parent_process.memory_info().rss
         prepared = (
             self.context.preparation.sessions.current_prepared_snapshots(
                 project_id
             )
         )
-        self.assertEqual(len(prepared), 1)
-        prepared_path = self.root / project_id / prepared[0].parquet_storage_key
-        prepared_modified = prepared_path.stat().st_mtime_ns
-        self.artifacts.delete_source(
-            project_id,
-            project.source_files[0].stored_name,
-        )
+        expected_prepared_count = 2 if related_product_bom else 1
+        self.assertEqual(len(prepared), expected_prepared_count)
+        prepared_modified = {
+            item.parquet_storage_key: (
+                self.root / project_id / item.parquet_storage_key
+            ).stat().st_mtime_ns
+            for item in prepared
+        }
+        for source_file in project.source_files:
+            self.artifacts.delete_source(
+                project_id,
+                source_file.stored_name,
+            )
 
-        repeat_seconds, repeat_peak = run_attempt()
+        repeat_seconds, repeat_cpu_seconds, repeat_peak = run_attempt()
         repeated_staging = (
             self.context.preparation.staging.get_current_staging_summary(
                 project_id
             )
         )
+        repeated_quality = self.context.preparation.quality.current_summary(
+            project_id
+        )
         repeated_normalization = (
             self.context.preparation.normalization.current_summary(project_id)
         )
+        repeat_storage = storage_evidence()
+        parent_rss_after_repeat = parent_process.memory_info().rss
         self.assertIsNotNone(first_staging)
+        self.assertIsNotNone(first_quality)
         self.assertIsNotNone(first_normalization)
         self.assertIsNotNone(repeated_staging)
+        self.assertIsNotNone(repeated_quality)
         self.assertIsNotNone(repeated_normalization)
         assert first_staging is not None
+        assert first_quality is not None
         assert first_normalization is not None
         assert repeated_staging is not None
+        assert repeated_quality is not None
         assert repeated_normalization is not None
+        self.assertEqual(first_staging.total_rows, effective_rows)
+        self.assertEqual(repeated_staging.total_rows, effective_rows)
         self.assertEqual(repeated_staging.content_hash, first_staging.content_hash)
+        self.assertEqual(repeated_quality.content_hash, first_quality.content_hash)
         self.assertEqual(
             repeated_normalization.content_hash,
             first_normalization.content_hash,
@@ -1327,19 +1429,397 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             ),
             prepared,
         )
-        self.assertEqual(prepared_path.stat().st_mtime_ns, prepared_modified)
+        self.assertEqual(
+            {
+                item.parquet_storage_key: (
+                    self.root / project_id / item.parquet_storage_key
+                ).stat().st_mtime_ns
+                for item in prepared
+            },
+            prepared_modified,
+        )
         print(
             "Background preparation probe: "
-            f"rows={PREPARATION_SCALE_ROWS:,}, "
+            f"rows={effective_rows:,}, "
             f"first={first_seconds:.3f}s/{first_peak / (1024 * 1024):.1f} MiB, "
             f"repeat={repeat_seconds:.3f}s/{repeat_peak / (1024 * 1024):.1f} MiB, "
             "workers_exited=yes, source_reopened=no"
         )
-        if PREPARATION_SCALE_ROWS == COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:
+        if os.environ.get("IMPODO_PREPARATION_WORKER_JSON") == "1":
+            result = {
+                "columns": PREPARATION_SCALE_COLUMNS,
+                "dirty": PREPARATION_SCALE_DIRTY,
+                "effect_fields": PREPARATION_SCALE_EFFECT_FIELDS,
+                "first": {
+                    "cpu_seconds": first_cpu_seconds,
+                    "peak_worker_mib": first_peak / (1024 * 1024),
+                    "storage": first_storage,
+                    "wall_seconds": first_seconds,
+                },
+                "fixture": {
+                    "sha256": source_sha256,
+                    "size_bytes": source_size_bytes,
+                },
+                "hashes": {
+                    "normalization": first_normalization.content_hash,
+                    "quality": first_quality.content_hash,
+                    "staging": first_staging.content_hash,
+                },
+                "mapped_fields": PREPARATION_SCALE_MAPPED_FIELDS,
+                "parent_rss": {
+                    "after_first_mib": parent_rss_after_first / (1024 * 1024),
+                    "after_repeat_mib": parent_rss_after_repeat / (1024 * 1024),
+                    "before_jobs_mib": parent_rss_before_jobs / (1024 * 1024),
+                    "repeat_delta_mib": (
+                        parent_rss_after_repeat - parent_rss_before_jobs
+                    )
+                    / (1024 * 1024),
+                },
+                "platform": platform.platform(),
+                "prepared_snapshot_reused": True,
+                "python": sys.version,
+                "repeat": {
+                    "cpu_seconds": repeat_cpu_seconds,
+                    "peak_worker_mib": repeat_peak / (1024 * 1024),
+                    "storage": repeat_storage,
+                    "wall_seconds": repeat_seconds,
+                },
+                "revision": os.environ.get(
+                    "IMPODO_PREPARATION_BENCHMARK_REVISION",
+                    "unknown",
+                ),
+                "rows": effective_rows,
+                "runtime_versions": {
+                    name: _installed_version(name)
+                    for name in ("duckdb", "openpyxl", "polars", "psutil")
+                },
+                "schema_version": 1,
+                "source_reopened": False,
+                "workers_exited": True,
+                "workload": PREPARATION_SCALE_WORKLOAD,
+            }
+            print(
+                PREPARATION_WORKER_BENCHMARK_PREFIX
+                + json.dumps(result, separators=(",", ":"), sort_keys=True)
+            )
+        if effective_rows == COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:
             self.assertLess(first_seconds, 120)
             self.assertLess(repeat_seconds, 120)
             self.assertLess(first_peak / (1024 * 1024), 900)
             self.assertLess(repeat_peak / (1024 * 1024), 900)
+
+    def _prepare_related_product_bom_project_and_evidence(
+        self,
+        *,
+        product_count: int,
+        bom_line_count: int,
+        column_count: int,
+        mapped_field_count: int,
+    ) -> tuple[str, str, int]:
+        """Create two direct datasets with a real Product/BOM resolver."""
+
+        if column_count < 4 or mapped_field_count < 4:
+            self.fail("The related fixture requires at least four columns")
+        benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        with patch(
+            "impodo.projects.uuid4",
+            return_value=_benchmark_uuid("project"),
+        ):
+            project = self.context.projects.create_project(
+                actor=self.context.actor,
+                name="96k related Product/BOM preparation benchmark",
+                source_system="Deterministic related CSV fixtures",
+            )
+
+        fixture_specs = (
+            (
+                "products",
+                product_count,
+                _related_product_headers(column_count),
+                lambda index: _related_product_values(index, column_count),
+            ),
+            (
+                "bom-lines",
+                bom_line_count,
+                _related_bom_headers(column_count),
+                lambda index: _related_bom_values(
+                    index,
+                    column_count,
+                    product_count=product_count,
+                ),
+            ),
+        )
+        sources: list[SourceFile] = []
+        catalogs: list[SourceFileCatalog] = []
+        for fixture_name, row_count, headers, values_for in fixture_specs:
+            source_path = self.root / f"{fixture_name}.csv"
+            with source_path.open("w", encoding="utf-8", newline="") as stream:
+                writer = csv.writer(stream, lineterminator="\n")
+                writer.writerow(headers)
+                for index in range(row_count):
+                    writer.writerow(values_for(index))
+            file_id = str(_benchmark_uuid(f"{fixture_name}-source-file"))
+            with source_path.open("rb") as stream:
+                stored = self.artifacts.store_source(
+                    project.project_id,
+                    artifact_id=file_id,
+                    suffix=".csv",
+                    stream=stream,
+                    maximum_bytes=MAX_SOURCE_BYTES,
+                    chunk_bytes=CHUNK_BYTES,
+                    validator=lambda _path: None,
+                )
+            source = SourceFile(
+                file_id=file_id,
+                display_name=f"{fixture_name}.csv",
+                stored_name=stored.storage_key,
+                size_bytes=stored.size_bytes,
+                sha256=stored.sha256,
+                received_at=benchmark_now,
+            )
+            project = self.context.projects.add_source_file(
+                project.project_id,
+                actor=self.context.actor,
+                expected_revision=project.revision,
+                source_file=source,
+            )
+            sources.append(source)
+            catalogs.append(
+                _related_catalog(
+                    source,
+                    row_count=row_count,
+                    headers=headers,
+                    values_for=values_for,
+                    inspected_at=benchmark_now,
+                    decimal_column=(2 if fixture_name == "products" else 3),
+                )
+            )
+
+        registered = replace(
+            project,
+            data_manager="Performance tester",
+            functional_owner="Performance tester",
+            business_unit="Engineering",
+            odoo_connection_mode=OdooConnectionMode.LOCAL,
+            odoo_base_url="http://127.0.0.1:8069",
+            odoo_database="odoo19_scale",
+            intended_models=("product.template", "mrp.bom.line"),
+            status=ProjectStatus.REGISTERED,
+            revision=project.revision + 1,
+            updated_at=benchmark_now,
+            registered_at=benchmark_now,
+        )
+        self.context.projects.repository.save(
+            registered,
+            expected_revision=project.revision,
+            event_type="TEST_PROJECT_REGISTERED",
+            event_detail="96k related Product/BOM preparation benchmark",
+            actor=self.context.actor,
+        )
+        self.context.sources.sources.save_source_catalogs(
+            registered.project_id,
+            tuple(catalogs),
+            actor=self.context.actor,
+        )
+        for source in sources:
+            self.context.sources.confirm_source(
+                registered.project_id,
+                source.file_id,
+                selected_table_keys=("csv",),
+                warnings_acknowledged=False,
+                actor=self.context.actor,
+            )
+        selection = self.context.sources.freeze_selection(
+            registered.project_id,
+            dataset_names={
+                (sources[0].file_id, "csv"): "products",
+                (sources[1].file_id, "csv"): "bom_lines",
+            },
+            actor=self.context.actor,
+        )
+        datasets = {item.name: item for item in selection.datasets}
+        products = datasets["products"]
+        bom_lines = datasets["bom_lines"]
+
+        product_fields = tuple(
+            ScalarFieldMapping(
+                target_field=(
+                    "default_code"
+                    if index == 0
+                    else "name"
+                    if index == 1
+                    else "list_price"
+                    if index == 2
+                    else f"x_scale_{index:02d}"
+                ),
+                source_column_key=products.columns[index].stable_key,
+                transform=(
+                    ScalarTransformPolicy(trim=True)
+                    if 1 <= index <= PREPARATION_SCALE_EFFECT_FIELDS
+                    else ScalarTransformPolicy()
+                ),
+                value_type="decimal" if index == 2 else "string",
+                required=index in {0, 1},
+            )
+            for index in range(mapped_field_count)
+        )
+        bom_scalar_indexes = (0, 1, 3, *range(4, mapped_field_count))
+        bom_fields = tuple(
+            ScalarFieldMapping(
+                target_field=(
+                    "x_bom_reference"
+                    if index == 0
+                    else "x_line_reference"
+                    if index == 1
+                    else "product_qty"
+                    if index == 3
+                    else f"x_scale_{index:02d}"
+                ),
+                source_column_key=bom_lines.columns[index].stable_key,
+                transform=(
+                    ScalarTransformPolicy(trim=True)
+                    if 1 <= index <= PREPARATION_SCALE_EFFECT_FIELDS
+                    else ScalarTransformPolicy()
+                ),
+                value_type="decimal" if index == 3 else "string",
+                required=index in {0, 1},
+            )
+            for index in bom_scalar_indexes
+        )
+        definition = MappingDefinition(
+            mapping_id=str(_benchmark_uuid("mapping")),
+            source_selection_hash=selection.content_hash,
+            schema_hash="sha256:" + "5" * 64,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=products.dataset_id,
+                    target_model="product.template",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(
+                        products.columns[0].stable_key,
+                    ),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(
+                                products.columns[0].stable_key,
+                            ),
+                            target_fields=("default_code",),
+                        ),
+                    ),
+                    fields=product_fields,
+                    control_totals=(
+                        BusinessControlTotal(
+                            name="Sales price total",
+                            target_field="list_price",
+                            expected_total=str(product_count),
+                            unit="EUR",
+                        ),
+                    ),
+                ),
+                DatasetMapping(
+                    dataset_id=bom_lines.dataset_id,
+                    target_model="mrp.bom.line",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(
+                        bom_lines.columns[0].stable_key,
+                        bom_lines.columns[1].stable_key,
+                    ),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(
+                                bom_lines.columns[0].stable_key,
+                                bom_lines.columns[1].stable_key,
+                            ),
+                            target_fields=(
+                                "x_bom_reference",
+                                "x_line_reference",
+                            ),
+                        ),
+                    ),
+                    fields=bom_fields,
+                    relationships=(
+                        RelationshipMapping(
+                            target_field="product_id",
+                            kind="many2one",
+                            source_column_keys=(
+                                bom_lines.columns[2].stable_key,
+                            ),
+                            resolver=RelationshipResolver(
+                                origin=ResolverOrigin.DATASET,
+                                dataset_id=products.dataset_id,
+                            ),
+                            required=True,
+                        ),
+                    ),
+                    control_totals=(
+                        BusinessControlTotal(
+                            name="Component quantity total",
+                            target_field="product_qty",
+                            expected_total=str(bom_line_count),
+                            unit="unit",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        validation = MappingValidationResult(
+            mapping_content_hash=definition.content_hash,
+            source_selection_hash=definition.source_selection_hash,
+            schema_hash=definition.schema_hash,
+            status=MappingValidationStatus.VALID,
+            issues=(),
+            coverage=(),
+            deferred_runtime_checks=(),
+        )
+        revision = MappingRevision(
+            mapping_id=definition.mapping_id,
+            version=1,
+            parent_version=None,
+            definition=definition,
+            created_at=benchmark_now,
+            created_by=self.context.actor.identity.display_name,
+        )
+        mapping_repository = self.context.mapping_workspace.mappings
+        mapping_repository.save_mapping_revision(
+            registered.project_id,
+            revision,
+            validation=validation,
+            expected_parent_version=None,
+            expected_working_draft_version=None,
+            checked_draft=MappingWorkingDraft(
+                mapping_id=definition.mapping_id,
+                version=1,
+                project_id=registered.project_id,
+                base_mapping_version=revision.version,
+                definition=definition,
+                updated_at=benchmark_now,
+                updated_by=self.context.actor.identity.display_name,
+            ),
+            actor=self.context.actor,
+        )
+        mapping_repository.save_mapping_submission(
+            registered.project_id,
+            MappingSubmission(
+                submission_id=str(_benchmark_uuid("mapping-submission")),
+                mapping_id=definition.mapping_id,
+                version=revision.version,
+                mapping_content_hash=definition.content_hash,
+                validation_hash=validation.validation_hash,
+                warning_acknowledgements=(),
+                submitted_at=benchmark_now,
+                submitted_by=self.context.actor.identity.display_name,
+            ),
+            actor=self.context.actor,
+        )
+        fixture_digest = sha256()
+        for source in sources:
+            fixture_digest.update(source.sha256.encode("ascii"))
+            fixture_digest.update(str(source.size_bytes).encode("ascii"))
+        return (
+            registered.project_id,
+            "sha256:" + fixture_digest.hexdigest(),
+            sum(source.size_bytes for source in sources),
+        )
 
     def _prepare_project_and_evidence(
         self,
@@ -2699,6 +3179,112 @@ def _headers(column_count: int, workload: str) -> tuple[str, ...]:
         if workload == "bom"
         else "credit_limit",
         *(f"field_{index:02d}" for index in range(3, column_count)),
+    )
+
+
+def _related_product_headers(column_count: int) -> tuple[str, ...]:
+    return _headers(column_count, "products")
+
+
+def _related_product_values(index: int, column_count: int) -> tuple[str, ...]:
+    return _source_values(index, column_count, "products")
+
+
+def _related_bom_headers(column_count: int) -> tuple[str, ...]:
+    return (
+        "bom_reference",
+        "line_reference",
+        "product_reference",
+        "quantity",
+        *(f"field_{index:02d}" for index in range(4, column_count)),
+    )
+
+
+def _related_bom_values(
+    index: int,
+    column_count: int,
+    *,
+    product_count: int,
+) -> tuple[str, ...]:
+    return (
+        f"BOM{index // 5:06d}",
+        f" L{index:06d} ",
+        f"P{index % product_count:06d}",
+        " 1 " if PREPARATION_SCALE_EFFECT_FIELDS >= 3 else "1",
+        *(
+            (
+                f" value-{column:02d}-{index % 100:02d} "
+                if column <= PREPARATION_SCALE_EFFECT_FIELDS
+                else f"value-{column:02d}-{index % 100:02d}"
+            )
+            for column in range(4, column_count)
+        ),
+    )
+
+
+def _related_catalog(
+    source: SourceFile,
+    *,
+    row_count: int,
+    headers: tuple[str, ...],
+    values_for: Callable[[int], tuple[str, ...]],
+    inspected_at: datetime,
+    decimal_column: int,
+) -> SourceFileCatalog:
+    profiles = tuple(
+        SourceColumnProfile(
+            ordinal=index + 1,
+            name=name,
+            candidate_type="decimal" if index == decimal_column else "string",
+            null_count=0,
+            non_null_count=row_count,
+            distinct_count=(
+                1
+                if index == decimal_column
+                else row_count
+                if index < 3
+                else min(row_count, 100)
+            ),
+            distinct_count_is_exact=True,
+            duplicate_count=(
+                row_count - 1
+                if index == decimal_column
+                else 0
+                if index < 3
+                else max(0, row_count - 100)
+            ),
+            minimum="1" if index == decimal_column else None,
+            maximum="1" if index == decimal_column else None,
+            minimum_length=1 if index == decimal_column else None,
+            maximum_length=1 if index == decimal_column else None,
+        )
+        for index, name in enumerate(headers)
+    )
+    return SourceFileCatalog(
+        contract_version=2,
+        file_id=source.file_id,
+        display_name=source.display_name,
+        source_sha256=source.sha256,
+        source_size_bytes=source.size_bytes,
+        format="CSV",
+        inspected_at=inspected_at,
+        encoding="utf-8",
+        delimiter=",",
+        tables=(
+            SourceTableCatalog(
+                table_key="csv",
+                name=source.display_name.removesuffix(".csv"),
+                kind="CSV",
+                hidden=False,
+                header_row=1,
+                row_count=row_count,
+                column_count=len(headers),
+                columns=profiles,
+                preview_rows=tuple(
+                    values_for(index) for index in range(min(5, row_count))
+                ),
+            ),
+        ),
     )
 
 

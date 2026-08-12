@@ -25,7 +25,7 @@ from ..connectors import (
 from ..local_stack import LocalStackProfile
 from ..domain.schema.governance import BusinessKeyDefinition
 from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
-from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from ..projects import MigrationProject, OdooConnectionMode, ProjectError
 from ..reference_keys import standard_reference_key
 from ..secrets import SecretStoreError
@@ -258,7 +258,7 @@ def _existing_catalog_model(
     )
     if (
         catalog.connection_target_hash != expected_target_hash
-        or catalog.policy_hash != CURRENT_ODOO_SOURCE_POLICY.content_hash
+        or catalog.policy_hash != ODOO_SOURCE_POLICY_HASH
     ):
         raise WorkspaceError(
             "The saved Odoo record list belongs to a different target; "

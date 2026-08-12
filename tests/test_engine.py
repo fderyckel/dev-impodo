@@ -39,7 +39,7 @@ from impodo.workspace_contracts import (
     SchemaModel,
     SchemaOrigin,
 )
-from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -368,7 +368,7 @@ class PreflightClassificationTests(unittest.TestCase):
         )
         captured = OdooSchemaCatalog(
             project_id="project:test",
-            policy_hash=CURRENT_ODOO_SOURCE_POLICY.content_hash,
+            policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=datetime(2026, 8, 7, tzinfo=timezone.utc),
             captured_by="Test operator",
             connection_mode="LOCAL",

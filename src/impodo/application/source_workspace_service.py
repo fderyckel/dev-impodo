@@ -35,7 +35,7 @@ from ..domain.odoo_capture import (
     OdooCaptureFilterPolicy,
     OdooCaptureSelection,
 )
-from ..domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from ..domain.source_binding import FileSourceBinding, require_file_source
 from ..inspection import (
     SourceFileCatalog,
@@ -230,7 +230,7 @@ class SourceWorkspaceService:
                 "Replace the unverified local schema draft with a live capture"
             )
         if not (
-            schema.policy_hash == CURRENT_ODOO_SOURCE_POLICY.content_hash
+            schema.policy_hash == ODOO_SOURCE_POLICY_HASH
             and schema.connection_target_hash
             and schema.read_principal_hash
             and schema.read_permission_hash

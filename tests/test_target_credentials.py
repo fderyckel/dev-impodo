@@ -9,6 +9,7 @@ from impodo.projects import MigrationProject, OdooConnectionMode
 from impodo.secrets import (
     CredentialVault,
     MemorySecretStore,
+    PROTECTED_EVIDENCE_SERVICE_NAME,
     READ_SERVICE_NAME,
     SecretStoreError,
     WRITE_SERVICE_NAME,
@@ -210,13 +211,16 @@ class TargetCredentialTests(unittest.TestCase):
         vault = CredentialVault()
         read_id = target_read_credential_id(self.project)
         write_id = target_write_credential_id(self.project)
+        protected_id = f"{self.project.project_id}:protected:origin-v1"
 
         with patch("impodo.secrets.keyring") as keyring:
             vault.set(read_id, "read-secret", persistent=True)
             vault.set(write_id, "write-secret", persistent=True)
+            vault.set(protected_id, "protected-key", persistent=True)
             fresh_vault = CredentialVault()
             fresh_vault.get(read_id)
             fresh_vault.get(write_id)
+            fresh_vault.get(protected_id)
 
         keyring.set_password.assert_any_call(
             READ_SERVICE_NAME,
@@ -230,6 +234,15 @@ class TargetCredentialTests(unittest.TestCase):
         )
         keyring.get_password.assert_any_call(READ_SERVICE_NAME, read_id)
         keyring.get_password.assert_any_call(WRITE_SERVICE_NAME, write_id)
+        keyring.set_password.assert_any_call(
+            PROTECTED_EVIDENCE_SERVICE_NAME,
+            protected_id,
+            "protected-key",
+        )
+        keyring.get_password.assert_any_call(
+            PROTECTED_EVIDENCE_SERVICE_NAME,
+            protected_id,
+        )
 
 
 if __name__ == "__main__":

@@ -227,20 +227,25 @@ transaction. The executable policy therefore records
 - production enablement requires a new current architecture with strong
   instance identity and one server-side atomic operation, not a hidden fallback.
 
-## ADR-011 — Odoo IDs and captured business values are restricted evidence
+## ADR-011 — Target-bound Odoo provenance is restricted evidence
 
 **Status:** Accepted
 
-**Decision:** Protected Odoo-source evidence is classified
+**Decision:** Numeric Odoo IDs, protected filters, principal/company
+identifiers, and target-bound current/difference values are classified
 `RESTRICTED_TARGET_EVIDENCE`. Application-level encryption is required before
-row-origin or captured-value persistence is implemented. It is excluded from
-backups unless explicitly approved and is deleted on project deletion or
-retention expiry.
+that sidecar evidence is persisted. Bulk captured source values remain one
+typed source artifact under the project's data classification and existing
+private artifact controls; they are not copied into the protected sidecar. The
+sidecar is excluded from backups unless explicitly approved and is deleted on
+project deletion or retention expiry.
 
 **Consequences:**
 
-- full-disk encryption alone is insufficient for the future protected store;
-- row capture cannot persist protected values before the encrypted repository
-  slice passes its authorization, retention, quota, backup, and deletion gates;
+- full-disk encryption alone is insufficient for the protected store;
+- the protected provenance repository uses project-scoped AES-256-GCM keys in
+  the operating-system vault, authenticated manifest bindings, private paths,
+  authorization, retained-history quota, retention, invalidation, and deletion;
+- encryption must not create a second copy of the wide typed source values;
 - credential removal produces actor-bound, non-secret registry receipts that
   survive project deletion.

@@ -79,6 +79,10 @@ def build_projects_router(context: WebContext) -> APIRouter:
             )
             context.local_stack.forget_project(project.project_id)
             context.remote_connections.clear(project.project_id)
+            context.odoo_provenance.delete_project_key(
+                project.project_id,
+                actor=context.actor,
+            )
             removal_receipts = delete_target_credentials(
                 context.secret_store,
                 project,

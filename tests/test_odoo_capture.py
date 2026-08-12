@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 import json
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.domain.odoo_capture import (
@@ -15,11 +16,13 @@ from impodo.domain.odoo_capture import (
 )
 from impodo.domain.odoo_source_policy import (
     CURRENT_ODOO_SOURCE_POLICY,
+    ODOO_SOURCE_POLICY_HASH,
     ProductionWriteDisposition,
     ProtectedEvidenceEncryption,
     TargetInstanceAssurance,
 )
 from impodo.domain.source_binding import FileSourceBinding, SourceOriginKind
+from impodo.domain.serialization import content_hash
 from impodo.workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
@@ -88,9 +91,10 @@ class OdooCaptureContractTests(unittest.TestCase):
         self.assertEqual(binding.capture_selection_hash, selection.content_hash)
         self.assertEqual(
             selection.policy_hash,
-            CURRENT_ODOO_SOURCE_POLICY.content_hash,
+            ODOO_SOURCE_POLICY_HASH,
         )
         self.assertEqual(binding.policy_hash, selection.policy_hash)
+        self.assertEqual(binding.source_evidence_hash, selection.content_hash)
         self.assertEqual(
             selection.dataset_id,
             odoo_dataset_id(selection.project_id, selection.model),
@@ -141,6 +145,16 @@ class OdooCaptureContractTests(unittest.TestCase):
             ProtectedEvidenceEncryption.APPLICATION_LEVEL_REQUIRED,
         )
         self.assertGreater(policy.max_project_history_bytes, policy.max_snapshot_bytes)
+
+    def test_new_selection_hashes_its_manifest_once(self) -> None:
+        with patch(
+            "impodo.domain.odoo_capture.content_hash",
+            wraps=content_hash,
+        ) as hash_manifest:
+            selection = self._selection()
+
+        self.assertRegex(selection.content_hash, r"^sha256:[0-9a-f]{64}$")
+        self.assertEqual(hash_manifest.call_count, 1)
 
     @staticmethod
     def _selection() -> OdooCaptureSelection:

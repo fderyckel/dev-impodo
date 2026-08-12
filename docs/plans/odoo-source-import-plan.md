@@ -68,13 +68,49 @@ change.
   because restore/clone identity and atomic compare-and-write are unavailable.
   Schema contracts use distinct connection-target and schema-scope hashes.
   Target changes and project deletion now create non-secret credential-removal
-  receipts outside the deletable project database.
+  receipts outside the deletable project database. The immutable policy hash
+  is calculated once per process, capture selection creation encodes/hashes its
+  manifest once, and the Odoo source binding reuses that selection hash instead
+  of wrapping it in a redundant digest.
+- Slice 7 implements the offline protected-provenance boundary. Bounded Odoo
+  origins are page-sized typed ID/write-date columns with implicit contiguous
+  ordinals, encoded once into one binary sidecar and encrypted with AES-256-GCM.
+  One logical payload root and one exact encrypted-byte root are bound into a
+  strict capture manifest; there are no row hashes, row JSON, or copied business
+  values. The application-encryption key is project-scoped in the operating-
+  system vault. Authorized services publish immutable DuckDB history/current
+  pointers, enforce retained data-plus-provenance quota and retention, preserve
+  history on invalidation, and delete the key/artifacts with the project. A
+  protected execution-origin contract reuses existing execution row hashes and
+  source ordinals rather than adding signatures or duplicating numeric IDs.
 - The current permission hash covers directly observed group membership and
   model-level read outcomes, not a complete fingerprint of all ACL/record-rule
   definitions. Local no-key shell metadata also remains explicitly unverified.
   Local no-key write-principal parity, strong target-instance identity,
-  protected row-origin/capture manifests, enforced quotas,
-  retention enforcement, and live bounded record capture remain open.
+  live bounded record capture, value-artifact publication, and production write
+  feasibility beyond the explicit unsupported disposition remain open.
+
+### Slices 1–6 scale-architecture audit
+
+The implemented slices were rechecked against the control-plane/data-plane and
+hash-once rules in the
+[transformation-scale architecture](transformation-scale-architecture-plan.md).
+No remaining Slice-1-to-6 path hashes Odoo data rows, materializes a parallel
+row-JSON value store, or inserts Python row/cell callbacks into the admitted
+transformation hot path.
+
+| Slice | Scale-architecture check | Verdict |
+| --- | --- | --- |
+| 1 — source lifecycle | Project/source mode, registration order, and current pointers are bounded control-plane state; no record payload or row hash exists | Aligned |
+| 2 — credential roles | Vault IDs, generation bindings, and deletion receipts are small secret/audit boundaries calculated on credential lifecycle events, outside the data plane | Aligned |
+| 3 — read identity | Principal, permission, and context fingerprints are calculated once per bounded identity probe over the service-selected model scope, never per record | Aligned |
+| 4 — write identity | Write/read-back identity bindings are one bounded execution control-plane check; no captured values or provenance rows are reconstructed | Aligned |
+| 5 — origin/selection seam | Discriminated source bindings prevent file impersonation; selection hashes bounded metadata once; dataset/column identities are field-level metadata and are derived once for a publication manifest | Aligned |
+| 6 — executable policy | The immutable policy hash is cached once per process, capture creation hashes one canonical manifest, restore verifies once, and source evidence reuses the selection hash | Aligned after the hash-reuse correction |
+
+This audit does not qualify the future live reader or values publisher. Those
+must still prove page-bounded typed transport, encode values once, and compute
+any semantic stream root from those same published bytes.
 
 ## 1. Outcome
 
@@ -513,6 +549,43 @@ be recreated. Retained Odoo capture revisions count against a project quota
 and follow the project retention/deletion policy; failed candidates never count
 as retained evidence.
 
+#### 5.6.1 Scale-aligned hash and data-plane policy
+
+The [transformation-scale architecture](transformation-scale-architecture-plan.md)
+also governs Odoo-source publication. Retain distinct governance and artifact
+boundary hashes, but do not turn row origin into a second row-oriented hashing
+pipeline.
+
+The Slice-6 control-plane inventory below was measured on the development Mac
+with 10,000-call `timeit` samples. The Slice-7 sidecar measurement is one full
+10,000-row/20-page encode with `tracemalloc`. These are diagnostic evidence,
+not Windows release benchmarks:
+
+| Boundary | Frequency and measured input | Reuse/decision |
+| --- | --- | --- |
+| Current Odoo-source policy | Immutable process metadata; 916 canonical bytes; 25.5 microseconds per uncached encode/hash | Calculate once at module load and reuse `ODOO_SOURCE_POLICY_HASH` everywhere |
+| Capture selection | Once per new revision and once when verifying a restored revision; 1,531 canonical bytes at 50 fields; 39.3 microseconds | Keep the governance hash; creation encodes/hashes once and restoration verifies once |
+| Odoo source-evidence identity | Previously rehashed the source-binding wrapper | Reuse `capture_selection_hash`; the selection already commits to the complete binding |
+| Dataset and column stable keys | Once per dataset/selected field; approximately 7.1/5.5 microseconds | Derive once while building the manifest/index and reuse; never derive inside a row loop |
+| Credential binding/removal receipt | Once per vault generation or removal | Keep as small audit boundaries; never place them in the capture data plane |
+| Protected origin sidecar | 10,000 rows in 20 typed pages; 160,325 encrypted bytes; approximately 1.8 milliseconds; 642 KiB traced peak | One incremental logical payload hash over the same encoded column frames and one ciphertext hash, plus one required repository byte-verification pass; hash count is independent of row count |
+
+The provenance implementation must therefore:
+
+- create no per-row SHA-256 for Odoo ID, baseline, row origin, or captured
+  values;
+- store the protected row ordinal/ID/origin facts as narrow typed columns and
+  bind their ordered artifact or chunk descriptors at manifest level;
+- keep bulk captured values in one immutable typed source artifact rather than
+  duplicating them into row JSON or the provenance sidecar;
+- calculate any required semantic stream hash incrementally from the same
+  canonical encoded batches used for publication, without decoding or
+  reserializing them for a second pass;
+- retain exact artifact-byte verification under the current local storage
+  trust model; and
+- introduce an ordered chunk-root contract only after measurement shows a full
+  logical-stream hash is material and an ADR defines the new current contract.
+
 ### 5.7 Streaming and atomic publication
 
 Publication follows the existing last-valid-pointer pattern without holding a
@@ -521,8 +594,9 @@ DuckDB transaction across Odoo access:
 1. authorize and validate the expected project/target/schema/read-principal/
    context;
 2. reserve bounded temporary disk space;
-3. stream validated pages into bounded Parquet fragments and a protected
-   provenance candidate while computing row/data/provenance hashes;
+3. stream validated pages into bounded typed value fragments and a narrow
+   protected provenance candidate; encode each batch once and update only the
+   required semantic/artifact hash states incrementally;
 4. validate physical schema, row order/count, semantic hashes, exact artifact
    hashes, and final target/schema/read-principal/context checks;
 5. publish content-addressed Parquet and provenance artifacts;
@@ -799,15 +873,16 @@ state. Do not start a later phase whose contract depends on an unmet exit gate.
 
 - Add discriminated file/Odoo source bindings and Odoo capture selection.
   **Implemented in Slice 5 for the bounded selection plan; live row capture and
-  protected provenance remain open.**
+  values publication remain open.**
 - Add target-bound row-origin, capture-manifest, and protected execution-origin
-  contracts.
-- Add canonical row-data, provenance, target-instance, read-principal,
-  write-principal, context, and schema-scope hashes; eliminate ambiguous new
-  uses of `target_hash`.
+  contracts. **Implemented in Slice 7.**
+- Add manifest-level data/provenance artifact roots plus target-instance,
+  read-principal, write-principal, context, and schema-scope hashes; add no
+  per-row signatures and eliminate ambiguous new uses of `target_hash`.
 - Version deterministic serialization and add DuckDB history/current-pointer
   persistence, protected repository authorization, quotas, retention metadata,
-  invalidation, and deletion.
+  invalidation, and deletion. **Implemented in Slice 7 for offline protected
+  provenance; live values publication remains Phase 4.**
 - Test exact current-contract round trips and rejection of every other schema
   generation, schema version, or source-binding shape.
 
@@ -815,7 +890,8 @@ state. Do not start a later phase whose contract depends on an unmet exit gate.
 
 - Immutable Odoo-source evidence can be constructed, stored, restored,
   quota-checked, and invalidated offline without source-file impersonation or
-  protected identifiers in portable contracts.
+  protected identifiers in portable contracts. **Met by Slice 7 for the
+  protected provenance boundary.**
 
 ### Phase 3 — Closed, bounded Odoo-source reader
 

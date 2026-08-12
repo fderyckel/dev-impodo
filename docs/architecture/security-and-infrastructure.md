@@ -120,11 +120,19 @@ policy decision.
 - DuckDB external access and extension autoload are disabled, and connections
   have bounded memory and threads.
 
-Application-level project encryption is not implemented. Existing portable
-project evidence therefore depends on full-disk encryption and operating-
-system access controls. Odoo numeric IDs and captured business values are a
-separate restricted evidence class and must not be persisted until an
-application-encrypted protected repository is implemented.
+Application-level encryption is implemented for protected Odoo provenance,
+not for every project artifact. Its narrow typed sidecar uses AES-256-GCM with
+a project-scoped key kept in the operating-system vault; the manifest binding
+is authenticated data, and exact ciphertext bytes are hash-verified at the
+repository boundary and on read. Protected directories/files use private
+`0700`/`0600` permissions where POSIX modes apply. Authorized services enforce
+retained-history quota, expiry, invalidation, and key deletion during project
+deletion. Numeric IDs, protected filters, principal/company identifiers, and
+target-bound current/difference values use this restricted sidecar class.
+Bulk source values remain one governed typed artifact under the project's
+classification and are not copied into that sidecar. Existing portable project
+evidence still depends on full-disk encryption and operating-system access
+controls.
 
 ### Secrets
 

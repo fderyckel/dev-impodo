@@ -92,7 +92,7 @@ from impodo.workspace_contracts import (
     SourceDatasetColumn,
     SourceSelection,
 )
-from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -4879,7 +4879,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         schema = OdooSchemaCatalog(
             project_id=registered.project_id,
-            policy_hash=CURRENT_ODOO_SOURCE_POLICY.content_hash,
+            policy_hash=ODOO_SOURCE_POLICY_HASH,
             captured_at=now,
             captured_by=context.actor.identity.display_name,
             connection_mode=registered.odoo_connection_mode.value,

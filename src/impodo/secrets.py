@@ -16,6 +16,7 @@ from keyring.errors import KeyringError
 
 READ_SERVICE_NAME = "Impodo Odoo read-only"
 WRITE_SERVICE_NAME = "Impodo Odoo write"
+PROTECTED_EVIDENCE_SERVICE_NAME = "Impodo protected Odoo evidence"
 
 
 class SecretStoreError(RuntimeError):
@@ -125,4 +126,6 @@ def _service_name(credential_id: str) -> str:
         return WRITE_SERVICE_NAME
     if parts[1] == "read":
         return READ_SERVICE_NAME
+    if parts[1] == "protected":
+        return PROTECTED_EVIDENCE_SERVICE_NAME
     raise SecretStoreError("Odoo credential role is invalid")
