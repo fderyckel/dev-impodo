@@ -14,7 +14,7 @@ from enum import StrEnum
 from .serialization import content_hash
 
 
-ODOO_SOURCE_POLICY_CONTRACT_VERSION = 1
+ODOO_SOURCE_POLICY_CONTRACT_VERSION = 2
 
 
 class TargetInstanceAssurance(StrEnum):
@@ -49,6 +49,10 @@ class OdooSourcePolicy:
     max_fields: int
     max_rows: int
     page_size: int
+    max_filter_clauses: int
+    max_filter_set_members: int
+    max_filter_bytes: int
+    max_sample_rows: int
     max_request_bytes: int
     max_response_bytes: int
     max_value_bytes: int
@@ -95,6 +99,10 @@ CURRENT_ODOO_SOURCE_POLICY = OdooSourcePolicy(
     max_fields=50,
     max_rows=10_000,
     page_size=500,
+    max_filter_clauses=8,
+    max_filter_set_members=100,
+    max_filter_bytes=16 * 1024,
+    max_sample_rows=50,
     max_request_bytes=64 * 1024,
     max_response_bytes=8 * 1024 * 1024,
     max_value_bytes=256 * 1024,

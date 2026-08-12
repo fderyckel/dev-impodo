@@ -285,10 +285,15 @@ class SourceWorkspaceService:
                 dataset_name=dataset_name.strip(),
                 model=model,
                 field_names=normalized_fields,
+                filter_clauses=(),
                 filter_policy=(
-                    OdooCaptureFilterPolicy.ACTIVE_AND_ARCHIVED_RECORDS
-                    if include_archived
-                    else OdooCaptureFilterPolicy.ACTIVE_RECORDS
+                    (
+                        OdooCaptureFilterPolicy.ACTIVE_AND_ARCHIVED_RECORDS
+                        if include_archived
+                        else OdooCaptureFilterPolicy.ACTIVE_RECORDS
+                    )
+                    if "active" in fields_by_name
+                    else OdooCaptureFilterPolicy.ALL_MATCHING_RECORDS
                 ),
                 max_rows=parsed_max_rows,
                 connection_target_hash=schema.connection_target_hash,

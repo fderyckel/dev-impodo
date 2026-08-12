@@ -23,7 +23,7 @@ from .serialization import canonical_json, content_hash
 from .source_binding import OdooSourceBinding, SourceOriginKind
 
 
-ODOO_CAPTURE_CONTRACT_VERSION = 2
+ODOO_CAPTURE_CONTRACT_VERSION = 3
 MAX_ODOO_CAPTURE_FIELDS = CURRENT_ODOO_SOURCE_POLICY.max_fields
 MAX_ODOO_CAPTURE_ROWS = CURRENT_ODOO_SOURCE_POLICY.max_rows
 ODOO_CAPTURE_PAGE_SIZE = CURRENT_ODOO_SOURCE_POLICY.page_size
@@ -44,6 +44,7 @@ class OdooCaptureContractError(ValueError):
 class OdooCaptureFilterPolicy(StrEnum):
     """Current closed filter choices; arbitrary caller-supplied domains are absent."""
 
+    ALL_MATCHING_RECORDS = "ALL_MATCHING_RECORDS"
     ACTIVE_RECORDS = "ACTIVE_RECORDS"
     ACTIVE_AND_ARCHIVED_RECORDS = "ACTIVE_AND_ARCHIVED_RECORDS"
 
@@ -52,6 +53,72 @@ class OdooCaptureConsistency(StrEnum):
     """Honest native-API consistency level implemented by the next reader slice."""
 
     KEYSET_HIGH_WATER_INTERVAL = "KEYSET_HIGH_WATER_INTERVAL"
+
+
+class OdooCaptureFilterOperator(StrEnum):
+    """Closed semantic operators translated to Odoo domains by the adapter."""
+
+    EQUALS = "EQUALS"
+    IN_SET = "IN_SET"
+    ON_OR_AFTER = "ON_OR_AFTER"
+    AFTER = "AFTER"
+    ON_OR_BEFORE = "ON_OR_BEFORE"
+    BEFORE = "BEFORE"
+
+
+@dataclass(frozen=True, slots=True)
+class OdooCaptureFilterClause:
+    """One bounded direct-field predicate; no raw domain syntax is accepted."""
+
+    field_name: str
+    operator: OdooCaptureFilterOperator
+    values: tuple[bool | int | str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "operator", OdooCaptureFilterOperator(self.operator))
+        values = tuple(self.values)
+        if _FIELD_NAME.fullmatch(self.field_name) is None:
+            raise OdooCaptureContractError("Odoo capture filter field is invalid")
+        if not values or any(
+            not isinstance(value, (bool, int, str)) for value in values
+        ):
+            raise OdooCaptureContractError("Odoo capture filter value is invalid")
+        if self.operator is OdooCaptureFilterOperator.IN_SET:
+            if len(values) > CURRENT_ODOO_SOURCE_POLICY.max_filter_set_members:
+                raise OdooCaptureContractError(
+                    "Odoo capture filter set exceeds the current limit"
+                )
+        elif len(values) != 1:
+            raise OdooCaptureContractError(
+                "Odoo capture filter operator requires exactly one value"
+            )
+        object.__setattr__(self, "values", values)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "field_name": self.field_name,
+            "operator": self.operator.value,
+            "values": list(self.values),
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> OdooCaptureFilterClause:
+        if not isinstance(value, dict) or set(value) != {
+            "field_name",
+            "operator",
+            "values",
+        }:
+            raise OdooCaptureContractError(
+                "Odoo capture filter clause shape is invalid"
+            )
+        raw_values = value["values"]
+        if not isinstance(raw_values, list):
+            raise OdooCaptureContractError("Odoo capture filter values are invalid")
+        return cls(
+            field_name=str(value["field_name"]),
+            operator=OdooCaptureFilterOperator(value["operator"]),
+            values=tuple(raw_values),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +136,7 @@ class OdooCaptureSelection:
     dataset_name: str
     model: str
     field_names: tuple[str, ...]
+    filter_clauses: tuple[OdooCaptureFilterClause, ...]
     filter_policy: OdooCaptureFilterPolicy
     max_rows: int
     page_size: int
@@ -120,6 +188,21 @@ class OdooCaptureSelection:
                 "Odoo capture fields must be sorted, unique, bounded technical "
                 "names without protected identity fields"
             )
+        clauses = tuple(self.filter_clauses)
+        if (
+            len(clauses) > CURRENT_ODOO_SOURCE_POLICY.max_filter_clauses
+            or tuple(sorted(clauses, key=lambda item: item.field_name)) != clauses
+            or len({item.field_name for item in clauses}) != len(clauses)
+            or any(item.field_name in {"id", "write_date"} for item in clauses)
+            or len(
+                canonical_json([item.to_dict() for item in clauses]).encode("utf-8")
+            )
+            > CURRENT_ODOO_SOURCE_POLICY.max_filter_bytes
+        ):
+            raise OdooCaptureContractError(
+                "Odoo capture filters must be sorted, unique, direct, and bounded"
+            )
+        object.__setattr__(self, "filter_clauses", clauses)
         if not 1 <= self.max_rows <= MAX_ODOO_CAPTURE_ROWS:
             raise OdooCaptureContractError(
                 f"Odoo capture row limit must be between 1 and "
@@ -172,6 +255,7 @@ class OdooCaptureSelection:
         dataset_name: str,
         model: str,
         field_names: tuple[str, ...],
+        filter_clauses: tuple[OdooCaptureFilterClause, ...] = (),
         filter_policy: OdooCaptureFilterPolicy,
         max_rows: int,
         connection_target_hash: str,
@@ -189,6 +273,7 @@ class OdooCaptureSelection:
             dataset_name=dataset_name,
             model=model,
             field_names=field_names,
+            filter_clauses=filter_clauses,
             filter_policy=filter_policy,
             max_rows=max_rows,
             page_size=ODOO_CAPTURE_PAGE_SIZE,
@@ -241,6 +326,7 @@ class OdooCaptureSelection:
             "context_hash": self.context_hash,
             "dataset_name": self.dataset_name,
             "field_names": list(self.field_names),
+            "filter_clauses": [item.to_dict() for item in self.filter_clauses],
             "filter_policy": self.filter_policy.value,
             "max_rows": self.max_rows,
             "model": self.model,
@@ -277,6 +363,7 @@ class OdooCaptureSelection:
                     "dataset_name",
                     "model",
                     "field_names",
+                    "filter_clauses",
                     "filter_policy",
                     "max_rows",
                     "page_size",
@@ -300,6 +387,10 @@ class OdooCaptureSelection:
                 dataset_name=str(payload["dataset_name"]),
                 model=str(payload["model"]),
                 field_names=tuple(str(item) for item in payload["field_names"]),
+                filter_clauses=tuple(
+                    OdooCaptureFilterClause.from_dict(item)
+                    for item in payload["filter_clauses"]
+                ),
                 filter_policy=OdooCaptureFilterPolicy(payload["filter_policy"]),
                 max_rows=int(payload["max_rows"]),
                 page_size=int(payload["page_size"]),

@@ -225,6 +225,32 @@ class OdooReadIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class ProtectedOdooReadContext:
+    """Ephemeral numeric context needed to reproduce one governed read.
+
+    This value is never serialized into portable workspace contracts.  The
+    persisted schema and selection retain only ``OdooReadIdentity.context_hash``.
+    """
+
+    language: str
+    timezone: str
+    primary_company_id: int
+    allowed_company_ids: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        companies = tuple(self.allowed_company_ids)
+        if (
+            self.primary_company_id <= 0
+            or not companies
+            or companies[0] != self.primary_company_id
+            or len(companies) != len(set(companies))
+            or any(value <= 0 for value in companies)
+        ):
+            raise ValueError("Protected Odoo read context is invalid")
+        object.__setattr__(self, "allowed_company_ids", companies)
+
+
+@dataclass(frozen=True, slots=True)
 class OdooWriteIdentity:
     """Non-secret hashes from one closed write/read-back identity probe.
 
@@ -255,6 +281,17 @@ class FieldMetadata:
     relation: str | None = None
     relation_field: str | None = None
     selection: tuple[tuple[str, str], ...] = ()
+    stored: bool | None = None
+    computed: bool | None = None
+    has_inverse: bool | None = None
+    related: bool | None = None
+    translated: bool | None = None
+    company_dependent: bool | None = None
+    searchable: bool | None = None
+    sortable: bool | None = None
+    exportable: bool | None = None
+    digits: tuple[int, int] | None = None
+    currency_field: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

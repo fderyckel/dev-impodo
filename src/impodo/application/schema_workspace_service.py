@@ -350,6 +350,17 @@ class SchemaWorkspaceService:
                         relation=field.relation,
                         relation_field=field.relation_field,
                         selection=field.selection,
+                        stored=field.stored,
+                        computed=field.computed,
+                        has_inverse=field.has_inverse,
+                        related=field.related,
+                        translated=field.translated,
+                        company_dependent=field.company_dependent,
+                        searchable=field.searchable,
+                        sortable=field.sortable,
+                        exportable=field.exportable,
+                        digits=field.digits,
+                        currency_field=field.currency_field,
                     )
                     for field_name, field in sorted(model.fields.items())
                 ),

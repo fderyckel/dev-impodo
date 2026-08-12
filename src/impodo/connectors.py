@@ -37,6 +37,7 @@ from .models import (
     FieldMetadata,
     ModelMetadata,
     OdooReadIdentity,
+    ProtectedOdooReadContext,
     OdooWriteIdentity,
     TargetFingerprint,
     TargetRecord,
@@ -141,6 +142,17 @@ def metadata_snapshot_payload(snapshot: MetadataSnapshot) -> dict[str, Any]:
                         "relation": field.relation,
                         "relation_field": field.relation_field,
                         "selection": [list(item) for item in field.selection],
+                        "stored": field.stored,
+                        "computed": field.computed,
+                        "has_inverse": field.has_inverse,
+                        "related": field.related,
+                        "translated": field.translated,
+                        "company_dependent": field.company_dependent,
+                        "searchable": field.searchable,
+                        "sortable": field.sortable,
+                        "exportable": field.exportable,
+                        "digits": list(field.digits) if field.digits else None,
+                        "currency_field": field.currency_field,
                     }
                     for field_name, field in sorted(model.fields.items())
                 },
@@ -651,6 +663,15 @@ class Json2ReadConnector:
         group, company, ACL, or rule catalogue is exposed.
         """
 
+        identity, _context = self._probe_capture_identity(models)
+        return identity
+
+    def _probe_capture_identity(
+        self,
+        models: Sequence[str],
+    ) -> tuple[OdooReadIdentity, ProtectedOdooReadContext]:
+        """Return identity plus the protected context required by live capture."""
+
         requested_models = tuple(sorted(dict.fromkeys(models)))
         if not requested_models:
             raise ConnectorConfigurationError(
@@ -826,13 +847,21 @@ class Json2ReadConnector:
                 "request_context": portable_value(self._config.context),
             }
         )
-        return OdooReadIdentity(
-            target_hash=fingerprint.target_hash,
-            principal_hash=principal_hash,
-            permission_hash=permission_hash,
-            context_hash=context_hash,
-            readable_models=requested_models,
-            observed_at=fingerprint.snapshot_timestamp,
+        return (
+            OdooReadIdentity(
+                target_hash=fingerprint.target_hash,
+                principal_hash=principal_hash,
+                permission_hash=permission_hash,
+                context_hash=context_hash,
+                readable_models=requested_models,
+                observed_at=fingerprint.snapshot_timestamp,
+            ),
+            ProtectedOdooReadContext(
+                language=lang,
+                timezone=timezone_name,
+                primary_company_id=primary_company_id,
+                allowed_company_ids=effective_company_ids,
+            ),
         )
 
     def get_model_metadata(
@@ -880,6 +909,17 @@ class Json2ReadConnector:
                         "relation",
                         "relation_field",
                         "selection",
+                        "store",
+                        "compute",
+                        "inverse",
+                        "related",
+                        "translate",
+                        "company_dependent",
+                        "searchable",
+                        "sortable",
+                        "exportable",
+                        "digits",
+                        "currency_field",
                     ],
                     "context": dict(self._config.context),
                 },
@@ -1347,7 +1387,43 @@ def _parse_field_metadata(name: str, data: Mapping[str, Any]) -> FieldMetadata:
         relation=data.get("relation"),
         relation_field=data.get("relation_field"),
         selection=tuple(tuple(item) for item in selection),
+        stored=_metadata_bool(data, "store"),
+        computed=_metadata_presence(data, "compute"),
+        has_inverse=_metadata_presence(data, "inverse"),
+        related=_metadata_presence(data, "related"),
+        translated=_metadata_bool(data, "translate"),
+        company_dependent=_metadata_bool(data, "company_dependent"),
+        searchable=_metadata_bool(data, "searchable"),
+        sortable=_metadata_bool(data, "sortable"),
+        exportable=_metadata_bool(data, "exportable"),
+        digits=_metadata_digits(data.get("digits")),
+        currency_field=(
+            str(data["currency_field"])
+            if data.get("currency_field")
+            else None
+        ),
     )
+
+
+def _metadata_bool(data: Mapping[str, Any], key: str) -> bool | None:
+    value = data.get(key)
+    return value if isinstance(value, bool) else None
+
+
+def _metadata_presence(data: Mapping[str, Any], key: str) -> bool | None:
+    if key not in data:
+        return None
+    return bool(data[key])
+
+
+def _metadata_digits(value: Any) -> tuple[int, int] | None:
+    if (
+        not isinstance(value, (list, tuple))
+        or len(value) != 2
+        or any(isinstance(item, bool) or not isinstance(item, int) for item in value)
+    ):
+        return None
+    return int(value[0]), int(value[1])
 
 
 def _load_json(path: str | Path) -> dict[str, Any]:

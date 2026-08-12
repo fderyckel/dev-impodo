@@ -228,6 +228,17 @@ class SchemaField:
     relation: str | None
     relation_field: str | None
     selection: tuple[tuple[str, str], ...]
+    stored: bool | None = None
+    computed: bool | None = None
+    has_inverse: bool | None = None
+    related: bool | None = None
+    translated: bool | None = None
+    company_dependent: bool | None = None
+    searchable: bool | None = None
+    sortable: bool | None = None
+    exportable: bool | None = None
+    digits: tuple[int, int] | None = None
+    currency_field: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -373,6 +384,27 @@ class OdooSchemaCatalog:
                                 tuple(item)
                                 for item in field["selection"]
                             ),
+                            stored=_optional_bool(field["stored"]),
+                            computed=_optional_bool(field["computed"]),
+                            has_inverse=_optional_bool(field["has_inverse"]),
+                            related=_optional_bool(field["related"]),
+                            translated=_optional_bool(field["translated"]),
+                            company_dependent=_optional_bool(
+                                field["company_dependent"]
+                            ),
+                            searchable=_optional_bool(field["searchable"]),
+                            sortable=_optional_bool(field["sortable"]),
+                            exportable=_optional_bool(field["exportable"]),
+                            digits=(
+                                tuple(int(item) for item in field["digits"])
+                                if field["digits"] is not None
+                                else None
+                            ),
+                            currency_field=(
+                                str(field["currency_field"])
+                                if field["currency_field"] is not None
+                                else None
+                            ),
                         )
                         for field in model["fields"]
                     ),
@@ -394,6 +426,15 @@ class OdooSchemaCatalog:
             read_context_hash=payload["read_context_hash"],
             connection_target_hash=payload["connection_target_hash"],
         )
+
+
+def _optional_bool(value: object) -> bool | None:
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise ValueError("Stored schema boolean metadata is invalid")
+    return value
+    return value
 
 
 @dataclass(frozen=True, slots=True)

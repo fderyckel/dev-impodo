@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -59,17 +60,33 @@ def build_parser() -> argparse.ArgumentParser:
 def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
     _validate_arguments(arguments)
     revision = _revision()
+    worktree_fingerprint = _worktree_fingerprint()
     worktree_dirty = _worktree_dirty()
+    _require_worktree_unchanged(worktree_fingerprint)
     if worktree_dirty and not arguments.allow_dirty_worktree:
         raise PreparationWorkerBenchmarkError(
             "Qualification evidence requires a clean worktree; commit the "
             "intended revision or use --allow-dirty-worktree for a dry run"
         )
-    results = tuple(
-        _run_once(arguments, revision=revision, run_number=run_number)
-        for run_number in range(1, arguments.runs + 1)
-    )
-    _require_comparable_results(results)
+    results = []
+    for run_number in range(1, arguments.runs + 1):
+        _require_worktree_unchanged(worktree_fingerprint)
+        try:
+            result = _run_once(
+                arguments,
+                revision=revision,
+                run_number=run_number,
+            )
+        except Exception as error:
+            _require_worktree_unchanged(
+                worktree_fingerprint,
+                cause=error,
+            )
+            raise
+        _require_worktree_unchanged(worktree_fingerprint)
+        results.append(result)
+    comparable_results = tuple(results)
+    _require_comparable_results(comparable_results)
     return {
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "command": {
@@ -93,8 +110,9 @@ def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
         },
         "result_schema_version": 1,
         "revision": revision,
-        "runs": list(results),
-        "summary": summarize(results),
+        "runs": list(comparable_results),
+        "summary": summarize(comparable_results),
+        "worktree_fingerprint": worktree_fingerprint,
         "worktree_dirty": worktree_dirty,
     }
 
@@ -334,6 +352,71 @@ def _worktree_dirty() -> bool:
     if completed.returncode:
         raise PreparationWorkerBenchmarkError("Cannot inspect Git worktree")
     return bool(completed.stdout.strip())
+
+
+def _worktree_fingerprint() -> str:
+    """Identify the exact tracked and untracked worktree state for one run."""
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    diff = subprocess.run(
+        ["git", "diff", "--no-ext-diff", "--binary", "HEAD", "--"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if status.returncode or diff.returncode or untracked.returncode:
+        raise PreparationWorkerBenchmarkError(
+            "Cannot fingerprint the Git worktree"
+        )
+    digest = sha256()
+    digest.update(status.stdout)
+    digest.update(b"\0")
+    digest.update(diff.stdout)
+    try:
+        for relative_bytes in sorted(
+            filter(None, untracked.stdout.split(b"\0"))
+        ):
+            path = ROOT / os.fsdecode(relative_bytes)
+            digest.update(b"\0untracked\0")
+            digest.update(relative_bytes)
+            if path.is_symlink():
+                digest.update(os.fsencode(os.readlink(path)))
+                continue
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+    except OSError as error:
+        raise PreparationWorkerBenchmarkError(
+            "Cannot fingerprint the Git worktree"
+        ) from error
+    return digest.hexdigest()
+
+
+def _require_worktree_unchanged(
+    expected: str,
+    *,
+    cause: Exception | None = None,
+) -> None:
+    if _worktree_fingerprint() == expected:
+        return
+    error = PreparationWorkerBenchmarkError(
+        "The Git worktree changed while the worker benchmark was running; "
+        "discard this mixed-build evidence and rerun from a stable revision"
+    )
+    if cause is not None:
+        raise error from cause
+    raise error
 
 
 def main(argv: list[str] | None = None) -> int:

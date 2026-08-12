@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest.mock import patch
 
 from scripts.benchmark_preparation_workers import (
     PreparationWorkerBenchmarkError,
     RESULT_PREFIX,
     _require_comparable_results,
+    _require_worktree_unchanged,
     extract_result,
     summarize,
 )
@@ -54,6 +56,17 @@ class PreparationWorkerBenchmarkHarnessTests(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 with self.assertRaises(PreparationWorkerBenchmarkError):
                     _require_comparable_results((first, changed))
+
+    def test_rejects_a_worktree_change_during_worker_runs(self) -> None:
+        with patch(
+            "scripts.benchmark_preparation_workers._worktree_fingerprint",
+            return_value="after",
+        ):
+            with self.assertRaisesRegex(
+                PreparationWorkerBenchmarkError,
+                "worktree changed",
+            ):
+                _require_worktree_unchanged("before")
 
 
 def _result(

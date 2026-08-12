@@ -546,6 +546,27 @@ This proves the harness and production repeat path on macOS; it is not release
 qualification. The evidence truthfully reports `release_qualified: false`
 because it is a one-run smoke profile on a dirty non-Windows worktree.
 
+The qualification harness now also fingerprints the complete Git worktree,
+including tracked patches and the bytes of non-ignored untracked files. The
+outer matrix and every multi-run worker benchmark verify that fingerprint
+before and after each child run. Evidence is rejected as mixed-build evidence
+if another task changes the worktree while a long qualification is running.
+Each release scenario must also prove the requested fresh-run count and
+non-zero CPU/peak samples, preventing an incomplete run or unavailable Windows
+sampler from appearing to pass.
+
+A guarded Mac smoke on 2026-08-12 passed all 54 executable gates and recorded
+one stable fingerprint across the outer report and all worker reports. An
+earlier full release-shape rehearsal was deliberately discarded: another task
+advanced the project schema generation between the first and repeat workers,
+so the repeat worker correctly rejected the mixed-build project. That event is
+not counted as a product correctness or performance result.
+
+Additional guarded evidence:
+
+- `.tmp/transformation-scale-phase7-mac-smoke-stability-guard.json`
+- `.tmp/transformation-scale-phase7-mac-smoke-stability-guard/`
+
 ### Mac release-shape diagnostics
 
 The first full production-worker Product/BOM attempt found a gap hidden by the

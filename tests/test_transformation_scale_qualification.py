@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from scripts.qualify_transformation_scale import (
+    TransformationQualificationError,
     _relationship_gates,
+    _require_worktree_unchanged,
     _worker_command,
     _worker_gates,
     scenarios,
@@ -27,14 +30,24 @@ class TransformationScaleQualificationHarnessTests(unittest.TestCase):
         report = {
             "summary": {
                 "maximum_first_peak_worker_mib": 700,
+                "maximum_first_cpu_seconds": 90,
                 "maximum_first_wall_seconds": 100,
                 "maximum_parent_repeat_delta_mib": 20,
                 "maximum_repeat_peak_worker_mib": 751,
+                "maximum_repeat_cpu_seconds": 95,
                 "maximum_repeat_wall_seconds": 110,
+                "run_count": 3,
             }
         }
 
-        gates = {item["name"]: item for item in _worker_gates(scenario, report)}
+        gates = {
+            item["name"]: item
+            for item in _worker_gates(
+                scenario,
+                report,
+                expected_runs=3,
+            )
+        }
 
         self.assertTrue(gates[f"{scenario.name}.first_peak_worker_mib"]["passed"])
         self.assertFalse(
@@ -59,10 +72,50 @@ class TransformationScaleQualificationHarnessTests(unittest.TestCase):
             ]
         }
 
-        gates = {item["name"]: item for item in _relationship_gates(report)}
+        gates = {
+            item["name"]: item
+            for item in _relationship_gates(report, expected_runs=2)
+        }
 
         self.assertTrue(gates["relationship_semantic_parity.wall_seconds"]["passed"])
         self.assertFalse(gates["relationship_semantic_parity.peak_rss_mib"]["passed"])
+
+    def test_worker_and_relationship_gates_reject_missing_runs(self) -> None:
+        scenario = scenarios("release")[0]
+        worker_report = {
+            "summary": {
+                "maximum_first_cpu_seconds": 1,
+                "maximum_first_peak_worker_mib": 1,
+                "maximum_first_wall_seconds": 1,
+                "maximum_parent_repeat_delta_mib": 1,
+                "maximum_repeat_cpu_seconds": 1,
+                "maximum_repeat_peak_worker_mib": 1,
+                "maximum_repeat_wall_seconds": 1,
+                "run_count": 2,
+            }
+        }
+
+        worker_gates = _worker_gates(
+            scenario,
+            worker_report,
+            expected_runs=3,
+        )
+        relationship_gates = _relationship_gates(
+            {
+                "runs": [
+                    {
+                        "set_based_hybrid": {
+                            "peak_rss_mib": 1,
+                            "wall_seconds": 1,
+                        }
+                    }
+                ]
+            },
+            expected_runs=3,
+        )
+
+        self.assertFalse(worker_gates[0]["passed"])
+        self.assertFalse(relationship_gates[0]["passed"])
 
     def test_related_worker_command_is_cross_platform_argument_list(self) -> None:
         scenario = next(
@@ -81,6 +134,17 @@ class TransformationScaleQualificationHarnessTests(unittest.TestCase):
         self.assertIn("--products", command)
         self.assertIn("--bom-lines", command)
         self.assertIn("--allow-dirty-worktree", command)
+
+    def test_rejects_a_worktree_change_between_scenarios(self) -> None:
+        with patch(
+            "scripts.qualify_transformation_scale._worktree_fingerprint",
+            return_value="after",
+        ):
+            with self.assertRaisesRegex(
+                TransformationQualificationError,
+                "worktree changed",
+            ):
+                _require_worktree_unchanged("before")
 
 
 if __name__ == "__main__":

@@ -14,7 +14,9 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import platform
 import subprocess
@@ -178,7 +180,9 @@ def scenarios(profile: str) -> tuple[WorkerScenario, ...]:
 def run_qualification(arguments: argparse.Namespace) -> dict[str, object]:
     _validate_arguments(arguments)
     revision = _revision()
+    worktree_fingerprint = _worktree_fingerprint()
     worktree_dirty = _worktree_dirty()
+    _require_worktree_unchanged(worktree_fingerprint)
     if worktree_dirty and not arguments.allow_dirty_worktree:
         raise TransformationQualificationError(
             "Qualification requires a clean worktree; commit the combined "
@@ -191,6 +195,7 @@ def run_qualification(arguments: argparse.Namespace) -> dict[str, object]:
     gate_results: list[dict[str, object]] = []
     commands: dict[str, list[str]] = {}
     for scenario in scenarios(arguments.profile):
+        _require_worktree_unchanged(worktree_fingerprint)
         evidence_path = evidence_dir / f"{scenario.name}.json"
         command = _worker_command(
             scenario,
@@ -200,15 +205,29 @@ def run_qualification(arguments: argparse.Namespace) -> dict[str, object]:
             allow_dirty=worktree_dirty,
         )
         commands[scenario.name] = command
-        _run_command(
-            command,
-            name=scenario.name,
-            timeout_seconds=arguments.timeout_per_scenario,
-        )
+        try:
+            _run_command(
+                command,
+                name=scenario.name,
+                timeout_seconds=arguments.timeout_per_scenario,
+            )
+        except Exception as error:
+            _require_worktree_unchanged(
+                worktree_fingerprint,
+                cause=error,
+            )
+            raise
+        _require_worktree_unchanged(worktree_fingerprint)
         report = _load_json(evidence_path)
         _require_revision(report, revision, scenario.name)
         scenario_reports[scenario.name] = report
-        gate_results.extend(_worker_gates(scenario, report))
+        gate_results.extend(
+            _worker_gates(
+                scenario,
+                report,
+                expected_runs=run_count,
+            )
+        )
 
     relationship_path = evidence_dir / "relationship_semantic_parity.json"
     relationship_command = _relationship_command(
@@ -217,11 +236,20 @@ def run_qualification(arguments: argparse.Namespace) -> dict[str, object]:
         evidence_path=relationship_path,
     )
     commands["relationship_semantic_parity"] = relationship_command
-    _run_command(
-        relationship_command,
-        name="relationship_semantic_parity",
-        timeout_seconds=arguments.timeout_per_scenario,
-    )
+    _require_worktree_unchanged(worktree_fingerprint)
+    try:
+        _run_command(
+            relationship_command,
+            name="relationship_semantic_parity",
+            timeout_seconds=arguments.timeout_per_scenario,
+        )
+    except Exception as error:
+        _require_worktree_unchanged(
+            worktree_fingerprint,
+            cause=error,
+        )
+        raise
+    _require_worktree_unchanged(worktree_fingerprint)
     relationship_report = _load_json(relationship_path)
     _require_revision(
         relationship_report,
@@ -229,7 +257,12 @@ def run_qualification(arguments: argparse.Namespace) -> dict[str, object]:
         "relationship_semantic_parity",
     )
     scenario_reports["relationship_semantic_parity"] = relationship_report
-    gate_results.extend(_relationship_gates(relationship_report))
+    gate_results.extend(
+        _relationship_gates(
+            relationship_report,
+            expected_runs=run_count,
+        )
+    )
 
     is_windows = platform.system() == "Windows"
     context_gates = (
@@ -258,6 +291,7 @@ def run_qualification(arguments: argparse.Namespace) -> dict[str, object]:
         "revision": revision,
         "run_count": run_count,
         "scenarios": scenario_reports,
+        "worktree_fingerprint": worktree_fingerprint,
         "worktree_dirty": worktree_dirty,
     }
 
@@ -329,10 +363,42 @@ def _relationship_command(
 def _worker_gates(
     scenario: WorkerScenario,
     report: dict[str, object],
+    *,
+    expected_runs: int,
 ) -> list[dict[str, object]]:
     summary = _dict(report, "summary")
     prefix = scenario.name
     return [
+        _gate(
+            f"{prefix}.fresh_run_count",
+            _number(summary, "run_count"),
+            "eq",
+            expected_runs,
+        ),
+        _gate(
+            f"{prefix}.first_cpu_observed",
+            _number(summary, "maximum_first_cpu_seconds"),
+            "gt",
+            0.0,
+        ),
+        _gate(
+            f"{prefix}.repeat_cpu_observed",
+            _number(summary, "maximum_repeat_cpu_seconds"),
+            "gt",
+            0.0,
+        ),
+        _gate(
+            f"{prefix}.first_peak_observed",
+            _number(summary, "maximum_first_peak_worker_mib"),
+            "gt",
+            0.0,
+        ),
+        _gate(
+            f"{prefix}.repeat_peak_observed",
+            _number(summary, "maximum_repeat_peak_worker_mib"),
+            "gt",
+            0.0,
+        ),
         _gate(
             f"{prefix}.first_wall_seconds",
             _number(summary, "maximum_first_wall_seconds"),
@@ -368,6 +434,8 @@ def _worker_gates(
 
 def _relationship_gates(
     report: dict[str, object],
+    *,
+    expected_runs: int,
 ) -> list[dict[str, object]]:
     runs = report.get("runs")
     if not isinstance(runs, list) or not runs:
@@ -387,6 +455,18 @@ def _relationship_gates(
             )
         hybrids.append(hybrid)
     return [
+        _gate(
+            "relationship_semantic_parity.fresh_run_count",
+            len(runs),
+            "eq",
+            expected_runs,
+        ),
+        _gate(
+            "relationship_semantic_parity.peak_observed",
+            max(_number(item, "peak_rss_mib") for item in hybrids),
+            "gt",
+            0.0,
+        ),
         _gate(
             "relationship_semantic_parity.wall_seconds",
             max(_number(item, "wall_seconds") for item in hybrids),
@@ -410,6 +490,8 @@ def _gate(
 ) -> dict[str, object]:
     if operator == "lt":
         passed = float(actual) < float(threshold)
+    elif operator == "gt":
+        passed = float(actual) > float(threshold)
     elif operator == "eq":
         passed = actual == threshold
     else:
@@ -517,6 +599,71 @@ def _worktree_dirty() -> bool:
     if completed.returncode:
         raise TransformationQualificationError("Cannot inspect Git worktree")
     return bool(completed.stdout.strip())
+
+
+def _worktree_fingerprint() -> str:
+    """Identify the exact tracked and untracked worktree state for one run."""
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    diff = subprocess.run(
+        ["git", "diff", "--no-ext-diff", "--binary", "HEAD", "--"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if status.returncode or diff.returncode or untracked.returncode:
+        raise TransformationQualificationError(
+            "Cannot fingerprint the Git worktree"
+        )
+    digest = sha256()
+    digest.update(status.stdout)
+    digest.update(b"\0")
+    digest.update(diff.stdout)
+    try:
+        for relative_bytes in sorted(
+            filter(None, untracked.stdout.split(b"\0"))
+        ):
+            path = ROOT / os.fsdecode(relative_bytes)
+            digest.update(b"\0untracked\0")
+            digest.update(relative_bytes)
+            if path.is_symlink():
+                digest.update(os.fsencode(os.readlink(path)))
+                continue
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+    except OSError as error:
+        raise TransformationQualificationError(
+            "Cannot fingerprint the Git worktree"
+        ) from error
+    return digest.hexdigest()
+
+
+def _require_worktree_unchanged(
+    expected: str,
+    *,
+    cause: Exception | None = None,
+) -> None:
+    if _worktree_fingerprint() == expected:
+        return
+    error = TransformationQualificationError(
+        "The Git worktree changed while qualification was running; discard "
+        "this mixed-build evidence and rerun from a stable revision"
+    )
+    if cause is not None:
+        raise error from cause
+    raise error
 
 
 def main(argv: list[str] | None = None) -> int:

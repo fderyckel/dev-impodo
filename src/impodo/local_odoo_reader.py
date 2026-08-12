@@ -64,6 +64,17 @@ _FIELD_ATTRIBUTES = (
     "relation",
     "relation_field",
     "selection",
+    "store",
+    "compute",
+    "inverse",
+    "related",
+    "translate",
+    "company_dependent",
+    "searchable",
+    "sortable",
+    "exportable",
+    "digits",
+    "currency_field",
 )
 
 
@@ -550,7 +561,43 @@ def _field_metadata(name: str, details: Any) -> FieldMetadata:
             else None
         ),
         selection=tuple(selection),
+        stored=_metadata_bool(details, "store"),
+        computed=_metadata_presence(details, "compute"),
+        has_inverse=_metadata_presence(details, "inverse"),
+        related=_metadata_presence(details, "related"),
+        translated=_metadata_bool(details, "translate"),
+        company_dependent=_metadata_bool(details, "company_dependent"),
+        searchable=_metadata_bool(details, "searchable"),
+        sortable=_metadata_bool(details, "sortable"),
+        exportable=_metadata_bool(details, "exportable"),
+        digits=_metadata_digits(details.get("digits")),
+        currency_field=(
+            str(details["currency_field"])
+            if details.get("currency_field")
+            else None
+        ),
     )
+
+
+def _metadata_bool(data: Mapping[str, Any], key: str) -> bool | None:
+    value = data.get(key)
+    return value if isinstance(value, bool) else None
+
+
+def _metadata_presence(data: Mapping[str, Any], key: str) -> bool | None:
+    if key not in data:
+        return None
+    return bool(data[key])
+
+
+def _metadata_digits(value: Any) -> tuple[int, int] | None:
+    if (
+        not isinstance(value, (list, tuple))
+        or len(value) != 2
+        or any(isinstance(item, bool) or not isinstance(item, int) for item in value)
+    ):
+        return None
+    return int(value[0]), int(value[1])
 
 
 def _run_local_shell(
