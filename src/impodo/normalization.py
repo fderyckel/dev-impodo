@@ -975,8 +975,14 @@ def canonical_eligible_dataset_hash(
         if effective is not None
         else iter(staging.rows)
     )
+    contains_canonical = getattr(eligible_ids, "contains_canonical", None)
     for row in rows:
-        if row.row_id in eligible_ids:
+        eligible = (
+            bool(contains_canonical(row.row_id))
+            if callable(contains_canonical)
+            else row.row_id in eligible_ids
+        )
+        if eligible:
             hasher.add_encoded_array_item(
                 canonical_json_bytes(row.to_portable_dict())
             )

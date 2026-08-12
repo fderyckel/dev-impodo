@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Mapping, Protocol
 from uuid import uuid4
 
 from ..access import Actor, AuthorizationPolicy, Capability
@@ -27,7 +27,7 @@ from ..domain.reconciliation import (
     ReconciliationRun,
     ReconciliationRunStatus,
 )
-from ..models import BusinessReference, LogicalReference
+from ..models import BusinessReference, LogicalReference, OdooWriteIdentity
 from ..odoo_readback import MAX_READBACK_IDS, OdooReadbackReader, ReadbackRecord
 from ..workspace_errors import WorkspaceError
 from .execution_service import _identity_domain, _portable_key, execution_api_scope
@@ -82,6 +82,7 @@ class ReconciliationService:
         expected_execution_run_id: str,
         reader: OdooReadbackReader,
         actor: Actor,
+        write_identity: OdooWriteIdentity | None = None,
     ) -> ReconciliationRun:
         self.authorization.require(
             actor,
@@ -92,6 +93,7 @@ class ReconciliationService:
         current = self.execution.get_current_run(project_id)
         if run is None or current is None or current.run_id != expected_execution_run_id:
             raise WorkspaceError("The saved load outcome is no longer current")
+        _require_matching_write_identity(run, write_identity)
         existing = self.results.get_current(project_id, run.run_id)
         if existing is not None:
             return existing
@@ -113,13 +115,11 @@ class ReconciliationService:
             raise WorkspaceError(
                 "Verification is not bound to this reviewed load preview"
             )
-
         report = self._read_back(run, snapshot, reader, actor)
         # Exercise the portable contract before it reaches durable storage.
         report = ReconciliationRun.from_json(report.to_json())
         self.results.publish(project_id, report, actor=actor)
         return report
-
     def _read_back(
         self,
         run: ExecutionRun,
@@ -560,6 +560,34 @@ class ReconciliationService:
                 )
             cache[cache_key] = records[0].odoo_id
         return cache[cache_key]
+
+
+def _require_matching_write_identity(
+    run: ExecutionRun,
+    identity: OdooWriteIdentity | None,
+) -> None:
+    """Reject read-back under a changed execution principal or context."""
+
+    expected = (
+        run.write_principal_hash,
+        run.write_permission_hash,
+        run.write_context_hash,
+    )
+    if not any(expected):
+        return
+    if identity is None:
+        raise WorkspaceError(
+            "Re-probe the approved write principal before verification"
+        )
+    actual = (
+        identity.principal_hash,
+        identity.permission_hash,
+        identity.context_hash,
+    )
+    if actual != expected or identity.target_hash != run.target_hash:
+        raise WorkspaceError(
+            "The write principal, permission, or context changed after execution"
+        )
 
 
 def _many2one_id(value: Any) -> int | None:

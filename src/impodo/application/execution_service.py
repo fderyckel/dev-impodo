@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
+import re
 from typing import Any, Mapping, Protocol, Sequence
 from uuid import uuid4
 
@@ -25,6 +26,7 @@ from ..domain.execution_snapshot import (
 from ..models import (
     BusinessReference,
     LogicalReference,
+    OdooWriteIdentity,
     canonical_json_text,
     portable_value,
 )
@@ -40,6 +42,7 @@ from .preflight_service import PreflightService
 
 
 DEFAULT_CREATE_BATCH_ROWS = 10
+_SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 class ExecutionProjectRepository(Protocol):
@@ -112,11 +115,14 @@ class ExecutionService:
         preflight: PreflightService,
         journal: ExecutionJournalRepository,
         authorization: AuthorizationPolicy,
+        *,
+        require_remote_write_identity: bool = False,
     ) -> None:
         self.projects = projects
         self.preflight = preflight
         self.journal = journal
         self.authorization = authorization
+        self.require_remote_write_identity = require_remote_write_identity
 
     def current_preview(self, project_id: str) -> ExecutionPreview | None:
         snapshot = self.preflight.current_execution_snapshot(project_id)
@@ -167,6 +173,8 @@ class ExecutionService:
         executor: OdooWriteExecutor,
         actor: Actor,
         batch_rows: int | str = DEFAULT_CREATE_BATCH_ROWS,
+        write_identity: OdooWriteIdentity | None = None,
+        write_credential_binding_hash: str = "",
     ) -> ExecutionRun:
         self.authorization.require(
             actor,
@@ -182,6 +190,15 @@ class ExecutionService:
         if snapshot.semantic_hash != expected_snapshot_hash:
             raise WorkspaceError("The load preview changed. Review it again.")
         self._validate_execution_scope(project, preview, executor)
+        _validate_write_identity(
+            preview,
+            write_identity,
+            write_credential_binding_hash,
+            required=(
+                self.require_remote_write_identity
+                and project.odoo_connection_mode is OdooConnectionMode.REMOTE
+            ),
+        )
 
         write_rows = tuple(
             row
@@ -215,6 +232,16 @@ class ExecutionService:
             started_by=actor.identity.display_name,
             completed_at=None,
             rows=attempts,
+            write_credential_binding_hash=write_credential_binding_hash,
+            write_principal_hash=(
+                write_identity.principal_hash if write_identity is not None else ""
+            ),
+            write_permission_hash=(
+                write_identity.permission_hash if write_identity is not None else ""
+            ),
+            write_context_hash=(
+                write_identity.context_hash if write_identity is not None else ""
+            ),
         )
         self.journal.start_run(project_id, run, actor=actor)
 
@@ -1025,6 +1052,45 @@ def validated_create_batch_rows(value: int | str) -> int:
             f"Rows per Odoo batch must be between 1 and {MAX_CREATE_BATCH_ROWS}"
         )
     return batch_rows
+
+
+def _validate_write_identity(
+    preview: ExecutionPreview,
+    identity: OdooWriteIdentity | None,
+    credential_binding_hash: str,
+    *,
+    required: bool,
+) -> None:
+    """Bind a supplied write probe to the target and exact preview scope."""
+
+    if identity is None:
+        if required:
+            raise WorkspaceError(
+                "Probe the separate remote write credential before loading"
+            )
+        if credential_binding_hash:
+            raise WorkspaceError("The write credential has no principal evidence")
+        return
+    if not credential_binding_hash:
+        raise WorkspaceError("The write principal has no credential-generation binding")
+    expected_readable = tuple(item.model for item in preview.api_scope.models)
+    expected_writable = tuple(
+        item.model for item in preview.api_scope.models if item.write_fields
+    )
+    if identity.target_hash != preview.snapshot.target_hash:
+        raise WorkspaceError("The write principal belongs to a different Odoo target")
+    if identity.readable_models != expected_readable:
+        raise WorkspaceError("The write principal read-back scope changed")
+    if identity.writable_models != expected_writable:
+        raise WorkspaceError("The write principal model scope changed")
+    hashes = (
+        credential_binding_hash,
+        identity.principal_hash,
+        identity.permission_hash,
+        identity.context_hash,
+    )
+    if not all(_SHA256.fullmatch(value) for value in hashes):
+        raise WorkspaceError("Execution write-identity evidence is invalid")
 
 
 def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:

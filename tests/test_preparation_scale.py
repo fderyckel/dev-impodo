@@ -687,10 +687,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 """
                 SELECT
                     (SELECT COUNT(*) FROM canonical_staging_row),
-                    (SELECT COUNT(*) FROM quality_row_result),
+                    (SELECT COALESCE(MAX(row_count), 0) FROM quality_run),
                     (SELECT COUNT(*) FROM quality_issue),
                     (SELECT COUNT(*) FROM quality_quarantine_entry),
-                    (SELECT COUNT(*) FROM source_accounting_link),
+                    (SELECT COALESCE(MAX(source_count), 0) FROM quality_run),
                     (SELECT COUNT(*) FROM normalization_effect),
                     (SELECT COUNT(*) FROM normalization_group),
                     COALESCE((SELECT SUM(LENGTH(row_json)) FROM canonical_staging_row), 0)
@@ -700,6 +700,13 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                       + COALESCE((SELECT SUM(LENGTH(entry_json)) FROM quality_quarantine_entry), 0)
                       + COALESCE((SELECT SUM(LENGTH(effect_json)) FROM normalization_effect), 0)
                       + COALESCE((SELECT SUM(LENGTH(group_json)) FROM normalization_group), 0)
+                """
+            ).fetchone()
+            physical_quality_counts = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM quality_row_result),
+                    (SELECT COUNT(*) FROM source_accounting_entry)
                 """
             ).fetchone()
         assert database_size_row is not None
@@ -727,6 +734,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             ),
             "parquet_bytes": parquet_bytes,
             "prepared_snapshot_bytes": prepared_snapshot_bytes,
+            "physical_quality_row_count": int(physical_quality_counts[0]),
+            "physical_source_accounting_count": int(
+                physical_quality_counts[1]
+            ),
             "project_storage_bytes": project_storage_bytes,
             "serialized_characters_by_table": {
                 str(table): int(characters)
@@ -1890,9 +1901,12 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 project_id,
                 actor=self.context.actor,
             )
-        for family_batches in quality_transport_batches.values():
-            self.assertGreater(len(family_batches), 1)
-            self.assertEqual(sum(family_batches), 37)
+        self.assertEqual(
+            sum(quality_transport_batches["quality_rows"]),
+            2,
+        )
+        self.assertEqual(quality_transport_batches["source_entries"], [])
+        self.assertEqual(quality_transport_batches["source_links"], [])
         canonical_batches = preparation_transport_batches["canonical_rows"]
         self.assertGreaterEqual(len(canonical_batches), 1)
         self.assertEqual(sum(canonical_batches), 37)
@@ -1938,6 +1952,43 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertIsNotNone(stored_quality)
         assert stored_quality is not None
         self.assertEqual(stored_quality.to_json(), expected_quality.to_json())
+        quality_page = (
+            self.context.preparation.quality.quality.get_quality_review_page(
+                project_id,
+                quality_summary.run_id,
+                page_size=17,
+            )
+        )
+        self.assertEqual(quality_page.matching_count, 37)
+        self.assertEqual(
+            tuple(item.row for item in quality_page.items),
+            expected_quality.row_results[:17],
+        )
+        quarantined_page = (
+            self.context.preparation.quality.quality.get_quality_review_page(
+                project_id,
+                quality_summary.run_id,
+                status="quarantined",
+            )
+        )
+        self.assertEqual(quarantined_page.matching_count, 2)
+        database_path = self.root / project_id / "project.duckdb"
+        with self.context.preparation.quality.quality._connect(
+            database_path
+        ) as connection:
+            sparse_storage = connection.execute(
+                """
+                SELECT
+                    (SELECT COALESCE(SUM(LENGTH(row_json)), 0)
+                       FROM quality_row_result),
+                    (SELECT COALESCE(SUM(LENGTH(entry_json)), 0)
+                       FROM source_accounting_entry),
+                    (SELECT COUNT(*) FROM quality_evidence_projection),
+                    (SELECT COUNT(*) FROM quality_row_result),
+                    (SELECT COUNT(*) FROM source_accounting_entry)
+                """
+            ).fetchone()
+        self.assertEqual(sparse_storage, (0, 0, 1, 2, 0))
         datasets_by_id = {item.dataset_id: item for item in effective.datasets}
         mappings = {
             datasets_by_id[item.dataset_id].name: item
@@ -2312,7 +2363,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(session, ("FAILED", "BOUNDED_PREPARATION_FAILED"))
         self.assertEqual(counts, (0, 0, 0, 0))
 
-    def test_source_accounting_transport_failure_rolls_back_quality(self) -> None:
+    def test_sparse_quality_manifest_failure_rolls_back_quality(self) -> None:
         project_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
                 self,
@@ -2322,27 +2373,23 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 dirty=True,
             )
         )
-        from impodo.adapters.duckdb import quality_repository
+        from impodo.adapters.duckdb.quality_repository import QualityRepository
 
-        original_batches = quality_repository.iter_encoded_json_batches
+        original_insert = QualityRepository._insert_quality_evidence
 
-        def fail_after_first_source_entry(*args, **kwargs):
-            for batch in original_batches(*args, **kwargs):
-                yield batch
-                if '"physical_dataset_id"' in batch.payload:
-                    raise RuntimeError(
-                        "injected source accounting transport failure"
-                    )
+        def fail_after_sparse_manifest(connection, run_id, run):
+            original_insert(connection, run_id, run)
+            raise RuntimeError("injected sparse quality failure")
 
         with (
             patch.object(
-                quality_repository,
-                "iter_encoded_json_batches",
-                fail_after_first_source_entry,
+                QualityRepository,
+                "_insert_quality_evidence",
+                staticmethod(fail_after_sparse_manifest),
             ),
             self.assertRaisesRegex(
                 RuntimeError,
-                "injected source accounting transport failure",
+                "injected sparse quality failure",
             ),
         ):
             self.context.preparation.prepare(
@@ -2358,11 +2405,12 @@ class BoundedPreparationParityTests(unittest.TestCase):
                     (SELECT COUNT(*) FROM quality_row_result),
                     (SELECT COUNT(*) FROM source_accounting_entry),
                     (SELECT COUNT(*) FROM source_accounting_link),
+                    (SELECT COUNT(*) FROM quality_evidence_projection),
                     (SELECT COUNT(*) FROM quality_run),
                     (SELECT COUNT(*) FROM quality_current)
                 """
             ).fetchone()
-        self.assertEqual(counts, (0, 0, 0, 0, 0))
+        self.assertEqual(counts, (0, 0, 0, 0, 0, 0))
 
     def test_normalization_transport_failure_rolls_back_pending_evidence(self) -> None:
         project_id, _source_hash, _source_size = (

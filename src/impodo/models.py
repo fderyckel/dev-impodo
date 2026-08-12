@@ -19,7 +19,7 @@ from decimal import Decimal
 from enum import StrEnum
 from hashlib import sha256
 import json
-from typing import Any, Iterable, Mapping
+from typing import Any, Mapping
 
 
 ScalarValue = str | int | Decimal | bool | date | datetime | None
@@ -203,6 +203,44 @@ class TargetFingerprint:
             "snapshot_timestamp": self.snapshot_timestamp,
             "module_versions": dict(sorted(self.module_versions.items())),
         }
+
+
+@dataclass(frozen=True, slots=True)
+class OdooReadIdentity:
+    """Non-secret hashes from one narrow authenticated read-identity probe.
+
+    Raw Odoo user, group, and company identifiers are used only while building
+    these hashes at the connector boundary. They do not enter this contract.
+    ``permission_hash`` records the directly observed group membership and
+    model-level read results; it is not a complete fingerprint of every Odoo
+    ACL or record-rule definition.
+    """
+
+    target_hash: str
+    principal_hash: str
+    permission_hash: str
+    context_hash: str
+    readable_models: tuple[str, ...]
+    observed_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class OdooWriteIdentity:
+    """Non-secret hashes from one closed write/read-back identity probe.
+
+    The probe proves model-level read access for every model in the reviewed
+    API scope and model-level write access only for models with reviewed write
+    fields. It does not perform a write or claim record-rule access to a
+    particular record.
+    """
+
+    target_hash: str
+    principal_hash: str
+    permission_hash: str
+    context_hash: str
+    readable_models: tuple[str, ...]
+    writable_models: tuple[str, ...]
+    observed_at: str
 
 
 @dataclass(frozen=True, slots=True)

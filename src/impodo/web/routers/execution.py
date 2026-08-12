@@ -12,12 +12,16 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from ...access import AuthorizationError
-from ...application.execution_service import validated_create_batch_rows
+from ...access import AuthorizationError, Capability
+from ...application.execution_service import (
+    ExecutionPreview,
+    validated_create_batch_rows,
+)
 from ...connectors import ConnectorError
 from ...odoo_writer import OdooWriteError
 from ...odoo_readback import OdooReadbackError
-from ...projects import ProjectError
+from ...models import OdooWriteIdentity
+from ...projects import MigrationProject, OdooConnectionMode, ProjectError
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
 from ..constants import DEFAULT_LOAD_ROWS_PER_PAGE, LOAD_ROW_PAGE_SIZES
@@ -27,9 +31,38 @@ from ..presenters.common import _flash, _render
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRole,
+    audit_stored_target_credential,
     get_target_credential,
     store_target_credential,
 )
+
+
+async def _probe_remote_write_identity(
+    context: WebContext,
+    project: MigrationProject,
+    preview: ExecutionPreview,
+    api_key: str,
+) -> OdooWriteIdentity | None:
+    """Probe and context-bind remote execution without exposing identifiers."""
+
+    if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+        return None
+    identity = await run_in_threadpool(
+        context.write_identity_probe,
+        project,
+        api_key,
+        preview.api_scope,
+    )
+    schema = context.queries.get_odoo_schema_catalog(project.project_id)
+    if schema is None or not schema.read_context_hash:
+        raise WorkspaceError(
+            "Refresh the remote Odoo schema identity before configuring a load"
+        )
+    if identity.context_hash != schema.read_context_hash:
+        raise WorkspaceError(
+            "The write credential does not use the reviewed Odoo context"
+        )
+    return identity
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +216,11 @@ def build_execution_router(context: WebContext) -> APIRouter:
         )
         project = context.queries.get(project_id)
         try:
+            context.authorization.require(
+                context.actor,
+                Capability.EXPORT_PLAN_EXECUTE,
+                project_id=project_id,
+            )
             batch_rows = validated_create_batch_rows(_text(form, "batch_rows"))
             preview = context.execution.current_preview(project_id)
             if preview is None:
@@ -192,6 +230,12 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 "api_key",
             )
             if submitted_key:
+                write_identity = await _probe_remote_write_identity(
+                    context,
+                    project,
+                    preview,
+                    submitted_key,
+                )
                 write_credential = store_target_credential(
                     context.secret_store,
                     project,
@@ -201,6 +245,13 @@ def build_execution_router(context: WebContext) -> APIRouter:
                         "remember_write_api_key" in form
                         or "remember_api_key" in form
                     ),
+                )
+                audit_stored_target_credential(
+                    context.projects,
+                    project,
+                    TargetCredentialRole.WRITE,
+                    write_credential,
+                    actor=context.actor,
                 )
             else:
                 write_credential = get_target_credential(
@@ -213,6 +264,13 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     "Enter a separate Odoo write API key for this exact target"
                 )
             api_key = write_credential.secret
+            if not submitted_key:
+                write_identity = await _probe_remote_write_identity(
+                    context,
+                    project,
+                    preview,
+                    api_key,
+                )
             executor = context.write_executor_factory(
                 project,
                 api_key,
@@ -225,6 +283,10 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 executor=executor,
                 actor=context.actor,
                 batch_rows=batch_rows,
+                write_identity=write_identity,
+                write_credential_binding_hash=(
+                    write_credential.binding_hash if write_identity is not None else ""
+                ),
             )
         except (
             AuthorizationError,
@@ -241,6 +303,12 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 status_code=422,
             )
         try:
+            readback_identity = await _probe_remote_write_identity(
+                context,
+                project,
+                preview,
+                api_key,
+            )
             reader = context.readback_reader_factory(
                 project,
                 api_key,
@@ -252,8 +320,14 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 expected_execution_run_id=run.run_id,
                 reader=reader,
                 actor=context.actor,
+                write_identity=readback_identity,
             )
-        except (OdooReadbackError, ProjectError, WorkspaceError) as error:
+        except (
+            ConnectorError,
+            OdooReadbackError,
+            ProjectError,
+            WorkspaceError,
+        ) as error:
             _flash(
                 request,
                 f"The load outcome was saved, but verification could not finish: {error}",
@@ -279,6 +353,11 @@ def build_execution_router(context: WebContext) -> APIRouter:
         )
         project = context.queries.get(project_id)
         try:
+            context.authorization.require(
+                context.actor,
+                Capability.EXPORT_PLAN_EXECUTE,
+                project_id=project_id,
+            )
             preview = context.execution.current_preview(project_id)
             if preview is None:
                 raise WorkspaceError("Compare the prepared data with Odoo first")
@@ -287,15 +366,10 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 "api_key",
             )
             if submitted_key:
-                write_credential = store_target_credential(
-                    context.secret_store,
-                    project,
-                    TargetCredentialRole.WRITE,
-                    submitted_key,
-                    persistent=(
-                        "remember_write_api_key" in form
-                        or "remember_api_key" in form
-                    ),
+                api_key = submitted_key
+                requested_persistence = (
+                    "remember_write_api_key" in form
+                    or "remember_api_key" in form
                 )
             else:
                 write_credential = get_target_credential(
@@ -303,11 +377,18 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     project,
                     TargetCredentialRole.WRITE,
                 )
-            if write_credential is None:
-                raise SecretStoreError(
-                    "Enter a separate Odoo write API key for this exact target"
-                )
-            api_key = write_credential.secret
+                if write_credential is None:
+                    raise SecretStoreError(
+                        "Enter a separate Odoo write API key for this exact target"
+                    )
+                api_key = write_credential.secret
+                requested_persistence = False
+            write_identity = await _probe_remote_write_identity(
+                context,
+                project,
+                preview,
+                api_key,
+            )
             reader = context.readback_reader_factory(
                 project,
                 api_key,
@@ -319,7 +400,23 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 expected_execution_run_id=_text(form, "execution_run_id"),
                 reader=reader,
                 actor=context.actor,
+                write_identity=write_identity,
             )
+            if submitted_key:
+                write_credential = store_target_credential(
+                    context.secret_store,
+                    project,
+                    TargetCredentialRole.WRITE,
+                    submitted_key,
+                    persistent=requested_persistence,
+                )
+                audit_stored_target_credential(
+                    context.projects,
+                    project,
+                    TargetCredentialRole.WRITE,
+                    write_credential,
+                    actor=context.actor,
+                )
         except (
             AuthorizationError,
             ConnectorError,

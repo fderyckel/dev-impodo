@@ -19,7 +19,11 @@ def create_execution_schema(connection: duckdb.DuckDBPyConnection) -> None:
             status VARCHAR NOT NULL,
             started_at VARCHAR NOT NULL,
             started_by VARCHAR NOT NULL,
-            completed_at VARCHAR
+            completed_at VARCHAR,
+            write_credential_binding_hash VARCHAR NOT NULL DEFAULT '',
+            write_principal_hash VARCHAR NOT NULL DEFAULT '',
+            write_permission_hash VARCHAR NOT NULL DEFAULT '',
+            write_context_hash VARCHAR NOT NULL DEFAULT ''
         );
 
         CREATE TABLE IF NOT EXISTS execution_row (

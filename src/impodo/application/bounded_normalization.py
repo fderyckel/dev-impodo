@@ -196,7 +196,17 @@ class _BoundedNormalizationEffects(Iterable[NormalizationEffect]):
             target_field=candidate.target_field,
             before=before,
             after=after,
-            eligible=row_id in self._eligible_row_ids,
+            eligible=(
+                self._eligible_row_ids.contains_canonical(row_id)
+                if callable(
+                    getattr(
+                        self._eligible_row_ids,
+                        "contains_canonical",
+                        None,
+                    )
+                )
+                else row_id in self._eligible_row_ids
+            ),
         )
         name, explanation = _change_language(candidate.rules, outcome)
         return effect, {

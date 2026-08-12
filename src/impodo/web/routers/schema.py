@@ -187,6 +187,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 read_credential_binding_hash = (
                     local_read_credential_binding_hash(project)
                 )
+                read_identity = None
             else:
                 credential = get_target_credential(
                     context.secret_store,
@@ -197,6 +198,12 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     raise WorkspaceError(
                         _missing_schema_reader_message(project)
                     )
+                read_identity = await run_in_threadpool(
+                    context.read_identity_probe,
+                    project,
+                    credential.secret,
+                    tuple(sorted(project.intended_models)),
+                )
                 snapshot = await run_in_threadpool(
                     context.schema_reader,
                     project,
@@ -207,6 +214,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 project_id,
                 snapshot,
                 read_credential_binding_hash=read_credential_binding_hash,
+                read_identity=read_identity,
                 actor=context.actor,
             )
             if local_profile is not None:

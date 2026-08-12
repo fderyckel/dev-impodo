@@ -115,7 +115,7 @@ allocator, database, and engine memory; it is not evidence of a Python leak.
 | Phase 0: truthful admission and B0 telemetry | Complete | B0/B0-C above; exact customer workbook remains an external diagnostic input |
 | Phase 1: remove post-Polars replay | In progress — B1a objectless projection retained | CPU -3.48%, peak RSS -3.72%; zero rule replay/full domain rows, but 100,000 Python row adaptations remain |
 | Phase 2: prepared values plus narrow index | Complete for direct native datasets | Canonical row JSON 223,966,700 → 0 chars; peak RSS -20.63%, DB used -39.80%; CPU regression is assigned to Phase 3/4 repeated projectors |
-| Phase 3: sparse multi-dataset quality | Not started | Pending B3 comparison |
+| Phase 3: sparse multi-dataset quality | Complete for direct native datasets | 5 → 2 prepared-value scans; clean quality/accounting physical rows 200,000 → 0; exact logical hashes retained |
 | Phase 4: construct normalization once | Not started | Pending B4 comparison |
 | Phase 5: set-based product/BOM relationships | Not started | Pending B5 comparison |
 | Phase 6: conditional transport/hash optimization | Not started | Only if measurements justify it |
@@ -215,3 +215,62 @@ passes with set-based defaults plus sparse exceptions; Phase 4 must consume
 durable effect and eligibility facts without reconstructing the canonical
 stream again. B2 therefore closes the Phase 2 storage and projector contract
 while leaving the combined Phase 1 vectorization gate open.
+
+## B3 — sparse multi-dataset quality and accounting
+
+Captured on 2026-08-12 with three fresh 100,000-row Products processes. Direct
+native preparation now persists a compact record label, a reusable hashed
+target-match key, base disposition, sparse row issues, and one-to-one lineage
+facts beside the canonical index. DuckDB validates ordering, identity
+collisions, disposition counts, physical coverage, and one-to-one accounting
+over the pending run. The materializing evaluator remains only the bounded
+oracle.
+
+The quality manifest defines clean row results and represented source
+accounting as run defaults. A clean 100,000-row run therefore stores **zero**
+physical `quality_row_result`, `source_accounting_entry`, and
+`source_accounting_link` rows. Dirty runs store only row-result exceptions,
+shared issue definitions, and quarantine entries. Complete quality and
+accounting streams are projected in deterministic order for hashing, reload,
+pagination, and downstream normalization.
+
+| Metric | B0 median | B3 median | Gain |
+| --- | ---: | ---: | ---: |
+| CPU | 50.091 s | 101.406 s | Not comparable: current battery/core state ran the contemporaneous pre-projection control at 97.221 s |
+| Wall time | 45.842 s | 96.077 s | Not comparable for the same reason |
+| Peak RSS | 830.953 MiB | 653.219 MiB | **21.39%** (177.734 MiB) |
+| Ending RSS | 655.547 MiB | 652.203 MiB | **0.51%** |
+| DuckDB file | 277.262 MiB | 138.762 MiB | **49.95%** |
+| DuckDB used pages | 226.750 MiB | 79.000 MiB | **65.16%** |
+| Total project storage | 313.000 MiB | 174.500 MiB | **44.25%** |
+
+The same-session control at commit `152275d` is retained in
+`.tmp/transformation-scale-phase1-same-session-control-products-100k.json`.
+It ran the earlier objectless/full-JSON route at 97.221 CPU seconds, 88.904
+wall seconds, 853.500 MiB peak RSS, 275.762 MiB DuckDB, and 227.250 MiB used
+pages. Against that contemporaneous control, B3 is 4.30% worse on total CPU
+and 8.07% worse on wall time, but gains 23.47% peak RSS, 49.68% DuckDB file,
+65.24% used pages, and 43.98% total project storage. This control proves that
+the raw CPU difference from the earlier plugged-in B0/B2 captures is dominated
+by machine power/core state; it does **not** justify claiming a total CPU gain.
+
+The quality stage itself fell from 27.381 to 6.281 median-run CPU seconds in
+the contemporaneous comparison, and from 33.203 CPU seconds in B2. Prepared
+value projection scans fell from five to two, and projected canonical rows fell
+from 500,000 to 200,000. The remaining scans are staging hashing and Phase-4
+normalization hashing.
+
+Logical serialized JSON fell from 84,567,540 B2 characters to 38,589,740
+characters, a further **54.37%** reduction and an **87.49%** reduction from B0.
+All three runs retained the exact staging, quality, and normalization hashes:
+
+- staging `sha256:30981b…33c0`
+- quality `sha256:d56b0e…3d71`
+- normalization `sha256:be8ea3…3684`
+
+Parity coverage includes direct single- and multi-dataset default rows,
+identity collisions and sparse preparation issues, logical quality reload,
+17-row review pagination, quarantine filtering, accounting order, exact hashes,
+and normalization consumption without a complete Python eligible-ID set. The
+forward schema version is 4; prior versions upgrade without rewriting existing
+logical row JSON.

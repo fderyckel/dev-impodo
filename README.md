@@ -63,6 +63,11 @@ start a local Odoo stack separately before connecting to it in Impodo.
   database, so reopening and mapping do not automatically contact Odoo.
 - Binds those catalogues to a non-secret read-credential generation hash. This
   records Impodo-side key rotation without claiming Odoo principal identity.
+- For remote reads, verifies the API key's own Odoo user and required model-
+  level read access through a closed probe, including a bounded active-company
+  scope check, then binds non-secret principal, observed-permission, and context
+  hashes to model/schema evidence. Raw Odoo user, group, and company IDs are
+  not stored.
 - Records the target business keys and any company or tenant scope fields.
 - Maps each frozen dataset to an Odoo model and its writable scalar fields.
 - Lets each scalar field use a source column, constant, source fallback, or an
@@ -96,6 +101,13 @@ business key invalidates the active mapping so it must be validated again.
 - Requires one explicit **Load into Odoo** action.
 - Requires a separately supplied or stored write key for load and read-back;
   the read-only setup key cannot authorize execution.
+- For remote loads, probes that key independently for read-back access to the
+  exact reviewed model scope and write access only to models with reviewed
+  write fields. The journal binds non-secret credential-generation, principal,
+  observed-permission, and context hashes; read-back re-probes them.
+- Audits successful read/write credential storage and replacement using only
+  the safe random binding hash and storage class, never the key or raw Odoo
+  identity values.
 - Derives an exact per-preview JSON-2 capability from the captured schema and
   confirmed mapping, uses dependency-ordered batches and exact business-key
   updates, and exposes no direct SQL or generic RPC.

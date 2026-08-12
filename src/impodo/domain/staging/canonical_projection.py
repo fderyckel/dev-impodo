@@ -6,8 +6,48 @@ from hashlib import sha256
 from typing import Any, Mapping
 
 from ...models import Issue, canonical_json_bytes, portable_issue, portable_value
-from ...staging_contracts import StagingDisposition
+from ...staging_contracts import CanonicalIssue, StagingDisposition
 from .preparation_session import CanonicalPreparedSessionRow
+
+
+def canonical_quality_record_label(
+    source_identity: tuple[Any, ...],
+    target_identity: tuple[Any, ...],
+    source_row: int,
+) -> str:
+    """Return the exact compact label used by the Stage-F row contract."""
+
+    values = [
+        value
+        for value in (*target_identity, *source_identity)
+        if value is not None and value != ""
+    ]
+    if not values:
+        return f"Row {source_row}"
+    return " / ".join(str(item) for item in values[:2])[:120]
+
+
+def canonical_quality_identity_key(
+    *,
+    dataset: str,
+    target_model: str,
+    target_identity: tuple[Any, ...],
+    target_scope: tuple[Any, ...],
+) -> str | None:
+    """Encode the collision key without retaining a Python identity index."""
+
+    identity = (*target_identity, *target_scope)
+    if not identity or any(value is None or value == "" for value in identity):
+        return None
+    payload = canonical_json_bytes(
+        {
+            "dataset": dataset,
+            "model": target_model,
+            "identity": portable_value(target_identity),
+            "scope": portable_value(target_scope),
+        }
+    )
+    return "sha256:" + sha256(payload).hexdigest()
 
 
 def canonical_prepared_session_row(
@@ -67,22 +107,22 @@ def canonical_prepared_session_row(
             else StagingDisposition.CANDIDATE.value
         )
     )
+    canonical_issues = []
+    for issue in issues:
+        portable = portable_issue(issue)
+        canonical_issues.append(
+            {
+                "code": portable["code"],
+                "message": portable["message"],
+                "severity": portable["severity"],
+                "dataset": portable["dataset"],
+                "source_row": portable["row"],
+                "field": portable["field"],
+                "affected_count": portable["affected_count"],
+            }
+        )
     row_json = ""
     if encode_payload:
-        canonical_issues = []
-        for issue in issues:
-            portable = portable_issue(issue)
-            canonical_issues.append(
-                {
-                    "code": portable["code"],
-                    "message": portable["message"],
-                    "severity": portable["severity"],
-                    "dataset": portable["dataset"],
-                    "source_row": portable["row"],
-                    "field": portable["field"],
-                    "affected_count": portable["affected_count"],
-                }
-            )
         payload = {
             "row_id": row_id,
             "dataset": dataset,
@@ -108,4 +148,18 @@ def canonical_prepared_session_row(
         source_identity=source_identity,
         row_json=row_json,
         physical_sources=physical_sources,
+        record_label=canonical_quality_record_label(
+            source_identity,
+            target_identity,
+            source_row,
+        ),
+        quality_identity_key=canonical_quality_identity_key(
+            dataset=dataset,
+            target_model=target_model,
+            target_identity=target_identity,
+            target_scope=target_scope,
+        ),
+        issues=tuple(
+            CanonicalIssue.from_dict(item) for item in canonical_issues
+        ),
     )

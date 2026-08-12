@@ -15,12 +15,13 @@ from threading import RLock
 
 from ..connectors import (
     ConnectorAuthenticationError,
+    ConnectorAuthorizationError,
     ConnectorConfigurationError,
     ConnectorError,
     ConnectorIncompleteResultError,
     ConnectorTransportError,
 )
-from ..models import TargetFingerprint, target_identity_hash
+from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from ..projects import MigrationProject
 from ..secrets import SecretStoreError
 
@@ -52,6 +53,7 @@ class RemoteConnectionStatus:
     checked_at: str | None
     checks: tuple[RemoteConnectionCheck, ...]
     support_code: str | None = None
+    read_principal_hash: str | None = None
 
     @property
     def checked(self) -> bool:
@@ -160,12 +162,14 @@ class RemoteConnectionStatusService:
         self,
         project: MigrationProject,
         fingerprint: TargetFingerprint,
+        identity: OdooReadIdentity,
     ) -> RemoteConnectionStatus:
-        """Record one successful read and validate the returned target/version."""
+        """Record one successful read, principal probe, and target/version."""
 
         expected_hash = _project_target_hash(project)
         target_matches = (
             fingerprint.target_hash == expected_hash
+            and identity.target_hash == expected_hash
             and fingerprint.connection_mode.strip().upper() == "REMOTE"
             and fingerprint.database == project.odoo_database
         )
@@ -181,6 +185,10 @@ class RemoteConnectionStatusService:
                     "Odoo answered for a different target. Review the address and database name.",
                 ),
                 version=(
+                    RemoteConnectionLevel.UNKNOWN,
+                    "Waiting for access to the exact database.",
+                ),
+                principal=(
                     RemoteConnectionLevel.UNKNOWN,
                     "Waiting for access to the exact database.",
                 ),
@@ -205,6 +213,10 @@ class RemoteConnectionStatusService:
                     f"Read-only access to {project.odoo_database} succeeded.",
                 ),
                 version=(RemoteConnectionLevel.ERROR, message),
+                principal=(
+                    RemoteConnectionLevel.READY,
+                    "The read-only Odoo principal was identified.",
+                ),
                 checked_at=fingerprint.snapshot_timestamp or _now(),
                 support_code=(
                     "ODOO_VERSION_UNKNOWN"
@@ -227,7 +239,12 @@ class RemoteConnectionStatusService:
                     RemoteConnectionLevel.READY,
                     f"Supported Odoo version {fingerprint.odoo_version}.",
                 ),
+                principal=(
+                    RemoteConnectionLevel.READY,
+                    "The read-only Odoo principal and model access were verified.",
+                ),
                 checked_at=fingerprint.snapshot_timestamp or _now(),
+                read_principal_hash=identity.principal_hash,
             )
         with self._lock:
             self._statuses[project.project_id] = status
@@ -249,6 +266,7 @@ class RemoteConnectionStatusService:
                 (unknown, "The Odoo server was not contacted."),
                 (failed, "Enter an Odoo access key for this remote target."),
                 (unknown, "Waiting for database access."),
+                (unknown, "Waiting for an authenticated principal check."),
                 "ODOO_ACCESS_KEY_MISSING",
             )
         elif isinstance(error, ConnectorAuthenticationError):
@@ -259,13 +277,26 @@ class RemoteConnectionStatusService:
                     "Odoo rejected the access key, database name, or API entitlement.",
                 ),
                 (unknown, "Waiting for database access."),
+                (unknown, "Waiting for an authenticated principal check."),
                 "ODOO_ACCESS_REJECTED",
+            )
+        elif isinstance(error, ConnectorAuthorizationError):
+            values = (
+                (ready, "Odoo responded to the read-only check."),
+                (ready, "Authenticated database access succeeded."),
+                (unknown, "Waiting for the Odoo version check."),
+                (
+                    failed,
+                    "The authenticated principal lacks required model read access.",
+                ),
+                "ODOO_READ_ACCESS_MISSING",
             )
         elif isinstance(error, ConnectorConfigurationError):
             values = (
                 (failed, "Review the Odoo web address and database name."),
                 (unknown, "Waiting for the Odoo server check."),
                 (unknown, "Waiting for database access."),
+                (unknown, "Waiting for an authenticated principal check."),
                 "ODOO_CONNECTION_DETAILS_INVALID",
             )
         elif isinstance(error, ConnectorTransportError):
@@ -278,6 +309,7 @@ class RemoteConnectionStatusService:
                     ),
                     (unknown, "Waiting for the Odoo server check."),
                     (unknown, "Waiting for database access."),
+                    (unknown, "Waiting for an authenticated principal check."),
                     "ODOO_UNREACHABLE",
                 )
             else:
@@ -293,6 +325,7 @@ class RemoteConnectionStatusService:
                     (ready, "Odoo responded to the read-only check."),
                     (failed, database_message),
                     (unknown, "Waiting for database access."),
+                    (unknown, "Waiting for an authenticated principal check."),
                     f"ODOO_API_HTTP_{status_code}",
                 )
         elif isinstance(error, ConnectorIncompleteResultError):
@@ -300,6 +333,7 @@ class RemoteConnectionStatusService:
                 (ready, "Odoo responded to the read-only check."),
                 (failed, "Odoo returned incomplete information for this database."),
                 (unknown, "Waiting for complete database access."),
+                (unknown, "Waiting for a complete principal check."),
                 "ODOO_RESPONSE_INCOMPLETE",
             )
         elif isinstance(error, ConnectorError):
@@ -307,6 +341,7 @@ class RemoteConnectionStatusService:
                 (ready, "Odoo responded to the read-only check."),
                 (failed, "Odoo could not complete the read-only database check."),
                 (unknown, "Waiting for database access."),
+                (unknown, "Waiting for an authenticated principal check."),
                 "ODOO_CONNECTION_FAILED",
             )
         else:
@@ -314,14 +349,16 @@ class RemoteConnectionStatusService:
                 (unknown, "The Odoo server check did not complete."),
                 (failed, "Impodo could not complete the read-only database check."),
                 (unknown, "Waiting for database access."),
+                (unknown, "Waiting for an authenticated principal check."),
                 "ODOO_CONNECTION_FAILED",
             )
-        server, database, version, support_code = values
+        server, database, version, principal, support_code = values
         status = _status(
             target_hash=target_hash,
             server=server,
             database=database,
             version=version,
+            principal=principal,
             checked_at=_now(),
             support_code=support_code,
         )
@@ -355,6 +392,10 @@ def _unchecked_status(target_hash: str) -> RemoteConnectionStatus:
             RemoteConnectionLevel.UNKNOWN,
             "Waiting for database access.",
         ),
+        principal=(
+            RemoteConnectionLevel.UNKNOWN,
+            "Waiting for an authenticated principal check.",
+        ),
         checked_at=None,
     )
 
@@ -365,8 +406,10 @@ def _status(
     server: tuple[RemoteConnectionLevel, str],
     database: tuple[RemoteConnectionLevel, str],
     version: tuple[RemoteConnectionLevel, str],
+    principal: tuple[RemoteConnectionLevel, str],
     checked_at: str | None,
     support_code: str | None = None,
+    read_principal_hash: str | None = None,
 ) -> RemoteConnectionStatus:
     return RemoteConnectionStatus(
         target_hash=target_hash,
@@ -393,8 +436,16 @@ def _status(
                 message=version[1],
                 waiting_message="Waiting for database access.",
             ),
+            RemoteConnectionCheck(
+                key="principal",
+                label="Read-only principal",
+                level=principal[0],
+                message=principal[1],
+                waiting_message="Waiting for an authenticated principal check.",
+            ),
         ),
         support_code=support_code,
+        read_principal_hash=read_principal_hash,
     )
 
 

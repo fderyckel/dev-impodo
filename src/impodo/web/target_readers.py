@@ -24,7 +24,7 @@ from ..connectors import (
 )
 from ..local_stack import LocalStackProfile
 from ..domain.schema.governance import BusinessKeyDefinition
-from ..models import TargetFingerprint, target_identity_hash
+from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from ..projects import MigrationProject, OdooConnectionMode, ProjectError
 from ..reference_keys import standard_reference_key
 from ..secrets import SecretStoreError
@@ -64,6 +64,26 @@ def _test_connection(
         (MetadataRequest(model="res.partner", fields=("id",)),)
     )
     return metadata.fingerprint
+
+
+def _probe_read_identity(
+    project: MigrationProject,
+    api_key: str,
+    models: tuple[str, ...],
+) -> OdooReadIdentity:
+    """Run the fixed remote principal/context/model-read probe."""
+
+    if project.odoo_connection_mode is None:
+        raise ProjectError("Configure the Odoo target before identity probing")
+    connector = Json2ReadConnector(
+        Json2Config(
+            base_url=project.odoo_base_url,
+            database=project.odoo_database,
+            api_key=api_key,
+            connection_mode=project.odoo_connection_mode.value,
+        )
+    )
+    return connector.probe_read_identity(models)
 
 
 def _selected_local_profile(
@@ -176,6 +196,7 @@ async def _refresh_model_catalog(
             local_profile,
         )
         read_credential_binding_hash = local_read_credential_binding_hash(project)
+        read_identity = None
     else:
         credential = get_target_credential(
             context.secret_store,
@@ -184,6 +205,12 @@ async def _refresh_model_catalog(
         )
         if credential is None:
             raise WorkspaceError(_missing_schema_reader_message(project))
+        read_identity = await run_in_threadpool(
+            context.read_identity_probe,
+            project,
+            credential.secret,
+            ("ir.model",),
+        )
         snapshot = await run_in_threadpool(
             context.model_catalog_reader,
             project,
@@ -194,6 +221,7 @@ async def _refresh_model_catalog(
         project.project_id,
         snapshot,
         read_credential_binding_hash=read_credential_binding_hash,
+        read_identity=read_identity,
         actor=context.actor,
     )
     if local_profile is not None:
@@ -254,13 +282,16 @@ def _read_readiness_snapshots(
     ``Json2ReadConnector``. This function does not widen planner domains.
     """
 
-    if context.readiness_reader is not None:
+    local_profile = _selected_local_profile(context, project)
+    if (
+        context.readiness_reader is not None
+        and project.odoo_connection_mode is OdooConnectionMode.LOCAL
+    ):
         return context.readiness_reader(
             project,
             metadata_requests,
             record_requests,
         )
-    local_profile = _selected_local_profile(context, project)
     if project.odoo_connection_mode is OdooConnectionMode.LOCAL:
         if local_profile is None:
             raise WorkspaceError(
@@ -296,6 +327,39 @@ def _read_readiness_snapshots(
         )
     if project.odoo_connection_mode is None:
         raise WorkspaceError("Configure the Odoo target before checking data")
+    probe_models = tuple(
+        sorted(
+            {
+                *(request.model for request in metadata_requests),
+                *(request.model for request in record_requests),
+            }
+        )
+    )
+    identity = context.read_identity_probe(
+        project,
+        credential.secret,
+        probe_models,
+    )
+    schema = context.queries.get_odoo_schema_catalog(project.project_id)
+    if schema is None or not schema.read_principal_hash:
+        raise WorkspaceError(
+            "Recapture the Odoo schema with verified read-principal evidence "
+            "before checking data"
+        )
+    if (
+        identity.principal_hash != schema.read_principal_hash
+        or identity.context_hash != schema.read_context_hash
+    ):
+        raise WorkspaceError(
+            "The Odoo read principal or context changed; recapture the schema "
+            "before checking data"
+        )
+    if context.readiness_reader is not None:
+        return context.readiness_reader(
+            project,
+            metadata_requests,
+            record_requests,
+        )
     connector = Json2ReadConnector(
         Json2Config(
             base_url=project.odoo_base_url,

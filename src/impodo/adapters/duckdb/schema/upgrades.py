@@ -52,10 +52,61 @@ def _upgrade_v2_to_v3(connection: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+def _upgrade_v3_to_v4(connection: duckdb.DuckDBPyConnection) -> None:
+    """Add narrow Stage-F facts and a sparse evidence projection manifest."""
+
+    connection.execute(
+        """
+        ALTER TABLE canonical_staging_row
+        ADD COLUMN IF NOT EXISTS record_label VARCHAR DEFAULT '';
+        ALTER TABLE canonical_staging_row
+        ADD COLUMN IF NOT EXISTS quality_identity_key VARCHAR;
+
+        ALTER TABLE quality_row_result
+        ADD COLUMN IF NOT EXISTS record_label VARCHAR DEFAULT '';
+        ALTER TABLE quality_row_result
+        ADD COLUMN IF NOT EXISTS base_disposition VARCHAR DEFAULT 'CANDIDATE';
+
+        CREATE TABLE IF NOT EXISTS quality_evidence_projection (
+            run_id VARCHAR PRIMARY KEY,
+            contract_version INTEGER NOT NULL,
+            projection_json VARCHAR NOT NULL
+        );
+        """
+    )
+
+
+def _upgrade_v4_to_v5(connection: duckdb.DuckDBPyConnection) -> None:
+    """Bind load journals to non-secret write credential/principal evidence."""
+
+    connection.execute(
+        """
+        ALTER TABLE execution_run
+        ADD COLUMN IF NOT EXISTS write_credential_binding_hash VARCHAR DEFAULT '';
+        ALTER TABLE execution_run
+        ADD COLUMN IF NOT EXISTS write_principal_hash VARCHAR DEFAULT '';
+        ALTER TABLE execution_run
+        ADD COLUMN IF NOT EXISTS write_permission_hash VARCHAR DEFAULT '';
+        ALTER TABLE execution_run
+        ADD COLUMN IF NOT EXISTS write_context_hash VARCHAR DEFAULT '';
+        ALTER TABLE execution_run
+        ALTER COLUMN write_credential_binding_hash SET NOT NULL;
+        ALTER TABLE execution_run
+        ALTER COLUMN write_principal_hash SET NOT NULL;
+        ALTER TABLE execution_run
+        ALTER COLUMN write_permission_hash SET NOT NULL;
+        ALTER TABLE execution_run
+        ALTER COLUMN write_context_hash SET NOT NULL;
+        """
+    )
+
+
 # Map the stored version to the function that produces the next version.
 PROJECT_SCHEMA_UPGRADES: dict[int, ProjectSchemaUpgrade] = {
     1: _upgrade_v1_to_v2,
     2: _upgrade_v2_to_v3,
+    3: _upgrade_v3_to_v4,
+    4: _upgrade_v4_to_v5,
 }
 
 

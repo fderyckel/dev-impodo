@@ -538,9 +538,13 @@ def _quality_typed_json(
     try:
         rows = (
             {
-                field: row[field]
-                for field in _QUALITY_ROW_FIELDS
-                if field != "run_id"
+                **{
+                    field: row[field]
+                    for field in _QUALITY_ROW_FIELDS
+                    if field != "run_id"
+                },
+                "record_label": f"Product {item.ordinal:08d}",
+                "base_disposition": "CANDIDATE",
             }
             for item in quality_rows
             for row in (item.transport_row(),)
@@ -1075,9 +1079,13 @@ def _canonical_typed_json(
     try:
         rows = (
             {
-                field: row[field]
-                for field in _CANONICAL_ROW_FIELDS
-                if field != "run_id"
+                **{
+                    field: row[field]
+                    for field in _CANONICAL_ROW_FIELDS
+                    if field != "run_id"
+                },
+                "record_label": f"Product {item.ordinal:08d}",
+                "quality_identity_key": None,
             }
             for item in canonical_rows
             for row in (item.transport_row(),)

@@ -293,8 +293,6 @@ def _bounded_quality_reasons(
     reasons: list[str] = []
     if not direct:
         reasons.append("NON_DIRECT_QUALITY_INPUT")
-    if len(physical_selection.datasets) != 1:
-        reasons.append("MULTI_DATASET_QUALITY_MATERIALIZES")
     if reference_bundle is not None:
         reasons.append("REFERENCE_RESOLUTION_MATERIALIZES")
     if (

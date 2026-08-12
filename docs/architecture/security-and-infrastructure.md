@@ -134,6 +134,20 @@ rest depends on full-disk encryption and operating-system access controls.
 - Model and schema evidence records a random, secret-independent read-
   credential-generation hash. It detects an Impodo-side credential rotation
   but is not represented as an Odoo principal or permission fingerprint.
+- Remote identity probing is a fixed JSON-2 sequence: the API key's own
+  `res.users/context_get`, one exact self-record `search_read`, one bounded
+  active-company ID projection, and `has_access('read')` for service-selected
+  models. Only principal, observed-permission, and context hashes leave the
+  connector boundary. No user/group catalogue, company business fields, or
+  caller-selected method is exposed.
+- A separate remote write-identity connector first exercises that same closed
+  self/context/read sequence for every model in the reviewed execution scope,
+  then calls only `has_access('write')` for models with reviewed write fields.
+  It performs no write and exposes only write-principal, observed-permission,
+  and context hashes.
+- Successful credential storage or replacement adds an actor-bound DuckDB
+  audit event containing the random credential-generation binding and storage
+  class. Secrets and raw Odoo identity values remain excluded.
 - Credentials are excluded from project databases, mappings, reports, browser
   storage, and logs.
 - Authenticated redirects are refused; API keys and Odoo error bodies are
@@ -142,9 +156,10 @@ rest depends on full-disk encryption and operating-system access controls.
 ### Odoo access
 
 The remote read connector requires HTTPS outside literal loopback and exposes
-only Odoo 19 JSON-2 `fields_get` and `search_read`. Reads are projected,
-batched by model, and paginated deterministically. The separately confirmed
-writer described below does not widen that read connector.
+only Odoo 19 JSON-2 `fields_get`, `search_read`, and the fixed identity sequence
+above. Reads are projected, batched by model, and paginated deterministically.
+The separately confirmed writer described below does not widen that read
+connector.
 
 Local read mode uses the explicitly selected `odoo.conf` and fixed scripts for
 the model catalogue, `fields_get`, and bounded `search_read`. It requires no
@@ -171,6 +186,9 @@ only when all of these are true:
 - no earlier run already consumed that snapshot; and
 - a separate target-bound write credential is supplied or already stored; the
   setup read credential is never substituted; and
+- for remote execution, the write credential has read-back access to every
+  scoped model and write access to every model with reviewed write fields, and
+  its context matches the reviewed schema context; and
 - the operator makes one explicit **Load into Odoo** request with the execute
   capability.
 

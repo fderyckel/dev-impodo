@@ -22,7 +22,7 @@ from impodo.domain.reconciliation import (
     ReconciliationRunStatus,
 )
 from impodo.domain.execution_snapshot import FieldIntent
-from impodo.models import BusinessReference
+from impodo.models import BusinessReference, OdooWriteIdentity
 from impodo.odoo_readback import (
     ExternalIdBinding,
     Json2ReadbackReader,
@@ -30,6 +30,7 @@ from impodo.odoo_readback import (
     ReadbackRecord,
 )
 from impodo.odoo_scope import OdooApiScope, OdooModelScope
+from impodo.workspace_errors import WorkspaceError
 
 from tests.test_execution_service import (
     HASH,
@@ -75,6 +76,7 @@ class _Reader:
 
     def __init__(self, scope_hash):
         self.scope_hash = scope_hash
+        self.reads = []
         self.records = {
             ("product.category", 10): {"name": "Category"},
             ("product.template", 11): {
@@ -96,6 +98,7 @@ class _Reader:
         }
 
     def read_ids(self, model, identifiers, fields):
+        self.reads.append((model, tuple(identifiers), tuple(fields)))
         return tuple(
             ReadbackRecord(
                 identifier,
@@ -204,6 +207,45 @@ class ReconciliationServiceTests(unittest.TestCase):
             all(row.status is ReconciliationRowStatus.VERIFIED for row in report.rows)
         )
         self.assertEqual(results.report.semantic_hash, report.semantic_hash)
+
+    def test_reconciliation_rejects_changed_write_principal_before_readback(self):
+        snapshot = _snapshot()
+        run = replace(
+            _run(snapshot),
+            write_credential_binding_hash="sha256:" + "2" * 64,
+            write_principal_hash="sha256:" + "3" * 64,
+            write_permission_hash="sha256:" + "4" * 64,
+            write_context_hash="sha256:" + "5" * 64,
+        )
+        service, results = self._service(snapshot, run)
+        changed = OdooWriteIdentity(
+            target_hash=run.target_hash,
+            principal_hash="sha256:" + "6" * 64,
+            permission_hash=run.write_permission_hash,
+            context_hash=run.write_context_hash,
+            readable_models=tuple(
+                item.model for item in execution_api_scope(snapshot).models
+            ),
+            writable_models=tuple(
+                item.model
+                for item in execution_api_scope(snapshot).models
+                if item.write_fields
+            ),
+            observed_at="2026-08-12T00:00:00Z",
+        )
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+
+        with self.assertRaisesRegex(WorkspaceError, "changed after execution"):
+            service.reconcile(
+                snapshot.project_id,
+                expected_execution_run_id=run.run_id,
+                reader=reader,
+                actor=LOCAL_ACTOR,
+                write_identity=changed,
+            )
+
+        self.assertEqual(reader.reads, [])
+        self.assertIsNone(results.report)
 
     def test_partially_applied_cycle_is_read_by_exact_created_id(self):
         snapshot = _remote_cycle_snapshot()

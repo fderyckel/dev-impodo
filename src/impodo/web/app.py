@@ -83,16 +83,19 @@ from .context import (
     ModelCatalogReader,
     OdooWriteExecutorFactory,
     OdooReadbackReaderFactory,
+    ReadIdentityProbe,
     SchemaReader,
+    WriteIdentityProbe,
     WebContext,
 )
 from .presenters.common import _render
 from .target_readers import (
     _read_model_catalog,
     _read_schema,
+    _probe_read_identity,
     _test_connection,
 )
-from .target_writers import _readback_reader, _write_executor
+from .target_writers import _probe_write_identity, _readback_reader, _write_executor
 from .routers.derived_entities import build_derived_entities_router
 from .routers.lifecycle import build_lifecycle_router
 from .routers.mapping import build_mapping_router
@@ -119,6 +122,8 @@ def create_local_app(
     session_secret: str | None = None,
     secret_store: SecretStore | None = None,
     connection_tester: ConnectionTester | None = None,
+    read_identity_probe: ReadIdentityProbe | None = None,
+    write_identity_probe: WriteIdentityProbe | None = None,
     schema_reader: SchemaReader | None = None,
     model_catalog_reader: ModelCatalogReader | None = None,
     readiness_reader: BrowserReadinessReader | None = None,
@@ -210,6 +215,7 @@ def create_local_app(
         preflight,
         execution_repository,
         resolved_authorization,
+        require_remote_write_identity=True,
     )
     reconciliation = ReconciliationService(
         preflight,
@@ -286,6 +292,8 @@ def create_local_app(
         secret_store=secret_store or CredentialVault(),
         launch_token=launch_token or secrets.token_urlsafe(32),
         connection_tester=connection_tester or _test_connection,
+        read_identity_probe=read_identity_probe or _probe_read_identity,
+        write_identity_probe=write_identity_probe or _probe_write_identity,
         schema_reader=schema_reader or _read_schema,
         model_catalog_reader=model_catalog_reader or _read_model_catalog,
         readiness_reader=readiness_reader,

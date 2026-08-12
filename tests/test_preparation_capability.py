@@ -55,7 +55,7 @@ class PreparationCapabilityTests(unittest.TestCase):
             PreparationRouteBehavior.BOUNDED_RUNTIME_GUARDED,
         )
 
-    def test_multi_dataset_run_is_limited_before_quality_can_materialize(self) -> None:
+    def test_multi_dataset_direct_run_uses_bounded_quality(self) -> None:
         selection = _selection(
             (16_000, 80_000),
             names=("products", "bom_lines"),
@@ -76,28 +76,20 @@ class PreparationCapabilityTests(unittest.TestCase):
                 reference_bundle=None,
             )
 
-        self.assertFalse(manifest.admitted)
+        self.assertTrue(manifest.admitted)
         self.assertFalse(manifest.permits_materialized_fallback)
         self.assertEqual(
             manifest.supported_rows,
-            MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
+            COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
         )
         quality = next(
             item for item in manifest.stages if item.stage == "quality"
         )
         self.assertEqual(
             quality.behavior,
-            PreparationRouteBehavior.MATERIALIZING,
+            PreparationRouteBehavior.BOUNDED_RUNTIME_GUARDED,
         )
-        self.assertIn(
-            "MULTI_DATASET_QUALITY_MATERIALIZES",
-            quality.reason_codes,
-        )
-        with self.assertRaisesRegex(
-            ReadinessError,
-            "limiting stage is quality, normalization, relationships",
-        ):
-            manifest.require_supported()
+        manifest.require_supported()
 
     def test_current_advanced_ruleset_selects_the_truthful_lower_route(self) -> None:
         selection = _selection((30_000,))

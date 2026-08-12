@@ -202,6 +202,9 @@ class OdooModelCatalog:
     models: tuple[OdooModelSummary, ...]
     content_hash: str
     read_credential_binding_hash: str = ""
+    read_principal_hash: str = ""
+    read_permission_hash: str = ""
+    read_context_hash: str = ""
 
     def to_json(self) -> str:
         """Serialize the target-bound persistent-model choices."""
@@ -235,6 +238,9 @@ class OdooModelCatalog:
                 "read_credential_binding_hash",
                 "",
             ),
+            read_principal_hash=payload.get("read_principal_hash", ""),
+            read_permission_hash=payload.get("read_permission_hash", ""),
+            read_context_hash=payload.get("read_context_hash", ""),
         )
 
 
@@ -265,6 +271,9 @@ class OdooSchemaCatalog:
     content_hash: str
     origin: SchemaOrigin = SchemaOrigin.LIVE_API
     read_credential_binding_hash: str = ""
+    read_principal_hash: str = ""
+    read_permission_hash: str = ""
+    read_context_hash: str = ""
 
     def to_json(self) -> str:
         """Serialize the complete captured schema and provenance deterministically."""
@@ -320,6 +329,9 @@ class OdooSchemaCatalog:
                 "read_credential_binding_hash",
                 "",
             ),
+            read_principal_hash=payload.get("read_principal_hash", ""),
+            read_permission_hash=payload.get("read_permission_hash", ""),
+            read_context_hash=payload.get("read_context_hash", ""),
         )
 
 

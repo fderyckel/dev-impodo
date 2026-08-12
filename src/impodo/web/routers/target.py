@@ -24,6 +24,7 @@ from ..presenters.summary import (
 from ..target_readers import _selected_local_profile
 from ..target_credentials import (
     TargetCredentialRole,
+    audit_stored_target_credential,
     delete_target_credentials,
     get_target_credential,
     store_target_credential,
@@ -237,6 +238,13 @@ def build_target_router(context: WebContext) -> APIRouter:
                         or "remember_api_key" in form
                     ),
                 )
+                audit_stored_target_credential(
+                    context.projects,
+                    project,
+                    TargetCredentialRole.READ,
+                    read_credential,
+                    actor=context.actor,
+                )
             else:
                 read_credential = get_target_credential(
                     context.secret_store,
@@ -299,9 +307,16 @@ def build_target_router(context: WebContext) -> APIRouter:
                         read_credential.secret,
                     )
                     if remote_test_requested:
+                        identity = await run_in_threadpool(
+                            context.read_identity_probe,
+                            project,
+                            read_credential.secret,
+                            ("res.partner",),
+                        )
                         context.remote_connections.mark_checked(
                             project,
                             fingerprint,
+                            identity,
                         )
                 target_url = f"/projects/{project_id}/target"
                 if local_test_requested:

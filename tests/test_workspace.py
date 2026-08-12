@@ -20,6 +20,7 @@ from impodo.inspection import (
 from impodo.models import (
     FieldMetadata,
     ModelMetadata,
+    OdooReadIdentity,
     TargetFingerprint,
     TargetRecord,
     target_identity_hash,
@@ -192,6 +193,73 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                 self.project.project_id,
                 _metadata_snapshot(),
                 read_credential_binding_hash="sha256:" + "8" * 64,
+                actor=LOCAL_ACTOR,
+            )
+
+    def test_authenticated_key_rotation_preserves_the_same_principal_identity(
+        self,
+    ) -> None:
+        self.schemas.discover_models(
+            self.project.project_id,
+            _model_catalog_snapshot(),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
+            read_identity=_read_identity(("ir.model",)),
+            actor=LOCAL_ACTOR,
+        )
+        self.sources.confirm_source(
+            self.project.project_id,
+            self.source.file_id,
+            selected_table_keys=("csv",),
+            warnings_acknowledged=False,
+            actor=LOCAL_ACTOR,
+        )
+        self.sources.freeze_selection(
+            self.project.project_id,
+            dataset_names={(self.source.file_id, "csv"): "customers"},
+            actor=LOCAL_ACTOR,
+        )
+
+        schema = self.schemas.capture(
+            self.project.project_id,
+            _metadata_snapshot(),
+            read_credential_binding_hash="sha256:" + "8" * 64,
+            read_identity=_read_identity(("res.partner",)),
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(schema.read_principal_hash, "sha256:" + "1" * 64)
+        self.assertEqual(schema.read_context_hash, "sha256:" + "4" * 64)
+
+    def test_schema_capture_rejects_a_changed_authenticated_principal(self) -> None:
+        self.schemas.discover_models(
+            self.project.project_id,
+            _model_catalog_snapshot(),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
+            read_identity=_read_identity(("ir.model",)),
+            actor=LOCAL_ACTOR,
+        )
+        self.sources.confirm_source(
+            self.project.project_id,
+            self.source.file_id,
+            selected_table_keys=("csv",),
+            warnings_acknowledged=False,
+            actor=LOCAL_ACTOR,
+        )
+        self.sources.freeze_selection(
+            self.project.project_id,
+            dataset_names={(self.source.file_id, "csv"): "customers"},
+            actor=LOCAL_ACTOR,
+        )
+
+        with self.assertRaisesRegex(WorkspaceError, "principal or context changed"):
+            self.schemas.capture(
+                self.project.project_id,
+                _metadata_snapshot(),
+                read_credential_binding_hash="sha256:" + "8" * 64,
+                read_identity=_read_identity(
+                    ("res.partner",),
+                    principal_digit="7",
+                ),
                 actor=LOCAL_ACTOR,
             )
 
@@ -927,6 +995,27 @@ def _metadata_snapshot() -> MetadataSnapshot:
                 },
             )
         },
+    )
+
+
+def _read_identity(
+    models: tuple[str, ...],
+    *,
+    principal_digit: str = "1",
+) -> OdooReadIdentity:
+    return OdooReadIdentity(
+        target_hash=target_identity_hash(
+            connection_mode="LOCAL",
+            base_url="http://127.0.0.1:8069",
+            database="odoo19_local",
+        ),
+        principal_hash="sha256:" + principal_digit * 64,
+        permission_hash=(
+            "sha256:" + ("2" if models == ("ir.model",) else "3") * 64
+        ),
+        context_hash="sha256:" + "4" * 64,
+        readable_models=models,
+        observed_at="2026-08-12T00:00:00Z",
     )
 
 

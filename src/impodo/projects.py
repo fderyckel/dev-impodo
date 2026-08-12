@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timezone
 from enum import StrEnum
+import re
 from urllib.parse import urlsplit
 from typing import Protocol, Sequence
 from uuid import UUID, uuid4
@@ -224,6 +225,18 @@ class ProjectRepository(Protocol):
         actor: Actor,
     ) -> None:
         """Replace the Stage C allowlist and invalidate schema dependents."""
+        ...
+
+    def record_credential_event(
+        self,
+        project_id: str,
+        *,
+        event_type: str,
+        detail: str,
+        actor: Actor,
+    ) -> None:
+        """Append one non-secret target-credential lifecycle event."""
+
         ...
 
 
@@ -516,6 +529,48 @@ class ProjectService:
             actor=actor,
         )
         return saved
+
+    def record_credential_event(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+        role: str,
+        action: str,
+        binding_hash: str,
+        persistent: bool,
+    ) -> None:
+        """Audit a successful vault mutation without recording its secret."""
+
+        canonical_project_id = _canonical_project_id(project_id)
+        normalized_role = role.strip().upper()
+        normalized_action = action.strip().upper()
+        if normalized_role not in {"READ", "WRITE"}:
+            raise ProjectError("Credential audit role is invalid")
+        if normalized_action not in {"STORED", "REPLACED"}:
+            raise ProjectError("Credential audit action is invalid")
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", binding_hash) is None:
+            raise ProjectError("Credential audit binding is invalid")
+        self.authorization.require(
+            actor,
+            (
+                Capability.SCHEMA_DISCOVER
+                if normalized_role == "READ"
+                else Capability.EXPORT_PLAN_EXECUTE
+            ),
+            project_id=canonical_project_id,
+        )
+        self.repository.record_credential_event(
+            canonical_project_id,
+            event_type=(
+                f"ODOO_{normalized_role}_CREDENTIAL_{normalized_action}"
+            ),
+            detail=(
+                f"binding {binding_hash}; storage "
+                f"{'OPERATING_SYSTEM_VAULT' if persistent else 'SESSION'}"
+            ),
+            actor=actor,
+        )
 
     def add_source_file(
         self,

@@ -153,6 +153,46 @@ class ProjectLifecycleTests(unittest.TestCase):
                 support_access=False,
             )
 
+    def test_credential_lifecycle_audit_contains_only_safe_binding_evidence(self):
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Credential audit",
+            source_system="Odoo",
+        )
+        binding_hash = "sha256:" + "a" * 64
+
+        self.service.record_credential_event(
+            project.project_id,
+            actor=LOCAL_ACTOR,
+            role="WRITE",
+            action="REPLACED",
+            binding_hash=binding_hash,
+            persistent=True,
+        )
+
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            event = connection.execute(
+                """
+                SELECT event_type, project_revision, detail
+                  FROM audit_event
+                 ORDER BY event_id DESC
+                 LIMIT 1
+                """
+            ).fetchone()
+        self.assertEqual(
+            event,
+            (
+                "ODOO_WRITE_CREDENTIAL_REPLACED",
+                project.revision,
+                f"binding {binding_hash}; storage OPERATING_SYSTEM_VAULT",
+            ),
+        )
+        self.assertNotIn("secret", str(event).casefold())
+
     def test_registration_fails_closed_until_every_requirement_exists(self) -> None:
         project = self.service.create_project(
             actor=LOCAL_ACTOR,
@@ -424,6 +464,52 @@ class ProjectLifecycleTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(schema_row, (SCHEMA_GENERATION, SCHEMA_VERSION))
         self.assertEqual(source_mode, ("FILE",))
+
+    def test_version_four_projects_gain_write_identity_journal_fields(self) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Execution identity upgrade",
+            source_system="CSV",
+        )
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+        columns = (
+            "write_credential_binding_hash",
+            "write_principal_hash",
+            "write_permission_hash",
+            "write_context_hash",
+        )
+        with self.repository._connect(database_path) as connection:
+            for column in columns:
+                connection.execute(
+                    f"ALTER TABLE execution_run DROP COLUMN {column}"
+                )
+            connection.execute(
+                "UPDATE schema_version SET version = 4 WHERE singleton_id = 1"
+            )
+
+        self.repository.get(project.project_id)
+
+        with self.repository._connect(database_path) as connection:
+            schema_row = connection.execute(
+                "SELECT generation, version FROM schema_version"
+            ).fetchone()
+            stored_columns = connection.execute(
+                """
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_name = 'execution_run'
+                   AND column_name LIKE 'write_%hash'
+                 ORDER BY column_name
+                """
+            ).fetchall()
+        self.assertEqual(schema_row, (SCHEMA_GENERATION, SCHEMA_VERSION))
+        self.assertEqual(
+            tuple(item[0] for item in stored_columns),
+            tuple(sorted(columns)),
+        )
 
     def test_failed_project_schema_upgrade_rolls_back(self) -> None:
         project = self.service.create_project(

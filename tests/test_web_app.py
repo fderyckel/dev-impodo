@@ -22,6 +22,7 @@ from openpyxl.worksheet.table import Table
 from impodo.access import Actor, ActorIdentity, Capability
 from impodo.connectors import (
     ConnectorAuthenticationError,
+    ConnectorAuthorizationError,
     ConnectorError,
     ConnectorTransportError,
     MetadataSnapshot,
@@ -56,6 +57,7 @@ from impodo.domain.mapping.validation.evidence import MappingValidationStatus
 from impodo.models import (
     FieldMetadata,
     ModelMetadata,
+    OdooReadIdentity,
     TargetFingerprint,
     TargetRecord,
     target_identity_hash,
@@ -783,6 +785,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.connection_calls: list[tuple[str, str, OdooConnectionMode | None]] = []
         self.schema_calls: list[tuple[str, str]] = []
         self.model_catalog_calls: list[tuple[str, str]] = []
+        self.read_identity_calls: list[tuple[str, str, tuple[str, ...]]] = []
         self.readiness_calls = []
         self.local_odoo_reader = MagicMock(spec=LocalOdooMetadataReader)
 
@@ -799,6 +802,27 @@ class ProjectSetupWizardTests(unittest.TestCase):
         def model_catalog_reader(project, api_key):
             self.model_catalog_calls.append((project.project_id, api_key))
             return _browser_model_catalog(project)
+
+        def read_identity_probe(project, api_key, models):
+            normalized_models = tuple(sorted(models))
+            self.read_identity_calls.append(
+                (project.project_id, api_key, normalized_models)
+            )
+            return OdooReadIdentity(
+                target_hash=target_identity_hash(
+                    connection_mode=project.odoo_connection_mode.value,
+                    base_url=project.odoo_base_url,
+                    database=project.odoo_database,
+                ),
+                principal_hash="sha256:" + "1" * 64,
+                permission_hash=(
+                    "sha256:"
+                    + ("2" if normalized_models == ("ir.model",) else "3") * 64
+                ),
+                context_hash="sha256:" + "4" * 64,
+                readable_models=normalized_models,
+                observed_at="2026-08-12T00:00:00Z",
+            )
 
         def readiness_reader(project, metadata_requests, record_requests):
             self.readiness_calls.append(
@@ -838,6 +862,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             session_secret="session-secret",
             secret_store=self.secrets,
             connection_tester=connection_tester,
+            read_identity_probe=read_identity_probe,
             schema_reader=schema_reader,
             model_catalog_reader=model_catalog_reader,
             readiness_reader=readiness_reader,
@@ -916,10 +941,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("The Odoo connection is ready.", result.text)
         self.assertIn("Read-only access to edu-ucaps succeeded.", result.text)
         self.assertIn("Supported Odoo version 19.0.", result.text)
+        self.assertIn(
+            "The read-only Odoo principal and model access were verified.",
+            result.text,
+        )
         self.assertIn("Checked during this Impodo session.", result.text)
         self.assertIn(">Check again</button>", result.text)
         self.assertRegex(result.text, r"data-local-stack-entry\s+hidden")
         self.assertNotIn("remote-secret-key", result.text)
+        self.assertEqual(
+            self.read_identity_calls,
+            [(project_id, "remote-secret-key", ("res.partner",))],
+        )
         project = self.app.state.context.projects.repository.get(project_id)
         self.assertEqual(
             get_target_credential(
@@ -1015,6 +1048,48 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn(">Try again</button>", result.text)
         self.assertNotIn("never-render-this-key", result.text)
         self.assertNotIn("raw remote response", result.text)
+
+    def test_remote_connection_reports_missing_principal_model_access(self) -> None:
+        def denied_identity(_project, _api_key, _models):
+            raise ConnectorAuthorizationError(
+                "internal group and model details must not be rendered"
+            )
+
+        self.app.state.context.read_identity_probe = denied_identity
+        created = self._post(
+            "/projects/new",
+            {
+                "csrf_token": self.csrf,
+                "name": "Read principal permission",
+                "source_system": "Other",
+            },
+        )
+        project_id = created.headers["location"].split("/")[2]
+
+        tested = self.client.post(
+            f"/projects/{project_id}/target",
+            data={
+                "csrf_token": self.csrf,
+                "revision": "1",
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://odoo.example.com",
+                "odoo_database": "migration",
+                "read_api_key": "never-render-this-key",
+                "action": "test",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(tested.status_code, 303)
+        result = self.client.get(tested.headers["location"])
+        self.assertIn("ODOO_READ_ACCESS_MISSING", result.text)
+        self.assertIn(
+            "The authenticated principal lacks required model read access.",
+            result.text,
+        )
+        self.assertNotIn("never-render-this-key", result.text)
+        self.assertNotIn("internal group", result.text)
 
     def test_remote_connection_distinguishes_api_version_and_network_failures(
         self,
@@ -2235,6 +2310,22 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(
             schema_catalog.read_credential_binding_hash,
             read_credential.binding_hash,
+        )
+        self.assertEqual(
+            model_catalog.read_principal_hash,
+            "sha256:" + "1" * 64,
+        )
+        self.assertEqual(
+            schema_catalog.read_principal_hash,
+            model_catalog.read_principal_hash,
+        )
+        self.assertEqual(
+            schema_catalog.read_context_hash,
+            model_catalog.read_context_hash,
+        )
+        self.assertNotEqual(
+            schema_catalog.read_permission_hash,
+            model_catalog.read_permission_hash,
         )
         schema_page = self.client.get(captured.headers["location"])
         self.assertIn("Tell Impodo how to find existing records", schema_page.text)

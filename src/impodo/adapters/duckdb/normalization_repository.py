@@ -167,16 +167,48 @@ class NormalizationRepository(DuckDbRepository):
                     connection.rollback()
                     return self._normalization_summary(project_id, current)
 
-                counts = connection.execute(
+                sparse_quality = connection.execute(
                     """
-                    SELECT
-                        SUM(CASE WHEN effective_disposition IN ('CANDIDATE', 'REFERENCE') THEN 1 ELSE 0 END),
-                        SUM(CASE WHEN effective_disposition IN ('QUARANTINED', 'EXCLUDED') THEN 1 ELSE 0 END)
-                      FROM quality_row_result
+                    SELECT 1 FROM quality_evidence_projection
                      WHERE run_id = ?
                     """,
                     [quality_run_id],
                 ).fetchone()
+                if sparse_quality is not None:
+                    counts = connection.execute(
+                        """
+                        SELECT
+                            COUNT(*) FILTER (
+                                WHERE COALESCE(
+                                    exception.effective_disposition,
+                                    staging.disposition
+                                ) IN ('CANDIDATE', 'REFERENCE')
+                            ),
+                            COUNT(*) FILTER (
+                                WHERE COALESCE(
+                                    exception.effective_disposition,
+                                    staging.disposition
+                                ) IN ('QUARANTINED', 'EXCLUDED')
+                            )
+                          FROM canonical_staging_row AS staging
+                          LEFT JOIN quality_row_result AS exception
+                            ON exception.run_id = ?
+                           AND exception.row_id = staging.row_id
+                         WHERE staging.run_id = ?
+                        """,
+                        [quality_run_id, staging_run_id],
+                    ).fetchone()
+                else:
+                    counts = connection.execute(
+                        """
+                        SELECT
+                            SUM(CASE WHEN effective_disposition IN ('CANDIDATE', 'REFERENCE') THEN 1 ELSE 0 END),
+                            SUM(CASE WHEN effective_disposition IN ('QUARANTINED', 'EXCLUDED') THEN 1 ELSE 0 END)
+                          FROM quality_row_result
+                         WHERE run_id = ?
+                        """,
+                        [quality_run_id],
+                    ).fetchone()
                 eligible_count = int(counts[0] or 0) if counts else 0
                 set_aside_count = int(counts[1] or 0) if counts else 0
                 automatic_group_count = sum(

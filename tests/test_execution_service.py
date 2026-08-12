@@ -20,7 +20,7 @@ from impodo.domain.execution_snapshot import (
     ExecutionSnapshot,
     FieldIntent,
 )
-from impodo.models import BusinessReference, LogicalReference
+from impodo.models import BusinessReference, LogicalReference, OdooWriteIdentity
 from impodo.odoo_writer import (
     Json2WriteExecutor,
     OdooWriteOutcomeUnknown,
@@ -30,6 +30,7 @@ from impodo.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.connectors import Json2Config
 from impodo.projects import OdooConnectionMode
 from impodo.web.target_writers import _write_executor
+from impodo.workspace_errors import WorkspaceError
 
 
 HASH = "sha256:" + "1" * 64
@@ -457,6 +458,90 @@ class ExecutionServiceTests(unittest.TestCase):
             executor.updates,
             [("res.partner", 50, {"email": "new@example.test"})],
         )
+
+    def test_remote_load_journals_exact_write_principal_evidence(self):
+        snapshot = _snapshot()
+        service, journal = self._service(
+            snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        scope = execution_api_scope(snapshot)
+        identity = OdooWriteIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash="sha256:" + "3" * 64,
+            permission_hash="sha256:" + "4" * 64,
+            context_hash="sha256:" + "5" * 64,
+            readable_models=tuple(item.model for item in scope.models),
+            writable_models=tuple(
+                item.model for item in scope.models if item.write_fields
+            ),
+            observed_at="2026-08-12T00:00:00Z",
+        )
+
+        run = service.execute(
+            snapshot.project_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            executor=_Executor(scope.semantic_hash),
+            actor=LOCAL_ACTOR,
+            write_identity=identity,
+            write_credential_binding_hash="sha256:" + "6" * 64,
+        )
+
+        self.assertEqual(run.write_principal_hash, identity.principal_hash)
+        self.assertEqual(run.write_permission_hash, identity.permission_hash)
+        self.assertEqual(run.write_context_hash, identity.context_hash)
+        self.assertEqual(
+            run.write_credential_binding_hash,
+            "sha256:" + "6" * 64,
+        )
+        self.assertEqual(journal.run, run)
+
+    def test_write_identity_scope_mismatch_stops_before_journal_or_target_io(self):
+        snapshot = _snapshot()
+        service, journal = self._service(
+            snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        scope = execution_api_scope(snapshot)
+        identity = OdooWriteIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash="sha256:" + "3" * 64,
+            permission_hash="sha256:" + "4" * 64,
+            context_hash="sha256:" + "5" * 64,
+            readable_models=("res.partner",),
+            writable_models=("res.partner",),
+            observed_at="2026-08-12T00:00:00Z",
+        )
+
+        with self.assertRaisesRegex(WorkspaceError, "read-back scope changed"):
+            service.execute(
+                snapshot.project_id,
+                expected_snapshot_hash=snapshot.semantic_hash,
+                executor=_Executor(scope.semantic_hash),
+                actor=LOCAL_ACTOR,
+                write_identity=identity,
+                write_credential_binding_hash="sha256:" + "6" * 64,
+            )
+
+        self.assertIsNone(journal.run)
+
+    def test_composed_remote_service_requires_write_identity_before_journal(self):
+        snapshot = _snapshot()
+        service, journal = self._service(
+            snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        service.require_remote_write_identity = True
+
+        with self.assertRaisesRegex(WorkspaceError, "remote write credential"):
+            service.execute(
+                snapshot.project_id,
+                expected_snapshot_hash=snapshot.semantic_hash,
+                executor=_Executor(execution_api_scope(snapshot).semantic_hash),
+                actor=LOCAL_ACTOR,
+            )
+
+        self.assertIsNone(journal.run)
 
     def test_unknown_create_is_not_retried_and_blocks_remaining_rows(self):
         snapshot = _snapshot()

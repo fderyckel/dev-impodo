@@ -65,6 +65,8 @@ _QUALITY_ROW_RESULT_JSON_STRUCTURE = """[{
     "row_id":"VARCHAR",
     "dataset":"VARCHAR",
     "source_row":"BIGINT",
+    "record_label":"VARCHAR",
+    "base_disposition":"VARCHAR",
     "effective_disposition":"VARCHAR",
     "requires_review":"BOOLEAN",
     "row_json":"VARCHAR"
@@ -408,6 +410,14 @@ class QualityRepository(DuckDbRepository):
                     """,
                     [run_id, run_id, run_id, run_id],
                 ).fetchone()
+                sparse_projection = connection.execute(
+                    """
+                    SELECT projection_json
+                      FROM quality_evidence_projection
+                     WHERE run_id = ?
+                    """,
+                    [run_id],
+                ).fetchone()
                 if effective_dataset_run_id is None:
                     linked = connection.execute(
                         """
@@ -432,18 +442,46 @@ class QualityRepository(DuckDbRepository):
                         """,
                         [effective_dataset_run_id, run_id],
                     ).fetchone()
-                expected = (
-                    len(run.row_results),
-                    len(run.source_accounting),
-                    len(run.issues),
-                    len(run.quarantine),
+                stored_counts = (
+                    tuple(int(item) for item in stored)
+                    if stored is not None
+                    else ()
                 )
-                if (
-                    stored is None
-                    or tuple(int(item) for item in stored) != expected
-                    or linked is None
-                    or int(linked[0]) != len(run.row_results)
-                ):
+                if sparse_projection is None:
+                    complete = (
+                        stored_counts
+                        == (
+                            len(run.row_results),
+                            len(run.source_accounting),
+                            len(run.issues),
+                            len(run.quarantine),
+                        )
+                        and linked is not None
+                        and int(linked[0]) == len(run.row_results)
+                    )
+                else:
+                    canonical_count = connection.execute(
+                        """
+                        SELECT COUNT(*) FROM canonical_staging_row
+                         WHERE run_id = ?
+                        """,
+                        [staging_run_id],
+                    ).fetchone()
+                    complete = (
+                        len(stored_counts) == 4
+                        and stored_counts[0] <= len(run.row_results)
+                        and stored_counts[1] == 0
+                        and stored_counts[2:] == (
+                            len(run.issues),
+                            len(run.quarantine),
+                        )
+                        and linked is not None
+                        and int(linked[0]) == stored_counts[0]
+                        and canonical_count is not None
+                        and int(canonical_count[0]) == len(run.row_results)
+                        and len(run.source_accounting) == len(run.row_results)
+                    )
+                if not complete:
                     raise WorkspaceError("Quality evidence was not stored completely")
                 if current is not None:
                     connection.execute(
@@ -569,14 +607,81 @@ class QualityRepository(DuckDbRepository):
             ).fetchone()
             if header is None:
                 return None
-            rows = connection.execute(
-                "SELECT row_json FROM quality_row_result WHERE run_id = ? ORDER BY ordinal",
+            projection_row = connection.execute(
+                """
+                SELECT projection_json FROM quality_evidence_projection
+                 WHERE run_id = ?
+                """,
                 [canonical_run_id],
-            ).fetchall()
-            accounting = connection.execute(
-                "SELECT entry_json FROM source_accounting_entry WHERE run_id = ? ORDER BY ordinal",
-                [canonical_run_id],
-            ).fetchall()
+            ).fetchone()
+            projection = (
+                json.loads(str(projection_row[0]))
+                if projection_row is not None
+                else {}
+            )
+            sparse_rows = projection.get("row_results") == "direct-defaults-v1"
+            sparse_accounting = (
+                projection.get("source_accounting")
+                == "direct-represented-v1"
+            )
+            if sparse_rows:
+                rows = connection.execute(
+                    """
+                    SELECT staging.row_id, staging.dataset,
+                           staging.source_row, staging.record_label,
+                           staging.disposition,
+                           COALESCE(exception.effective_disposition,
+                                    staging.disposition),
+                           COALESCE(exception.requires_review, FALSE),
+                           COALESCE(exception.row_json, '')
+                      FROM canonical_staging_row AS staging
+                      LEFT JOIN quality_row_result AS exception
+                        ON exception.run_id = ?
+                       AND exception.row_id = staging.row_id
+                     WHERE staging.run_id = ?
+                     ORDER BY staging.ordinal
+                    """,
+                    [canonical_run_id, str(header[1])],
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT row_id, dataset, source_row, record_label,
+                           base_disposition, effective_disposition,
+                           requires_review, row_json
+                      FROM quality_row_result
+                     WHERE run_id = ? ORDER BY ordinal
+                    """,
+                    [canonical_run_id],
+                ).fetchall()
+            if sparse_accounting:
+                accounting = connection.execute(
+                    """
+                    SELECT staging.ordinal, projection.dataset_id,
+                           staging.source_row, 'REPRESENTED', '',
+                           staging.row_id
+                      FROM canonical_staging_row AS staging
+                      JOIN canonical_prepared_projection AS projection
+                        ON projection.run_id = staging.run_id
+                       AND staging.ordinal >= projection.ordinal_start
+                       AND staging.ordinal <
+                           projection.ordinal_start + projection.row_count
+                     WHERE staging.run_id = ?
+                     ORDER BY projection.dataset_id,
+                              staging.source_row
+                    """,
+                    [str(header[1])],
+                ).fetchall()
+            else:
+                accounting = connection.execute(
+                    """
+                    SELECT ordinal, physical_dataset_id, source_row, state,
+                           entry_json, NULL
+                      FROM source_accounting_entry
+                     WHERE run_id = ? ORDER BY ordinal
+                    """,
+                    [canonical_run_id],
+                ).fetchall()
             issues = connection.execute(
                 "SELECT issue_json FROM quality_issue WHERE run_id = ? ORDER BY ordinal",
                 [canonical_run_id],
@@ -585,6 +690,67 @@ class QualityRepository(DuckDbRepository):
                 "SELECT entry_json FROM quality_quarantine_entry WHERE run_id = ? ORDER BY ordinal",
                 [canonical_run_id],
             ).fetchall()
+            accounting_links = (
+                []
+                if sparse_accounting
+                else connection.execute(
+                    """
+                    SELECT accounting_ordinal, row_id
+                      FROM source_accounting_link
+                     WHERE run_id = ?
+                     ORDER BY accounting_ordinal, row_id
+                    """,
+                    [canonical_run_id],
+                ).fetchall()
+            )
+        issue_objects = tuple(
+            QualityIssue.from_dict(json.loads(str(item[0]))) for item in issues
+        )
+        issue_ids_by_row: dict[str, list[str]] = {}
+        for issue in issue_objects:
+            if issue.row_id is not None:
+                issue_ids_by_row.setdefault(issue.row_id, []).append(
+                    issue.issue_id
+                )
+        row_payloads = []
+        for row in rows:
+            if str(row[7]):
+                row_payloads.append(json.loads(str(row[7])))
+                continue
+            row_payloads.append(
+                QualityRowResult(
+                    row_id=str(row[0]),
+                    dataset=str(row[1]),
+                    source_row=int(row[2]),
+                    record_label=str(row[3]),
+                    base_disposition=QualityDisposition(str(row[4])),
+                    effective_disposition=QualityDisposition(str(row[5])),
+                    issue_ids=tuple(
+                        sorted(issue_ids_by_row.get(str(row[0]), ()))
+                    ),
+                    requires_review=bool(row[6]),
+                ).to_portable_dict()
+            )
+        links_by_ordinal: dict[int, list[str]] = {}
+        for ordinal, row_id in accounting_links:
+            links_by_ordinal.setdefault(int(ordinal), []).append(str(row_id))
+        accounting_payloads = []
+        for row in accounting:
+            if str(row[4]):
+                accounting_payloads.append(json.loads(str(row[4])))
+                continue
+            accounting_payloads.append(
+                {
+                    "physical_dataset_id": str(row[1]),
+                    "source_row": int(row[2]),
+                    "state": str(row[3]),
+                    "canonical_row_ids": (
+                        [str(row[5])]
+                        if row[5] is not None
+                        else links_by_ordinal.get(int(row[0]), [])
+                    ),
+                }
+            )
         payload = {
             "content_hash": str(header[0]),
             "project_id": project_id,
@@ -599,9 +765,9 @@ class QualityRepository(DuckDbRepository):
             "effective_dataset_hash": (
                 str(header[10]) if header[10] is not None else None
             ),
-            "row_results": [json.loads(str(item[0])) for item in rows],
-            "source_accounting": [json.loads(str(item[0])) for item in accounting],
-            "issues": [json.loads(str(item[0])) for item in issues],
+            "row_results": row_payloads,
+            "source_accounting": accounting_payloads,
+            "issues": [item.to_portable_dict() for item in issue_objects],
             "quarantine": [json.loads(str(item[0])) for item in quarantine],
         }
         try:
@@ -628,11 +794,11 @@ class QualityRepository(DuckDbRepository):
             raise WorkspaceError("Quality review filter is invalid")
         if page < 1 or page_size < 1 or page_size > 250:
             raise WorkspaceError("Quality review page is invalid")
-        conditions = ["run_id = ?"]
-        parameters: list[object] = [canonical_run_id]
+        conditions: list[str] = []
+        filter_parameters: list[object] = []
         if dataset:
             conditions.append("dataset = ?")
-            parameters.append(dataset)
+            filter_parameters.append(dataset)
         if status == "ready":
             conditions.append(
                 "effective_disposition IN ('CANDIDATE', 'REFERENCE')"
@@ -646,7 +812,9 @@ class QualityRepository(DuckDbRepository):
             )
         elif status == "blocked":
             conditions.append("effective_disposition = 'BLOCKED'")
-        predicate = " AND ".join(conditions)
+        filter_predicate = (
+            " AND ".join(conditions) if conditions else "TRUE"
+        )
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
@@ -654,15 +822,52 @@ class QualityRepository(DuckDbRepository):
             self._ensure_project_database_schema(connection)
             current = connection.execute(
                 """
-                SELECT 1 FROM quality_run
-                 WHERE run_id = ?
+                SELECT run.staging_run_id, projection.projection_json
+                  FROM quality_run AS run
+                  LEFT JOIN quality_evidence_projection AS projection
+                    ON projection.run_id = run.run_id
+                 WHERE run.run_id = ?
                 """,
                 [canonical_run_id],
             ).fetchone()
             if current is None:
                 raise WorkspaceError("Quality run was not found")
+            sparse = current[1] is not None and (
+                json.loads(str(current[1])).get("row_results")
+                == "direct-defaults-v1"
+            )
+            if sparse:
+                relation = """
+                (
+                    SELECT staging.row_id, staging.dataset,
+                           staging.source_row, staging.record_label,
+                           staging.disposition AS base_disposition,
+                           COALESCE(exception.effective_disposition,
+                                    staging.disposition)
+                               AS effective_disposition,
+                           COALESCE(exception.requires_review, FALSE)
+                               AS requires_review,
+                           COALESCE(exception.row_json, '') AS row_json
+                      FROM canonical_staging_row AS staging
+                      LEFT JOIN quality_row_result AS exception
+                        ON exception.run_id = ?
+                       AND exception.row_id = staging.row_id
+                     WHERE staging.run_id = ?
+                ) AS logical_quality
+                """
+                relation_parameters: list[object] = [
+                    canonical_run_id,
+                    str(current[0]),
+                ]
+            else:
+                relation = "quality_row_result"
+                filter_predicate = (
+                    f"run_id = ? AND {filter_predicate}"
+                )
+                relation_parameters = [canonical_run_id]
+            parameters = [*relation_parameters, *filter_parameters]
             count_row = connection.execute(
-                f"SELECT COUNT(*) FROM quality_row_result WHERE {predicate}",
+                f"SELECT COUNT(*) FROM {relation} WHERE {filter_predicate}",
                 parameters,
             ).fetchone()
             matching_count = int(count_row[0]) if count_row else 0
@@ -671,19 +876,17 @@ class QualityRepository(DuckDbRepository):
             offset = (current_page - 1) * page_size
             rows = connection.execute(
                 f"""
-                SELECT row_json
-                  FROM quality_row_result
-                 WHERE {predicate}
+                SELECT row_id, dataset, source_row, record_label,
+                       base_disposition, effective_disposition,
+                       requires_review, row_json
+                  FROM {relation}
+                 WHERE {filter_predicate}
                  ORDER BY dataset, source_row, row_id
                  LIMIT ? OFFSET ?
                 """,
                 [*parameters, page_size, offset],
             ).fetchall()
-            results = tuple(
-                QualityRowResult.from_dict(json.loads(str(item[0])))
-                for item in rows
-            )
-            row_ids = tuple(item.row_id for item in results)
+            row_ids = tuple(str(item[0]) for item in rows)
             issues_by_row: dict[str, list[QualityIssue]] = {
                 row_id: [] for row_id in row_ids
             }
@@ -713,6 +916,26 @@ class QualityRepository(DuckDbRepository):
                 for item in quarantine_rows:
                     entry = QuarantineEntry.from_dict(json.loads(str(item[0])))
                     route_by_row.setdefault(entry.row_id, entry.correction_route)
+            results = tuple(
+                (
+                    QualityRowResult.from_dict(json.loads(str(item[7])))
+                    if str(item[7])
+                    else QualityRowResult(
+                        row_id=str(item[0]),
+                        dataset=str(item[1]),
+                        source_row=int(item[2]),
+                        record_label=str(item[3]),
+                        base_disposition=QualityDisposition(str(item[4])),
+                        effective_disposition=QualityDisposition(str(item[5])),
+                        issue_ids=tuple(
+                            issue.issue_id
+                            for issue in issues_by_row[str(item[0])]
+                        ),
+                        requires_review=bool(item[6]),
+                    )
+                )
+                for item in rows
+            )
         return QualityReviewPage(
             items=tuple(
                 QualityReviewItem(
@@ -797,6 +1020,32 @@ class QualityRepository(DuckDbRepository):
         hasher.add_value("retention_context_hash", run.retention_context_hash)
         hasher.start_array("row_results")
         row_ordinal = 0
+        sparse_rows = getattr(
+            run.row_results,
+            "sparse_projection_contract",
+            None,
+        )
+        sparse_accounting = getattr(
+            run.source_accounting,
+            "sparse_projection_contract",
+            None,
+        )
+        if sparse_rows or sparse_accounting:
+            connection.execute(
+                """
+                INSERT INTO quality_evidence_projection
+                VALUES (?, 1, ?)
+                """,
+                [
+                    run_id,
+                    _canonical_json(
+                        {
+                            "row_results": sparse_rows,
+                            "source_accounting": sparse_accounting,
+                        }
+                    ),
+                ],
+            )
         if isinstance(run, StoredQualityRun):
             row_batch_reader = getattr(run.row_results, "iter_batches", None)
             if not callable(row_batch_reader):
@@ -808,16 +1057,30 @@ class QualityRepository(DuckDbRepository):
                     for offset, item in enumerate(batch):
                         item_json = _canonical_json(item.to_portable_dict())
                         hasher.add_encoded_array_item(item_json)
+                        if sparse_rows and not (
+                            item.issue_ids
+                            or item.requires_review
+                            or item.base_disposition
+                            not in {
+                                QualityDisposition.CANDIDATE,
+                                QualityDisposition.REFERENCE,
+                            }
+                            or item.effective_disposition
+                            is not item.base_disposition
+                        ):
+                            continue
                         yield {
                             "ordinal": batch_start_ordinal + offset,
                             "row_id": item.row_id,
                             "dataset": item.dataset,
                             "source_row": item.source_row,
+                            "record_label": item.record_label,
+                            "base_disposition": item.base_disposition.value,
                             "effective_disposition": (
                                 item.effective_disposition.value
                             ),
                             "requires_review": item.requires_review,
-                            "row_json": item_json,
+                            "row_json": "" if sparse_rows else item_json,
                         }
 
                 for encoded_batch in iter_encoded_json_batches(
@@ -829,11 +1092,13 @@ class QualityRepository(DuckDbRepository):
                         """
                         INSERT INTO quality_row_result (
                             run_id, ordinal, row_id, dataset, source_row,
+                            record_label, base_disposition,
                             effective_disposition, requires_review, row_json
                         )
                         SELECT
                             ?, item.ordinal, item.row_id, item.dataset,
-                            item.source_row, item.effective_disposition,
+                            item.source_row, item.record_label,
+                            item.base_disposition, item.effective_disposition,
                             item.requires_review, item.row_json
                           FROM (
                             SELECT UNNEST(
@@ -847,7 +1112,7 @@ class QualityRepository(DuckDbRepository):
                             _QUALITY_ROW_RESULT_JSON_STRUCTURE,
                         ],
                     )
-                    row_ordinal += encoded_batch.row_count
+                row_ordinal += len(batch)
         else:
             for start in range(
                 0,
@@ -867,6 +1132,8 @@ class QualityRepository(DuckDbRepository):
                         item.row_id,
                         item.dataset,
                         item.source_row,
+                        item.record_label,
+                        item.base_disposition.value,
                         item.effective_disposition.value,
                         item.requires_review,
                         item_json,
@@ -875,12 +1142,14 @@ class QualityRepository(DuckDbRepository):
                     """
                     INSERT INTO quality_row_result (
                         run_id, ordinal, row_id, dataset, source_row,
+                        record_label, base_disposition,
                         effective_disposition, requires_review, row_json
                     )
                     SELECT
                         CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS BIGINT),
                         CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
                         CAST(unnest(?) AS BIGINT), CAST(unnest(?) AS VARCHAR),
+                        CAST(unnest(?) AS VARCHAR), CAST(unnest(?) AS VARCHAR),
                         CAST(unnest(?) AS BOOLEAN), CAST(unnest(?) AS VARCHAR)
                     """,
                     _columnar_parameters(values),
@@ -914,12 +1183,16 @@ class QualityRepository(DuckDbRepository):
                     for offset, item in enumerate(batch):
                         item_json = _canonical_json(item.to_portable_dict())
                         hasher.add_encoded_array_item(item_json)
+                        if sparse_accounting:
+                            continue
                         yield {
                             "ordinal": batch_start_ordinal + offset,
                             "physical_dataset_id": item.physical_dataset_id,
                             "source_row": item.source_row,
                             "state": item.state.value,
-                            "entry_json": item_json,
+                            "entry_json": (
+                                "" if sparse_accounting else item_json
+                            ),
                         }
 
                 inserted_entries = 0
@@ -950,7 +1223,8 @@ class QualityRepository(DuckDbRepository):
                         ],
                     )
                     inserted_entries += encoded_batch.row_count
-                if inserted_entries != len(batch):
+                expected_entries = 0 if sparse_accounting else len(batch)
+                if inserted_entries != expected_entries:
                     raise WorkspaceError(
                         "Quality source accounting batch is incomplete"
                     )
@@ -962,10 +1236,15 @@ class QualityRepository(DuckDbRepository):
                     }
                     for offset, item in enumerate(batch)
                     for row_id in item.canonical_row_ids
+                    if not sparse_accounting
                 )
-                expected_links = sum(
-                    len(item.canonical_row_ids)
-                    for item in batch
+                expected_links = (
+                    0
+                    if sparse_accounting
+                    else sum(
+                        len(item.canonical_row_ids)
+                        for item in batch
+                    )
                 )
                 inserted_links = 0
                 for encoded_batch in iter_encoded_json_batches(
@@ -997,7 +1276,7 @@ class QualityRepository(DuckDbRepository):
                     raise WorkspaceError(
                         "Quality source accounting links are incomplete"
                     )
-                accounting_ordinal += inserted_entries
+                accounting_ordinal += len(batch)
         else:
             for start in range(
                 0,

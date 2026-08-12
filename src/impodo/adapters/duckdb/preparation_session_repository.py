@@ -82,6 +82,8 @@ _CANONICAL_STAGING_ROW_JSON_STRUCTURE = """[{
     "source_row":"BIGINT",
     "target_model":"VARCHAR",
     "disposition":"VARCHAR",
+    "record_label":"VARCHAR",
+    "quality_identity_key":"VARCHAR",
     "row_json":"VARCHAR"
 }]"""
 
@@ -227,6 +229,44 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         ).fetchall():
             yield batch
             start += len(batch)
+
+    def bounded_quality_index(self, physical_rows: Mapping[str, Sequence[int]]):
+        """Validate and summarize the direct Stage-F index set-wise."""
+
+        if not self._direct:
+            return None
+        return self._repository._bounded_quality_index(
+            self._project_id,
+            self._session_id,
+            physical_rows,
+        )
+
+    def iter_quality_index_batches(self, connection, batch_size: int):
+        """Yield narrow row decisions through the publisher transaction."""
+
+        yield from self._repository._iter_quality_index_batches(
+            self._project_id,
+            self._session_id,
+            batch_size=batch_size,
+            connection=connection,
+        )
+
+    def iter_accounting_index_batches(self, connection, batch_size: int):
+        """Yield one-to-one physical lineage in accounting order."""
+
+        yield from self._repository._iter_accounting_index_batches(
+            self._project_id,
+            self._session_id,
+            batch_size=batch_size,
+            connection=connection,
+        )
+
+    def contains_row_id(self, row_id: str) -> bool:
+        return self._repository._direct_index_contains_row_id(
+            self._project_id,
+            self._session_id,
+            row_id,
+        )
 
 
 class _SessionImpacts:
@@ -739,6 +779,8 @@ class PreparationSessionRepository(DuckDbRepository):
                         "source_row": item.source_row,
                         "target_model": item.target_model,
                         "disposition": item.disposition.value,
+                        "record_label": item.record_label,
+                        "quality_identity_key": item.quality_identity_key,
                         "row_json": item.row_json,
                     }
                     for item in json_rows
@@ -752,12 +794,14 @@ class PreparationSessionRepository(DuckDbRepository):
                         """
                         INSERT INTO canonical_staging_row (
                             run_id, ordinal, row_id, dataset, source_row,
-                            target_model, disposition, row_json
+                            target_model, disposition, record_label,
+                            quality_identity_key, row_json
                         )
                         SELECT
                             ?, item.ordinal, item.row_id, item.dataset,
                             item.source_row, item.target_model,
-                            item.disposition, item.row_json
+                            item.disposition, item.record_label,
+                            item.quality_identity_key, item.row_json
                           FROM (
                             SELECT UNNEST(
                                 from_json_strict(CAST(? AS JSON), ?)
@@ -776,8 +820,9 @@ class PreparationSessionRepository(DuckDbRepository):
                         """
                         INSERT INTO canonical_staging_row (
                             run_id, ordinal, row_id, dataset, source_row,
-                            target_model, disposition, row_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            target_model, disposition, record_label,
+                            quality_identity_key, row_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         [
                             canonical_session_id,
@@ -787,6 +832,8 @@ class PreparationSessionRepository(DuckDbRepository):
                             item.source_row,
                             item.target_model,
                             item.disposition.value,
+                            item.record_label,
+                            item.quality_identity_key,
                             item.row_json,
                         ],
                     )
@@ -794,6 +841,24 @@ class PreparationSessionRepository(DuckDbRepository):
                 if canonical_row_count != len(rows):
                     raise WorkspaceError(
                         "Prepared canonical row batch is incomplete"
+                    )
+                issue_rows = [
+                    [
+                        canonical_session_id,
+                        item.ordinal,
+                        issue_ordinal,
+                        _canonical_json(issue.to_portable_dict()),
+                    ]
+                    for item in rows
+                    for issue_ordinal, issue in enumerate(item.issues, start=1)
+                ]
+                if issue_rows:
+                    connection.execute(
+                        """
+                        INSERT INTO canonical_staging_row_issue
+                        SELECT unnest(?), unnest(?), unnest(?), unnest(?)
+                        """,
+                        _columnar_parameters(issue_rows),
                     )
                 identity_rows = (
                     {
@@ -1584,7 +1649,7 @@ class PreparationSessionRepository(DuckDbRepository):
                 connection.execute(
                     """
                     DELETE FROM canonical_staging_row_issue
-                     WHERE run_id = ?
+                     WHERE run_id = ? AND issue_ordinal = 0
                        AND ordinal IN (SELECT unnest(?))
                     """,
                     [run_id, ordinals],
@@ -2089,6 +2154,281 @@ class PreparationSessionRepository(DuckDbRepository):
             dataset_id: tuple(rows)
             for dataset_id, rows in grouped.items()
         }
+
+    def _bounded_quality_index(
+        self,
+        project_id: str,
+        session_id: str,
+        physical_rows: Mapping[str, Sequence[int]],
+    ) -> dict[str, object] | None:
+        """Validate a direct prepared run using set-based narrow relations."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            header = connection.execute(
+                """
+                SELECT COUNT(*), COUNT(*) FILTER (WHERE row_json = ''),
+                       COUNT(DISTINCT row_id),
+                       COUNT(*) FILTER (WHERE disposition = 'CANDIDATE'),
+                       COUNT(*) FILTER (WHERE disposition = 'REFERENCE'),
+                       COUNT(*) FILTER (WHERE disposition = 'BLOCKED'),
+                       COUNT(*) FILTER (WHERE disposition = 'QUARANTINED'),
+                       COUNT(*) FILTER (WHERE disposition = 'EXCLUDED')
+                  FROM canonical_staging_row
+                 WHERE run_id = ?
+                """,
+                [session_id],
+            ).fetchone()
+            if header is None:
+                return None
+            row_count = int(header[0])
+            projection = connection.execute(
+                """
+                SELECT COALESCE(SUM(row_count), 0), COUNT(*)
+                  FROM canonical_prepared_projection
+                 WHERE run_id = ?
+                """,
+                [session_id],
+            ).fetchone()
+            if (
+                row_count == 0
+                or int(header[1]) != row_count
+                or int(header[2]) != row_count
+                or projection is None
+                or int(projection[0]) != row_count
+                or int(projection[1]) == 0
+            ):
+                return None
+            invalid_order = connection.execute(
+                """
+                SELECT 1
+                  FROM (
+                    SELECT ordinal, dataset, source_row, row_id,
+                           LAG(ordinal) OVER (ORDER BY ordinal) AS prior_ordinal,
+                           LAG(dataset) OVER (ORDER BY ordinal) AS prior_dataset,
+                           LAG(source_row) OVER (ORDER BY ordinal) AS prior_source,
+                           LAG(row_id) OVER (ORDER BY ordinal) AS prior_row_id
+                      FROM canonical_staging_row
+                     WHERE run_id = ?
+                  ) AS ordered
+                 WHERE ordinal != COALESCE(prior_ordinal + 1, 0)
+                    OR (prior_ordinal IS NOT NULL AND
+                        (dataset, source_row, row_id) <
+                        (prior_dataset, prior_source, prior_row_id))
+                 LIMIT 1
+                """,
+                [session_id],
+            ).fetchone()
+            if invalid_order is not None:
+                return None
+            lineage_counts = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM preparation_physical_row
+                      WHERE session_id = ?),
+                    (SELECT COUNT(*) FROM preparation_lineage
+                      WHERE session_id = ?),
+                    (SELECT COUNT(*)
+                       FROM canonical_staging_row AS row
+                       JOIN preparation_lineage AS lineage
+                         ON lineage.session_id = row.run_id
+                        AND lineage.dataset = row.dataset
+                        AND lineage.output_source_row = row.source_row
+                      WHERE row.run_id = ?),
+                    (SELECT COUNT(*) FROM (
+                         SELECT dataset, output_source_row
+                           FROM preparation_lineage WHERE session_id = ?
+                          GROUP BY dataset, output_source_row
+                         HAVING COUNT(*) != 1)),
+                    (SELECT COUNT(*) FROM (
+                         SELECT physical_dataset_id, physical_source_row
+                           FROM preparation_lineage WHERE session_id = ?
+                          GROUP BY physical_dataset_id, physical_source_row
+                         HAVING COUNT(*) != 1))
+                """,
+                [session_id, session_id, session_id, session_id, session_id],
+            ).fetchone()
+            expected_physical = sum(len(rows) for rows in physical_rows.values())
+            stored_datasets = {
+                str(item[0]): int(item[1])
+                for item in connection.execute(
+                    """
+                    SELECT physical_dataset_id, COUNT(*)
+                      FROM preparation_physical_row
+                     WHERE session_id = ?
+                     GROUP BY physical_dataset_id
+                    """,
+                    [session_id],
+                ).fetchall()
+            }
+            expected_datasets = {
+                dataset_id: len(rows)
+                for dataset_id, rows in physical_rows.items()
+            }
+            if (
+                lineage_counts is None
+                or expected_physical != row_count
+                or stored_datasets != expected_datasets
+                or any(int(value) != row_count for value in lineage_counts[:3])
+                or int(lineage_counts[3])
+                or int(lineage_counts[4])
+            ):
+                return None
+            issue_rows = connection.execute(
+                """
+                SELECT issue.ordinal, row.row_id, row.dataset, row.source_row,
+                       row.disposition, issue.issue_json,
+                       lineage.physical_dataset_id,
+                       lineage.physical_source_row
+                  FROM canonical_staging_row_issue AS issue
+                  JOIN canonical_staging_row AS row
+                   ON row.run_id = issue.run_id
+                   AND row.ordinal = issue.ordinal
+                  JOIN preparation_lineage AS lineage
+                    ON lineage.session_id = row.run_id
+                   AND lineage.dataset = row.dataset
+                   AND lineage.output_source_row = row.source_row
+                 WHERE issue.run_id = ?
+                 ORDER BY issue.ordinal, issue.issue_ordinal
+                """,
+                [session_id],
+            ).fetchall()
+            collisions = connection.execute(
+                """
+                WITH collision AS (
+                    SELECT quality_identity_key, COUNT(*) AS identity_count
+                      FROM canonical_staging_row
+                     WHERE run_id = ? AND quality_identity_key IS NOT NULL
+                     GROUP BY quality_identity_key
+                    HAVING COUNT(*) > 1
+                )
+                SELECT row.ordinal, row.row_id, row.dataset, row.source_row,
+                       row.disposition, collision.identity_count,
+                       lineage.physical_dataset_id,
+                       lineage.physical_source_row
+                  FROM canonical_staging_row AS row
+                  JOIN collision USING (quality_identity_key)
+                  JOIN preparation_lineage AS lineage
+                    ON lineage.session_id = row.run_id
+                   AND lineage.dataset = row.dataset
+                   AND lineage.output_source_row = row.source_row
+                 WHERE row.run_id = ?
+                 ORDER BY row.ordinal
+                """,
+                [session_id, session_id],
+            ).fetchall()
+            exception_rows = connection.execute(
+                """
+                SELECT row.ordinal, row.row_id, row.dataset, row.source_row,
+                       row.disposition, lineage.physical_dataset_id,
+                       lineage.physical_source_row
+                  FROM canonical_staging_row AS row
+                  JOIN preparation_lineage AS lineage
+                    ON lineage.session_id = row.run_id
+                   AND lineage.dataset = row.dataset
+                   AND lineage.output_source_row = row.source_row
+                 WHERE row.run_id = ?
+                   AND row.disposition NOT IN ('CANDIDATE', 'REFERENCE')
+                 ORDER BY row.ordinal
+                """,
+                [session_id],
+            ).fetchall()
+            return {
+                "row_count": row_count,
+                "disposition_counts": {
+                    "CANDIDATE": int(header[3]),
+                    "REFERENCE": int(header[4]),
+                    "BLOCKED": int(header[5]),
+                    "QUARANTINED": int(header[6]),
+                    "EXCLUDED": int(header[7]),
+                },
+                "issue_rows": tuple(issue_rows),
+                "collisions": tuple(collisions),
+                "exception_rows": tuple(exception_rows),
+            }
+
+    def _iter_quality_index_batches(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        batch_size: int,
+        connection=None,
+    ):
+        if connection is None:
+            database_path = self.project_directory(project_id) / "project.duckdb"
+            with self._connect(database_path) as owned:
+                yield from self._iter_quality_index_batches(
+                    project_id, session_id, batch_size=batch_size,
+                    connection=owned,
+                )
+            return
+        next_ordinal = 0
+        while batch := connection.execute(
+            """
+            SELECT ordinal, row_id, dataset, source_row, record_label,
+                   disposition
+              FROM canonical_staging_row
+             WHERE run_id = ? AND ordinal >= ?
+             ORDER BY ordinal LIMIT ?
+            """,
+            [session_id, next_ordinal, batch_size],
+        ).fetchall():
+            yield batch
+            next_ordinal += len(batch)
+
+    def _iter_accounting_index_batches(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        batch_size: int,
+        connection=None,
+    ):
+        if connection is None:
+            database_path = self.project_directory(project_id) / "project.duckdb"
+            with self._connect(database_path) as owned:
+                yield from self._iter_accounting_index_batches(
+                    project_id, session_id, batch_size=batch_size,
+                    connection=owned,
+                )
+            return
+        offset = 0
+        while batch := connection.execute(
+            """
+            SELECT lineage.physical_dataset_id,
+                   lineage.physical_source_row, row.row_id
+              FROM preparation_lineage AS lineage
+              JOIN canonical_staging_row AS row
+                ON row.run_id = lineage.session_id
+               AND row.dataset = lineage.dataset
+               AND row.source_row = lineage.output_source_row
+             WHERE lineage.session_id = ?
+             ORDER BY lineage.physical_dataset_id,
+                      lineage.physical_source_row
+             LIMIT ? OFFSET ?
+            """,
+            [session_id, batch_size, offset],
+        ).fetchall():
+            yield batch
+            offset += len(batch)
+
+    def _direct_index_contains_row_id(
+        self,
+        project_id: str,
+        session_id: str,
+        row_id: str,
+    ) -> bool:
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        with self._connect(database_path) as connection:
+            return connection.execute(
+                """
+                SELECT 1 FROM canonical_staging_row
+                 WHERE run_id = ? AND row_id = ? LIMIT 1
+                """,
+                [session_id, row_id],
+            ).fetchone() is not None
 
     def iter_impacts(
         self,
@@ -2870,6 +3210,7 @@ class PreparationSessionRepository(DuckDbRepository):
                           FROM canonical_staging_row_issue
                          WHERE run_id = ?
                            AND ordinal >= ? AND ordinal < ?
+                           AND issue_ordinal = 0
                          ORDER BY ordinal, issue_ordinal
                         """,
                         [run_id, start, stop],

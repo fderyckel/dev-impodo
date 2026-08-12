@@ -9,7 +9,7 @@ exposes the exact same evidence through lazy finalized-session sequences.
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence, Set as AbstractSet
 from dataclasses import dataclass
 import json
 from typing import overload
@@ -43,7 +43,12 @@ from ..quality import (
     retention_context_hash,
 )
 from ..models import canonical_json_bytes, portable_value
-from ..staging_contracts import CanonicalRow, CanonicalStagingRun, StagingDisposition
+from ..staging_contracts import (
+    CanonicalIssue,
+    CanonicalRow,
+    CanonicalStagingRun,
+    StagingDisposition,
+)
 
 
 class BoundedQualityUnsupported(ValueError):
@@ -219,6 +224,176 @@ class _DirectSourceAccounting(Sequence[SourceAccountingEntry]):
         )
 
 
+class _IndexedQualityRows(Sequence[QualityRowResult]):
+    """Project exact Stage-F rows from the narrow canonical index."""
+
+    sparse_projection_contract = "direct-defaults-v1"
+
+    def __init__(
+        self,
+        rows: object,
+        row_count: int,
+        issues: Mapping[str, QualityIssue],
+        row_issue_ids: Mapping[str, set[str]],
+    ) -> None:
+        self._rows = rows
+        self._row_count = row_count
+        self._issues = issues
+        self._row_issue_ids = row_issue_ids
+
+    def __len__(self) -> int:
+        return self._row_count
+
+    @overload
+    def __getitem__(self, index: int) -> QualityRowResult: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[QualityRowResult, ...]: ...
+
+    def __getitem__(self, index: int | slice):
+        if isinstance(index, slice):
+            start, stop, step = index.indices(self._row_count)
+            if step != 1:
+                raise ValueError("Indexed quality slices must be contiguous")
+            return tuple(
+                item
+                for ordinal, item in enumerate(self)
+                if start <= ordinal < stop
+            )
+        normalized = index + self._row_count if index < 0 else index
+        if normalized < 0 or normalized >= self._row_count:
+            raise IndexError(index)
+        for ordinal, item in enumerate(self):
+            if ordinal == normalized:
+                return item
+        raise IndexError(index)
+
+    def __iter__(self) -> Iterator[QualityRowResult]:
+        reader = getattr(self._rows, "iter_quality_index_batches")
+        for batch in reader(None, 5_000):
+            for fact in batch:
+                yield self._result(fact)
+
+    def iter_batches(self, connection, batch_size: int):
+        reader = getattr(self._rows, "iter_quality_index_batches")
+        for batch in reader(connection, batch_size):
+            yield tuple(self._result(fact) for fact in batch)
+
+    def _result(self, fact) -> QualityRowResult:
+        _ordinal, row_id, dataset, source_row, record_label, disposition = fact
+        issue_ids = tuple(sorted(self._row_issue_ids.get(str(row_id), ())))
+        issues = tuple(self._issues[item] for item in issue_ids)
+        row = _IssueRow(
+            str(row_id),
+            str(dataset),
+            int(source_row),
+            StagingDisposition(str(disposition)),
+        )
+        return QualityRowResult(
+            row_id=row.row_id,
+            dataset=row.dataset,
+            source_row=row.source_row,
+            record_label=str(record_label),
+            base_disposition=QualityDisposition(row.disposition.value),
+            effective_disposition=_effective_disposition(row, issues),
+            issue_ids=issue_ids,
+            requires_review=any(
+                issue.policy is QualityOutcomePolicy.WARNING for issue in issues
+            ),
+        )
+
+
+class _IndexedSourceAccounting(Sequence[SourceAccountingEntry]):
+    """Project represented source rows from the one-to-one lineage index."""
+
+    sparse_projection_contract = "direct-represented-v1"
+
+    def __init__(self, rows: object, row_count: int) -> None:
+        self._rows = rows
+        self._row_count = row_count
+
+    def __len__(self) -> int:
+        return self._row_count
+
+    @overload
+    def __getitem__(self, index: int) -> SourceAccountingEntry: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[SourceAccountingEntry, ...]: ...
+
+    def __getitem__(self, index: int | slice):
+        if isinstance(index, slice):
+            start, stop, step = index.indices(self._row_count)
+            if step != 1:
+                raise ValueError("Indexed accounting slices must be contiguous")
+            return tuple(
+                item
+                for ordinal, item in enumerate(self)
+                if start <= ordinal < stop
+            )
+        normalized = index + self._row_count if index < 0 else index
+        if normalized < 0 or normalized >= self._row_count:
+            raise IndexError(index)
+        for ordinal, item in enumerate(self):
+            if ordinal == normalized:
+                return item
+        raise IndexError(index)
+
+    def __iter__(self) -> Iterator[SourceAccountingEntry]:
+        reader = getattr(self._rows, "iter_accounting_index_batches")
+        for batch in reader(None, 5_000):
+            yield from (self._entry(fact) for fact in batch)
+
+    def iter_batches(self, connection, batch_size: int):
+        reader = getattr(self._rows, "iter_accounting_index_batches")
+        for batch in reader(connection, batch_size):
+            yield tuple(self._entry(fact) for fact in batch)
+
+    @staticmethod
+    def _entry(fact) -> SourceAccountingEntry:
+        physical_dataset_id, source_row, row_id = fact
+        return SourceAccountingEntry(
+            physical_dataset_id=str(physical_dataset_id),
+            source_row=int(source_row),
+            state=SourceAccountingState.REPRESENTED,
+            canonical_row_ids=(str(row_id),),
+        )
+
+
+class _DirectEligibleRowIds(AbstractSet[str]):
+    """Represent the all-clean default with only sparse exclusions in memory."""
+
+    def __init__(
+        self,
+        rows: object,
+        eligible_count: int,
+        excluded: set[str],
+    ) -> None:
+        self._rows = rows
+        self._eligible_count = eligible_count
+        self._excluded = frozenset(excluded)
+
+    def __len__(self) -> int:
+        return self._eligible_count
+
+    def __iter__(self) -> Iterator[str]:
+        reader = getattr(self._rows, "iter_quality_index_batches")
+        for batch in reader(None, 5_000):
+            for _ordinal, row_id, *_rest in batch:
+                if str(row_id) not in self._excluded:
+                    yield str(row_id)
+
+    def __contains__(self, value: object) -> bool:
+        if not isinstance(value, str) or value in self._excluded:
+            return False
+        return bool(getattr(self._rows, "contains_row_id")(value))
+
+    def contains_canonical(self, row_id: str) -> bool:
+        """Fast membership when the caller already proved the row is canonical."""
+
+        return row_id not in self._excluded
+
+
 def build_bounded_quality_run(
     *,
     project: MigrationProject,
@@ -248,6 +423,19 @@ def build_bounded_quality_run(
         or any(rule.source is not QualityRuleSource.MAPPING_DERIVED for rule in ruleset.rules)
     ):
         raise BoundedQualityUnsupported
+    index_builder = getattr(staging.rows, "bounded_quality_index", None)
+    if callable(index_builder):
+        index = index_builder(physical_rows)
+        if index is not None:
+            return _build_indexed_quality_run(
+                project=project,
+                staging=staging,
+                ruleset=ruleset,
+                published_staging_content_hash=(
+                    published_staging_content_hash
+                ),
+                index=index,
+            )
     if len(physical_rows) != 1:
         raise BoundedQualityUnsupported
 
@@ -566,6 +754,288 @@ def build_bounded_quality_run(
         quarantine=tuple(sorted(quarantine, key=lambda item: item.entry_id)),
         effective_dataset_hash=published_staging_content_hash,
         eligible_row_ids=eligible_row_ids,
+        summary_counts=summary_counts,
+    )
+
+
+def _build_indexed_quality_run(
+    *,
+    project: MigrationProject,
+    staging: StoredCanonicalStagingRun,
+    ruleset: QualityRuleSet,
+    published_staging_content_hash: str,
+    index: Mapping[str, object],
+) -> StoredQualityRun:
+    """Build default-plus-exception evidence from set-validated row facts."""
+
+    row_count = int(index["row_count"])
+    raw_counts = index["disposition_counts"]
+    if not isinstance(raw_counts, Mapping):
+        raise BoundedQualityUnsupported
+    disposition_counts = {
+        StagingDisposition(str(key)): int(value)
+        for key, value in raw_counts.items()
+    }
+    rules_by_family = {
+        (rule.dataset, rule.family): rule for rule in ruleset.rules
+    }
+    issue_map: dict[str, QualityIssue] = {}
+    row_issue_ids: dict[str, set[str]] = {}
+    row_metadata: dict[
+        str,
+        tuple[_IssueRow, str, int],
+    ] = {}
+    coordinate_ids: dict[tuple[str, int], str] = {}
+
+    def register(
+        row_id: object,
+        dataset: object,
+        source_row: object,
+        disposition: object,
+        physical_dataset_id: object,
+        physical_source_row: object,
+    ) -> _IssueRow:
+        row = _IssueRow(
+            str(row_id),
+            str(dataset),
+            int(source_row),
+            StagingDisposition(str(disposition)),
+        )
+        metadata = (
+            row,
+            str(physical_dataset_id),
+            int(physical_source_row),
+        )
+        existing = row_metadata.setdefault(row.row_id, metadata)
+        if existing != metadata:
+            raise BoundedQualityUnsupported
+        coordinate = (row.dataset, row.source_row)
+        prior_id = coordinate_ids.setdefault(coordinate, row.row_id)
+        if prior_id != row.row_id:
+            raise BoundedQualityUnsupported
+        return row
+
+    for raw in index.get("exception_rows", ()):
+        _ordinal, row_id, dataset, source_row, disposition, physical_id, physical_row = raw
+        register(
+            row_id, dataset, source_row, disposition, physical_id, physical_row
+        )
+
+    for raw in index.get("issue_rows", ()):
+        (
+            _ordinal,
+            row_id,
+            dataset,
+            source_row,
+            disposition,
+            issue_text,
+            physical_id,
+            physical_row,
+        ) = raw
+        row = register(
+            row_id, dataset, source_row, disposition, physical_id, physical_row
+        )
+        try:
+            item = CanonicalIssue.from_dict(json.loads(str(issue_text)))
+        except (TypeError, ValueError) as error:
+            raise BoundedQualityUnsupported from error
+        family = _family_for_issue(item)
+        rule = rules_by_family.get((row.dataset, family))
+        if rule is None:
+            continue
+        policy = (
+            QualityOutcomePolicy.WARNING
+            if item.severity == "warning"
+            else rule.outcome
+        )
+        issue = _quality_issue(
+            project,
+            rule,
+            row,
+            item.code,
+            item.message,
+            (item.field,) if item.field else (),
+            policy=policy,
+        )
+        issue_map[issue.issue_id] = issue
+        row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+
+    for raw in index.get("collisions", ()):
+        (
+            _ordinal,
+            row_id,
+            dataset,
+            source_row,
+            disposition,
+            identity_count,
+            physical_id,
+            physical_row,
+        ) = raw
+        row = register(
+            row_id, dataset, source_row, disposition, physical_id, physical_row
+        )
+        rule = rules_by_family.get(
+            (row.dataset, QualityRuleFamily.IDENTITY_COLLISION)
+        )
+        if rule is None:
+            continue
+        issue = _quality_issue(
+            project,
+            rule,
+            row,
+            "POST_TRANSFORM_IDENTITY_COLLISION",
+            f"{int(identity_count)} prepared records would use the same Odoo match. All were set aside for review.",
+            (),
+            policy=rule.outcome,
+        )
+        issue_map[issue.issue_id] = issue
+        row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+
+    for item in staging.issues:
+        if item.dataset and item.source_row is None:
+            issue = _setup_issue(
+                project,
+                item.dataset,
+                _family_for_issue(item),
+                item.code,
+                item.message,
+            )
+            issue_map[issue.issue_id] = issue
+            continue
+        if not item.dataset or item.source_row is None:
+            continue
+        row_id = coordinate_ids.get((item.dataset, item.source_row))
+        if row_id is None:
+            raise BoundedQualityUnsupported
+        row = row_metadata[row_id][0]
+        rule = rules_by_family.get((row.dataset, _family_for_issue(item)))
+        if rule is None:
+            continue
+        policy = (
+            QualityOutcomePolicy.WARNING
+            if item.severity == "warning"
+            else rule.outcome
+        )
+        issue = _quality_issue(
+            project,
+            rule,
+            row,
+            item.code,
+            item.message,
+            (item.field,) if item.field else (),
+            policy=policy,
+        )
+        issue_map[issue.issue_id] = issue
+        row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+
+    summary_counts = {
+        "ready_count": disposition_counts[StagingDisposition.CANDIDATE]
+        + disposition_counts[StagingDisposition.REFERENCE],
+        "review_count": 0,
+        "quarantined_count": disposition_counts[
+            StagingDisposition.QUARANTINED
+        ],
+        "excluded_count": disposition_counts[StagingDisposition.EXCLUDED],
+        "blocked_count": disposition_counts[StagingDisposition.BLOCKED],
+    }
+    eligible_count = summary_counts["ready_count"]
+    excluded_ids: set[str] = set()
+    quarantine: list[QuarantineEntry] = []
+    for row_id, (row, physical_id, physical_row) in row_metadata.items():
+        base = QualityDisposition(row.disposition.value)
+        if base in {QualityDisposition.CANDIDATE, QualityDisposition.REFERENCE}:
+            summary_counts["ready_count"] -= 1
+            eligible_count -= 1
+        elif base is QualityDisposition.QUARANTINED:
+            summary_counts["quarantined_count"] -= 1
+        elif base is QualityDisposition.EXCLUDED:
+            summary_counts["excluded_count"] -= 1
+        elif base is QualityDisposition.BLOCKED:
+            summary_counts["blocked_count"] -= 1
+        issue_ids = tuple(sorted(row_issue_ids.get(row_id, ())))
+        issues = tuple(issue_map[item] for item in issue_ids)
+        effective = _effective_disposition(row, issues)
+        requires_review = any(
+            issue.policy is QualityOutcomePolicy.WARNING for issue in issues
+        )
+        if effective in {
+            QualityDisposition.CANDIDATE,
+            QualityDisposition.REFERENCE,
+        }:
+            eligible_count += 1
+            if not requires_review:
+                summary_counts["ready_count"] += 1
+        else:
+            excluded_ids.add(row_id)
+            if effective is QualityDisposition.QUARANTINED:
+                summary_counts["quarantined_count"] += 1
+            elif effective is QualityDisposition.EXCLUDED:
+                summary_counts["excluded_count"] += 1
+            elif effective is QualityDisposition.BLOCKED:
+                summary_counts["blocked_count"] += 1
+        if requires_review:
+            summary_counts["review_count"] += 1
+        for issue in issues:
+            if (
+                effective is not QualityDisposition.QUARANTINED
+                or issue.policy is not QualityOutcomePolicy.QUARANTINE
+            ):
+                continue
+            quarantine.append(
+                QuarantineEntry(
+                    entry_id=_hash(
+                        {
+                            "effective_dataset": published_staging_content_hash,
+                            "row_id": row_id,
+                            "issue_id": issue.issue_id,
+                        }
+                    ),
+                    row_id=row_id,
+                    dataset=row.dataset,
+                    source_row=row.source_row,
+                    physical_sources=(f"{physical_id}:{physical_row}",),
+                    issue_id=issue.issue_id,
+                    rule_id=issue.rule_id,
+                    reason_code=issue.reason_code,
+                    explanation=issue.message,
+                    affected_fields=issue.affected_fields,
+                    owner_role=issue.owner_role,
+                    owner_label=issue.owner_label,
+                    review_by=None,
+                    correction_route=_correction_route(issue.family),
+                )
+            )
+    summary_counts["blocked_count"] += sum(
+        issue.row_id is None and issue.policy is QualityOutcomePolicy.BLOCK
+        for issue in issue_map.values()
+    )
+    summary_counts["review_count"] += sum(
+        issue.row_id is None and issue.policy is QualityOutcomePolicy.WARNING
+        for issue in issue_map.values()
+    )
+    rows = _IndexedQualityRows(
+        staging.rows,
+        row_count,
+        issue_map,
+        row_issue_ids,
+    )
+    return StoredQualityRun(
+        project_id=project.project_id,
+        staging_content_hash=published_staging_content_hash,
+        ruleset_hash=ruleset.content_hash,
+        mapping_hash=staging.mapping_hash,
+        schema_hash=staging.schema_hash,
+        retention_context_hash=retention_context_hash(project),
+        row_results=rows,
+        source_accounting=_IndexedSourceAccounting(staging.rows, row_count),
+        issues=tuple(sorted(issue_map.values(), key=lambda item: item.issue_id)),
+        quarantine=tuple(sorted(quarantine, key=lambda item: item.entry_id)),
+        effective_dataset_hash=published_staging_content_hash,
+        eligible_row_ids=_DirectEligibleRowIds(
+            staging.rows,
+            eligible_count,
+            excluded_ids,
+        ),
         summary_counts=summary_counts,
     )
 

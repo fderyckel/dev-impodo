@@ -9,15 +9,16 @@ probe remains a separate contract.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 import hashlib
 import json
 from uuid import UUID, uuid4
 
+from ..access import Actor
 from ..domain.serialization import content_hash
 from ..models import target_identity_hash
-from ..projects import MigrationProject
+from ..projects import MigrationProject, ProjectService
 from ..secrets import SecretStore, SecretStoreError
 
 
@@ -34,6 +35,8 @@ class TargetCredential:
 
     secret: str
     binding_hash: str
+    replaced: bool = field(default=False, compare=False)
+    persistent: bool = field(default=False, compare=False)
 
 
 def target_read_credential_id(project: MigrationProject) -> str:
@@ -76,6 +79,8 @@ def store_target_credential(
     clean_secret = secret.strip()
     if not clean_secret:
         raise SecretStoreError("API key is empty")
+    credential_id = _target_credential_id(project, role)
+    replaced = store.get(credential_id) is not None
     binding_id = str(uuid4())
     target_hash = _target_hash(project)
     envelope = json.dumps(
@@ -91,13 +96,15 @@ def store_target_credential(
         sort_keys=True,
     )
     store.set(
-        _target_credential_id(project, role),
+        credential_id,
         envelope,
         persistent=persistent,
     )
     return TargetCredential(
         secret=clean_secret,
         binding_hash=_binding_hash(role, target_hash, binding_id),
+        replaced=replaced,
+        persistent=persistent,
     )
 
 
@@ -133,6 +140,26 @@ def get_target_credential(
     return TargetCredential(
         secret=secret,
         binding_hash=_binding_hash(role, target_hash, binding_id),
+    )
+
+
+def audit_stored_target_credential(
+    projects: ProjectService,
+    project: MigrationProject,
+    role: TargetCredentialRole,
+    credential: TargetCredential,
+    *,
+    actor: Actor,
+) -> None:
+    """Record one successful secret-store mutation using safe evidence only."""
+
+    projects.record_credential_event(
+        project.project_id,
+        actor=actor,
+        role=role.value,
+        action="REPLACED" if credential.replaced else "STORED",
+        binding_hash=credential.binding_hash,
+        persistent=credential.persistent,
     )
 
 

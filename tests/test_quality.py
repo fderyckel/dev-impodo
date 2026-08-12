@@ -464,6 +464,59 @@ class QualityEvaluationTests(unittest.TestCase):
             expected.to_json(),
         )
 
+    def test_indexed_multi_dataset_defaults_match_complete_evaluator(self) -> None:
+        rows = (
+            _canonical_row(
+                "5",
+                2,
+                dataset="contacts",
+                source_identity=("C001",),
+                target_identity=("C001",),
+                physical_dataset_id="dataset:contacts",
+            ),
+            _canonical_row(
+                "6",
+                3,
+                dataset="products",
+                source_identity=("P001",),
+                target_identity=("P001",),
+                physical_dataset_id="dataset:products",
+            ),
+        )
+        staging = _staging(self.project.project_id, rows)
+        indexed_rows = _IndexedTestRows(staging.rows)
+        stored = replace(_stored_staging(staging), rows=indexed_rows)
+        physical_rows = {
+            "dataset:contacts": (2,),
+            "dataset:products": (3,),
+        }
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts", "products"),
+        )
+        expected = evaluate_quality(
+            project=self.project,
+            staging=staging,
+            physical_rows=physical_rows,
+            ruleset=ruleset,
+        )
+
+        bounded = build_bounded_quality_run(
+            project=self.project,
+            staging=stored,
+            physical_rows=physical_rows,
+            ruleset=ruleset,
+            published_staging_content_hash=staging.content_hash,
+        )
+
+        self.assertEqual(
+            _materialized_bounded_quality(bounded).to_json(),
+            expected.to_json(),
+        )
+        self.assertEqual(len(bounded.eligible_row_ids), 2)
+
     def test_bounded_relationship_propagation_matches_complete_evaluator(
         self,
     ) -> None:
@@ -1374,6 +1427,66 @@ def _stored_staging(staging: CanonicalStagingRun) -> StoredCanonicalStagingRun:
         evaluator_version=staging.evaluator_version,
         contract_version=staging.contract_version,
     )
+
+
+class _IndexedTestRows(tuple):
+    """Small oracle for the narrow adapter contract used by Stage F."""
+
+    def bounded_quality_index(self, physical_rows):
+        expected = {
+            row.lineage.physical_dataset_id: (row.source_row,)
+            for row in self
+        }
+        if physical_rows != expected:
+            return None
+        return {
+            "row_count": len(self),
+            "disposition_counts": {
+                disposition.value: sum(
+                    row.disposition is disposition for row in self
+                )
+                for disposition in StagingDisposition
+            },
+            "issue_rows": (),
+            "collisions": (),
+            "exception_rows": (),
+        }
+
+    def iter_quality_index_batches(self, _connection, batch_size):
+        facts = tuple(
+            (
+                ordinal,
+                row.row_id,
+                row.dataset,
+                row.source_row,
+                " / ".join(
+                    str(value)
+                    for value in (*row.target_identity, *row.source_identity)
+                    if value is not None and value != ""
+                )[:120],
+                row.disposition.value,
+            )
+            for ordinal, row in enumerate(self)
+        )
+        for start in range(0, len(facts), batch_size):
+            yield facts[start : start + batch_size]
+
+    def iter_accounting_index_batches(self, _connection, batch_size):
+        facts = tuple(
+            sorted(
+                (
+                    row.lineage.physical_dataset_id,
+                    row.source_row,
+                    row.row_id,
+                )
+                for row in self
+            )
+        )
+        for start in range(0, len(facts), batch_size):
+            yield facts[start : start + batch_size]
+
+    def contains_row_id(self, row_id):
+        return any(row.row_id == row_id for row in self)
 
 
 def _materialized_bounded_quality(run) -> QualityRun:

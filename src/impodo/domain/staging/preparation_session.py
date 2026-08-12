@@ -87,6 +87,9 @@ class CanonicalPreparedSessionRow:
     source_identity: tuple[Any, ...]
     row_json: str
     physical_sources: Mapping[str, tuple[int, ...]]
+    record_label: str = ""
+    quality_identity_key: str | None = None
+    issues: tuple[CanonicalIssue, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

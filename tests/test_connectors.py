@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-from pathlib import Path
 import unittest
 
 from impodo.connectors import (
+    ConnectorAuthorizationError,
     ConnectorConfigurationError,
     ConnectorIncompleteResultError,
     ConnectorTransportError,
     Json2Config,
     Json2ReadConnector,
+    Json2WriteIdentityConnector,
     MetadataRequest,
     RecordRequest,
     _NoRedirectHandler,
@@ -75,11 +76,234 @@ class Json2ConnectorTests(unittest.TestCase):
         )
         self.assertTrue(all(call[2]["order"] == "id asc" for call in post_calls))
 
+    def test_read_identity_probe_is_closed_stable_and_secret_independent(
+        self,
+    ) -> None:
+        calls = []
+
+        def transport(url, headers, body, timeout, method):
+            del timeout, method
+            payload = json.loads(body) if body else None
+            calls.append((url, dict(headers), payload))
+            if url.endswith("/web/version"):
+                return 200, {"version": "19.0"}
+            if url.endswith("/res.users/context_get"):
+                return 200, {"uid": 17, "lang": "en_US", "tz": "UTC"}
+            if url.endswith("/res.users/search_read"):
+                return 200, [
+                    {
+                        "id": 17,
+                        "login": "impodo-read@example.test",
+                        "company_id": [3, "Example"],
+                        "group_ids": [8, 4],
+                        "lang": "en_US",
+                        "tz": "UTC",
+                        "share": False,
+                    }
+                ]
+            if url.endswith("/res.company/search_read"):
+                return 200, [{"id": 7}, {"id": 3}]
+            if url.endswith("/has_access"):
+                return 200, True
+            self.fail(f"unexpected URL: {url}")
+
+        connector = Json2ReadConnector(
+            self.config(),
+            transport=transport,
+            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+        )
+
+        identity = connector.probe_read_identity(
+            ("res.partner", "product.template", "res.partner")
+        )
+        rotated_identity = Json2ReadConnector(
+            self.config(api_key="rotated-secret-token"),
+            transport=transport,
+            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+        ).probe_read_identity(("product.template", "res.partner"))
+
+        self.assertRegex(identity.principal_hash, r"^sha256:[0-9a-f]{64}$")
+        self.assertRegex(identity.permission_hash, r"^sha256:[0-9a-f]{64}$")
+        self.assertRegex(identity.context_hash, r"^sha256:[0-9a-f]{64}$")
+        self.assertEqual(
+            identity.readable_models,
+            ("product.template", "res.partner"),
+        )
+        self.assertEqual(identity, rotated_identity)
+        self.assertNotIn("super-secret-token", repr(identity))
+        context_call = next(
+            call for call in calls if call[0].endswith("/res.users/context_get")
+        )
+        self.assertEqual(context_call[2], {"context": {}})
+        user_call = next(
+            call for call in calls if call[0].endswith("/res.users/search_read")
+        )
+        self.assertEqual(user_call[2]["domain"], [["id", "=", 17]])
+        self.assertEqual(user_call[2]["limit"], 2)
+        company_call = next(
+            call for call in calls if call[0].endswith("/res.company/search_read")
+        )
+        self.assertEqual(
+            company_call[2]["domain"],
+            [["user_ids", "in", [17]], ["active", "=", True]],
+        )
+        self.assertEqual(company_call[2]["fields"], ["id"])
+        access_calls = [call for call in calls if call[0].endswith("/has_access")]
+        self.assertEqual(len(access_calls), 4)
+        self.assertTrue(all(call[2]["ids"] == [] for call in access_calls))
+        self.assertTrue(
+            all(call[2]["operation"] == "read" for call in access_calls)
+        )
+
+    def test_read_identity_probe_fails_when_model_read_is_not_allowed(self) -> None:
+        def transport(url, _headers, body, _timeout, _method):
+            json.loads(body) if body else None
+            if url.endswith("/res.users/context_get"):
+                return 200, {"uid": 17, "lang": "en_US", "tz": "UTC"}
+            if url.endswith("/res.users/search_read"):
+                return 200, [
+                    {
+                        "id": 17,
+                        "login": "impodo-read@example.test",
+                        "company_id": [3, "Example"],
+                        "group_ids": [4],
+                        "lang": "en_US",
+                        "tz": "UTC",
+                        "share": False,
+                    }
+                ]
+            if url.endswith("/res.company/search_read"):
+                return 200, [{"id": 3}]
+            return 200, False
+
+        connector = Json2ReadConnector(self.config(), transport=transport)
+
+        with self.assertRaisesRegex(
+            ConnectorAuthorizationError,
+            "cannot access model x.private",
+        ):
+            connector.probe_read_identity(("x.private",))
+
+    def test_write_identity_probe_requires_exact_readback_and_write_scope(
+        self,
+    ) -> None:
+        calls = []
+
+        def transport(url, _headers, body, _timeout, _method):
+            payload = json.loads(body) if body else None
+            calls.append((url, payload))
+            if url.endswith("/web/version"):
+                return 200, {"version": "19.0"}
+            if url.endswith("/res.users/context_get"):
+                return 200, {"uid": 17, "lang": "en_US", "tz": "UTC"}
+            if url.endswith("/res.users/search_read"):
+                return 200, [
+                    {
+                        "id": 17,
+                        "login": "impodo-write@example.test",
+                        "company_id": [3, "Example"],
+                        "group_ids": [9, 4],
+                        "lang": "en_US",
+                        "tz": "UTC",
+                        "share": False,
+                    }
+                ]
+            if url.endswith("/res.company/search_read"):
+                return 200, [{"id": 3}]
+            if url.endswith("/has_access"):
+                return 200, True
+            self.fail(f"unexpected URL: {url}")
+
+        identity = Json2WriteIdentityConnector(
+            self.config(api_key="write-only-secret"),
+            transport=transport,
+            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+        ).probe_write_identity(
+            ("res.partner", "product.category"),
+            ("res.partner",),
+        )
+
+        self.assertEqual(
+            identity.readable_models,
+            ("product.category", "res.partner"),
+        )
+        self.assertEqual(identity.writable_models, ("res.partner",))
+        self.assertRegex(identity.principal_hash, r"^sha256:[0-9a-f]{64}$")
+        self.assertRegex(identity.permission_hash, r"^sha256:[0-9a-f]{64}$")
+        self.assertNotIn("write-only-secret", repr(identity))
+        access_calls = [item for item in calls if item[0].endswith("/has_access")]
+        self.assertEqual(
+            [item[1]["operation"] for item in access_calls],
+            ["read", "read", "write"],
+        )
+
+    def test_write_identity_probe_fails_closed_on_denied_write(self) -> None:
+        def transport(url, _headers, body, _timeout, _method):
+            payload = json.loads(body) if body else None
+            if url.endswith("/web/version"):
+                return 200, {"version": "19.0"}
+            if url.endswith("/res.users/context_get"):
+                return 200, {"uid": 17}
+            if url.endswith("/res.users/search_read"):
+                return 200, [
+                    {
+                        "id": 17,
+                        "login": "writer@example.test",
+                        "company_id": [3, "Example"],
+                        "group_ids": [],
+                        "lang": "en_US",
+                        "tz": "UTC",
+                        "share": False,
+                    }
+                ]
+            if url.endswith("/res.company/search_read"):
+                return 200, [{"id": 3}]
+            if url.endswith("/has_access"):
+                return 200, payload["operation"] == "read"
+            self.fail(f"unexpected URL: {url}")
+
+        connector = Json2WriteIdentityConnector(
+            self.config(),
+            transport=transport,
+        )
+        with self.assertRaisesRegex(
+            ConnectorAuthorizationError,
+            "cannot access model res.partner",
+        ):
+            connector.probe_write_identity(("res.partner",), ("res.partner",))
+
+    def test_read_identity_probe_rejects_a_mismatched_self_record(self) -> None:
+        def transport(url, _headers, body, _timeout, _method):
+            json.loads(body) if body else None
+            if url.endswith("/res.users/context_get"):
+                return 200, {"uid": 17}
+            if url.endswith("/res.company/search_read"):
+                return 200, [{"id": 3}]
+            return 200, [
+                {
+                    "id": 18,
+                    "login": "other@example.test",
+                    "company_id": [3, "Example"],
+                    "group_ids": [],
+                    "lang": "en_US",
+                    "tz": "UTC",
+                    "share": False,
+                }
+            ]
+
+        connector = Json2ReadConnector(self.config(), transport=transport)
+
+        with self.assertRaisesRegex(
+            ConnectorIncompleteResultError,
+            "does not match",
+        ):
+            connector.probe_read_identity(("res.partner",))
+
     def test_same_model_chunks_merge_identical_records(self) -> None:
         def transport(url, _headers, body, _timeout, _method):
             if url.endswith("/web/version"):
                 return 200, {"version": "19.0"}
-            payload = json.loads(body)
+            json.loads(body)
             return 200, [{"id": 7, "code": "SAME"}]
 
         connector = Json2ReadConnector(self.config(page_size=500), transport=transport)
@@ -310,6 +534,7 @@ class Json2ConnectorTests(unittest.TestCase):
                 "get_target_fingerprint",
                 "get_model_metadata",
                 "get_records",
+                "probe_read_identity",
             },
         )
 

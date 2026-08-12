@@ -87,8 +87,10 @@ class ExecutionRepository(DuckDbRepository):
                     INSERT INTO execution_run (
                         run_id, snapshot_hash, snapshot_root_hash,
                         preflight_run_id, target_hash, target_database,
-                        batch_rows, status, started_at, started_by, completed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        batch_rows, status, started_at, started_by, completed_at,
+                        write_credential_binding_hash, write_principal_hash,
+                        write_permission_hash, write_context_hash
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         canonical_run_id,
@@ -102,6 +104,10 @@ class ExecutionRepository(DuckDbRepository):
                         run.started_at.isoformat(),
                         run.started_by,
                         None,
+                        run.write_credential_binding_hash,
+                        run.write_principal_hash,
+                        run.write_permission_hash,
+                        run.write_context_hash,
                     ],
                 )
                 connection.executemany(
@@ -137,7 +143,9 @@ class ExecutionRepository(DuckDbRepository):
                     event_type="ODOO_LOAD_STARTED",
                     detail=(
                         f"run {canonical_run_id}: {len(run.rows)} planned row(s), "
-                        f"{run.batch_rows} row(s) per Odoo batch"
+                        f"{run.batch_rows} row(s) per Odoo batch; "
+                        "write principal "
+                        f"{run.write_principal_hash or 'legacy-unbound'}"
                     ),
                     actor=actor,
                 )
@@ -309,7 +317,9 @@ class ExecutionRepository(DuckDbRepository):
                 """
                 SELECT snapshot_hash, snapshot_root_hash, preflight_run_id,
                        target_hash, target_database, batch_rows, status,
-                       started_at, started_by, completed_at
+                       started_at, started_by, completed_at,
+                       write_credential_binding_hash, write_principal_hash,
+                       write_permission_hash, write_context_hash
                   FROM execution_run WHERE run_id = ?
                 """,
                 [canonical_run_id],
@@ -343,4 +353,8 @@ class ExecutionRepository(DuckDbRepository):
             rows=tuple(
                 ExecutionRowAttempt.from_json(str(item[0])) for item in row_values
             ),
+            write_credential_binding_hash=str(header[10] or ""),
+            write_principal_hash=str(header[11] or ""),
+            write_permission_hash=str(header[12] or ""),
+            write_context_hash=str(header[13] or ""),
         )

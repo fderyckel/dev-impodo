@@ -232,6 +232,8 @@ class ProjectSchemaMixin:
                 source_row BIGINT NOT NULL,
                 target_model VARCHAR NOT NULL,
                 disposition VARCHAR NOT NULL,
+                record_label VARCHAR NOT NULL DEFAULT '',
+                quality_identity_key VARCHAR,
                 row_json VARCHAR NOT NULL,
                 PRIMARY KEY (run_id, ordinal),
                 UNIQUE (run_id, row_id)
@@ -297,6 +299,8 @@ class ProjectSchemaMixin:
                 row_id VARCHAR NOT NULL,
                 dataset VARCHAR NOT NULL,
                 source_row BIGINT NOT NULL,
+                record_label VARCHAR NOT NULL DEFAULT '',
+                base_disposition VARCHAR NOT NULL DEFAULT 'CANDIDATE',
                 effective_disposition VARCHAR NOT NULL,
                 requires_review BOOLEAN NOT NULL,
                 row_json VARCHAR NOT NULL,
@@ -308,6 +312,12 @@ class ProjectSchemaMixin:
                 ON quality_row_result (
                     run_id, effective_disposition, requires_review, dataset
                 );
+
+            CREATE TABLE quality_evidence_projection (
+                run_id VARCHAR PRIMARY KEY,
+                contract_version INTEGER NOT NULL,
+                projection_json VARCHAR NOT NULL
+            );
 
             CREATE TABLE quality_issue (
                 run_id VARCHAR NOT NULL,

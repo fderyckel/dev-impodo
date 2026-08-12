@@ -83,10 +83,32 @@ only.
 Each stored role uses a versioned vault envelope with a random generation ID.
 Model and schema catalogues bind the read credential generation through a
 non-secret `read_credential_binding_hash`; re-entering or rotating a key creates
-a new binding without persisting a secret-derived verifier. This is rotation
-evidence, not proof of the authenticated Odoo principal or its current
-permissions. A narrow principal/permission probe remains a separate planned
-contract.
+a new binding without persisting a secret-derived verifier.
+
+For remote reads, a separate closed JSON-2 probe uses `res.users/context_get`,
+one exact self-record read, a bounded active-company ID projection, and model-
+level `has_access('read')` checks. It stores only hashes for the authenticated
+principal, observed direct groups and model-read outcomes, and effective
+language/timezone/company/active-record context; raw user, group, and company
+identifiers are not persisted. The observed permission hash is not a complete
+ACL or record-rule configuration digest. Local no-key shell metadata therefore
+keeps these identity hashes empty rather than claiming principal parity it
+cannot prove.
+
+Remote execution uses a different closed probe and the write-role credential.
+It requires model-level read access for every model in the immutable reviewed
+API scope and write access for every model with reviewed write fields. Before
+any target I/O, the execution journal records only the random write-credential
+generation hash plus write-principal, observed-permission, and context hashes.
+Read-back re-probes the credential and rejects a changed target, principal,
+permission scope, or context. These checks remain model-level observations;
+the later guarded-update phase must still prove access to each exact record and
+baseline field.
+
+Successful read/write credential storage and replacement append actor-bound
+project audit events. Their details contain only the non-secret binding hash
+and whether storage is session-only or in the operating-system vault; API keys
+and raw Odoo user/group/company identifiers are excluded.
 
 ## Persistence boundary
 

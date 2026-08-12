@@ -26,7 +26,7 @@ from ..domain.schema.governance import (
     BusinessKeyDefinition,
     SchemaGovernance,
 )
-from ..models import target_identity_hash
+from ..models import OdooReadIdentity, target_identity_hash
 from ..projects import (
     MigrationProject,
     OdooConnectionMode,
@@ -147,6 +147,7 @@ class SchemaWorkspaceService:
         snapshot: RecordSnapshot,
         *,
         read_credential_binding_hash: str,
+        read_identity: OdooReadIdentity | None = None,
         actor: Actor,
     ) -> OdooModelCatalog:
         """Store concrete model choices returned by the connected Odoo."""
@@ -187,6 +188,11 @@ class SchemaWorkspaceService:
             raise WorkspaceError(
                 "Odoo model discovery returned an unexpected model"
             )
+        identity_hashes = _validate_read_identity(
+            project,
+            read_identity,
+            required_models=("ir.model",),
+        )
 
         models: list[OdooModelSummary] = []
         seen: set[str] = set()
@@ -227,6 +233,7 @@ class SchemaWorkspaceService:
         content = {
             "target_hash": target_hash,
             "read_credential_binding_hash": read_credential_binding_hash,
+            **identity_hashes,
             "fingerprint": snapshot.fingerprint.portable_dict(),
             "models": [asdict(model) for model in ordered],
         }
@@ -241,6 +248,9 @@ class SchemaWorkspaceService:
             models=ordered,
             content_hash=content_hash(content),
             read_credential_binding_hash=read_credential_binding_hash,
+            read_principal_hash=identity_hashes["read_principal_hash"],
+            read_permission_hash=identity_hashes["read_permission_hash"],
+            read_context_hash=identity_hashes["read_context_hash"],
         )
         self.schemas.save_odoo_model_catalog(
             project_id,
@@ -255,6 +265,7 @@ class SchemaWorkspaceService:
         snapshot: MetadataSnapshot,
         *,
         read_credential_binding_hash: str,
+        read_identity: OdooReadIdentity | None = None,
         actor: Actor,
     ) -> OdooSchemaCatalog:
         """Capture a verified catalog through the connected read-only reader."""
@@ -282,16 +293,32 @@ class SchemaWorkspaceService:
             )
         if not snapshot.fingerprint.odoo_version.startswith("19."):
             raise WorkspaceError("Odoo schema capture requires Odoo 19")
+        identity_hashes = _validate_read_identity(
+            project,
+            read_identity,
+            required_models=tuple(sorted(permitted)),
+        )
         discovered = self.schemas.get_odoo_model_catalog(project_id)
-        if (
-            discovered is not None
-            and discovered.read_credential_binding_hash
-            != read_credential_binding_hash
-        ):
-            raise WorkspaceError(
-                "The Odoo read credential changed; refresh the model catalogue "
-                "before capturing schema"
-            )
+        if discovered is not None:
+            if read_identity is None:
+                if (
+                    discovered.read_credential_binding_hash
+                    != read_credential_binding_hash
+                ):
+                    raise WorkspaceError(
+                        "The Odoo read credential changed; refresh the model "
+                        "catalogue before capturing schema"
+                    )
+            elif (
+                discovered.read_principal_hash
+                != identity_hashes["read_principal_hash"]
+                or discovered.read_context_hash
+                != identity_hashes["read_context_hash"]
+            ):
+                raise WorkspaceError(
+                    "The Odoo read principal or context changed; refresh the "
+                    "model catalogue before capturing schema"
+                )
         discovered_labels = (
             {model.name: model.label for model in discovered.models}
             if discovered
@@ -336,6 +363,7 @@ class SchemaWorkspaceService:
             fingerprint=snapshot.fingerprint.portable_dict(),
             origin=SchemaOrigin.LIVE_API,
             read_credential_binding_hash=read_credential_binding_hash,
+            identity_hashes=identity_hashes,
             actor=actor,
         )
 
@@ -345,12 +373,18 @@ class SchemaWorkspaceService:
         models: Iterable[SchemaModel],
         *,
         read_credential_binding_hash: str,
+        read_identity: OdooReadIdentity | None = None,
         actor: Actor,
     ) -> OdooSchemaCatalog:
         """Store an explicitly unverified schema draft for local work."""
 
         project, permitted = self._capture_context(project_id, actor=actor)
         _validate_read_credential_binding_hash(read_credential_binding_hash)
+        identity_hashes = _validate_read_identity(
+            project,
+            read_identity,
+            required_models=tuple(sorted(permitted)),
+        )
         if project.odoo_connection_mode is not OdooConnectionMode.LOCAL:
             raise WorkspaceError(
                 "A manual schema draft is available only for Local Odoo"
@@ -373,6 +407,7 @@ class SchemaWorkspaceService:
             },
             origin=SchemaOrigin.LOCAL_MANUAL,
             read_credential_binding_hash=read_credential_binding_hash,
+            identity_hashes=identity_hashes,
             actor=actor,
         )
 
@@ -450,6 +485,7 @@ class SchemaWorkspaceService:
         fingerprint: Mapping[str, object],
         origin: SchemaOrigin,
         read_credential_binding_hash: str,
+        identity_hashes: Mapping[str, str],
         actor: Actor,
     ) -> OdooSchemaCatalog:
         target_hash = content_hash(
@@ -467,6 +503,7 @@ class SchemaWorkspaceService:
         content = {
             "target_hash": target_hash,
             "read_credential_binding_hash": read_credential_binding_hash,
+            **identity_hashes,
             "fingerprint": fingerprint,
             "origin": origin.value,
             "models": [asdict(model) for model in models],
@@ -483,6 +520,9 @@ class SchemaWorkspaceService:
             content_hash=content_hash(content),
             origin=origin,
             read_credential_binding_hash=read_credential_binding_hash,
+            read_principal_hash=identity_hashes["read_principal_hash"],
+            read_permission_hash=identity_hashes["read_permission_hash"],
+            read_context_hash=identity_hashes["read_context_hash"],
         )
         self.schemas.save_odoo_schema_catalog(
             project.project_id,
@@ -607,6 +647,41 @@ def _target_identity_hash(project: MigrationProject) -> str:
 def _validate_read_credential_binding_hash(value: str) -> None:
     if not _CONTENT_HASH.fullmatch(value):
         raise WorkspaceError("Odoo read credential binding is invalid")
+
+
+def _validate_read_identity(
+    project: MigrationProject,
+    identity: OdooReadIdentity | None,
+    *,
+    required_models: tuple[str, ...],
+) -> dict[str, str]:
+    """Validate remote probe evidence while keeping local sudo metadata honest."""
+
+    empty = {
+        "read_principal_hash": "",
+        "read_permission_hash": "",
+        "read_context_hash": "",
+    }
+    if project.odoo_connection_mode is OdooConnectionMode.LOCAL and identity is None:
+        return empty
+    if identity is None:
+        raise WorkspaceError(
+            "Verify the remote Odoo read principal before storing metadata"
+        )
+    if identity.target_hash != _target_identity_hash(project):
+        raise WorkspaceError("Odoo read principal belongs to a different target")
+    hashes = {
+        "read_principal_hash": identity.principal_hash,
+        "read_permission_hash": identity.permission_hash,
+        "read_context_hash": identity.context_hash,
+    }
+    if any(_CONTENT_HASH.fullmatch(value) is None for value in hashes.values()):
+        raise WorkspaceError("Odoo read identity evidence is invalid")
+    if identity.readable_models != required_models:
+        raise WorkspaceError(
+            "Odoo read permission probe does not match the required model scope"
+        )
+    return hashes
 
 
 def _split_module_names(value: object) -> tuple[str, ...]:

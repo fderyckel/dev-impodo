@@ -29,7 +29,11 @@ from ..domain.prepared_snapshot import (
     prepared_snapshot_logical_hash,
 )
 from ..domain.staging.control_totals import CompiledControlTotalAccumulator
-from ..domain.staging.canonical_projection import canonical_prepared_session_row
+from ..domain.staging.canonical_projection import (
+    canonical_prepared_session_row,
+    canonical_quality_identity_key,
+    canonical_quality_record_label,
+)
 from ..domain.staging.evaluator import (
     canonical_field_sources,
     compile_browser_row_transformer,
@@ -632,6 +636,18 @@ def _canonical_session_row(
         source_identity=canonical.source_identity,
         row_json=canonical_json_bytes(canonical.to_portable_dict()).decode("utf-8"),
         physical_sources=physical_sources,
+        record_label=canonical_quality_record_label(
+            canonical.source_identity,
+            canonical.target_identity,
+            canonical.source_row,
+        ),
+        quality_identity_key=canonical_quality_identity_key(
+            dataset=canonical.dataset,
+            target_model=canonical.target_model,
+            target_identity=canonical.target_identity,
+            target_scope=canonical.target_scope,
+        ),
+        issues=canonical.issues,
     )
 
 

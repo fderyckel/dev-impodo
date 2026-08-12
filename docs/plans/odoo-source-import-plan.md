@@ -37,7 +37,23 @@ change.
   read-credential-generation binding in model/schema evidence. That binding is
   random and secret-independent; it deliberately does **not** claim to identify
   the authenticated Odoo principal.
-- Principal/permission probes, principal fingerprints, credential audit events,
+- Slice 3 is implemented for remote reads: a closed JSON-2 probe retrieves only
+  the API key's own `res.users/context_get` identity, its exact self-record, and
+  `has_access('read')` for the service-selected model scope. Model/schema
+  evidence now binds non-secret principal, observed permission, and context
+  hashes; later reads re-probe them. Rotating a key for the same user/context is
+  accepted, while a different principal or context fails closed.
+- Slice 4 is implemented for remote execution: a separate closed probe requires
+  read-back access to every model in the reviewed API scope and write access to
+  every model with reviewed write fields. The execution journal binds the
+  write credential generation, principal, observed-permission, and context
+  hashes before target I/O; read-back re-probes and requires an exact match.
+  Successful read/write credential storage and replacement append actor-bound
+  lifecycle events containing only the random binding hash and storage class.
+- The current permission hash covers directly observed group membership and
+  model-level read outcomes, not a complete fingerprint of all ACL/record-rule
+  definitions. Local no-key shell metadata also remains explicitly unverified.
+  Local no-key write-principal parity, credential-removal audit receipts,
   target-instance identity, and bounded Odoo record capture remain open. The
   browser labels record freezing as locked rather than presenting it as
   available.
@@ -122,8 +138,9 @@ Some foundations require refactoring rather than direct reuse:
 - `ExecutionSnapshot` is portable and calls
   `assert_no_numeric_odoo_ids`, so protected IDs must remain in a separate
   execution companion rather than being added to that snapshot; and
-- principal identity and permission probes are not yet available even though
-  schema reads and execution now use separate credential roles.
+- remote read principal/context probing now exists, but its permission hash is
+  observational rather than a complete ACL/record-rule configuration digest;
+  write-principal and local no-key identity probes are still absent.
 
 ### 2.1 Repository-check findings and required responses
 
@@ -330,12 +347,14 @@ Split the existing credential storage into read and write roles:
   probes, and audit fingerprints; and
 - no route falls back from one role to the other.
 
-The implemented Slice-2 evidence uses `read_credential_binding_hash` until a
-narrow principal probe exists. Rotating or re-entering the same secret creates
-a new binding and therefore distinguishable new evidence without hashing the
-secret. It cannot prove that two different keys authenticate the same user, or
-that an Odoo administrator changed a key's permissions in place; those checks
-remain part of the principal/permission-probe slice and production gates.
+The Slice-2 `read_credential_binding_hash` remains rotation evidence: rotating
+or re-entering the same secret creates a new binding without hashing the
+secret. Slice 3 adds the Odoo-derived `read_principal_hash`,
+`read_permission_hash`, and `read_context_hash`, allowing two different keys
+for the same user/context to retain the same principal identity. The observed
+permission hash changes with the returned direct groups or tested model scope,
+but it cannot prove that an administrator changed an unobserved ACL or record
+rule in place; capture reads and bounded consistency checks remain necessary.
 
 Credentials remain in process memory or the operating-system vault and never
 enter DuckDB, snapshots, reports, browser storage, or logs. An optional local
@@ -740,9 +759,10 @@ state. Do not start a later phase whose contract depends on an unmet exit gate.
   governance still sees the frozen source.
 - Split read and write credential vault IDs, forms, and service labels with no
   fallback. **Implemented in Slice 2.**
-- Add narrow permission/principal probes, stable principal fingerprints, and
-  credential lifecycle audit events. **Still open; the implemented credential-
-  generation binding is not a substitute for principal identity.**
+- Add a narrow remote read permission/principal probe and stable principal,
+  observed-permission, and context fingerprints. **Implemented in Slice 3.**
+- Add the equivalent remote write-principal probe and credential storage/
+  replacement lifecycle audit events. **Implemented in Slice 4.**
 - Define a forward storage/contract migration from version 1 that preserves
   existing `FILE` semantic hashes.
 
@@ -1135,9 +1155,16 @@ unsupported; this does not retract the completed read-only milestone.
 - [Odoo 19's external JSON-2 API documentation](https://www.odoo.com/documentation/19.0/developer/reference/external_api.html)
   states that each call runs in its own SQL transaction, recommends one method
   call for related operations that need transactionality, and documents the
-  deployment-plan limitation for external API access. This is why native
-  multi-page capture is not described as point-in-time and production compare/
-  write requires a narrow server-side seam.
+  deployment-plan limitation for external API access. It also documents
+  `res.users/context_get` as the mechanism for retrieving the API key's own
+  user ID. This is why native multi-page capture is not described as point-in-
+  time, the remote principal probe does not enumerate users, and production
+  compare/write requires a narrow server-side seam.
+- [Odoo 19 security guidance](https://www.odoo.com/documentation/19.0/developer/tutorials/restrict_data_access.html)
+  documents `has_access`/`check_access` and explains the distinct roles of ACLs,
+  record rules, and field access. The Slice-3 model-level result is therefore
+  labelled observed permission evidence rather than a complete digest of every
+  security definition or record-level outcome.
 - [Odoo 19 ORM documentation](https://www.odoo.com/documentation/19.0/developer/reference/backend/orm.html)
   documents access-log fields such as `write_date` and notes that field
   `readonly` is primarily a UI attribute rather than a complete programmatic

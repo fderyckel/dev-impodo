@@ -6,11 +6,13 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import StrEnum
 import json
+import re
 
 from ..models import canonical_json_bytes
 
 
 MAX_CREATE_BATCH_ROWS = 50
+_SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 class ExecutionRunStatus(StrEnum):
@@ -89,6 +91,22 @@ class ExecutionRun:
     started_by: str
     completed_at: datetime | None
     rows: tuple[ExecutionRowAttempt, ...]
+    write_credential_binding_hash: str = ""
+    write_principal_hash: str = ""
+    write_permission_hash: str = ""
+    write_context_hash: str = ""
+
+    def __post_init__(self) -> None:
+        """Reject partial or malformed non-secret execution identity evidence."""
+
+        hashes = (
+            self.write_credential_binding_hash,
+            self.write_principal_hash,
+            self.write_permission_hash,
+            self.write_context_hash,
+        )
+        if any(hashes) and not all(_SHA256.fullmatch(value) for value in hashes):
+            raise ValueError("Execution write-identity evidence is invalid")
 
     @property
     def committed_count(self) -> int:

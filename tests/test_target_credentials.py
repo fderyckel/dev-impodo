@@ -116,6 +116,8 @@ class TargetCredentialTests(unittest.TestCase):
 
         self.assertNotEqual(first.binding_hash, second.binding_hash)
         self.assertNotIn("same-secret", first.binding_hash)
+        self.assertFalse(first.replaced)
+        self.assertTrue(second.replaced)
 
     def test_target_change_does_not_reuse_a_stored_role(self) -> None:
         store_target_credential(

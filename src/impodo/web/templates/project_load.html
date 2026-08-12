@@ -153,7 +153,7 @@
           <label>
             Odoo write API key
             <input type="password" name="write_api_key" autocomplete="current-password" {% if not has_stored_write_key %}required{% endif %}>
-            <small>{% if has_stored_write_key %}Leave empty to use the saved write key.{% else %}Enter the separate write key used for loading and read-back; the setup read key is never reused here.{% endif %}</small>
+            <small>{% if has_stored_write_key %}Leave empty to use the saved write key.{% else %}Enter the separate write key used for loading and read-back; the setup read key is never reused here.{% endif %} For remote Odoo, Impodo rechecks the exact reviewed read/write scope and execution identity before verification.</small>
           </label>
           <label class="checkbox">
             <input type="checkbox" name="remember_write_api_key">
@@ -211,7 +211,7 @@
         <label>
           Odoo write API key
           <input type="password" name="write_api_key" autocomplete="current-password" {% if not has_stored_write_key %}required{% endif %}>
-          <small>{% if has_stored_write_key %}A saved write key is available; leave this empty to use it.{% else %}Enter a separate write key for loading and read-back on this exact target. The setup read key is never reused here.{% endif %}</small>
+          <small>{% if has_stored_write_key %}A saved write key is available; leave this empty to use it.{% else %}Enter a separate write key for loading and read-back on this exact target. The setup read key is never reused here.{% endif %} For remote Odoo, Impodo checks its exact reviewed read/write scope and execution identity before loading.</small>
         </label>
         <label class="checkbox">
           <input type="checkbox" name="remember_write_api_key">

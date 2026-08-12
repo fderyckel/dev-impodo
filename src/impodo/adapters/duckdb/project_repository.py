@@ -129,6 +129,35 @@ class ProjectRepository(DuckDbRepository):
             ).fetchone()
         return bool(row and row[0])
 
+    def record_credential_event(
+        self,
+        project_id: str,
+        *,
+        event_type: str,
+        detail: str,
+        actor: Actor,
+    ) -> None:
+        """Append a credential event without mutating project semantics."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            connection.begin()
+            try:
+                self._insert_workspace_audit(
+                    connection,
+                    revision=self._project_revision(connection),
+                    event_type=event_type,
+                    detail=detail,
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
     def list(self) -> tuple[ProjectSummary, ...]:
         """List registry summaries without scanning contained project databases."""
 

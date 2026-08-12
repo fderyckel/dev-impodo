@@ -6,12 +6,13 @@ from Odoo 19's JSON-2 API or from deterministic JSON snapshots.  Both
 implementations return the same typed snapshot contracts, so the metadata
 validator, catalog, and engine do not depend on transport details.
 
-Only ``fields_get`` and ``search_read`` are available through the live
-connector.  This closed method surface is a deliberate safety control: the
-profiler can inspect an authorised target but cannot create, update, delete,
-or execute an arbitrary Odoo model method. The practical Stage-J writer lives
-in :mod:`impodo.odoo_writer` behind a separate port and durable journal; it is
-not added to ``OdooReadConnector``. Post-write checks use the separate closed
+The live connector exposes bounded metadata/record reads plus one fixed
+identity probe built from ``context_get``, an exact self-record read, and
+model-level ``has_access('read')`` calls. This closed surface is a deliberate
+safety control: the profiler cannot create, update, delete, enumerate users,
+or execute a caller-selected method. The practical Stage-J writer lives in
+:mod:`impodo.odoo_writer` behind a separate port and durable journal; it is not
+added to ``OdooReadConnector``. Post-write checks use the separate closed
 :mod:`impodo.odoo_readback` adapter.
 """
 
@@ -23,6 +24,7 @@ from io import StringIO
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import time
 from typing import Any, Callable, Mapping, Protocol, Sequence
@@ -34,6 +36,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from .models import (
     FieldMetadata,
     ModelMetadata,
+    OdooReadIdentity,
+    OdooWriteIdentity,
     TargetFingerprint,
     TargetRecord,
     UniqueConstraintMetadata,
@@ -42,6 +46,11 @@ from .models import (
     portable_value,
     target_identity_hash,
 )
+
+
+_TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
+_MAX_IDENTITY_MODELS = 100
+_MAX_IDENTITY_COMPANIES = 1_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +241,31 @@ class OdooReadConnector(Protocol):
         ...
 
 
+class OdooReadIdentityProbe(Protocol):
+    """Separate closed principal/context/model-permission probe contract."""
+
+    def probe_read_identity(
+        self,
+        models: Sequence[str],
+    ) -> OdooReadIdentity:
+        """Identify the authenticated user and observed read capability."""
+
+        ...
+
+
+class OdooWriteIdentityProbe(Protocol):
+    """Separate closed write-principal and read-back permission probe."""
+
+    def probe_write_identity(
+        self,
+        readable_models: Sequence[str],
+        writable_models: Sequence[str],
+    ) -> OdooWriteIdentity:
+        """Identify the user and its observed reviewed-scope capabilities."""
+
+        ...
+
+
 class ConnectorError(RuntimeError):
     """Base class for failures at the read-only connector boundary."""
 
@@ -242,6 +276,10 @@ class ConnectorConfigurationError(ConnectorError):
 
 class ConnectorAuthenticationError(ConnectorError):
     """Raised when Odoo rejects the supplied read credentials."""
+
+
+class ConnectorAuthorizationError(ConnectorError):
+    """Raised when the authenticated Odoo user lacks required read access."""
 
 
 class ConnectorTransportError(ConnectorError):
@@ -513,7 +551,9 @@ Transport = Callable[
 class Json2ReadConnector:
     """Odoo 19 JSON-2 adapter with a deliberately closed read surface."""
 
-    _READ_METHODS = frozenset({"fields_get", "search_read"})
+    _READ_METHODS = frozenset(
+        {"context_get", "fields_get", "has_access", "search_read"}
+    )
 
     def __init__(
         self,
@@ -598,6 +638,202 @@ class Json2ReadConnector:
         )
         self._fingerprint_limitations = tuple(limitations)
         return self._fingerprint
+
+    def probe_read_identity(
+        self,
+        models: Sequence[str],
+    ) -> OdooReadIdentity:
+        """Probe only the API key's own user and explicit model-read access.
+
+        Odoo 19 documents ``res.users/context_get`` as the JSON-2 mechanism
+        for retrieving the current user ID from an API key. The returned ID is
+        then used in one exact self-record ``search_read``. No broad user,
+        group, company, ACL, or rule catalogue is exposed.
+        """
+
+        requested_models = tuple(sorted(dict.fromkeys(models)))
+        if not requested_models:
+            raise ConnectorConfigurationError(
+                "read identity probe requires at least one model"
+            )
+        if len(requested_models) > _MAX_IDENTITY_MODELS:
+            raise ConnectorConfigurationError(
+                "read identity probe contains too many models"
+            )
+        if any(
+            _TECHNICAL_MODEL.fullmatch(model) is None
+            for model in requested_models
+        ):
+            raise ConnectorConfigurationError(
+                "read identity probe contains an invalid model"
+            )
+
+        raw_context = self._post_read_method(
+            "res.users",
+            "context_get",
+            {"context": dict(self._config.context)},
+        )
+        if not isinstance(raw_context, Mapping):
+            raise ConnectorIncompleteResultError(
+                "Odoo read identity context is invalid"
+            )
+        try:
+            user_id = int(raw_context["uid"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ConnectorIncompleteResultError(
+                "Odoo read identity omitted the current user"
+            ) from error
+        if user_id <= 0:
+            raise ConnectorIncompleteResultError(
+                "Odoo read identity contains an invalid current user"
+            )
+
+        user_rows = self._post_read_method(
+            "res.users",
+            "search_read",
+            {
+                "domain": [["id", "=", user_id]],
+                "fields": [
+                    "id",
+                    "login",
+                    "company_id",
+                    "group_ids",
+                    "lang",
+                    "tz",
+                    "share",
+                ],
+                "limit": 2,
+                "order": "id asc",
+                "context": dict(self._config.context),
+            },
+        )
+        if not isinstance(user_rows, list) or len(user_rows) != 1:
+            raise ConnectorIncompleteResultError(
+                "Odoo read identity did not return the exact current user"
+            )
+        user = user_rows[0]
+        if not isinstance(user, Mapping):
+            raise ConnectorIncompleteResultError(
+                "Odoo read identity user is invalid"
+            )
+        try:
+            returned_user_id = int(user["id"])
+            login = str(user["login"]).strip()
+            lang = str(user.get("lang") or raw_context.get("lang") or "").strip()
+            timezone_name = str(
+                user.get("tz") or raw_context.get("tz") or ""
+            ).strip()
+            primary_company_id = _many2one_id(user["company_id"])
+            group_ids = _positive_ids(user["group_ids"])
+            share = bool(user["share"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ConnectorIncompleteResultError(
+                "Odoo read identity user fields are invalid"
+            ) from error
+        if returned_user_id != user_id or not login:
+            raise ConnectorIncompleteResultError(
+                "Odoo read identity does not match the authenticated user"
+            )
+        if len(login) > 320 or len(lang) > 100 or len(timezone_name) > 100:
+            raise ConnectorIncompleteResultError(
+                "Odoo read identity user fields exceed safe limits"
+            )
+
+        company_rows = self._post_read_method(
+            "res.company",
+            "search_read",
+            {
+                "domain": [
+                    ["user_ids", "in", [user_id]],
+                    ["active", "=", True],
+                ],
+                "fields": ["id"],
+                "limit": _MAX_IDENTITY_COMPANIES + 1,
+                "order": "id asc",
+                "context": dict(self._config.context),
+            },
+        )
+        if not isinstance(company_rows, list):
+            raise ConnectorIncompleteResultError(
+                "Odoo read identity company scope is invalid"
+            )
+        if len(company_rows) > _MAX_IDENTITY_COMPANIES:
+            raise ConnectorIncompleteResultError(
+                "Odoo read identity company scope exceeds the safe limit"
+            )
+        try:
+            company_ids = _positive_ids(
+                tuple(item["id"] for item in company_rows)
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ConnectorIncompleteResultError(
+                "Odoo read identity company scope is invalid"
+            ) from error
+        if primary_company_id not in company_ids:
+            raise ConnectorIncompleteResultError(
+                "Odoo read identity omitted the primary company"
+            )
+        effective_company_ids = (
+            primary_company_id,
+            *(item for item in company_ids if item != primary_company_id),
+        )
+
+        for model in requested_models:
+            allowed = self._post_read_method(
+                model,
+                "has_access",
+                {
+                    "ids": [],
+                    "operation": "read",
+                    "context": dict(self._config.context),
+                },
+            )
+            if allowed is not True:
+                raise ConnectorAuthorizationError(
+                    f"Odoo read principal cannot access model {model}"
+                )
+
+        fingerprint = self.get_target_fingerprint()
+        principal_hash = _content_hash(
+            {
+                "contract_version": 1,
+                "kind": "ODOO_USER",
+                "target_hash": fingerprint.target_hash,
+                "user_id": user_id,
+                "login": login,
+            }
+        )
+        permission_hash = _content_hash(
+            {
+                "contract_version": 1,
+                "principal_hash": principal_hash,
+                "direct_group_ids": group_ids,
+                "readable_models": requested_models,
+                "share": share,
+            }
+        )
+        context_hash = _content_hash(
+            {
+                "contract_version": 2,
+                "kind": "ODOO_EXECUTION_CONTEXT",
+                "lang": lang,
+                "timezone": timezone_name,
+                "primary_company_id": primary_company_id,
+                "allowed_company_ids": effective_company_ids,
+                "active_test": bool(
+                    self._config.context.get("active_test", True)
+                ),
+                "request_context": portable_value(self._config.context),
+            }
+        )
+        return OdooReadIdentity(
+            target_hash=fingerprint.target_hash,
+            principal_hash=principal_hash,
+            permission_hash=permission_hash,
+            context_hash=context_hash,
+            readable_models=requested_models,
+            observed_at=fingerprint.snapshot_timestamp,
+        )
 
     def get_model_metadata(
         self, requests: Sequence[MetadataRequest]
@@ -925,6 +1161,84 @@ class Json2ReadConnector:
         raise ConnectorTransportError("Odoo JSON-2 read failed")
 
 
+class Json2WriteIdentityConnector:
+    """Closed JSON-2 probe for a separate write/read-back credential."""
+
+    def __init__(
+        self,
+        config: Json2Config,
+        *,
+        transport: Transport | None = None,
+        now: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._reader = Json2ReadConnector(
+            config,
+            transport=transport,
+            now=now,
+        )
+
+    def probe_write_identity(
+        self,
+        readable_models: Sequence[str],
+        writable_models: Sequence[str],
+    ) -> OdooWriteIdentity:
+        """Probe read-back plus write access without making a target change."""
+
+        read_identity = self._reader.probe_read_identity(readable_models)
+        requested_writes = tuple(sorted(dict.fromkeys(writable_models)))
+        if not requested_writes:
+            raise ConnectorConfigurationError(
+                "write identity probe requires at least one writable model"
+            )
+        if len(requested_writes) > _MAX_IDENTITY_MODELS:
+            raise ConnectorConfigurationError(
+                "write identity probe contains too many writable models"
+            )
+        if any(
+            _TECHNICAL_MODEL.fullmatch(model) is None
+            for model in requested_writes
+        ):
+            raise ConnectorConfigurationError(
+                "write identity probe contains an invalid writable model"
+            )
+        if not set(requested_writes).issubset(read_identity.readable_models):
+            raise ConnectorConfigurationError(
+                "every writable model must also be in the read-back scope"
+            )
+        for model in requested_writes:
+            allowed = self._reader._post_read_method(
+                model,
+                "has_access",
+                {
+                    "ids": [],
+                    "operation": "write",
+                    "context": dict(self._reader._config.context),
+                },
+            )
+            if allowed is not True:
+                raise ConnectorAuthorizationError(
+                    f"Odoo write principal cannot access model {model}"
+                )
+        return OdooWriteIdentity(
+            target_hash=read_identity.target_hash,
+            principal_hash=read_identity.principal_hash,
+            permission_hash=_content_hash(
+                {
+                    "contract_version": 1,
+                    "kind": "ODOO_WRITE_AND_READBACK_ACCESS",
+                    "principal_hash": read_identity.principal_hash,
+                    "read_permission_hash": read_identity.permission_hash,
+                    "readable_models": read_identity.readable_models,
+                    "writable_models": requested_writes,
+                }
+            ),
+            context_hash=read_identity.context_hash,
+            readable_models=read_identity.readable_models,
+            writable_models=requested_writes,
+            observed_at=read_identity.observed_at,
+        )
+
+
 def write_metadata_snapshot(
     snapshot: MetadataSnapshot,
     output_path: str | Path,
@@ -1080,6 +1394,42 @@ def _sha256_bytes(value: bytes) -> str:
     from hashlib import sha256
 
     return sha256(value).hexdigest()
+
+
+def _content_hash(value: Mapping[str, Any]) -> str:
+    """Return one canonical non-secret evidence hash."""
+
+    return "sha256:" + _sha256_bytes(canonical_json_bytes(value))
+
+
+def _many2one_id(value: Any) -> int:
+    """Parse only the identifier portion of one JSON-2 many2one value."""
+
+    candidate = value[0] if isinstance(value, (list, tuple)) and value else value
+    if isinstance(candidate, bool):
+        raise ValueError("boolean is not a valid Odoo identifier")
+    identifier = int(candidate)
+    if identifier <= 0:
+        raise ValueError("Odoo identifier must be positive")
+    return identifier
+
+
+def _positive_ids(value: Any) -> tuple[int, ...]:
+    """Validate one bounded many2many identifier projection."""
+
+    if not isinstance(value, (list, tuple)) or len(value) > 10_000:
+        raise ValueError("Odoo identifier collection is invalid")
+    identifiers: list[int] = []
+    for item in value:
+        if isinstance(item, bool):
+            raise ValueError("boolean is not a valid Odoo identifier")
+        identifier = int(item)
+        if identifier <= 0:
+            raise ValueError("Odoo identifier must be positive")
+        identifiers.append(identifier)
+    if len(identifiers) != len(set(identifiers)):
+        raise ValueError("Odoo identifier collection contains duplicates")
+    return tuple(sorted(identifiers))
 
 
 def _write_json(path: str | Path, payload: Mapping[str, Any]) -> None:
