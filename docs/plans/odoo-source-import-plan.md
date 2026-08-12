@@ -26,11 +26,9 @@ change.
 
 **Implementation progress (2026-08-12):**
 
-- Slice 1 is implemented: persisted `FILE`/`ODOO` source mode,
-  version-1-to-version-2 project migration, conditional registration/file-
-  intake rules, the Odoo-only setup path, and eligibility-schema capture before
-  source freeze. Existing file projects migrate to `FILE` and keep their
-  workflow.
+- Slice 1 is implemented in the current schema: persisted `FILE`/`ODOO` source
+  mode, conditional registration/file-intake rules, the Odoo-only setup path,
+  and eligibility-schema capture before source freeze.
 - Slice 2 is implemented: target- and role-specific read/write vault IDs,
   separate browser fields and operating-system service labels, strict no-
   fallback retrieval, target-change/project-deletion cleanup, and a non-secret
@@ -50,13 +48,23 @@ change.
   hashes before target I/O; read-back re-probes and requires an exact match.
   Successful read/write credential storage and replacement append actor-bound
   lifecycle events containing only the random binding hash and storage class.
+- Slice 5 implements the first Phase-2 contract seam with one current source
+  representation: `FileSourceBinding`, `OdooSourceBinding`, and
+  `DerivedSourceBinding` are discriminated variants of `SourceDataset.source`.
+  Derived datasets no longer impersonate files. Strict deserializers accept
+  only this shape. A closed Odoo capture selection records one live-schema
+  model, approved scalar fields, active/archive policy, fixed 500-row paging
+  contract, and a hard row limit. Revisions are append-only with one current
+  pointer. Target or schema changes invalidate only the current pointer. The
+  browser can save this bounded plan and explicitly states that it performs no
+  Odoo request and freezes no rows. The project database likewise supports one
+  exact current schema generation; it contains no upgrade path.
 - The current permission hash covers directly observed group membership and
   model-level read outcomes, not a complete fingerprint of all ACL/record-rule
   definitions. Local no-key shell metadata also remains explicitly unverified.
   Local no-key write-principal parity, credential-removal audit receipts,
-  target-instance identity, and bounded Odoo record capture remain open. The
-  browser labels record freezing as locked rather than presenting it as
-  available.
+  target-instance identity, protected row-origin/capture manifests, quotas,
+  retention enforcement, and live bounded record capture remain open.
 
 ## 1. Outcome
 
@@ -221,10 +229,9 @@ Some foundations require refactoring rather than direct reuse:
 
 ### 3.3 Proposed initial limits
 
-- Maximum 25,000 captured records per selection, matching the current
-  materialized-path preparation boundary.
-- Maximum 100 selected fields, subject to a lower byte-size limit for wide
-  models.
+- Maximum 10,000 captured records per selection for the first reader slice.
+- Maximum 50 selected fields, subject to lower response and snapshot byte
+  limits once the transport reader is implemented.
 - Fixed read pages of at most 500 records.
 - Hard UTF-8 byte limits per value, row, response, snapshot, temporary capture,
   and retained project history, measured and documented before release.
@@ -456,12 +463,15 @@ exact-count scan merely for the UI.
 
 ### 5.6 Source, snapshot, and protected provenance contracts
 
-Do not create fake files, file IDs, table keys, or hashes. Introduce
-discriminated bindings and a forward DuckDB schema upgrade:
+Do not create fake files, file IDs, table keys, or hashes. Use the one current
+discriminated dataset-source contract:
 
-- `FileSourceBinding` preserves every existing file field and semantic hash;
+- `FileSourceBinding` contains the immutable file/table identity, parser
+  choices, and exact source/catalog hashes;
 - `OdooSourceBinding` contains capture/model/selection/schema/context/
   read-principal/target hashes and no credential;
+- `DerivedSourceBinding` contains its structural rule hash, sorted input
+  dataset identities, and exact derived-data hash;
 - Odoo dataset IDs are stable for the project source slot and model;
 - Odoo column stable keys derive from model plus technical field name, not a
   transient ordinal; and
@@ -486,11 +496,12 @@ restore handling. Phase 0 decides whether field-difference values require
 application-level encryption at rest in addition to platform disk protection;
 production cannot leave that decision implicit.
 
-The schema upgrade must migrate existing databases forward, deserialize legacy
-file selections as `FILE`, and prove their existing content hashes do not
-change. Historical Odoo captures count against a project quota and follow the
-project retention/deletion policy; failed candidates never count as retained
-evidence.
+The application creates and accepts one exact current database generation.
+There is no source-selection compatibility decoder and no database upgrade
+registry. A database from any other contract generation is rejected and must
+be recreated. Retained Odoo capture revisions count against a project quota
+and follow the project retention/deletion policy; failed candidates never count
+as retained evidence.
 
 ### 5.7 Streaming and atomic publication
 
@@ -536,9 +547,9 @@ After identity binding, the middle remains as origin-neutral as practical:
 - every intended target field must have a captured baseline;
 - quality, normalization, lineage, and accounting cover every captured row;
 - preparation opens only frozen local artifacts and makes zero Odoo calls; and
-- refresh invalidates approvals and prepared/current evidence. If model,
-  columns, and schema remain compatible, the UI may offer the old rules as an
-  explicitly unapproved rebase draft rather than silently applying them.
+- refresh invalidates approvals, mappings, and prepared/current evidence. The
+  user authors and approves a new mapping against the refreshed contract; no
+  prior-contract rule adapter or automatic rebase is retained.
 
 Same-name mappings may be suggested, but every field, transformation, and
 project writable-field approval remains explicit.
@@ -763,8 +774,8 @@ state. Do not start a later phase whose contract depends on an unmet exit gate.
   observed-permission, and context fingerprints. **Implemented in Slice 3.**
 - Add the equivalent remote write-principal probe and credential storage/
   replacement lifecycle audit events. **Implemented in Slice 4.**
-- Define a forward storage/contract migration from version 1 that preserves
-  existing `FILE` semantic hashes.
+- Create the complete current schema and reject every different contract
+  generation or version.
 
 **Exit gate**
 
@@ -777,6 +788,8 @@ state. Do not start a later phase whose contract depends on an unmet exit gate.
 **Deliverables**
 
 - Add discriminated file/Odoo source bindings and Odoo capture selection.
+  **Implemented in Slice 5 for the bounded selection plan; live row capture and
+  protected provenance remain open.**
 - Add target-bound row-origin, capture-manifest, and protected execution-origin
   contracts.
 - Add canonical row-data, provenance, target-instance, read-principal,
@@ -785,8 +798,8 @@ state. Do not start a later phase whose contract depends on an unmet exit gate.
 - Version deterministic serialization and add DuckDB history/current-pointer
   persistence, protected repository authorization, quotas, retention metadata,
   invalidation, and deletion.
-- Implement and test the version-1-to-version-2 migration without recomputing
-  legacy file hashes.
+- Test exact current-contract round trips and rejection of every other schema
+  generation, schema version, or source-binding shape.
 
 **Exit gate**
 
@@ -863,8 +876,8 @@ state. Do not start a later phase whose contract depends on an unmet exit gate.
   captured baseline for every target field that can become a write intent.
 - Feed Odoo snapshots through existing transformation, staging, quality,
   normalization, impact, and lineage paths.
-- Invalidate downstream evidence on refresh and expose compatible old rules
-  only as an explicitly unapproved rebase draft.
+- Invalidate downstream evidence and mappings on refresh; author the
+  replacement mapping against the one current contract.
 
 **Tests**
 

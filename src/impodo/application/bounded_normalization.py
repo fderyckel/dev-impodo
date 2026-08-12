@@ -131,6 +131,8 @@ class _BoundedNormalizationEffects(Iterable[NormalizationEffect]):
         self,
         impact: TransformationImpactRow,
         row_id: str,
+        *,
+        eligible: bool | None = None,
     ) -> tuple[NormalizationEffect, dict[str, object]] | None:
         if impact.outcome == "invalid":
             return None
@@ -197,15 +199,19 @@ class _BoundedNormalizationEffects(Iterable[NormalizationEffect]):
             before=before,
             after=after,
             eligible=(
-                self._eligible_row_ids.contains_canonical(row_id)
-                if callable(
-                    getattr(
-                        self._eligible_row_ids,
-                        "contains_canonical",
-                        None,
+                eligible
+                if eligible is not None
+                else (
+                    self._eligible_row_ids.contains_canonical(row_id)
+                    if callable(
+                        getattr(
+                            self._eligible_row_ids,
+                            "contains_canonical",
+                            None,
+                        )
                     )
+                    else row_id in self._eligible_row_ids
                 )
-                else row_id in self._eligible_row_ids
             ),
         )
         name, explanation = _change_language(candidate.rules, outcome)
@@ -219,6 +225,100 @@ class _BoundedNormalizationEffects(Iterable[NormalizationEffect]):
             "explanation": explanation,
             "owner_label": self._project.data_manager or "Data manager",
         }
+
+
+class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
+    """Expose the construct-once session ledger as logical Stage-G effects."""
+
+    def __init__(
+        self,
+        factory: _BoundedNormalizationEffects,
+        impact_rows: object,
+    ) -> None:
+        self._factory = factory
+        self._impact_rows = impact_rows
+
+    def prepare(self) -> dict[str, object]:
+        preparer = getattr(self._impact_rows, "prepare_normalization_facts")
+        return preparer(
+            effect_builder=self._build_effects,
+            finding_builder=self._build_findings,
+        )
+
+    @property
+    def prepared_run_id(self) -> str:
+        return str(getattr(self._impact_rows, "normalization_run_id"))
+
+    def _build_effects(self, rows):
+        for impact, row_id, eligible in rows:
+            built = self._factory._effect(
+                impact,
+                row_id,
+                eligible=bool(eligible),
+            )
+            if built is not None:
+                yield built
+
+    def _build_findings(self, issues):
+        for issue in issues:
+            if (
+                issue.policy is not QualityOutcomePolicy.WARNING
+                or issue.row_id is None
+            ):
+                continue
+            target_field = (
+                issue.affected_fields[0]
+                if issue.affected_fields
+                else "review"
+            )
+            group_id = _hash(
+                {
+                    "kind": NormalizationGroupKind.FINDING.value,
+                    "rule_id": issue.rule_id,
+                    "dataset": issue.dataset,
+                    "field": target_field,
+                    "reason": issue.reason_code,
+                }
+            )
+            yield (
+                group_id,
+                issue.issue_id,
+                issue.row_id,
+                {
+                    "rule_id": issue.rule_id,
+                    "kind": NormalizationGroupKind.FINDING,
+                    "outcome": NormalizationOutcome.REVIEW_FINDING,
+                    "dataset": issue.dataset,
+                    "target_field": target_field,
+                    "name": "Review this data finding",
+                    "explanation": issue.message,
+                    "owner_label": (
+                        issue.owner_label
+                        or self._factory._project.data_manager
+                        or "Data manager"
+                    ),
+                },
+            )
+
+    def __iter__(self) -> Iterator[NormalizationEffect]:
+        yield from getattr(
+            self._impact_rows,
+            "iter_normalization_effects",
+        )()
+
+    def copy_to_run(self, connection, run_id: str) -> int:
+        return int(
+            getattr(self._impact_rows, "copy_normalization_effects")(
+                connection,
+                run_id,
+            )
+        )
+
+    def iter_encoded_batches(self, connection, batch_size: int):
+        yield from getattr(
+            self._impact_rows,
+            "iter_normalization_effect_json_batches",
+        )(connection, batch_size)
 
 
 def build_bounded_normalization_evaluation(
@@ -250,93 +350,173 @@ def build_bounded_normalization_evaluation(
             "rules": _policy_manifest(mappings),
         }
     )
-    effects = _BoundedNormalizationEffects(
+    effect_factory = _BoundedNormalizationEffects(
         project=project,
         mapping_hash=staging.mapping_hash,
         mappings=mappings,
         impact_rows=impact_rows,
         eligible_row_ids=quality.eligible_row_ids,
     )
-    accumulators: dict[str, _GroupAccumulator] = {}
-    changed_row_ids: set[str] = set()
-    effect_count = 0
-    for effect, metadata in effects.iter_with_metadata():
-        accumulator = accumulators.get(effect.group_id)
-        if accumulator is None:
-            accumulator = _GroupAccumulator(metadata=metadata)
-            accumulators[effect.group_id] = accumulator
-        elif accumulator.metadata != metadata:
+    durable_methods = (
+        "prepare_normalization_facts",
+        "copy_normalization_effects",
+        "iter_normalization_effect_json_batches",
+        "iter_normalization_effects",
+    )
+    if all(callable(getattr(impact_rows, name, None)) for name in durable_methods):
+        durable_effects = _DurableNormalizationEffects(
+            effect_factory,
+            impact_rows,
+        )
+        effects: Iterable[NormalizationEffect] = durable_effects
+        summary = durable_effects.prepare()
+        effect_count = int(summary["effect_count"])
+        changed_record_count = int(summary["changed_record_count"])
+        examples = summary["examples"]
+        if not isinstance(examples, dict):
             raise BoundedNormalizationUnsupported
-        accumulator.add(effect)
-        effect_count += 1
-        if effect.eligible:
-            changed_row_ids.add(effect.row_id)
-
-    groups: list[NormalizationReviewGroup] = [
-        NormalizationReviewGroup(
-            group_id=group_id,
-            dataset_label=_human_label(str(accumulator.metadata["dataset"])),
-            field_label=_human_label(
-                str(accumulator.metadata["target_field"])
-            ),
-            eligible_count=accumulator.eligible_count,
-            set_aside_count=accumulator.set_aside_count,
-            examples=tuple(
-                item[1] for item in (accumulator.examples or ())
-            ),
-            **accumulator.metadata,
-        )
-        for group_id, accumulator in sorted(accumulators.items())
-    ]
-    warning_rows: dict[str, set[str]] = {}
-    warning_metadata: dict[str, dict[str, object]] = {}
-    for issue in quality.issues:
-        if (
-            issue.policy is not QualityOutcomePolicy.WARNING
-            or issue.row_id is None
-            or issue.row_id not in quality.eligible_row_ids
-        ):
-            continue
-        target_field = (
-            issue.affected_fields[0] if issue.affected_fields else "review"
-        )
-        group_id = _hash(
-            {
-                "kind": NormalizationGroupKind.FINDING.value,
-                "rule_id": issue.rule_id,
-                "dataset": issue.dataset,
-                "field": target_field,
-                "reason": issue.reason_code,
+        groups = []
+        for row in summary["effect_groups"]:
+            group_id = str(row[0])
+            metadata = {
+                "rule_id": str(row[1]),
+                "kind": NormalizationGroupKind(str(row[2])),
+                "outcome": NormalizationOutcome(str(row[3])),
+                "dataset": str(row[4]),
+                "target_field": str(row[5]),
+                "name": str(row[6]),
+                "explanation": str(row[7]),
+                "owner_label": str(row[8]),
             }
-        )
-        warning_rows.setdefault(group_id, set()).add(issue.row_id)
-        warning_metadata.setdefault(
-            group_id,
-            {
-                "rule_id": issue.rule_id,
-                "kind": NormalizationGroupKind.FINDING,
-                "outcome": NormalizationOutcome.REVIEW_FINDING,
-                "dataset": issue.dataset,
-                "target_field": target_field,
-                "name": "Review this data finding",
-                "explanation": issue.message,
-                "owner_label": (
-                    issue.owner_label or project.data_manager or "Data manager"
-                ),
-            },
-        )
-    for group_id, metadata in sorted(warning_metadata.items()):
-        groups.append(
+            groups.append(
+                NormalizationReviewGroup(
+                    group_id=group_id,
+                    dataset_label=_human_label(str(row[4])),
+                    field_label=_human_label(str(row[5])),
+                    eligible_count=int(row[9]),
+                    set_aside_count=int(row[10]),
+                    examples=tuple(
+                        NormalizationExample(source_row, before, after)
+                        for source_row, before, after in examples.get(
+                            group_id,
+                            (),
+                        )
+                    ),
+                    **metadata,
+                )
+            )
+        for row in summary["finding_groups"]:
+            metadata = {
+                "rule_id": str(row[1]),
+                "kind": NormalizationGroupKind(str(row[2])),
+                "outcome": NormalizationOutcome(str(row[3])),
+                "dataset": str(row[4]),
+                "target_field": str(row[5]),
+                "name": str(row[6]),
+                "explanation": str(row[7]),
+                "owner_label": str(row[8]),
+            }
+            groups.append(
+                NormalizationReviewGroup(
+                    group_id=str(row[0]),
+                    dataset_label=_human_label(str(row[4])),
+                    field_label=_human_label(str(row[5])),
+                    eligible_count=int(row[9]),
+                    set_aside_count=0,
+                    examples=(),
+                    **metadata,
+                )
+            )
+    else:
+        # Small-fixture compatibility oracle. Admitted direct runs always use
+        # the durable branch above and never allocate these whole-run sets.
+        effects = effect_factory
+        accumulators: dict[str, _GroupAccumulator] = {}
+        changed_row_ids: set[str] = set()
+        effect_count = 0
+        for effect, metadata in effect_factory.iter_with_metadata():
+            accumulator = accumulators.get(effect.group_id)
+            if accumulator is None:
+                accumulator = _GroupAccumulator(metadata=metadata)
+                accumulators[effect.group_id] = accumulator
+            elif accumulator.metadata != metadata:
+                raise BoundedNormalizationUnsupported
+            accumulator.add(effect)
+            effect_count += 1
+            if effect.eligible:
+                changed_row_ids.add(effect.row_id)
+        changed_record_count = len(changed_row_ids)
+        groups = [
             NormalizationReviewGroup(
                 group_id=group_id,
-                dataset_label=_human_label(str(metadata["dataset"])),
-                field_label=_human_label(str(metadata["target_field"])),
-                eligible_count=len(warning_rows[group_id]),
-                set_aside_count=0,
-                examples=(),
-                **metadata,
+                dataset_label=_human_label(
+                    str(accumulator.metadata["dataset"])
+                ),
+                field_label=_human_label(
+                    str(accumulator.metadata["target_field"])
+                ),
+                eligible_count=accumulator.eligible_count,
+                set_aside_count=accumulator.set_aside_count,
+                examples=tuple(
+                    item[1] for item in (accumulator.examples or ())
+                ),
+                **accumulator.metadata,
             )
-        )
+            for group_id, accumulator in sorted(accumulators.items())
+        ]
+        warning_rows: dict[str, set[str]] = {}
+        warning_metadata: dict[str, dict[str, object]] = {}
+        for issue in quality.issues:
+            if (
+                issue.policy is not QualityOutcomePolicy.WARNING
+                or issue.row_id is None
+                or issue.row_id not in quality.eligible_row_ids
+            ):
+                continue
+            target_field = (
+                issue.affected_fields[0]
+                if issue.affected_fields
+                else "review"
+            )
+            group_id = _hash(
+                {
+                    "kind": NormalizationGroupKind.FINDING.value,
+                    "rule_id": issue.rule_id,
+                    "dataset": issue.dataset,
+                    "field": target_field,
+                    "reason": issue.reason_code,
+                }
+            )
+            warning_rows.setdefault(group_id, set()).add(issue.row_id)
+            warning_metadata.setdefault(
+                group_id,
+                {
+                    "rule_id": issue.rule_id,
+                    "kind": NormalizationGroupKind.FINDING,
+                    "outcome": NormalizationOutcome.REVIEW_FINDING,
+                    "dataset": issue.dataset,
+                    "target_field": target_field,
+                    "name": "Review this data finding",
+                    "explanation": issue.message,
+                    "owner_label": (
+                        issue.owner_label
+                        or project.data_manager
+                        or "Data manager"
+                    ),
+                },
+            )
+        for group_id, metadata in sorted(warning_metadata.items()):
+            groups.append(
+                NormalizationReviewGroup(
+                    group_id=group_id,
+                    dataset_label=_human_label(str(metadata["dataset"])),
+                    field_label=_human_label(str(metadata["target_field"])),
+                    eligible_count=len(warning_rows[group_id]),
+                    set_aside_count=0,
+                    examples=(),
+                    **metadata,
+                )
+            )
     eligible_dataset_hash = canonical_eligible_dataset_hash(
         staging,
         quality,
@@ -355,6 +535,6 @@ def build_bounded_normalization_evaluation(
         effects=effects,
         groups=tuple(sorted(groups, key=lambda item: item.group_id)),
         effect_count=effect_count,
-        changed_record_count=len(changed_row_ids),
+        changed_record_count=changed_record_count,
         effective_dataset_hash=staging_content_hash,
     )

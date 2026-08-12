@@ -1,9 +1,9 @@
 """Shared DuckDB schema and write-batch settings."""
 
-# Historical schema versions 1-30 predate this generation and are unsupported.
-# Add one forward upgrade and increment this value for each future schema change.
-SCHEMA_GENERATION = "impodo-project-2026-08-baseline"
-SCHEMA_VERSION = 5
+# This build supports one exact current schema. A contract change starts a new
+# generation; projects from another generation are rejected, never upgraded.
+SCHEMA_GENERATION = "impodo-project-2026-08-current"
+SCHEMA_VERSION = 1
 PREFLIGHT_ROW_BATCH_SIZE = 1_000
 STAGING_ROW_BATCH_SIZE = 1_000
 QUALITY_ROW_BATCH_SIZE = 1_000

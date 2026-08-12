@@ -132,7 +132,7 @@ to know all concrete implementations.
 | Idempotent work | [`jobs.py`](../../src/impodo/jobs.py) | `JobRequest` binds actor/project/input hash to an idempotency key. The local dispatcher is synchronous but preserves queued/running/succeeded/failed transitions and future hosted-queue semantics. |
 | Local Odoo lifecycle | [`local_stack.py`](../../src/impodo/local_stack.py) | The service keeps session-only status and exact process ownership. It reads an allowlisted non-secret config subset and may stop/restart only services this Impodo process started; external services are probed but never adopted. |
 | Database boundary | [`adapters/duckdb/database.py`](../../src/impodo/adapters/duckdb/database.py) and [`unit_of_work.py`](../../src/impodo/adapters/duckdb/unit_of_work.py) | One hardened connection factory disables external access/extensions. Per-project UUID containment, schema preparation, explicit begin/commit/rollback, and shared unit-of-work scopes sit below all concrete repositories. |
-| Project schema | [`adapters/duckdb/schema/project.py`](../../src/impodo/adapters/duckdb/schema/project.py) and [`upgrades.py`](../../src/impodo/adapters/duckdb/schema/upgrades.py) | The August 2026 schema generation is at version 2; version 1 projects migrate atomically to explicit `FILE` source mode. Historical versions 1–30 from the retired generation remain unsupported because their generation marker differs. New databases receive the complete current schema, while supported projects apply registered one-version forward upgrades atomically. |
+| Project schema | [`adapters/duckdb/schema/project.py`](../../src/impodo/adapters/duckdb/schema/project.py) | This build creates and accepts one exact current schema generation at version 1. There is no runtime upgrade registry or compatibility reader. Any different generation or version is rejected and must be recreated with the current application. |
 | Evidence invalidation | [`adapters/duckdb/invalidation.py`](../../src/impodo/adapters/duckdb/invalidation.py) | Upstream writes retire dependent lifecycle state and remove only `current` pointers in the caller's transaction. Immutable historical evidence remains. The cascade follows staging/effective dataset → quality → normalization → preflight. |
 | Serialization and hashing | [`models.py`](../../src/impodo/models.py), [`domain/serialization.py`](../../src/impodo/domain/serialization.py), and DuckDB [`serialization.py`](../../src/impodo/adapters/duckdb/serialization.py) | Portable values and canonical JSON make content identities deterministic. Repository serializers adapt fixed row shapes without redefining domain semantics; numeric Odoo IDs remain forbidden from portable artifacts. |
 | Audit | [`adapters/duckdb/audit.py`](../../src/impodo/adapters/duckdb/audit.py) | Audit rows are appended inside the state-changing transaction, so a mutation and its actor evidence either commit or roll back together. |
@@ -158,7 +158,7 @@ when that pointer is invalidated or advanced.
 | Stage | Main object family | Owner and organization |
 | --- | --- | --- |
 | A — Project | `MigrationProject` contains setup identity, governance, target, immutable `SourceFile` references, and lifecycle summaries | `ProjectService` applies lifecycle rules through the `ProjectRepository` port; DuckDB `ProjectRepository` owns registry/project transactions and downstream invalidation |
-| B — Source | `SourceFile` → `SourceFileCatalog` → `SourceConfiguration` → versioned `SourceSelection` + immutable `SourceSnapshot` | `SourceIntakeService` owns compensated artifact intake; `SourceInspectionService` owns bounded inspection; `SourceWorkspaceService` owns confirmation, Parquet publication, and freezing; `SourceRepository` atomically owns selection/manifest current pointers |
+| B — Source | File origin: `SourceFile` → `SourceFileCatalog` → `SourceConfiguration` → versioned `SourceSelection` + immutable `SourceSnapshot`; Odoo origin currently: versioned `OdooCaptureSelection` + explicit source binding | `SourceIntakeService` owns compensated file intake; `SourceInspectionService` owns bounded inspection; `SourceWorkspaceService` owns file freezing and the no-I/O bounded Odoo capture plan; `SourceRepository` owns history/current pointers. Live Odoo row capture and provenance publication remain a later slice. |
 | C — Schema | `OdooModelCatalog` → permitted-model scope → `OdooSchemaCatalog` → versioned `SchemaGovernance`/`BusinessKeyDefinition` | Closed readers create snapshots; `SchemaWorkspaceService` verifies target identity and meaning; `SchemaRepository` owns current catalogs plus immutable governance revisions |
 | D — Mapping | recoverable `MappingWorkingDraft` → semantic `MappingDefinition` → immutable `MappingRevision` + `MappingValidationResult` → `MappingSubmission` | Nested mapping contracts describe datasets, identities, scalar providers, relationships, and totals; `MappingWorkspaceService` coordinates validation; `MappingRepository` owns optimistic draft/current/history pointers |
 
@@ -386,8 +386,10 @@ sequenceDiagram
    filters a complete target-bound `ir.model` snapshot into persistent model
    choices.
 4. [`SchemaWorkspaceService.capture`](../../src/impodo/application/schema_workspace_service.py)
-   requires a frozen source selection, exact permitted-model coverage, the
-   configured target identity, and Odoo 19 metadata. `capture_local_manual`
+   requires a frozen source selection for file-origin projects, but allows
+   eligibility-schema capture before source freeze for Odoo-origin projects.
+   It also requires exact permitted-model coverage, the configured target
+   identity, and Odoo 19 metadata. `capture_local_manual`
    stores an explicitly unverified alternative for local drafting only.
 5. [`SchemaWorkspaceService.govern`](../../src/impodo/application/schema_workspace_service.py)
    validates declared key/scope fields against the captured models and creates

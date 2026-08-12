@@ -248,12 +248,13 @@
     {% endif %}
     {% if project.source_mode.value == 'ODOO' and not selection %}
       <section class="form-card" id="schema-governance">
-        <p class="eyebrow">Next slice</p>
-        <h2>Choose and freeze the Odoo source records</h2>
+        <p class="eyebrow">Next step</p>
+        <h2>Define the bounded Odoo capture</h2>
         <p>
-          The record type and field metadata are ready. Matching rules remain
-          locked until an immutable Odoo source selection has been frozen.
+          The record type and field metadata are ready. Choose the exact scalar
+          fields and maximum record count that a later read-only capture may use.
         </p>
+        <a class="button primary" href="/projects/{{ project.project_id }}/sources">Define capture plan</a>
       </section>
     {% else %}
     <form method="post" action="/projects/{{ project.project_id }}/schema/govern">

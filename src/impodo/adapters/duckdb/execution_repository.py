@@ -145,7 +145,7 @@ class ExecutionRepository(DuckDbRepository):
                         f"run {canonical_run_id}: {len(run.rows)} planned row(s), "
                         f"{run.batch_rows} row(s) per Odoo batch; "
                         "write principal "
-                        f"{run.write_principal_hash or 'legacy-unbound'}"
+                        f"{run.write_principal_hash or 'unverified-local'}"
                     ),
                     actor=actor,
                 )

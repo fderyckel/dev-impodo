@@ -523,6 +523,7 @@ class SchemaWorkspaceService:
             read_principal_hash=identity_hashes["read_principal_hash"],
             read_permission_hash=identity_hashes["read_permission_hash"],
             read_context_hash=identity_hashes["read_context_hash"],
+            connection_target_hash=str(fingerprint["target_hash"]),
         )
         self.schemas.save_odoo_schema_catalog(
             project.project_id,

@@ -10,8 +10,6 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-import duckdb
-
 from impodo.access import (
     CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
@@ -24,8 +22,6 @@ from impodo.adapters.duckdb.schema_repository import SchemaRepository
 from impodo.adapters.duckdb.transformation_impact_repository import (
     TransformationImpactRepository,
 )
-from impodo.adapters.duckdb.constants import SCHEMA_GENERATION, SCHEMA_VERSION
-from impodo.adapters.duckdb.schema.upgrades import PROJECT_SCHEMA_UPGRADES
 from impodo.projects import (
     OdooConnectionMode,
     ProjectCompatibilityError,
@@ -370,7 +366,7 @@ class ProjectLifecycleTests(unittest.TestCase):
             )
             connection.execute("INSERT INTO schema_version VALUES (1)")
 
-        with self.assertRaisesRegex(ProjectCompatibilityError, "older Impodo"):
+        with self.assertRaisesRegex(ProjectCompatibilityError, "different Impodo"):
             self.repository.get(project.project_id)
 
         deleted = self.service.delete_project(
@@ -382,184 +378,23 @@ class ProjectLifecycleTests(unittest.TestCase):
         self.assertFalse(database_path.parent.exists())
         self.assertEqual(self.repository.list(), ())
 
-    def test_supported_project_schema_upgrades_once_and_atomically(self) -> None:
+    def test_noncurrent_project_schema_version_is_rejected(self) -> None:
         project = self.service.create_project(
             actor=LOCAL_ACTOR,
-            name="Forward-compatible project",
+            name="Different contract project",
             source_system="CSV",
         )
         database_path = (
             self.repository.project_directory(project.project_id)
             / "project.duckdb"
         )
-        upgrade_calls: list[int] = []
-
-        def upgrade_to_next_version(
-            connection: duckdb.DuckDBPyConnection,
-        ) -> None:
-            upgrade_calls.append(1)
+        with self.repository._connect(database_path) as connection:
             connection.execute(
-                "ALTER TABLE project ADD COLUMN schema_upgrade_probe VARCHAR"
+                "UPDATE schema_version SET version = 2 WHERE singleton_id = 1"
             )
 
-        with (
-            patch(
-                "impodo.adapters.duckdb.schema.project.SCHEMA_VERSION",
-                SCHEMA_VERSION + 1,
-            ),
-            patch.dict(
-                PROJECT_SCHEMA_UPGRADES,
-                {SCHEMA_VERSION: upgrade_to_next_version},
-                clear=True,
-            ),
-        ):
+        with self.assertRaisesRegex(ProjectCompatibilityError, "different Impodo"):
             self.repository.get(project.project_id)
-            self.repository.get(project.project_id)
-
-        with self.repository._connect(database_path) as connection:
-            schema_row = connection.execute(
-                """
-                SELECT generation, version
-                  FROM schema_version
-                 WHERE singleton_id = 1
-                """
-            ).fetchone()
-            probe_column = connection.execute(
-                """
-                SELECT column_name
-                  FROM information_schema.columns
-                 WHERE table_name = 'project'
-                   AND column_name = 'schema_upgrade_probe'
-                """
-            ).fetchone()
-        self.assertEqual(upgrade_calls, [1])
-        self.assertEqual(schema_row, (SCHEMA_GENERATION, SCHEMA_VERSION + 1))
-        self.assertEqual(probe_column, ("schema_upgrade_probe",))
-
-    def test_version_one_projects_upgrade_to_file_source_mode(self) -> None:
-        project = self.service.create_project(
-            actor=LOCAL_ACTOR,
-            name="File baseline project",
-            source_system="CSV",
-        )
-        database_path = (
-            self.repository.project_directory(project.project_id)
-            / "project.duckdb"
-        )
-        with self.repository._connect(database_path) as connection:
-            connection.execute("ALTER TABLE project DROP COLUMN source_mode")
-            connection.execute(
-                "UPDATE schema_version SET version = 1 WHERE singleton_id = 1"
-            )
-
-        upgraded = self.repository.get(project.project_id)
-
-        self.assertEqual(upgraded.source_mode, SourceMode.FILE)
-        with self.repository._connect(database_path) as connection:
-            schema_row = connection.execute(
-                "SELECT generation, version FROM schema_version"
-            ).fetchone()
-            source_mode = connection.execute(
-                "SELECT source_mode FROM project"
-            ).fetchone()
-        self.assertEqual(schema_row, (SCHEMA_GENERATION, SCHEMA_VERSION))
-        self.assertEqual(source_mode, ("FILE",))
-
-    def test_version_four_projects_gain_write_identity_journal_fields(self) -> None:
-        project = self.service.create_project(
-            actor=LOCAL_ACTOR,
-            name="Execution identity upgrade",
-            source_system="CSV",
-        )
-        database_path = (
-            self.repository.project_directory(project.project_id)
-            / "project.duckdb"
-        )
-        columns = (
-            "write_credential_binding_hash",
-            "write_principal_hash",
-            "write_permission_hash",
-            "write_context_hash",
-        )
-        with self.repository._connect(database_path) as connection:
-            for column in columns:
-                connection.execute(
-                    f"ALTER TABLE execution_run DROP COLUMN {column}"
-                )
-            connection.execute(
-                "UPDATE schema_version SET version = 4 WHERE singleton_id = 1"
-            )
-
-        self.repository.get(project.project_id)
-
-        with self.repository._connect(database_path) as connection:
-            schema_row = connection.execute(
-                "SELECT generation, version FROM schema_version"
-            ).fetchone()
-            stored_columns = connection.execute(
-                """
-                SELECT column_name
-                  FROM information_schema.columns
-                 WHERE table_name = 'execution_run'
-                   AND column_name LIKE 'write_%hash'
-                 ORDER BY column_name
-                """
-            ).fetchall()
-        self.assertEqual(schema_row, (SCHEMA_GENERATION, SCHEMA_VERSION))
-        self.assertEqual(
-            tuple(item[0] for item in stored_columns),
-            tuple(sorted(columns)),
-        )
-
-    def test_failed_project_schema_upgrade_rolls_back(self) -> None:
-        project = self.service.create_project(
-            actor=LOCAL_ACTOR,
-            name="Rollback-safe project",
-            source_system="CSV",
-        )
-        database_path = (
-            self.repository.project_directory(project.project_id)
-            / "project.duckdb"
-        )
-
-        def fail_upgrade(connection: duckdb.DuckDBPyConnection) -> None:
-            connection.execute(
-                "ALTER TABLE project ADD COLUMN failed_upgrade_probe VARCHAR"
-            )
-            raise RuntimeError("injected schema upgrade failure")
-
-        with (
-            patch(
-                "impodo.adapters.duckdb.schema.project.SCHEMA_VERSION",
-                SCHEMA_VERSION + 1,
-            ),
-            patch.dict(
-                PROJECT_SCHEMA_UPGRADES,
-                {SCHEMA_VERSION: fail_upgrade},
-                clear=True,
-            ),
-            self.assertRaisesRegex(RuntimeError, "injected schema upgrade"),
-        ):
-            self.repository.get(project.project_id)
-
-        with self.repository._connect(database_path) as connection:
-            version = connection.execute(
-                """
-                SELECT version
-                  FROM schema_version
-                 WHERE singleton_id = 1
-                """
-            ).fetchone()
-            probe_column = connection.execute(
-                """
-                SELECT column_name
-                  FROM information_schema.columns
-                 WHERE table_name = 'project'
-                   AND column_name = 'failed_upgrade_probe'
-                """
-            ).fetchone()
-        self.assertEqual(version, (SCHEMA_VERSION,))
-        self.assertIsNone(probe_column)
 
     def test_transformation_impact_snapshot_is_bounded_filterable_and_atomic(
         self,

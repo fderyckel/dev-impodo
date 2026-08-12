@@ -9,6 +9,7 @@ import unittest
 
 import polars as pl
 
+from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.compiler.columnar_transformation import (
     COLUMNAR_CAPABILITY_MATRIX,
     ColumnarCompilationError,
@@ -637,13 +638,15 @@ def _selection() -> SourceSelection:
     dataset = SourceDataset(
         dataset_id=DATASET_ID,
         name="products",
-        file_id="file-products",
-        table_key="sheet:products",
-        source_sha256=HASH_A,
-        catalog_hash=HASH_B,
-        encoding=None,
-        delimiter=None,
-        header_row=1,
+        source=FileSourceBinding(
+            file_id="file-products",
+            table_key="sheet:products",
+            source_sha256=HASH_A,
+            catalog_hash=HASH_B,
+            encoding=None,
+            delimiter=None,
+            header_row=1,
+        ),
         row_count=100,
         columns=tuple(
             SourceDatasetColumn(

@@ -10,6 +10,7 @@ from impodo.application.preparation_capability import (
     compile_preparation_capability,
 )
 from impodo.domain.errors import ReadinessError
+from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.staging.scale import (
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
@@ -140,13 +141,15 @@ def _selection(
         SourceDataset(
             dataset_id=f"dataset:{index}",
             name=dataset_names[index - 1],
-            file_id=f"file:{index}",
-            table_key="csv",
-            source_sha256="sha256:" + str(index) * 64,
-            catalog_hash="sha256:" + "a" * 64,
-            encoding="utf-8",
-            delimiter=",",
-            header_row=1,
+            source=FileSourceBinding(
+                file_id=f"file:{index}",
+                table_key="csv",
+                source_sha256="sha256:" + str(index) * 64,
+                catalog_hash="sha256:" + "a" * 64,
+                encoding="utf-8",
+                delimiter=",",
+                header_row=1,
+            ),
             row_count=row_count,
             columns=(
                 SourceDatasetColumn(

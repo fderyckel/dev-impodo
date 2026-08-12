@@ -13,6 +13,7 @@ from ...derived_entities import (
     related_dataset_links,
 )
 from ...domain.schema.governance import BusinessKeyStatus
+from ...domain.source_binding import FileSourceBinding
 from ...domain.mapping.contracts import (
     MAX_CONTROL_TOTALS_PER_DATASET,
     ScalarFieldMapping,
@@ -1044,15 +1045,16 @@ def _mapping_source_samples(
     source_dataset,
     source_catalogs,
 ) -> dict[str, tuple[str | None, ...]]:
-    if source_dataset.dataset_id.startswith("derived:"):
+    if not isinstance(source_dataset.source, FileSourceBinding):
         return {}
+    binding = source_dataset.source
     catalog = next(
         (
             item
             for item in source_catalogs
-            if item.file_id == source_dataset.file_id
-            and item.source_sha256 == source_dataset.source_sha256
-            and item.content_hash == source_dataset.catalog_hash
+            if item.file_id == binding.file_id
+            and item.source_sha256 == binding.source_sha256
+            and item.content_hash == binding.catalog_hash
         ),
         None,
     )
@@ -1060,7 +1062,7 @@ def _mapping_source_samples(
         (
             item
             for item in (catalog.tables if catalog is not None else ())
-            if item.table_key == source_dataset.table_key
+            if item.table_key == binding.table_key
         ),
         None,
     )

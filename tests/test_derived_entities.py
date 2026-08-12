@@ -34,6 +34,7 @@ from impodo.domain.schema.governance import (
     BusinessKeyStatus,
     SchemaGovernance,
 )
+from impodo.domain.source_binding import FileSourceBinding
 from impodo.adapters.duckdb.database import DuckDbDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.project_repository import ProjectRepository
@@ -181,22 +182,19 @@ class DerivedEntityPreviewTests(unittest.TestCase):
         self.assertEqual(preview.duplicate_child_key_sample_rows, 1)
         self.assertEqual(preview.blank_child_key_sample_rows, 1)
 
-    def test_contract_one_lookup_plan_remains_readable(self) -> None:
+    def test_noncurrent_plan_contract_is_rejected(self) -> None:
         selection, _catalog = _source_evidence()
-        plan = DerivedEntityPlan(
-            plan_id=str(uuid4()),
-            version=1,
-            project_id=selection.project_id,
-            source_selection_hash=selection.content_hash,
-            rules=(_rule(selection),),
-            updated_at=datetime.now(timezone.utc),
-            updated_by="Test operator",
-            contract_version=1,
-        )
-
-        repeated = DerivedEntityPlan.from_json(plan.to_json())
-
-        self.assertEqual(repeated, plan)
+        with self.assertRaisesRegex(ValueError, "contract version"):
+            DerivedEntityPlan(
+                plan_id=str(uuid4()),
+                version=1,
+                project_id=selection.project_id,
+                source_selection_hash=selection.content_hash,
+                rules=(_rule(selection),),
+                updated_at=datetime.now(timezone.utc),
+                updated_by="Test operator",
+                contract_version=1,
+            )
 
     def test_company_scope_is_part_of_parent_and_child_guidance(self) -> None:
         rule = RelatedDatasetRule(
@@ -285,6 +283,11 @@ class DerivedEntityPreviewTests(unittest.TestCase):
             ),
             content_hash="sha256:" + "2" * 64,
             origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash="sha256:" + "3" * 64,
+            read_principal_hash="sha256:" + "4" * 64,
+            read_permission_hash="sha256:" + "5" * 64,
+            read_context_hash="sha256:" + "6" * 64,
+            connection_target_hash="sha256:" + "7" * 64,
         )
         governance = SchemaGovernance(
             governance_id=str(uuid4()),
@@ -403,6 +406,11 @@ class DerivedEntityPreviewTests(unittest.TestCase):
             ),
             content_hash="sha256:" + "2" * 64,
             origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash="sha256:" + "3" * 64,
+            read_principal_hash="sha256:" + "4" * 64,
+            read_permission_hash="sha256:" + "5" * 64,
+            read_context_hash="sha256:" + "6" * 64,
+            connection_target_hash="sha256:" + "7" * 64,
         )
         governance = SchemaGovernance(
             governance_id=str(uuid4()),
@@ -674,13 +682,15 @@ def _source_evidence(
     dataset = SourceDataset(
         dataset_id="dataset:products",
         name="products",
-        file_id=catalog.file_id,
-        table_key="csv",
-        source_sha256=catalog.source_sha256,
-        catalog_hash=catalog.content_hash,
-        encoding="utf-8",
-        delimiter=",",
-        header_row=1,
+        source=FileSourceBinding(
+            file_id=catalog.file_id,
+            table_key="csv",
+            source_sha256=catalog.source_sha256,
+            catalog_hash=catalog.content_hash,
+            encoding="utf-8",
+            delimiter=",",
+            header_row=1,
+        ),
         row_count=len(rows),
         columns=(
             SourceDatasetColumn(

@@ -41,6 +41,7 @@ from ..domain.staging.evaluator import (
 )
 from ..domain.coverage import ReferenceBundle
 from ..domain.source_snapshot import SourceSnapshot
+from ..domain.source_binding import require_file_source
 from ..domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
     PreparedCanonicalProjection,
@@ -245,7 +246,7 @@ def prepare_bounded_direct_session(
         )
     }
     source_hashes = {
-        item.name: f"sha256:{item.source_sha256.removeprefix('sha256:')}"
+        item.name: item.source_evidence_hash
         for item in effective_selection.datasets
     }
     modes = {
@@ -320,14 +321,15 @@ def prepare_bounded_direct_session(
     try:
         for effective in effective_selection.datasets:
             physical = physical_by_id[effective.dataset_id]
+            binding = require_file_source(physical.source)
             mapping = mapping_by_id[effective.dataset_id]
-            source_file = source_file_by_id.get(physical.file_id)
-            catalog = catalog_by_file.get(physical.file_id)
+            source_file = source_file_by_id.get(binding.file_id)
+            catalog = catalog_by_file.get(binding.file_id)
             table_catalog = next(
                 (
                     item
                     for item in (catalog.tables if catalog else ())
-                    if item.table_key == physical.table_key
+                    if item.table_key == binding.table_key
                 ),
                 None,
             )
@@ -519,9 +521,7 @@ def prepare_bounded_direct_session(
                 snapshot,
                 named_range=named_range,
             ) as source:
-                expected_hash = (
-                    f"sha256:{physical.source_sha256.removeprefix('sha256:')}"
-                )
+                expected_hash = binding.source_evidence_hash
                 if source.content_hash != expected_hash:
                     raise ReadinessError(
                         "Stored source content changed after selection"
@@ -796,13 +796,14 @@ def _open_preparation_source(
         project.project_id,
         source_file.stored_name,
     ) as path:
+        binding = require_file_source(dataset.source)
         with open_selected_source_batches(
             path,
             dataset=dataset.name,
-            table_key=dataset.table_key,
-            encoding=dataset.encoding,
-            delimiter=dataset.delimiter,
-            header_row=dataset.header_row,
+            table_key=binding.table_key,
+            encoding=binding.encoding,
+            delimiter=binding.delimiter,
+            header_row=binding.header_row,
             named_table_range=named_range,
             source_display_name=source_file.display_name,
             batch_size=BOUNDED_SOURCE_BATCH_SIZE,

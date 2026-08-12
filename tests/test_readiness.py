@@ -46,6 +46,7 @@ from impodo.domain.mapping.contracts import (
     ScalarFieldMapping,
     ValueMapping,
 )
+from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.mapping.scalar_values import evaluate_scalar_mapping_value
 from impodo.value_rules import (
     ScalarTransformPolicy,
@@ -167,27 +168,31 @@ class BrowserReadinessStagingTests(unittest.TestCase):
     ) -> None:
         selection = self._evidence((("BOM-A", "1", "COMP-1"),))[2]
         dataset = selection.datasets[0]
+        binding = dataset.source
+        self.assertIsInstance(binding, FileSourceBinding)
 
         self.assertEqual(
             canonical_source_hashes(selection),
-            {dataset.file_id: f"sha256:{dataset.source_sha256}"},
+            {binding.file_id: binding.source_sha256},
         )
         prefixed = replace(
             selection,
             datasets=(
-                replace(dataset, source_sha256=f"sha256:{dataset.source_sha256}"),
+                replace(
+                    dataset,
+                    source=replace(
+                        binding,
+                        source_sha256=binding.source_sha256,
+                    ),
+                ),
             ),
         )
         self.assertEqual(
             canonical_source_hashes(prefixed),
-            {dataset.file_id: f"sha256:{dataset.source_sha256}"},
+            {binding.file_id: binding.source_sha256},
         )
-        malformed = replace(
-            selection,
-            datasets=(replace(dataset, source_sha256="sha256:not-a-digest"),),
-        )
-        with self.assertRaisesRegex(ReadinessError, "could not verify"):
-            canonical_source_hashes(malformed)
+        with self.assertRaisesRegex(ValueError, "invalid"):
+            replace(binding, source_sha256="sha256:not-a-digest")
 
     def test_bom_rows_become_unique_headers_and_related_lines(self) -> None:
         evidence = self._evidence(
@@ -252,13 +257,15 @@ class BrowserReadinessStagingTests(unittest.TestCase):
             artifact_store,
         ) = evidence
         physical_dataset = physical.datasets[0]
+        binding = physical_dataset.source
+        self.assertIsInstance(binding, FileSourceBinding)
         loaded = load_selected_source_table(
             artifact_store.path,
             dataset=physical_dataset.name,
-            table_key=physical_dataset.table_key,
-            encoding=physical_dataset.encoding,
-            delimiter=physical_dataset.delimiter,
-            header_row=physical_dataset.header_row,
+            table_key=binding.table_key,
+            encoding=binding.encoding,
+            delimiter=binding.delimiter,
+            header_row=binding.header_row,
         )
 
         direct = evaluate_browser_mapping(
@@ -309,7 +316,7 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         self.assertTrue(
             all(
                 row.lineage.source_hash
-                == f"sha256:{physical_dataset.source_sha256}"
+                == physical_dataset.source_evidence_hash
                 for row in direct.canonical_run.rows
             )
         )
@@ -826,13 +833,15 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         physical_dataset = SourceDataset(
             dataset_id="dataset:bom",
             name="bom_rows",
-            file_id=file_id,
-            table_key="csv",
-            source_sha256=digest,
-            catalog_hash=catalog.content_hash,
-            encoding="utf-8",
-            delimiter=",",
-            header_row=1,
+            source=FileSourceBinding(
+                file_id=file_id,
+                table_key="csv",
+                source_sha256=digest,
+                catalog_hash=catalog.content_hash,
+                encoding="utf-8",
+                delimiter=",",
+                header_row=1,
+            ),
             row_count=len(rows),
             columns=columns,
         )
@@ -1006,13 +1015,15 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         physical_dataset = SourceDataset(
             dataset_id="dataset:products",
             name="products",
-            file_id=file_id,
-            table_key="csv",
-            source_sha256=digest,
-            catalog_hash=catalog.content_hash,
-            encoding="utf-8",
-            delimiter=",",
-            header_row=1,
+            source=FileSourceBinding(
+                file_id=file_id,
+                table_key="csv",
+                source_sha256=digest,
+                catalog_hash=catalog.content_hash,
+                encoding="utf-8",
+                delimiter=",",
+                header_row=1,
+            ),
             row_count=len(rows),
             columns=columns,
         )

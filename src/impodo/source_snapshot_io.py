@@ -7,8 +7,8 @@ with Polars streaming execution, validates the completed artifact, and only
 then asks the artifact store to atomically publish it.
 
 Preparation routes supported direct datasets to the native columnar adapter.
-Preview and unsupported mappings retain the bounded ``SourceRow`` compatibility
-adapter as the Python semantic oracle.
+Preview and mappings outside the columnar capability set use the bounded
+``SourceRow`` adapter as the Python semantic oracle.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ from .domain.source_snapshot import (
     SourceSnapshotContractError,
     SourceSnapshotSchema,
 )
+from .domain.source_binding import require_file_source
 from .inspection import SourceFileCatalog, SourceTableCatalog
 from .projects import MigrationProject, SourceFile
 from .source import (
@@ -82,12 +83,13 @@ class SourceSnapshotPublisher:
     ) -> SourceSnapshotPublication:
         """Write, validate, and atomically publish one immutable snapshot."""
 
+        binding = require_file_source(dataset.source)
         _validate_snapshot_bindings(project, selection, dataset, catalog, source_file)
         table = _selected_table(catalog, dataset)
         schema = source_snapshot_schema(dataset)
         batch_rows = source_snapshot_batch_rows(len(schema.columns))
         expected_headers = tuple(item.source_name for item in dataset.columns)
-        expected_source_hash = _canonical_hash(dataset.source_sha256)
+        expected_source_hash = _canonical_hash(binding.source_sha256)
         named_range = (
             table.named_tables[0].cell_range
             if table.kind == "NAMED_TABLE" and table.named_tables
@@ -101,10 +103,10 @@ class SourceSnapshotPublisher:
             with open_selected_source_batches(
                 source_path,
                 dataset=dataset.name,
-                table_key=dataset.table_key,
-                encoding=dataset.encoding,
-                delimiter=dataset.delimiter,
-                header_row=dataset.header_row,
+                table_key=binding.table_key,
+                encoding=binding.encoding,
+                delimiter=binding.delimiter,
+                header_row=binding.header_row,
                 named_table_range=named_range,
                 source_display_name=source_file.display_name,
                 batch_size=batch_rows,
@@ -148,10 +150,10 @@ class SourceSnapshotPublisher:
                         project_id=project.project_id,
                         dataset_id=dataset.dataset_id,
                         dataset_name=dataset.name,
-                        file_id=dataset.file_id,
-                        table_key=dataset.table_key,
+                        file_id=binding.file_id,
+                        table_key=binding.table_key,
                         source_sha256=expected_source_hash,
-                        catalog_hash=dataset.catalog_hash,
+                        catalog_hash=binding.catalog_hash,
                         physical_selection_hash=selection.content_hash,
                         schema=schema,
                         row_count=row_count,
@@ -235,7 +237,7 @@ def load_source_snapshot_table(
     path: str | Path,
     snapshot: SourceSnapshot,
 ) -> SourceTable:
-    """Materialize a snapshot only for the existing bounded legacy evaluator."""
+    """Materialize a snapshot for the current bounded Python evaluator."""
 
     with open_source_snapshot_batches(path, snapshot) as source:
         rows = tuple(row for batch in source.iter_batches() for row in batch)
@@ -255,14 +257,15 @@ def validate_snapshot_for_dataset(
 ) -> None:
     """Reject a manifest that is not the current exact physical dataset."""
 
+    binding = require_file_source(dataset.source)
     if (
         snapshot.project_id != selection.project_id
         or snapshot.dataset_id != dataset.dataset_id
         or snapshot.dataset_name != dataset.name
-        or snapshot.file_id != dataset.file_id
-        or snapshot.table_key != dataset.table_key
-        or snapshot.source_sha256 != _canonical_hash(dataset.source_sha256)
-        or snapshot.catalog_hash != dataset.catalog_hash
+        or snapshot.file_id != binding.file_id
+        or snapshot.table_key != binding.table_key
+        or snapshot.source_sha256 != _canonical_hash(binding.source_sha256)
+        or snapshot.catalog_hash != binding.catalog_hash
         or snapshot.physical_selection_hash != selection.content_hash
         or snapshot.row_count != dataset.row_count
         or snapshot.schema != source_snapshot_schema(dataset)
@@ -545,15 +548,16 @@ def _validate_snapshot_bindings(
     catalog: SourceFileCatalog,
     source_file: SourceFile,
 ) -> None:
+    binding = require_file_source(dataset.source)
     if selection.project_id != project.project_id or dataset not in selection.datasets:
         raise SourceLoadError("Source snapshot belongs to another selection")
     if (
-        source_file.file_id != dataset.file_id
-        or catalog.file_id != dataset.file_id
-        or _canonical_hash(source_file.sha256) != _canonical_hash(dataset.source_sha256)
+        source_file.file_id != binding.file_id
+        or catalog.file_id != binding.file_id
+        or _canonical_hash(source_file.sha256) != _canonical_hash(binding.source_sha256)
         or _canonical_hash(catalog.source_sha256)
-        != _canonical_hash(dataset.source_sha256)
-        or catalog.content_hash != dataset.catalog_hash
+        != _canonical_hash(binding.source_sha256)
+        or catalog.content_hash != binding.catalog_hash
     ):
         raise SourceLoadError("Frozen source evidence is incomplete")
 
@@ -562,8 +566,9 @@ def _selected_table(
     catalog: SourceFileCatalog,
     dataset: SourceDataset,
 ) -> SourceTableCatalog:
+    binding = require_file_source(dataset.source)
     try:
-        return next(item for item in catalog.tables if item.table_key == dataset.table_key)
+        return next(item for item in catalog.tables if item.table_key == binding.table_key)
     except StopIteration as error:
         raise SourceLoadError("Frozen source table is unavailable") from error
 

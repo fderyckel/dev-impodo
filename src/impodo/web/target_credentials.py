@@ -51,21 +51,6 @@ def target_write_credential_id(project: MigrationProject) -> str:
     return _target_credential_id(project, TargetCredentialRole.WRITE)
 
 
-def legacy_target_credential_id(project: MigrationProject) -> str:
-    """Return the retired shared-role ID for deletion only, never retrieval."""
-
-    target = "\0".join(
-        (
-            project.project_id,
-            _connection_mode(project),
-            project.odoo_base_url,
-            project.odoo_database,
-        )
-    ).encode("utf-8")
-    digest = hashlib.sha256(target).hexdigest()[:24]
-    return f"{project.project_id}:{digest}"
-
-
 def store_target_credential(
     store: SecretStore,
     project: MigrationProject,
@@ -113,7 +98,7 @@ def get_target_credential(
     project: MigrationProject,
     role: TargetCredentialRole,
 ) -> TargetCredential | None:
-    """Load and validate one role envelope without legacy or cross-role fallback."""
+    """Load and validate one exact role envelope without cross-role fallback."""
 
     encoded = store.get(_target_credential_id(project, role))
     if encoded is None:
@@ -166,15 +151,11 @@ def audit_stored_target_credential(
 def delete_target_credentials(
     store: SecretStore,
     project: MigrationProject,
-    *,
-    include_legacy: bool = True,
 ) -> None:
-    """Delete both role entries and optionally the retired shared entry."""
+    """Delete both current role-qualified credential entries."""
 
     store.delete(target_read_credential_id(project))
     store.delete(target_write_credential_id(project))
-    if include_legacy:
-        store.delete(legacy_target_credential_id(project))
 
 
 def local_read_credential_binding_hash(project: MigrationProject) -> str:

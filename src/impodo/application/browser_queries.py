@@ -14,6 +14,7 @@ from typing import Protocol
 
 from ..derived_entities import DerivedEntityPlan
 from ..domain.source_snapshot import SourceSnapshot
+from ..domain.odoo_capture import OdooCaptureSelection
 from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
 from ..domain.mapping.validation.evidence import MappingValidationResult
 from ..domain.schema.governance import SchemaGovernance
@@ -60,6 +61,9 @@ class SourceQueryRepository(Protocol):
     def get_current_source_snapshots(
         self, project_id: str
     ) -> tuple[SourceSnapshot, ...]: ...
+    def get_current_odoo_capture_selection(
+        self, project_id: str
+    ) -> OdooCaptureSelection | None: ...
 
 
 class DerivedEntityQueryRepository(Protocol):
@@ -202,6 +206,11 @@ class BrowserQueryService:
         self, project_id: str
     ) -> tuple[SourceSnapshot, ...]:
         return self._sources.get_current_source_snapshots(project_id)
+
+    def get_current_odoo_capture_selection(
+        self, project_id: str
+    ) -> OdooCaptureSelection | None:
+        return self._sources.get_current_odoo_capture_selection(project_id)
 
     def get_derived_entity_plan(
         self, project_id: str

@@ -16,6 +16,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from ..canonical import ValueParseError, parse_value
 from ..domain.serialization import content_hash
+from ..domain.source_binding import DerivedSourceBinding
 from ..models import portable_value
 from ..profile import NormalizationSpec
 from ..source import SourceRow, SourceTable
@@ -677,25 +678,22 @@ def _table(rule, rows, headers, tables):
 
 def _output_dataset(rule, available, *, row_count):
     sources = [available[item] for item in sorted(_source_ids(rule))]
+    source_hashes = {
+        item.dataset_id: item.source_evidence_hash for item in sources
+    }
     return SourceDataset(
         dataset_id=structural_dataset_id(rule),
         name=rule.output_dataset_name,
-        file_id=sources[0].file_id,
-        table_key=f"structural:{rule.rule_id}",
-        source_sha256=content_hash(
-            {
-                "rule": rule.to_dict(),
-                "sources": {
-                    item.dataset_id: item.source_sha256 for item in sources
-                },
-            }
+        source=DerivedSourceBinding(
+            rule_hash=content_hash(rule.to_dict()),
+            input_dataset_ids=tuple(item.dataset_id for item in sources),
+            data_hash=content_hash(
+                {
+                    "rule": rule.to_dict(),
+                    "sources": source_hashes,
+                }
+            ),
         ),
-        catalog_hash=content_hash(
-            {"rule": rule.to_dict(), "columns": [asdict(item) for item in rule.output_columns]}
-        ),
-        encoding=None,
-        delimiter=None,
-        header_row=1,
         row_count=row_count,
         columns=tuple(
             SourceDatasetColumn(

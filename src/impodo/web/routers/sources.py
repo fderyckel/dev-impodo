@@ -12,8 +12,9 @@ from __future__ import annotations
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
+from ...domain.odoo_capture import ODOO_CAPTURE_FIELD_TYPES
 from ...inspection import SourceInspectionError, SourceInspectionOptions
-from ...projects import ProjectStatus
+from ...projects import ProjectStatus, SourceMode
 from ...workspace_errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
@@ -37,6 +38,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 f"/projects/{project.project_id}/details",
                 status_code=303,
             )
+        if project.source_mode is SourceMode.ODOO:
+            return _render_odoo_capture_selection(request, context, project)
         catalogs = context.queries.get_source_catalogs(project_id)
         return _render(
             request,
@@ -48,6 +51,52 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 for item in context.queries.get_source_configurations(project_id)
             },
             source_groups=_source_groups(catalogs),
+        )
+
+    @router.post("/projects/{project_id}/sources/odoo-selection")
+    async def save_odoo_capture_selection(request: Request, project_id: str):
+        """Save a bounded protected capture plan without reading Odoo rows."""
+
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {
+                "csrf_token",
+                "dataset_name",
+                "model",
+                "field_names",
+                "include_archived",
+                "max_rows",
+            },
+        )
+        project = context.queries.get(project_id)
+        try:
+            selection = await run_in_threadpool(
+                context.sources.define_odoo_capture_selection,
+                project_id,
+                dataset_name=_text(form, "dataset_name"),
+                model=_text(form, "model"),
+                field_names=tuple(form.getlist("field_names")),
+                include_archived=bool(_text(form, "include_archived")),
+                max_rows=_text(form, "max_rows"),
+                actor=context.actor,
+            )
+        except WorkspaceError as error:
+            return _render_odoo_capture_selection(
+                request,
+                context,
+                project,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            f"Saved Odoo capture plan version {selection.version}. No rows were read.",
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/sources#selection-saved",
+            status_code=303,
         )
 
     @router.post("/projects/{project_id}/sources/inspect")
@@ -201,7 +250,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
             for index, choice in enumerate(choices)
         }
         try:
-            selection = await run_in_threadpool(
+            await run_in_threadpool(
                 context.sources.freeze_selection,
                 project_id,
                 dataset_names=names,
@@ -266,3 +315,70 @@ def _source_groups(catalogs):
                 )
         result[catalog.file_id] = tuple(groups)
     return result
+
+
+def _render_odoo_capture_selection(
+    request: Request,
+    context: WebContext,
+    project,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+):
+    schema = context.queries.get_odoo_schema_catalog(project.project_id)
+    current = context.queries.get_current_odoo_capture_selection(
+        project.project_id
+    )
+    models = tuple(schema.models) if schema is not None else ()
+    requested_model = request.query_params.get("model", "").strip()
+    selected_model = next(
+        (
+            item
+            for item in models
+            if item.name
+            == (
+                requested_model
+                or (current.model if current is not None else models[0].name)
+            )
+        ),
+        models[0] if models else None,
+    )
+    fields = tuple(
+        sorted(
+            (
+                field
+                for field in (selected_model.fields if selected_model else ())
+                if field.type in ODOO_CAPTURE_FIELD_TYPES
+                and field.name not in {"id", "write_date"}
+            ),
+            key=lambda item: (item.label.casefold(), item.name),
+        )
+    )
+    selected_field_names = (
+        frozenset(current.field_names)
+        if current is not None and current.model == selected_model.name
+        else frozenset()
+    ) if selected_model is not None else frozenset()
+    dataset_name_default = (
+        current.dataset_name
+        if current is not None and current.model == selected_model.name
+        else (
+            f"odoo_{selected_model.name.replace('.', '_')}"[:63]
+            if selected_model is not None
+            else ""
+        )
+    )
+    return _render(
+        request,
+        "project_odoo_capture_selection.html",
+        project=project,
+        schema=schema,
+        models=models,
+        selected_model=selected_model,
+        fields=fields,
+        selected_field_names=selected_field_names,
+        dataset_name_default=dataset_name_default,
+        current=current,
+        error=error,
+        status_code=status_code,
+    )

@@ -39,12 +39,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--columns", type=int, default=30)
     parser.add_argument("--mapped-fields", type=int, default=20)
     parser.add_argument(
+        "--effect-fields",
+        type=int,
+        default=1,
+        help="Mapped non-identity fields that produce one trim effect per row.",
+    )
+    parser.add_argument(
         "--workload",
         choices=("products", "bom", "customers"),
         default="products",
     )
     parser.add_argument("--dirty", action="store_true")
     parser.add_argument("--advanced", action="store_true")
+    parser.add_argument(
+        "--normalization-replay-control",
+        action="store_true",
+        help="Measure the pre-Phase-4 two-pass normalization route.",
+    )
     parser.add_argument(
         "--trace-python-allocations",
         action="store_true",
@@ -92,7 +103,11 @@ def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
             "advanced": arguments.advanced,
             "columns": arguments.columns,
             "dirty": arguments.dirty,
+            "effect_fields": arguments.effect_fields,
             "mapped_fields": arguments.mapped_fields,
+            "normalization_replay_control": (
+                arguments.normalization_replay_control
+            ),
             "rows": arguments.rows,
             "runs": arguments.runs,
             "workload": arguments.workload,
@@ -216,9 +231,15 @@ def _run_once(
             "IMPODO_PREPARATION_BENCHMARK_REVISION": revision,
             "IMPODO_PREPARATION_SCALE_COLUMNS": str(arguments.columns),
             "IMPODO_PREPARATION_SCALE_DIRTY": "1" if arguments.dirty else "0",
+            "IMPODO_PREPARATION_SCALE_EFFECT_FIELDS": str(
+                arguments.effect_fields
+            ),
             "IMPODO_PREPARATION_SCALE_JSON": "1",
             "IMPODO_PREPARATION_SCALE_MAPPED_FIELDS": str(
                 arguments.mapped_fields
+            ),
+            "IMPODO_PREPARATION_NORMALIZATION_REPLAY_CONTROL": (
+                "1" if arguments.normalization_replay_control else "0"
             ),
             "IMPODO_PREPARATION_SCALE_ROWS": str(arguments.rows),
             "IMPODO_PREPARATION_TRACE_PYTHON": (
@@ -253,6 +274,7 @@ def _require_comparable_results(results: tuple[dict[str, object], ...]) -> None:
     invariant_keys = (
         "columns",
         "dirty",
+        "effect_fields",
         "mapped_fields",
         "revision",
         "rows",
@@ -380,6 +402,10 @@ def _validate_arguments(arguments: argparse.Namespace) -> None:
     if not 3 <= arguments.mapped_fields <= arguments.columns:
         raise PreparationBenchmarkError(
             "Mapped fields must be between three and the source column count"
+        )
+    if not 1 <= arguments.effect_fields < arguments.mapped_fields:
+        raise PreparationBenchmarkError(
+            "Effect fields must be positive and exclude the identity field"
         )
     if arguments.timeout_seconds < 1:
         raise PreparationBenchmarkError("Benchmark timeout must be positive")

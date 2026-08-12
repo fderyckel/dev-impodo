@@ -91,6 +91,10 @@ class ProjectNavigation:
 _TEMPLATE_LOCATION = {
     "project_overview.html": ("", "Project overview"),
     "project_sources.html": ("source", "Check source files"),
+    "project_odoo_capture_selection.html": (
+        "source",
+        "Define bounded Odoo capture",
+    ),
     "project_datasets.html": ("source", "Choose tables"),
     "project_derived_entities.html": (
         "source",
@@ -152,6 +156,13 @@ def build_project_navigation(
         schema = context.queries.get_odoo_schema_catalog(
             current_project.project_id
         )
+        capture_selection = (
+            context.queries.get_current_odoo_capture_selection(
+                current_project.project_id
+            )
+            if schema is not None
+            else None
+        )
         stages = [
             _stage(
                 current_project.project_id,
@@ -159,10 +170,8 @@ def build_project_navigation(
                 1,
                 "Odoo source data",
                 "/schema",
-                status="current",
-                status_label=(
-                    "Choose source records" if schema is not None else "Current"
-                ),
+                status=("complete" if schema is not None else "current"),
+                status_label=("Complete" if schema is not None else "Current"),
                 pages=(
                     _page(
                         current_project.project_id,
@@ -184,9 +193,34 @@ def build_project_navigation(
                 stage_id="source",
                 number=2,
                 label="Freeze Odoo records",
-                href=None,
-                status="locked",
-                status_label="Available in the next implementation slice",
+                href=(
+                    f"/projects/{current_project.project_id}/sources"
+                    if schema is not None
+                    else None
+                ),
+                status=(
+                    "complete"
+                    if capture_selection is not None
+                    else ("current" if schema is not None else "locked")
+                ),
+                status_label=(
+                    "Capture plan saved"
+                    if capture_selection is not None
+                    else (
+                        "Define capture plan"
+                        if schema is not None
+                        else "Capture Odoo fields first"
+                    )
+                ),
+                pages=(
+                    _page(
+                        current_project.project_id,
+                        "odoo-capture-selection",
+                        "Define bounded capture",
+                        "/sources",
+                        complete=capture_selection is not None,
+                    ),
+                ) if schema is not None else (),
             ),
             *(
                 WorkflowStage(
@@ -214,9 +248,14 @@ def build_project_navigation(
         )
 
     project_id = current_project.project_id
-    source_selection = context.queries.get_source_selection(project_id)
-    source_configurations = context.queries.get_source_configurations(project_id)
-    derived_plan = context.queries.get_derived_entity_plan(project_id)
+    try:
+        source_selection = context.queries.get_source_selection(project_id)
+        source_configurations = context.queries.get_source_configurations(project_id)
+        derived_plan = context.queries.get_derived_entity_plan(project_id)
+    except WorkspaceError:
+        source_selection = None
+        source_configurations = ()
+        derived_plan = None
     sources_confirmed = bool(current_project.source_files) and (
         len(source_configurations) == len(current_project.source_files)
         and all(item.selected_table_keys for item in source_configurations)

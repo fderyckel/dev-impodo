@@ -17,7 +17,6 @@ from impodo.web.target_credentials import (
     TargetCredentialRole,
     delete_target_credentials,
     get_target_credential,
-    legacy_target_credential_id,
     local_read_credential_binding_hash,
     store_target_credential,
     target_read_credential_id,
@@ -74,7 +73,7 @@ class TargetCredentialTests(unittest.TestCase):
         self.assertEqual(payload["secret"], "read-secret")
         self.assertRegex(read.binding_hash, r"^sha256:[0-9a-f]{64}$")
 
-    def test_write_credential_never_falls_back_to_read_or_legacy_secret(
+    def test_write_credential_never_falls_back_to_read_secret(
         self,
     ) -> None:
         store_target_credential(
@@ -84,12 +83,6 @@ class TargetCredentialTests(unittest.TestCase):
             "read-secret",
             persistent=False,
         )
-        self.store.set(
-            legacy_target_credential_id(self.project),
-            "legacy-shared-secret",
-            persistent=False,
-        )
-
         self.assertIsNone(
             get_target_credential(
                 self.store,
@@ -162,7 +155,7 @@ class TargetCredentialTests(unittest.TestCase):
                 TargetCredentialRole.WRITE,
             )
 
-    def test_delete_removes_both_roles_and_retired_shared_entry(self) -> None:
+    def test_delete_removes_both_current_roles(self) -> None:
         for role, secret in (
             (TargetCredentialRole.READ, "read-secret"),
             (TargetCredentialRole.WRITE, "write-secret"),
@@ -174,12 +167,6 @@ class TargetCredentialTests(unittest.TestCase):
                 secret,
                 persistent=False,
             )
-        self.store.set(
-            legacy_target_credential_id(self.project),
-            "legacy-secret",
-            persistent=False,
-        )
-
         delete_target_credentials(self.store, self.project)
 
         self.assertEqual(self.store.values, {})
@@ -204,13 +191,13 @@ class TargetCredentialTests(unittest.TestCase):
         vault = CredentialVault()
         read_id = target_read_credential_id(self.project)
         write_id = target_write_credential_id(self.project)
-        legacy_id = legacy_target_credential_id(self.project)
 
         with patch("impodo.secrets.keyring") as keyring:
             vault.set(read_id, "read-secret", persistent=True)
             vault.set(write_id, "write-secret", persistent=True)
             fresh_vault = CredentialVault()
-            fresh_vault.get(legacy_id)
+            fresh_vault.get(read_id)
+            fresh_vault.get(write_id)
 
         keyring.set_password.assert_any_call(
             READ_SERVICE_NAME,
@@ -222,7 +209,8 @@ class TargetCredentialTests(unittest.TestCase):
             write_id,
             "write-secret",
         )
-        keyring.get_password.assert_called_with(READ_SERVICE_NAME, legacy_id)
+        keyring.get_password.assert_any_call(READ_SERVICE_NAME, read_id)
+        keyring.get_password.assert_any_call(WRITE_SERVICE_NAME, write_id)
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ from impodo.access import LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbDatabase
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
+from impodo.domain.source_binding import FileSourceBinding
 from impodo.models import BusinessReference, LogicalReference
 from impodo.projects import MigrationProject, OdooConnectionMode, ProjectStatus
 from impodo.staging import StagingRunStatus
@@ -75,13 +76,15 @@ class CanonicalStagingStoreTests(unittest.TestCase):
                 SourceDataset(
                     dataset_id="dataset:contacts",
                     name="contacts",
-                    file_id=str(uuid4()),
-                    table_key="csv",
-                    source_sha256=SOURCE_HASH,
-                    catalog_hash="sha256:" + "a" * 64,
-                    encoding="utf-8",
-                    delimiter=",",
-                    header_row=1,
+                    source=FileSourceBinding(
+                        file_id=str(uuid4()),
+                        table_key="csv",
+                        source_sha256=SOURCE_HASH,
+                        catalog_hash="sha256:" + "a" * 64,
+                        encoding="utf-8",
+                        delimiter=",",
+                        header_row=1,
+                    ),
                     row_count=1,
                     columns=(
                         SourceDatasetColumn(

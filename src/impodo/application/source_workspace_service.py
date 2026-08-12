@@ -14,7 +14,6 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime, timezone
 from hashlib import sha256
 import re
@@ -29,12 +28,20 @@ from ..domain.source_snapshot import (
     SourceSnapshot,
     source_snapshot_logical_hash,
 )
+from ..domain.odoo_capture import (
+    MAX_ODOO_CAPTURE_ROWS,
+    ODOO_CAPTURE_FIELD_TYPES,
+    OdooCaptureContractError,
+    OdooCaptureFilterPolicy,
+    OdooCaptureSelection,
+)
+from ..domain.source_binding import FileSourceBinding, require_file_source
 from ..inspection import (
     SourceFileCatalog,
     SourceInspectionError,
     SourceTableCatalog,
 )
-from ..projects import MigrationProject, ProjectStatus
+from ..projects import MigrationProject, ProjectStatus, SourceMode
 from ..source import SourceLoadError
 from ..source_snapshot_io import (
     SourceSnapshotPublisher,
@@ -46,14 +53,14 @@ from ..workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
+    OdooSchemaCatalog,
+    SchemaOrigin,
 )
 from ..workspace_errors import WorkspaceError
 from ..domain.serialization import content_hash
 
 
 _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
-
-
 class ProjectReader(Protocol):
     """Read the project lifecycle needed before dataset freezing."""
 
@@ -127,6 +134,34 @@ class SourceWorkspaceRepository(Protocol):
         """Return every immutable snapshot path referenced by DuckDB."""
         ...
 
+    def get_current_odoo_capture_selection(
+        self,
+        project_id: str,
+    ) -> OdooCaptureSelection | None:
+        """Return the current protected Odoo capture selection."""
+
+        ...
+
+    def save_odoo_capture_selection(
+        self,
+        project_id: str,
+        selection: OdooCaptureSelection,
+        *,
+        actor: Actor,
+    ) -> None:
+        """Append and select one immutable bounded Odoo capture plan."""
+
+        ...
+
+
+class OdooCaptureSchemaReader(Protocol):
+    """Read the exact schema evidence that an Odoo capture plan must bind."""
+
+    def get_odoo_schema_catalog(
+        self,
+        project_id: str,
+    ) -> OdooSchemaCatalog | None: ...
+
 
 class SourceWorkspaceService:
     """Own Stage B confirmation and versioned dataset-freeze rules.
@@ -142,15 +177,134 @@ class SourceWorkspaceService:
         sources: SourceWorkspaceRepository,
         authorization: AuthorizationPolicy,
         artifacts: ArtifactStore | None = None,
+        *,
+        schemas: OdooCaptureSchemaReader | None = None,
     ) -> None:
         self.projects = projects
         self.sources = sources
         self.authorization = authorization
         self.artifacts = artifacts
+        self.schemas = schemas
         self.snapshot_publisher = (
             SourceSnapshotPublisher(artifacts) if artifacts is not None else None
         )
         self._snapshot_lock = RLock()
+
+    def define_odoo_capture_selection(
+        self,
+        project_id: str,
+        *,
+        dataset_name: str,
+        model: str,
+        field_names: Iterable[str],
+        include_archived: bool,
+        max_rows: int | str,
+        actor: Actor,
+    ) -> OdooCaptureSelection:
+        """Save a closed, bounded capture plan without contacting Odoo."""
+
+        self.authorization.require(
+            actor,
+            Capability.SOURCE_SELECT,
+            project_id=project_id,
+        )
+        project = self.projects.get(project_id)
+        if project.status is not ProjectStatus.REGISTERED:
+            raise WorkspaceError(
+                "Register the project before selecting Odoo source records"
+            )
+        if project.source_mode is not SourceMode.ODOO:
+            raise WorkspaceError(
+                "Odoo capture selections are available only for Odoo-source projects"
+            )
+        if self.schemas is None:
+            raise WorkspaceError("Odoo capture schema access is not configured")
+        schema = self.schemas.get_odoo_schema_catalog(project_id)
+        if schema is None:
+            raise WorkspaceError(
+                "Capture the eligible Odoo fields before selecting records"
+            )
+        if schema.origin is not SchemaOrigin.LIVE_API:
+            raise WorkspaceError(
+                "Replace the unverified local schema draft with a live capture"
+            )
+        if not (
+            schema.connection_target_hash
+            and schema.read_principal_hash
+            and schema.read_permission_hash
+            and schema.read_context_hash
+        ):
+            raise WorkspaceError(
+                "Refresh the authenticated Odoo schema identity before selecting records"
+            )
+        schema_model = next(
+            (item for item in schema.models if item.name == model),
+            None,
+        )
+        if schema_model is None:
+            raise WorkspaceError(
+                "Choose one model from the current captured Odoo schema"
+            )
+        fields_by_name = {item.name: item for item in schema_model.fields}
+        normalized_fields = tuple(sorted(dict.fromkeys(field_names)))
+        if not normalized_fields:
+            raise WorkspaceError("Choose at least one Odoo source field")
+        unsupported = next(
+            (
+                name
+                for name in normalized_fields
+                if name not in fields_by_name
+                or fields_by_name[name].type not in ODOO_CAPTURE_FIELD_TYPES
+                or name in {"id", "write_date"}
+            ),
+            None,
+        )
+        if unsupported is not None:
+            raise WorkspaceError(
+                f"Odoo field {unsupported} is not eligible for bounded source capture"
+            )
+        try:
+            parsed_max_rows = int(max_rows)
+        except (TypeError, ValueError) as error:
+            raise WorkspaceError("Odoo capture row limit must be a whole number") from error
+        if str(max_rows).strip() != str(parsed_max_rows):
+            raise WorkspaceError("Odoo capture row limit must be a whole number")
+        if not 1 <= parsed_max_rows <= MAX_ODOO_CAPTURE_ROWS:
+            raise WorkspaceError(
+                f"Odoo capture row limit must be between 1 and "
+                f"{MAX_ODOO_CAPTURE_ROWS}"
+            )
+        current = self.sources.get_current_odoo_capture_selection(project_id)
+        try:
+            selection = OdooCaptureSelection.create(
+                selection_id=(current.selection_id if current else str(uuid4())),
+                version=(current.version + 1 if current else 1),
+                project_id=project_id,
+                dataset_name=dataset_name.strip(),
+                model=model,
+                field_names=normalized_fields,
+                filter_policy=(
+                    OdooCaptureFilterPolicy.ACTIVE_AND_ARCHIVED_RECORDS
+                    if include_archived
+                    else OdooCaptureFilterPolicy.ACTIVE_RECORDS
+                ),
+                max_rows=parsed_max_rows,
+                connection_target_hash=schema.connection_target_hash,
+                schema_scope_hash=schema.content_hash,
+                read_principal_hash=schema.read_principal_hash,
+                read_permission_hash=schema.read_permission_hash,
+                context_hash=schema.read_context_hash,
+                created_at=datetime.now(timezone.utc),
+                created_by=actor.identity.display_name,
+            )
+        except OdooCaptureContractError as error:
+            raise WorkspaceError(str(error)) from error
+        self.sources.save_odoo_capture_selection(
+            project_id,
+            selection,
+            actor=actor,
+        )
+        return selection
 
     def confirm_source(
         self,
@@ -324,13 +478,15 @@ class SourceWorkspaceService:
                             table.table_key,
                         ),
                         name=name,
-                        file_id=catalog.file_id,
-                        table_key=table.table_key,
-                        source_sha256=catalog.source_sha256,
-                        catalog_hash=catalog.content_hash,
-                        encoding=catalog.encoding,
-                        delimiter=catalog.delimiter,
-                        header_row=table.header_row or 1,
+                        source=FileSourceBinding(
+                            file_id=catalog.file_id,
+                            table_key=table.table_key,
+                            source_sha256=catalog.source_sha256,
+                            catalog_hash=catalog.content_hash,
+                            encoding=catalog.encoding,
+                            delimiter=catalog.delimiter,
+                            header_row=table.header_row or 1,
+                        ),
                         row_count=table.row_count,
                         columns=tuple(
                             SourceDatasetColumn(
@@ -353,7 +509,7 @@ class SourceWorkspaceService:
         content = {
             "project_id": project_id,
             "version": version,
-            "datasets": [asdict(item) for item in datasets],
+            "datasets": [item.to_dict() for item in datasets],
         }
         selection = SourceSelection(
             selection_id=str(uuid4()),
@@ -379,8 +535,9 @@ class SourceWorkspaceService:
         snapshots: list[SourceSnapshot] = []
         try:
             for dataset in selection.datasets:
-                catalog = catalogs.get(dataset.file_id)
-                source_file = source_files.get(dataset.file_id)
+                binding = require_file_source(dataset.source)
+                catalog = catalogs.get(binding.file_id)
+                source_file = source_files.get(binding.file_id)
                 if catalog is None or source_file is None:
                     raise WorkspaceError("Frozen source evidence is incomplete")
                 schema = source_snapshot_schema(dataset)
@@ -388,13 +545,13 @@ class SourceWorkspaceService:
                     project_id=project_id,
                     dataset_id=dataset.dataset_id,
                     dataset_name=dataset.name,
-                    file_id=dataset.file_id,
-                    table_key=dataset.table_key,
+                    file_id=binding.file_id,
+                    table_key=binding.table_key,
                     source_sha256=(
                         "sha256:"
-                        + dataset.source_sha256.removeprefix("sha256:")
+                        + binding.source_sha256.removeprefix("sha256:")
                     ),
-                    catalog_hash=dataset.catalog_hash,
+                    catalog_hash=binding.catalog_hash,
                     physical_selection_hash=selection.content_hash,
                     reader_contract_version=SOURCE_READER_CONTRACT_VERSION,
                     schema_hash=schema.content_hash,

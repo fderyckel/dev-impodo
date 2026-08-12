@@ -38,6 +38,7 @@ from impodo.domain.source_snapshot import (
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
+from impodo.domain.source_binding import FileSourceBinding, require_file_source
 from impodo.domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.staging.evaluator import compile_browser_row_transformer
 from impodo.domain.staging.transformation_impact import (
@@ -432,13 +433,15 @@ def _selection() -> SourceSelection:
     dataset = SourceDataset(
         dataset_id=DATASET_ID,
         name="products",
-        file_id="file-products",
-        table_key="csv",
-        source_sha256=HASH_A,
-        catalog_hash=HASH_B,
-        encoding="utf-8",
-        delimiter=",",
-        header_row=1,
+        source=FileSourceBinding(
+            file_id="file-products",
+            table_key="csv",
+            source_sha256=HASH_A,
+            catalog_hash=HASH_B,
+            encoding="utf-8",
+            delimiter=",",
+            header_row=1,
+        ),
         row_count=4,
         columns=tuple(
             SourceDatasetColumn(
@@ -714,14 +717,15 @@ def _write_snapshot(
     path = root / "source.parquet"
     pl.DataFrame(data, schema=polars_schema, strict=True).write_parquet(path)
     parquet_hash = "sha256:" + sha256(path.read_bytes()).hexdigest()
+    binding = require_file_source(dataset.source)
     snapshot = SourceSnapshot.create(
         project_id=selection.project_id,
         dataset_id=dataset.dataset_id,
         dataset_name=dataset.name,
-        file_id=dataset.file_id,
-        table_key=dataset.table_key,
-        source_sha256=dataset.source_sha256,
-        catalog_hash=dataset.catalog_hash,
+        file_id=binding.file_id,
+        table_key=binding.table_key,
+        source_sha256=binding.source_sha256,
+        catalog_hash=binding.catalog_hash,
         physical_selection_hash=selection.content_hash,
         schema=schema,
         row_count=len(rows),

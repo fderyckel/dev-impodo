@@ -37,6 +37,7 @@ from impodo.workspace_contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,
+    SchemaOrigin,
 )
 
 
@@ -394,6 +395,12 @@ class PreflightClassificationTests(unittest.TestCase):
                 ),
             ),
             content_hash="sha256:captured-schema",
+            origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash="sha256:read-credential",
+            read_principal_hash="sha256:read-principal",
+            read_permission_hash="sha256:read-permission",
+            read_context_hash="sha256:read-context",
+            connection_target_hash="sha256:connection-target",
         )
 
         result = PreflightEngine().run(

@@ -24,12 +24,15 @@ from ...domain.source_snapshot import (
     SourceSnapshotColumn,
     SourceSnapshotSchema,
 )
+from ...domain.source_binding import require_file_source
+from ...domain.odoo_capture import ODOO_CAPTURE_FIELD_TYPES, OdooCaptureSelection
 from ...inspection import SourceFileCatalog, SourceInspectionError
-from ...projects import ProjectNotFoundError
+from ...projects import ProjectNotFoundError, ProjectStatus, SourceMode
 from ...workspace_contracts import (
     SourceConfiguration,
     SourceDataset,
     SourceSelection,
+    OdooSchemaCatalog,
 )
 from ...workspace_errors import WorkspaceError
 from .database import DuckDbDatabase
@@ -304,7 +307,174 @@ class SourceRepository(DuckDbRepository):
             project_id,
             "SELECT selection_json FROM source_selection WHERE singleton_id = 1",
         )
-        return SourceSelection.from_json(value) if value else None
+        if value is None:
+            return None
+        try:
+            return SourceSelection.from_json(value)
+        except (TypeError, ValueError) as error:
+            raise WorkspaceError("Stored source selection is invalid") from error
+
+    def get_current_odoo_capture_selection(
+        self,
+        project_id: str,
+    ) -> OdooCaptureSelection | None:
+        """Return the current bounded Odoo capture plan without target I/O."""
+
+        value = self._read_singleton_json(
+            project_id,
+            """
+            SELECT revision.selection_json
+              FROM odoo_capture_selection_current AS current
+              JOIN odoo_capture_selection_revision AS revision
+                ON revision.selection_id = current.selection_id
+               AND revision.version = current.version
+             WHERE current.singleton_id = 1
+            """,
+        )
+        return OdooCaptureSelection.from_json(value) if value else None
+
+    def get_odoo_capture_selection_history(
+        self,
+        project_id: str,
+    ) -> tuple[OdooCaptureSelection, ...]:
+        """Return immutable Odoo selection revisions in version order."""
+
+        return tuple(
+            OdooCaptureSelection.from_json(value)
+            for value in self._read_json_rows(
+                project_id,
+                """
+                SELECT selection_json
+                  FROM odoo_capture_selection_revision
+                 ORDER BY version, selection_id
+                """,
+            )
+        )
+
+    def save_odoo_capture_selection(
+        self,
+        project_id: str,
+        selection: OdooCaptureSelection,
+        *,
+        actor: Actor,
+    ) -> None:
+        """Append a schema/identity-bound plan and advance its pointer atomically."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            connection.begin()
+            project = connection.execute(
+                "SELECT source_mode, status FROM project"
+            ).fetchone()
+            if project is None:
+                raise ProjectNotFoundError("Project not found")
+            if (
+                str(project[0]) != SourceMode.ODOO.value
+                or str(project[1]) != ProjectStatus.REGISTERED.value
+            ):
+                raise WorkspaceError(
+                    "Only registered Odoo-source projects can save a capture plan"
+                )
+            schema_row = connection.execute(
+                "SELECT catalog_json FROM odoo_schema_catalog WHERE singleton_id = 1"
+            ).fetchone()
+            if schema_row is None:
+                raise WorkspaceError(
+                    "Capture the eligible Odoo fields before selecting records"
+                )
+            schema = OdooSchemaCatalog.from_json(str(schema_row[0]))
+            schema_model = next(
+                (item for item in schema.models if item.name == selection.model),
+                None,
+            )
+            if (
+                selection.project_id != project_id
+                or selection.connection_target_hash
+                != schema.connection_target_hash
+                or selection.schema_scope_hash != schema.content_hash
+                or selection.read_principal_hash != schema.read_principal_hash
+                or selection.read_permission_hash != schema.read_permission_hash
+                or selection.context_hash != schema.read_context_hash
+                or schema_model is None
+                or not set(selection.field_names).issubset(
+                    {
+                        field.name
+                        for field in schema_model.fields
+                        if field.type in ODOO_CAPTURE_FIELD_TYPES
+                        and field.name not in {"id", "write_date"}
+                    }
+                )
+            ):
+                raise WorkspaceError(
+                    "Odoo capture selection does not match the current schema identity"
+                )
+            current = connection.execute(
+                """
+                SELECT selection_id, version
+                  FROM odoo_capture_selection_current
+                 WHERE singleton_id = 1
+                """
+            ).fetchone()
+            expected_version = int(current[1]) + 1 if current else 1
+            expected_id = str(current[0]) if current else selection.selection_id
+            if (
+                selection.version != expected_version
+                or selection.selection_id != expected_id
+            ):
+                raise WorkspaceError(
+                    "Odoo capture selection was modified by another request"
+                )
+            revision = self._project_revision(connection)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO odoo_capture_selection_revision
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        selection.selection_id,
+                        selection.version,
+                        selection.content_hash,
+                        selection.model,
+                        selection.created_at.isoformat(),
+                        selection.created_by,
+                        selection.to_json(),
+                    ],
+                )
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO odoo_capture_selection_current
+                    VALUES (1, ?, ?)
+                    """,
+                    [selection.selection_id, selection.version],
+                )
+                connection.execute("DELETE FROM source_selection")
+                connection.execute("DELETE FROM source_snapshot_current")
+                connection.execute("DELETE FROM derived_entity_plan_current")
+                connection.execute("DELETE FROM mapping_current")
+                self._invalidate_canonical_staging(
+                    connection,
+                    reason="ODOO_CAPTURE_SELECTION_CHANGED",
+                )
+                self._insert_workspace_audit(
+                    connection,
+                    revision=revision,
+                    event_type="ODOO_CAPTURE_SELECTION_SAVED",
+                    detail=(
+                        f"version {selection.version}: {selection.model}; "
+                        f"{len(selection.field_names)} field(s); "
+                        f"maximum {selection.max_rows} row(s); "
+                        f"{selection.filter_policy.value}"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
     def get_mapping_source_selection(
         self,
         project_id: str,
@@ -514,6 +684,7 @@ def _snapshot_matches_dataset(
     snapshot: SourceSnapshot,
     dataset: SourceDataset,
 ) -> bool:
+    binding = require_file_source(dataset.source)
     expected_schema = SourceSnapshotSchema.create(
         SourceSnapshotColumn.create(
             ordinal=column.ordinal,
@@ -525,11 +696,11 @@ def _snapshot_matches_dataset(
     )
     return (
         snapshot.dataset_name == dataset.name
-        and snapshot.file_id == dataset.file_id
-        and snapshot.table_key == dataset.table_key
+        and snapshot.file_id == binding.file_id
+        and snapshot.table_key == binding.table_key
         and snapshot.source_sha256
-        == f"sha256:{dataset.source_sha256.removeprefix('sha256:').casefold()}"
-        and snapshot.catalog_hash == dataset.catalog_hash
+        == f"sha256:{binding.source_sha256.removeprefix('sha256:').casefold()}"
+        and snapshot.catalog_hash == binding.catalog_hash
         and snapshot.row_count == dataset.row_count
         and snapshot.schema == expected_schema
     )

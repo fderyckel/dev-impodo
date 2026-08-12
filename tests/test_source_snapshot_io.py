@@ -33,6 +33,7 @@ from impodo.domain.mapping.contracts import (
 )
 from impodo.domain.errors import ReadinessError
 from impodo.domain.source_snapshot import SourceSnapshot
+from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
@@ -959,13 +960,15 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
         dataset = SourceDataset(
             dataset_id=_dataset_key(source_file.file_id, table.table_key),
             name="mixed",
-            file_id=source_file.file_id,
-            table_key=table.table_key,
-            source_sha256=source_file.sha256,
-            catalog_hash=catalog.content_hash,
-            encoding=None,
-            delimiter=None,
-            header_row=1,
+            source=FileSourceBinding(
+                file_id=source_file.file_id,
+                table_key=table.table_key,
+                source_sha256=source_file.sha256,
+                catalog_hash=catalog.content_hash,
+                encoding=None,
+                delimiter=None,
+                header_row=1,
+            ),
             row_count=1,
             columns=tuple(
                 SourceDatasetColumn(
@@ -1022,13 +1025,15 @@ def _selection_for(
     dataset = SourceDataset(
         dataset_id=_dataset_key(source_file.file_id, "csv"),
         name="customers",
-        file_id=source_file.file_id,
-        table_key="csv",
-        source_sha256=source_file.sha256,
-        catalog_hash=catalog.content_hash,
-        encoding="utf-8",
-        delimiter=",",
-        header_row=1,
+        source=FileSourceBinding(
+            file_id=source_file.file_id,
+            table_key="csv",
+            source_sha256=source_file.sha256,
+            catalog_hash=catalog.content_hash,
+            encoding="utf-8",
+            delimiter=",",
+            header_row=1,
+        ),
         row_count=table.row_count,
         columns=tuple(
             SourceDatasetColumn(

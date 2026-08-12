@@ -24,6 +24,7 @@ from ..derived_entities import DerivedEntityPlan
 from ..domain.contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
 from ..domain.coverage import ReferenceBundle
 from ..domain.source_snapshot import SourceSnapshot
+from ..domain.source_binding import require_file_source
 from ..domain.staging.evaluator import (
     StagedBrowserMapping,
     evaluate_browser_mapping,
@@ -388,8 +389,9 @@ def canonical_source_hashes(selection: SourceSelection) -> dict[str, str]:
     )
     source_hashes: dict[str, str] = {}
     for dataset in selection.datasets:
-        file_id = dataset.file_id
-        source_hash = dataset.source_sha256
+        binding = require_file_source(dataset.source)
+        file_id = binding.file_id
+        source_hash = binding.source_sha256
         if (
             not isinstance(file_id, str)
             or not file_id.strip()
@@ -483,13 +485,14 @@ def _load_browser_source_tables(
     loaded: dict[str, SourceTable] = {}
     with ExitStack() as stack:
         for physical in physical_selection.datasets:
-            source_file = source_file_by_id.get(physical.file_id)
-            catalog = catalog_by_file.get(physical.file_id)
+            binding = require_file_source(physical.source)
+            source_file = source_file_by_id.get(binding.file_id)
+            catalog = catalog_by_file.get(binding.file_id)
             table_catalog = next(
                 (
                     item
                     for item in (catalog.tables if catalog else ())
-                    if item.table_key == physical.table_key
+                    if item.table_key == binding.table_key
                 ),
                 None,
             )
@@ -534,10 +537,10 @@ def _load_browser_source_tables(
             loaded[physical.dataset_id] = load_selected_source_table(
                 path,
                 dataset=physical.name,
-                table_key=physical.table_key,
-                encoding=physical.encoding,
-                delimiter=physical.delimiter,
-                header_row=physical.header_row,
+                table_key=binding.table_key,
+                encoding=binding.encoding,
+                delimiter=binding.delimiter,
+                header_row=binding.header_row,
                 named_table_range=named_range,
                 source_display_name=source_file.display_name,
             )

@@ -44,6 +44,7 @@ from impodo.domain.resolution import (
     pass_through_effective_row,
 )
 from impodo.domain.serialization import content_hash
+from impodo.domain.source_binding import FileSourceBinding
 from impodo.derived_entities import DerivedEntityPlan, mapping_source_selection
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
@@ -277,13 +278,15 @@ def _structural_selection() -> tuple[SourceSelection, dict[str, SourceTable]]:
         SourceDataset(
             dataset_id="customers",
             name="customers",
-            file_id="file-customers",
-            table_key="customers.csv",
-            source_sha256=_hash(301),
-            catalog_hash=_hash(302),
-            encoding="utf-8",
-            delimiter=",",
-            header_row=1,
+            source=FileSourceBinding(
+                file_id="file-customers",
+                table_key="customers.csv",
+                source_sha256=_hash(301),
+                catalog_hash=_hash(302),
+                encoding="utf-8",
+                delimiter=",",
+                header_row=1,
+            ),
             row_count=2,
             columns=(
                 SourceDatasetColumn(1, "Customer", "customer_key", "string"),
@@ -293,13 +296,15 @@ def _structural_selection() -> tuple[SourceSelection, dict[str, SourceTable]]:
         SourceDataset(
             dataset_id="details",
             name="details",
-            file_id="file-details",
-            table_key="details.csv",
-            source_sha256=_hash(303),
-            catalog_hash=_hash(304),
-            encoding="utf-8",
-            delimiter=",",
-            header_row=1,
+            source=FileSourceBinding(
+                file_id="file-details",
+                table_key="details.csv",
+                source_sha256=_hash(303),
+                catalog_hash=_hash(304),
+                encoding="utf-8",
+                delimiter=",",
+                header_row=1,
+            ),
             row_count=2,
             columns=(
                 SourceDatasetColumn(1, "Customer", "detail_customer_key", "string"),
@@ -433,13 +438,15 @@ class ReferenceDataTests(unittest.TestCase):
                 SourceDataset(
                     dataset_id="partners",
                     name="partners",
-                    file_id="file-partners",
-                    table_key="partners.csv",
-                    source_sha256=HASH_B,
-                    catalog_hash=_hash(401),
-                    encoding="utf-8",
-                    delimiter=",",
-                    header_row=1,
+                    source=FileSourceBinding(
+                        file_id="file-partners",
+                        table_key="partners.csv",
+                        source_sha256=HASH_B,
+                        catalog_hash=_hash(401),
+                        encoding="utf-8",
+                        delimiter=",",
+                        header_row=1,
+                    ),
                     row_count=2,
                     columns=(
                         SourceDatasetColumn(1, "Key", "partner_key", "string"),
@@ -574,6 +581,11 @@ class ReferenceDataTests(unittest.TestCase):
             ),
             content_hash=HASH_D,
             origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash=HASH_A,
+            read_principal_hash=HASH_A,
+            read_permission_hash=HASH_A,
+            read_context_hash=HASH_A,
+            connection_target_hash=HASH_A,
         )
 
         with self.assertRaisesRegex(ValueError, "unknown Odoo selection key"):
@@ -698,13 +710,15 @@ class StructuralPreparationTests(unittest.TestCase):
                 SourceDataset(
                     dataset_id="lines",
                     name="lines",
-                    file_id="file-lines",
-                    table_key="lines.csv",
-                    source_sha256=_hash(401),
-                    catalog_hash=_hash(402),
-                    encoding="utf-8",
-                    delimiter=",",
-                    header_row=1,
+                    source=FileSourceBinding(
+                        file_id="file-lines",
+                        table_key="lines.csv",
+                        source_sha256=_hash(401),
+                        catalog_hash=_hash(402),
+                        encoding="utf-8",
+                        delimiter=",",
+                        header_row=1,
+                    ),
                     row_count=3,
                     columns=(
                         SourceDatasetColumn(1, "Order", "order_key", "string"),
@@ -1313,13 +1327,15 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
                 SourceDataset(
                     dataset_id="dataset:partners",
                     name="partners",
-                    file_id=str(uuid4()),
-                    table_key="csv",
-                    source_sha256=HASH_B,
-                    catalog_hash=_hash(200),
-                    encoding="utf-8",
-                    delimiter=",",
-                    header_row=1,
+                    source=FileSourceBinding(
+                        file_id=str(uuid4()),
+                        table_key="csv",
+                        source_sha256=HASH_B,
+                        catalog_hash=_hash(200),
+                        encoding="utf-8",
+                        delimiter=",",
+                        header_row=1,
+                    ),
                     row_count=2,
                     columns=(
                         SourceDatasetColumn(1, "Country", "country", "string"),

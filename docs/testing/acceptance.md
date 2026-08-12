@@ -197,8 +197,8 @@ certification remain pending.
 - a relationship to a set-aside incoming row propagates to the dependent row;
 - failed atomic publication preserves the previous current quality run;
 - ownership or retention changes invalidate quality without deleting staging;
-- supported project schemas upgrade forward atomically without promoting stale
-  quality evidence, while retired schema generations remain rejected;
+- only the exact current project schema opens; every different generation or
+  version is rejected without promoting stale quality evidence;
 - set-aside rows do not enter Odoo record-request planning;
 - the browser shows Ready, Review, Set aside, and Fix setup with technical
   identifiers collapsed;

@@ -108,6 +108,7 @@ class SchemaRepository(DuckDbRepository):
             actor=actor,
             invalidate=(
                 "mapping_current",
+                "odoo_capture_selection_current",
                 "schema_governance_current",
             ),
         )

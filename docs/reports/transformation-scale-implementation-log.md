@@ -116,7 +116,7 @@ allocator, database, and engine memory; it is not evidence of a Python leak.
 | Phase 1: remove post-Polars replay | In progress — B1a objectless projection retained | CPU -3.48%, peak RSS -3.72%; zero rule replay/full domain rows, but 100,000 Python row adaptations remain |
 | Phase 2: prepared values plus narrow index | Complete for direct native datasets | Canonical row JSON 223,966,700 → 0 chars; peak RSS -20.63%, DB used -39.80%; CPU regression is assigned to Phase 3/4 repeated projectors |
 | Phase 3: sparse multi-dataset quality | Complete for direct native datasets | 5 → 2 prepared-value scans; clean quality/accounting physical rows 200,000 → 0; exact logical hashes retained |
-| Phase 4: construct normalization once | Not started | Pending B4 comparison |
+| Phase 4: construct normalization once | Complete for direct native datasets | 152,000 → 76,000 effect constructions on the 4,000×19 fixture; CPU -3.19%, peak RSS -13.03%, DB used -4.21%; exact hashes retained |
 | Phase 5: set-based product/BOM relationships | Not started | Pending B5 comparison |
 | Phase 6: conditional transport/hash optimization | Not started | Only if measurements justify it |
 | Phase 7: qualification and limit decision | Not started | Three fresh Windows attempts per fixture |
@@ -274,3 +274,61 @@ identity collisions and sparse preparation issues, logical quality reload,
 and normalization consumption without a complete Python eligible-ID set. The
 forward schema version is 4; prior versions upgrade without rewriting existing
 logical row JSON.
+
+## B4 — construct normalization once
+
+Captured on 2026-08-12 with a new effect-heavy fixture: 4,000 Products rows,
+20 mapped fields, and trim changes on 19 non-identity fields. It produces
+76,000 normalization effects and 19 groups. The benchmark can execute the
+pre-Phase-4 replay route as an explicit same-code control, which keeps all
+unrelated schema and source-workspace changes identical between measurements.
+
+The direct route now constructs and canonical-encodes each effect once into a
+bounded transaction-local fact relation. DuckDB deduplicates effects and
+derives eligibility, changed rows, distinct rules/groups/sources, group counts,
+and bounded examples set-wise. One set-based statement promotes the exact
+encoded facts into the immutable normalization run. Publication hashes those
+stored bytes and does not reconstruct or re-serialize effect objects. A small
+per-group seed ledger preserves group language and detects inconsistent group
+metadata without repeating it per effect.
+
+The preparation session UUID is also the normalization run UUID. That lets the
+fact stream be promoted once without copying it into a second persistent
+ledger. If publication fails or discovers an identical current run, session
+cleanup removes the orphan facts; successful runs retain them. Repeat
+preparation against reused staging/quality runs binds eligibility by the
+current quality content hash and stable row IDs, preserving re-transform and
+re-export behavior.
+
+| Metric | Replay control | B4 durable | Gain |
+| --- | ---: | ---: | ---: |
+| Effect objects constructed | 152,000 | 76,000 | **50.00%** |
+| CPU | 12.914 s | 12.502 s | **3.19%** |
+| User CPU | 10.869 s | 10.408 s | **4.24%** |
+| Wall time | 12.251 s | 11.804 s | **3.65%** |
+| Peak RSS | 505.031 MiB | 439.203 MiB | **13.03%** (65.828 MiB) |
+| Ending RSS | 504.969 MiB | 434.313 MiB | **13.99%** |
+| DuckDB file | 67.012 MiB | 66.262 MiB | **1.12%** |
+| DuckDB used pages | 53.500 MiB | 51.250 MiB | **4.21%** |
+| Total project storage | 68.627 MiB | 67.877 MiB | **1.09%** |
+
+All six fresh processes used the byte-identical 1,548,277-byte CSV and emitted
+identical counts, logical payload size (29,174,522 characters), and hashes:
+
+- staging `sha256:840bfd…577b`
+- quality `sha256:0e2451…1f0c`
+- normalization `sha256:1d527d…3952`
+
+The durable route reports one effect construction per persisted effect and no
+complete Python effect-ID or changed-row-ID set. The remaining ordered effect
+scan is the bounded governance hash reader over already encoded facts; there is
+no second logical construction pass. Compatibility reload orders by effect ID,
+so the internal construction ordinal does not change the public contract.
+The exact eligible-dataset hash still performs the second prepared-value
+projection scan; changing that hash root is explicitly a Phase 6 ADR decision,
+not part of the Phase 4 effect-construction contract.
+
+Evidence:
+
+- `.tmp/transformation-scale-phase4-effect-heavy-replay-control-4k-final.json`
+- `.tmp/transformation-scale-phase4-effect-heavy-durable-4k-final.json`

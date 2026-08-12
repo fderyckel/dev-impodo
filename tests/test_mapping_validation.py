@@ -35,6 +35,7 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationStatus,
 )
 from impodo.domain.mapping.validation.validator import MappingSemanticValidator
+from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.staging.transformation_impact import (
     TransformationRuleImpact,
     transformation_rule_impact_definitions,
@@ -48,6 +49,7 @@ from impodo.workspace_contracts import (
     OdooSchemaCatalog,
     SchemaField,
     SchemaModel,
+    SchemaOrigin,
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
@@ -1161,13 +1163,15 @@ def _source_selection() -> SourceSelection:
             SourceDataset(
                 dataset_id="dataset:companies",
                 name="companies",
-                file_id="file:companies",
-                table_key="csv",
-                source_sha256="a" * 64,
-                catalog_hash="sha256:companies",
-                encoding="utf-8",
-                delimiter=",",
-                header_row=1,
+                source=FileSourceBinding(
+                    file_id="file:companies",
+                    table_key="csv",
+                    source_sha256="a" * 64,
+                    catalog_hash="sha256:" + "c" * 64,
+                    encoding="utf-8",
+                    delimiter=",",
+                    header_row=1,
+                ),
                 row_count=2,
                 columns=(
                     SourceDatasetColumn(1, "code", "company.code", "string"),
@@ -1177,13 +1181,15 @@ def _source_selection() -> SourceSelection:
             SourceDataset(
                 dataset_id="dataset:partners",
                 name="partners",
-                file_id="file:partners",
-                table_key="csv",
-                source_sha256="b" * 64,
-                catalog_hash="sha256:partners",
-                encoding="utf-8",
-                delimiter=",",
-                header_row=1,
+                source=FileSourceBinding(
+                    file_id="file:partners",
+                    table_key="csv",
+                    source_sha256="b" * 64,
+                    catalog_hash="sha256:" + "d" * 64,
+                    encoding="utf-8",
+                    delimiter=",",
+                    header_row=1,
+                ),
                 row_count=3,
                 columns=(
                     SourceDatasetColumn(1, "ref", "partner.ref", "string"),
@@ -1289,6 +1295,12 @@ def _schema_catalog() -> OdooSchemaCatalog:
             ),
         ),
         content_hash="sha256:schema-catalog",
+        origin=SchemaOrigin.LIVE_API,
+        read_credential_binding_hash="sha256:read-credential",
+        read_principal_hash="sha256:read-principal",
+        read_permission_hash="sha256:read-permission",
+        read_context_hash="sha256:read-context",
+        connection_target_hash="sha256:connection-target",
     )
 
 

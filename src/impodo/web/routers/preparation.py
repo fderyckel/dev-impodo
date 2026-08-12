@@ -12,6 +12,7 @@ from ...application.preparation_job_registry import (
     PreparationJobStateError,
 )
 from ...preparation_jobs import PreparationJob, PreparationJobStatus
+from ...workspace_errors import WorkspaceError
 from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash, _render
@@ -107,17 +108,11 @@ def build_preparation_router(context: WebContext) -> APIRouter:
         _secure_form(request, form, {"csrf_token"})
         try:
             project = context.queries.get(project_id)
-            selection = context.queries.get_source_selection(project_id)
-            total_rows = (
-                sum(item.row_count for item in selection.datasets)
-                if selection
-                else 0
-            )
             job = _manager(context).retry(
                 project_id,
                 job_id,
                 project.name,
-                total_rows,
+                _preparation_row_count(context, project_id),
                 actor=context.actor,
             )
         except PreparationJobNotFoundError as error:
@@ -140,14 +135,25 @@ def enqueue_preparation(context: WebContext, project_id: str) -> PreparationJob:
     """Capture lightweight display/scale metadata before starting the process."""
 
     project = context.queries.get(project_id)
-    selection = context.queries.get_source_selection(project_id)
-    total_rows = sum(item.row_count for item in selection.datasets) if selection else 0
+    total_rows = _preparation_row_count(context, project_id)
     return _manager(context).enqueue(
         project_id,
         project.name,
         total_rows,
         actor=context.actor,
     )
+
+
+def _preparation_row_count(context: WebContext, project_id: str) -> int:
+    """Return optional progress metadata without bypassing worker validation."""
+
+    try:
+        selection = context.queries.get_source_selection(project_id)
+    except WorkspaceError:
+        # The worker owns authoritative validation and records a durable failed
+        # job. Display metadata must not prevent that governed failure path.
+        selection = None
+    return sum(item.row_count for item in selection.datasets) if selection else 0
 
 
 def _render_progress(

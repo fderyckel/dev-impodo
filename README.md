@@ -40,8 +40,10 @@ start a local Odoo stack separately before connecting to it in Impodo.
   retention details.
 - Selects governed CSV/XLSX files or existing Odoo records as the source mode.
 - Adds and hashes source files for file-mode projects. Odoo-source projects can
-  register without an export date or placeholder file and proceed to read-only
-  model/field discovery; bounded Odoo record freezing is the next slice.
+  register without an export date or placeholder file, proceed to read-only
+  model/field discovery, and save a bounded scalar capture plan. Saving that
+  plan does not contact Odoo or freeze records; live row capture remains the
+  next slice.
 - Configures and optionally tests the read-only Odoo connection.
 - Keeps read and write keys in separate target-bound vault roles and browser
   fields. Loading and read-back never fall back to the setup read key.
@@ -54,6 +56,11 @@ start a local Odoo stack separately before connecting to it in Impodo.
   source-file safety checks.
 - Lets the user confirm the selected source content and freeze it as named
   datasets. The frozen datasets remain bound to the confirmed source hashes.
+- For an Odoo-source project, saves append-only bounded capture-plan revisions
+  bound to the current authenticated schema identity: one model, at most 50
+  eligible scalar fields, active/archive policy, and at most 10,000 rows. The
+  browser distinguishes this plan from the later live read and immutable
+  snapshot publication.
 
 ### Target schema and governed mapping
 

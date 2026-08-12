@@ -41,6 +41,7 @@ from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.quality_repository import QualityRepository
 from impodo.adapters.duckdb.staging_repository import StagingRepository
 from impodo.projects import DataClassification
+from impodo.domain.source_binding import FileSourceBinding
 from impodo.quality import default_quality_ruleset, evaluate_quality
 from impodo.staging_contracts import CanonicalIssue
 from impodo.workspace_contracts import (
@@ -494,13 +495,15 @@ class NormalizationStoreTests(unittest.TestCase):
                 SourceDataset(
                     dataset_id="dataset:contacts",
                     name="contacts",
-                    file_id=str(uuid4()),
-                    table_key="csv",
-                    source_sha256=SOURCE_HASH,
-                    catalog_hash="sha256:" + "a" * 64,
-                    encoding="utf-8",
-                    delimiter=",",
-                    header_row=1,
+                    source=FileSourceBinding(
+                        file_id=str(uuid4()),
+                        table_key="csv",
+                        source_sha256=SOURCE_HASH,
+                        catalog_hash="sha256:" + "a" * 64,
+                        encoding="utf-8",
+                        delimiter=",",
+                        header_row=1,
+                    ),
                     row_count=1,
                     columns=(
                         SourceDatasetColumn(

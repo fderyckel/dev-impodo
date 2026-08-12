@@ -180,7 +180,7 @@ def build_frozen_preflight_input(
         )
 
     source_hashes = {
-        dataset.name: _canonical_source_hash(dataset.source_sha256)
+        dataset.name: _canonical_source_hash(dataset.source_evidence_hash)
         for dataset in selection.datasets
     }
     rows = tuple(

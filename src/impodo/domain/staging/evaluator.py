@@ -356,8 +356,7 @@ def evaluate_browser_mapping(
         physical = physical_by_id[dataset_id]
         if table.dataset != physical.name:
             raise ReadinessError("A loaded source table has the wrong dataset name")
-        expected_hash = physical.source_sha256.removeprefix("sha256:")
-        if table.content_hash != f"sha256:{expected_hash}":
+        if table.content_hash != physical.source_evidence_hash:
             raise ReadinessError("Stored source content changed after selection")
 
     structural_rules = tuple(
@@ -507,7 +506,7 @@ def evaluate_browser_mapping(
         compiled_plan,
         staged_tables,
         source_hashes={
-            item.name: f"sha256:{item.source_sha256.removeprefix('sha256:')}"
+            item.name: item.source_evidence_hash
             for item in effective_selection.datasets
         },
     )

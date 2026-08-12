@@ -19,6 +19,7 @@ from unittest.mock import patch
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from impodo.application import normalization_service as normalization_module
+from impodo.application import bounded_normalization as bounded_normalization_module
 from impodo.application import bounded_preparation as bounded_preparation_module
 from impodo.application import preparation_service as preparation_module
 from impodo.application import quality_service as quality_module
@@ -27,6 +28,7 @@ from impodo.application.preparation_capability import (
     compile_preparation_capability,
 )
 from impodo.artifacts import LocalArtifactStore
+from impodo.adapters.duckdb import preparation_session_repository as session_module
 from impodo.domain.coverage import (
     CoverageApplicability,
     CoverageDeclaration,
@@ -103,12 +105,18 @@ PREPARATION_SCALE_COLUMNS = int(
 PREPARATION_SCALE_MAPPED_FIELDS = int(
     os.environ.get("IMPODO_PREPARATION_SCALE_MAPPED_FIELDS", "20")
 )
+PREPARATION_SCALE_EFFECT_FIELDS = int(
+    os.environ.get("IMPODO_PREPARATION_SCALE_EFFECT_FIELDS", "1")
+)
 PREPARATION_SCALE_WORKLOAD = os.environ.get(
     "IMPODO_PREPARATION_SCALE_WORKLOAD",
     "products",
 ).casefold()
 PREPARATION_SCALE_DIRTY = (
     os.environ.get("IMPODO_PREPARATION_SCALE_DIRTY") == "1"
+)
+PREPARATION_NORMALIZATION_REPLAY_CONTROL = (
+    os.environ.get("IMPODO_PREPARATION_NORMALIZATION_REPLAY_CONTROL") == "1"
 )
 PREPARATION_BENCHMARK_PREFIX = "IMPODO_PREPARATION_BENCHMARK_JSON="
 
@@ -195,6 +203,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             self.fail("The source fixture must include every mapped field")
         if PREPARATION_SCALE_MAPPED_FIELDS < 3:
             self.fail("The benchmark requires identity, changed, and numeric fields")
+        if not 1 <= PREPARATION_SCALE_EFFECT_FIELDS < PREPARATION_SCALE_MAPPED_FIELDS:
+            self.fail(
+                "Effect fields must be positive and exclude the identity field"
+            )
         if PREPARATION_SCALE_WORKLOAD not in {"products", "bom", "customers"}:
             self.fail(
                 "The benchmark workload must be 'products', 'bom', or "
@@ -360,6 +372,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             self.context.preparation.normalization.repository
             ._insert_normalization_evidence
         )
+        original_normalization_effect = (
+            bounded_normalization_module._BoundedNormalizationEffects._effect
+        )
         original_append_rows = (
             self.context.preparation.sessions.append_direct_rows
         )
@@ -414,6 +429,14 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     + len(batch)
                 )
                 yield batch
+
+        def instrumented_normalization_effect(*args, **kwargs):
+            built = original_normalization_effect(*args, **kwargs)
+            if built is not None:
+                phase_calls["normalization_effect_construction"] = (
+                    phase_calls.get("normalization_effect_construction", 0) + 1
+                )
+            return built
 
         trace_python_allocations = (
             os.environ.get("IMPODO_PREPARATION_TRACE_PYTHON") == "1"
@@ -581,9 +604,22 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                         original_projection_canonical_json,
                     ),
                 ),
+                patch.object(
+                    bounded_normalization_module._BoundedNormalizationEffects,
+                    "_effect",
+                    instrumented_normalization_effect,
+                ),
             )
             for active_patch in patches:
                 stack.enter_context(active_patch)
+            if PREPARATION_NORMALIZATION_REPLAY_CONTROL:
+                stack.enter_context(
+                    patch.object(
+                        session_module._SessionImpacts,
+                        "prepare_normalization_facts",
+                        None,
+                    )
+                )
             normalization = self.context.preparation.prepare(
                 project_id,
                 actor=self.context.actor,
@@ -791,6 +827,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 "full_prepared_record_construction",
                 0,
             ),
+            "normalization_effects_constructed": phase_calls.get(
+                "normalization_effect_construction",
+                0,
+            ),
             "python_cell_callbacks": phase_calls.get(
                 "scalar_value_evaluation",
                 0,
@@ -820,6 +860,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             f"rows={PREPARATION_SCALE_ROWS:,}, "
             f"columns={PREPARATION_SCALE_COLUMNS}, "
             f"mapped_fields={PREPARATION_SCALE_MAPPED_FIELDS}, "
+            f"effect_fields={PREPARATION_SCALE_EFFECT_FIELDS}, "
+            "normalization_fact_route="
+            f"{'replay-control' if PREPARATION_NORMALIZATION_REPLAY_CONTROL else 'durable'}, "
             f"fixture={fixture_seconds:.3f}s, total={elapsed:.3f}s, "
             f"fixture_peak={fixture_peak_mib:.1f} MiB, "
             f"peak={peak_mib:.1f} MiB, ending_rss={ending_mib:.1f} MiB, "
@@ -866,6 +909,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 ),
                 "database_mib": database_mib,
                 "dirty": PREPARATION_SCALE_DIRTY,
+                "effect_fields": PREPARATION_SCALE_EFFECT_FIELDS,
                 "ending_rss_mib": ending_mib,
                 "fixture": {
                     "cpu_seconds": fixture_cpu_seconds,
@@ -883,6 +927,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     "staging": staging.content_hash,
                 },
                 "mapped_fields": PREPARATION_SCALE_MAPPED_FIELDS,
+                "normalization_fact_route": (
+                    "replay-control"
+                    if PREPARATION_NORMALIZATION_REPLAY_CONTROL
+                    else "durable"
+                ),
                 "peak_working_set_mib": peak_mib,
                 "peak_process_tree_mib": peak_tree_mib,
                 "phase_calls": phase_calls,
@@ -964,6 +1013,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         self.assertEqual(
             current_normalization.set_aside_record_count,
             expected_quarantine,
+        )
+        self.assertEqual(
+            phase_calls.get("normalization_effect_construction", 0),
+            normalization_effects
+            * (2 if PREPARATION_NORMALIZATION_REPLAY_CONTROL else 1),
         )
         self.assertEqual(staging.failed_control_total_count, 0)
 
@@ -1421,7 +1475,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 source_column_key=columns[index].stable_key,
                 transform=(
                     ScalarTransformPolicy(trim=True)
-                    if index == 1
+                    if 1 <= index <= PREPARATION_SCALE_EFFECT_FIELDS
                     else ScalarTransformPolicy()
                 ),
                 value_type="decimal" if index == 2 else "string",
@@ -2055,12 +2109,16 @@ class BoundedPreparationParityTests(unittest.TestCase):
                     (SELECT COUNT(*) FROM preparation_impact_row),
                     (SELECT COUNT(*) FROM preparation_final_row),
                     (SELECT COUNT(*) FROM preparation_direct_identity),
+                    (SELECT COUNT(*)
+                       FROM preparation_normalization_group_seed),
+                    (SELECT COUNT(*)
+                       FROM preparation_normalization_finding),
                     (SELECT COALESCE(SUM(LENGTH(row_json)), 0)
                        FROM canonical_staging_row)
                 """
             ).fetchone()
         self.assertEqual(sessions, [("PUBLISHED", 37, 37, 37)])
-        self.assertEqual(temporary_rows, (0, 0, 0, 0, 0, 0))
+        self.assertEqual(temporary_rows, (0, 0, 0, 0, 0, 0, 0, 0))
 
         repeated = self.context.preparation.prepare(
             project_id,
@@ -2422,20 +2480,20 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 dirty=True,
             )
         )
-        from impodo.adapters.duckdb import normalization_repository
+        original_copy = (
+            self.context.preparation.sessions
+            ._copy_normalization_effects_to_run
+        )
 
-        original_batches = normalization_repository.iter_encoded_json_batches
-
-        def fail_after_first_batch(*args, **kwargs):
-            for batch in original_batches(*args, **kwargs):
-                yield batch
-                raise RuntimeError("injected transport failure")
+        def fail_after_copy(*args, **kwargs):
+            original_copy(*args, **kwargs)
+            raise RuntimeError("injected transport failure")
 
         with (
             patch.object(
-                normalization_repository,
-                "iter_encoded_json_batches",
-                fail_after_first_batch,
+                self.context.preparation.sessions,
+                "_copy_normalization_effects_to_run",
+                side_effect=fail_after_copy,
             ),
             self.assertRaisesRegex(RuntimeError, "injected transport failure"),
         ):
@@ -2451,10 +2509,87 @@ class BoundedPreparationParityTests(unittest.TestCase):
                 SELECT
                     (SELECT COUNT(*) FROM normalization_effect),
                     (SELECT COUNT(*) FROM normalization_run),
-                    (SELECT COUNT(*) FROM normalization_current)
+                    (SELECT COUNT(*) FROM normalization_current),
+                    (SELECT COUNT(*)
+                       FROM preparation_normalization_group_seed),
+                    (SELECT COUNT(*)
+                       FROM preparation_normalization_finding)
                 """
             ).fetchone()
-        self.assertEqual(counts, (0, 0, 0))
+        self.assertEqual(counts, (0, 0, 0, 0, 0))
+
+    def test_normalization_effects_are_constructed_once_and_reused_directly(
+        self,
+    ) -> None:
+        project_id, _source_hash, _source_size = (
+            PreparationWorkflowScaleTests._prepare_project_and_evidence(
+                self,
+                row_count=17,
+                column_count=8,
+                mapped_field_count=5,
+            )
+        )
+        constructed = 0
+        original_effect = (
+            bounded_normalization_module._BoundedNormalizationEffects._effect
+        )
+
+        def count_constructed(*args, **kwargs):
+            nonlocal constructed
+            built = original_effect(*args, **kwargs)
+            if built is not None:
+                constructed += 1
+            return built
+
+        with (
+            patch.object(
+                bounded_normalization_module._BoundedNormalizationEffects,
+                "_effect",
+                count_constructed,
+            ),
+            patch.object(
+                self.context.preparation.sessions,
+                "mark_published",
+            ),
+        ):
+            summary = self.context.preparation.prepare(
+                project_id,
+                actor=self.context.actor,
+            )
+
+        database_path = self.root / project_id / "project.duckdb"
+        with self.context.preparation.staging._connect(database_path) as connection:
+            session_id = str(
+                connection.execute(
+                    "SELECT run_id FROM canonical_staging_current"
+                ).fetchone()[0]
+            )
+            effects = tuple(
+                str(row[0])
+                for row in connection.execute(
+                    """
+                    SELECT effect_json
+                      FROM normalization_effect
+                     WHERE run_id = ?
+                     ORDER BY effect_id
+                    """,
+                    [session_id],
+                ).fetchall()
+            )
+            changed = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(DISTINCT row_id)
+                      FROM normalization_effect
+                     WHERE run_id = ? AND eligible
+                    """,
+                    [session_id],
+                ).fetchone()[0]
+            )
+
+        self.assertEqual(summary.run_id, session_id)
+        self.assertEqual(constructed, len(effects))
+        self.assertEqual(summary.changed_record_count, changed)
 
     def test_direct_publication_failure_preserves_current_run(self) -> None:
         project_id, _source_hash, _source_size = (
@@ -2588,9 +2723,13 @@ def _source_values(
             if workload == "bom"
             else f" {workload.removesuffix('s').title()} {index:06d} "
         ),
-        "1",
+        " 1 " if PREPARATION_SCALE_EFFECT_FIELDS >= 2 else "1",
         *(
-            f"value-{column:02d}-{index % 100:02d}"
+            (
+                f" value-{column:02d}-{index % 100:02d} "
+                if column <= PREPARATION_SCALE_EFFECT_FIELDS
+                else f"value-{column:02d}-{index % 100:02d}"
+            )
             for column in range(3, column_count)
         ),
     )

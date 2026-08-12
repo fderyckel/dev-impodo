@@ -22,6 +22,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from .access import Actor, AuthorizationPolicy, Capability
 from .inspection import SourceFileCatalog
+from .domain.source_binding import DerivedSourceBinding, require_file_source
 from .workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
@@ -199,6 +200,10 @@ class DerivedEntityPlan:
     updated_by: str
     contract_version: int = DERIVED_ENTITY_CONTRACT_VERSION
 
+    def __post_init__(self) -> None:
+        if self.contract_version != DERIVED_ENTITY_CONTRACT_VERSION:
+            raise ValueError("Source-preparation plan contract version is unsupported")
+
     @property
     def content_hash(self) -> str:
         """Return the semantic identity of the complete ordered rule revision."""
@@ -214,7 +219,7 @@ class DerivedEntityPlan:
             "project_id": self.project_id,
             "source_selection_hash": self.source_selection_hash,
             "rules": [
-                _rule_payload(item, contract_version=self.contract_version)
+                _rule_payload(item)
                 for item in sorted(self.rules, key=lambda rule: rule.rule_id)
             ],
             "updated_at": self.updated_at.isoformat(),
@@ -240,11 +245,7 @@ class DerivedEntityPlan:
         unhashed.pop("content_hash", None)
         if content_hash != _content_hash(unhashed):
             raise ValueError("Derived-entity plan content hash is invalid")
-        contract_version = int(
-            payload.get("contract_version", 1)
-        )
-        if contract_version not in {1, 2, DERIVED_ENTITY_CONTRACT_VERSION}:
-            raise ValueError("Derived-entity plan contract version is unsupported")
+        contract_version = int(payload["contract_version"])
         result = cls(
             plan_id=str(payload["plan_id"]),
             version=int(payload["version"]),
@@ -781,13 +782,15 @@ def preview_derived_entities(
     column = next(
         item for item in dataset.columns if item.stable_key == rule.source_column_key
     )
+    binding = require_file_source(dataset.source)
     catalog = next(
         (
             item
             for item in catalogs
-            if item.file_id == dataset.file_id
-            and item.source_sha256 == dataset.source_sha256
-            and item.content_hash == dataset.catalog_hash
+            if item.file_id == binding.file_id
+            and f"sha256:{item.source_sha256.removeprefix('sha256:')}"
+            == binding.source_sha256
+            and item.content_hash == binding.catalog_hash
         ),
         None,
     )
@@ -795,7 +798,7 @@ def preview_derived_entities(
         (
             item
             for item in (catalog.tables if catalog else ())
-            if item.table_key == dataset.table_key
+            if item.table_key == binding.table_key
         ),
         None,
     )
@@ -1026,6 +1029,13 @@ def mapping_source_selection(
                     dataset,
                     dataset_id=link.derived_dataset_id,
                     name=lookup_rule.output_dataset_name,
+                    source=DerivedSourceBinding(
+                        rule_hash=_content_hash(
+                            _rule_payload(lookup_rule)
+                        ),
+                        input_dataset_ids=(dataset.dataset_id,),
+                        data_hash=dataset.source_evidence_hash,
+                    ),
                     row_count=max(
                         preview.full_distinct_count,
                         len(preview.candidates),
@@ -1060,6 +1070,13 @@ def mapping_source_selection(
                     dataset,
                     dataset_id=parent_id,
                     name=rule.parent_dataset_name,
+                    source=DerivedSourceBinding(
+                        rule_hash=_content_hash(
+                            _rule_payload(rule)
+                        ),
+                        input_dataset_ids=(dataset.dataset_id,),
+                        data_hash=dataset.source_evidence_hash,
+                    ),
                     row_count=parent_rows,
                     columns=parent_columns,
                 ),
@@ -1067,6 +1084,13 @@ def mapping_source_selection(
                     dataset,
                     dataset_id=child_id,
                     name=rule.child_dataset_name,
+                    source=DerivedSourceBinding(
+                        rule_hash=_content_hash(
+                            _rule_payload(rule)
+                        ),
+                        input_dataset_ids=(dataset.dataset_id,),
+                        data_hash=dataset.source_evidence_hash,
+                    ),
                 ),
             )
         )
@@ -1216,13 +1240,15 @@ def _source_table(
     dataset: SourceDataset,
     catalogs: Iterable[SourceFileCatalog],
 ):
+    binding = require_file_source(dataset.source)
     catalog = next(
         (
             item
             for item in catalogs
-            if item.file_id == dataset.file_id
-            and item.source_sha256 == dataset.source_sha256
-            and item.content_hash == dataset.catalog_hash
+            if item.file_id == binding.file_id
+            and f"sha256:{item.source_sha256.removeprefix('sha256:')}"
+            == binding.source_sha256
+            and item.content_hash == binding.catalog_hash
         ),
         None,
     )
@@ -1230,7 +1256,7 @@ def _source_table(
         (
             item
             for item in (catalog.tables if catalog else ())
-            if item.table_key == dataset.table_key
+            if item.table_key == binding.table_key
         ),
         None,
     )
@@ -1360,35 +1386,31 @@ def _rule_dataset_names(rules: Iterable[SourcePreparationRule]) -> set[str]:
 
 def _rule_payload(
     rule: SourcePreparationRule,
-    *,
-    contract_version: int,
 ) -> dict[str, object]:
     payload = (
         rule.to_dict()
         if isinstance(rule, (ExactJoinRule, UnionAllRule, GroupAggregateRule))
         else asdict(rule)
     )
-    if contract_version >= 2:
-        if isinstance(rule, DerivedEntityRule):
-            kind = "lookup"
-        elif isinstance(rule, RelatedDatasetRule):
-            kind = "parent_child"
-        elif isinstance(rule, ExactJoinRule):
-            kind = "exact_join"
-        elif isinstance(rule, UnionAllRule):
-            kind = "union_all"
-        else:
-            kind = "group_aggregate"
-        return {
-            "kind": kind,
-            **payload,
-        }
-    return payload
+    if isinstance(rule, DerivedEntityRule):
+        kind = "lookup"
+    elif isinstance(rule, RelatedDatasetRule):
+        kind = "parent_child"
+    elif isinstance(rule, ExactJoinRule):
+        kind = "exact_join"
+    elif isinstance(rule, UnionAllRule):
+        kind = "union_all"
+    else:
+        kind = "group_aggregate"
+    return {
+        "kind": kind,
+        **payload,
+    }
 
 
 def _rule_from_payload(payload: dict[str, object]) -> SourcePreparationRule:
     values = dict(payload)
-    kind = str(values.pop("kind", "lookup"))
+    kind = str(values.pop("kind"))
     if kind == "lookup":
         return DerivedEntityRule(**values)
     if kind == "parent_child":

@@ -13,6 +13,13 @@ Source discovery -> Target schema -> Governed mapping
 Artifacts remain inside one registered migration project and are bound to
 immutable source and target evidence.
 
+Every dataset uses the same current discriminated source contract. `FILE`
+binds an immutable registered file table, `ODOO` binds an authenticated capture
+selection, and `DERIVED` binds a structural rule and its exact input datasets.
+There are no placeholder files and no alternate historical JSON shape. An Odoo
+project proceeds from authenticated model/field discovery to a bounded capture
+plan without an export date.
+
 ## Source intake and catalog
 
 Source files can be added only while the project is `DRAFT`. Intake accepts
@@ -31,6 +38,30 @@ Formulas are inventoried but never executed or trusted.
 
 Preview, cardinality, row, column, and cell limits prevent inspection from
 becoming an unbounded in-memory workload.
+
+## Odoo capture selection
+
+An Odoo-source project may save one current bounded capture plan after a live,
+identity-bound schema capture. Saving the plan performs no Odoo request and
+does not freeze rows. Each immutable revision binds:
+
+- one current captured model and a stable project/model dataset identity;
+- unique technical field names from the closed scalar set: boolean, character,
+  text, integer, date, datetime, and selection;
+- stable column identities derived from model and technical field name;
+- active-only or active-plus-archived policy, with no raw caller domain;
+- a maximum of 50 fields, at most 10,000 rows, and a fixed 500-row future page
+  contract;
+- connection-target, schema-scope, read-principal, observed-permission, and
+  context hashes; and
+- actor, timestamp, version, and deterministic content hash.
+
+The plan contains no credential, numeric Odoo record/user/company/group ID, or
+raw protected filter. Revisions are append-only; a current pointer chooses the
+active plan. Recapturing schema, changing target/model scope, or saving a new
+plan invalidates dependent current evidence while preserving immutable
+revisions. Only current authenticated schema evidence can authorize a plan; an
+unverified local manual draft cannot.
 
 ## Confirmation and dataset freeze
 
@@ -66,8 +97,10 @@ Invalidation is fail-closed:
 | --- | --- |
 | Reinspect or reconfirm a source | Frozen selection, source-snapshot pointers, and mapping pointer |
 | Freeze a new selection | Mapping pointer |
-| Recapture target schema | Schema governance and mapping pointer |
-| Change target identity or governed keys | Target-derived mapping and submission evidence |
+| Recapture target schema | Odoo capture-plan pointer, schema governance, and mapping pointer |
+| Change target identity or model scope | Odoo capture-plan pointer and target-derived mapping/submission evidence |
+| Save a new Odoo capture plan | Prior current source/snapshot, derived-plan, mapping, and staging pointers |
+| Change governed keys | Target-derived mapping and submission evidence |
 
 Historical immutable revisions remain available for audit but are not current.
 A recoverable working mapping draft is retained across evidence changes, but

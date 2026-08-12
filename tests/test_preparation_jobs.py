@@ -16,6 +16,7 @@ from impodo.application.preparation_job_registry import (
 from impodo.application.preparation_job_service import PreparationCancelled
 from impodo.application.preparation_job_service import PreparationJobManager
 from impodo.application.preparation_service import PreparationService
+from impodo.domain.source_binding import FileSourceBinding
 from impodo.preparation_jobs import PreparationJobStatus, PreparationPhase
 
 
@@ -96,8 +97,15 @@ class PreparationCancellationBoundaryTests(unittest.TestCase):
         selection = SimpleNamespace(
             datasets=(
                 SimpleNamespace(
-                    file_id="source-file",
-                    source_sha256="sha256:" + "1" * 64,
+                    source=FileSourceBinding(
+                        file_id="source-file",
+                        table_key="csv",
+                        source_sha256="sha256:" + "1" * 64,
+                        catalog_hash="sha256:" + "2" * 64,
+                        encoding="utf-8",
+                        delimiter=",",
+                        header_row=1,
+                    ),
                     row_count=100_000,
                 ),
             ),

@@ -54,6 +54,7 @@ from impodo.domain.mapping.contracts import (
     ValueMapping,
 )
 from impodo.domain.mapping.validation.evidence import MappingValidationStatus
+from impodo.domain.source_binding import FileSourceBinding
 from impodo.models import (
     FieldMetadata,
     ModelMetadata,
@@ -1267,7 +1268,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         opened = self.client.get(f"/projects/{project.project_id}")
         self.assertEqual(opened.status_code, 409)
-        self.assertIn("created by an older Impodo build", opened.text)
+        self.assertIn("uses a different Impodo data contract", opened.text)
         self.assertIn(
             f'action="/projects/{project.project_id}/delete"',
             opened.text,
@@ -1677,6 +1678,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "odoo_base_url": "https://odoo.example.test",
                 "odoo_database": "odoo_review",
                 "intended_applications": "Inventory",
+                "read_api_key": "read-secret",
                 "action": "save",
             },
         )
@@ -1712,6 +1714,55 @@ class ProjectSetupWizardTests(unittest.TestCase):
         schema_page = self.client.get(f"/projects/{project_id}/schema")
         self.assertIn("Stage 1 of 6 · Odoo data", schema_page.text)
         self.assertIn("Choose the Odoo source record type", schema_page.text)
+
+        refreshed = self._post(
+            f"/projects/{project_id}/schema/models/refresh",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(refreshed.status_code, 303)
+        current = self.app.state.context.projects.repository.get(project_id)
+        scoped = self._post(
+            f"/projects/{project_id}/schema",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(current.revision),
+                "permitted_models": "res.partner",
+            },
+        )
+        self.assertEqual(scoped.status_code, 303)
+        captured = self._post(
+            f"/projects/{project_id}/schema/capture",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(captured.status_code, 303)
+
+        source_page = self.client.get(f"/projects/{project_id}/sources")
+        self.assertEqual(source_page.status_code, 200)
+        self.assertIn("Define a bounded Odoo capture", source_page.text)
+        self.assertIn("Saving it makes no Odoo request", source_page.text)
+        calls_before_selection = len(self.schema_calls)
+        selected = self._post(
+            f"/projects/{project_id}/sources/odoo-selection",
+            {
+                "csrf_token": self.csrf,
+                "dataset_name": "odoo_contacts",
+                "model": "res.partner",
+                "field_names": "name",
+                "include_archived": "",
+                "max_rows": "1000",
+            },
+        )
+        self.assertEqual(selected.status_code, 303)
+        self.assertEqual(len(self.schema_calls), calls_before_selection)
+        selection = (
+            self.app.state.context.sources.sources
+            .get_current_odoo_capture_selection(project_id)
+        )
+        self.assertIsNotNone(selection)
+        self.assertEqual(selection.field_names, ("name",))
+        saved_page = self.client.get(selected.headers["location"])
+        self.assertIn("Capture plan version 1", saved_page.text)
+        self.assertIn("freezes no records", saved_page.text)
 
     def test_complete_project_setup_registration_without_yaml(self) -> None:
         created = self._post(
@@ -4315,14 +4366,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIsNotNone(submission)
         selection = context.sources.sources.get_source_selection(project_id)
         assert selection is not None
-        corrupted = replace(
-            selection,
-            datasets=(
-                replace(
-                    selection.datasets[0],
-                    source_sha256="sha256:not-a-digest",
-                ),
-            ),
+        corrupted = json.loads(selection.to_json())
+        corrupted["datasets"][0]["source"]["source_sha256"] = (
+            "sha256:not-a-digest"
         )
         database_path = (
             context.projects.repository.project_directory(project_id) / "project.duckdb"
@@ -4331,7 +4377,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             connection.execute(
                 "UPDATE source_selection SET selection_json = ? "
                 "WHERE singleton_id = 1",
-                [corrupted.to_json()],
+                [json.dumps(corrupted)],
             )
 
         failed = self.client.post(
@@ -4360,10 +4406,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         recovery = self.client.get(failed.headers["location"])
         self.assertEqual(recovery.status_code, 200)
-        self.assertIn(
-            "Impodo could not verify the registered source files",
-            recovery.text,
-        )
+        self.assertIn("Stored source selection is invalid", recovery.text)
         retried = self.client.post(
             f"{failed.headers['location']}/retry",
             data={"csrf_token": self.csrf},
@@ -4751,13 +4794,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
         dataset = SourceDataset(
             dataset_id="dataset:large",
             name="large_contacts",
-            file_id="source:large",
-            table_key="contacts",
-            source_sha256="sha256:" + "1" * 64,
-            catalog_hash="sha256:" + "2" * 64,
-            encoding="utf-8",
-            delimiter=",",
-            header_row=1,
+            source=FileSourceBinding(
+                file_id="source:large",
+                table_key="contacts",
+                source_sha256="sha256:" + "1" * 64,
+                catalog_hash="sha256:" + "2" * 64,
+                encoding="utf-8",
+                delimiter=",",
+                header_row=1,
+            ),
             row_count=1,
             columns=(
                 SourceDatasetColumn(1, "Reference", "column:ref", "string"),
@@ -4843,6 +4888,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
             odoo_version="19.0",
             models=(SchemaModel("res.partner", "Contact", fields),),
             content_hash="sha256:" + "4" * 64,
+            origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash="sha256:" + "1" * 64,
+            read_principal_hash="sha256:" + "1" * 64,
+            read_permission_hash="sha256:" + "2" * 64,
+            read_context_hash="sha256:" + "3" * 64,
+            connection_target_hash=_browser_schema(registered).fingerprint.target_hash,
         )
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             registered.project_id,

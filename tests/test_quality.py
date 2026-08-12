@@ -53,6 +53,7 @@ from impodo.staging_contracts import (
     StagingReconciliation,
 )
 from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.domain.source_binding import FileSourceBinding
 from impodo.workspace_contracts import (
     SourceDataset,
     SourceDatasetColumn,
@@ -1053,13 +1054,15 @@ class QualityStoreTests(unittest.TestCase):
                 SourceDataset(
                     dataset_id="dataset:contacts",
                     name="contacts",
-                    file_id=str(uuid4()),
-                    table_key="csv",
-                    source_sha256=SOURCE_HASH,
-                    catalog_hash="sha256:" + "a" * 64,
-                    encoding="utf-8",
-                    delimiter=",",
-                    header_row=1,
+                    source=FileSourceBinding(
+                        file_id=str(uuid4()),
+                        table_key="csv",
+                        source_sha256=SOURCE_HASH,
+                        catalog_hash="sha256:" + "a" * 64,
+                        encoding="utf-8",
+                        delimiter=",",
+                        header_row=1,
+                    ),
                     row_count=1,
                     columns=(SourceDatasetColumn(1, "Reference", "column:reference", "string"),),
                 ),

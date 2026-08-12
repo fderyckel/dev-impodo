@@ -1,4 +1,4 @@
-"""Creation and compatibility validation of project DuckDB files."""
+"""Creation and exact validation of current project DuckDB files."""
 
 from __future__ import annotations
 
@@ -13,12 +13,11 @@ from .preparation_session import create_preparation_session_schema
 from .prepared_snapshot import create_prepared_snapshot_schema
 from .reconciliation import create_reconciliation_schema
 from .source_snapshot import create_source_snapshot_schema
-from .upgrades import apply_project_schema_upgrades
 
 
-_LEGACY_PROJECT_MESSAGE = (
-    "This project was created by an older Impodo build and cannot be opened. "
-    "Delete it from the Projects page and create a new project."
+_UNSUPPORTED_PROJECT_MESSAGE = (
+    "This project uses a different Impodo data contract and cannot be opened "
+    "by this build. Delete it from the Projects page and create a new project."
 )
 
 
@@ -96,6 +95,23 @@ class ProjectSchemaMixin:
             CREATE TABLE source_selection (
                 singleton_id INTEGER PRIMARY KEY,
                 selection_json VARCHAR NOT NULL
+            );
+
+            CREATE TABLE odoo_capture_selection_revision (
+                selection_id VARCHAR NOT NULL,
+                version INTEGER NOT NULL,
+                content_hash VARCHAR NOT NULL UNIQUE,
+                model VARCHAR NOT NULL,
+                created_at VARCHAR NOT NULL,
+                created_by VARCHAR NOT NULL,
+                selection_json VARCHAR NOT NULL,
+                PRIMARY KEY (selection_id, version)
+            );
+
+            CREATE TABLE odoo_capture_selection_current (
+                singleton_id INTEGER PRIMARY KEY,
+                selection_id VARCHAR NOT NULL,
+                version INTEGER NOT NULL
             );
 
             CREATE TABLE odoo_schema_catalog (
@@ -571,7 +587,7 @@ class ProjectSchemaMixin:
         self,
         connection: duckdb.DuckDBPyConnection,
     ) -> None:
-        """Validate the schema generation and upgrade supported old versions."""
+        """Require the one exact schema generation supported by this build."""
 
         try:
             row = connection.execute(
@@ -582,17 +598,12 @@ class ProjectSchemaMixin:
                 """
             ).fetchone()
         except duckdb.Error as error:
-            raise ProjectCompatibilityError(_LEGACY_PROJECT_MESSAGE) from error
+            raise ProjectCompatibilityError(_UNSUPPORTED_PROJECT_MESSAGE) from error
         if row is None or str(row[0]) != SCHEMA_GENERATION:
-            raise ProjectCompatibilityError(_LEGACY_PROJECT_MESSAGE)
+            raise ProjectCompatibilityError(_UNSUPPORTED_PROJECT_MESSAGE)
         stored_version = int(row[1])
-        if stored_version > SCHEMA_VERSION:
+        if stored_version != SCHEMA_VERSION:
             raise ProjectCompatibilityError(
-                "This project was created by a newer Impodo version. Update "
-                "Impodo before opening it."
+                "This project uses a different Impodo data contract and cannot "
+                "be opened by this build."
             )
-        apply_project_schema_upgrades(
-            connection,
-            stored_version=stored_version,
-            target_version=SCHEMA_VERSION,
-        )

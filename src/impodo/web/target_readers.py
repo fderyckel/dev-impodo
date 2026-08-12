@@ -429,7 +429,7 @@ def _source_value_choices(
         raise WorkspaceError(
             "The frozen source snapshot could not be verified"
         ) from error
-    expected_hash = f"sha256:{dataset.source_sha256.removeprefix('sha256:')}"
+    expected_hash = dataset.source_evidence_hash
     if table.content_hash != expected_hash:
         raise WorkspaceError("Stored source content changed after selection")
     counts = Counter(

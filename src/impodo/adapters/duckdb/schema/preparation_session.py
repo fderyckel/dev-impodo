@@ -121,6 +121,47 @@ def create_preparation_session_schema(
                 session_id, dataset, source_row, target_field, ordinal
             );
 
+        CREATE TABLE IF NOT EXISTS preparation_normalization_group_seed (
+            session_id VARCHAR NOT NULL,
+            group_id VARCHAR NOT NULL,
+            metadata_hash VARCHAR NOT NULL,
+            dataset VARCHAR NOT NULL,
+            target_field VARCHAR NOT NULL,
+            rule_id VARCHAR NOT NULL,
+            kind VARCHAR NOT NULL,
+            outcome VARCHAR NOT NULL,
+            name VARCHAR NOT NULL,
+            explanation VARCHAR NOT NULL,
+            owner_label VARCHAR NOT NULL,
+            PRIMARY KEY (session_id, group_id, metadata_hash)
+        );
+
+        CREATE INDEX IF NOT EXISTS preparation_normalization_group_seed_lookup
+            ON preparation_normalization_group_seed (
+                session_id, group_id
+            );
+
+        CREATE TABLE IF NOT EXISTS preparation_normalization_finding (
+            session_id VARCHAR NOT NULL,
+            issue_id VARCHAR NOT NULL,
+            group_id VARCHAR NOT NULL,
+            row_id VARCHAR NOT NULL,
+            rule_id VARCHAR NOT NULL,
+            kind VARCHAR NOT NULL,
+            outcome VARCHAR NOT NULL,
+            dataset VARCHAR NOT NULL,
+            target_field VARCHAR NOT NULL,
+            name VARCHAR NOT NULL,
+            explanation VARCHAR NOT NULL,
+            owner_label VARCHAR NOT NULL,
+            PRIMARY KEY (session_id, group_id, row_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS preparation_normalization_finding_lookup
+            ON preparation_normalization_finding (
+                session_id, group_id, issue_id
+            );
+
         CREATE TABLE IF NOT EXISTS preparation_final_row (
             session_id VARCHAR NOT NULL,
             ordinal BIGINT NOT NULL,

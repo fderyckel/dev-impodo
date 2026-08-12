@@ -35,7 +35,7 @@ class DuckDbDatabase(
 
     The root contains one registry plus a UUID-named directory/database per
     project. DuckDB external access and extension loading are disabled by the
-    connection factory. Supported schemas are upgraded before project access.
+    connection factory. Project access requires the exact current schema.
     """
 
     def __init__(self, root: str | Path) -> None:
@@ -132,6 +132,7 @@ class DuckDbDatabase(
                     if target not in {
                         "derived_entity_plan_current",
                         "mapping_current",
+                        "odoo_capture_selection_current",
                         "schema_governance_current",
                     }:
                         raise ValueError("Unsupported invalidation table")

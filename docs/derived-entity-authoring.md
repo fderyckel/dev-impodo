@@ -134,8 +134,8 @@ This slice delivers:
 - model, identity, display-name, and compatible many2one suggestions;
 - full-row readiness materialization and incoming-dataset resolution for
   lookup-derived records;
-- hash binding, revisions, audit, invalidation, and backward-compatible reading
-  of contract-version-1 lookup plans.
+- hash binding, revisions, audit, invalidation, and strict reading of the one
+  current source-preparation plan contract.
 
 It does not yet deliver:
 

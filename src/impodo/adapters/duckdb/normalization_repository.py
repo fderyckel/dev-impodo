@@ -102,7 +102,12 @@ class NormalizationRepository(DuckDbRepository):
             )
         database_path = self.project_directory(project_id) / "project.duckdb"
         published_at = datetime.now(timezone.utc)
-        run_id = str(uuid4())
+        prepared_run_id = getattr(evaluation.effects, "prepared_run_id", None)
+        run_id = (
+            self._normalization_run_id(str(prepared_run_id))
+            if prepared_run_id is not None
+            else str(uuid4())
+        )
         changed_record_count = evaluation.changed_record_count
         try:
             dry_run = start_dry_run(
@@ -356,7 +361,7 @@ class NormalizationRepository(DuckDbRepository):
                 [canonical_run_id],
             ).fetchone()
             effects = connection.execute(
-                "SELECT effect_json FROM normalization_effect WHERE run_id = ? ORDER BY ordinal",
+                "SELECT effect_json FROM normalization_effect WHERE run_id = ? ORDER BY effect_id",
                 [canonical_run_id],
             ).fetchall()
             groups = connection.execute(
@@ -682,103 +687,37 @@ class NormalizationRepository(DuckDbRepository):
             )
         hasher.start_array("effects")
         if isinstance(evaluation, StoredNormalizationEvaluation):
-            connection.execute(
-                """
-                CREATE TEMP TABLE normalization_pending_effect (
-                    effect_id VARCHAR PRIMARY KEY,
-                    group_id VARCHAR NOT NULL,
-                    row_id VARCHAR NOT NULL,
-                    dataset VARCHAR NOT NULL,
-                    source_row BIGINT NOT NULL,
-                    target_field VARCHAR NOT NULL,
-                    eligible BOOLEAN NOT NULL,
-                    effect_json VARCHAR NOT NULL
-                )
-                """
+            copy_to_run = getattr(evaluation.effects, "copy_to_run", None)
+            encoded_reader = getattr(
+                evaluation.effects,
+                "iter_encoded_batches",
+                None,
             )
-            batch_reader = getattr(evaluation.effects, "iter_batches", None)
-            if not callable(batch_reader):
-                raise WorkspaceError(
-                    "Stored normalization effects are not replayable"
-                )
-            effect_count = 0
-            for batch in batch_reader(connection, NORMALIZATION_ROW_BATCH_SIZE):
-                transport_rows = (
-                    {
-                        "effect_id": item.effect_id,
-                        "group_id": item.group_id,
-                        "row_id": item.row_id,
-                        "dataset": item.dataset,
-                        "source_row": item.source_row,
-                        "target_field": item.target_field,
-                        "eligible": item.eligible,
-                        "effect_json": _canonical_json(
-                            item.to_portable_dict()
-                        ),
-                    }
-                    for item in batch
-                )
-                for encoded_batch in iter_encoded_json_batches(
-                    transport_rows,
-                    max_rows=NORMALIZATION_ROW_BATCH_SIZE,
-                    max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
-                ):
-                    connection.execute(
-                        """
-                        INSERT INTO normalization_pending_effect
-                        SELECT
-                            item.effect_id,
-                            item.group_id,
-                            item.row_id,
-                            item.dataset,
-                            item.source_row,
-                            item.target_field,
-                            item.eligible,
-                            item.effect_json
-                          FROM (
-                            SELECT UNNEST(
-                                from_json_strict(CAST(? AS JSON), ?)
-                            ) AS item
-                          )
-                        """,
-                        [
-                            encoded_batch.payload,
-                            _NORMALIZATION_EFFECT_JSON_STRUCTURE,
-                        ],
+            if callable(copy_to_run) and callable(encoded_reader):
+                copied_effect_count = int(copy_to_run(connection, run_id))
+                if copied_effect_count != evaluation.effect_count:
+                    raise WorkspaceError(
+                        "Stored normalization effects are incomplete"
                     )
-                    effect_count += encoded_batch.row_count
-            if effect_count != evaluation.effect_count:
-                raise WorkspaceError("Stored normalization effects are incomplete")
-            connection.execute(
-                """
-                INSERT INTO normalization_effect (
-                    run_id, ordinal, effect_id, group_id, row_id, dataset,
-                    source_row, target_field, eligible, effect_json
+                hashed_effect_count = 0
+                for batch in encoded_reader(
+                    connection,
+                    NORMALIZATION_ROW_BATCH_SIZE,
+                ):
+                    for effect_json in batch:
+                        hasher.add_encoded_array_item(str(effect_json))
+                        hashed_effect_count += 1
+                if hashed_effect_count != evaluation.effect_count:
+                    raise WorkspaceError(
+                        "Stored normalization effect order is incomplete"
+                    )
+            else:
+                NormalizationRepository._insert_replayed_normalization_effects(
+                    connection,
+                    run_id,
+                    evaluation,
+                    hasher,
                 )
-                SELECT
-                    ?, ROW_NUMBER() OVER (ORDER BY effect_id) - 1,
-                    effect_id, group_id, row_id, dataset, source_row,
-                    target_field, eligible, effect_json
-                  FROM normalization_pending_effect
-                """,
-                [run_id],
-            )
-            cursor = connection.execute(
-                """
-                SELECT effect_json
-                  FROM normalization_effect
-                 WHERE run_id = ?
-                 ORDER BY ordinal
-                """,
-                [run_id],
-            )
-            hashed_effect_count = 0
-            while batch := cursor.fetchmany(NORMALIZATION_ROW_BATCH_SIZE):
-                for (effect_json,) in batch:
-                    hasher.add_encoded_array_item(str(effect_json))
-                    hashed_effect_count += 1
-            if hashed_effect_count != evaluation.effect_count:
-                raise WorkspaceError("Stored normalization effect order is incomplete")
         else:
             for start in range(
                 0,
@@ -867,6 +806,113 @@ class NormalizationRepository(DuckDbRepository):
         hasher.add_value("schema_hash", evaluation.schema_hash)
         hasher.add_value("staging_content_hash", evaluation.staging_content_hash)
         return hasher.finish()
+
+    @staticmethod
+    def _insert_replayed_normalization_effects(
+        connection: duckdb.DuckDBPyConnection,
+        run_id: str,
+        evaluation: StoredNormalizationEvaluation,
+        hasher: CanonicalJsonObjectHasher,
+    ) -> None:
+        """Retain the bounded small-fixture transport as a parity oracle."""
+
+        connection.execute(
+            """
+            CREATE TEMP TABLE normalization_pending_effect (
+                effect_id VARCHAR PRIMARY KEY,
+                group_id VARCHAR NOT NULL,
+                row_id VARCHAR NOT NULL,
+                dataset VARCHAR NOT NULL,
+                source_row BIGINT NOT NULL,
+                target_field VARCHAR NOT NULL,
+                eligible BOOLEAN NOT NULL,
+                effect_json VARCHAR NOT NULL
+            )
+            """
+        )
+        batch_reader = getattr(evaluation.effects, "iter_batches", None)
+        if not callable(batch_reader):
+            raise WorkspaceError(
+                "Stored normalization effects are not replayable"
+            )
+        effect_count = 0
+        for batch in batch_reader(connection, NORMALIZATION_ROW_BATCH_SIZE):
+            transport_rows = (
+                {
+                    "effect_id": item.effect_id,
+                    "group_id": item.group_id,
+                    "row_id": item.row_id,
+                    "dataset": item.dataset,
+                    "source_row": item.source_row,
+                    "target_field": item.target_field,
+                    "eligible": item.eligible,
+                    "effect_json": _canonical_json(item.to_portable_dict()),
+                }
+                for item in batch
+            )
+            for encoded_batch in iter_encoded_json_batches(
+                transport_rows,
+                max_rows=NORMALIZATION_ROW_BATCH_SIZE,
+                max_bytes=DUCKDB_JSON_BATCH_MAX_BYTES,
+            ):
+                connection.execute(
+                    """
+                    INSERT INTO normalization_pending_effect
+                    SELECT
+                        item.effect_id,
+                        item.group_id,
+                        item.row_id,
+                        item.dataset,
+                        item.source_row,
+                        item.target_field,
+                        item.eligible,
+                        item.effect_json
+                      FROM (
+                        SELECT UNNEST(
+                            from_json_strict(CAST(? AS JSON), ?)
+                        ) AS item
+                      )
+                    """,
+                    [
+                        encoded_batch.payload,
+                        _NORMALIZATION_EFFECT_JSON_STRUCTURE,
+                    ],
+                )
+                effect_count += encoded_batch.row_count
+        if effect_count != evaluation.effect_count:
+            raise WorkspaceError("Stored normalization effects are incomplete")
+        connection.execute(
+            """
+            INSERT INTO normalization_effect (
+                run_id, ordinal, effect_id, group_id, row_id, dataset,
+                source_row, target_field, eligible, effect_json
+            )
+            SELECT ?, ROW_NUMBER() OVER (ORDER BY effect_id) - 1,
+                   effect_id, group_id, row_id, dataset, source_row,
+                   target_field, eligible, effect_json
+              FROM normalization_pending_effect
+            """,
+            [run_id],
+        )
+        cursor = connection.execute(
+            """
+            SELECT effect_json
+              FROM normalization_effect
+             WHERE run_id = ?
+             ORDER BY ordinal
+            """,
+            [run_id],
+        )
+        hashed_effect_count = 0
+        while batch := cursor.fetchmany(NORMALIZATION_ROW_BATCH_SIZE):
+            for (effect_json,) in batch:
+                hasher.add_encoded_array_item(str(effect_json))
+                hashed_effect_count += 1
+        if hashed_effect_count != evaluation.effect_count:
+            raise WorkspaceError(
+                "Stored normalization effect order is incomplete"
+            )
+
     @staticmethod
     def _normalization_summary_query(where: str) -> str:
         return f"""

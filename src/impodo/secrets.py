@@ -116,9 +116,13 @@ class MemorySecretStore:
 
 
 def _service_name(credential_id: str) -> str:
-    """Route role-prefixed IDs while retaining the legacy read namespace."""
+    """Route one current role-qualified credential ID."""
 
     parts = credential_id.rsplit(":", 2)
-    if len(parts) == 3 and parts[1] == "write":
+    if len(parts) != 3:
+        raise SecretStoreError("Odoo credential identifier is invalid")
+    if parts[1] == "write":
         return WRITE_SERVICE_NAME
-    return READ_SERVICE_NAME
+    if parts[1] == "read":
+        return READ_SERVICE_NAME
+    raise SecretStoreError("Odoo credential role is invalid")

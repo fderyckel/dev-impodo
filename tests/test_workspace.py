@@ -122,6 +122,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             self.project_repository,
             self.source_repository,
             self.authorization,
+            schemas=self.schema_repository,
         )
         self.schemas = SchemaWorkspaceService(
             self.project_repository,
@@ -313,6 +314,95 @@ class WorkspaceLifecycleTests(unittest.TestCase):
                 ),
                 actor=LOCAL_ACTOR,
             )
+
+    def test_odoo_capture_plan_is_versioned_and_invalidated_by_schema_refresh(
+        self,
+    ) -> None:
+        odoo_project = replace(
+            self.project,
+            source_mode=SourceMode.ODOO,
+            revision=self.project.revision + 1,
+        )
+        self.project_repository.save(
+            odoo_project,
+            expected_revision=self.project.revision,
+            event_type="TEST_ODOO_SOURCE_MODE",
+            event_detail="",
+            actor=LOCAL_ACTOR,
+        )
+        self.project = odoo_project
+        schema = self.schemas.capture(
+            self.project.project_id,
+            _metadata_snapshot(),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
+            read_identity=_read_identity(("res.partner",)),
+            actor=LOCAL_ACTOR,
+        )
+
+        first = self.sources.define_odoo_capture_selection(
+            self.project.project_id,
+            dataset_name="odoo_contacts",
+            model="res.partner",
+            field_names=("name", "active", "name"),
+            include_archived=False,
+            max_rows="1000",
+            actor=LOCAL_ACTOR,
+        )
+        second = self.sources.define_odoo_capture_selection(
+            self.project.project_id,
+            dataset_name="odoo_contacts",
+            model="res.partner",
+            field_names=("name",),
+            include_archived=True,
+            max_rows=100,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(first.version, 1)
+        self.assertEqual(first.field_names, ("active", "name"))
+        self.assertEqual(second.selection_id, first.selection_id)
+        self.assertEqual(second.version, 2)
+        self.assertEqual(
+            self.source_repository.get_current_odoo_capture_selection(
+                self.project.project_id
+            ),
+            second,
+        )
+        self.assertEqual(
+            self.source_repository.get_odoo_capture_selection_history(
+                self.project.project_id
+            ),
+            (first, second),
+        )
+        self.assertTrue(
+            self.project_repository.has_audit_event(
+                self.project.project_id,
+                "ODOO_CAPTURE_SELECTION_SAVED",
+            )
+        )
+        self.assertEqual(first.connection_target_hash, schema.connection_target_hash)
+
+        self.schemas.capture(
+            self.project.project_id,
+            _metadata_snapshot(),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
+            read_identity=_read_identity(("res.partner",)),
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertIsNone(
+            self.source_repository.get_current_odoo_capture_selection(
+                self.project.project_id
+            )
+        )
+        self.assertEqual(
+            len(
+                self.source_repository.get_odoo_capture_selection_history(
+                    self.project.project_id
+                )
+            ),
+            2,
+        )
 
     def test_confirm_freeze_capture_and_mapping_are_versioned_and_persisted(
         self,
