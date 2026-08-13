@@ -96,7 +96,7 @@ Names are usually poor identifiers, and database IDs are not portable.
 Declare only fields needed for validation or comparison.
 
 This section describes expert YAML. For the browser controls and examples, use
-the [scalar mapping reference](01-local-browser-user-guide.md#scalar-fields-choose-what-impodo-should-do).
+the [Match data guide](../user/workflow/03-match-data.md).
 
 ```yaml
 fields:

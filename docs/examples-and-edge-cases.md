@@ -180,8 +180,8 @@ file.
 
 These examples describe the YAML profile used by the expert CLI. Data managers
 working in the browser should use the
-[scalar mapping reference](operations/01-local-browser-user-guide.md#scalar-fields-choose-what-impodo-should-do),
-which follows the visible controls and current browser processing order.
+[Match data guide](user/workflow/03-match-data.md), which follows the visible
+controls and current browser processing order.
 
 ### Composite identity
 

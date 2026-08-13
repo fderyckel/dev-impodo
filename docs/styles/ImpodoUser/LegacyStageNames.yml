@@ -1,0 +1,9 @@
+extends: substitution
+message: "Use the current workflow label '%s' instead of '%s'."
+level: warning
+ignorecase: false
+swap:
+  Source discovery: Source data
+  Target schema: Odoo data
+  Governed mapping: Match data
+  Odoo fields: Odoo data

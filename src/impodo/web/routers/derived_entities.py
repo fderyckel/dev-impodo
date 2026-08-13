@@ -5,7 +5,8 @@ then delegates preview and optimistic plan revisions to
 ``DerivedEntityWorkspaceService``. A saved plan changes the effective datasets
 visible to mapping but never edits frozen source bytes.
 
-See ``docs/derived-entity-authoring.md`` and ``tests/test_web_app.py``.
+See ``docs/operations/08-related-dataset-authoring.md`` and
+``tests/test_web_app.py``.
 """
 
 from __future__ import annotations

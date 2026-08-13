@@ -1,7 +1,14 @@
 # Impodo documentation
 
-This index covers the current local browser workflow, the profile-driven
-read-only preflight engine, and the future migration product.
+Choose the path that matches your work:
+
+- [User documentation](user/README.md) guides data managers through the
+  current browser workflow in business language.
+- [Developer documentation](developer/README.md) maps the same workflow to
+  routes, services, evidence, invalidation rules, performance boundaries, and
+  tests.
+- [Operations](#operations-and-quality) covers local Odoo, expert CLI, IT,
+  release, and disposable remote acceptance responsibilities.
 
 Accepted decisions and contracts are normative. Architecture describes the
 current composition and boundaries; operations explain how to use it; testing
@@ -9,11 +16,26 @@ records evidence; the remaining-work plan and product vision describe future
 delivery. Where an example conflicts with a **MUST**, **MUST NOT**, **SHOULD**,
 or **MAY** rule, the normative rule wins.
 
-## Terminology
+## Workflow terminology
 
-The browser uses named workflow steps: **Project setup**, **Source data**,
-**Select tables**, **Odoo fields**, **Match fields**, and **Review**. The
-product vision uses **Stages A–K** for the end-to-end business lifecycle.
+**Project setup** happens before the six registered-project stages:
+
+1. **Source data**
+2. **Odoo data**
+3. **Match data**
+4. **Prepare data**
+5. **Final review**
+6. **Load into Odoo**
+
+An Odoo-source project presents the first two responsibilities as **Odoo source
+data** and **Freeze Odoo records**. The architectural product vision uses
+**Stages A–K** to describe the wider business lifecycle; those letters are not
+browser navigation labels.
+
+The machine-readable [workflow registry](workflow.yml) owns documentation,
+route, template, code-symbol, contract, and focused-test coverage for each
+stage. The [documentation style guide](style-guide.md) defines the audience and
+voice rules.
 
 ## Architecture
 
@@ -72,13 +94,15 @@ The numbered contracts form the recommended conceptual reading order.
 
 ## Operations and quality
 
-The numbered runbooks are grouped by reader journey. Browser users start with
-01 and use 02 for a local target; expert CLI users read 03 then 04; IT and
-release teams use 05 and 06. Use 07 only for an explicitly disposable remote
-acceptance target.
+The numbered runbooks are grouped by operating responsibility. Data managers
+start with the [user documentation](user/README.md), use 01 as the complete
+training tutorial, use 02 for a local target, and use 08 for generic
+related-table authoring. Expert CLI users read 03 then 04; IT and release teams
+use 05 and 06. Use 07 only for an explicitly disposable remote acceptance
+target.
 
-- [Local-browser user guide](operations/01-local-browser-user-guide.md) — concise
-  walkthrough of the current browser workflow, explicit load, and its limits.
+- [End-to-end local-browser tutorial](operations/01-local-browser-user-guide.md)
+  — one complete fictional migration across the current browser workflow.
 - [Local Odoo runbook](operations/02-local-odoo.md) — local target readiness,
   ownership-aware start and stop behavior, and troubleshooting.
 - [Profile authoring](operations/03-profile-authoring.md) — strict YAML datasets,
@@ -93,9 +117,9 @@ acceptance target.
 - [Remote Odoo 19 acceptance](operations/07-remote-odoo-acceptance.md) —
   opt-in sanitized remote load, read-back, repeat-preview, and throughput
   evidence against a disposable on-premises database.
-- [Derived-entity authoring](derived-entity-authoring.md) — the implemented
-  browser slice for related-entity datasets extracted from denormalized source
-  fields, plus its execution boundary.
+- [Related-table authoring](operations/08-related-dataset-authoring.md) — the
+  generic browser reference for extracting reusable records or separating
+  repeated parent/child rows without editing frozen source data.
 - [Examples and edge cases](examples-and-edge-cases.md) — copy-paste runs,
   profile patterns, expected outcomes, failure cases, and current limitations.
 - [Acceptance and test strategy](testing/acceptance.md) — test layers, golden
@@ -112,14 +136,19 @@ together. Label proposals and historical delivery documents explicitly; use
 Git history instead of retaining stale architecture summaries in the active
 documentation tree.
 
-For Python workflow changes, also update the owning module/class/method
-docstrings and the [Python code map](architecture/python-code-map.md). Run:
+For workflow changes, update the paired user and developer stage pages and the
+workflow registry. Also update the owning module/class/method docstrings and
+the [Python code map](architecture/python-code-map.md). Run:
 
 ```console
+python scripts/documentation_quality.py --check --report
 python scripts/code_documentation_inventory.py --check
 python scripts/code_documentation_inventory.py --missing
-python -m unittest tests.test_code_documentation
+python -m unittest tests.test_documentation_quality tests.test_code_documentation
 ```
 
-The module check is blocking; the public-symbol list is advisory and requires
-semantic review rather than a docstring-percentage target.
+The workflow and module checks are blocking. The public-symbol list and Vale
+style rules are advisory and require semantic review rather than percentage or
+readability-score targets. When Vale is installed, run `vale docs/user
+docs/developer` to apply the repository vocabulary and audience-specific prose
+warnings.

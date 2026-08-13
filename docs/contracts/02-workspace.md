@@ -238,13 +238,13 @@ Full-row preflight reuses the compiled migration plan, indexes freshly fetched
 choice codes once per mapped field, and validates final prepared values
 without an Odoo call inside the row loop.
 
-End-user explanations of every scalar provider, type, transformation, policy,
-and preview belong in the
-[local-browser scalar mapping reference](../operations/01-local-browser-user-guide.md#scalar-fields-choose-what-impodo-should-do).
+End-user explanations of scalar providers, transformations, relationships, and
+review belong in the [Match data guide](../user/workflow/03-match-data.md).
 
 Derived-entity rules may create deterministic related-dataset plans from
 denormalized source columns. Their bounded previews do not execute full-row
-staging; see [derived-entity authoring](../derived-entity-authoring.md).
+staging; see
+[related-table authoring](../operations/08-related-dataset-authoring.md).
 
 The browser may persist one recoverable working draft before validation. It
 uses stable dataset IDs and Odoo technical field names, accepts incomplete

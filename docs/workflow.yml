@@ -1,0 +1,213 @@
+schema_version: 1
+
+# This registry defines documentation ownership for the implemented browser
+# workflow. Contracts and code remain authoritative for behavior.
+shared:
+  router_modules:
+    - src/impodo/web/routers/lifecycle.py
+  documents:
+    - docs/README.md
+    - docs/style-guide.md
+    - docs/user/README.md
+    - docs/developer/README.md
+
+stages:
+  - id: setup
+    order: 0
+    label: Project setup
+    navigation: false
+    user_doc: docs/user/getting-started.md
+    developer_doc: docs/developer/workflow/00-project-setup.md
+    router_modules:
+      - src/impodo/web/routers/projects.py
+      - src/impodo/web/routers/target.py
+    templates:
+      - src/impodo/web/templates/project_list.html
+      - src/impodo/web/templates/project_new.html
+      - src/impodo/web/templates/project_details.html
+      - src/impodo/web/templates/project_governance.html
+      - src/impodo/web/templates/project_files.html
+      - src/impodo/web/templates/project_review.html
+      - src/impodo/web/templates/project_target.html
+      - src/impodo/web/templates/project_overview.html
+    code_references:
+      - src/impodo/projects.py::ProjectService
+      - src/impodo/projects.py::ProjectService.register
+      - src/impodo/web/presenters/navigation.py::build_project_navigation
+    tests:
+      - tests/test_projects.py
+      - tests/test_project_security.py
+      - tests/test_web_app.py
+    contracts:
+      - docs/contracts/01-migration-project.md
+
+  - id: source
+    order: 1
+    label: Source data
+    navigation: true
+    variants:
+      file:
+        order: 1
+        label: Source data
+      odoo:
+        order: 2
+        label: Freeze Odoo records
+    user_doc: docs/user/workflow/01-source-data.md
+    developer_doc: docs/developer/workflow/01-source-data.md
+    router_modules:
+      - src/impodo/web/routers/sources.py
+      - src/impodo/web/routers/derived_entities.py
+    templates:
+      - src/impodo/web/templates/project_sources.html
+      - src/impodo/web/templates/project_datasets.html
+      - src/impodo/web/templates/project_derived_entities.html
+      - src/impodo/web/templates/project_odoo_capture_selection.html
+      - src/impodo/web/templates/project_odoo_capture_progress.html
+    code_references:
+      - src/impodo/application/source_workspace_service.py::SourceWorkspaceService
+      - src/impodo/application/source_workspace_service.py::SourceWorkspaceService.freeze_selection
+      - src/impodo/application/odoo_source_capture_service.py::OdooSourceCaptureService
+      - src/impodo/derived_entities.py::DerivedEntityWorkspaceService
+    tests:
+      - tests/test_workspace.py
+      - tests/test_source_snapshot.py
+      - tests/test_odoo_source_capture.py
+      - tests/test_derived_entities.py
+      - tests/test_web_app.py
+    contracts:
+      - docs/contracts/01-migration-project.md
+      - docs/contracts/02-workspace.md
+    references:
+      - docs/operations/08-related-dataset-authoring.md
+
+  - id: odoo
+    order: 2
+    label: Odoo data
+    navigation: true
+    variants:
+      file:
+        order: 2
+        label: Odoo data
+      odoo:
+        order: 1
+        label: Odoo source data
+    user_doc: docs/user/workflow/02-odoo-data.md
+    developer_doc: docs/developer/workflow/02-odoo-data.md
+    router_modules:
+      - src/impodo/web/routers/schema.py
+    templates:
+      - src/impodo/web/templates/project_schema.html
+    code_references:
+      - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService
+      - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.capture
+      - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.govern
+    tests:
+      - tests/test_workspace.py
+      - tests/test_local_odoo_reader.py
+      - tests/test_web_app.py
+    contracts:
+      - docs/contracts/02-workspace.md
+
+  - id: match
+    order: 3
+    label: Match data
+    navigation: true
+    user_doc: docs/user/workflow/03-match-data.md
+    developer_doc: docs/developer/workflow/03-match-data.md
+    router_modules:
+      - src/impodo/web/routers/mapping.py
+      - src/impodo/web/routers/quality.py
+    templates:
+      - src/impodo/web/templates/project_mapping.html
+      - src/impodo/web/templates/project_transformation_impact.html
+    code_references:
+      - src/impodo/application/mapping_workspace_service.py::MappingWorkspaceService
+      - src/impodo/application/mapping_workspace_service.py::MappingWorkspaceService.submit_current
+      - src/impodo/application/transformation_impact_service.py::TransformationImpactService
+    tests:
+      - tests/test_mapping_forms.py
+      - tests/test_mapping_validation.py
+      - tests/test_mapping_impact_presenter.py
+      - tests/test_web_app.py
+    contracts:
+      - docs/contracts/02-workspace.md
+
+  - id: prepare
+    order: 4
+    label: Prepare data
+    navigation: true
+    user_doc: docs/user/workflow/04-prepare-data.md
+    developer_doc: docs/developer/workflow/04-prepare-data.md
+    router_modules:
+      - src/impodo/web/routers/preparation.py
+      - src/impodo/web/routers/resolution.py
+      - src/impodo/web/routers/normalization.py
+    templates:
+      - src/impodo/web/templates/project_prepare.html
+      - src/impodo/web/templates/project_preparation_progress.html
+      - src/impodo/web/templates/project_resolution.html
+      - src/impodo/web/templates/project_normalization.html
+    code_references:
+      - src/impodo/application/preparation_service.py::PreparationService
+      - src/impodo/application/preparation_job_service.py::PreparationJobManager
+      - src/impodo/application/quality_service.py::QualityService
+      - src/impodo/application/resolution_service.py::ResolutionService
+      - src/impodo/application/normalization_service.py::NormalizationService
+    tests:
+      - tests/test_preparation_jobs.py
+      - tests/test_preparation_session.py
+      - tests/test_quality.py
+      - tests/test_normalization.py
+      - tests/test_web_app.py
+    contracts:
+      - docs/contracts/03-canonical-staging.md
+      - docs/contracts/05-normalization-governance.md
+      - docs/contracts/06-quality-and-quarantine.md
+
+  - id: review
+    order: 5
+    label: Final review
+    navigation: true
+    user_doc: docs/user/workflow/05-final-review.md
+    developer_doc: docs/developer/workflow/05-final-review.md
+    router_modules:
+      - src/impodo/web/routers/summary.py
+      - src/impodo/web/routers/preflight.py
+    templates:
+      - src/impodo/web/templates/project_summary.html
+    code_references:
+      - src/impodo/application/preflight_service.py::PreflightService
+      - src/impodo/application/preflight_service.py::PreflightService.compare
+    tests:
+      - tests/test_preflight_service.py
+      - tests/test_preflight_scale.py
+      - tests/test_engine.py
+      - tests/test_connectors.py
+      - tests/test_web_app.py
+    contracts:
+      - docs/contracts/04-preflight.md
+      - docs/contracts/06-quality-and-quarantine.md
+
+  - id: load
+    order: 6
+    label: Load into Odoo
+    navigation: true
+    user_doc: docs/user/workflow/06-load-into-odoo.md
+    developer_doc: docs/developer/workflow/06-load-into-odoo.md
+    router_modules:
+      - src/impodo/web/routers/execution.py
+    templates:
+      - src/impodo/web/templates/project_load.html
+    code_references:
+      - src/impodo/application/execution_service.py::ExecutionService
+      - src/impodo/application/execution_service.py::ExecutionService.execute
+      - src/impodo/application/reconciliation_service.py::ReconciliationService
+      - src/impodo/application/reconciliation_service.py::ReconciliationService.reconcile
+    tests:
+      - tests/test_execution_service.py
+      - tests/test_execution_web.py
+      - tests/test_execution_repository.py
+      - tests/test_reconciliation_service.py
+    contracts:
+      - docs/architecture/security-and-infrastructure.md
+      - docs/testing/acceptance.md

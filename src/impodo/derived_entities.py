@@ -6,7 +6,8 @@ Both rule types participate in the effective mapping selection and are repeated
 over every source row by readiness staging without changing the frozen source.
 
 See ``docs/architecture/python-code-map.md``,
-``docs/derived-entity-authoring.md``, and ``tests/test_derived_entities.py``.
+``docs/operations/08-related-dataset-authoring.md``, and
+``tests/test_derived_entities.py``.
 """
 
 from __future__ import annotations

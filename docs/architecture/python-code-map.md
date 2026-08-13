@@ -737,9 +737,15 @@ Start verification in
 
 ## What to document next
 
-The initial DOC-0 through DOC-6 rollout is complete. Documentation is now a
-continuous part of workflow changes: update the owning module/class/method
-docstrings, stage/evidence map, contract or active plan, and focused tests when
-a connection, prerequisite, side effect, invalidation, or implementation
-status changes. Use the advisory missing-symbol report during review and keep
-the module-docstring check in normal verification.
+The [developer workflow guide](../developer/README.md) now pairs every browser
+stage with its user guide, routes, services, evidence, invalidation rules, and
+focused tests. [`docs/workflow.yml`](../workflow.yml) is the machine-readable
+coverage registry.
+
+Documentation is a continuous part of workflow changes: update the paired
+stage pages, workflow registry, owning module/class/method docstrings, this
+cross-stage map, contract or active plan, and focused tests when a connection,
+prerequisite, side effect, invalidation, or implementation status changes. Run
+`scripts/documentation_quality.py --check --report` and keep the module-
+docstring check in normal verification. The missing-symbol report and prose
+style rules remain advisory.

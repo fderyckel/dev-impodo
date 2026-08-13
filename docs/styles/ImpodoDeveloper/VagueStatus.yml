@@ -1,0 +1,8 @@
+extends: existence
+message: "Replace vague status wording '%s' with implemented, partial, or planned."
+level: warning
+ignorecase: true
+tokens:
+  - '\bTBD\b'
+  - '\beventually\b'
+  - '\bshould probably\b'

@@ -1,0 +1,7 @@
+extends: existence
+message: "Address the reader as 'you' instead of '%s'."
+level: suggestion
+ignorecase: true
+tokens:
+  - '\bthe user\b'
+  - '\busers should\b'

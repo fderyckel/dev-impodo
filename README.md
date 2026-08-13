@@ -204,6 +204,6 @@ data, promote and install a clean, evidence-producing bundle by following the
 
 ## Documentation
 
-For the complete documentation, including the user guide, operating runbooks,
-contracts, architecture, and test guidance, start at
-[docs/README.md](docs/README.md).
+For the complete documentation, choose the data-manager or developer path at
+[docs/README.md](docs/README.md). That index also links the operating runbooks,
+contracts, architecture, plans, and test evidence.
