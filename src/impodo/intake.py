@@ -5,7 +5,8 @@ Layer: application service at the artifact boundary.
 ``SourceIntakeService.accept`` is called by the project setup router. It streams
 an upload through the ``ArtifactStore`` and isolated file validator, then asks
 ``ProjectService`` to attach the resulting size/hash evidence. The original
-display name is never used as the storage key.
+display name is never used as the storage key. Early-stage removal first retires
+the governed database reference and then deletes its opaque stored bytes.
 
 See ``docs/architecture/python-code-map.md`` and ``tests/test_projects.py``.
 """
@@ -108,6 +109,31 @@ class SourceIntakeService:
             return source_file
         except (ArtifactStoreError, SourceLoadError) as error:
             raise SourceIntakeError(str(error)) from error
+
+    def remove(
+        self,
+        project_id: str,
+        file_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+    ) -> SourceFile:
+        """Remove one unfrozen source record and its contained stored bytes."""
+
+        source_file = self.projects.remove_source_file(
+            project_id,
+            file_id,
+            actor=actor,
+            expected_revision=expected_revision,
+        )
+        try:
+            self.artifacts.delete_source(project_id, source_file.stored_name)
+        except ArtifactStoreError as error:
+            raise SourceIntakeError(
+                "The file was removed from the project, but its stored copy "
+                "could not be deleted. Contact support before continuing."
+            ) from error
+        return source_file
 
 
 def _safe_display_name(value: str) -> str:

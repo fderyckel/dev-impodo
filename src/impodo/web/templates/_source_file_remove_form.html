@@ -1,0 +1,16 @@
+<form
+  class="source-file-remove-form"
+  method="post"
+  action="/projects/{{ project.project_id }}/files/{{ file.file_id }}/remove"
+  data-source-file-remove-form
+  data-source-file-name="{{ file.display_name }}"
+>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="revision" value="{{ project.revision }}">
+  <input type="hidden" name="return_to" value="{{ return_to }}">
+  <button
+    class="link-button source-file-remove-trigger"
+    type="button"
+    data-source-file-remove-trigger
+  >Remove file</button>
+</form>

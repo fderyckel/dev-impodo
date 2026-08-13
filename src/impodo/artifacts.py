@@ -83,7 +83,7 @@ class ArtifactStore(Protocol):
         ...
 
     def delete_source(self, project_id: str, storage_key: str) -> None:
-        """Delete newly stored source bytes during a failed compensated intake."""
+        """Delete contained source bytes after intake rollback or governed removal."""
         ...
 
     def prepare_source_snapshot(
@@ -298,7 +298,12 @@ class LocalArtifactStore:
     def delete_source(self, project_id: str, storage_key: str) -> None:
         """Remove one contained source artifact if present."""
 
-        self._source_path(project_id, storage_key).unlink(missing_ok=True)
+        try:
+            self._source_path(project_id, storage_key).unlink(missing_ok=True)
+        except OSError as error:
+            raise ArtifactStoreError(
+                "Stored source artifact could not be deleted"
+            ) from error
 
     @contextmanager
     def prepare_source_snapshot(self, project_id: str) -> Iterator[Path]:

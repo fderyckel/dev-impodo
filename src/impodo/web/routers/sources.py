@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile
 from ...application.odoo_capture_job_service import (
     OdooCaptureJobNotFoundError,
     OdooCaptureJobStateError,
@@ -28,7 +29,7 @@ from ...workspace_errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
-from ..forms import _secure_form, _text
+from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
 from ..presenters.schema import _dataset_choices, _decode_delimiter
 from ..target_credentials import (
@@ -76,6 +77,94 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 for item in context.queries.get_source_configurations(project_id)
             },
             source_groups=_source_groups(catalogs),
+            can_remove_source_files=(
+                context.queries.get_source_selection(project_id) is None
+            ),
+        )
+
+    @router.post("/projects/{project_id}/files/{file_id}/remove")
+    async def remove_project_source_file(
+        request: Request,
+        project_id: str,
+        file_id: str,
+    ):
+        """Remove one source and its checks before table choices are saved."""
+
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "revision", "return_to"})
+        return_to = _text(form, "return_to")
+        if return_to not in {"files", "sources", "datasets"}:
+            raise HTTPException(status_code=400, detail="Invalid return page")
+        try:
+            removed = await run_in_threadpool(
+                context.intake.remove,
+                project_id,
+                file_id,
+                actor=context.actor,
+                expected_revision=_revision(form),
+            )
+        except ProjectError as error:
+            return _render_source_file_error(
+                request,
+                context,
+                project_id,
+                return_to,
+                error,
+            )
+        _flash(request, f"Removed {removed.display_name} from this project.")
+        suffix = "#source-files" if return_to == "sources" else ""
+        return RedirectResponse(
+            f"/projects/{project_id}/{return_to}{suffix}",
+            status_code=303,
+        )
+
+    @router.post("/projects/{project_id}/sources/files")
+    async def add_registered_project_source_file(
+        request: Request,
+        project_id: str,
+    ):
+        """Add a replacement source before table choices are saved."""
+
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "revision", "source_file"})
+        project = context.queries.get(project_id)
+        if (
+            project.status is not ProjectStatus.REGISTERED
+            or project.source_mode is not SourceMode.FILE
+        ):
+            raise HTTPException(status_code=400, detail="Source upload is unavailable")
+        upload = form.get("source_file")
+        if not isinstance(upload, UploadFile) or not upload.filename:
+            return _render_source_file_error(
+                request,
+                context,
+                project_id,
+                "sources",
+                ProjectError("Choose a CSV or XLSX file"),
+            )
+        try:
+            added = await run_in_threadpool(
+                context.intake.accept,
+                project_id,
+                actor=context.actor,
+                expected_revision=_revision(form),
+                display_name=upload.filename,
+                stream=upload.file,
+            )
+        except ProjectError as error:
+            return _render_source_file_error(
+                request,
+                context,
+                project_id,
+                "sources",
+                error,
+            )
+        finally:
+            await upload.close()
+        _flash(request, f"Added {added.display_name} to this project.")
+        return RedirectResponse(
+            f"/projects/{project_id}/sources#source-files",
+            status_code=303,
         )
 
     @router.post("/projects/{project_id}/sources/odoo-selection")
@@ -308,6 +397,9 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 source_groups=_source_groups(
                     context.queries.get_source_catalogs(project_id)
                 ),
+                can_remove_source_files=(
+                    context.queries.get_source_selection(project_id) is None
+                ),
                 error=str(error),
                 status_code=422,
             )
@@ -394,6 +486,9 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 },
                 source_groups=_source_groups(
                     context.queries.get_source_catalogs(project_id)
+                ),
+                can_remove_source_files=(
+                    context.queries.get_source_selection(project_id) is None
                 ),
                 error=str(error),
                 status_code=422,
@@ -498,6 +593,53 @@ def _source_groups(catalogs):
                 )
         result[catalog.file_id] = tuple(groups)
     return result
+
+
+def _render_source_file_error(
+    request: Request,
+    context: WebContext,
+    project_id: str,
+    return_to: str,
+    error: Exception,
+):
+    """Return the selected source page with fresh state after a file error."""
+
+    project = context.queries.get(project_id)
+    if return_to == "files":
+        return _render(
+            request,
+            "project_files.html",
+            project=project,
+            error=str(error),
+            status_code=422,
+        )
+    if return_to == "sources":
+        catalogs = context.queries.get_source_catalogs(project_id)
+        return _render(
+            request,
+            "project_sources.html",
+            project=project,
+            catalogs=catalogs,
+            configurations={
+                item.file_id: item
+                for item in context.queries.get_source_configurations(project_id)
+            },
+            source_groups=_source_groups(catalogs),
+            can_remove_source_files=(
+                context.queries.get_source_selection(project_id) is None
+            ),
+            error=str(error),
+            status_code=422,
+        )
+    return _render(
+        request,
+        "project_datasets.html",
+        project=project,
+        choices=_dataset_choices(context, project_id),
+        selection=context.queries.get_source_selection(project_id),
+        error=str(error),
+        status_code=422,
+    )
 
 
 def _render_odoo_capture_selection(

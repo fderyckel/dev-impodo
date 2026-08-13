@@ -147,6 +147,45 @@ document.addEventListener("DOMContentLoaded", () => {
     pendingProjectDeleteForm = null;
   });
 
+  const sourceFileRemoveDialog = document.querySelector(
+    "[data-source-file-remove-dialog]"
+  );
+  const sourceFileRemoveTitle = sourceFileRemoveDialog?.querySelector(
+    "#source-file-remove-title"
+  );
+  const sourceFileRemoveConfirm = sourceFileRemoveDialog?.querySelector(
+    "[data-source-file-remove-confirm]"
+  );
+  let pendingSourceFileRemoveForm = null;
+
+  for (const trigger of document.querySelectorAll(
+    "[data-source-file-remove-trigger]"
+  )) {
+    trigger.addEventListener("click", () => {
+      const form = trigger.closest("[data-source-file-remove-form]");
+      if (!form || !sourceFileRemoveDialog) {
+        return;
+      }
+      pendingSourceFileRemoveForm = form;
+      if (sourceFileRemoveTitle) {
+        const fileName = form.dataset.sourceFileName || "this file";
+        sourceFileRemoveTitle.textContent = `Remove “${fileName}”?`;
+      }
+      sourceFileRemoveDialog.showModal();
+    });
+  }
+
+  sourceFileRemoveConfirm?.addEventListener("click", () => {
+    const form = pendingSourceFileRemoveForm;
+    pendingSourceFileRemoveForm = null;
+    sourceFileRemoveDialog?.close();
+    form?.requestSubmit();
+  });
+
+  sourceFileRemoveDialog?.addEventListener("close", () => {
+    pendingSourceFileRemoveForm = null;
+  });
+
   const normalizationApproveDialog = document.querySelector(
     "[data-normalization-approve-dialog]"
   );

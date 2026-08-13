@@ -7,10 +7,15 @@ main components, data flow, and boundaries without repeating the detailed
 [contracts](../README.md#contracts) or
 [architecture decisions](../decisions/README.md).
 
-Impodo is currently a local browser application for governing CSV/XLSX data
-and preparing an Odoo 19 migration. Odoo access is read-only. Governed
-normalization, clean-package certification, functional approval, Odoo writes,
-and reconciliation remain later product capabilities described in the
+Impodo is currently a local browser application for governing source data and
+running a bounded Odoo 19 migration workflow. The supported `FILE` path covers
+CSV/XLSX intake, mapping, preparation, review, read-only comparison, an
+explicit disposable local or remote load, journaling, and reconciliation. The
+browser also implements bounded `ODOO` source capture and immutable snapshot
+publication, but preparation does not yet accept an Odoo-origin source binding,
+so that round-trip path is not end to end. Production loading, clean-package
+certification, a separate functional mapping-approval lifecycle, and hosted
+operation remain later capabilities described in the
 [product vision](../product-vision.md).
 
 ## System context
@@ -22,9 +27,15 @@ flowchart LR
     Web --> Services["Project and workspace services"]
     Services --> Store["Per-project DuckDB"]
     Services --> Files["Governed project files"]
-    Services --> Worker["Isolated source-file worker"]
-    Services --> Readers["Closed Odoo read adapters"]
+    Services --> Worker["Isolated inspection and<br/>preparation workers"]
+    Services --> Capture["Bounded Odoo<br/>source capture"]
+    Services --> Readers["Closed Odoo read<br/>and identity adapters"]
+    Services --> Writer["Schema-bound<br/>Odoo writer"]
+    Services --> Readback["Closed post-write<br/>read-back adapter"]
+    Capture --> Odoo["Authorised Odoo 19 target"]
     Readers --> Odoo["Authorised Odoo 19 target"]
+    Writer --> Odoo
+    Readback --> Odoo
 ```
 
 The browser is server-rendered. FastAPI coordinates application services; it
@@ -35,38 +46,55 @@ the filesystem are local adapters behind those rules.
 
 The browser implements:
 
-- project registration and governed source-file intake;
-- profile-free CSV/XLSX inspection and bounded previews;
-- source confirmation and immutable dataset freezing;
-- read-only Odoo model and field capture;
+- project registration with `FILE` or `ODOO` source mode;
+- profile-free CSV/XLSX inspection, bounded previews, and immutable dataset
+  freezing;
+- bounded Odoo record selection, capture, protected provenance, and immutable
+  Parquet snapshot publication;
+- read-only Odoo model, field, identity, and permission capture;
 - governed business keys, scalar mappings, transformations, and relations;
 - bounded derived-entity authoring previews;
-- immutable mapping revisions, semantic validation, and submission evidence.
+- immutable mapping revisions, semantic validation, and submission evidence;
+- durable canonical staging, quality/quarantine evidence, normalization review,
+  and prepared snapshots;
+- read-only Odoo comparison with `CREATE`, `UPDATE`, `UNCHANGED`, `AMBIGUOUS`,
+  and `BLOCKED` classifications;
+- an exact execution snapshot, explicit disposable local or remote loading,
+  a durable write journal, and post-write reconciliation.
 
-The repository also contains a profile-driven preflight engine and CLI. That
-engine prepares complete source rows, reads saved or live target evidence,
-resolves business-key relations, and produces portable manifest/workbook
-evidence with `CREATE`, `UPDATE`, `UNCHANGED`, `AMBIGUOUS`, and `BLOCKED`
-classifications.
+The repository also contains a profile-driven preflight engine and CLI. It is
+a separate entry path that retains strict CSV and declared-sheet XLSX loading
+while sharing compiled planning, comparison, and reporting semantics with the
+browser path.
 
-These paths are not yet one executable migration pipeline. A submitted browser
-mapping is governed evidence, but it is not a full-row clean package, an Odoo
-import plan, or permission to write to Odoo.
+The supported `FILE` browser path is one executable bounded migration pipeline.
+A submitted mapping alone is still only governed evidence: preparation,
+normalization approval, a fresh comparison, an exact execution snapshot, and
+one explicit **Load into Odoo** confirmation remain mandatory. Captured `ODOO`
+sources currently stop before preparation because that service still requires
+a file-source binding. Neither path is a production-cutover authorization.
 
 ## Browser workflow
 
-1. **Project setup** records ownership, classification, retention, `FILE` or
-   `ODOO` source mode, and the selected `LOCAL` or `REMOTE` Odoo target.
-2. **Source discovery** stores and inspects immutable source bytes for `FILE`
-   projects. `ODOO` projects currently proceed first to read-only target model
-   and capture-eligibility field discovery; bounded record freezing is not yet
-   implemented.
-3. **Target schema** captures an effective Odoo schema snapshot through a
-   closed read surface.
-4. **Governed mapping** records business keys, field providers,
-   transformations, relationships, and derived-entity rules.
-5. Validation creates deterministic issues and an immutable mapping revision.
-   Submission binds the exact validated revision and evidence hashes.
+**Project setup** records ownership, classification, retention, `FILE` or
+`ODOO` source mode, and the selected `LOCAL` or `REMOTE` Odoo target. A
+registered project then uses six browser stages:
+
+1. **Source data** inspects and freezes CSV/XLSX datasets, or selects, captures,
+   and publishes a bounded Odoo-source snapshot.
+2. **Odoo data** discovers allowed record types and captures an effective,
+   identity-bound Odoo schema through closed read and probe surfaces.
+3. **Match data** records business keys, field providers, transformations,
+   relationships, and derived-entity rules. Validation and submission bind the
+   exact mapping revision to current evidence hashes.
+4. **Prepare data** evaluates every supported frozen row, publishes canonical
+   staging and prepared snapshots, and requires quality and normalization
+   review. This stage is currently available only to file-origin selections.
+5. **Final review** reads Odoo in deterministic batches, classifies every row,
+   and freezes the exact execution snapshot when the comparison is ready.
+6. **Load into Odoo** requires an explicit confirmation, executes only the
+   frozen schema-bound intentions, journals every attempt, and reads committed
+   results back for reconciliation.
 
 Changing source evidence, frozen datasets, target identity, schema, or
 governed business keys invalidates downstream mapping evidence.
@@ -76,10 +104,10 @@ governed business keys invalidates downstream mapping evidence.
 | Layer | Responsibilities | Main modules |
 | --- | --- | --- |
 | Browser | Local route composition, workflow routers, presenters, templates, sessions, CSRF, and security headers | `web/app.py`, `web/routers/`, `web/presenters/` |
-| Application | Project commands, intake, inspection, source selection, schema governance, mapping, preparation, quality, normalization, and preflight orchestration | `projects.py`, `intake.py`, `inspection.py`, `application/source_workspace_service.py`, `application/schema_workspace_service.py`, `application/mapping_workspace_service.py`, `application/preparation_service.py`, `application/quality_service.py`, `application/normalization_service.py`, `application/preflight_service.py` |
-| Domain | Authorization, project lifecycle, mapping meaning, staging evaluation, approvals, and deterministic values | `access.py`, `projects.py`, `domain/mapping/`, `domain/schema/`, `domain/compiler/`, `domain/staging/`, `approvals.py`, `models.py` |
-| Local adapters | Focused DuckDB repositories, artifacts, credentials, jobs, and resource-bounded workers | `adapters/duckdb/`, `artifacts.py`, `secrets.py`, `jobs.py`, `source_worker.py` |
-| Odoo reads | Remote JSON-2 reads, fixed local metadata reads, and local-stack readiness | `connectors.py`, `local_odoo_reader.py`, `local_stack.py` |
+| Application | Project commands, intake, source capture/publication, schema governance, mapping, preparation, quality, normalization, preflight, execution, and reconciliation orchestration | `projects.py`, `intake.py`, `application/source_workspace_service.py`, `application/odoo_source_capture_service.py`, `application/odoo_capture_publication_service.py`, `application/schema_workspace_service.py`, `application/mapping_workspace_service.py`, `application/preparation_service.py`, `application/quality_service.py`, `application/normalization_service.py`, `application/preflight_service.py`, `application/execution_service.py`, `application/reconciliation_service.py` |
+| Domain | Authorization, project lifecycle, source bindings and snapshots, mapping meaning, staging evaluation, execution snapshots, reconciliation, approvals, and deterministic values | `access.py`, `projects.py`, `domain/source_binding.py`, `domain/source_snapshot.py`, `domain/odoo_capture.py`, `domain/mapping/`, `domain/compiler/`, `domain/staging/`, `domain/execution.py`, `domain/reconciliation.py`, `approvals.py`, `models.py` |
+| Local adapters | Focused DuckDB repositories, artifacts, credentials, protected Odoo provenance, jobs, and resource-bounded workers | `adapters/duckdb/`, `adapters/protected_odoo_provenance.py`, `artifacts.py`, `secrets.py`, `jobs.py`, `source_worker.py`, `application/preparation_job_service.py` |
+| Odoo boundary | Remote JSON-2 identity and data reads, bounded source capture, fixed local metadata reads, schema-bound writes, post-write read-back, and local-stack readiness | `connectors.py`, `adapters/odoo_source_capture.py`, `local_odoo_reader.py`, `odoo_writer.py`, `odoo_readback.py`, `local_stack.py` |
 | Preflight | Compiled semantics, frozen-row adaptation, bounded read planning, comparison, and reporting | `domain/compiler/`, `domain/preflight/`, `planner.py`, `metadata.py`, `catalog.py`, `engine.py`, `reporting.py` |
 
 Domain and application modules do not depend on FastAPI templates. Adapters
@@ -91,14 +119,23 @@ On Windows, the normal local root is `%LOCALAPPDATA%\Impodo\projects`. A
 configured macOS root uses owner-only permissions. The root contains a small
 registry plus one directory and DuckDB database per project. Project
 directories separate inbox, staging, snapshots, reports, and audit artifacts;
-the presence of a staging directory does not mean full-row staging is already
-implemented.
+canonical staging, prepared Parquet snapshots, protected target evidence,
+execution journals, and reconciliation results are implemented within those
+boundaries. The current build accepts one exact project-database generation and
+version. A project from another generation is rejected rather than upgraded or
+read through a compatibility adapter.
 
 Important evidence is immutable or versioned:
 
 - source files retain their original bytes and SHA-256 hash;
 - confirmed source selections and target schema captures are hash-bound;
 - mapping revisions and submissions are immutable;
+- canonical staging and prepared snapshots bind the compiled mapping and exact
+  source selection;
+- Odoo-source publications bind the capture plan, read identity, protected
+  provenance, data hash, and current source snapshot;
+- execution snapshots, write journals, and reconciliation runs remain separate
+  hash-bound evidence;
 - audit events retain stable actor identities;
 - target-derived evidence names its connection-target, schema-scope,
   principal/context, and policy hashes explicitly;
@@ -110,20 +147,23 @@ decision, manifest, or workbook identifiers.
 
 ## Odoo boundary
 
-Remote reads use Odoo 19 JSON-2 and expose only `fields_get` and
-`search_read`. Local metadata capture uses a selected `odoo.conf` and fixed
-scripts for the model catalogue and `fields_get`; it is not a generic Odoo
-shell. Local stack controls can stop only services started and retained by the
-current Impodo session.
+Remote reads use Odoo 19 JSON-2 through closed version, `context_get`,
+`has_access`, `fields_get`, and `search_read` operations. Callers cannot select
+an arbitrary model method or raw request context. Odoo-source capture adds only
+policy-shaped, keyset-paginated `search_read` requests. Local metadata capture
+uses a selected `odoo.conf` and fixed scripts for the model catalogue and
+`fields_get`; it is not a generic Odoo shell. Local stack controls can stop
+only services started and retained by the current Impodo session.
 
-The reader has no create, write, unlink, import, arbitrary model method, or SQL
-surface. The practical disposable-target path uses a separate writer limited
-to exact lookups plus create and write. Its model and field capability is derived
-from one captured-schema-bound preview, so standard, extension, and custom
-schema surfaces do not require a global product allowlist. Its frozen snapshot,
-authorization, and journal are independent of the reader. A second closed
-adapter performs exact-ID and governed-key `search_read` after the write; the
-hash-bound result and concise fallout are persisted separately.
+The read adapters have no create, write, unlink, import, arbitrary model method,
+or SQL surface. The practical disposable-target path uses a separate writer
+limited to exact lookups, remote External-ID `load` batches, bounded local
+list-form creates, and single-record writes. Its model and field capability is
+derived from one captured-schema-bound preview, so standard, extension, and
+custom schema surfaces do not require a global product allowlist. Its frozen
+snapshot, authorization, and journal are independent of the readers. A second
+closed adapter performs exact-ID and governed-key `search_read` after the
+write; the hash-bound result and concise fallout are persisted separately.
 
 ## Performance invariants
 
@@ -136,14 +176,19 @@ Odoo access must remain batched:
 - split very large key domains into deterministic bounded requests.
 
 No Odoo reader should call `fields_get`, `search_read`, `browse`, or another
-ORM/RPC method inside a row loop. Creates use bounded list-form batches. The
-practical writer updates one uniquely re-matched record per call because Odoo
-write failures must remain attributable to one proposed row.
+ORM/RPC method inside a row loop. Odoo-source reads use fixed-size deterministic
+pages. Remote creates use bounded External-ID `load` batches; local creates use
+bounded list-form batches. The practical writer updates one uniquely re-matched
+record per call because Odoo write failures must remain attributable to one
+proposed row.
 
 ## Deployment boundary
 
 The current composition root is local and single-user: loopback FastAPI,
-local DuckDB, local artifacts, a local credential vault, and inline jobs.
+local DuckDB, local artifacts, and a local credential vault. Inspection and
+preparation use spawned worker processes; preparation progress is supervised by
+the browser process. Odoo capture uses one bounded background thread. These job
+control records are session-local rather than durable distributed-worker state.
 
 A future hosted deployment uses a separate composition root with corporate
 identity, project-scoped authorization, PostgreSQL, shared artifact storage,
@@ -156,5 +201,8 @@ loopback assumptions must not be relaxed and reused as hosted controls. See
 - [Security and infrastructure](security-and-infrastructure.md)
 - [Migration project contract](../contracts/01-migration-project.md)
 - [Browser workspace contract](../contracts/02-workspace.md)
+- [Canonical staging contract](../contracts/03-canonical-staging.md)
 - [Profile-driven preflight contract](../contracts/04-preflight.md)
+- [Normalization governance contract](../contracts/05-normalization-governance.md)
+- [Quality and quarantine contract](../contracts/06-quality-and-quarantine.md)
 - [Acceptance and test strategy](../testing/acceptance.md)

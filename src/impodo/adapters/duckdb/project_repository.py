@@ -379,6 +379,7 @@ class ProjectRepository(DuckDbRepository):
         self._update_registry(project)
         if project.status is ProjectStatus.REGISTERED:
             self._write_registration_manifest(project)
+
     def add_source_file(
         self,
         project: MigrationProject,
@@ -397,13 +398,21 @@ class ProjectRepository(DuckDbRepository):
             connection.begin()
             try:
                 current = connection.execute(
-                    "SELECT revision FROM project"
+                    "SELECT revision, status FROM project"
                 ).fetchone()
                 if current is None:
                     raise ProjectNotFoundError("Project not found")
                 if current[0] != expected_revision:
                     raise ProjectConflictError(
                         "The project was modified by another request"
+                    )
+                if str(current[1]) == ProjectStatus.CLOSED.value:
+                    raise ProjectError("Closed projects cannot be edited")
+                if connection.execute(
+                    "SELECT EXISTS (SELECT 1 FROM source_selection)"
+                ).fetchone()[0]:
+                    raise ProjectError(
+                        "Source files cannot be changed after table choices are saved"
                     )
                 self._mark_registry_sync_pending(project.project_id)
                 self._update_project(connection, project)
@@ -436,6 +445,80 @@ class ProjectRepository(DuckDbRepository):
                 connection.rollback()
                 raise
         self._update_registry(project)
+        if project.status is ProjectStatus.REGISTERED:
+            self._write_registration_manifest(project)
+
+    def remove_source_file(
+        self,
+        project: MigrationProject,
+        source_file: SourceFile,
+        *,
+        expected_revision: int,
+        actor: Actor,
+    ) -> None:
+        """Atomically remove one unfrozen file and its file-scoped evidence."""
+
+        database_path = self.project_directory(project.project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            connection.begin()
+            try:
+                current = connection.execute(
+                    "SELECT revision, status FROM project"
+                ).fetchone()
+                if current is None:
+                    raise ProjectNotFoundError("Project not found")
+                if current[0] != expected_revision:
+                    raise ProjectConflictError(
+                        "The project was modified by another request"
+                    )
+                if str(current[1]) == ProjectStatus.CLOSED.value:
+                    raise ProjectError("Closed projects cannot be edited")
+                if connection.execute(
+                    "SELECT EXISTS (SELECT 1 FROM source_selection)"
+                ).fetchone()[0]:
+                    raise ProjectError(
+                        "Source files cannot be changed after table choices are saved"
+                    )
+                stored = connection.execute(
+                    "SELECT stored_name FROM source_file WHERE file_id = ?",
+                    [source_file.file_id],
+                ).fetchone()
+                if stored is None or str(stored[0]) != source_file.stored_name:
+                    raise ProjectError(
+                        "The selected source file is no longer in this project"
+                    )
+                self._mark_registry_sync_pending(project.project_id)
+                self._update_project(connection, project)
+                connection.execute(
+                    "DELETE FROM source_configuration WHERE file_id = ?",
+                    [source_file.file_id],
+                )
+                connection.execute(
+                    "DELETE FROM source_catalog WHERE file_id = ?",
+                    [source_file.file_id],
+                )
+                connection.execute(
+                    "DELETE FROM source_file WHERE file_id = ?",
+                    [source_file.file_id],
+                )
+                self._insert_audit(
+                    connection,
+                    project,
+                    event_type="SOURCE_FILE_REMOVED",
+                    detail=source_file.display_name,
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        self._update_registry(project)
+        if project.status is ProjectStatus.REGISTERED:
+            self._write_registration_manifest(project)
+
     def update_schema_scope(
         self,
         project: MigrationProject,

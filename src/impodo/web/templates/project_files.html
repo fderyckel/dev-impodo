@@ -20,10 +20,15 @@
               <strong>{{ file.display_name }}</strong>
               <span>{{ file.size_bytes }} bytes</span>
             </div>
-            <span>Added to this project</span>
+            <div class="source-file-actions">
+              <span>Added to this project</span>
+              {% set return_to = "files" %}
+              {% include "_source_file_remove_form.html" %}
+            </div>
           </div>
         {% endfor %}
       </div>
+      {% include "_source_file_remove_dialog.html" %}
     {% endif %}
 
     <form method="post" enctype="multipart/form-data" action="/projects/{{ project.project_id }}/files">

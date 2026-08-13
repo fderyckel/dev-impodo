@@ -205,8 +205,10 @@ names:
 Select **Freeze selected tables**. The selection is now bound to the confirmed
 source hashes.
 
-If the source owner sends a corrected export, register and confirm it as new
-evidence. Do not edit a registered source file or the project database.
+If the source owner sends a corrected export before table choices are saved,
+return to **Check source files**, add the corrected file, and remove the wrong
+one. Once table choices are saved, start a new project rather than editing a
+registered source file or the project database.
 
 ## 4. Create additional tables from source data
 

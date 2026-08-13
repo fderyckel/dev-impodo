@@ -10,6 +10,29 @@
     {% if selection %}<span class="status registered">Choices saved</span>{% endif %}
   </div>
 
+  {% if not selection and project.source_files %}
+    <section class="form-card">
+      <h2>Files in this project</h2>
+      <p>If a file is wrong, remove it before saving the table choices.</p>
+      <div class="file-list">
+        {% for file in project.source_files %}
+          <div class="file-row">
+            <div>
+              <strong>{{ file.display_name }}</strong>
+              <span>{{ file.size_bytes }} bytes</span>
+            </div>
+            <div class="source-file-actions">
+              <span>Source file</span>
+              {% set return_to = "datasets" %}
+              {% include "_source_file_remove_form.html" %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      {% include "_source_file_remove_dialog.html" %}
+    </section>
+  {% endif %}
+
   <section class="form-card">
     {% if choices %}
       <form method="post" action="/projects/{{ project.project_id }}/datasets/freeze">

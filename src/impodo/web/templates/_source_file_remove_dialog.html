@@ -1,0 +1,27 @@
+<dialog
+  class="confirmation-dialog"
+  aria-labelledby="source-file-remove-title"
+  data-source-file-remove-dialog
+>
+  <div class="dialog-heading">
+    <div>
+      <p class="eyebrow">Remove source file</p>
+      <h2 id="source-file-remove-title">Remove file?</h2>
+    </div>
+    <form method="dialog">
+      <button class="dialog-close" type="submit" aria-label="Close dialog">×</button>
+    </form>
+  </div>
+  <p>
+    The file and its checks will be removed from this project. Other files will
+    stay. No Odoo data is affected.
+  </p>
+  <div class="dialog-actions">
+    <form method="dialog">
+      <button class="button secondary" type="submit">Cancel</button>
+    </form>
+    <button class="button danger" type="button" data-source-file-remove-confirm>
+      Remove file
+    </button>
+  </div>
+</dialog>

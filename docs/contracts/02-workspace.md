@@ -116,6 +116,12 @@ the same current `SourceSnapshot` manifest and tagged Parquet schema, adding a
 logical data root calculated from the same encoded batches written to the
 candidate. It does not re-decode the Parquet file to hash values again.
 
+Before this freeze exists, a registered file source may be added or removed
+through revision-checked project commands. Removal deletes only that file's
+catalogue, confirmation, and contained original bytes while retaining the
+project's other files. Once a source selection exists, both changes are
+rejected fail-closed.
+
 After freezing, normal mapping preview and preparation resolve and hash-check
 the Parquet snapshot rather than reopen CSV/XLSX. The original registered file
 remains immutable evidence for audit/reinspection, not the routine preparation

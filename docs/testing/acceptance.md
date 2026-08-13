@@ -780,6 +780,32 @@ retains the preceding 50,000- or 25,000-row limit. Related and mixed-dataset
 100,000-row qualification remains follow-on work, not part of this direct-path
 claim.
 
+### 2026-08-12 Windows Phase 7 qualification
+
+Phase 7 did **not** qualify a limit increase. The attributable measurements
+were captured on clean revision `676b79d9...`; the repository later advanced
+to `5b67475f...`, so the current revision remains unqualified.
+
+The direct 100,000-row and related 16,000-Product/80,000-BOM first workers did
+not finish within ten minutes (608.888 s and 608.094 s harness failures). The
+4,000-row clean effect-heavy child exceeded 900 s, and the dirty/high-effect
+first worker failed after 601.553 s. None produced repeat, three-run, storage,
+hash-parity, or vectorization evidence.
+
+The customer twin completed three fresh first/repeat pairs and passed its
+absolute gates: maximum wall time was 14.313/14.400 s, maximum worker peak was
+176.430/168.406 MiB, all workers exited, snapshots were reused, sources were
+not reopened, hashes were stable, and parent RSS returned below its pre-job
+baseline. Against the exact same-machine Phase-0 median peak of 191.301 MiB,
+however, the candidate improved only 7.774%; the required improvement is 30%.
+
+The relationship semantic oracle was stopped before completion and has no
+accepted result. The 100,000-row mixed/derived route remains capped and was not
+qualified. Therefore existing capability limits and user-facing claims remain
+unchanged. Detailed evidence and the discovered `HEAD`-stability blind spot are
+recorded in the
+[transformation-scale implementation log](../reports/transformation-scale-implementation-log.md#windows-phase-7-qualification-result--2026-08-12).
+
 Structural requirements already apply:
 
 - no connector call inside the row loop;

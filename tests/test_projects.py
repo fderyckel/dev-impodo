@@ -848,6 +848,117 @@ class SourceIntakeTests(unittest.TestCase):
         )
         self.assertEqual(stored.read_bytes(), b"code,name\nC1,Example\n")
 
+    def test_unfrozen_source_can_be_removed_with_its_stored_bytes_and_review(self):
+        source = self.intake.accept(
+            self.project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=self.project.revision,
+            display_name="wrong.csv",
+            stream=BytesIO(b"code,name\nBAD,Wrong\n"),
+        )
+        project = self.repository.get(self.project.project_id)
+        stored = (
+            self.repository.project_directory(project.project_id)
+            / "inbox"
+            / source.stored_name
+        )
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            connection.execute(
+                "INSERT INTO source_catalog VALUES (?, ?, ?, ?, ?)",
+                [
+                    source.file_id,
+                    source.sha256,
+                    1,
+                    datetime.now(timezone.utc).isoformat(),
+                    "{}",
+                ],
+            )
+            connection.execute(
+                "INSERT INTO source_configuration VALUES (?, ?, ?, ?)",
+                [source.file_id, source.sha256, "sha256:" + "a" * 64, "{}"],
+            )
+
+        removed = self.intake.remove(
+            project.project_id,
+            source.file_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=project.revision,
+        )
+
+        self.assertEqual(removed, source)
+        self.assertFalse(stored.exists())
+        persisted = self.repository.get(project.project_id)
+        self.assertEqual(persisted.source_files, ())
+        self.assertEqual(persisted.revision, project.revision + 1)
+        with self.repository._connect(database_path) as connection:
+            counts = connection.execute(
+                """
+                SELECT
+                    (SELECT count(*) FROM source_catalog),
+                    (SELECT count(*) FROM source_configuration)
+                """
+            ).fetchone()
+            event = connection.execute(
+                "SELECT event_type, detail FROM audit_event ORDER BY event_id DESC LIMIT 1"
+            ).fetchone()
+        self.assertEqual(counts, (0, 0))
+        self.assertEqual(event, ("SOURCE_FILE_REMOVED", "wrong.csv"))
+
+    def test_source_removal_is_rejected_after_table_choices_are_saved(self):
+        source = self.intake.accept(
+            self.project.project_id,
+            actor=LOCAL_ACTOR,
+            expected_revision=self.project.revision,
+            display_name="kept.csv",
+            stream=BytesIO(b"code,name\nC1,Kept\n"),
+        )
+        project = self.repository.get(self.project.project_id)
+        database_path = (
+            self.repository.project_directory(project.project_id)
+            / "project.duckdb"
+        )
+        with self.repository._connect(database_path) as connection:
+            connection.execute(
+                "INSERT INTO source_selection VALUES (1, ?)",
+                ["{}"],
+            )
+
+        with self.assertRaisesRegex(
+            ProjectError,
+            "cannot be changed after table choices are saved",
+        ):
+            self.intake.remove(
+                project.project_id,
+                source.file_id,
+                actor=LOCAL_ACTOR,
+                expected_revision=project.revision,
+            )
+        with self.assertRaisesRegex(
+            ProjectError,
+            "cannot be changed after table choices are saved",
+        ):
+            self.intake.accept(
+                project.project_id,
+                actor=LOCAL_ACTOR,
+                expected_revision=project.revision,
+                display_name="too-late.csv",
+                stream=BytesIO(b"code,name\nC2,Too late\n"),
+            )
+
+        persisted = self.repository.get(project.project_id)
+        self.assertEqual(persisted.source_files, (source,))
+        self.assertTrue(
+            (
+                self.repository.project_directory(project.project_id)
+                / "inbox"
+                / source.stored_name
+            ).is_file()
+        )
+
     def test_paths_and_unsupported_formats_are_rejected(self) -> None:
         for filename in ("../customer.csv", r"C:\customer.csv", "macro.xlsm"):
             with self.subTest(filename=filename), self.assertRaises(

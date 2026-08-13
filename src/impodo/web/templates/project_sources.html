@@ -20,16 +20,42 @@
             <strong>{{ file.display_name }}</strong>
             <span>{{ file.size_bytes }} bytes</span>
           </div>
-          <span class="status">
-            {% if catalogs|selectattr("file_id", "equalto", file.file_id)|list %}
-              Checked
-            {% else %}
-              Pending
+          <div class="source-file-actions">
+            <span class="status">
+              {% if catalogs|selectattr("file_id", "equalto", file.file_id)|list %}
+                Checked
+              {% else %}
+                Pending
+              {% endif %}
+            </span>
+            {% if can_remove_source_files %}
+              {% set return_to = "sources" %}
+              {% include "_source_file_remove_form.html" %}
             {% endif %}
-          </span>
+          </div>
         </div>
       {% endfor %}
     </div>
+    {% if can_remove_source_files and project.source_files %}
+      {% include "_source_file_remove_dialog.html" %}
+    {% endif %}
+    {% if can_remove_source_files %}
+      <form
+        method="post"
+        enctype="multipart/form-data"
+        action="/projects/{{ project.project_id }}/sources/files"
+        class="source-file-upload-form"
+      >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" value="{{ project.revision }}">
+        <label>
+          Add another file
+          <input type="file" name="source_file" accept=".csv,.xlsx" required>
+          <small>Use this to add a corrected CSV or XLSX before saving table choices.</small>
+        </label>
+        <button class="button secondary" type="submit">Add file</button>
+      </form>
+    {% endif %}
     <form method="post" action="/projects/{{ project.project_id }}/sources/inspect" data-source-review-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">

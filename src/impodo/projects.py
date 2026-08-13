@@ -217,6 +217,17 @@ class ProjectRepository(Protocol):
         """Attach immutable file evidence and invalidate affected current runs."""
         ...
 
+    def remove_source_file(
+        self,
+        project: MigrationProject,
+        source_file: SourceFile,
+        *,
+        expected_revision: int,
+        actor: Actor,
+    ) -> None:
+        """Remove one unfrozen source and its file-scoped review evidence."""
+        ...
+
     def update_schema_scope(
         self,
         project: MigrationProject,
@@ -663,13 +674,12 @@ class ProjectService:
         expected_revision: int,
         source_file: SourceFile,
     ) -> MigrationProject:
-        """Attach one new immutable source-file record to the draft project."""
+        """Attach one source file before the project's tables are frozen."""
 
-        project = self._editable(
+        project = self._source_files_editable(
             project_id,
             expected_revision,
             actor=actor,
-            capability=Capability.PROJECT_EDIT,
         )
         if project.source_mode is not SourceMode.FILE:
             raise ProjectError("Odoo-source projects do not accept source files")
@@ -688,6 +698,69 @@ class ProjectService:
             actor=actor,
         )
         return saved
+
+    def remove_source_file(
+        self,
+        project_id: str,
+        file_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+    ) -> SourceFile:
+        """Remove one source file before any table selection has been frozen."""
+
+        project = self._source_files_editable(
+            project_id,
+            expected_revision,
+            actor=actor,
+        )
+        if project.source_mode is not SourceMode.FILE:
+            raise ProjectError("Odoo-source projects do not contain source files")
+        source_file = next(
+            (item for item in project.source_files if item.file_id == file_id),
+            None,
+        )
+        if source_file is None:
+            raise ProjectError("The selected source file is no longer in this project")
+        saved = replace(
+            project,
+            source_files=tuple(
+                item for item in project.source_files if item.file_id != file_id
+            ),
+            revision=project.revision + 1,
+            updated_at=_now(),
+        )
+        self.repository.remove_source_file(
+            saved,
+            source_file,
+            expected_revision=project.revision,
+            actor=actor,
+        )
+        return source_file
+
+    def _source_files_editable(
+        self,
+        project_id: str,
+        expected_revision: int,
+        *,
+        actor: Actor,
+    ) -> MigrationProject:
+        """Allow file-list amendments in draft or before registered table freeze."""
+
+        _canonical_project_id(project_id)
+        self.authorization.require(
+            actor,
+            Capability.PROJECT_EDIT,
+            project_id=project_id,
+        )
+        project = self.repository.get(project_id)
+        if project.revision != expected_revision:
+            raise ProjectConflictError(
+                "The project changed in another request; reload before continuing"
+            )
+        if project.status is ProjectStatus.CLOSED:
+            raise ProjectError("Closed projects cannot be edited")
+        return project
 
     def register(
         self,

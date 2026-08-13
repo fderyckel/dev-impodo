@@ -760,3 +760,65 @@ If the combined worktree cannot yet be clean, add
 never authorize a route-limit change. Limits and browser/operations messages
 remain unchanged until the clean Windows report says
 `release_qualified: true`.
+
+### Windows Phase 7 qualification result — 2026-08-12
+
+The clean Windows qualification did **not** pass. Route limits, browser
+messages, and operations claims remain unchanged.
+
+The last revision held stable long enough to produce attributable candidate
+evidence was `676b79d9acc00763e7d386d391f7387a937989e3`. It ran on
+Windows 11 (`10.0.26200`), Python 3.12.10, DuckDB 1.5.5, Polars 1.43.2,
+OpenPyXL 3.1.5, and psutil 7.2.2. The repository subsequently advanced to
+`5b67475f7016fd112ee1077eac75dba2fd037d88`, including further preparation
+changes. The result below therefore diagnoses `676b79d9...`; it does not
+qualify the later revision.
+
+The required same-machine customer control was captured from the pinned clean
+Phase-0 revision `6c9f16432530269b180e6e9e08be96b1c44dc944`. All three
+control runs used the exact 1,843,410-byte fixture with SHA-256
+`cd28e8ee6a00c09f1ada6f0d0ad0a3ce59d14a6e3cecd4b1ca2498ee4bb3d8ee`.
+Its median process-tree peak was 191.301 MiB.
+
+| Release fixture | Windows result | Gate disposition |
+| --- | --- | --- |
+| 100,000 direct Products | The first fresh background preparation did not finish within ten minutes; the harness failed after 608.888 s. | **Failed.** The `<120 s` gate failed. No repeat, three-run, storage, hash-parity, or vectorization report exists. |
+| 1,000-row/150-column customer twin | Three fresh first/repeat pairs completed. Maximum first/repeat wall time was 14.313/14.400 s; maximum peak was 176.430/168.406 MiB; maximum parent repeat delta was -1.453 MiB. Every worker exited, the prepared snapshot was reused, the deleted source was not reopened, and hashes were stable. | Absolute time, 500 MiB, reclamation, repeatability, and snapshot gates passed. The same-machine peak improvement was only 7.774%, below the required 30%; **relative-memory gate failed**. |
+| 16,000 Products + 80,000 related BOM lines | The first fresh background preparation did not finish within ten minutes; the harness failed after 608.094 s. | **Failed.** The `<120 s` business-release gate failed. No repeat, three-run, storage, hash-parity, relationship, or vectorization report exists. |
+| 4,000-row effect-heavy | The benchmark child exceeded its 900 s outer timeout without publishing one usable first result. | **Failed.** No repeat or three-run evidence exists. |
+| 4,000-row dirty/high-effect | The first fresh background preparation did not finish within ten minutes; the harness failed after 601.553 s. | **Failed.** No repeat or three-run evidence exists. |
+| 16,000/80,000 relationship semantic oracle | Started after the worker diagnostics, then stopped at the operator's request. | **Not completed.** No result from this attempt is claimed. |
+
+The high-volume failures were CPU/time-bound in the observed process samples,
+not near the 900 MiB worker ceiling: the direct worker remained near 302 MiB,
+the related worker near 339 MiB, and the dirty/high-effect worker near 339 MiB
+before their deadlines. These live observations are diagnostic only; because
+the workers did not complete, they are not accepted peak measurements.
+
+Correctness/governance and vectorization qualification are incomplete for the
+failed high-volume routes. In particular, their failure occurred before the
+harness could prove first/repeat hash parity, prepared-snapshot reuse, storage
+growth, three fresh runs, or the observed vectorization fields required by the
+Phase 7 gates. The still-capped 100,000-row mixed/derived route was not in the
+admitted release matrix and was not qualified.
+
+The run also exposed a qualification-harness blind spot. The stability
+fingerprint binds tracked patches and untracked file bytes but not the current
+Git `HEAD`. A clean branch advance can therefore escape the guard. One earlier
+attempt was correctly discarded after first and repeat workers loaded
+different project data-contract generations, but the harness reported the
+downstream compatibility error rather than the causal revision change. Future
+release evidence must explicitly keep and verify the starting commit identity
+through every child run.
+
+Evidence retained locally:
+
+- `.tmp/transformation-scale-phase0-windows-customer.json`
+- `.tmp/transformation-scale-phase7-windows-release-676b79d/wide_customer_twin_1k.json`
+- `.tmp/phase7-full-release-676b79d.stderr.log`
+- `.tmp/phase7-related-676b79d.stderr.log`
+- `.tmp/phase7-effect-heavy-676b79d.stderr.log`
+- `.tmp/phase7-dirty-high-effect-676b79d.stderr.log`
+
+The focused qualification-harness suites passed 12 tests before the release
+run. The full ordinary test suite was not rerun as part of this qualification.

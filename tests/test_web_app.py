@@ -924,6 +924,152 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('value="INTERNAL" selected', page.text)
         self.assertNotIn('value="CONFIDENTIAL" selected', page.text)
 
+    def test_source_files_can_change_only_before_table_choices_are_saved(
+        self,
+    ) -> None:
+        context = self.app.state.context
+        project = context.projects.create_project(
+            actor=context.actor,
+            name="Correctable source files",
+            source_system="CSV",
+        )
+        kept = context.intake.accept(
+            project.project_id,
+            actor=context.actor,
+            expected_revision=project.revision,
+            display_name="customers.csv",
+            stream=BytesIO(b"code,name\nC1,Kept\n"),
+        )
+        current = context.queries.get(project.project_id)
+        wrong = context.intake.accept(
+            project.project_id,
+            actor=context.actor,
+            expected_revision=current.revision,
+            display_name="wrong.csv",
+            stream=BytesIO(b"code,name\nBAD,Wrong\n"),
+        )
+        current = context.queries.get(project.project_id)
+        files_page = self.client.get(f"/projects/{project.project_id}/files")
+        self.assertEqual(
+            files_page.text.count("data-source-file-remove-form"),
+            2,
+        )
+        self.assertIn("data-source-file-remove-dialog", files_page.text)
+
+        wrong_path = (
+            context.projects.repository.project_directory(project.project_id)
+            / "inbox"
+            / wrong.stored_name
+        )
+        removed_draft = self._post(
+            f"/projects/{project.project_id}/files/{wrong.file_id}/remove",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(current.revision),
+                "return_to": "files",
+            },
+        )
+        self.assertEqual(removed_draft.status_code, 303)
+        self.assertFalse(wrong_path.exists())
+        current = context.queries.get(project.project_id)
+        now = datetime.now(timezone.utc)
+        registered = replace(
+            current,
+            status=ProjectStatus.REGISTERED,
+            revision=current.revision + 1,
+            updated_at=now,
+            registered_at=now,
+        )
+        context.projects.repository.save(
+            registered,
+            expected_revision=current.revision,
+            event_type="TEST_PROJECT_REGISTERED",
+            event_detail="",
+            actor=context.actor,
+        )
+
+        source_page = self.client.get(f"/projects/{project.project_id}/sources")
+        self.assertEqual(source_page.status_code, 200)
+        self.assertEqual(
+            source_page.text.count("data-source-file-remove-form"),
+            1,
+        )
+        self.assertIn(
+            f'action="/projects/{project.project_id}/sources/files"',
+            source_page.text,
+        )
+        replacement_upload = self.client.post(
+            f"/projects/{project.project_id}/sources/files",
+            data={
+                "csrf_token": self.csrf,
+                "revision": str(registered.revision),
+            },
+            files={
+                "source_file": (
+                    "corrected.csv",
+                    b"code,name\nC2,Corrected\n",
+                    "text/csv",
+                )
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(replacement_upload.status_code, 303)
+        current = context.queries.get(project.project_id)
+        corrected = current.source_files[1]
+        removed_registered = self._post(
+            f"/projects/{project.project_id}/files/{corrected.file_id}/remove",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(current.revision),
+                "return_to": "sources",
+            },
+        )
+        self.assertEqual(removed_registered.status_code, 303)
+        self.assertEqual(
+            removed_registered.headers["location"],
+            f"/projects/{project.project_id}/sources#source-files",
+        )
+        removed_page = self.client.get(removed_registered.headers["location"])
+        self.assertIn(
+            "Removed corrected.csv from this project.",
+            removed_page.text,
+        )
+        datasets_page = self.client.get(f"/projects/{project.project_id}/datasets")
+        self.assertEqual(
+            datasets_page.text.count("data-source-file-remove-form"),
+            1,
+        )
+
+        current = context.queries.get(project.project_id)
+        context.sources.sources.save_source_selection(
+            project.project_id,
+            SourceSelection(
+                selection_id=str(uuid4()),
+                version=1,
+                project_id=project.project_id,
+                created_at=now,
+                created_by=context.actor.identity.display_name,
+                datasets=(),
+                content_hash="sha256:" + "a" * 64,
+            ),
+            actor=context.actor,
+        )
+        blocked = self._post(
+            f"/projects/{project.project_id}/files/{kept.file_id}/remove",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(current.revision),
+                "return_to": "datasets",
+            },
+        )
+        self.assertEqual(blocked.status_code, 422)
+        self.assertIn(
+            "Source files cannot be changed after table choices are saved",
+            blocked.text,
+        )
+        self.assertNotIn("data-source-file-remove-form", blocked.text)
+
     def test_remote_connection_status_is_visible_persistent_and_target_bound(
         self,
     ) -> None:
