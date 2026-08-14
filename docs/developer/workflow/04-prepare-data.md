@@ -92,6 +92,6 @@ appropriate scale gate for each execution class.
 ## Related documentation
 
 - [User guide: Prepare data](../../user/workflow/04-prepare-data.md)
-- [Canonical staging contract](../../contracts/03-canonical-staging.md)
-- [Normalization governance contract](../../contracts/05-normalization-governance.md)
-- [Quality and quarantine contract](../../contracts/06-quality-and-quarantine.md)
+- [Canonical staging contract](../contracts/canonical-staging.md)
+- [Normalization governance contract](../contracts/normalization.md)
+- [Quality and quarantine contract](../contracts/quality-and-quarantine.md)

@@ -10,7 +10,7 @@ changes affect later migration stages.
 
 This module has no web-framework or database dependency. See
 ``docs/architecture/python-code-map.md``,
-``docs/contracts/01-migration-project.md``, and ``tests/test_projects.py``.
+``docs/developer/contracts/project-lifecycle.md``, and ``tests/test_projects.py``.
 """
 
 from __future__ import annotations

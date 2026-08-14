@@ -7,11 +7,9 @@ Choose the path that matches your work:
 - [Developer documentation](developer/README.md) maps the same workflow to
   routes, services, evidence, invalidation rules, performance boundaries, and
   tests.
-- [Operations](#operations-and-quality) covers local Odoo, expert CLI, IT,
-  release, and disposable remote acceptance responsibilities.
 
 Accepted decisions and contracts are normative. Architecture describes the
-current composition and boundaries; operations explain how to use it; testing
+current composition and boundaries; audience pages explain how to use it; testing
 records evidence; the remaining-work plan and product vision describe future
 delivery. Where an example conflicts with a **MUST**, **MUST NOT**, **SHOULD**,
 or **MAY** rule, the normative rule wins.
@@ -69,59 +67,38 @@ voice rules.
   for reducing transformation CPU and memory, extending bounded preparation to
   related Products and BOMs, and retaining governed audit evidence.
 
-## Contracts
+## Guides, runbooks, and quality
 
-The numbered contracts form the recommended conceptual reading order.
+Data-manager guides live under [user documentation](user/README.md). Technical
+setup, CLI, release, and acceptance procedures live under
+[developer documentation](developer/README.md).
 
-- [Migration project contract](contracts/01-migration-project.md) — project
-  lifecycle, registration requirements, source/target evidence, audit, and
-  persistence boundary.
-- [Browser workspace contract](contracts/02-workspace.md) — source inspection,
-  confirmation, dataset freezing, target schema, governed mapping,
-  invalidation, validation, and submission.
-- [Canonical staging evaluation contract](contracts/03-canonical-staging.md) —
-  full-row canonical evidence, complete grouped-row lineage, reconciliation,
-  deterministic hashing, and atomic project-scoped DuckDB publication.
-- [Profile-driven preflight contract](contracts/04-preflight.md) — strict
-  profile, typed preparation, closed Odoo reads, snapshots, classification,
-  and portable review evidence.
-- [Normalization dry-run governance contract](contracts/05-normalization-governance.md)
-  — implemented standalone approval lifecycle, explicit integration status,
-  and the boundary between source approval and Odoo authorization.
-- [Quality and quarantine contract](contracts/06-quality-and-quarantine.md) —
-  integrated data checks, complete source/canonical accounting, immutable
-  quarantine evidence, and the eligible-row boundary before Odoo comparison.
-
-## Operations and quality
-
-The numbered runbooks are grouped by operating responsibility. Data managers
-start with the [user documentation](user/README.md), use 01 as the complete
-training tutorial, use 02 for a local target, and use 08 for generic
-related-table authoring. Expert CLI users read 03 then 04; IT and release teams
-use 05 and 06. Use 07 only for an explicitly disposable remote acceptance
-target.
-
-- [End-to-end local-browser tutorial](operations/01-local-browser-user-guide.md)
+- [End-to-end local-browser tutorial](user/tutorials/end-to-end-training.md)
   — one complete fictional migration across the current browser workflow.
-- [Local Odoo runbook](operations/02-local-odoo.md) — local target readiness,
+- [Accepted Windows installation](user/installation/windows.md) — the
+  data-manager route for installing an approved internal release bundle.
+- [Local Odoo guide](user/guides/local-odoo.md) — local target readiness,
   ownership-aware start and stop behavior, and troubleshooting.
-- [Profile authoring](operations/03-profile-authoring.md) — strict YAML datasets,
+- [Local Odoo technical runbook](developer/runbooks/local-odoo.md) — process
+  ownership, restart safeguards, and technical troubleshooting.
+- [Profile authoring](developer/cli/profile-authoring.md) — strict YAML datasets,
   business identities, fields, relationships, and validation workflow.
-- [Preflight CLI runbook](operations/04-cli.md) — safe profile-driven snapshot
+- [Preflight CLI runbook](developer/cli/preflight.md) — safe profile-driven snapshot
   and offline classification sequence, evidence rules, and exit behavior.
-- [Windows workstation readiness](operations/05-windows-workstation-readiness.md)
+- [Windows developer setup](developer/setup/windows.md)
   — IT provisioning, installation boundaries, Odoo access, and verification.
-- [Internal development and release runbook](operations/06-internal-release.md) —
+- [Internal development and release runbook](developer/runbooks/internal-release.md) —
   development setup, authoritative dependency locking, promotion, evidence,
   and installation of an accepted internal bundle.
-- [Remote Odoo 19 acceptance](operations/07-remote-odoo-acceptance.md) —
+- [Remote Odoo 19 acceptance](developer/runbooks/remote-odoo-acceptance.md) —
   opt-in sanitized remote load, read-back, repeat-preview, and throughput
   evidence against a disposable on-premises database.
-- [Related-table authoring](operations/08-related-dataset-authoring.md) — the
+- [Related-table authoring](user/guides/related-tables.md) — the
   generic browser reference for extracting reusable records or separating
   repeated parent/child rows without editing frozen source data.
-- [Examples and edge cases](examples-and-edge-cases.md) — copy-paste runs,
-  profile patterns, expected outcomes, failure cases, and current limitations.
+- [Developer examples and edge cases](developer/reference/examples-and-edge-cases.md)
+  — CLI runs, profile patterns, prepared records, classifications, issue codes,
+  and connector cases.
 - [Acceptance and test strategy](testing/acceptance.md) — test layers, golden
   slice, determinism checks, and acceptance traceability.
 - [Design QA evidence](testing/design-qa.md) — point-in-time visual fidelity

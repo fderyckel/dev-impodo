@@ -141,7 +141,7 @@ fields required during create remain blocked. Incremental relationship
 commands, retained live-target throughput evidence and any measurement-led
 tuning, and production cutover controls remain later delivery scope.
 
-The opt-in [remote Odoo 19 acceptance run](docs/operations/07-remote-odoo-acceptance.md)
+The opt-in [remote Odoo 19 acceptance run](docs/developer/runbooks/remote-odoo-acceptance.md)
 is ready for a disposable on-premises database. It exercises 150 sanitized
 rows through the real remote writer and read-back path and records observed
 throughput; live evidence still requires the target server.
@@ -200,7 +200,7 @@ line to your shell profile.
 
 Editable installation is the development lane. For use with approved internal
 data, promote and install a clean, evidence-producing bundle by following the
-[internal development and release runbook](docs/operations/06-internal-release.md).
+[internal development and release runbook](docs/developer/runbooks/internal-release.md).
 
 ## Documentation
 

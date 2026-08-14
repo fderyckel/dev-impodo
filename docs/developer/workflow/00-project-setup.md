@@ -83,5 +83,5 @@ audit behavior, route security, both source modes, and locked-stage rendering.
 ## Related documentation
 
 - [User guide: Project setup](../../user/getting-started.md)
-- [Migration project contract](../../contracts/01-migration-project.md)
+- [Project lifecycle contract](../contracts/project-lifecycle.md)
 - [Architecture overview](../../architecture/overview.md)

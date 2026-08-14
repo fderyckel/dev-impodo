@@ -3,6 +3,8 @@
 This documentation is for the data manager preparing and reviewing an Odoo 19
 migration in the Impodo browser.
 
+![Current Impodo project overview with all six migration stages.](../images/user/03-project-overview.png)
+
 Start with [Create and register a project](getting-started.md), then follow the
 six stages shown in the project sidebar:
 
@@ -17,5 +19,15 @@ For a guided practice migration using fictional customers, products,
 categories, and bills of materials, use the
 [end-to-end training tutorial](tutorials/end-to-end-training.md).
 
+## Installation and focused guides
+
+- [Install an accepted Impodo release on Windows](installation/windows.md)
+- [Connect to Odoo on this computer](guides/local-odoo.md)
+- [Prepare related tables](guides/related-tables.md)
+
 The user pages explain what to do, what to check, and what completion means.
 Implementation details are kept in the paired developer pages.
+
+All screenshots in this section were recaptured from the current browser UI on
+14 August 2026 using isolated fictional projects. They contain no operational
+or customer data.

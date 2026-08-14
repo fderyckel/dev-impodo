@@ -4,7 +4,7 @@
 
 This document summarizes Impodo's current security boundary, implemented
 controls, infrastructure dependencies, and unresolved acceptance work. The
-[Windows workstation requirements](../operations/05-windows-workstation-readiness.md)
+[Windows workstation requirements](../developer/setup/windows.md)
 contain the detailed endpoint-provisioning checklist.
 
 ## At a glance
@@ -266,7 +266,7 @@ repository ports rather than DuckDB filesystem readers.
 
 Impodo requires no inbound firewall opening. Detailed installation and
 verification steps belong in the
-[workstation runbook](../operations/05-windows-workstation-readiness.md), not in
+[workstation runbook](../developer/setup/windows.md), not in
 this security summary.
 
 ## Data handling
@@ -316,11 +316,12 @@ Project evidence:
 - [Product vision and current delivery boundary](../product-vision.md)
 - [Architecture overview](overview.md)
 - [Python code map and execution boundary](python-code-map.md)
-- [Migration project contract](../contracts/01-migration-project.md)
-- [Profile-driven preflight contract](../contracts/04-preflight.md)
+- [Project lifecycle contract](../developer/contracts/project-lifecycle.md)
+- [Preflight contract](../developer/contracts/preflight.md)
+- [Execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md)
 - [Acceptance and test strategy](../testing/acceptance.md)
-- [Internal release runbook](../operations/06-internal-release.md)
-- [Windows workstation requirements](../operations/05-windows-workstation-readiness.md)
+- [Internal release runbook](../developer/runbooks/internal-release.md)
+- [Windows workstation requirements](../developer/setup/windows.md)
 
 External control references:
 

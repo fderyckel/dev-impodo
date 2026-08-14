@@ -29,7 +29,9 @@ rehearsal capability, not a production cutover procedure.
 7. Review reconciliation and download fallout details when any row cannot be
    verified.
 
-![Explicit Odoo load confirmation with dependency order, credential field, and load action.](../../images/impodo-local-browser-guide/12-odoo-load-confirmation.png)
+![Current Odoo load preview with exact create, update, no-change, and per-table totals.](../../images/user/17-load-preview.png)
+
+![Current explicit load confirmation with batch size, write-key field, and one load action.](../../images/user/17b-load-confirmation.png)
 
 ## What to check
 
@@ -73,4 +75,3 @@ complete.
 ## Related documentation
 
 - [Developer implementation: Load into Odoo](../../developer/workflow/06-load-into-odoo.md)
-- [Remote Odoo 19 acceptance](../../operations/07-remote-odoo-acceptance.md)

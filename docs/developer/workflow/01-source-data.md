@@ -37,6 +37,25 @@ capture job, and publish frozen Odoo records through
 rules through `DerivedEntityWorkspaceService`. These rules remain plans until
 full preparation expands them over the frozen source.
 
+## Contract invariants
+
+File intake accepts only bounded CSV and XLSX content. Inspection records
+format, structure, formulas/errors, type suggestions, and bounded samples;
+formulas are inventoried but never executed. Leading-zero digit strings remain
+text. Blank or duplicate headers block confirmation, while other warnings need
+explicit acknowledgement.
+
+Freeze assigns stable dataset and column identities and publishes every chosen
+table as an immutable tagged Parquet snapshot with source-row lineage. The
+selection and all snapshot pointers advance in one transaction. Mapping preview
+and preparation read the verified snapshot rather than reopening CSV or XLSX.
+
+An Odoo capture selection is append-only, identity-bound, and saving it performs
+no target request. The current policy permits at most 50 closed scalar fields
+and 10,000 rows, with 500-row keyset pages. The live reader accepts only a
+service-generated request and exposes no raw domain, arbitrary context, generic
+method, or caller-selected field path.
+
 ## Code references
 
 | Role | Code |
@@ -103,7 +122,7 @@ Odoo capture bounds, cancellation, lineage, and both navigation variants.
 ## Related documentation
 
 - [User guide: Source data](../../user/workflow/01-source-data.md)
-- [Migration project contract](../../contracts/01-migration-project.md)
-- [Browser workspace contract](../../contracts/02-workspace.md)
-- [Related-table authoring](../../operations/08-related-dataset-authoring.md)
+- [Project lifecycle contract](../contracts/project-lifecycle.md)
+- [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
+- [Related-table authoring](../../user/guides/related-tables.md)
 - [Odoo source import and round-trip update plan](../../plans/odoo-source-import-plan.md)

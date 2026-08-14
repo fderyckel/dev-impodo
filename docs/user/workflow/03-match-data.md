@@ -32,7 +32,13 @@ relationship.
 9. Review transformation effects, including rules that changed no values.
 10. Select **Confirm field matches** for the exact checked revision.
 
-![A fictional Product Type source choice mapped to governed Odoo choices.](../../images/impodo-local-browser-guide/06-product-type-transform.png)
+![Current source and Odoo identity choices for one fictional customer table.](../../images/user/10-mapping-identity.png)
+
+![Current field-value and cleanup controls for a fictional Contact mapping.](../../images/user/11-mapping-fields.png)
+
+![Current linked-record mapping controls for existing Odoo lists.](../../images/user/12-mapping-relations.png)
+
+![Current read-only report showing the effects of confirmed cleanup rules.](../../images/user/13-rule-effects.png)
 
 ## What to check
 

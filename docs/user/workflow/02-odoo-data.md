@@ -34,7 +34,9 @@ Use portable values such as customer reference, internal product reference,
 country code, or BoM reference. Do not choose an Odoo numeric database ID as a
 portable business key.
 
-![Confirmed business-key rules for fictional Odoo bill-of-material records.](../../images/impodo-local-browser-guide/05-business-keys.png)
+![Current Odoo record-type selection bound to a fictional Odoo 19 target.](../../images/user/08-odoo-models.png)
+
+![Current confirmed matching rule for finding one existing Odoo Contact.](../../images/user/08b-odoo-business-keys.png)
 
 ## What to check
 
@@ -81,5 +83,5 @@ records before matching.
 
 ## Related documentation
 
-- [Local Odoo runbook](../../operations/02-local-odoo.md)
+- [Connect to Odoo on this computer](../guides/local-odoo.md)
 - [Developer implementation: Odoo data](../../developer/workflow/02-odoo-data.md)

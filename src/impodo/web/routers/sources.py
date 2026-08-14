@@ -1,11 +1,29 @@
-"""Expose Stage B inspection, confirmation, and dataset freezing.
+"""Expose the browser's governed Source data workflows.
 
-Layer: web route. Potentially expensive source inspection runs in a worker
-thread through ``SourceInspectionService``. Confirmation and freezing delegate
-to ``SourceWorkspaceService``; this router does not parse source bytes or
-construct persistence records itself.
+Layer: web routing and presentation. This module owns the HTTP boundary for
+both supported source modes:
 
-See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
+* ``FILE`` projects inspect registered CSV/XLSX bytes, save per-file table
+  choices, allow revision-checked replacement before the first freeze, and
+  publish one immutable source selection.
+* ``ODOO`` projects define a bounded record capture, keep the read credential
+  in the secret store, bind that credential to freshly captured schema
+  evidence, and monitor background publication of an immutable source
+  snapshot.
+
+Routes authenticate reads, validate CSRF-protected forms, translate expected
+application failures into recoverable pages, and choose redirects. Business
+rules and persistence remain in the intake, inspection, source-workspace,
+credential, provenance, and capture-job services. The router never parses
+source bytes, edits frozen evidence, or writes business records to Odoo.
+
+Potentially expensive file intake, inspection, freezing, and capture work is
+kept off the event loop or delegated to a background manager. Rendering may
+read bounded project-level projections, but must not add an Odoo call or a
+repository query per source row, field, or captured record.
+
+See ``docs/developer/workflow/01-source-data.md``,
+``docs/developer/contracts/evidence-lifecycle.md``, and ``tests/test_web_app.py``.
 """
 
 from __future__ import annotations
@@ -41,12 +59,25 @@ from ..target_credentials import (
 
 
 def build_sources_router(context: WebContext) -> APIRouter:
-    """Build the registered-source and frozen-dataset workflow routes."""
+    """Build file-source and Odoo-source routes from one application context.
+
+    The returned router is intentionally thin: it translates HTTP input and
+    output while ``WebContext`` services enforce revisions, evidence bindings,
+    source-mode restrictions, bounded capture policy, and publication rules.
+    """
 
     router = APIRouter()
 
     @router.get("/projects/{project_id}/sources", response_class=HTMLResponse)
     async def project_sources(request: Request, project_id: str):
+        """Render the current source-mode page or its active capture job.
+
+        Draft projects return to setup. Registered Odoo-source projects resume
+        the one active background capture when present; file projects render
+        catalogues and configurations and expose file removal only before a
+        frozen source selection exists.
+        """
+
         require_session(request)
         project = context.queries.get(project_id)
         if project.status is not ProjectStatus.REGISTERED:
@@ -88,7 +119,13 @@ def build_sources_router(context: WebContext) -> APIRouter:
         project_id: str,
         file_id: str,
     ):
-        """Remove one source and its checks before table choices are saved."""
+        """Remove one contained file and its checks before dataset freezing.
+
+        The intake service owns revision checking, path containment, audit,
+        catalogue cleanup, and the fail-closed frozen-selection boundary. This
+        route only validates the permitted return page and renders fresh state
+        when the command is rejected.
+        """
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "return_to"})
@@ -123,7 +160,12 @@ def build_sources_router(context: WebContext) -> APIRouter:
         request: Request,
         project_id: str,
     ):
-        """Add a replacement source before table choices are saved."""
+        """Add one bounded CSV/XLSX file before dataset freezing.
+
+        Upload streaming, size/type validation, hashing, contained storage, and
+        audit belong to the intake service and run outside the event loop. The
+        uploaded handle is closed on every success or failure path.
+        """
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "source_file"})
@@ -169,7 +211,13 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/sources/odoo-selection")
     async def save_odoo_capture_selection(request: Request, project_id: str):
-        """Save a bounded protected capture plan without reading Odoo rows."""
+        """Save a bounded protected capture plan without reading Odoo rows.
+
+        The source-workspace service validates the chosen model, eligible
+        fields, archive policy, row ceiling, and source-mode prerequisites
+        against current schema evidence. Saving the plan creates no snapshot
+        and grants no write capability.
+        """
 
         form = await request.form()
         _secure_form(
@@ -215,7 +263,13 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/sources/odoo-read-credential")
     async def save_odoo_capture_credential(request: Request, project_id: str):
-        """Store the governed read credential required by live capture."""
+        """Store and audit the read credential required by live capture.
+
+        Secret bytes remain in the configured secret store. Only credential
+        binding metadata is audited with the project. The redirect to schema
+        is deliberate: model and field evidence must be refreshed under the
+        new credential before a capture may start.
+        """
 
         form = await request.form()
         _secure_form(
@@ -260,7 +314,14 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/sources/odoo-capture")
     async def start_odoo_capture(request: Request, project_id: str):
-        """Confirm the exact current plan and enqueue its live publication."""
+        """Confirm the exact current plan and enqueue live snapshot publication.
+
+        The submitted selection ID and semantic hash must match current durable
+        state, the operator must explicitly confirm the read, and the stored
+        credential binding must match the captured schema. A successful enqueue
+        leaves any previous frozen source version current until the background
+        job publishes the replacement atomically.
+        """
 
         form = await request.form()
         _secure_form(
@@ -339,6 +400,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
         project_id: str,
         job_id: str,
     ):
+        """Render one project-scoped background capture job."""
+
         require_session(request)
         return _render_odoo_capture_progress(
             request,
@@ -347,6 +410,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     @router.get("/projects/{project_id}/sources/odoo-capture/{job_id}/status")
     async def odoo_capture_status(request: Request, project_id: str, job_id: str):
+        """Return the bounded polling projection for one capture job."""
+
         require_session(request)
         return JSONResponse(
             _odoo_capture_job_payload(
@@ -356,6 +421,13 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/sources/odoo-capture/{job_id}/cancel")
     async def cancel_odoo_capture(request: Request, project_id: str, job_id: str):
+        """Request cooperative cancellation after the current bounded page.
+
+        Cancellation does not imply rollback of an already published version;
+        publication rules in the job service determine whether a candidate can
+        become current.
+        """
+
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         try:
@@ -373,7 +445,12 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/sources/inspect")
     async def inspect_project_sources(request: Request, project_id: str):
-        """Reinspect all registered source bytes and replace their catalogs."""
+        """Reinspect registered source bytes and replace their catalogues.
+
+        Parsing runs in a worker thread. The inspection service rechecks stored
+        evidence and publishes catalogues; this route reloads all visible
+        project state after a recoverable structural failure.
+        """
 
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
@@ -418,6 +495,15 @@ def build_sources_router(context: WebContext) -> APIRouter:
         project_id: str,
         file_id: str,
     ):
+        """Refresh one file preview and optionally confirm selected tables.
+
+        Allowed fields are derived from the current catalogue so stale or
+        injected table controls fail closed. Reinspection applies the proposed
+        CSV or worksheet-header options first; confirmation then retains only
+        table keys present in the refreshed catalogue and delegates warning
+        acknowledgement to the source-workspace service.
+        """
+
         form = await request.form()
         catalogs = context.queries.get_source_catalogs(project_id)
         catalog = next(
@@ -500,6 +586,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     @router.get("/projects/{project_id}/datasets", response_class=HTMLResponse)
     async def project_datasets(request: Request, project_id: str):
+        """Render confirmed physical tables and the current frozen selection."""
+
         require_session(request)
         project = context.queries.get(project_id)
         choices = _dataset_choices(context, project_id)
@@ -513,7 +601,12 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
     @router.post("/projects/{project_id}/datasets/freeze")
     async def freeze_project_datasets(request: Request, project_id: str):
-        """Freeze confirmed tables under stable, user-selected dataset names."""
+        """Freeze confirmed tables under stable, user-selected dataset names.
+
+        The source-workspace service revalidates current catalogues,
+        configurations, hashes, dataset-name uniqueness, and publication
+        atomicity. Expensive snapshot materialization runs off the event loop.
+        """
 
         form = await request.form()
         choices = _dataset_choices(context, project_id)
@@ -557,7 +650,12 @@ def build_sources_router(context: WebContext) -> APIRouter:
 
 
 def _source_groups(catalogs):
-    """Group selectable Excel regions under their physical worksheet."""
+    """Group selectable Excel regions under their physical worksheet.
+
+    This is an in-memory presentation transform over already bounded
+    catalogues. It preserves each table's original index because form field
+    names are index-based, and it performs no repository or source-file reads.
+    """
 
     result = {}
     for catalog in catalogs:
@@ -602,7 +700,12 @@ def _render_source_file_error(
     return_to: str,
     error: Exception,
 ):
-    """Return the selected source page with fresh state after a file error."""
+    """Return the selected source page with fresh state after a file error.
+
+    Mutating intake commands can advance the project revision or catalogue
+    state before another browser tab submits. Requerying here prevents the
+    rejected form from redisplaying stale revision-controlled values.
+    """
 
     project = context.queries.get(project_id)
     if return_to == "files":
@@ -650,6 +753,15 @@ def _render_odoo_capture_selection(
     error: str | None = None,
     status_code: int = 200,
 ):
+    """Render current Odoo capture choices, credential state, and history.
+
+    Eligible fields come only from captured schema evidence and the closed
+    source-field type policy. The helper excludes Odoo's numeric ``id`` and
+    volatile ``write_date`` from source values, retains a selection only when
+    its model is still selected, and compares credential bindings without
+    exposing the secret. Provenance reads are project-level, not per record.
+    """
+
     schema = context.queries.get_odoo_schema_catalog(project.project_id)
     current = context.queries.get_current_odoo_capture_selection(
         project.project_id
@@ -744,6 +856,8 @@ def _render_odoo_capture_selection(
 
 
 def _odoo_capture_manager(context: WebContext):
+    """Return the configured job manager or fail with a workflow-state error."""
+
     if context.odoo_capture_jobs is None:
         raise OdooCaptureJobStateError("Background Odoo captures are unavailable")
     return context.odoo_capture_jobs
@@ -754,6 +868,8 @@ def _get_odoo_capture_job(
     project_id: str,
     job_id: str,
 ) -> OdooCaptureJob:
+    """Return one job only when it belongs to the requested project."""
+
     try:
         return _odoo_capture_manager(context).get(project_id, job_id)
     except OdooCaptureJobNotFoundError as error:
@@ -764,10 +880,14 @@ def _get_odoo_capture_job(
 
 
 def _odoo_capture_progress_url(project_id: str, job_id: str) -> str:
+    """Build the canonical browser URL for one capture job."""
+
     return f"/projects/{project_id}/sources/odoo-capture/{job_id}"
 
 
 def _render_odoo_capture_progress(request: Request, job: OdooCaptureJob):
+    """Render progress from the immutable public fields of a capture job."""
+
     return _render(
         request,
         "project_odoo_capture_progress.html",
@@ -782,6 +902,8 @@ def _render_odoo_capture_progress(request: Request, job: OdooCaptureJob):
 
 
 def _odoo_capture_job_payload(job: OdooCaptureJob) -> dict[str, object]:
+    """Serialize safe polling fields and a success-only workflow redirect."""
+
     return {
         "job_id": job.job_id,
         "status": job.status.value,

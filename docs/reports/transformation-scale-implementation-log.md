@@ -757,14 +757,14 @@ Then, on a clean combined revision in PowerShell, run:
 If the combined worktree cannot yet be clean, add
 `--allow-dirty-worktree` only for a diagnostic release-shape run and omit
 `--require-release-qualified`. Such a run can expose Windows failures but can
-never authorize a route-limit change. Limits and browser/operations messages
+never authorize a route-limit change. Limits and browser/runbook messages
 remain unchanged until the clean Windows report says
 `release_qualified: true`.
 
 ### Windows Phase 7 qualification result — 2026-08-12
 
 The clean Windows qualification did **not** pass. Route limits, browser
-messages, and operations claims remain unchanged.
+messages, and runbook claims remain unchanged.
 
 The last revision held stable long enough to produce attributable candidate
 evidence was `676b79d9acc00763e7d386d391f7387a937989e3`. It ran on

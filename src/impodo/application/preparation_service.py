@@ -10,7 +10,7 @@ staging, quality, and normalization evidence in that order. This module may
 read registered source artifacts but never contacts Odoo.
 
 See ``docs/architecture/python-code-map.md``,
-``docs/contracts/03-canonical-staging.md``, and ``tests/test_readiness.py``.
+``docs/developer/contracts/canonical-staging.md``, and ``tests/test_readiness.py``.
 """
 
 from __future__ import annotations

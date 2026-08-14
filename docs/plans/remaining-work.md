@@ -9,7 +9,7 @@ implementation proposals may live beside it, but they do not change this
 roadmap's priority order unless explicitly adopted here. Completed
 implementation belongs in Git, release evidence belongs in `docs/reports/`
 and `docs/testing/`, and current behavior belongs in architecture, contracts,
-and operations documentation.
+and audience-appropriate user or developer documentation.
 
 ## Current boundary
 
@@ -132,7 +132,7 @@ The broader limit may change only after all of these pass:
   opt-in scale suites pass;
 - deterministic local Odoo comparison performs no source preparation and
   finishes within its separate 120-second local-processing gate;
-- operations, acceptance evidence, limits, and user-facing messages are
+- developer runbooks, acceptance evidence, limits, and user-facing messages are
   updated in the same change.
 
 Until then, retain the current 100,000-row limit only for verified native

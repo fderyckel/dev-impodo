@@ -3,8 +3,9 @@
 The workflow manifest is a documentation registry, not a runtime contract.
 This tool checks objective drift: audience pairs, required sections, local
 links and anchors, images, code symbols, tests, route ownership, template
-ownership, and the implemented file-source navigation labels. Prose quality
-still requires human review and the advisory Vale rules.
+ownership, developer-contract ownership, audience boundaries, and the
+implemented file-source navigation labels. Prose quality still requires human
+review and the advisory Vale rules.
 """
 
 from __future__ import annotations
@@ -52,6 +53,10 @@ DEVELOPER_HEADINGS = (
     "Invalidation and recovery",
     "Odoo 19 and performance",
     "Verification",
+    "Related documentation",
+)
+CONTRACT_HEADINGS = (
+    "Scope",
     "Related documentation",
 )
 
@@ -334,6 +339,113 @@ def _validate_stage(
     return issues
 
 
+def _validate_contract_structure(
+    repo_root: Path,
+    stages: Sequence[Mapping[str, object]],
+) -> list[DocumentationIssue]:
+    issues: list[DocumentationIssue] = []
+    manifest_path = "docs/workflow.yml"
+    contract_root = (repo_root / "docs/developer/contracts").resolve()
+    registered = {
+        str(value)
+        for stage in stages
+        for value in stage.get("contracts", [])
+    }
+    actual = {
+        path.relative_to(repo_root).as_posix()
+        for path in contract_root.glob("*.md")
+        if path.is_file()
+    }
+
+    for relative in sorted(registered):
+        if not relative.startswith("docs/developer/contracts/"):
+            issues.append(
+                DocumentationIssue(
+                    manifest_path,
+                    f"contract entry must be under docs/developer/contracts: {relative!r}",
+                )
+            )
+    for relative in sorted(actual - registered):
+        issues.append(
+            DocumentationIssue(
+                manifest_path,
+                f"developer contract has no owning workflow stage: {relative!r}",
+            )
+        )
+
+    for relative in sorted(actual):
+        path = repo_root / relative
+        text = path.read_text(encoding="utf-8")
+        metadata = _front_matter(text)
+        if metadata.get("audience") != "developer":
+            issues.append(DocumentationIssue(relative, "audience must be 'developer'"))
+        if metadata.get("kind") != "contract":
+            issues.append(DocumentationIssue(relative, "kind must be 'contract'"))
+        if metadata.get("status") != "current":
+            issues.append(DocumentationIssue(relative, "status must be 'current'"))
+        present = {heading for _marks, heading in HEADING_RE.findall(text)}
+        for heading in CONTRACT_HEADINGS:
+            if heading not in present:
+                issues.append(
+                    DocumentationIssue(relative, f"missing required heading {heading!r}")
+                )
+
+    for path in sorted((repo_root / "docs/user").rglob("*.md")):
+        for resolved in _resolved_links(path):
+            if resolved.parent == contract_root:
+                issues.append(
+                    DocumentationIssue(
+                        path.relative_to(repo_root).as_posix(),
+                        "user documentation must link to its paired developer page, not a contract",
+                    )
+                )
+    return issues
+
+
+def _validate_user_screenshot_coverage(repo_root: Path) -> list[DocumentationIssue]:
+    """Require every user page to show at least one current browser screenshot."""
+
+    issues: list[DocumentationIssue] = []
+    user_root = repo_root / "docs/user"
+    screenshot_root = (repo_root / "docs/images/user").resolve()
+    referenced: set[Path] = set()
+
+    for path in sorted(user_root.rglob("*.md")):
+        relative = path.relative_to(repo_root).as_posix()
+        page_screenshots: list[Path] = []
+        for match in LINK_RE.finditer(path.read_text(encoding="utf-8")):
+            if not match.group("image"):
+                continue
+            target = match.group("target").strip("<>")
+            if SCHEME_RE.match(target):
+                continue
+            target_path = (path.parent / unquote(target.partition("#")[0])).resolve()
+            if (
+                target_path.suffix.lower() == ".png"
+                and target_path.is_relative_to(screenshot_root)
+            ):
+                page_screenshots.append(target_path)
+                referenced.add(target_path)
+        if not page_screenshots:
+            issues.append(
+                DocumentationIssue(
+                    relative,
+                    "user page must include a current screenshot from docs/images/user",
+                )
+            )
+
+    if screenshot_root.is_dir():
+        for path in sorted(screenshot_root.glob("*.png")):
+            if path.resolve() not in referenced:
+                issues.append(
+                    DocumentationIssue(
+                        path.relative_to(repo_root).as_posix(),
+                        "current user screenshot is not referenced by a user page",
+                    )
+                )
+    return issues
+
+
 def validate_repository(
     repo_root: Path = ROOT,
     manifest_path: Path = DEFAULT_MANIFEST,
@@ -363,6 +475,8 @@ def validate_repository(
 
     for stage in stages:
         issues.extend(_validate_stage(repo_root, stage))
+    issues.extend(_validate_contract_structure(repo_root, stages))
+    issues.extend(_validate_user_screenshot_coverage(repo_root))
 
     navigation = tuple(
         (str(stage["id"]), int(stage["order"]), str(stage["label"]))

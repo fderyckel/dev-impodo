@@ -1,8 +1,8 @@
 # Impodo developer documentation
 
-This is the entry point for developers changing the Impodo browser workflow.
-Impodo targets Odoo 19 and keeps migration evidence, approval boundaries, and
-read-versus-write capabilities explicit.
+This is the entry point for developers and technical operators working on
+Impodo. Impodo targets Odoo 19 and keeps migration evidence, approval
+boundaries, and read-versus-write capabilities explicit.
 
 ## Workflow implementation
 
@@ -20,14 +20,35 @@ Each page maps visible behavior to routes, application services, durable
 evidence, invalidation rules, and focused tests. The machine-readable ownership
 map is [`docs/workflow.yml`](../workflow.yml).
 
+## Normative contracts
+
+Contracts contain only cross-stage required behavior. Workflow pages own the
+routes, services, implementation status, performance risks, and focused tests.
+
+- [Project lifecycle](contracts/project-lifecycle.md)
+- [Workflow evidence lifecycle](contracts/evidence-lifecycle.md)
+- [Canonical staging](contracts/canonical-staging.md)
+- [Preflight](contracts/preflight.md)
+- [Normalization governance](contracts/normalization.md)
+- [Quality and quarantine](contracts/quality-and-quarantine.md)
+- [Execution and reconciliation](contracts/execution-and-reconciliation.md)
+
+## CLI, setup, and runbooks
+
+- [Profile authoring](cli/profile-authoring.md)
+- [Preflight CLI](cli/preflight.md)
+- [Windows development setup](setup/windows.md)
+- [Local Odoo technical runbook](runbooks/local-odoo.md)
+- [Internal development and release](runbooks/internal-release.md)
+- [Remote Odoo 19 acceptance](runbooks/remote-odoo-acceptance.md)
+
 ## Cross-stage references
 
 - [Architecture overview](../architecture/overview.md)
 - [Python code map](../architecture/python-code-map.md)
 - [Architecture decisions](../decisions/README.md)
-- [Migration project contract](../contracts/01-migration-project.md)
-- [Browser workspace contract](../contracts/02-workspace.md)
 - [Acceptance and test strategy](../testing/acceptance.md)
+- [Examples and edge cases](reference/examples-and-edge-cases.md)
 - [Documentation style guide](../style-guide.md)
 
 Before changing an Odoo-backed loop, verify that record access is bounded and

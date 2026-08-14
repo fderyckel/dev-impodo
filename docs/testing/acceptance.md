@@ -258,7 +258,7 @@ because it requires an explicitly disposable Odoo database. The same runner
 now accepts a remote HTTPS Odoo 19 target, binds the current exact writer and
 read-back scopes, and emits phase timings and observed rows per second. The
 remote run remains pending until a disposable on-premises target is available;
-see the [remote acceptance runbook](../operations/07-remote-odoo-acceptance.md).
+see the [remote acceptance runbook](../developer/runbooks/remote-odoo-acceptance.md).
 
 P4 passed on 2026-08-06 against the isolated `impodo_p4_20260806` database:
 125 creates, 20 updates, 5 unchanged, 145 committed writes, 150 verified by
@@ -380,7 +380,7 @@ Expected totals:
 | `BLOCKED` | 2 |
 
 The detailed row list is in
-[Examples and edge cases](../examples-and-edge-cases.md).
+[Developer examples and edge cases](../developer/reference/examples-and-edge-cases.md).
 
 ### Required organization-specific slice
 

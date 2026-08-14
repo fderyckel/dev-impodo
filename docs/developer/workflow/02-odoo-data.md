@@ -32,6 +32,24 @@ Local capture uses the isolated local reader. Remote capture uses the narrow
 JSON-2 read connector. Both normalize metadata into the same domain catalogue
 before governance is saved.
 
+## Contract invariants
+
+Target evidence is either verified `LIVE_API` capture or an unverified
+`LOCAL_MANUAL` draft. A manual draft may support mapping work but cannot
+authorize mapping submission. Abstract and transient models are excluded, and
+related models are never silently added to the permitted scope.
+
+Field capture records the effective inherited Odoo 19 field set, requirements,
+readonly state, relations, inverse fields, and selection codes. It performs one
+`fields_get` request per selected model, never per field or source row. Optional
+uniqueness metadata is fetched in one bounded model batch; inability to read it
+does not turn a recommendation into confirmed governance.
+
+Business keys are explicit, versioned, and actor-confirmed. A recommendation
+may come from one exact supported rule or one unambiguous Odoo uniqueness
+constraint, but it remains non-authoritative until confirmation. Relationships
+and matching use these portable keys rather than remembered numeric Odoo IDs.
+
 ## Code references
 
 | Role | Code |
@@ -88,5 +106,5 @@ read-only capability, batched requests, invalidation, and both source modes.
 ## Related documentation
 
 - [User guide: Odoo data](../../user/workflow/02-odoo-data.md)
-- [Browser workspace contract](../../contracts/02-workspace.md)
+- [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
 - [Architecture decisions](../../decisions/README.md)

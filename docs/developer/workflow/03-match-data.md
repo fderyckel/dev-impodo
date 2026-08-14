@@ -33,6 +33,32 @@ providers, conversions, identities, relationships, write scope, and coverage.
 `TransformationImpactService` evaluates the checked rules against frozen source
 values without changing source evidence.
 
+## Contract invariants
+
+Each dataset declares one permitted target model and `upsert`, `create`, or
+`reference` mode. Each scalar target field has one explicit provider: source,
+constant, source with fallback, or leave unset for the Odoo default.
+Transformations, null behavior, comparison policy, and relationship resolution
+are closed, versioned choices rather than arbitrary code.
+
+Many2one and many2many relationships resolve through incoming datasets or
+existing-target business keys. One2many is represented through the child
+dataset's inverse many2one and is never written as an independently owned list.
+Dynamic value matching uses one frozen source column and batched target choices;
+it persists portable codes or business keys, never numeric Odoo IDs.
+
+Mapping contract version 8 stores cleanup exclusively as ordered `text_steps`.
+Legacy scalar search/replacement fields are rejected rather than silently
+converted or dropped. Quick matching remains bounded to 500 source choices and
+2,000 target records; composite or scoped identities use the normal governed
+relationship workflow.
+
+The recoverable working draft is deliberately non-authoritative. Semantic
+validation creates immutable issues and coverage; submission binds the exact
+valid revision, source/schema evidence, impact review, warning acknowledgement,
+and actor. Row-level uniqueness and relationship resolution remain preparation
+and final-review responsibilities, not mapping-preview claims.
+
 ## Code references
 
 | Role | Code |
@@ -92,5 +118,5 @@ submission.
 ## Related documentation
 
 - [User guide: Match data](../../user/workflow/03-match-data.md)
-- [Browser workspace contract](../../contracts/02-workspace.md)
-- [Canonical staging contract](../../contracts/03-canonical-staging.md)
+- [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
+- [Canonical staging contract](../contracts/canonical-staging.md)

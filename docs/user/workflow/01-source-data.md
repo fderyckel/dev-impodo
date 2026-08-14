@@ -44,7 +44,9 @@ project.
 The Odoo-source route reads selected business records; it does not authorize a
 write back to Odoo.
 
-![Confirmed fictional product source with representative values and data types.](../../images/impodo-local-browser-guide/02-source-products.png)
+![Current source inspection for fictional CSV and XLSX files.](../../images/user/04-source-inspection.png)
+
+![Current frozen table choices and the next Odoo-data action.](../../images/user/05-frozen-tables.png)
 
 ## What to check
 
@@ -73,7 +75,7 @@ or the Odoo capture is broader than intended. Before table freeze, replace an
 incorrect file. After freeze, start a new project for corrected source data.
 
 For combined source information, use the
-[related-table authoring guide](../../operations/08-related-dataset-authoring.md)
+[related-table authoring guide](../guides/related-tables.md)
 instead of manually altering the project database.
 
 ## What makes this work stale

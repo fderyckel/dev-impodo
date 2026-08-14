@@ -39,7 +39,7 @@ stages:
       - tests/test_project_security.py
       - tests/test_web_app.py
     contracts:
-      - docs/contracts/01-migration-project.md
+      - docs/developer/contracts/project-lifecycle.md
 
   - id: source
     order: 1
@@ -75,10 +75,10 @@ stages:
       - tests/test_derived_entities.py
       - tests/test_web_app.py
     contracts:
-      - docs/contracts/01-migration-project.md
-      - docs/contracts/02-workspace.md
+      - docs/developer/contracts/project-lifecycle.md
+      - docs/developer/contracts/evidence-lifecycle.md
     references:
-      - docs/operations/08-related-dataset-authoring.md
+      - docs/user/guides/related-tables.md
 
   - id: odoo
     order: 2
@@ -106,7 +106,7 @@ stages:
       - tests/test_local_odoo_reader.py
       - tests/test_web_app.py
     contracts:
-      - docs/contracts/02-workspace.md
+      - docs/developer/contracts/evidence-lifecycle.md
 
   - id: match
     order: 3
@@ -130,7 +130,7 @@ stages:
       - tests/test_mapping_impact_presenter.py
       - tests/test_web_app.py
     contracts:
-      - docs/contracts/02-workspace.md
+      - docs/developer/contracts/evidence-lifecycle.md
 
   - id: prepare
     order: 4
@@ -160,9 +160,9 @@ stages:
       - tests/test_normalization.py
       - tests/test_web_app.py
     contracts:
-      - docs/contracts/03-canonical-staging.md
-      - docs/contracts/05-normalization-governance.md
-      - docs/contracts/06-quality-and-quarantine.md
+      - docs/developer/contracts/canonical-staging.md
+      - docs/developer/contracts/normalization.md
+      - docs/developer/contracts/quality-and-quarantine.md
 
   - id: review
     order: 5
@@ -185,8 +185,8 @@ stages:
       - tests/test_connectors.py
       - tests/test_web_app.py
     contracts:
-      - docs/contracts/04-preflight.md
-      - docs/contracts/06-quality-and-quarantine.md
+      - docs/developer/contracts/preflight.md
+      - docs/developer/contracts/quality-and-quarantine.md
 
   - id: load
     order: 6
@@ -209,5 +209,7 @@ stages:
       - tests/test_execution_repository.py
       - tests/test_reconciliation_service.py
     contracts:
+      - docs/developer/contracts/execution-and-reconciliation.md
+    references:
       - docs/architecture/security-and-infrastructure.md
       - docs/testing/acceptance.md

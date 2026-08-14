@@ -5,7 +5,7 @@ advance by one optimistic parent version. Publishing a new current plan retires
 the active mapping and canonical staging because the effective mapping dataset
 shape has changed.
 
-See ``docs/operations/08-related-dataset-authoring.md`` and
+See ``docs/user/guides/related-tables.md`` and
 ``tests/test_derived_entities.py``.
 """
 

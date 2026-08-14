@@ -4,7 +4,7 @@
 
 This document is the current structural overview of Impodo. It explains the
 main components, data flow, and boundaries without repeating the detailed
-[contracts](../README.md#contracts) or
+[developer contracts](../developer/README.md#normative-contracts) or
 [architecture decisions](../decisions/README.md).
 
 Impodo is currently a local browser application for governing source data and
@@ -199,10 +199,11 @@ loopback assumptions must not be relaxed and reused as hosted controls. See
 ## Authoritative detail
 
 - [Security and infrastructure](security-and-infrastructure.md)
-- [Migration project contract](../contracts/01-migration-project.md)
-- [Browser workspace contract](../contracts/02-workspace.md)
-- [Canonical staging contract](../contracts/03-canonical-staging.md)
-- [Profile-driven preflight contract](../contracts/04-preflight.md)
-- [Normalization governance contract](../contracts/05-normalization-governance.md)
-- [Quality and quarantine contract](../contracts/06-quality-and-quarantine.md)
+- [Project lifecycle contract](../developer/contracts/project-lifecycle.md)
+- [Workflow evidence lifecycle](../developer/contracts/evidence-lifecycle.md)
+- [Canonical staging contract](../developer/contracts/canonical-staging.md)
+- [Preflight contract](../developer/contracts/preflight.md)
+- [Normalization governance contract](../developer/contracts/normalization.md)
+- [Quality and quarantine contract](../developer/contracts/quality-and-quarantine.md)
+- [Execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md)
 - [Acceptance and test strategy](../testing/acceptance.md)

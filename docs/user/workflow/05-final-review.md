@@ -28,6 +28,8 @@ Use a reachable Odoo 19 target with the approved read access.
 6. Download the workbook or technical evidence package when required for the
    rehearsal record.
 
+![Current final comparison with saved rows and per-table Odoo outcomes.](../../images/user/16-final-comparison.png)
+
 ## What to check
 
 - The target fingerprint identifies the intended Odoo database.
@@ -72,4 +74,3 @@ approved disposable target and the exact current review.
 ## Related documentation
 
 - [Developer implementation: Final review](../../developer/workflow/05-final-review.md)
-- [Profile-driven preflight contract](../../contracts/04-preflight.md)

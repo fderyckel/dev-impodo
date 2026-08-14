@@ -27,10 +27,12 @@ a file project, collect the related CSV or XLSX files for the same migration.
 6. Review the complete setup.
 7. Select **Register project**.
 
+![Current new-project screen with file and Odoo source choices.](../images/user/02-create-project.png)
+
 Keep related tables in one project when they must be loaded in dependency
 order. Do not create one project per Odoo record type.
 
-![Project overview showing the six stages for one fictional migration.](../images/impodo-local-browser-guide/01-project-overview.png)
+![Current project overview showing the six stages for one fictional migration.](../images/user/03-project-overview.png)
 
 ## What to check
 

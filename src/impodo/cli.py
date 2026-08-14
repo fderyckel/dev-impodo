@@ -9,7 +9,7 @@ and classify entirely offline. It does not share browser lifecycle persistence
 and exposes no Odoo write command. Future Stage-I–K work must not extend the
 existing snapshot connector into a generic executor.
 
-See ``docs/operations/04-cli.md``, ``docs/contracts/04-preflight.md``, and
+See ``docs/developer/cli/preflight.md``, ``docs/developer/contracts/preflight.md``, and
 ``tests/test_reporting_cli.py``.
 """
 

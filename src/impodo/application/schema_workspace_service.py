@@ -9,7 +9,7 @@ publishing catalogs. Governance then binds explicit business keys to the exact
 captured schema. This module cannot call Odoo by itself.
 
 See ``docs/architecture/python-code-map.md``,
-``docs/contracts/02-workspace.md``, and ``tests/test_workspace.py``.
+``docs/developer/contracts/evidence-lifecycle.md``, and ``tests/test_workspace.py``.
 """
 
 from __future__ import annotations

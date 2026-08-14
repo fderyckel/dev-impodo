@@ -1260,14 +1260,15 @@ contract documentation:
 - `README.md` current capability and explicit read-only/disposable/production
   labels;
 - `docs/product-vision.md` Stage A/B/C ordering for origin-specific projects;
-- `docs/contracts/01-migration-project.md` source mode, registration, credential
+- `docs/developer/contracts/project-lifecycle.md` source mode, registration, credential
   roles, and named identity/hash vocabulary;
-- `docs/contracts/02-workspace.md` discriminated source bindings, Odoo capture,
+- `docs/developer/contracts/evidence-lifecycle.md` discriminated source bindings, Odoo capture,
   data hash, history/quota, and invalidation;
-- `docs/contracts/03-canonical-staging.md` pinned mode and protected origin
+- `docs/developer/contracts/canonical-staging.md` pinned mode and protected origin
   companion;
-- `docs/contracts/04-preflight.md` protected-ID three-way comparison;
-- the execution/reconciliation contracts for the protected execution companion;
+- `docs/developer/contracts/preflight.md` protected-ID three-way comparison;
+- `docs/developer/contracts/execution-and-reconciliation.md` for the protected
+  execution companion;
 - `docs/architecture/overview.md` and `python-code-map.md`;
 - `docs/architecture/security-and-infrastructure.md` read/write principals,
   target-instance identity, evidence privacy, and concurrency boundary;

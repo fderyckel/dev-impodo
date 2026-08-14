@@ -15,7 +15,8 @@ mixing user instructions and implementation detail on the same page.
 
 Use one authority for each kind of statement:
 
-1. Accepted contracts define required behavior.
+1. Accepted [developer contracts](developer/contracts/) define cross-stage
+   required behavior.
 2. Architecture and decisions explain current boundaries and accepted choices.
 3. User documentation explains current browser behavior.
 4. Developer workflow documentation maps that behavior to code and tests.
@@ -78,7 +79,7 @@ When workflow behavior changes, review together:
 
 - the owning user and developer stage pages;
 - `docs/workflow.yml`;
-- affected contracts, architecture, decisions, and plans;
+- affected developer contracts, architecture, decisions, and plans;
 - code docstrings and the Python code map;
 - screenshots, examples, and focused tests.
 

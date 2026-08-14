@@ -28,6 +28,8 @@ source, schema, key, or transformation decision is still changing.
    decisions when they are present.
 7. Approve the resolved prepared data only when no required decision remains.
 
+![Current prepared-data review with reconciled totals and the next comparison action.](../../images/user/15-prepared-data-review.png)
+
 ## What to check
 
 - Source, prepared, quarantined, and rejected totals reconcile.
@@ -67,4 +69,3 @@ Continue to [Final review](05-final-review.md).
 ## Related documentation
 
 - [Developer implementation: Prepare data](../../developer/workflow/04-prepare-data.md)
-- [Quality and quarantine contract](../../contracts/06-quality-and-quarantine.md)

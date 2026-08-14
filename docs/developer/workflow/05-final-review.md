@@ -86,6 +86,6 @@ write capabilities.
 ## Related documentation
 
 - [User guide: Final review](../../user/workflow/05-final-review.md)
-- [Profile-driven preflight contract](../../contracts/04-preflight.md)
-- [Quality and quarantine contract](../../contracts/06-quality-and-quarantine.md)
+- [Preflight contract](../contracts/preflight.md)
+- [Quality and quarantine contract](../contracts/quality-and-quarantine.md)
 - [Architecture decisions](../../decisions/README.md)

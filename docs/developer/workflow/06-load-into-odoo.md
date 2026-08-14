@@ -96,6 +96,7 @@ Odoo 19 target.
 ## Related documentation
 
 - [User guide: Load into Odoo](../../user/workflow/06-load-into-odoo.md)
+- [Execution and reconciliation contract](../contracts/execution-and-reconciliation.md)
 - [Security and infrastructure](../../architecture/security-and-infrastructure.md)
 - [Acceptance and test strategy](../../testing/acceptance.md)
-- [Remote Odoo 19 acceptance](../../operations/07-remote-odoo-acceptance.md)
+- [Remote Odoo 19 acceptance](../runbooks/remote-odoo-acceptance.md)

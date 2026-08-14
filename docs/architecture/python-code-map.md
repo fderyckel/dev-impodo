@@ -6,7 +6,8 @@ Use this map when entering `src/impodo/` from a browser action, CLI command,
 Python module, class, or method. It identifies where orchestration starts, which
 layer owns each decision, what evidence is produced, and what to open next.
 
-This is a navigation aid. The [contracts](../README.md#contracts) remain
+This is a navigation aid. The
+[developer contracts](../developer/README.md#normative-contracts) remain
 normative, and the
 [remaining-work plan](../plans/remaining-work.md) records unfinished delivery
 work without duplicating the current implementation boundary.

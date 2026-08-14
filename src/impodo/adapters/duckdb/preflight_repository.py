@@ -7,7 +7,7 @@ the report, row projections, snapshots, current pointer, and audit event in one
 database transaction.
 
 See ``docs/architecture/python-code-map.md``,
-``docs/contracts/04-preflight.md``, and ``tests/test_preflight_service.py``.
+``docs/developer/contracts/preflight.md``, and ``tests/test_preflight_service.py``.
 """
 
 from __future__ import annotations

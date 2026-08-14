@@ -7,7 +7,7 @@ modes, and declared control totals without executable Python/SQL or numeric
 Odoo IDs.
 
 See ``docs/architecture/python-code-map.md``,
-``docs/contracts/02-workspace.md``, and ``tests/test_mapping_validation.py``.
+``docs/developer/contracts/evidence-lifecycle.md``, and ``tests/test_mapping_validation.py``.
 """
 
 from __future__ import annotations

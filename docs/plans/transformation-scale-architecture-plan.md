@@ -1144,7 +1144,7 @@ Run three fresh spawned-worker attempts on the reference Windows workstation
 for every release fixture. First and repeat preparation must be measured
 separately, and each worker must exit.
 
-Only then update route limits, browser messages, operations documentation, and
+Only then update route limits, browser messages, developer runbooks, and
 acceptance evidence. Limits remain capability-based; one unsupported operation
 may select a lower route even when the row count is small.
 
@@ -1257,7 +1257,7 @@ This proposal contains no code. Likely implementation areas are:
   hashing and measured columnar transport;
 - staging, quality, normalization, preflight, reporting, and browser projection
   readers for deterministic logical reconstruction; and
-- architecture, contracts, operations, limits, acceptance evidence, and an ADR
+- architecture, contracts, developer runbooks, limits, acceptance evidence, and an ADR
   if a versioned chunk-root contract is adopted.
 
 Repository modules should be split by manifest, row/chunk, relationship,
