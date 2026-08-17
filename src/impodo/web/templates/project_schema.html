@@ -296,6 +296,12 @@
             {% if existing %}<span class="status registered">Rule confirmed</span>{% endif %}
           </div>
 
+          {% if view.key_error %}
+            <div class="notice error" role="alert" data-key-server-error>
+              {{ view.key_error }}
+            </div>
+          {% endif %}
+
           <div class="key-decision-summary">
             {% if existing %}
               <p class="eyebrow">Confirmed matching rule</p>
@@ -344,7 +350,7 @@
           <details
             class="key-editor"
             data-key-editor
-            {% if not existing and not recommendation %}open{% endif %}
+            {% if view.key_error or (not existing and not recommendation) %}open{% endif %}
           >
             <summary>
               {% if existing %}Change matching rule{% elif recommendation %}Choose another field{% else %}Choose matching field{% endif %}
@@ -352,12 +358,16 @@
             <div class="form-grid key-simple-fields">
               <label>
                 Matching field
-                <select name="primary_key_field_{{ loop.index0 }}" data-primary-key-field>
+                <select
+                  name="primary_key_field_{{ loop.index0 }}"
+                  data-primary-key-field
+                  aria-describedby="key-field-error-{{ loop.index0 }}"
+                >
                   <option value="">Choose a field</option>
                   {% for field in view.field_choices %}
                     <option
                       value="{{ field.name }}"
-                      {% if existing and existing.key_fields|length == 1 and existing.key_fields[0] == field.name %}selected{% endif %}
+                      {% if view.key_fields|length == 1 and view.key_fields[0] == field.name %}selected{% endif %}
                     >{{ field.label }}</option>
                   {% endfor %}
                 </select>
@@ -365,12 +375,16 @@
               </label>
               <label>
                 Within (optional)
-                <select name="primary_scope_field_{{ loop.index0 }}" data-primary-scope-field>
+                <select
+                  name="primary_scope_field_{{ loop.index0 }}"
+                  data-primary-scope-field
+                  aria-describedby="key-field-error-{{ loop.index0 }}"
+                >
                   <option value="">No additional scope</option>
                   {% for field in view.field_choices %}
                     <option
                       value="{{ field.name }}"
-                      {% if existing and existing.scope_fields|length == 1 and existing.scope_fields[0] == field.name %}selected{% endif %}
+                      {% if view.scope_fields|length == 1 and view.scope_fields[0] == field.name %}selected{% endif %}
                     >{{ field.label }}</option>
                   {% endfor %}
                 </select>
@@ -386,8 +400,9 @@
                   <input
                     name="key_fields_{{ loop.index0 }}"
                     data-combined-key-fields
-                    value="{{ existing.key_fields|join(', ') if existing else '' }}"
+                    value="{{ view.key_fields|join(', ') }}"
                     placeholder="external_code, revision"
+                    aria-describedby="key-field-error-{{ loop.index0 }}"
                   >
                   <small>Comma-separated technical names, in matching order.</small>
                 </label>
@@ -396,8 +411,9 @@
                   <input
                     name="scope_fields_{{ loop.index0 }}"
                     data-combined-scope-fields
-                    value="{{ existing.scope_fields|join(', ') if existing else '' }}"
+                    value="{{ view.scope_fields|join(', ') }}"
                     placeholder="company_id"
+                    aria-describedby="key-field-error-{{ loop.index0 }}"
                   >
                 </label>
                 <label>
@@ -405,12 +421,20 @@
                   <input
                     name="key_description_{{ loop.index0 }}"
                     data-key-description
-                    value="{{ existing.description if existing else '' }}"
+                    value="{{ view.description }}"
                     placeholder="Unique reference within company"
                   >
                 </label>
               </div>
             </details>
+            <p
+              class="key-field-error"
+              id="key-field-error-{{ loop.index0 }}"
+              data-key-field-error
+              role="alert"
+              tabindex="-1"
+              hidden
+            ></p>
           </details>
 
           <details data-field-catalog>

@@ -1439,6 +1439,12 @@ dd {
   font-size: .88rem;
 }
 
+.key-field-error {
+  color: var(--impodo-red-dark);
+  font-size: .88rem;
+  font-weight: 700;
+}
+
 .key-decision-summary .button {
   margin-top: .65rem;
 }

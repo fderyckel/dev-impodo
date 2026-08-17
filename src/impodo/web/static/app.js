@@ -1672,6 +1672,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const draftSummary = draft?.querySelector("[data-key-selection-summary]");
     const suggestion = decision.querySelector("[data-use-key-suggestion]");
     const editor = decision.querySelector("[data-key-editor]");
+    const technicalFields = decision.querySelector(".key-technical-fields");
+    const fieldError = decision.querySelector("[data-key-field-error]");
+    const keyForm = decision.closest("form");
+    let hasFieldConflict = false;
     let labels = {};
     try {
       labels = JSON.parse(decision.dataset.fieldLabels || "{}");
@@ -1702,12 +1706,55 @@ document.addEventListener("DOMContentLoaded", () => {
       draftSummary.textContent = summary;
       draft.hidden = false;
     };
+    const updateKeyFieldConflicts = () => {
+      const keyFields = values(combinedKey?.value);
+      const scopeFields = values(combinedScope?.value);
+      const keyNames = new Set(keyFields);
+      const scopeNames = new Set(scopeFields);
+      const allFields = [...keyFields, ...scopeFields];
+      hasFieldConflict = new Set(allFields).size !== allFields.length;
+
+      for (const option of primaryScope?.options || []) {
+        option.disabled = Boolean(
+          option.value &&
+          keyNames.has(option.value) &&
+          option.value !== primaryScope.value
+        );
+      }
+      for (const option of primaryKey?.options || []) {
+        option.disabled = Boolean(
+          option.value &&
+          scopeNames.has(option.value) &&
+          option.value !== primaryKey.value
+        );
+      }
+      for (const control of [
+        primaryKey,
+        primaryScope,
+        combinedKey,
+        combinedScope,
+      ]) {
+        if (control) {
+          control.setAttribute("aria-invalid", String(hasFieldConflict));
+        }
+      }
+      if (fieldError) {
+        fieldError.textContent = hasFieldConflict
+          ? "Choose each field only once. Matching fields and Within fields must be different."
+          : "";
+        fieldError.hidden = !hasFieldConflict;
+      }
+    };
+    const refreshKeyDraft = () => {
+      showDraft();
+      updateKeyFieldConflicts();
+    };
     const syncSimpleChoice = (select, input) => {
       if (!select || !input) {
         return;
       }
       input.value = select.value;
-      showDraft();
+      refreshKeyDraft();
     };
 
     primaryKey?.addEventListener("change", () => {
@@ -1721,14 +1768,14 @@ document.addEventListener("DOMContentLoaded", () => {
       if (primaryKey) {
         primaryKey.value = keyFields.length === 1 ? keyFields[0] : "";
       }
-      showDraft();
+      refreshKeyDraft();
     });
     combinedScope?.addEventListener("input", () => {
       const scopeFields = values(combinedScope.value);
       if (primaryScope) {
         primaryScope.value = scopeFields.length === 1 ? scopeFields[0] : "";
       }
-      showDraft();
+      refreshKeyDraft();
     });
     suggestion?.addEventListener("click", () => {
       const keyFields = values(suggestion.dataset.keyFields);
@@ -1753,8 +1800,23 @@ document.addEventListener("DOMContentLoaded", () => {
       if (editor) {
         editor.open = false;
       }
-      showDraft();
+      refreshKeyDraft();
     });
+    keyForm?.addEventListener("submit", (event) => {
+      updateKeyFieldConflicts();
+      if (!hasFieldConflict || event.defaultPrevented) {
+        return;
+      }
+      event.preventDefault();
+      if (editor) {
+        editor.open = true;
+      }
+      if (technicalFields) {
+        technicalFields.open = true;
+      }
+      fieldError?.focus();
+    });
+    updateKeyFieldConflicts();
   }
 
   for (const catalog of document.querySelectorAll("[data-field-catalog]")) {

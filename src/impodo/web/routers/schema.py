@@ -314,7 +314,10 @@ def build_schema_router(context: WebContext) -> APIRouter:
             )
         }
         _secure_form(request, form, allowed)
-        definitions: list[BusinessKeyDefinition] = []
+        key_drafts: dict[
+            str,
+            tuple[tuple[str, ...], tuple[str, ...], str],
+        ] = {}
         for index, model in enumerate(schema.models):
             primary_key = _text(form, f"primary_key_field_{index}")
             key_fields = (
@@ -322,25 +325,58 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 if primary_key
                 else _comma_values(_text(form, f"key_fields_{index}"))
             )
-            if not key_fields:
-                continue
             primary_scope = _text(form, f"primary_scope_field_{index}")
             scope_fields = (
                 (primary_scope,)
                 if primary_scope
                 else _comma_values(_text(form, f"scope_fields_{index}"))
             )
-            definitions.append(
-                BusinessKeyDefinition(
-                    key_id=_business_key_id(
-                        model.name, key_fields, scope_fields
-                    ),
-                    model=model.name,
-                    key_fields=key_fields,
-                    scope_fields=scope_fields,
-                    description=_text(form, f"key_description_{index}"),
-                    status=BusinessKeyStatus.CONFIRMED,
+            key_drafts[model.name] = (
+                key_fields,
+                scope_fields,
+                _text(form, f"key_description_{index}"),
+            )
+
+        definitions: list[BusinessKeyDefinition] = []
+        key_errors: dict[str, str] = {}
+        for model in schema.models:
+            key_fields, scope_fields, description = key_drafts[model.name]
+            if not key_fields:
+                continue
+            try:
+                definitions.append(
+                    BusinessKeyDefinition(
+                        key_id=_business_key_id(
+                            model.name, key_fields, scope_fields
+                        ),
+                        model=model.name,
+                        key_fields=key_fields,
+                        scope_fields=scope_fields,
+                        description=description,
+                        status=BusinessKeyStatus.CONFIRMED,
+                    )
                 )
+            except ValueError as error:
+                if str(error) == "Business-key fields and scope must be unique":
+                    key_errors[model.name] = (
+                        f"For {model.label}, choose each field only once. "
+                        "The matching fields and Within fields must be different."
+                    )
+                else:
+                    key_errors[model.name] = (
+                        f"Review the matching rule for {model.label}: {error}"
+                    )
+        if key_errors:
+            return _render_schema(
+                request,
+                context,
+                project_id,
+                error=(
+                    "Review the highlighted matching rule, then confirm it again."
+                ),
+                status_code=422,
+                key_drafts=key_drafts,
+                key_errors=key_errors,
             )
         try:
             governance = context.schema_workspace.govern(
@@ -355,6 +391,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 project_id,
                 error=str(error),
                 status_code=422,
+                key_drafts=key_drafts,
             )
         _flash(
             request,

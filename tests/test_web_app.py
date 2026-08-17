@@ -4977,6 +4977,119 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(invalid_csv.status_code, 200)
         self.assertEqual(len(invalid_csv.text.splitlines()), 103)
 
+    def test_schema_governance_keeps_duplicate_fields_out_of_one_rule(
+        self,
+    ) -> None:
+        project_id, _dataset, original_key = self._mapping_ready_project(
+            scalar_field_count=1,
+        )
+        context = self.app.state.context
+        original_governance = (
+            context.schema_workspace.schemas.get_schema_governance(project_id)
+        )
+        self.assertIsNotNone(original_governance)
+
+        duplicate_simple = self.client.post(
+            f"/projects/{project_id}/schema/govern",
+            data={
+                "csrf_token": self.csrf,
+                "primary_key_field_0": "ref",
+                "primary_scope_field_0": "ref",
+                "key_fields_0": "ref",
+                "scope_fields_0": "ref",
+                "key_description_0": "Reference within reference",
+            },
+            headers=POST_HEADERS,
+        )
+
+        self.assertEqual(duplicate_simple.status_code, 422)
+        self.assertIn(
+            "Review the highlighted matching rule, then confirm it again.",
+            duplicate_simple.text,
+        )
+        self.assertIn(
+            (
+                "For Contact, choose each field only once. The matching fields "
+                "and Within fields must be different."
+            ),
+            duplicate_simple.text,
+        )
+        self.assertRegex(
+            duplicate_simple.text,
+            (
+                r'(?s)name="primary_key_field_0".*?'
+                r'<option\s+value="ref"\s+selected'
+            ),
+        )
+        self.assertRegex(
+            duplicate_simple.text,
+            (
+                r'(?s)name="primary_scope_field_0".*?'
+                r'<option\s+value="ref"\s+selected'
+            ),
+        )
+        unchanged_governance = (
+            context.schema_workspace.schemas.get_schema_governance(project_id)
+        )
+        self.assertIsNotNone(unchanged_governance)
+        self.assertEqual(
+            unchanged_governance.content_hash,
+            original_governance.content_hash,
+        )
+        self.assertEqual(unchanged_governance.business_keys, (original_key,))
+
+        duplicate_combined = self.client.post(
+            f"/projects/{project_id}/schema/govern",
+            data={
+                "csrf_token": self.csrf,
+                "primary_key_field_0": "",
+                "primary_scope_field_0": "",
+                "key_fields_0": "ref, ref",
+                "scope_fields_0": "",
+                "key_description_0": "Repeated combined reference",
+            },
+            headers=POST_HEADERS,
+        )
+
+        self.assertEqual(duplicate_combined.status_code, 422)
+        self.assertIn('value="ref, ref"', duplicate_combined.text)
+        self.assertIn("Repeated combined reference", duplicate_combined.text)
+
+        valid = self.client.post(
+            f"/projects/{project_id}/schema/govern",
+            data={
+                "csrf_token": self.csrf,
+                "primary_key_field_0": "field_0000",
+                "primary_scope_field_0": "ref",
+                "key_fields_0": "field_0000",
+                "scope_fields_0": "ref",
+                "key_description_0": "Field within reference",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(valid.status_code, 303)
+        saved_governance = (
+            context.schema_workspace.schemas.get_schema_governance(project_id)
+        )
+        self.assertIsNotNone(saved_governance)
+        self.assertEqual(
+            saved_governance.business_keys[0].key_fields,
+            ("field_0000",),
+        )
+        self.assertEqual(
+            saved_governance.business_keys[0].scope_fields,
+            ("ref",),
+        )
+
+        schema_script = self.client.get("/static/app.js")
+        self.assertIn("updateKeyFieldConflicts", schema_script.text)
+        self.assertIn(
+            "Matching fields and Within fields must be different.",
+            schema_script.text,
+        )
+
     def _mapping_ready_project(
         self,
         *,

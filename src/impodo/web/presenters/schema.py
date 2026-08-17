@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 import re
 
@@ -363,6 +364,12 @@ def _render_schema(
     *,
     error: str | None = None,
     status_code: int = 200,
+    key_drafts: Mapping[
+        str,
+        tuple[tuple[str, ...], tuple[str, ...], str],
+    ]
+    | None = None,
+    key_errors: Mapping[str, str] | None = None,
 ):
     project = context.queries.get(project_id)
     model_catalog = context.queries.get_odoo_model_catalog(project_id)
@@ -374,7 +381,12 @@ def _render_schema(
         if governance
         else {}
     )
-    key_views = _schema_key_views(schema, governed_by_model)
+    key_views = _schema_key_views(
+        schema,
+        governed_by_model,
+        key_drafts=key_drafts,
+        key_errors=key_errors,
+    )
     return _render(
         request,
         "project_schema.html",
@@ -405,24 +417,52 @@ def _render_schema(
     )
 
 
-def _schema_key_views(schema, governed_by_model):
+def _schema_key_views(
+    schema,
+    governed_by_model,
+    *,
+    key_drafts=None,
+    key_errors=None,
+):
     if schema is None:
         return ()
+    drafts = key_drafts or {}
+    errors = key_errors or {}
     views = []
     for model in schema.models:
         existing = governed_by_model.get(model.name)
         recommendation = recommend_business_key(model)
+        draft = drafts.get(model.name)
+        key_fields = (
+            draft[0]
+            if draft is not None
+            else existing.key_fields if existing else ()
+        )
+        scope_fields = (
+            draft[1]
+            if draft is not None
+            else existing.scope_fields if existing else ()
+        )
+        description = (
+            draft[2]
+            if draft is not None
+            else existing.description if existing else ""
+        )
         views.append(
             {
                 "model": model,
                 "existing": existing,
+                "key_fields": key_fields,
+                "scope_fields": scope_fields,
+                "description": description,
+                "key_error": errors.get(model.name),
                 "existing_summary": (
                     describe_business_key(
                         model,
-                        existing.key_fields,
-                        existing.scope_fields,
+                        key_fields,
+                        scope_fields,
                     )
-                    if existing
+                    if key_fields
                     else ""
                 ),
                 "recommendation": recommendation,
