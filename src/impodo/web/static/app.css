@@ -1334,6 +1334,28 @@ label.checkbox input {
   color: #593d0f;
 }
 
+.mapping-next-step-blockers > ul {
+  display: grid;
+  gap: .8rem;
+  margin: .8rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mapping-next-step-blockers > ul > li {
+  border-top: 1px solid rgb(89 61 15 / 18%);
+  padding-top: .8rem;
+}
+
+.mapping-next-step-blockers > ul > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.mapping-next-step-blockers li > p {
+  margin: .3rem 0;
+}
+
 .file-list {
   border-top: 1px solid var(--line);
 }

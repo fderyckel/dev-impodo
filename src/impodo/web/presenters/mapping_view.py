@@ -269,13 +269,40 @@ def _render_mapping(
                 if int(view["relation_page"]) < int(view["relation_page_count"])
                 else None
             )
+    readonly_field_recovery = _readonly_field_recovery(
+        validation,
+        selection,
+        schema,
+    )
+    issue_views = _mapping_issue_views(
+        request,
+        project_id,
+        validation,
+        selection,
+        schema,
+        active_definition,
+    )
+    blocking_issue_views = tuple(
+        item
+        for item in issue_views
+        if item["issue"].severity == "error"
+        and item["issue"].code != "MAPPING_TARGET_FIELD_READONLY"
+    )
     warning_issues = tuple(
         {
-            "issue": item,
-            "fingerprint": mapping_issue_fingerprint(item),
+            **item,
+            "fingerprint": mapping_issue_fingerprint(item["issue"]),
         }
+        for item in issue_views
+        if item["issue"].severity == "warning"
+    )
+    visible_validation_issues = tuple(
+        item
         for item in (validation.issues if validation else ())
-        if item.severity == "warning"
+        if item.code != "MAPPING_TARGET_FIELD_READONLY"
+    )
+    validation_problem_count = len(visible_validation_issues) + (
+        1 if readonly_field_recovery else 0
     )
     text_cleanup_configured = bool(
         revision is not None
@@ -313,6 +340,17 @@ def _render_mapping(
             and not rule_impact_snapshot.unacknowledged_rule_impacts
         )
     )
+    next_step = _mapping_next_step(
+        project_id=project_id,
+        schema=schema,
+        revision=revision,
+        validation=validation,
+        submission=submission,
+        has_unvalidated_changes=has_unvalidated_changes,
+        rule_review_ready=rule_review_ready,
+        blocking_issue_views=blocking_issue_views,
+        readonly_field_recovery=readonly_field_recovery,
+    )
     quality_view = None
     if (
         revision is not None
@@ -346,6 +384,11 @@ def _render_mapping(
         has_unvalidated_changes=has_unvalidated_changes,
         dataset_views=dataset_views,
         warning_issues=warning_issues,
+        readonly_field_recovery=readonly_field_recovery,
+        visible_validation_issues=visible_validation_issues,
+        validation_problem_count=validation_problem_count,
+        blocking_issue_views=blocking_issue_views,
+        next_step=next_step,
         text_cleanup_configured=text_cleanup_configured,
         rule_impact_snapshot=rule_impact_snapshot,
         rule_review_ready=rule_review_ready,
@@ -353,6 +396,279 @@ def _render_mapping(
         error=error,
         status_code=status_code,
     )
+
+
+def _readonly_field_recovery(validation, selection, schema):
+    """Group readonly write findings into one data-manager recovery action."""
+
+    if validation is None or selection is None or schema is None:
+        return None
+    readonly_issues = tuple(
+        item
+        for item in validation.issues
+        if item.code == "MAPPING_TARGET_FIELD_READONLY"
+    )
+    if not readonly_issues:
+        return None
+    model_by_name = {item.name: item for item in schema.models}
+    dataset_by_id = {item.dataset_id: item for item in selection.datasets}
+    entries_by_key: dict[tuple[str, str, str], dict[str, str]] = {}
+    for issue in readonly_issues:
+        model = model_by_name.get(issue.target_model or "")
+        field = next(
+            (
+                item
+                for item in (model.fields if model is not None else ())
+                if item.name == issue.target_field
+            ),
+            None,
+        )
+        dataset = dataset_by_id.get(issue.dataset_id or "")
+        key = (
+            issue.dataset_id or "",
+            issue.target_model or "",
+            issue.target_field or "",
+        )
+        entries_by_key[key] = {
+            "dataset_label": (
+                dataset.name if dataset is not None else "Source table"
+            ),
+            "model_label": (
+                model.label if model is not None else issue.target_model or "Odoo"
+            ),
+            "field_label": (
+                field.label if field is not None else issue.target_field or "Field"
+            ),
+            "target_field": issue.target_field or "",
+        }
+    entries = tuple(
+        entries_by_key[key]
+        for key in sorted(
+            entries_by_key,
+            key=lambda item: (
+                entries_by_key[item]["dataset_label"].casefold(),
+                entries_by_key[item]["model_label"].casefold(),
+                entries_by_key[item]["field_label"].casefold(),
+                item,
+            ),
+        )
+    )
+    return {"count": len(entries), "entries": entries}
+
+
+def _mapping_issue_views(
+    request,
+    project_id,
+    validation,
+    selection,
+    schema,
+    definition,
+):
+    """Add business labels and direct recovery actions to validation issues."""
+
+    if validation is None or selection is None or schema is None:
+        return ()
+    datasets = {
+        item.dataset_id: (index, item)
+        for index, item in enumerate(selection.datasets)
+    }
+    models = {item.name: item for item in schema.models}
+    fields_by_model = {
+        model.name: {field.name: field for field in model.fields}
+        for model in schema.models
+    }
+    dispositions = {
+        (dataset.dataset_id, item.target_field)
+        for dataset in (definition.datasets if definition is not None else ())
+        for item in dataset.target_field_dispositions
+    }
+    views = []
+    for issue in validation.issues:
+        located = datasets.get(issue.dataset_id or "")
+        dataset_index = located[0] if located is not None else None
+        source_dataset = located[1] if located is not None else None
+        model = models.get(issue.target_model or "")
+        field = fields_by_model.get(issue.target_model or "", {}).get(
+            issue.target_field or ""
+        )
+        fix_url = None
+        if dataset_index is not None:
+            updates = {
+                "mapping_dataset": dataset_index,
+                "scalar_page": 1,
+                "relation_page": 1,
+            }
+            if field is not None and field.type in {
+                "many2one",
+                "many2many",
+                "one2many",
+            }:
+                updates["relation_query"] = field.label or field.name
+                updates["field_query"] = None
+            elif field is not None:
+                updates["field_query"] = field.label or field.name
+                updates["relation_query"] = None
+            fix_url = (
+                f"{_mapping_return_url(request, project_id, **updates)}"
+                f"#mapping-dataset-{dataset_index}"
+            )
+        views.append(
+            {
+                "issue": issue,
+                "dataset_index": dataset_index,
+                "dataset_label": (
+                    source_dataset.name
+                    if source_dataset is not None
+                    else "Source table"
+                ),
+                "model_label": (
+                    model.label
+                    if model is not None
+                    else issue.target_model or "Odoo"
+                ),
+                "field_label": (
+                    field.label
+                    if field is not None
+                    else issue.target_field or "Field"
+                ),
+                "field_type": field.type if field is not None else "",
+                "fix_url": fix_url,
+                "can_choose_default": (
+                    issue.code == "MAPPING_REQUIRED_FIELD_UNMAPPED"
+                    and dataset_index is not None
+                    and field is not None
+                ),
+                "can_choose_managed": (
+                    issue.code == "MAPPING_REQUIRED_FIELD_UNMAPPED"
+                    and dataset_index is not None
+                    and field is not None
+                    and (
+                        field.type in {"one2many", "many2many"}
+                        or field.computed is True
+                        or field.related is True
+                    )
+                ),
+                "has_disposition": (
+                    issue.dataset_id,
+                    issue.target_field,
+                )
+                in dispositions,
+            }
+        )
+    return tuple(views)
+
+
+def _mapping_next_step(
+    *,
+    project_id,
+    schema,
+    revision,
+    validation,
+    submission,
+    has_unvalidated_changes,
+    rule_review_ready,
+    blocking_issue_views,
+    readonly_field_recovery,
+):
+    """Return one visible next action and every reason it is unavailable."""
+
+    if submission is not None:
+        return {
+            "label": "Prepare data",
+            "available": True,
+            "kind": "link",
+            "href": f"/projects/{project_id}/prepare",
+            "blockers": (),
+        }
+    blockers = []
+    if has_unvalidated_changes:
+        blockers.append(
+            {
+                "title": "Saved changes have not been checked yet",
+                "message": "Check the current matches before confirming them.",
+                "action_label": "Check matches",
+                "action": "draft",
+            }
+        )
+    else:
+        if schema is not None and schema.origin.value == "LOCAL_MANUAL":
+            blockers.append(
+                {
+                    "title": "Odoo fields have not been verified",
+                    "message": (
+                        "Refresh the selected fields from Odoo before confirming."
+                    ),
+                }
+            )
+        if revision is None or validation is None:
+            blockers.append(
+                {
+                    "title": "Matches have not been checked",
+                    "message": "Check the current matches before confirming them.",
+                    "action_label": "Check matches",
+                    "action": "draft",
+                }
+            )
+        elif validation.status.value == "INVALID":
+            if readonly_field_recovery is not None:
+                blockers.append(
+                    {
+                        "title": (
+                            f"Odoo manages {readonly_field_recovery['count']} "
+                            "selected field"
+                            f"{'s' if readonly_field_recovery['count'] != 1 else ''}"
+                        ),
+                        "message": (
+                            "Remove these write matches before confirming."
+                        ),
+                        "action_label": (
+                            "Remove this field match"
+                            if readonly_field_recovery["count"] == 1
+                            else (
+                                "Remove "
+                                f"{readonly_field_recovery['count']} field matches"
+                            )
+                        ),
+                        "action": "remove_readonly",
+                        "readonly_recovery": readonly_field_recovery,
+                    }
+                )
+            blockers.extend(
+                {
+                    "title": (
+                        f"{item['dataset_label']}: {item['field_label']} "
+                        "needs attention"
+                    ),
+                    "message": item["issue"].message,
+                    "issue_view": item,
+                }
+                for item in blocking_issue_views
+            )
+        if (
+            revision is not None
+            and validation is not None
+            and validation.status.value != "INVALID"
+            and not rule_review_ready
+        ):
+            blockers.append(
+                {
+                    "title": "Cleanup effects still need review",
+                    "message": (
+                        "Review what the saved cleanup rules changed before confirming."
+                    ),
+                    "href": (
+                        f"/projects/{project_id}/mapping/transformation-impact"
+                    ),
+                    "action_label": "Review rule effects",
+                }
+            )
+    return {
+        "label": "Confirm field matches",
+        "available": not blockers,
+        "kind": "submit",
+        "action": "submit",
+        "blockers": tuple(blockers),
+    }
 
 
 def _mapping_dataset_views(
@@ -533,10 +849,32 @@ def _mapping_dataset_views(
             if existing
             else {}
         )
-        all_scalar_fields = tuple(
+        disposition_by_target = (
+            {
+                item.target_field: item
+                for item in existing.target_field_dispositions
+            }
+            if existing
+            else {}
+        )
+        schema_scalar_fields = tuple(
             field
             for field in (model.fields if model else ())
             if field.type not in {"many2one", "many2many", "one2many"}
+        )
+        indexed_scalar_fields = tuple(
+            (field_index, field)
+            for field_index, field in enumerate(schema_scalar_fields)
+            if (
+                not field.readonly
+                or (
+                    field.name in scalar_by_target
+                    and scalar_by_target[field.name].validate_only
+                )
+            )
+        )
+        all_scalar_fields = tuple(
+            field for _index, field in indexed_scalar_fields
         )
         numeric_fields = tuple(
             field
@@ -557,7 +895,7 @@ def _mapping_dataset_views(
         )
         scalar_candidates = tuple(
             (field_index, field)
-            for field_index, field in enumerate(all_scalar_fields)
+            for field_index, field in indexed_scalar_fields
             if field.name not in identity_targets
         )
         normalized_query = field_query.casefold()
@@ -569,7 +907,11 @@ def _mapping_dataset_views(
                 or normalized_query
                 in f"{field.label} {field.name} {field.type}".casefold()
             )
-            and (not mapped_only or field.name in scalar_by_target)
+            and (
+                not mapped_only
+                or field.name in scalar_by_target
+                or field.name in disposition_by_target
+            )
         )
         scalar_page_count = max(
             1,
@@ -590,6 +932,7 @@ def _mapping_dataset_views(
                 "index": field_index,
                 "metadata": field,
                 "mapping": scalar_by_target.get(field.name),
+                "disposition": disposition_by_target.get(field.name),
                 "value_mappings_json": _value_mappings_json(
                     scalar_by_target[field.name].value_mappings
                     if field.name in scalar_by_target
@@ -639,10 +982,24 @@ def _mapping_dataset_views(
             if existing
             else {}
         )
-        all_relation_fields = tuple(
+        schema_relation_fields = tuple(
             field
             for field in (model.fields if model else ())
             if field.type in {"many2one", "many2many", "one2many"}
+        )
+        indexed_relation_fields = tuple(
+            (relation_index, field)
+            for relation_index, field in enumerate(schema_relation_fields)
+            if (
+                not field.readonly
+                or (
+                    field.name in relation_by_target
+                    and relation_by_target[field.name].validate_only
+                )
+            )
+        )
+        all_relation_fields = tuple(
+            field for _index, field in indexed_relation_fields
         )
         relation_recommendations: dict[str, dict[str, object]] = {}
         related_link = link_by_child.get(source_dataset.dataset_id)
@@ -679,7 +1036,7 @@ def _mapping_dataset_views(
         relation_candidates = sorted(
             (
                 (relation_index, field)
-                for relation_index, field in enumerate(all_relation_fields)
+                for relation_index, field in indexed_relation_fields
                 if field.name not in identity_targets
                 and (
                     not normalized_relation_query
@@ -692,7 +1049,10 @@ def _mapping_dataset_views(
             ),
             key=lambda item: (
                 0
-                if item[1].name in relation_by_target
+                if (
+                    item[1].name in relation_by_target
+                    or item[1].name in disposition_by_target
+                )
                 else (
                     1
                     if item[1].name in relation_recommendations
@@ -731,6 +1091,7 @@ def _mapping_dataset_views(
                 "index": relation_index,
                 "metadata": field,
                 "mapping": mapping,
+                "disposition": disposition_by_target.get(field.name),
                 "related_keys": related_keys,
                 "selected_key": _resolver_business_key(
                     mapping.resolver if mapping else None,
@@ -767,6 +1128,9 @@ def _mapping_dataset_views(
                 },
                 "source_samples": source_samples,
                 "mapping": existing,
+                "target_field_dispositions": (
+                    existing.target_field_dispositions if existing else ()
+                ),
                 "selected_model": selected_model_name,
                 "model": model,
                 "models": schema.models,
@@ -778,14 +1142,22 @@ def _mapping_dataset_views(
                 "control_total_slots": control_total_slots,
                 "scalar_catalog_total": len(scalar_candidates),
                 "scalar_matching_total": len(matching_scalars),
-                "scalar_mapped_total": len(scalar_by_target),
+                "scalar_mapped_total": sum(
+                    field.name in scalar_by_target
+                    or field.name in disposition_by_target
+                    for field in all_scalar_fields
+                ),
                 "scalar_page": current_scalar_page,
                 "scalar_page_count": scalar_page_count,
                 "scalar_page_size": scalar_page_size,
                 "relation_rows": tuple(relation_rows),
                 "relation_catalog_total": len(all_relation_fields),
                 "relation_matching_total": len(relation_candidates),
-                "relation_mapped_total": len(relation_by_target),
+                "relation_mapped_total": sum(
+                    field.name in relation_by_target
+                    or field.name in disposition_by_target
+                    for field in all_relation_fields
+                ),
                 "relation_page": current_relation_page,
                 "relation_page_count": relation_page_count,
                 "relation_page_size": relation_page_size,

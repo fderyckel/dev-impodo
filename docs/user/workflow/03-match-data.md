@@ -22,8 +22,10 @@ relationship.
 1. Open **Match data** and work through one table at a time.
 2. Choose whether the table is a reference, create, update, or upsert dataset.
 3. Match the source identity to the confirmed Odoo business key.
-4. For each writable field, choose its source value, constant, or intentional
-   omission.
+4. For each writable field, choose its source value, a fixed value, or an
+   explicit Odoo decision. Use **Let Odoo choose** only when the target
+   configuration supplies a default. Use **Odoo manages this field** only for
+   a field Odoo creates or maintains itself.
 5. Configure text, number, date, and selection-value preparation where needed.
 6. Resolve linked fields using a stable key in another project table or
    approved existing Odoo data.
@@ -65,6 +67,11 @@ Resolve missing required fields, duplicate target assignments, incompatible
 types, unresolved relationships, unexpected selection values, and cleanup
 rules with zero matches. Keep a zero-match rule only after explicitly
 reviewing why it is intentional.
+
+When **Confirm field matches** is unavailable, the reason panel at the top of
+the page lists every current blocker even if a field search or page filter hides
+the affected field. Follow **Match this field**, **Let Odoo choose**, or the
+other recovery action shown there, then select **Check matches** again.
 
 ## What makes this work stale
 

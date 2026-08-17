@@ -16,11 +16,12 @@ from typing import Any, Mapping
 from ...schema.governance import SchemaGovernance
 from ..canonicalization import canonicalize_mapping_definition
 from ..contracts import (
-    MAPPING_CONTRACT_VERSION,
+    SUPPORTED_MAPPING_CONTRACT_VERSIONS,
     DatasetMapping,
     MappingDefinition,
     MappingTargetMode,
     ScalarValueSource,
+    TargetFieldHandling,
 )
 from .common import _issue
 from .context import (
@@ -90,7 +91,10 @@ class MappingSemanticValidator:
         coverage: list[Mapping[str, Any]] = []
         deferred: list[DeferredRuntimeCheck] = []
 
-        if definition.contract_version != MAPPING_CONTRACT_VERSION:
+        if (
+            definition.contract_version
+            not in SUPPORTED_MAPPING_CONTRACT_VERSIONS
+        ):
             issues.append(
                 _issue(
                     "MAPPING_CONTRACT_UNSUPPORTED",
@@ -310,6 +314,124 @@ class MappingSemanticValidator:
                 )
                 provided.add(relation.target_field)
 
+            intentionally_omitted: set[str] = set()
+            for disposition_index, disposition in enumerate(
+                dataset.target_field_dispositions
+            ):
+                path = f"{base}/target_field_dispositions/{disposition_index}"
+                metadata = fields.get(disposition.target_field)
+                _claim_target(
+                    dataset,
+                    disposition.target_field,
+                    path,
+                    target_owners,
+                    issues,
+                )
+                if metadata is None:
+                    issues.append(
+                        _issue(
+                            "MAPPING_TARGET_FIELD_UNKNOWN",
+                            path,
+                            (
+                                f"Target field {dataset.target_model}."
+                                f"{disposition.target_field} is unavailable."
+                            ),
+                            "Choose a field from the captured schema.",
+                            dataset=dataset,
+                            target_field=disposition.target_field,
+                        )
+                    )
+                    continue
+                if dataset.mode is MappingTargetMode.REFERENCE:
+                    issues.append(
+                        _issue(
+                            "MAPPING_TARGET_FIELD_DISPOSITION_INVALID",
+                            path,
+                            "Reference-only tables do not create Odoo records.",
+                            "Remove this create-time field decision.",
+                            dataset=dataset,
+                            target_field=disposition.target_field,
+                        )
+                    )
+                    continue
+                if metadata.readonly or not metadata.required:
+                    issues.append(
+                        _issue(
+                            "MAPPING_TARGET_FIELD_DISPOSITION_INVALID",
+                            path,
+                            (
+                                f"{dataset.target_model}."
+                                f"{disposition.target_field} does not need a "
+                                "required-field decision."
+                            ),
+                            "Remove this create-time field decision.",
+                            dataset=dataset,
+                            target_field=disposition.target_field,
+                        )
+                    )
+                    continue
+                if (
+                    disposition.handling is TargetFieldHandling.ODOO_MANAGED
+                    and metadata.type not in {"one2many", "many2many"}
+                    and metadata.computed is not True
+                    and metadata.related is not True
+                ):
+                    issues.append(
+                        _issue(
+                            "MAPPING_TARGET_FIELD_DISPOSITION_INVALID",
+                            path,
+                            (
+                                f"{dataset.target_model}."
+                                f"{disposition.target_field} is not identified "
+                                "as an Odoo-managed field."
+                            ),
+                            (
+                                "Use an incoming value, a fixed value, or the "
+                                "Odoo-default decision instead."
+                            ),
+                            dataset=dataset,
+                            target_field=disposition.target_field,
+                        )
+                    )
+                    continue
+                intentionally_omitted.add(disposition.target_field)
+                if disposition.handling is TargetFieldHandling.ODOO_DEFAULT:
+                    issues.append(
+                        _issue(
+                            "MAPPING_ODOO_DEFAULT_UNVERIFIED",
+                            path,
+                            (
+                                f"{disposition.target_field} will be omitted so "
+                                "Odoo can apply its runtime default."
+                            ),
+                            (
+                                "Acknowledge this warning and verify the default "
+                                "on the target."
+                            ),
+                            severity="warning",
+                            dataset=dataset,
+                            target_field=disposition.target_field,
+                        )
+                    )
+                else:
+                    issues.append(
+                        _issue(
+                            "MAPPING_ODOO_MANAGED_UNVERIFIED",
+                            path,
+                            (
+                                f"{disposition.target_field} will be omitted "
+                                "because Odoo is expected to maintain it."
+                            ),
+                            (
+                                "Acknowledge this warning and verify that Odoo "
+                                "creates or computes the field."
+                            ),
+                            severity="warning",
+                            dataset=dataset,
+                            target_field=disposition.target_field,
+                        )
+                    )
+
             if dataset.mode is not MappingTargetMode.REFERENCE:
                 for target_field in sorted(fields):
                     metadata = fields[target_field]
@@ -317,6 +439,7 @@ class MappingSemanticValidator:
                         metadata.required
                         and not metadata.readonly
                         and target_field not in provided
+                        and target_field not in intentionally_omitted
                     ):
                         issues.append(
                             _issue(
@@ -326,7 +449,10 @@ class MappingSemanticValidator:
                                     f"Required target field {dataset.target_model}."
                                     f"{target_field} has no value provider."
                                 ),
-                                "Map a source value or add a later governed default.",
+                                (
+                                    "Choose incoming data, one fixed value, an "
+                                    "Odoo default, or an Odoo-managed field decision."
+                                ),
                                 dataset=dataset,
                                 target_field=target_field,
                             )

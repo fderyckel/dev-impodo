@@ -29,7 +29,8 @@ from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
 
-MAPPING_CONTRACT_VERSION = 8
+MAPPING_CONTRACT_VERSION = 9
+SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset({8, 9})
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 MAX_CONTROL_TOTALS_PER_DATASET = 3
@@ -58,6 +59,30 @@ class ScalarValueSource(StrEnum):
     CONSTANT = "constant"
     SOURCE_WITH_FALLBACK = "source_with_fallback"
     ODOO_DEFAULT = "odoo_default"
+
+
+class TargetFieldHandling(StrEnum):
+    """Explain why Impodo intentionally omits one required Odoo field."""
+
+    ODOO_DEFAULT = "odoo_default"
+    ODOO_MANAGED = "odoo_managed"
+
+
+@dataclass(frozen=True, slots=True)
+class TargetFieldDisposition:
+    """Record an explicit, audited decision not to provide a target value."""
+
+    target_field: str
+    handling: TargetFieldHandling
+
+    def __post_init__(self) -> None:
+        if not self.target_field.strip() or len(self.target_field) > 200:
+            raise ValueError("Target-field disposition is invalid")
+        object.__setattr__(
+            self,
+            "handling",
+            TargetFieldHandling(self.handling),
+        )
 
 
 
@@ -279,6 +304,7 @@ class DatasetMapping:
     target_scope: tuple[IdentityComponentMapping, ...] = ()
     fields: tuple[ScalarFieldMapping, ...] = ()
     relationships: tuple[RelationshipMapping, ...] = ()
+    target_field_dispositions: tuple[TargetFieldDisposition, ...] = ()
     control_totals: tuple["BusinessControlTotal", ...] = ()
 
     def __post_init__(self) -> None:
@@ -336,8 +362,14 @@ class MappingDefinition:
     contract_version: int = MAPPING_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if self.contract_version != MAPPING_CONTRACT_VERSION:
+        if self.contract_version not in SUPPORTED_MAPPING_CONTRACT_VERSIONS:
             raise ValueError("Mapping contract version is unsupported")
+        if self.contract_version < 9 and any(
+            dataset.target_field_dispositions for dataset in self.datasets
+        ):
+            raise ValueError(
+                "Target-field dispositions require mapping contract version 9"
+            )
 
     @property
     def content_hash(self) -> str:
@@ -354,7 +386,10 @@ class MappingDefinition:
             "source_selection_hash": self.source_selection_hash,
             "schema_hash": self.schema_hash,
             "datasets": [
-                _dataset_mapping_to_dict(item)
+                _dataset_mapping_to_dict(
+                    item,
+                    contract_version=self.contract_version,
+                )
                 for item in sorted(
                     (
                         replace(
@@ -369,6 +404,15 @@ class MappingDefinition:
                                 sorted(
                                     item.relationships,
                                     key=lambda relation: relation.target_field,
+                                )
+                            ),
+                            target_field_dispositions=tuple(
+                                sorted(
+                                    item.target_field_dispositions,
+                                    key=lambda disposition: (
+                                        disposition.target_field,
+                                        disposition.handling.value,
+                                    ),
                                 )
                             ),
                             control_totals=tuple(
@@ -456,6 +500,18 @@ def _dataset_mapping_from_dict(payload: Mapping[str, Any]) -> DatasetMapping:
             _relationship_from_dict(item)
             for item in payload.get("relationships", ())
         ),
+        target_field_dispositions=tuple(
+            TargetFieldDisposition(
+                target_field=str(item.get("target_field", "")),
+                handling=TargetFieldHandling(
+                    item.get(
+                        "handling",
+                        TargetFieldHandling.ODOO_DEFAULT.value,
+                    )
+                ),
+            )
+            for item in payload.get("target_field_dispositions", ())
+        ),
         control_totals=tuple(
             BusinessControlTotal(
                 name=str(item["name"]),
@@ -471,8 +527,13 @@ def _dataset_mapping_from_dict(payload: Mapping[str, Any]) -> DatasetMapping:
 
 def _dataset_mapping_to_dict(
     mapping: DatasetMapping,
+    *,
+    contract_version: int,
 ) -> dict[str, Any]:
-    return _portable(asdict(mapping))
+    payload = asdict(mapping)
+    if contract_version < 9:
+        payload.pop("target_field_dispositions", None)
+    return _portable(payload)
 
 
 def _scalar_field_mapping_from_dict(

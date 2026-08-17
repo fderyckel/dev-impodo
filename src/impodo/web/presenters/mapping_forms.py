@@ -27,6 +27,8 @@ from ...domain.mapping.contracts import (
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
+    TargetFieldDisposition,
+    TargetFieldHandling,
 )
 from ...value_rules import (
     MAX_TEXT_TRANSFORM_STEPS,
@@ -104,6 +106,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                 f"business_key_{dataset_index}",
                 f"visible_scalar_target_{dataset_index}",
                 f"visible_relation_target_{dataset_index}",
+                f"target_field_disposition_{dataset_index}",
             }
         )
         target_model = _text(form, f"target_model_{dataset_index}")
@@ -589,6 +592,28 @@ def _mapping_datasets_from_form(
         mode = MappingTargetMode(
             _text(form, f"mode_{dataset_index}") or "upsert"
         )
+        dispositions: list[TargetFieldDisposition] = []
+        disposition_targets: set[str] = set()
+        for raw_disposition in _texts(
+            form,
+            f"target_field_disposition_{dataset_index}",
+        ):
+            target_field, separator, handling = raw_disposition.partition(":")
+            if (
+                separator != ":"
+                or target_field not in field_by_name
+                or target_field in disposition_targets
+            ):
+                raise WorkspaceError(
+                    "An Odoo-required field decision is not current"
+                )
+            dispositions.append(
+                TargetFieldDisposition(
+                    target_field=target_field,
+                    handling=TargetFieldHandling(handling),
+                )
+            )
+            disposition_targets.add(target_field)
         control_totals: list[BusinessControlTotal] = []
         numeric_targets = {
             item.name
@@ -659,6 +684,12 @@ def _mapping_datasets_from_form(
                 relationships=tuple(
                     sorted(
                         relationships,
+                        key=lambda item: item.target_field,
+                    )
+                ),
+                target_field_dispositions=tuple(
+                    sorted(
+                        dispositions,
                         key=lambda item: item.target_field,
                     )
                 ),
@@ -733,6 +764,15 @@ def _merge_partial_mapping_datasets(
                 raise WorkspaceError(
                     "Mapping request changed a dataset that is not being edited"
                 )
+            existing_dispositions = (
+                compatible_existing.target_field_dispositions
+                if compatible_existing
+                else ()
+            )
+            if parsed.target_field_dispositions != existing_dispositions:
+                raise WorkspaceError(
+                    "Mapping request changed a hidden Odoo-field decision"
+                )
             merged.append(
                 replace(
                     parsed,
@@ -747,6 +787,7 @@ def _merge_partial_mapping_datasets(
                         if compatible_existing
                         else ()
                     ),
+                    target_field_dispositions=existing_dispositions,
                 )
             )
             continue

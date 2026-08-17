@@ -51,9 +51,13 @@ from impodo.domain.mapping.contracts import (
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
+    TargetFieldHandling,
     ValueMapping,
 )
-from impodo.domain.mapping.validation.evidence import MappingValidationStatus
+from impodo.domain.mapping.validation.evidence import (
+    MappingValidationStatus,
+    mapping_issue_fingerprint,
+)
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.odoo_source_capture import (
     OdooCaptureAccounting,
@@ -4263,6 +4267,333 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn('data-relation-page-size="3"', rejected_size.text)
 
+    def test_readonly_field_matches_are_hidden_and_recovered_as_one_decision(
+        self,
+    ) -> None:
+        project_id, dataset, _business_key = self._mapping_ready_project(
+            scalar_field_count=4,
+            readonly_scalar_indexes=(1, 2),
+        )
+        source_identity, source_value = dataset.columns
+        context = self.app.state.context
+        mapping = DatasetMapping(
+            dataset_id=dataset.dataset_id,
+            target_model="res.partner",
+            mode=MappingTargetMode.UPSERT,
+            source_identity_column_keys=(source_identity.stable_key,),
+            target_identity=(
+                IdentityComponentMapping(
+                    source_column_keys=(source_identity.stable_key,),
+                    target_fields=("ref",),
+                ),
+            ),
+            fields=(
+                ScalarFieldMapping(
+                    target_field="field_0001",
+                    source_column_key=source_value.stable_key,
+                ),
+                ScalarFieldMapping(
+                    target_field="field_0002",
+                    source_column_key=source_value.stable_key,
+                    compare=False,
+                    validate_only=True,
+                ),
+            ),
+        )
+        _revision, validation = context.mapping_workspace.check_definition(
+            project_id,
+            datasets=(mapping,),
+            expected_parent_version=None,
+            expected_working_draft_version=None,
+            actor=context.actor,
+        )
+        self.assertEqual(validation.status, MappingValidationStatus.INVALID)
+        self.assertEqual(
+            [
+                item.target_field
+                for item in validation.issues
+                if item.code == "MAPPING_TARGET_FIELD_READONLY"
+            ],
+            ["field_0001"],
+        )
+
+        page = self.client.get(f"/projects/{project_id}/mapping")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Odoo manages 1 selected field", page.text)
+        self.assertIn("Remove this field match", page.text)
+        self.assertIn("1 decision", page.text)
+        self.assertNotIn('data-target-field="field_0001"', page.text)
+        self.assertIn('data-target-field="field_0002"', page.text)
+        self.assertIn('data-target-field="field_0003"', page.text)
+        self.assertIn('name="scalar_value_source_0_3"', page.text)
+        self.assertEqual(
+            page.text.count("MAPPING_TARGET_FIELD_READONLY"),
+            1,
+        )
+
+        recovered = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            data={
+                "csrf_token": self.csrf,
+                "action": "remove_readonly",
+                "expected_parent_version": "1",
+                "expected_working_draft_version": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(recovered.status_code, 303)
+        recovered_page = self.client.get(recovered.headers["location"])
+        self.assertIn(
+            "Removed 1 Odoo-managed field match. Check matches again when ready.",
+            recovered_page.text,
+        )
+        self.assertNotIn("Odoo manages 1 selected field", recovered_page.text)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(
+            project_id
+        )
+        self.assertEqual(working.version, 2)
+        self.assertEqual(
+            [item.target_field for item in working.definition.datasets[0].fields],
+            ["field_0002"],
+        )
+
+    def test_required_field_blocker_stays_visible_and_can_be_left_to_odoo(
+        self,
+    ) -> None:
+        project_id, dataset, business_key = self._mapping_ready_project(
+            scalar_field_count=1,
+            required_scalar_indexes=(0,),
+        )
+        source_identity, _source_value = dataset.columns
+        context = self.app.state.context
+        _revision, validation = context.mapping_workspace.check_definition(
+            project_id,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=dataset.dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(source_identity.stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(source_identity.stable_key,),
+                            target_fields=business_key.key_fields,
+                        ),
+                    ),
+                ),
+            ),
+            expected_parent_version=None,
+            expected_working_draft_version=None,
+            actor=context.actor,
+        )
+        self.assertEqual(validation.status, MappingValidationStatus.INVALID)
+
+        page = self.client.get(
+            f"/projects/{project_id}/mapping?field_query=not-visible"
+        )
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('id="next-step-blockers"', page.text)
+        self.assertIn("You cannot continue yet — 1 reason", page.text)
+        self.assertIn("large_contacts: Field 0000 needs attention", page.text)
+        self.assertIn(
+            "Required target field res.partner.field_0000 has no value provider.",
+            page.text,
+        )
+        self.assertIn(
+            'value="set_disposition:0:field_0000:odoo_default"',
+            page.text,
+        )
+        self.assertIn("Let Odoo choose", page.text)
+        self.assertRegex(
+            page.text,
+            r'<button class="button primary"[^>]*disabled>'
+            r"Confirm field matches</button>",
+        )
+        self.assertNotIn('data-target-field="field_0000"', page.text)
+
+        decision = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            data={
+                "csrf_token": self.csrf,
+                "action": "set_disposition:0:field_0000:odoo_default",
+                "expected_working_draft_version": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(decision.status_code, 303)
+        self.assertTrue(
+            decision.headers["location"].endswith("#next-step-blockers")
+        )
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(
+            project_id
+        )
+        self.assertIsNotNone(working)
+        assert working is not None
+        self.assertEqual(
+            working.definition.datasets[0]
+            .target_field_dispositions[0]
+            .handling,
+            TargetFieldHandling.ODOO_DEFAULT,
+        )
+        decision_page = self.client.get(decision.headers["location"])
+        self.assertIn("Odoo will choose this value", decision_page.text)
+        self.assertIn(
+            'name="target_field_disposition_0"', decision_page.text
+        )
+        self.assertIn("Saved changes have not been checked yet", decision_page.text)
+
+        mapping_data = {
+            "csrf_token": self.csrf,
+            "editable_dataset_id": dataset.dataset_id,
+            "target_model_0": "res.partner",
+            "mode_0": "upsert",
+            "on_existing_0": "block",
+            "source_identity_0": source_identity.stable_key,
+            "business_key_0": business_key.key_id,
+            "identity_source_0_0": source_identity.stable_key,
+            "visible_scalar_target_0": "field_0000",
+            "target_field_disposition_0": "field_0000:odoo_default",
+        }
+        checked = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            data={
+                **mapping_data,
+                "action": "draft",
+                "expected_parent_version": "1",
+                "expected_working_draft_version": "2",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(checked.status_code, 303)
+        checked_page = self.client.get(checked.headers["location"])
+        self.assertNotIn('id="next-step-blockers"', checked_page.text)
+        self.assertIn("I reviewed this warning", checked_page.text)
+        self.assertIn("Confirm field matches", checked_page.text)
+        current_revision = context.mapping_workspace.mappings.get_mapping_revision(
+            project_id
+        )
+        current_working = (
+            context.mapping_workspace.mappings.get_mapping_working_draft(project_id)
+        )
+        current_validation = (
+            context.mapping_workspace.mappings.get_mapping_validation(
+                project_id,
+                current_revision.version,
+            )
+        )
+        self.assertEqual(
+            current_validation.status,
+            MappingValidationStatus.VALID_WITH_WARNINGS,
+        )
+        warning_fingerprint = mapping_issue_fingerprint(
+            current_validation.issues[0]
+        )
+
+        submitted = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            data={
+                **mapping_data,
+                "action": "submit",
+                "expected_parent_version": str(current_revision.version),
+                "expected_working_draft_version": str(current_working.version),
+                "warning_acknowledgement": warning_fingerprint,
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(submitted.status_code, 303)
+        submitted_page = self.client.get(submitted.headers["location"])
+        self.assertIn("Matches confirmed", submitted_page.text)
+        self.assertIn("Prepare data", submitted_page.text)
+
+    def test_required_managed_relationship_can_be_left_to_odoo(self) -> None:
+        project_id, dataset, business_key = self._mapping_ready_project(
+            scalar_field_count=0,
+            relationship_field_count=1,
+            relationship_field_type="one2many",
+            required_relationship_indexes=(0,),
+        )
+        source_identity = dataset.columns[0]
+        context = self.app.state.context
+        _revision, validation = context.mapping_workspace.check_definition(
+            project_id,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=dataset.dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(source_identity.stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(source_identity.stable_key,),
+                            target_fields=business_key.key_fields,
+                        ),
+                    ),
+                ),
+            ),
+            expected_parent_version=None,
+            expected_working_draft_version=None,
+            actor=context.actor,
+        )
+        self.assertEqual(validation.status, MappingValidationStatus.INVALID)
+
+        page = self.client.get(f"/projects/{project_id}/mapping")
+        self.assertIn("Linked Field 0000 needs attention", page.text)
+        self.assertIn(
+            'value="set_disposition:0:relation_0000:odoo_managed"',
+            page.text,
+        )
+
+        decision = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            data={
+                "csrf_token": self.csrf,
+                "action": "set_disposition:0:relation_0000:odoo_managed",
+                "expected_working_draft_version": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(decision.status_code, 303)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(
+            project_id
+        )
+        self.assertEqual(
+            working.definition.datasets[0]
+            .target_field_dispositions[0]
+            .handling,
+            TargetFieldHandling.ODOO_MANAGED,
+        )
+        decision_page = self.client.get(decision.headers["location"])
+        self.assertIn("Odoo manages this field", decision_page.text)
+
+    def test_readonly_relationship_fields_are_hidden_without_shifting_indexes(
+        self,
+    ) -> None:
+        project_id, _dataset, _business_key = self._mapping_ready_project(
+            scalar_field_count=1,
+            relationship_field_count=3,
+            readonly_relationship_indexes=(1,),
+        )
+
+        page = self.client.get(f"/projects/{project_id}/mapping")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('data-target-field="relation_0000"', page.text)
+        self.assertNotIn('data-target-field="relation_0001"', page.text)
+        self.assertIn('data-target-field="relation_0002"', page.text)
+        self.assertIn('name="relation_source_0_2"', page.text)
+
     def test_large_mapping_catalog_is_paged_and_saved_sparsely(self) -> None:
         project_id, dataset, business_key = self._mapping_ready_project(
             scalar_field_count=1500
@@ -5098,6 +5429,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
         relationship_model: str = "res.partner",
         selection_field: bool = False,
         numeric_field: bool = False,
+        readonly_scalar_indexes: tuple[int, ...] = (),
+        readonly_relationship_indexes: tuple[int, ...] = (),
+        required_scalar_indexes: tuple[int, ...] = (),
+        required_relationship_indexes: tuple[int, ...] = (),
+        relationship_field_type: str = "many2one",
     ):
         context = self.app.state.context
         created = context.projects.create_project(
@@ -5180,8 +5516,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
                             else "char"
                         )
                     ),
-                    required=False,
-                    readonly=False,
+                    required=index in required_scalar_indexes,
+                    readonly=index in readonly_scalar_indexes,
                     relation=None,
                     relation_field=None,
                     selection=(
@@ -5199,9 +5535,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 SchemaField(
                     name=f"relation_{index:04d}",
                     label=f"Linked Field {index:04d}",
-                    type="many2one",
-                    required=False,
-                    readonly=False,
+                    type=relationship_field_type,
+                    required=index in required_relationship_indexes,
+                    readonly=index in readonly_relationship_indexes,
                     relation=relationship_model,
                     relation_field=None,
                     selection=(),

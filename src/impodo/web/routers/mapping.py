@@ -22,6 +22,7 @@ from ...artifacts import ArtifactStoreError
 from ...connectors import ConnectorError
 from ...projects import ProjectError
 from ...domain.errors import ReadinessError
+from ...domain.mapping.contracts import TargetFieldHandling
 from ...domain.staging.transformation_impact import TransformationImpactFilter
 from ...secrets import SecretStoreError
 from ...source import SourceLoadError
@@ -543,16 +544,101 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             allowed = _mapping_allowed_fields(form, selection, schema)
             _secure_form(request, form, allowed)
             action = _text(form, "action")
-            if action not in {"save_progress", "draft", "submit"}:
-                raise WorkspaceError(
-                    "Choose save progress, validate draft, or submit"
-                )
+            if action not in {
+                "save_progress",
+                "draft",
+                "submit",
+                "remove_readonly",
+            } and not action.startswith(
+                ("set_disposition:", "clear_disposition:")
+            ):
+                raise WorkspaceError("Choose a supported matching action")
             expected_parent = _optional_int(
                 _text(form, "expected_parent_version")
             )
             expected_working_version = _optional_int(
                 _text(form, "expected_working_draft_version")
             )
+            if action.startswith(
+                ("set_disposition:", "clear_disposition:")
+            ):
+                parts = action.split(":")
+                expected_parts = 4 if parts[0] == "set_disposition" else 3
+                if len(parts) != expected_parts:
+                    raise WorkspaceError(
+                        "The Odoo-required field decision is invalid"
+                    )
+                dataset_index = _optional_int(parts[1])
+                if (
+                    dataset_index is None
+                    or dataset_index < 0
+                    or dataset_index >= len(selection.datasets)
+                ):
+                    raise WorkspaceError(
+                        "The matching table is no longer current"
+                    )
+                handling = (
+                    TargetFieldHandling(parts[3])
+                    if parts[0] == "set_disposition"
+                    else None
+                )
+                draft = await run_in_threadpool(
+                    context.mapping_workspace.set_target_field_disposition,
+                    project_id,
+                    dataset_id=selection.datasets[dataset_index].dataset_id,
+                    target_field=parts[2],
+                    handling=handling,
+                    expected_version=expected_working_version,
+                    actor=context.actor,
+                )
+                message = (
+                    "Saved the Odoo-required field decision. "
+                    "Check matches again when ready."
+                    if handling is not None
+                    else "Cleared the Odoo-required field decision."
+                )
+                decision_return_url = (
+                    _mapping_return_url(
+                        request,
+                        project_id,
+                        mapping_dataset=dataset_index,
+                    )
+                    + "#next-step-blockers"
+                )
+                if json_request:
+                    return JSONResponse(
+                        {
+                            "message": message,
+                            "redirect_url": decision_return_url,
+                            "expected_working_draft_version": draft.version,
+                        }
+                    )
+                _flash(request, message)
+                return RedirectResponse(decision_return_url, status_code=303)
+            if action == "remove_readonly":
+                working_draft, removed_count = await run_in_threadpool(
+                    context.mapping_workspace.remove_readonly_field_mappings,
+                    project_id,
+                    expected_version=expected_working_version,
+                    actor=context.actor,
+                )
+                message = (
+                    f"Removed {removed_count} Odoo-managed field "
+                    f"match{'es' if removed_count != 1 else ''}. "
+                    "Check matches again when ready."
+                )
+                if json_request:
+                    return JSONResponse(
+                        {
+                            "message": message,
+                            "redirect_url": mapping_return_url,
+                            "expected_working_draft_version": (
+                                working_draft.version
+                            ),
+                        }
+                    )
+                _flash(request, message)
+                return RedirectResponse(mapping_return_url, status_code=303)
             datasets = _mapping_datasets_from_form(
                 form,
                 selection,
@@ -610,6 +696,10 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 if validation.status.value == "INVALID":
                     message = "Matches checked. Review the items that need attention."
+                    mapping_return_url = (
+                        f"{_mapping_return_url(request, project_id)}"
+                        "#next-step-blockers"
+                    )
                 else:
                     message = "Matches checked and ready to confirm."
                 _flash(request, message)

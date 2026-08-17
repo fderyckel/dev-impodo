@@ -15,6 +15,7 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Iterable, Protocol
 from uuid import uuid4
@@ -24,6 +25,8 @@ from ..domain.schema.governance import SchemaGovernance
 from ..domain.mapping.contracts import (
     DatasetMapping,
     MappingDefinition,
+    TargetFieldDisposition,
+    TargetFieldHandling,
 )
 from ..domain.mapping.artifacts import (
     MappingRevision,
@@ -262,6 +265,188 @@ class MappingWorkspaceService:
             actor=actor,
         )
         return draft
+
+    def remove_readonly_field_mappings(
+        self,
+        project_id: str,
+        *,
+        expected_version: int | None,
+        actor: Actor,
+    ) -> tuple[MappingWorkingDraft, int]:
+        """Remove write mappings for fields the captured schema marks readonly.
+
+        Check-only mappings are intentionally retained: they do not prepare a
+        value for Odoo and remain an explicit advanced review choice.
+        """
+
+        self.authorization.require(
+            actor,
+            Capability.MAPPING_EDIT,
+            project_id=project_id,
+        )
+        schema = self.schemas.get_odoo_schema_catalog(project_id)
+        existing = self.mappings.get_mapping_working_draft(project_id)
+        if schema is None or existing is None:
+            raise WorkspaceError(
+                "Load the current matching draft and Odoo fields first"
+            )
+        if expected_version != existing.version:
+            raise WorkspaceError(
+                "The working draft was modified by another request; reload it"
+            )
+
+        readonly_by_model = {
+            model.name: {
+                field.name for field in model.fields if field.readonly
+            }
+            for model in schema.models
+        }
+        removed_count = 0
+        cleaned_datasets: list[DatasetMapping] = []
+        for dataset in existing.definition.datasets:
+            readonly_fields = readonly_by_model.get(dataset.target_model, set())
+            kept_fields = tuple(
+                field
+                for field in dataset.fields
+                if field.validate_only or field.target_field not in readonly_fields
+            )
+            kept_relationships = tuple(
+                relationship
+                for relationship in dataset.relationships
+                if (
+                    relationship.validate_only
+                    or relationship.target_field not in readonly_fields
+                )
+            )
+            removed_count += len(dataset.fields) - len(kept_fields)
+            removed_count += len(dataset.relationships) - len(kept_relationships)
+            cleaned_datasets.append(
+                replace(
+                    dataset,
+                    fields=kept_fields,
+                    relationships=kept_relationships,
+                )
+            )
+        if not removed_count:
+            raise WorkspaceError(
+                "No Odoo-managed field matches need to be removed"
+            )
+        draft = self.save_working_draft(
+            project_id,
+            datasets=cleaned_datasets,
+            expected_version=expected_version,
+            actor=actor,
+        )
+        return draft, removed_count
+
+    def set_target_field_disposition(
+        self,
+        project_id: str,
+        *,
+        dataset_id: str,
+        target_field: str,
+        handling: TargetFieldHandling | None,
+        expected_version: int | None,
+        actor: Actor,
+    ) -> MappingWorkingDraft:
+        """Save or clear one explicit decision to leave an Odoo field unset."""
+
+        self.authorization.require(
+            actor,
+            Capability.MAPPING_EDIT,
+            project_id=project_id,
+        )
+        schema = self.schemas.get_odoo_schema_catalog(project_id)
+        existing = self.mappings.get_mapping_working_draft(project_id)
+        if schema is None or existing is None:
+            raise WorkspaceError(
+                "Load the current matching draft and Odoo fields first"
+            )
+        if expected_version != existing.version:
+            raise WorkspaceError(
+                "The working draft was modified by another request; reload it"
+            )
+        dataset = next(
+            (
+                item
+                for item in existing.definition.datasets
+                if item.dataset_id == dataset_id
+            ),
+            None,
+        )
+        if dataset is None:
+            raise WorkspaceError("The matching table is no longer current")
+        model = next(
+            (item for item in schema.models if item.name == dataset.target_model),
+            None,
+        )
+        metadata = next(
+            (
+                item
+                for item in (model.fields if model is not None else ())
+                if item.name == target_field
+            ),
+            None,
+        )
+        if metadata is None or metadata.readonly or not metadata.required:
+            raise WorkspaceError(
+                "This Odoo field does not need a required-field decision"
+            )
+        supplied_targets = {
+            field.target_field for field in dataset.fields
+        } | {
+            relationship.target_field
+            for relationship in dataset.relationships
+        } | {
+            target
+            for component in (*dataset.target_identity, *dataset.target_scope)
+            for target in component.target_fields
+        }
+        if handling is not None and target_field in supplied_targets:
+            raise WorkspaceError(
+                "Remove the current field match before leaving this field to Odoo"
+            )
+        if (
+            handling is TargetFieldHandling.ODOO_MANAGED
+            and metadata.type not in {"one2many", "many2many"}
+            and metadata.computed is not True
+            and metadata.related is not True
+        ):
+            raise WorkspaceError(
+                "The captured Odoo details do not identify this field as Odoo-managed"
+            )
+
+        dispositions = {
+            item.target_field: item
+            for item in dataset.target_field_dispositions
+        }
+        if handling is None:
+            if target_field not in dispositions:
+                raise WorkspaceError("This Odoo-field decision is already cleared")
+            dispositions.pop(target_field)
+        else:
+            dispositions[target_field] = TargetFieldDisposition(
+                target_field=target_field,
+                handling=handling,
+            )
+        updated_datasets = tuple(
+            replace(
+                item,
+                target_field_dispositions=tuple(
+                    dispositions[target]
+                    for target in sorted(dispositions)
+                ),
+            )
+            if item.dataset_id == dataset_id
+            else item
+            for item in existing.definition.datasets
+        )
+        return self.save_working_draft(
+            project_id,
+            datasets=updated_datasets,
+            expected_version=expected_version,
+            actor=actor,
+        )
 
     def check_definition(
         self,

@@ -34,6 +34,8 @@ from impodo.domain.mapping.contracts import (
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
+    TargetFieldDisposition,
+    TargetFieldHandling,
     ValueMapping,
 )
 from impodo.domain.mapping.scalar_values import (
@@ -77,6 +79,33 @@ class ColumnarCompilerTests(unittest.TestCase):
                 else:
                     self.assertIsNone(item.fallback_code)
                     self.assertIsNone(item.fallback_message)
+
+    def test_odoo_field_dispositions_are_explicit_native_omissions(self) -> None:
+        definition = _supported_definition(self.selection)
+        dataset = replace(
+            definition.datasets[0],
+            target_field_dispositions=(
+                TargetFieldDisposition(
+                    target_field="categ_id",
+                    handling=TargetFieldHandling.ODOO_DEFAULT,
+                ),
+                TargetFieldDisposition(
+                    target_field="product_variant_ids",
+                    handling=TargetFieldHandling.ODOO_MANAGED,
+                ),
+            ),
+        )
+
+        decision = compile_columnar_transformation_program(
+            replace(definition, datasets=(dataset,)),
+            self.selection,
+            DATASET_ID,
+        )
+
+        operations = {item.operation for item in decision.capability_uses}
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        self.assertIn(ColumnarOperationKind.OMIT_ODOO_DEFAULT, operations)
+        self.assertIn(ColumnarOperationKind.OMIT_ODOO_MANAGED, operations)
 
     def test_domain_compiler_does_not_import_polars(self) -> None:
         source_path = (

@@ -25,13 +25,14 @@ from ..mapping.contracts import (
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
+    TargetFieldHandling,
 )
 from ..mapping.descriptions import transformation_rule_summary
 from ..serialization import content_hash, portable
 
 
 COLUMNAR_PROGRAM_CONTRACT_VERSION = 3
-COLUMNAR_COMPILER_VERSION = 2
+COLUMNAR_COMPILER_VERSION = 3
 
 
 def _optional_string(value: object) -> str | None:
@@ -82,6 +83,7 @@ class ColumnarOperationKind(StrEnum):
     USE_CONSTANT = "use_constant"
     SOURCE_FALLBACK = "source_fallback"
     OMIT_ODOO_DEFAULT = "omit_odoo_default"
+    OMIT_ODOO_MANAGED = "omit_odoo_managed"
     INLINE_VALUE_MAPPING = "inline_value_mapping"
     REFERENCE_LOOKUP = "reference_lookup"
     FORMULA = "formula"
@@ -178,6 +180,7 @@ COLUMNAR_CAPABILITY_MATRIX = (
     _native(ColumnarOperationKind.USE_CONSTANT),
     _native(ColumnarOperationKind.SOURCE_FALLBACK),
     _native(ColumnarOperationKind.OMIT_ODOO_DEFAULT),
+    _native(ColumnarOperationKind.OMIT_ODOO_MANAGED),
     _native(ColumnarOperationKind.INLINE_VALUE_MAPPING),
     _oracle(
         ColumnarOperationKind.REFERENCE_LOOKUP,
@@ -862,6 +865,16 @@ def _compile_dataset(
     )
 
     scalar_fields: list[ColumnarScalarFieldProgram] = []
+    for disposition in authored.target_field_dispositions:
+        draft.use(
+            (
+                ColumnarOperationKind.OMIT_ODOO_DEFAULT
+                if disposition.handling is TargetFieldHandling.ODOO_DEFAULT
+                else ColumnarOperationKind.OMIT_ODOO_MANAGED
+            ),
+            f"/target_field_dispositions/{disposition.target_field}",
+            target_field=disposition.target_field,
+        )
     for output_ordinal, field in enumerate(
         sorted(authored.fields, key=lambda item: item.target_field)
     ):

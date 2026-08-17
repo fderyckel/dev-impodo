@@ -41,17 +41,24 @@ constant, source with fallback, or leave unset for the Odoo default.
 Transformations, null behavior, comparison policy, and relationship resolution
 are closed, versioned choices rather than arbitrary code.
 
+Mapping contract version 9 also records a required-field disposition when no
+value is sent: `odoo_default` means the target configuration must supply the
+value, while `odoo_managed` is limited to captured computed, related, one2many,
+or many2many fields. Both remain warning-bearing decisions that require review;
+Impodo does not call arbitrary Odoo `default_get` logic while editing a mapping.
+Version 8 mappings remain readable and retain their original content hashes.
+
 Many2one and many2many relationships resolve through incoming datasets or
 existing-target business keys. One2many is represented through the child
 dataset's inverse many2one and is never written as an independently owned list.
 Dynamic value matching uses one frozen source column and batched target choices;
 it persists portable codes or business keys, never numeric Odoo IDs.
 
-Mapping contract version 8 stores cleanup exclusively as ordered `text_steps`.
-Legacy scalar search/replacement fields are rejected rather than silently
-converted or dropped. Quick matching remains bounded to 500 source choices and
-2,000 target records; composite or scoped identities use the normal governed
-relationship workflow.
+Since mapping contract version 8, cleanup is stored exclusively as ordered
+`text_steps`. Legacy scalar search/replacement fields are rejected rather than
+silently converted or dropped. Quick matching remains bounded to 500 source
+choices and 2,000 target records; composite or scoped identities use the normal
+governed relationship workflow.
 
 The recoverable working draft is deliberately non-authoritative. Semantic
 validation creates immutable issues and coverage; submission binds the exact
@@ -92,6 +99,8 @@ be changed or acknowledged explicitly before submission.
 
 Form parsers must reject unexpected fields and stale versions. Preserve the
 working draft when validation fails so the data manager can correct it.
+Whenever confirmation is unavailable, the page must show every current blocker
+outside paged or filtered field lists and link directly to a recovery action.
 
 ## Odoo 19 and performance
 

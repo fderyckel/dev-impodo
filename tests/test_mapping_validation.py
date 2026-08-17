@@ -21,6 +21,8 @@ from impodo.domain.mapping.contracts import (
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
+    TargetFieldDisposition,
+    TargetFieldHandling,
     ValueMapping,
 )
 from impodo.domain.mapping.scalar_values import (
@@ -297,11 +299,11 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(first.validation_hash, second.validation_hash)
         self.assertEqual(
             definition.content_hash,
-            "sha256:9778c44cba8bc53efdcafacef4fa38e5bb334c494e71dc69f2272a4faab7c137",
+            "sha256:b7ab8fafdab931d1b8cd5c70a893d217ea6a4782bbdc8d06e3c7618eda0deb70",
         )
         self.assertEqual(
             first.validation_hash,
-            "sha256:5a1b5573c978b2766d6ac52578488f2ba8931b7839a906b51516e8a8e8534c14",
+            "sha256:3ba664329b6dec39eb4cb1655399cf6a00d3ac26ceb9e0d408a8965513e144ee",
         )
         reversed_definition = replace(
             definition,
@@ -1037,6 +1039,155 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             [item.code for item in result.issues],
             ["MAPPING_ODOO_DEFAULT_UNVERIFIED"],
         )
+
+    def test_required_field_can_be_explicitly_left_to_odoo(self) -> None:
+        definition = _valid_definition(self.selection, self.governance)
+        company, partner = definition.datasets
+        definition = replace(
+            definition,
+            datasets=(
+                replace(
+                    company,
+                    fields=(),
+                    target_field_dispositions=(
+                        TargetFieldDisposition(
+                            target_field="name",
+                            handling=TargetFieldHandling.ODOO_DEFAULT,
+                        ),
+                    ),
+                ),
+                partner,
+            ),
+        )
+
+        result = self.validator.validate(
+            definition,
+            self.selection,
+            self.schema,
+            self.governance,
+        )
+
+        self.assertEqual(
+            result.status,
+            MappingValidationStatus.VALID_WITH_WARNINGS,
+        )
+        self.assertEqual(
+            [item.code for item in result.issues],
+            ["MAPPING_ODOO_DEFAULT_UNVERIFIED"],
+        )
+        restored = MappingDefinition.from_json(definition.to_json())
+        self.assertEqual(
+            restored.datasets[0].target_field_dispositions,
+            definition.datasets[0].target_field_dispositions,
+        )
+
+    def test_only_schema_identified_fields_can_be_marked_odoo_managed(
+        self,
+    ) -> None:
+        definition = _valid_definition(self.selection, self.governance)
+        company, partner = definition.datasets
+        managed_schema = replace(
+            self.schema,
+            models=tuple(
+                replace(
+                    model,
+                    fields=tuple(
+                        replace(field, required=True)
+                        if model.name == "res.partner" and field.name == "tag_ids"
+                        else field
+                        for field in model.fields
+                    ),
+                )
+                for model in self.schema.models
+            ),
+        )
+        managed_partner = replace(
+            partner,
+            relationships=tuple(
+                item
+                for item in partner.relationships
+                if item.target_field != "tag_ids"
+            ),
+            target_field_dispositions=(
+                TargetFieldDisposition(
+                    target_field="tag_ids",
+                    handling=TargetFieldHandling.ODOO_MANAGED,
+                ),
+            ),
+        )
+
+        managed_result = self.validator.validate(
+            replace(definition, datasets=(company, managed_partner)),
+            self.selection,
+            managed_schema,
+            self.governance,
+        )
+        invalid_result = self.validator.validate(
+            replace(
+                definition,
+                datasets=(
+                    replace(
+                        company,
+                        fields=(),
+                        target_field_dispositions=(
+                            TargetFieldDisposition(
+                                target_field="name",
+                                handling=TargetFieldHandling.ODOO_MANAGED,
+                            ),
+                        ),
+                    ),
+                    partner,
+                ),
+            ),
+            self.selection,
+            self.schema,
+            self.governance,
+        )
+
+        self.assertEqual(
+            managed_result.status,
+            MappingValidationStatus.VALID_WITH_WARNINGS,
+        )
+        self.assertEqual(
+            [item.code for item in managed_result.issues],
+            ["MAPPING_ODOO_MANAGED_UNVERIFIED"],
+        )
+        self.assertIn(
+            "MAPPING_TARGET_FIELD_DISPOSITION_INVALID",
+            {item.code for item in invalid_result.issues},
+        )
+
+    def test_version_eight_mapping_hash_and_json_remain_readable(self) -> None:
+        legacy = replace(
+            _valid_definition(self.selection, self.governance),
+            contract_version=8,
+        )
+
+        portable = legacy.to_dict()
+        restored = MappingDefinition.from_dict(portable)
+
+        self.assertNotIn("target_field_dispositions", portable["datasets"][0])
+        self.assertEqual(restored, legacy)
+        self.assertEqual(
+            legacy.content_hash,
+            "sha256:9778c44cba8bc53efdcafacef4fa38e5bb334c494e71dc69f2272a4faab7c137",
+        )
+        with self.assertRaisesRegex(ValueError, "require mapping contract version 9"):
+            replace(
+                legacy,
+                datasets=(
+                    replace(
+                        legacy.datasets[0],
+                        target_field_dispositions=(
+                            TargetFieldDisposition(
+                                target_field="name",
+                                handling=TargetFieldHandling.ODOO_DEFAULT,
+                            ),
+                        ),
+                    ),
+                    legacy.datasets[1],
+                ),
+            )
 
     def test_noncurrent_mapping_contract_is_rejected(self) -> None:
         current = _valid_definition(self.selection, self.governance)

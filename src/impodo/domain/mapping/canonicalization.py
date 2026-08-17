@@ -29,6 +29,15 @@ def canonicalize_mapping_definition(
                             key=lambda relation: relation.target_field,
                         )
                     ),
+                    target_field_dispositions=tuple(
+                        sorted(
+                            item.target_field_dispositions,
+                            key=lambda disposition: (
+                                disposition.target_field,
+                                disposition.handling.value,
+                            ),
+                        )
+                    ),
                 )
                 for item in definition.datasets
             ),

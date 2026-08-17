@@ -45,8 +45,83 @@
       <input type="hidden" name="expected_working_draft_version" value="{{ working_draft.version if working_draft else '' }}">
       {% for view in dataset_views %}
         {% if view.active %}<input type="hidden" name="editable_dataset_id" value="{{ view.source.dataset_id }}">{% endif %}
+        {% for disposition in view.target_field_dispositions %}
+          <input
+            type="hidden"
+            name="target_field_disposition_{{ view.index }}"
+            value="{{ disposition.target_field }}:{{ disposition.handling.value }}"
+          >
+        {% endfor %}
       {% endfor %}
       <div class="notice error" data-mapping-save-error role="alert" hidden></div>
+
+      {% if next_step.blockers %}
+        <section
+          class="notice warning mapping-next-step-blockers"
+          id="next-step-blockers"
+          tabindex="-1"
+          aria-labelledby="next-step-blockers-title"
+        >
+          <strong id="next-step-blockers-title">
+            You cannot continue yet — {{ next_step.blockers|length }} reason{{ "s" if next_step.blockers|length != 1 else "" }}
+          </strong>
+          <ul>
+            {% for blocker in next_step.blockers %}
+              <li>
+                <strong>{{ blocker.title }}</strong>
+                <p>{{ blocker.message }}</p>
+                {% if blocker.readonly_recovery %}
+                  <ul>
+                    {% for item in blocker.readonly_recovery.entries %}
+                      <li>{{ item.dataset_label }} · {{ item.model_label }} · {{ item.field_label }}</li>
+                    {% endfor %}
+                  </ul>
+                  <details class="technical-details">
+                    <summary>Support details</summary>
+                    <code>MAPPING_TARGET_FIELD_READONLY</code>
+                  </details>
+                {% endif %}
+                {% if blocker.issue_view %}
+                  {% set issue_view = blocker.issue_view %}
+                  <p><strong>How to fix:</strong> {{ issue_view.issue.remediation }}</p>
+                  <div class="actions">
+                    {% if issue_view.fix_url %}
+                      <a class="button secondary" href="{{ issue_view.fix_url }}">Match this field</a>
+                    {% endif %}
+                    {% if issue_view.can_choose_default %}
+                      <button
+                        class="button secondary"
+                        type="submit"
+                        name="action"
+                        value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_default"
+                      >Let Odoo choose</button>
+                    {% endif %}
+                    {% if issue_view.can_choose_managed %}
+                      <button
+                        class="button secondary"
+                        type="submit"
+                        name="action"
+                        value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_managed"
+                      >Odoo manages this field</button>
+                    {% endif %}
+                  </div>
+                  <details class="technical-details">
+                    <summary>Support details</summary>
+                    <code>{{ issue_view.issue.code }}</code>
+                    · <code>{{ issue_view.issue.target_model }}.{{ issue_view.issue.target_field }}</code>
+                  </details>
+                {% elif blocker.href %}
+                  <a class="button secondary" href="{{ blocker.href }}">{{ blocker.action_label }}</a>
+                {% elif blocker.action %}
+                  <button class="button secondary" type="submit" name="action" value="{{ blocker.action }}">
+                    {{ blocker.action_label }}
+                  </button>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% endif %}
 
       <details class="technical-evidence">
         <summary>
@@ -258,18 +333,37 @@
                 {% for row in view.scalar_rows %}
                   {% set field_index = row.index %}
                   {% set mapping = row.mapping %}
-                  {% set recommended_source = row.recommended_source_column %}
+                  {% set disposition = row.disposition %}
+                  {% set recommended_source = row.recommended_source_column if not disposition else none %}
                   {% set value_source = mapping.value_source.value if mapping else ('source' if recommended_source else '') %}
                   <tr
                     data-scalar-mapping-row
                     data-scalar-field-row
                     data-target-field="{{ row.metadata.name }}"
                     data-field-search-text="{{ row.metadata.label|lower }} {{ row.metadata.name|lower }} {{ row.metadata.type|lower }}"
-                    data-mapped="{{ 'true' if mapping else 'false' }}"
+                    data-mapped="{{ 'true' if mapping or disposition else 'false' }}"
                   >
                     <td class="value-provider-cell">
                       <input type="hidden" name="visible_scalar_target_{{ dataset_index }}" value="{{ row.metadata.name }}">
-                      <select name="scalar_value_source_{{ dataset_index }}_{{ field_index }}" data-value-source>
+                      {% if disposition %}
+                        <div class="notice success compact">
+                          <strong>
+                            {% if disposition.handling.value == 'odoo_managed' %}
+                              Odoo manages this field
+                            {% else %}
+                              Odoo will choose this value
+                            {% endif %}
+                          </strong>
+                          <p>Impodo will leave this field out when it prepares records.</p>
+                          <button
+                            class="button secondary compact"
+                            type="submit"
+                            name="action"
+                            value="clear_disposition:{{ dataset_index }}:{{ row.metadata.name }}"
+                          >Change this decision</button>
+                        </div>
+                      {% endif %}
+                      <select name="scalar_value_source_{{ dataset_index }}_{{ field_index }}" data-value-source {% if disposition %}disabled{% endif %}>
                         <option value="" {% if not mapping and not recommended_source %}selected{% endif %}>Do not fill this field</option>
                         <option value="source" {% if value_source == 'source' %}selected{% endif %}>Source value</option>
                         <option value="constant" {% if value_source == 'constant' %}selected{% endif %}>Same value for every row</option>
@@ -669,17 +763,33 @@
             {% for row in view.relation_rows %}
               {% set relation_index = row.index %}
               {% set mapping = row.mapping %}
-              <details class="relationship-card" data-relation-mapping-row data-relation-field-row data-target-field="{{ row.metadata.name }}" data-relation-search-text="{{ row.metadata.label|lower }} {{ row.metadata.name|lower }} {{ row.metadata.type|lower }} {{ (row.metadata.relation or '')|lower }}" {% if mapping or row.recommended_dataset_id %}open{% endif %}>
+              {% set disposition = row.disposition %}
+              <details class="relationship-card" data-relation-mapping-row data-relation-field-row data-target-field="{{ row.metadata.name }}" data-relation-search-text="{{ row.metadata.label|lower }} {{ row.metadata.name|lower }} {{ row.metadata.type|lower }} {{ (row.metadata.relation or '')|lower }}" {% if mapping or disposition or row.recommended_dataset_id %}open{% endif %}>
                 <summary>
                   <span><strong>{{ row.metadata.label }}</strong></span>
-                  <span class="relationship-card-state">{{ "Connected" if mapping else "Not connected" }}</span>
+                  <span class="relationship-card-state">
+                    {% if disposition and disposition.handling.value == 'odoo_managed' %}Managed by Odoo{% elif disposition %}Chosen by Odoo{% elif mapping %}Connected{% else %}Not connected{% endif %}
+                  </span>
                 </summary>
                 <input type="hidden" name="visible_relation_target_{{ dataset_index }}" value="{{ row.metadata.name }}">
                 <details class="technical-details">
                   <summary>Support details</summary>
                   <p><code>{{ row.metadata.name }}</code> · {{ row.metadata.type }} → {{ row.metadata.relation or "unknown record type" }}{% if row.metadata.relation_field %} · inverse {{ row.metadata.relation_field }}{% endif %}</p>
                 </details>
-                {% if row.metadata.type == 'one2many' %}
+                {% if disposition %}
+                  <div class="notice success">
+                    <strong>
+                      {% if disposition.handling.value == 'odoo_managed' %}Odoo manages this field{% else %}Odoo will choose this value{% endif %}
+                    </strong>
+                    <p>Impodo will leave this linked field out when it prepares records.</p>
+                    <button
+                      class="button secondary compact"
+                      type="submit"
+                      name="action"
+                      value="clear_disposition:{{ dataset_index }}:{{ row.metadata.name }}"
+                    >Change this decision</button>
+                  </div>
+                {% elif row.metadata.type == 'one2many' %}
                   <div class="notice warning">
                     This list is filled from its line items. Match the line-item table's main-record field instead.
                   </div>
@@ -899,16 +1009,19 @@
               <p class="eyebrow">Match check</p>
               <h2>{% if validation.status.value == 'INVALID' %}Needs attention{% else %}Ready to confirm{% endif %}</h2>
             </div>
-            <span class="status {% if validation.issues %}needs_review{% else %}ready{% endif %}">
-              {% if validation.issues %}{{ validation.issues|length }} issue{{ "s" if validation.issues|length != 1 else "" }}{% else %}No issues{% endif %}
+            <span class="status {% if validation_problem_count %}needs_review{% else %}ready{% endif %}">
+              {% if validation_problem_count %}{{ validation_problem_count }} decision{{ "s" if validation_problem_count != 1 else "" }}{% else %}No issues{% endif %}
             </span>
           </div>
-          {% if validation.issues %}
+          {% if validation_problem_count %}
+            {% if validation.status.value == 'INVALID' %}
+              <p>Resolve every reason shown at the top of this page, then check the matches again.</p>
+            {% elif visible_validation_issues %}
             <div class="table-scroll">
               <table class="data-table">
                 <thead><tr><th>Problem</th><th>Where</th><th>How to fix it</th></tr></thead>
                 <tbody>
-                  {% for issue in validation.issues %}
+                  {% for issue in visible_validation_issues %}
                     <tr>
                       <th>
                         {{ issue.message }}
@@ -930,6 +1043,7 @@
                 </tbody>
               </table>
             </div>
+            {% endif %}
           {% else %}
             <p>Your field matches are consistent. The next step prepares every source row for review.</p>
           {% endif %}
@@ -993,10 +1107,12 @@
         <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Back to Odoo data</a>
         <button class="button secondary" name="action" value="save_progress" type="submit" data-save-mapping-progress>Save progress</button>
         <button class="button secondary" name="action" value="draft" type="submit">Check matches</button>
-        {% if submission %}
-          <a class="button primary" href="/projects/{{ project.project_id }}/prepare">Prepare data</a>
-        {% elif schema.origin.value != 'LOCAL_MANUAL' and revision and validation and validation.status.value != 'INVALID' and not has_unvalidated_changes and rule_review_ready %}
-          <button class="button primary" name="action" value="submit" type="submit" data-confirm-mapping>Confirm field matches</button>
+        {% if next_step.available and next_step.kind == 'link' %}
+          <a class="button primary" href="{{ next_step.href }}">{{ next_step.label }}</a>
+        {% elif next_step.available %}
+          <button class="button primary" name="action" value="{{ next_step.action }}" type="submit" data-confirm-mapping>{{ next_step.label }}</button>
+        {% else %}
+          <button class="button primary" type="button" aria-describedby="next-step-blockers" disabled>{{ next_step.label }}</button>
         {% endif %}
       </div>
     </form>

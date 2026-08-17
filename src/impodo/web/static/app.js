@@ -346,6 +346,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
   const restoreMappingPosition = () => {
+    if (window.location.hash === "#next-step-blockers") {
+      try {
+        window.sessionStorage.removeItem(mappingPositionStorageKey);
+      } catch {
+        // The blocker anchor remains usable without browser storage.
+      }
+      window.requestAnimationFrame(() => {
+        document
+          .querySelector("#next-step-blockers")
+          ?.focus({ preventScroll: true });
+      });
+      return;
+    }
     let stored = null;
     try {
       stored = JSON.parse(
@@ -1059,6 +1072,9 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       const action = event.submitter?.value || "";
+      const changesFieldDisposition =
+        action.startsWith("set_disposition:") ||
+        action.startsWith("clear_disposition:");
       if (action === "submit" && dirty) {
         if (saveError) {
           saveError.textContent =
@@ -1071,6 +1087,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         return;
       }
+      if ((action === "remove_readonly" || changesFieldDisposition) && dirty) {
+        if (saveError) {
+          saveError.textContent =
+            "Save or check your current edits before changing an Odoo-field decision.";
+          saveError.hidden = false;
+        }
+        if (saveStatus) {
+          saveStatus.textContent = "Unsaved changes need saving first.";
+          saveStatus.classList.add("unsaved");
+        }
+        return;
+      }
       submitting = true;
       mappingForm.setAttribute("aria-busy", "true");
       if (saveError) {
@@ -1078,12 +1106,17 @@ document.addEventListener("DOMContentLoaded", () => {
         saveError.textContent = "";
       }
       if (saveStatus) {
-        saveStatus.textContent =
-          action === "save_progress"
-            ? "Saving progress..."
-            : action === "submit"
-              ? "Confirming checked matches..."
-              : "Checking matches...";
+        if (action === "save_progress") {
+          saveStatus.textContent = "Saving progress...";
+        } else if (action === "remove_readonly") {
+          saveStatus.textContent = "Removing Odoo-managed field matches...";
+        } else if (changesFieldDisposition) {
+          saveStatus.textContent = "Saving the Odoo-field decision...";
+        } else if (action === "submit") {
+          saveStatus.textContent = "Confirming checked matches...";
+        } else {
+          saveStatus.textContent = "Checking matches...";
+        }
         saveStatus.classList.remove("unsaved");
       }
       let responseReceived = false;
@@ -1156,7 +1189,9 @@ document.addEventListener("DOMContentLoaded", () => {
             : "The matches could not be saved.";
         if (saveError) {
           saveError.textContent =
-            action === "submit"
+            action === "submit" ||
+              action === "remove_readonly" ||
+              changesFieldDisposition
               ? `${message} Your checked matches are unchanged.`
               : `${message} Your unsaved changes are still on this page.`;
           saveError.hidden = false;
@@ -1165,6 +1200,9 @@ document.addEventListener("DOMContentLoaded", () => {
           if (action === "submit") {
             saveStatus.textContent =
               "Confirmation was not completed. Checked matches are unchanged.";
+          } else if (action === "remove_readonly" || changesFieldDisposition) {
+            saveStatus.textContent =
+              "The Odoo-field decision was not changed. Checked matches are unchanged.";
           } else {
             dirty = true;
             saveStatus.textContent =
