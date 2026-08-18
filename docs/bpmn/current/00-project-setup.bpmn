@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Process_ProjectSetup" targetNamespace="https://impodo.dev/bpmn/current" exporter="Impodo documentation generator" exporterVersion="1.0">
+  <bpmn:process id="Process_ProjectSetup" name="Project setup" isExecutable="false">
+    <bpmn:documentation>Current project creation and registration workflow.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_ProjectSetup">
+      <bpmn:lane id="Lane_DataManager" name="Data manager">
+        <bpmn:flowNodeRef>Start_Setup</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SourceMode</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Governance</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Target</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_TestConnection</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_FileMode</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_AddFiles</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReviewSetup</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CorrectSetup</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Impodo" name="Impodo">
+        <bpmn:flowNodeRef>Task_TestConnection</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ValidateSetup</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_SetupValid</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Register</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_Registered</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="Start_Setup" name="New project selected">
+      <bpmn:outgoing>Flow_S_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="Task_SourceMode" name="Choose file or Odoo source">
+      <bpmn:incoming>Flow_S_01</bpmn:incoming>
+      <bpmn:outgoing>Flow_S_02</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="Task_Governance" name="Enter purpose, owners, classification, and retention">
+      <bpmn:incoming>Flow_S_02</bpmn:incoming>
+      <bpmn:outgoing>Flow_S_03</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="Task_Target" name="Configure exact Local or Remote Odoo target">
+      <bpmn:incoming>Flow_S_03</bpmn:incoming>
+      <bpmn:outgoing>Flow_S_04</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_TestConnection" name="Test read connection?">
+      <bpmn:incoming>Flow_S_04</bpmn:incoming>
+      <bpmn:outgoing>Flow_S_05</bpmn:outgoing>
+      <bpmn:outgoing>Flow_S_06</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="Task_TestConnection" name="Test narrow read-only Odoo connection">
+      <bpmn:incoming>Flow_S_05</bpmn:incoming>
+      <bpmn:outgoing>Flow_S_07</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_FileMode" name="File source?">
+      <bpmn:incoming>Flow_S_06</bpmn:incoming>
+      <bpmn:incoming>Flow_S_07</bpmn:incoming>
+      <bpmn:outgoing>Flow_S_08</bpmn:outgoing>
+      <bpmn:outgoing>Flow_S_09</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_AddFiles" name="Add governed CSV or XLSX files">
+      <bpmn:incoming>Flow_S_08</bpmn:incoming>
+      <bpmn:outgoing>Flow_S_10</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="Task_ReviewSetup" name="Review complete setup">
+      <bpmn:incoming>Flow_S_09</bpmn:incoming>
+      <bpmn:incoming>Flow_S_10</bpmn:incoming>
+      <bpmn:outgoing>Flow_S_11</bpmn:outgoing>
+      <bpmn:incoming>Flow_S_15</bpmn:incoming>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_ValidateSetup" name="Validate ownership, governance, source, and target">
+      <bpmn:incoming>Flow_S_11</bpmn:incoming>
+      <bpmn:outgoing>Flow_S_12</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_SetupValid" name="Registration valid?">
+      <bpmn:incoming>Flow_S_12</bpmn:incoming>
+      <bpmn:outgoing>Flow_S_13</bpmn:outgoing>
+      <bpmn:outgoing>Flow_S_14</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_CorrectSetup" name="Correct setup">
+      <bpmn:incoming>Flow_S_14</bpmn:incoming>
+      <bpmn:outgoing>Flow_S_15</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_Register" name="Register boundary, increment revision, and audit">
+      <bpmn:incoming>Flow_S_13</bpmn:incoming>
+      <bpmn:outgoing>Flow_S_16</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_Registered" name="Project registered">
+      <bpmn:incoming>Flow_S_16</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_S_01" sourceRef="Start_Setup" targetRef="Task_SourceMode" />
+    <bpmn:sequenceFlow id="Flow_S_02" sourceRef="Task_SourceMode" targetRef="Task_Governance" />
+    <bpmn:sequenceFlow id="Flow_S_03" sourceRef="Task_Governance" targetRef="Task_Target" />
+    <bpmn:sequenceFlow id="Flow_S_04" sourceRef="Task_Target" targetRef="Gateway_TestConnection" />
+    <bpmn:sequenceFlow id="Flow_S_05" sourceRef="Gateway_TestConnection" targetRef="Task_TestConnection" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_S_06" sourceRef="Gateway_TestConnection" targetRef="Gateway_FileMode" name="No" />
+    <bpmn:sequenceFlow id="Flow_S_07" sourceRef="Task_TestConnection" targetRef="Gateway_FileMode" />
+    <bpmn:sequenceFlow id="Flow_S_08" sourceRef="Gateway_FileMode" targetRef="Task_AddFiles" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_S_09" sourceRef="Gateway_FileMode" targetRef="Task_ReviewSetup" name="No" />
+    <bpmn:sequenceFlow id="Flow_S_10" sourceRef="Task_AddFiles" targetRef="Task_ReviewSetup" />
+    <bpmn:sequenceFlow id="Flow_S_11" sourceRef="Task_ReviewSetup" targetRef="Task_ValidateSetup" />
+    <bpmn:sequenceFlow id="Flow_S_12" sourceRef="Task_ValidateSetup" targetRef="Gateway_SetupValid" />
+    <bpmn:sequenceFlow id="Flow_S_13" sourceRef="Gateway_SetupValid" targetRef="Task_Register" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_S_14" sourceRef="Gateway_SetupValid" targetRef="Task_CorrectSetup" name="No" />
+    <bpmn:sequenceFlow id="Flow_S_15" sourceRef="Task_CorrectSetup" targetRef="Task_ReviewSetup" name="Retry" />
+    <bpmn:sequenceFlow id="Flow_S_16" sourceRef="Task_Register" targetRef="End_Registered" />
+  </bpmn:process>
+  <bpmn:collaboration id="Collaboration_Process_ProjectSetup">
+    <bpmn:participant id="Participant_Process_ProjectSetup" name="Project setup" processRef="Process_ProjectSetup" />
+    <bpmn:participant id="Participant_Odoo" name="Exact Odoo 19 target" />
+    <bpmn:messageFlow id="Message_S_Test" name="Read-only connection probe" sourceRef="Task_TestConnection" targetRef="Participant_Odoo" />
+    <bpmn:messageFlow id="Message_S_TestResponse" name="Probe response" sourceRef="Participant_Odoo" targetRef="Task_TestConnection" />
+  </bpmn:collaboration>
+  <bpmndi:BPMNDiagram id="Diagram_Process_ProjectSetup">
+    <bpmndi:BPMNPlane id="Plane_Process_ProjectSetup" bpmnElement="Collaboration_Process_ProjectSetup">
+      <bpmndi:BPMNShape id="Shape_Participant_Process_ProjectSetup" bpmnElement="Participant_Process_ProjectSetup" isHorizontal="true">
+        <dc:Bounds x="30" y="50" width="2286" height="470" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_DataManager" bpmnElement="Lane_DataManager" isHorizontal="true">
+        <dc:Bounds x="60" y="50" width="2256" height="230" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_Impodo" bpmnElement="Lane_Impodo" isHorizontal="true">
+        <dc:Bounds x="60" y="280" width="2256" height="240" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_Setup" bpmnElement="Start_Setup">
+        <dc:Bounds x="150" y="130" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_SourceMode" bpmnElement="Task_SourceMode">
+        <dc:Bounds x="220" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_Governance" bpmnElement="Task_Governance">
+        <dc:Bounds x="420" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_Target" bpmnElement="Task_Target">
+        <dc:Bounds x="620" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_TestConnection" bpmnElement="Gateway_TestConnection" isMarkerVisible="true">
+        <dc:Bounds x="830" y="120" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_TestConnection" bpmnElement="Task_TestConnection">
+        <dc:Bounds x="930" y="340" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_FileMode" bpmnElement="Gateway_FileMode" isMarkerVisible="true">
+        <dc:Bounds x="1130" y="120" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_AddFiles" bpmnElement="Task_AddFiles">
+        <dc:Bounds x="1230" y="90" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReviewSetup" bpmnElement="Task_ReviewSetup">
+        <dc:Bounds x="1430" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ValidateSetup" bpmnElement="Task_ValidateSetup">
+        <dc:Bounds x="1630" y="340" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_SetupValid" bpmnElement="Gateway_SetupValid" isMarkerVisible="true">
+        <dc:Bounds x="1840" y="350" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_CorrectSetup" bpmnElement="Task_CorrectSetup">
+        <dc:Bounds x="1800" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_Register" bpmnElement="Task_Register">
+        <dc:Bounds x="1950" y="340" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_Registered" bpmnElement="End_Registered">
+        <dc:Bounds x="2150" y="357" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_01" bpmnElement="Flow_S_01">
+        <di:waypoint x="186" y="148" />
+        <di:waypoint x="220" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_02" bpmnElement="Flow_S_02">
+        <di:waypoint x="370" y="145" />
+        <di:waypoint x="420" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_03" bpmnElement="Flow_S_03">
+        <di:waypoint x="570" y="145" />
+        <di:waypoint x="620" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_04" bpmnElement="Flow_S_04">
+        <di:waypoint x="770" y="145" />
+        <di:waypoint x="830" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_05" bpmnElement="Flow_S_05">
+        <di:waypoint x="880" y="145" />
+        <di:waypoint x="930" y="375" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_06" bpmnElement="Flow_S_06">
+        <di:waypoint x="855" y="145" />
+        <di:waypoint x="1155" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_07" bpmnElement="Flow_S_07">
+        <di:waypoint x="1080" y="375" />
+        <di:waypoint x="1130" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_08" bpmnElement="Flow_S_08">
+        <di:waypoint x="1180" y="145" />
+        <di:waypoint x="1230" y="125" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_09" bpmnElement="Flow_S_09">
+        <di:waypoint x="1155" y="170" />
+        <di:waypoint x="1155" y="230" />
+        <di:waypoint x="1505" y="230" />
+        <di:waypoint x="1505" y="180" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_10" bpmnElement="Flow_S_10">
+        <di:waypoint x="1380" y="125" />
+        <di:waypoint x="1430" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_11" bpmnElement="Flow_S_11">
+        <di:waypoint x="1580" y="145" />
+        <di:waypoint x="1630" y="375" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_12" bpmnElement="Flow_S_12">
+        <di:waypoint x="1780" y="375" />
+        <di:waypoint x="1840" y="375" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_13" bpmnElement="Flow_S_13">
+        <di:waypoint x="1890" y="375" />
+        <di:waypoint x="1950" y="375" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_14" bpmnElement="Flow_S_14">
+        <di:waypoint x="1890" y="375" />
+        <di:waypoint x="1915" y="445" />
+        <di:waypoint x="1775" y="445" />
+        <di:waypoint x="1800" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_15" bpmnElement="Flow_S_15">
+        <di:waypoint x="1800" y="145" />
+        <di:waypoint x="1730" y="145" />
+        <di:waypoint x="1730" y="80" />
+        <di:waypoint x="1505" y="80" />
+        <di:waypoint x="1505" y="110" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_S_16" bpmnElement="Flow_S_16">
+        <di:waypoint x="2100" y="375" />
+        <di:waypoint x="2150" y="375" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_Participant_Odoo" bpmnElement="Participant_Odoo" isHorizontal="true">
+        <dc:Bounds x="30" y="560" width="2286" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Message_S_Test" bpmnElement="Message_S_Test">
+        <di:waypoint x="955" y="410" />
+        <di:waypoint x="955" y="560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Message_S_TestResponse" bpmnElement="Message_S_TestResponse">
+        <di:waypoint x="1055" y="560" />
+        <di:waypoint x="1055" y="410" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

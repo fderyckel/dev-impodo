@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Process_MatchData" targetNamespace="https://impodo.dev/bpmn/current" exporter="Impodo documentation generator" exporterVersion="1.0">
+  <bpmn:process id="Process_MatchData" name="Match data" isExecutable="false">
+    <bpmn:documentation>Current file-source mapping authoring, validation, impact review, and confirmation workflow.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_MatchData">
+      <bpmn:lane id="Lane_DataManager" name="Data manager">
+        <bpmn:flowNodeRef>Start_Match</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_DatasetMode</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_MapFields</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_MapRules</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_MapRelations</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_SaveDraft</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReviewImpact</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_MappingValid</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReviseMapping</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ConfirmMapping</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Impodo" name="Impodo">
+        <bpmn:flowNodeRef>Task_CheckMapping</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Impact</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PublishMapping</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_Match</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="Start_Match" name="Source and Odoo data complete">
+      <bpmn:outgoing>Flow_MAP_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="Task_DatasetMode" name="Choose dataset target mode and identity">
+      <bpmn:incoming>Flow_MAP_01</bpmn:incoming>
+      <bpmn:outgoing>Flow_MAP_02</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="Task_MapFields" name="Map writable values and deliberate omissions">
+      <bpmn:incoming>Flow_MAP_02</bpmn:incoming>
+      <bpmn:outgoing>Flow_MAP_03</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="Task_MapRules" name="Configure transformations and selection values">
+      <bpmn:incoming>Flow_MAP_03</bpmn:incoming>
+      <bpmn:outgoing>Flow_MAP_04</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="Task_MapRelations" name="Map relations with portable keys">
+      <bpmn:incoming>Flow_MAP_04</bpmn:incoming>
+      <bpmn:outgoing>Flow_MAP_05</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="Task_SaveDraft" name="Save mapping draft">
+      <bpmn:incoming>Flow_MAP_05</bpmn:incoming>
+      <bpmn:outgoing>Flow_MAP_06</bpmn:outgoing>
+      <bpmn:incoming>Flow_MAP_11</bpmn:incoming>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_CheckMapping" name="Validate exact mapping revision">
+      <bpmn:incoming>Flow_MAP_06</bpmn:incoming>
+      <bpmn:outgoing>Flow_MAP_07</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Task_Impact" name="Publish transformation impact">
+      <bpmn:incoming>Flow_MAP_07</bpmn:incoming>
+      <bpmn:outgoing>Flow_MAP_08</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="Task_ReviewImpact" name="Review findings and rule effects">
+      <bpmn:incoming>Flow_MAP_08</bpmn:incoming>
+      <bpmn:outgoing>Flow_MAP_09</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_MappingValid" name="Blocking finding?">
+      <bpmn:incoming>Flow_MAP_09</bpmn:incoming>
+      <bpmn:outgoing>Flow_MAP_10</bpmn:outgoing>
+      <bpmn:outgoing>Flow_MAP_12</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_ReviseMapping" name="Revise mapping">
+      <bpmn:incoming>Flow_MAP_10</bpmn:incoming>
+      <bpmn:outgoing>Flow_MAP_11</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="Task_ConfirmMapping" name="Confirm field matches">
+      <bpmn:incoming>Flow_MAP_12</bpmn:incoming>
+      <bpmn:outgoing>Flow_MAP_13</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_PublishMapping" name="Publish immutable confirmed revision">
+      <bpmn:incoming>Flow_MAP_13</bpmn:incoming>
+      <bpmn:outgoing>Flow_MAP_14</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_Match" name="Match data complete">
+      <bpmn:incoming>Flow_MAP_14</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_MAP_01" sourceRef="Start_Match" targetRef="Task_DatasetMode" />
+    <bpmn:sequenceFlow id="Flow_MAP_02" sourceRef="Task_DatasetMode" targetRef="Task_MapFields" />
+    <bpmn:sequenceFlow id="Flow_MAP_03" sourceRef="Task_MapFields" targetRef="Task_MapRules" />
+    <bpmn:sequenceFlow id="Flow_MAP_04" sourceRef="Task_MapRules" targetRef="Task_MapRelations" />
+    <bpmn:sequenceFlow id="Flow_MAP_05" sourceRef="Task_MapRelations" targetRef="Task_SaveDraft" />
+    <bpmn:sequenceFlow id="Flow_MAP_06" sourceRef="Task_SaveDraft" targetRef="Task_CheckMapping" />
+    <bpmn:sequenceFlow id="Flow_MAP_07" sourceRef="Task_CheckMapping" targetRef="Task_Impact" />
+    <bpmn:sequenceFlow id="Flow_MAP_08" sourceRef="Task_Impact" targetRef="Task_ReviewImpact" />
+    <bpmn:sequenceFlow id="Flow_MAP_09" sourceRef="Task_ReviewImpact" targetRef="Gateway_MappingValid" />
+    <bpmn:sequenceFlow id="Flow_MAP_10" sourceRef="Gateway_MappingValid" targetRef="Task_ReviseMapping" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_MAP_11" sourceRef="Task_ReviseMapping" targetRef="Task_SaveDraft" name="Recheck" />
+    <bpmn:sequenceFlow id="Flow_MAP_12" sourceRef="Gateway_MappingValid" targetRef="Task_ConfirmMapping" name="No" />
+    <bpmn:sequenceFlow id="Flow_MAP_13" sourceRef="Task_ConfirmMapping" targetRef="Task_PublishMapping" />
+    <bpmn:sequenceFlow id="Flow_MAP_14" sourceRef="Task_PublishMapping" targetRef="End_Match" />
+  </bpmn:process>
+  <bpmn:collaboration id="Collaboration_Process_MatchData">
+    <bpmn:participant id="Participant_Process_MatchData" name="Match data" processRef="Process_MatchData" />
+  </bpmn:collaboration>
+  <bpmndi:BPMNDiagram id="Diagram_Process_MatchData">
+    <bpmndi:BPMNPlane id="Plane_Process_MatchData" bpmnElement="Collaboration_Process_MatchData">
+      <bpmndi:BPMNShape id="Shape_Participant_Process_MatchData" bpmnElement="Participant_Process_MatchData" isHorizontal="true">
+        <dc:Bounds x="30" y="50" width="2466" height="470" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_DataManager" bpmnElement="Lane_DataManager" isHorizontal="true">
+        <dc:Bounds x="60" y="50" width="2436" height="230" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_Impodo" bpmnElement="Lane_Impodo" isHorizontal="true">
+        <dc:Bounds x="60" y="280" width="2436" height="240" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_Match" bpmnElement="Start_Match">
+        <dc:Bounds x="140" y="130" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_DatasetMode" bpmnElement="Task_DatasetMode">
+        <dc:Bounds x="210" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_MapFields" bpmnElement="Task_MapFields">
+        <dc:Bounds x="410" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_MapRules" bpmnElement="Task_MapRules">
+        <dc:Bounds x="610" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_MapRelations" bpmnElement="Task_MapRelations">
+        <dc:Bounds x="810" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_SaveDraft" bpmnElement="Task_SaveDraft">
+        <dc:Bounds x="1010" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_CheckMapping" bpmnElement="Task_CheckMapping">
+        <dc:Bounds x="1210" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_Impact" bpmnElement="Task_Impact">
+        <dc:Bounds x="1410" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReviewImpact" bpmnElement="Task_ReviewImpact">
+        <dc:Bounds x="1610" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_MappingValid" bpmnElement="Gateway_MappingValid" isMarkerVisible="true">
+        <dc:Bounds x="1820" y="120" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReviseMapping" bpmnElement="Task_ReviseMapping">
+        <dc:Bounds x="1780" y="210" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ConfirmMapping" bpmnElement="Task_ConfirmMapping">
+        <dc:Bounds x="1930" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_PublishMapping" bpmnElement="Task_PublishMapping">
+        <dc:Bounds x="2130" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_Match" bpmnElement="End_Match">
+        <dc:Bounds x="2330" y="347" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_01" bpmnElement="Flow_MAP_01">
+        <di:waypoint x="176" y="148" />
+        <di:waypoint x="210" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_02" bpmnElement="Flow_MAP_02">
+        <di:waypoint x="360" y="145" />
+        <di:waypoint x="410" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_03" bpmnElement="Flow_MAP_03">
+        <di:waypoint x="560" y="145" />
+        <di:waypoint x="610" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_04" bpmnElement="Flow_MAP_04">
+        <di:waypoint x="760" y="145" />
+        <di:waypoint x="810" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_05" bpmnElement="Flow_MAP_05">
+        <di:waypoint x="960" y="145" />
+        <di:waypoint x="1010" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_06" bpmnElement="Flow_MAP_06">
+        <di:waypoint x="1160" y="145" />
+        <di:waypoint x="1210" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_07" bpmnElement="Flow_MAP_07">
+        <di:waypoint x="1360" y="365" />
+        <di:waypoint x="1410" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_08" bpmnElement="Flow_MAP_08">
+        <di:waypoint x="1560" y="365" />
+        <di:waypoint x="1610" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_09" bpmnElement="Flow_MAP_09">
+        <di:waypoint x="1760" y="145" />
+        <di:waypoint x="1820" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_10" bpmnElement="Flow_MAP_10">
+        <di:waypoint x="1870" y="145" />
+        <di:waypoint x="1895" y="325" />
+        <di:waypoint x="1755" y="325" />
+        <di:waypoint x="1780" y="245" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_11" bpmnElement="Flow_MAP_11">
+        <di:waypoint x="1780" y="245" />
+        <di:waypoint x="1520" y="245" />
+        <di:waypoint x="1520" y="70" />
+        <di:waypoint x="1085" y="70" />
+        <di:waypoint x="1085" y="110" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_12" bpmnElement="Flow_MAP_12">
+        <di:waypoint x="1870" y="145" />
+        <di:waypoint x="1930" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_13" bpmnElement="Flow_MAP_13">
+        <di:waypoint x="2080" y="145" />
+        <di:waypoint x="2130" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_MAP_14" bpmnElement="Flow_MAP_14">
+        <di:waypoint x="2280" y="365" />
+        <di:waypoint x="2330" y="365" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

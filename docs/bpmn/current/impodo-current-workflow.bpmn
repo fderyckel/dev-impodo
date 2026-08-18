@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Process_ImpodoCurrentWorkflow" targetNamespace="https://impodo.dev/bpmn/current" exporter="Impodo documentation generator" exporterVersion="1.0">
+  <bpmn:process id="Process_ImpodoCurrentWorkflow" name="Impodo current browser workflow" isExecutable="false">
+    <bpmn:documentation>High-level current workflow. File-source projects continue through mapping, preparation, final review, disposable-target loading, and reconciliation. Odoo-source projects currently stop after bounded source capture.</bpmn:documentation>
+    <bpmn:startEvent id="Start_Current" name="Migration project needed">
+      <bpmn:outgoing>Flow_M_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:callActivity id="Call_Setup" name="Project setup" calledElement="Process_ProjectSetup">
+      <bpmn:incoming>Flow_M_01</bpmn:incoming>
+      <bpmn:outgoing>Flow_M_02</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:exclusiveGateway id="Gateway_SourceMode" name="Source mode?">
+      <bpmn:incoming>Flow_M_02</bpmn:incoming>
+      <bpmn:outgoing>Flow_M_03</bpmn:outgoing>
+      <bpmn:outgoing>Flow_M_10</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:callActivity id="Call_FileSource" name="Source data" calledElement="Process_SourceData">
+      <bpmn:incoming>Flow_M_03</bpmn:incoming>
+      <bpmn:outgoing>Flow_M_04</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:callActivity id="Call_FileOdooData" name="Odoo data" calledElement="Process_OdooData">
+      <bpmn:incoming>Flow_M_04</bpmn:incoming>
+      <bpmn:outgoing>Flow_M_05</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:callActivity id="Call_Match" name="Match data" calledElement="Process_MatchData">
+      <bpmn:incoming>Flow_M_05</bpmn:incoming>
+      <bpmn:outgoing>Flow_M_06</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:callActivity id="Call_Prepare" name="Prepare data" calledElement="Process_PrepareData">
+      <bpmn:incoming>Flow_M_06</bpmn:incoming>
+      <bpmn:outgoing>Flow_M_07</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:callActivity id="Call_Review" name="Final review" calledElement="Process_FinalReview">
+      <bpmn:incoming>Flow_M_07</bpmn:incoming>
+      <bpmn:outgoing>Flow_M_08</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:callActivity id="Call_Load" name="Load into Odoo" calledElement="Process_LoadOdoo">
+      <bpmn:incoming>Flow_M_08</bpmn:incoming>
+      <bpmn:outgoing>Flow_M_09</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:endEvent id="End_File" name="Reconciled or needs attention">
+      <bpmn:incoming>Flow_M_09</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:callActivity id="Call_OdooDataSource" name="Odoo source data" calledElement="Process_OdooData">
+      <bpmn:incoming>Flow_M_10</bpmn:incoming>
+      <bpmn:outgoing>Flow_M_11</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:callActivity id="Call_OdooCapture" name="Freeze Odoo records" calledElement="Process_SourceData">
+      <bpmn:incoming>Flow_M_11</bpmn:incoming>
+      <bpmn:outgoing>Flow_M_12</bpmn:outgoing>
+    </bpmn:callActivity>
+    <bpmn:endEvent id="End_OdooBoundary" name="Current Odoo-source boundary">
+      <bpmn:incoming>Flow_M_12</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_M_01" sourceRef="Start_Current" targetRef="Call_Setup" />
+    <bpmn:sequenceFlow id="Flow_M_02" sourceRef="Call_Setup" targetRef="Gateway_SourceMode" />
+    <bpmn:sequenceFlow id="Flow_M_03" sourceRef="Gateway_SourceMode" targetRef="Call_FileSource" name="Files" />
+    <bpmn:sequenceFlow id="Flow_M_04" sourceRef="Call_FileSource" targetRef="Call_FileOdooData" />
+    <bpmn:sequenceFlow id="Flow_M_05" sourceRef="Call_FileOdooData" targetRef="Call_Match" />
+    <bpmn:sequenceFlow id="Flow_M_06" sourceRef="Call_Match" targetRef="Call_Prepare" />
+    <bpmn:sequenceFlow id="Flow_M_07" sourceRef="Call_Prepare" targetRef="Call_Review" />
+    <bpmn:sequenceFlow id="Flow_M_08" sourceRef="Call_Review" targetRef="Call_Load" />
+    <bpmn:sequenceFlow id="Flow_M_09" sourceRef="Call_Load" targetRef="End_File" />
+    <bpmn:sequenceFlow id="Flow_M_10" sourceRef="Gateway_SourceMode" targetRef="Call_OdooDataSource" name="Odoo" />
+    <bpmn:sequenceFlow id="Flow_M_11" sourceRef="Call_OdooDataSource" targetRef="Call_OdooCapture" />
+    <bpmn:sequenceFlow id="Flow_M_12" sourceRef="Call_OdooCapture" targetRef="End_OdooBoundary" />
+  </bpmn:process>
+  <bpmn:collaboration id="Collaboration_Process_ImpodoCurrentWorkflow">
+    <bpmn:participant id="Participant_Process_ImpodoCurrentWorkflow" name="Impodo current browser workflow" processRef="Process_ImpodoCurrentWorkflow" />
+  </bpmn:collaboration>
+  <bpmndi:BPMNDiagram id="Diagram_Process_ImpodoCurrentWorkflow">
+    <bpmndi:BPMNPlane id="Plane_Process_ImpodoCurrentWorkflow" bpmnElement="Collaboration_Process_ImpodoCurrentWorkflow">
+      <bpmndi:BPMNShape id="Shape_Participant_Process_ImpodoCurrentWorkflow" bpmnElement="Participant_Process_ImpodoCurrentWorkflow" isHorizontal="true">
+        <dc:Bounds x="30" y="50" width="1956" height="410" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_Current" bpmnElement="Start_Current">
+        <dc:Bounds x="80" y="190" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Call_Setup" bpmnElement="Call_Setup">
+        <dc:Bounds x="160" y="168" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_SourceMode" bpmnElement="Gateway_SourceMode" isMarkerVisible="true">
+        <dc:Bounds x="380" y="183" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Call_FileSource" bpmnElement="Call_FileSource">
+        <dc:Bounds x="500" y="80" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Call_FileOdooData" bpmnElement="Call_FileOdooData">
+        <dc:Bounds x="720" y="80" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Call_Match" bpmnElement="Call_Match">
+        <dc:Bounds x="940" y="80" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Call_Prepare" bpmnElement="Call_Prepare">
+        <dc:Bounds x="1160" y="80" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Call_Review" bpmnElement="Call_Review">
+        <dc:Bounds x="1380" y="80" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Call_Load" bpmnElement="Call_Load">
+        <dc:Bounds x="1600" y="80" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_File" bpmnElement="End_File">
+        <dc:Bounds x="1820" y="102" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Call_OdooDataSource" bpmnElement="Call_OdooDataSource">
+        <dc:Bounds x="500" y="290" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Call_OdooCapture" bpmnElement="Call_OdooCapture">
+        <dc:Bounds x="740" y="290" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_OdooBoundary" bpmnElement="End_OdooBoundary">
+        <dc:Bounds x="980" y="312" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_M_01" bpmnElement="Flow_M_01">
+        <di:waypoint x="116" y="208" />
+        <di:waypoint x="160" y="208" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_M_02" bpmnElement="Flow_M_02">
+        <di:waypoint x="330" y="208" />
+        <di:waypoint x="380" y="208" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_M_03" bpmnElement="Flow_M_03">
+        <di:waypoint x="430" y="208" />
+        <di:waypoint x="500" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_M_04" bpmnElement="Flow_M_04">
+        <di:waypoint x="670" y="120" />
+        <di:waypoint x="720" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_M_05" bpmnElement="Flow_M_05">
+        <di:waypoint x="890" y="120" />
+        <di:waypoint x="940" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_M_06" bpmnElement="Flow_M_06">
+        <di:waypoint x="1110" y="120" />
+        <di:waypoint x="1160" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_M_07" bpmnElement="Flow_M_07">
+        <di:waypoint x="1330" y="120" />
+        <di:waypoint x="1380" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_M_08" bpmnElement="Flow_M_08">
+        <di:waypoint x="1550" y="120" />
+        <di:waypoint x="1600" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_M_09" bpmnElement="Flow_M_09">
+        <di:waypoint x="1770" y="120" />
+        <di:waypoint x="1820" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_M_10" bpmnElement="Flow_M_10">
+        <di:waypoint x="405" y="233" />
+        <di:waypoint x="405" y="330" />
+        <di:waypoint x="500" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_M_11" bpmnElement="Flow_M_11">
+        <di:waypoint x="670" y="330" />
+        <di:waypoint x="740" y="330" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_M_12" bpmnElement="Flow_M_12">
+        <di:waypoint x="910" y="330" />
+        <di:waypoint x="980" y="330" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -1,0 +1,369 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Process_LoadOdoo" targetNamespace="https://impodo.dev/bpmn/current" exporter="Impodo documentation generator" exporterVersion="1.0">
+  <bpmn:process id="Process_LoadOdoo" name="Load into Odoo" isExecutable="false">
+    <bpmn:documentation>Current disposable-target execution and read-back reconciliation workflow.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_LoadOdoo">
+      <bpmn:lane id="Lane_DataManager" name="Data manager">
+        <bpmn:flowNodeRef>Start_Load</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReviewLoad</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ExplicitLoad</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Fallout</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_Fallout</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Impodo" name="Impodo">
+        <bpmn:flowNodeRef>Task_ShowPreview</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Writes</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_NoWrite</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_NoWrite</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Revalidate</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Current</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_Stale</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Journal</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Write</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Transport</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RecordAccepted</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RecordRejected</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RecordUnknown</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_MoreBatches</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReadBack</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Reconcile</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Verified</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_Reconciled</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="Start_Load" name="Current READY report">
+      <bpmn:outgoing>Flow_LOAD_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="Task_ShowPreview" name="Show target, hash, totals, fields, and dependency order">
+      <bpmn:incoming>Flow_LOAD_01</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_02</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_Writes" name="Any writes?">
+      <bpmn:incoming>Flow_LOAD_02</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_03</bpmn:outgoing>
+      <bpmn:outgoing>Flow_LOAD_05</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="Task_NoWrite" name="Record unchanged completion">
+      <bpmn:incoming>Flow_LOAD_03</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_04</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_NoWrite" name="Complete; no writes">
+      <bpmn:incoming>Flow_LOAD_04</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="Task_ReviewLoad" name="Review preview and provide separate write key">
+      <bpmn:incoming>Flow_LOAD_05</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_06</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="Task_ExplicitLoad" name="Select Load into Odoo once">
+      <bpmn:incoming>Flow_LOAD_06</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_07</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_Revalidate" name="Revalidate snapshot, target, actor, permissions, and key bindings">
+      <bpmn:incoming>Flow_LOAD_07</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_08</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_Current" name="All bindings current?">
+      <bpmn:incoming>Flow_LOAD_08</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_09</bpmn:outgoing>
+      <bpmn:outgoing>Flow_LOAD_10</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="End_Stale" name="Stop before target I/O">
+      <bpmn:incoming>Flow_LOAD_09</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_Journal" name="Commit run and planned row attempts">
+      <bpmn:incoming>Flow_LOAD_10</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_11</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Task_Write" name="Execute bounded dependency-ordered write batch">
+      <bpmn:incoming>Flow_LOAD_11</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_12</bpmn:outgoing>
+      <bpmn:incoming>Flow_LOAD_19</bpmn:incoming>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_Transport" name="Transport outcome?">
+      <bpmn:incoming>Flow_LOAD_12</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_13</bpmn:outgoing>
+      <bpmn:outgoing>Flow_LOAD_14</bpmn:outgoing>
+      <bpmn:outgoing>Flow_LOAD_15</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="Task_RecordAccepted" name="Record accepted result">
+      <bpmn:incoming>Flow_LOAD_13</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_16</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Task_RecordRejected" name="Record rejected or partial result">
+      <bpmn:incoming>Flow_LOAD_14</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_17</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Task_RecordUnknown" name="Record outcome unknown and stop later writes">
+      <bpmn:incoming>Flow_LOAD_15</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_18</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_MoreBatches" name="More reviewed batches?">
+      <bpmn:incoming>Flow_LOAD_16</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_19</bpmn:outgoing>
+      <bpmn:outgoing>Flow_LOAD_20</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="Task_ReadBack" name="Read back exact affected records">
+      <bpmn:incoming>Flow_LOAD_17</bpmn:incoming>
+      <bpmn:incoming>Flow_LOAD_18</bpmn:incoming>
+      <bpmn:incoming>Flow_LOAD_20</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_21</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Task_Reconcile" name="Publish immutable reconciliation result">
+      <bpmn:incoming>Flow_LOAD_21</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_22</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_Verified" name="Expected target state proved?">
+      <bpmn:incoming>Flow_LOAD_22</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_23</bpmn:outgoing>
+      <bpmn:outgoing>Flow_LOAD_24</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="End_Reconciled" name="Reconciled complete">
+      <bpmn:incoming>Flow_LOAD_23</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="Task_Fallout" name="Review fallout; do not blindly retry">
+      <bpmn:incoming>Flow_LOAD_24</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_25</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="End_Fallout" name="Needs attention">
+      <bpmn:incoming>Flow_LOAD_25</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_LOAD_01" sourceRef="Start_Load" targetRef="Task_ShowPreview" />
+    <bpmn:sequenceFlow id="Flow_LOAD_02" sourceRef="Task_ShowPreview" targetRef="Gateway_Writes" />
+    <bpmn:sequenceFlow id="Flow_LOAD_03" sourceRef="Gateway_Writes" targetRef="Task_NoWrite" name="No" />
+    <bpmn:sequenceFlow id="Flow_LOAD_04" sourceRef="Task_NoWrite" targetRef="End_NoWrite" />
+    <bpmn:sequenceFlow id="Flow_LOAD_05" sourceRef="Gateway_Writes" targetRef="Task_ReviewLoad" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_LOAD_06" sourceRef="Task_ReviewLoad" targetRef="Task_ExplicitLoad" />
+    <bpmn:sequenceFlow id="Flow_LOAD_07" sourceRef="Task_ExplicitLoad" targetRef="Task_Revalidate" />
+    <bpmn:sequenceFlow id="Flow_LOAD_08" sourceRef="Task_Revalidate" targetRef="Gateway_Current" />
+    <bpmn:sequenceFlow id="Flow_LOAD_09" sourceRef="Gateway_Current" targetRef="End_Stale" name="No" />
+    <bpmn:sequenceFlow id="Flow_LOAD_10" sourceRef="Gateway_Current" targetRef="Task_Journal" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_LOAD_11" sourceRef="Task_Journal" targetRef="Task_Write" />
+    <bpmn:sequenceFlow id="Flow_LOAD_12" sourceRef="Task_Write" targetRef="Gateway_Transport" />
+    <bpmn:sequenceFlow id="Flow_LOAD_13" sourceRef="Gateway_Transport" targetRef="Task_RecordAccepted" name="Accepted" />
+    <bpmn:sequenceFlow id="Flow_LOAD_14" sourceRef="Gateway_Transport" targetRef="Task_RecordRejected" name="Rejected or partial" />
+    <bpmn:sequenceFlow id="Flow_LOAD_15" sourceRef="Gateway_Transport" targetRef="Task_RecordUnknown" name="Timeout or lost response" />
+    <bpmn:sequenceFlow id="Flow_LOAD_16" sourceRef="Task_RecordAccepted" targetRef="Gateway_MoreBatches" />
+    <bpmn:sequenceFlow id="Flow_LOAD_17" sourceRef="Task_RecordRejected" targetRef="Task_ReadBack" />
+    <bpmn:sequenceFlow id="Flow_LOAD_18" sourceRef="Task_RecordUnknown" targetRef="Task_ReadBack" />
+    <bpmn:sequenceFlow id="Flow_LOAD_19" sourceRef="Gateway_MoreBatches" targetRef="Task_Write" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_LOAD_20" sourceRef="Gateway_MoreBatches" targetRef="Task_ReadBack" name="No" />
+    <bpmn:sequenceFlow id="Flow_LOAD_21" sourceRef="Task_ReadBack" targetRef="Task_Reconcile" />
+    <bpmn:sequenceFlow id="Flow_LOAD_22" sourceRef="Task_Reconcile" targetRef="Gateway_Verified" />
+    <bpmn:sequenceFlow id="Flow_LOAD_23" sourceRef="Gateway_Verified" targetRef="End_Reconciled" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_LOAD_24" sourceRef="Gateway_Verified" targetRef="Task_Fallout" name="No" />
+    <bpmn:sequenceFlow id="Flow_LOAD_25" sourceRef="Task_Fallout" targetRef="End_Fallout" />
+  </bpmn:process>
+  <bpmn:collaboration id="Collaboration_Process_LoadOdoo">
+    <bpmn:participant id="Participant_Process_LoadOdoo" name="Load into Odoo" processRef="Process_LoadOdoo" />
+    <bpmn:participant id="Participant_Odoo" name="Exact Odoo 19 target" />
+    <bpmn:messageFlow id="Message_LOAD_Write" name="Supported Odoo 19 API write" sourceRef="Task_Write" targetRef="Participant_Odoo" />
+    <bpmn:messageFlow id="Message_LOAD_WriteResponse" name="Write response" sourceRef="Participant_Odoo" targetRef="Task_Write" />
+    <bpmn:messageFlow id="Message_LOAD_ReadBack" name="Read exact affected scope" sourceRef="Task_ReadBack" targetRef="Participant_Odoo" />
+    <bpmn:messageFlow id="Message_LOAD_ReadBackResponse" name="Current record state" sourceRef="Participant_Odoo" targetRef="Task_ReadBack" />
+  </bpmn:collaboration>
+  <bpmndi:BPMNDiagram id="Diagram_Process_LoadOdoo">
+    <bpmndi:BPMNPlane id="Plane_Process_LoadOdoo" bpmnElement="Collaboration_Process_LoadOdoo">
+      <bpmndi:BPMNShape id="Shape_Participant_Process_LoadOdoo" bpmnElement="Participant_Process_LoadOdoo" isHorizontal="true">
+        <dc:Bounds x="30" y="50" width="2946" height="470" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_DataManager" bpmnElement="Lane_DataManager" isHorizontal="true">
+        <dc:Bounds x="60" y="50" width="2916" height="230" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_Impodo" bpmnElement="Lane_Impodo" isHorizontal="true">
+        <dc:Bounds x="60" y="280" width="2916" height="240" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_Load" bpmnElement="Start_Load">
+        <dc:Bounds x="140" y="130" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ShowPreview" bpmnElement="Task_ShowPreview">
+        <dc:Bounds x="210" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_Writes" bpmnElement="Gateway_Writes" isMarkerVisible="true">
+        <dc:Bounds x="420" y="340" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_NoWrite" bpmnElement="Task_NoWrite">
+        <dc:Bounds x="530" y="420" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_NoWrite" bpmnElement="End_NoWrite">
+        <dc:Bounds x="730" y="437" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReviewLoad" bpmnElement="Task_ReviewLoad">
+        <dc:Bounds x="530" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ExplicitLoad" bpmnElement="Task_ExplicitLoad">
+        <dc:Bounds x="730" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_Revalidate" bpmnElement="Task_Revalidate">
+        <dc:Bounds x="930" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_Current" bpmnElement="Gateway_Current" isMarkerVisible="true">
+        <dc:Bounds x="1140" y="340" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_Stale" bpmnElement="End_Stale">
+        <dc:Bounds x="1100" y="437" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_Journal" bpmnElement="Task_Journal">
+        <dc:Bounds x="1250" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_Write" bpmnElement="Task_Write">
+        <dc:Bounds x="1450" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_Transport" bpmnElement="Gateway_Transport" isMarkerVisible="true">
+        <dc:Bounds x="1660" y="340" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_RecordAccepted" bpmnElement="Task_RecordAccepted">
+        <dc:Bounds x="1770" y="300" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_RecordRejected" bpmnElement="Task_RecordRejected">
+        <dc:Bounds x="1770" y="390" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_RecordUnknown" bpmnElement="Task_RecordUnknown">
+        <dc:Bounds x="1770" y="210" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_MoreBatches" bpmnElement="Gateway_MoreBatches" isMarkerVisible="true">
+        <dc:Bounds x="1980" y="340" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReadBack" bpmnElement="Task_ReadBack">
+        <dc:Bounds x="2110" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_Reconcile" bpmnElement="Task_Reconcile">
+        <dc:Bounds x="2310" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_Verified" bpmnElement="Gateway_Verified" isMarkerVisible="true">
+        <dc:Bounds x="2520" y="340" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_Reconciled" bpmnElement="End_Reconciled">
+        <dc:Bounds x="2660" y="287" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_Fallout" bpmnElement="Task_Fallout">
+        <dc:Bounds x="2600" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_Fallout" bpmnElement="End_Fallout">
+        <dc:Bounds x="2810" y="127" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_01" bpmnElement="Flow_LOAD_01">
+        <di:waypoint x="176" y="148" />
+        <di:waypoint x="210" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_02" bpmnElement="Flow_LOAD_02">
+        <di:waypoint x="360" y="365" />
+        <di:waypoint x="420" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_03" bpmnElement="Flow_LOAD_03">
+        <di:waypoint x="470" y="365" />
+        <di:waypoint x="530" y="455" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_04" bpmnElement="Flow_LOAD_04">
+        <di:waypoint x="680" y="455" />
+        <di:waypoint x="730" y="455" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_05" bpmnElement="Flow_LOAD_05">
+        <di:waypoint x="470" y="365" />
+        <di:waypoint x="530" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_06" bpmnElement="Flow_LOAD_06">
+        <di:waypoint x="680" y="145" />
+        <di:waypoint x="730" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_07" bpmnElement="Flow_LOAD_07">
+        <di:waypoint x="880" y="145" />
+        <di:waypoint x="930" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_08" bpmnElement="Flow_LOAD_08">
+        <di:waypoint x="1080" y="365" />
+        <di:waypoint x="1140" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_09" bpmnElement="Flow_LOAD_09">
+        <di:waypoint x="1190" y="365" />
+        <di:waypoint x="1215" y="518" />
+        <di:waypoint x="1075" y="518" />
+        <di:waypoint x="1100" y="455" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_10" bpmnElement="Flow_LOAD_10">
+        <di:waypoint x="1190" y="365" />
+        <di:waypoint x="1250" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_11" bpmnElement="Flow_LOAD_11">
+        <di:waypoint x="1400" y="365" />
+        <di:waypoint x="1450" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_12" bpmnElement="Flow_LOAD_12">
+        <di:waypoint x="1600" y="365" />
+        <di:waypoint x="1660" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_13" bpmnElement="Flow_LOAD_13">
+        <di:waypoint x="1710" y="365" />
+        <di:waypoint x="1770" y="335" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_14" bpmnElement="Flow_LOAD_14">
+        <di:waypoint x="1710" y="365" />
+        <di:waypoint x="1770" y="425" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_15" bpmnElement="Flow_LOAD_15">
+        <di:waypoint x="1710" y="365" />
+        <di:waypoint x="1770" y="245" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_16" bpmnElement="Flow_LOAD_16">
+        <di:waypoint x="1920" y="335" />
+        <di:waypoint x="1980" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_17" bpmnElement="Flow_LOAD_17">
+        <di:waypoint x="1920" y="425" />
+        <di:waypoint x="2110" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_18" bpmnElement="Flow_LOAD_18">
+        <di:waypoint x="1920" y="245" />
+        <di:waypoint x="2110" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_19" bpmnElement="Flow_LOAD_19">
+        <di:waypoint x="2005" y="390" />
+        <di:waypoint x="2005" y="505" />
+        <di:waypoint x="1525" y="505" />
+        <di:waypoint x="1525" y="400" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_20" bpmnElement="Flow_LOAD_20">
+        <di:waypoint x="2030" y="365" />
+        <di:waypoint x="2110" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_21" bpmnElement="Flow_LOAD_21">
+        <di:waypoint x="2260" y="365" />
+        <di:waypoint x="2310" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_22" bpmnElement="Flow_LOAD_22">
+        <di:waypoint x="2460" y="365" />
+        <di:waypoint x="2520" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_23" bpmnElement="Flow_LOAD_23">
+        <di:waypoint x="2570" y="365" />
+        <di:waypoint x="2660" y="305" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_24" bpmnElement="Flow_LOAD_24">
+        <di:waypoint x="2570" y="365" />
+        <di:waypoint x="2600" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_25" bpmnElement="Flow_LOAD_25">
+        <di:waypoint x="2750" y="145" />
+        <di:waypoint x="2810" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_Participant_Odoo" bpmnElement="Participant_Odoo" isHorizontal="true">
+        <dc:Bounds x="30" y="560" width="2946" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Message_LOAD_Write" bpmnElement="Message_LOAD_Write">
+        <di:waypoint x="1475" y="400" />
+        <di:waypoint x="1475" y="560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Message_LOAD_WriteResponse" bpmnElement="Message_LOAD_WriteResponse">
+        <di:waypoint x="1575" y="560" />
+        <di:waypoint x="1575" y="400" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Message_LOAD_ReadBack" bpmnElement="Message_LOAD_ReadBack">
+        <di:waypoint x="2135" y="400" />
+        <di:waypoint x="2135" y="560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Message_LOAD_ReadBackResponse" bpmnElement="Message_LOAD_ReadBackResponse">
+        <di:waypoint x="2235" y="560" />
+        <di:waypoint x="2235" y="400" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

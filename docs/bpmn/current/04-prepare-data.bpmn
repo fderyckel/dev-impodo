@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Process_PrepareData" targetNamespace="https://impodo.dev/bpmn/current" exporter="Impodo documentation generator" exporterVersion="1.0">
+  <bpmn:process id="Process_PrepareData" name="Prepare data" isExecutable="false">
+    <bpmn:documentation>Current canonical preparation, quality, duplicate resolution, normalization, and approval workflow.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_PrepareData">
+      <bpmn:lane id="Lane_DataManager" name="Data manager">
+        <bpmn:flowNodeRef>Start_Prepare</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_StartPrepare</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_InspectFailure</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReviewPrepare</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_ResolutionNeeded</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Resolve</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ApprovePrepared</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Impodo" name="Impodo">
+        <bpmn:flowNodeRef>Task_RunPrepare</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_JobOutcome</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PublishCanonical</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Quality</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Reprepare</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_FreezePrepared</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_Prepare</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="Start_Prepare" name="Confirmed mapping current">
+      <bpmn:outgoing>Flow_PREP_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="Task_StartPrepare" name="Select Prepare data">
+      <bpmn:incoming>Flow_PREP_01</bpmn:incoming>
+      <bpmn:outgoing>Flow_PREP_02</bpmn:outgoing>
+      <bpmn:incoming>Flow_PREP_05</bpmn:incoming>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_RunPrepare" name="Prepare every frozen row">
+      <bpmn:incoming>Flow_PREP_02</bpmn:incoming>
+      <bpmn:outgoing>Flow_PREP_03</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_JobOutcome" name="Job outcome?">
+      <bpmn:incoming>Flow_PREP_03</bpmn:incoming>
+      <bpmn:outgoing>Flow_PREP_04</bpmn:outgoing>
+      <bpmn:outgoing>Flow_PREP_06</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_InspectFailure" name="Understand failed or cancelled attempt">
+      <bpmn:incoming>Flow_PREP_04</bpmn:incoming>
+      <bpmn:outgoing>Flow_PREP_05</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_PublishCanonical" name="Publish canonical and prepared evidence">
+      <bpmn:incoming>Flow_PREP_06</bpmn:incoming>
+      <bpmn:outgoing>Flow_PREP_07</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Task_Quality" name="Evaluate quality and complete row accounting">
+      <bpmn:incoming>Flow_PREP_07</bpmn:incoming>
+      <bpmn:outgoing>Flow_PREP_08</bpmn:outgoing>
+      <bpmn:incoming>Flow_PREP_13</bpmn:incoming>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="Task_ReviewPrepare" name="Review totals, warnings, quarantine, and failures">
+      <bpmn:incoming>Flow_PREP_08</bpmn:incoming>
+      <bpmn:outgoing>Flow_PREP_09</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_ResolutionNeeded" name="Resolution required?">
+      <bpmn:incoming>Flow_PREP_09</bpmn:incoming>
+      <bpmn:outgoing>Flow_PREP_10</bpmn:outgoing>
+      <bpmn:outgoing>Flow_PREP_11</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_Resolve" name="Resolve duplicates and normalization decisions">
+      <bpmn:incoming>Flow_PREP_11</bpmn:incoming>
+      <bpmn:outgoing>Flow_PREP_12</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_Reprepare" name="Regenerate affected prepared evidence">
+      <bpmn:incoming>Flow_PREP_12</bpmn:incoming>
+      <bpmn:outgoing>Flow_PREP_13</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="Task_ApprovePrepared" name="Approve resolved prepared data">
+      <bpmn:incoming>Flow_PREP_10</bpmn:incoming>
+      <bpmn:outgoing>Flow_PREP_15</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_FreezePrepared" name="Advance current prepared pointer">
+      <bpmn:incoming>Flow_PREP_15</bpmn:incoming>
+      <bpmn:outgoing>Flow_PREP_16</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_Prepare" name="Prepare data complete">
+      <bpmn:incoming>Flow_PREP_16</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_PREP_01" sourceRef="Start_Prepare" targetRef="Task_StartPrepare" />
+    <bpmn:sequenceFlow id="Flow_PREP_02" sourceRef="Task_StartPrepare" targetRef="Task_RunPrepare" />
+    <bpmn:sequenceFlow id="Flow_PREP_03" sourceRef="Task_RunPrepare" targetRef="Gateway_JobOutcome" />
+    <bpmn:sequenceFlow id="Flow_PREP_04" sourceRef="Gateway_JobOutcome" targetRef="Task_InspectFailure" name="Failed or cancelled" />
+    <bpmn:sequenceFlow id="Flow_PREP_05" sourceRef="Task_InspectFailure" targetRef="Task_StartPrepare" name="Retry after understanding" />
+    <bpmn:sequenceFlow id="Flow_PREP_06" sourceRef="Gateway_JobOutcome" targetRef="Task_PublishCanonical" name="Succeeded" />
+    <bpmn:sequenceFlow id="Flow_PREP_07" sourceRef="Task_PublishCanonical" targetRef="Task_Quality" />
+    <bpmn:sequenceFlow id="Flow_PREP_08" sourceRef="Task_Quality" targetRef="Task_ReviewPrepare" />
+    <bpmn:sequenceFlow id="Flow_PREP_09" sourceRef="Task_ReviewPrepare" targetRef="Gateway_ResolutionNeeded" />
+    <bpmn:sequenceFlow id="Flow_PREP_10" sourceRef="Gateway_ResolutionNeeded" targetRef="Task_ApprovePrepared" name="No" />
+    <bpmn:sequenceFlow id="Flow_PREP_11" sourceRef="Gateway_ResolutionNeeded" targetRef="Task_Resolve" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_PREP_12" sourceRef="Task_Resolve" targetRef="Task_Reprepare" />
+    <bpmn:sequenceFlow id="Flow_PREP_13" sourceRef="Task_Reprepare" targetRef="Task_Quality" name="Re-evaluate" />
+    <bpmn:sequenceFlow id="Flow_PREP_15" sourceRef="Task_ApprovePrepared" targetRef="Task_FreezePrepared" />
+    <bpmn:sequenceFlow id="Flow_PREP_16" sourceRef="Task_FreezePrepared" targetRef="End_Prepare" />
+  </bpmn:process>
+  <bpmn:collaboration id="Collaboration_Process_PrepareData">
+    <bpmn:participant id="Participant_Process_PrepareData" name="Prepare data" processRef="Process_PrepareData" />
+  </bpmn:collaboration>
+  <bpmndi:BPMNDiagram id="Diagram_Process_PrepareData">
+    <bpmndi:BPMNPlane id="Plane_Process_PrepareData" bpmnElement="Collaboration_Process_PrepareData">
+      <bpmndi:BPMNShape id="Shape_Participant_Process_PrepareData" bpmnElement="Participant_Process_PrepareData" isHorizontal="true">
+        <dc:Bounds x="30" y="50" width="2306" height="470" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_DataManager" bpmnElement="Lane_DataManager" isHorizontal="true">
+        <dc:Bounds x="60" y="50" width="2276" height="230" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_Impodo" bpmnElement="Lane_Impodo" isHorizontal="true">
+        <dc:Bounds x="60" y="280" width="2276" height="240" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_Prepare" bpmnElement="Start_Prepare">
+        <dc:Bounds x="140" y="130" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_StartPrepare" bpmnElement="Task_StartPrepare">
+        <dc:Bounds x="210" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_RunPrepare" bpmnElement="Task_RunPrepare">
+        <dc:Bounds x="410" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_JobOutcome" bpmnElement="Gateway_JobOutcome" isMarkerVisible="true">
+        <dc:Bounds x="620" y="340" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_InspectFailure" bpmnElement="Task_InspectFailure">
+        <dc:Bounds x="580" y="190" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_PublishCanonical" bpmnElement="Task_PublishCanonical">
+        <dc:Bounds x="730" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_Quality" bpmnElement="Task_Quality">
+        <dc:Bounds x="930" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReviewPrepare" bpmnElement="Task_ReviewPrepare">
+        <dc:Bounds x="1150" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_ResolutionNeeded" bpmnElement="Gateway_ResolutionNeeded" isMarkerVisible="true">
+        <dc:Bounds x="1360" y="120" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_Resolve" bpmnElement="Task_Resolve">
+        <dc:Bounds x="1470" y="190" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_Reprepare" bpmnElement="Task_Reprepare">
+        <dc:Bounds x="1670" y="420" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ApprovePrepared" bpmnElement="Task_ApprovePrepared">
+        <dc:Bounds x="1770" y="80" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_FreezePrepared" bpmnElement="Task_FreezePrepared">
+        <dc:Bounds x="1970" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_Prepare" bpmnElement="End_Prepare">
+        <dc:Bounds x="2170" y="347" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_01" bpmnElement="Flow_PREP_01">
+        <di:waypoint x="176" y="148" />
+        <di:waypoint x="210" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_02" bpmnElement="Flow_PREP_02">
+        <di:waypoint x="360" y="145" />
+        <di:waypoint x="410" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_03" bpmnElement="Flow_PREP_03">
+        <di:waypoint x="560" y="365" />
+        <di:waypoint x="620" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_04" bpmnElement="Flow_PREP_04">
+        <di:waypoint x="670" y="365" />
+        <di:waypoint x="695" y="435" />
+        <di:waypoint x="555" y="435" />
+        <di:waypoint x="580" y="225" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_05" bpmnElement="Flow_PREP_05">
+        <di:waypoint x="580" y="225" />
+        <di:waypoint x="500" y="225" />
+        <di:waypoint x="500" y="70" />
+        <di:waypoint x="285" y="70" />
+        <di:waypoint x="285" y="110" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_06" bpmnElement="Flow_PREP_06">
+        <di:waypoint x="670" y="365" />
+        <di:waypoint x="730" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_07" bpmnElement="Flow_PREP_07">
+        <di:waypoint x="880" y="365" />
+        <di:waypoint x="930" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_08" bpmnElement="Flow_PREP_08">
+        <di:waypoint x="1080" y="365" />
+        <di:waypoint x="1150" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_09" bpmnElement="Flow_PREP_09">
+        <di:waypoint x="1300" y="145" />
+        <di:waypoint x="1360" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_10" bpmnElement="Flow_PREP_10">
+        <di:waypoint x="1410" y="145" />
+        <di:waypoint x="1770" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_11" bpmnElement="Flow_PREP_11">
+        <di:waypoint x="1410" y="145" />
+        <di:waypoint x="1470" y="225" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_12" bpmnElement="Flow_PREP_12">
+        <di:waypoint x="1620" y="225" />
+        <di:waypoint x="1670" y="455" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_13" bpmnElement="Flow_PREP_13">
+        <di:waypoint x="1670" y="455" />
+        <di:waypoint x="1570" y="455" />
+        <di:waypoint x="1570" y="500" />
+        <di:waypoint x="1005" y="500" />
+        <di:waypoint x="1005" y="400" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_15" bpmnElement="Flow_PREP_15">
+        <di:waypoint x="1920" y="115" />
+        <di:waypoint x="1970" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_PREP_16" bpmnElement="Flow_PREP_16">
+        <di:waypoint x="2120" y="365" />
+        <di:waypoint x="2170" y="365" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

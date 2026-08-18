@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Process_FinalReview" targetNamespace="https://impodo.dev/bpmn/current" exporter="Impodo documentation generator" exporterVersion="1.0">
+  <bpmn:process id="Process_FinalReview" name="Final review" isExecutable="false">
+    <bpmn:documentation>Current read-only target comparison and execution-snapshot freeze workflow.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_FinalReview">
+      <bpmn:lane id="Lane_DataManager" name="Data manager">
+        <bpmn:flowNodeRef>Start_Review</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CheckRows</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReviewDiffs</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Ready</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Expected</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReturnUpstream</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_NeedsAttention</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Impodo" name="Impodo">
+        <bpmn:flowNodeRef>Task_ReadTarget</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Classify</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_FreezeExecution</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_Ready</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="Start_Review" name="Prepared data complete">
+      <bpmn:outgoing>Flow_REV_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="Task_CheckRows" name="Select Check all rows">
+      <bpmn:incoming>Flow_REV_01</bpmn:incoming>
+      <bpmn:outgoing>Flow_REV_02</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_ReadTarget" name="Read bounded current Odoo evidence">
+      <bpmn:incoming>Flow_REV_02</bpmn:incoming>
+      <bpmn:outgoing>Flow_REV_03</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Task_Classify" name="Match identities and classify every eligible row">
+      <bpmn:incoming>Flow_REV_03</bpmn:incoming>
+      <bpmn:outgoing>Flow_REV_04</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="Task_ReviewDiffs" name="Review totals, field differences, and relationships">
+      <bpmn:incoming>Flow_REV_04</bpmn:incoming>
+      <bpmn:outgoing>Flow_REV_05</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_Ready" name="Rows clear?">
+      <bpmn:incoming>Flow_REV_05</bpmn:incoming>
+      <bpmn:outgoing>Flow_REV_06</bpmn:outgoing>
+      <bpmn:outgoing>Flow_REV_07</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="Gateway_Expected" name="Actions expected?">
+      <bpmn:incoming>Flow_REV_07</bpmn:incoming>
+      <bpmn:outgoing>Flow_REV_08</bpmn:outgoing>
+      <bpmn:outgoing>Flow_REV_10</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_ReturnUpstream" name="Return to earliest affected upstream stage">
+      <bpmn:incoming>Flow_REV_06</bpmn:incoming>
+      <bpmn:incoming>Flow_REV_08</bpmn:incoming>
+      <bpmn:outgoing>Flow_REV_09</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="End_NeedsAttention" name="Needs attention">
+      <bpmn:incoming>Flow_REV_09</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_FreezeExecution" name="Freeze exact actions, fields, dependencies, target, and hashes">
+      <bpmn:incoming>Flow_REV_10</bpmn:incoming>
+      <bpmn:outgoing>Flow_REV_11</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_Ready" name="READY; load stage available">
+      <bpmn:incoming>Flow_REV_11</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_REV_01" sourceRef="Start_Review" targetRef="Task_CheckRows" />
+    <bpmn:sequenceFlow id="Flow_REV_02" sourceRef="Task_CheckRows" targetRef="Task_ReadTarget" />
+    <bpmn:sequenceFlow id="Flow_REV_03" sourceRef="Task_ReadTarget" targetRef="Task_Classify" />
+    <bpmn:sequenceFlow id="Flow_REV_04" sourceRef="Task_Classify" targetRef="Task_ReviewDiffs" />
+    <bpmn:sequenceFlow id="Flow_REV_05" sourceRef="Task_ReviewDiffs" targetRef="Gateway_Ready" />
+    <bpmn:sequenceFlow id="Flow_REV_06" sourceRef="Gateway_Ready" targetRef="Task_ReturnUpstream" name="No" />
+    <bpmn:sequenceFlow id="Flow_REV_07" sourceRef="Gateway_Ready" targetRef="Gateway_Expected" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_REV_08" sourceRef="Gateway_Expected" targetRef="Task_ReturnUpstream" name="No" />
+    <bpmn:sequenceFlow id="Flow_REV_09" sourceRef="Task_ReturnUpstream" targetRef="End_NeedsAttention" />
+    <bpmn:sequenceFlow id="Flow_REV_10" sourceRef="Gateway_Expected" targetRef="Task_FreezeExecution" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_REV_11" sourceRef="Task_FreezeExecution" targetRef="End_Ready" />
+  </bpmn:process>
+  <bpmn:collaboration id="Collaboration_Process_FinalReview">
+    <bpmn:participant id="Participant_Process_FinalReview" name="Final review" processRef="Process_FinalReview" />
+    <bpmn:participant id="Participant_Odoo" name="Exact Odoo 19 target" />
+    <bpmn:messageFlow id="Message_REV_Read" name="Read reviewed model and key scope" sourceRef="Task_ReadTarget" targetRef="Participant_Odoo" />
+    <bpmn:messageFlow id="Message_REV_Response" name="Current target evidence" sourceRef="Participant_Odoo" targetRef="Task_ReadTarget" />
+  </bpmn:collaboration>
+  <bpmndi:BPMNDiagram id="Diagram_Process_FinalReview">
+    <bpmndi:BPMNPlane id="Plane_Process_FinalReview" bpmnElement="Collaboration_Process_FinalReview">
+      <bpmndi:BPMNShape id="Shape_Participant_Process_FinalReview" bpmnElement="Participant_Process_FinalReview" isHorizontal="true">
+        <dc:Bounds x="30" y="50" width="1656" height="470" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_DataManager" bpmnElement="Lane_DataManager" isHorizontal="true">
+        <dc:Bounds x="60" y="50" width="1626" height="230" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_Impodo" bpmnElement="Lane_Impodo" isHorizontal="true">
+        <dc:Bounds x="60" y="280" width="1626" height="240" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_Review" bpmnElement="Start_Review">
+        <dc:Bounds x="140" y="130" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_CheckRows" bpmnElement="Task_CheckRows">
+        <dc:Bounds x="210" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReadTarget" bpmnElement="Task_ReadTarget">
+        <dc:Bounds x="410" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_Classify" bpmnElement="Task_Classify">
+        <dc:Bounds x="610" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReviewDiffs" bpmnElement="Task_ReviewDiffs">
+        <dc:Bounds x="810" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_Ready" bpmnElement="Gateway_Ready" isMarkerVisible="true">
+        <dc:Bounds x="1020" y="90" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_Expected" bpmnElement="Gateway_Expected" isMarkerVisible="true">
+        <dc:Bounds x="1150" y="90" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReturnUpstream" bpmnElement="Task_ReturnUpstream">
+        <dc:Bounds x="990" y="190" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_NeedsAttention" bpmnElement="End_NeedsAttention">
+        <dc:Bounds x="1190" y="207" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_FreezeExecution" bpmnElement="Task_FreezeExecution">
+        <dc:Bounds x="1300" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_Ready" bpmnElement="End_Ready">
+        <dc:Bounds x="1520" y="347" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_REV_01" bpmnElement="Flow_REV_01">
+        <di:waypoint x="176" y="148" />
+        <di:waypoint x="210" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_REV_02" bpmnElement="Flow_REV_02">
+        <di:waypoint x="360" y="145" />
+        <di:waypoint x="410" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_REV_03" bpmnElement="Flow_REV_03">
+        <di:waypoint x="560" y="365" />
+        <di:waypoint x="610" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_REV_04" bpmnElement="Flow_REV_04">
+        <di:waypoint x="760" y="365" />
+        <di:waypoint x="810" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_REV_05" bpmnElement="Flow_REV_05">
+        <di:waypoint x="960" y="145" />
+        <di:waypoint x="1020" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_REV_06" bpmnElement="Flow_REV_06">
+        <di:waypoint x="1045" y="140" />
+        <di:waypoint x="1045" y="190" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_REV_07" bpmnElement="Flow_REV_07">
+        <di:waypoint x="1070" y="115" />
+        <di:waypoint x="1150" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_REV_08" bpmnElement="Flow_REV_08">
+        <di:waypoint x="1175" y="140" />
+        <di:waypoint x="1175" y="175" />
+        <di:waypoint x="1065" y="175" />
+        <di:waypoint x="1065" y="190" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_REV_09" bpmnElement="Flow_REV_09">
+        <di:waypoint x="1140" y="225" />
+        <di:waypoint x="1190" y="225" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_REV_10" bpmnElement="Flow_REV_10">
+        <di:waypoint x="1200" y="115" />
+        <di:waypoint x="1300" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_REV_11" bpmnElement="Flow_REV_11">
+        <di:waypoint x="1450" y="365" />
+        <di:waypoint x="1520" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_Participant_Odoo" bpmnElement="Participant_Odoo" isHorizontal="true">
+        <dc:Bounds x="30" y="560" width="1656" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Message_REV_Read" bpmnElement="Message_REV_Read">
+        <di:waypoint x="435" y="400" />
+        <di:waypoint x="435" y="560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Message_REV_Response" bpmnElement="Message_REV_Response">
+        <di:waypoint x="535" y="560" />
+        <di:waypoint x="535" y="400" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

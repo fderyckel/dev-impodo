@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Process_SourceData" targetNamespace="https://impodo.dev/bpmn/current" exporter="Impodo documentation generator" exporterVersion="1.0">
+  <bpmn:process id="Process_SourceData" name="Source data" isExecutable="false">
+    <bpmn:documentation>Current file-source freeze and bounded Odoo-source capture variants.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_SourceData">
+      <bpmn:lane id="Lane_DataManager" name="Data manager">
+        <bpmn:flowNodeRef>Start_Source</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_SourceVariant</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CheckFiles</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReviewFiles</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_FilesCorrect</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReplaceFile</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_RelatedPlan</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_RelatedPlan</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_FileSource</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_DefineOdooSelection</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReviewEstimate</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Impodo" name="Impodo">
+        <bpmn:flowNodeRef>Task_InspectFiles</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_FreezeTables</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CaptureOdoo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PublishOdooSource</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_OdooSource</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="Start_Source" name="Source responsibility opened">
+      <bpmn:outgoing>Flow_SRC_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:exclusiveGateway id="Gateway_SourceVariant" name="Source mode?">
+      <bpmn:incoming>Flow_SRC_01</bpmn:incoming>
+      <bpmn:outgoing>Flow_SRC_02</bpmn:outgoing>
+      <bpmn:outgoing>Flow_SRC_11</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_CheckFiles" name="Select Check source files">
+      <bpmn:incoming>Flow_SRC_02</bpmn:incoming>
+      <bpmn:outgoing>Flow_SRC_03</bpmn:outgoing>
+      <bpmn:incoming>Flow_SRC_07</bpmn:incoming>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_InspectFiles" name="Inspect structure, counts, types, samples, and warnings">
+      <bpmn:incoming>Flow_SRC_03</bpmn:incoming>
+      <bpmn:outgoing>Flow_SRC_04</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="Task_ReviewFiles" name="Review inspection and configure intended tables">
+      <bpmn:incoming>Flow_SRC_04</bpmn:incoming>
+      <bpmn:outgoing>Flow_SRC_05</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_FilesCorrect" name="Source correct?">
+      <bpmn:incoming>Flow_SRC_05</bpmn:incoming>
+      <bpmn:outgoing>Flow_SRC_06</bpmn:outgoing>
+      <bpmn:outgoing>Flow_SRC_08</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_ReplaceFile" name="Replace incorrect file before freeze">
+      <bpmn:incoming>Flow_SRC_06</bpmn:incoming>
+      <bpmn:outgoing>Flow_SRC_07</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_FreezeTables" name="Freeze selected tables and publish source evidence">
+      <bpmn:incoming>Flow_SRC_08</bpmn:incoming>
+      <bpmn:outgoing>Flow_SRC_09</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_RelatedPlan" name="Prepare related datasets?">
+      <bpmn:incoming>Flow_SRC_09</bpmn:incoming>
+      <bpmn:outgoing>Flow_SRC_10</bpmn:outgoing>
+      <bpmn:outgoing>Flow_SRC_10B</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_RelatedPlan" name="Define related datasets">
+      <bpmn:incoming>Flow_SRC_10</bpmn:incoming>
+      <bpmn:outgoing>Flow_SRC_10C</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="End_FileSource" name="File source complete">
+      <bpmn:incoming>Flow_SRC_10B</bpmn:incoming>
+      <bpmn:incoming>Flow_SRC_10C</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="Task_DefineOdooSelection" name="Define bounded Odoo record selection">
+      <bpmn:incoming>Flow_SRC_11</bpmn:incoming>
+      <bpmn:outgoing>Flow_SRC_12</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="Task_ReviewEstimate" name="Review estimate and selection rules">
+      <bpmn:incoming>Flow_SRC_12</bpmn:incoming>
+      <bpmn:outgoing>Flow_SRC_13</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_CaptureOdoo" name="Read selected Odoo records">
+      <bpmn:incoming>Flow_SRC_13</bpmn:incoming>
+      <bpmn:outgoing>Flow_SRC_14</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Task_PublishOdooSource" name="Publish immutable Odoo source snapshot">
+      <bpmn:incoming>Flow_SRC_14</bpmn:incoming>
+      <bpmn:outgoing>Flow_SRC_15</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_OdooSource" name="Current Odoo-source boundary">
+      <bpmn:incoming>Flow_SRC_15</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_SRC_01" sourceRef="Start_Source" targetRef="Gateway_SourceVariant" />
+    <bpmn:sequenceFlow id="Flow_SRC_02" sourceRef="Gateway_SourceVariant" targetRef="Task_CheckFiles" name="Files" />
+    <bpmn:sequenceFlow id="Flow_SRC_03" sourceRef="Task_CheckFiles" targetRef="Task_InspectFiles" />
+    <bpmn:sequenceFlow id="Flow_SRC_04" sourceRef="Task_InspectFiles" targetRef="Task_ReviewFiles" />
+    <bpmn:sequenceFlow id="Flow_SRC_05" sourceRef="Task_ReviewFiles" targetRef="Gateway_FilesCorrect" />
+    <bpmn:sequenceFlow id="Flow_SRC_06" sourceRef="Gateway_FilesCorrect" targetRef="Task_ReplaceFile" name="No" />
+    <bpmn:sequenceFlow id="Flow_SRC_07" sourceRef="Task_ReplaceFile" targetRef="Task_CheckFiles" name="Recheck" />
+    <bpmn:sequenceFlow id="Flow_SRC_08" sourceRef="Gateway_FilesCorrect" targetRef="Task_FreezeTables" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_SRC_09" sourceRef="Task_FreezeTables" targetRef="Gateway_RelatedPlan" />
+    <bpmn:sequenceFlow id="Flow_SRC_10" sourceRef="Gateway_RelatedPlan" targetRef="Task_RelatedPlan" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_SRC_10B" sourceRef="Gateway_RelatedPlan" targetRef="End_FileSource" name="No" />
+    <bpmn:sequenceFlow id="Flow_SRC_10C" sourceRef="Task_RelatedPlan" targetRef="End_FileSource" />
+    <bpmn:sequenceFlow id="Flow_SRC_11" sourceRef="Gateway_SourceVariant" targetRef="Task_DefineOdooSelection" name="Odoo" />
+    <bpmn:sequenceFlow id="Flow_SRC_12" sourceRef="Task_DefineOdooSelection" targetRef="Task_ReviewEstimate" />
+    <bpmn:sequenceFlow id="Flow_SRC_13" sourceRef="Task_ReviewEstimate" targetRef="Task_CaptureOdoo" />
+    <bpmn:sequenceFlow id="Flow_SRC_14" sourceRef="Task_CaptureOdoo" targetRef="Task_PublishOdooSource" />
+    <bpmn:sequenceFlow id="Flow_SRC_15" sourceRef="Task_PublishOdooSource" targetRef="End_OdooSource" />
+  </bpmn:process>
+  <bpmn:collaboration id="Collaboration_Process_SourceData">
+    <bpmn:participant id="Participant_Process_SourceData" name="Source data" processRef="Process_SourceData" />
+    <bpmn:participant id="Participant_Odoo" name="Exact Odoo 19 target" />
+    <bpmn:messageFlow id="Message_SRC_Read" name="Bounded record read" sourceRef="Task_CaptureOdoo" targetRef="Participant_Odoo" />
+    <bpmn:messageFlow id="Message_SRC_Response" name="Selected records" sourceRef="Participant_Odoo" targetRef="Task_CaptureOdoo" />
+  </bpmn:collaboration>
+  <bpmndi:BPMNDiagram id="Diagram_Process_SourceData">
+    <bpmndi:BPMNPlane id="Plane_Process_SourceData" bpmnElement="Collaboration_Process_SourceData">
+      <bpmndi:BPMNShape id="Shape_Participant_Process_SourceData" bpmnElement="Participant_Process_SourceData" isHorizontal="true">
+        <dc:Bounds x="30" y="50" width="1696" height="470" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_DataManager" bpmnElement="Lane_DataManager" isHorizontal="true">
+        <dc:Bounds x="60" y="50" width="1666" height="230" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_Impodo" bpmnElement="Lane_Impodo" isHorizontal="true">
+        <dc:Bounds x="60" y="280" width="1666" height="240" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_Source" bpmnElement="Start_Source">
+        <dc:Bounds x="140" y="130" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_SourceVariant" bpmnElement="Gateway_SourceVariant" isMarkerVisible="true">
+        <dc:Bounds x="220" y="120" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_CheckFiles" bpmnElement="Task_CheckFiles">
+        <dc:Bounds x="330" y="80" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_InspectFiles" bpmnElement="Task_InspectFiles">
+        <dc:Bounds x="530" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReviewFiles" bpmnElement="Task_ReviewFiles">
+        <dc:Bounds x="730" y="80" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_FilesCorrect" bpmnElement="Gateway_FilesCorrect" isMarkerVisible="true">
+        <dc:Bounds x="940" y="90" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReplaceFile" bpmnElement="Task_ReplaceFile">
+        <dc:Bounds x="900" y="190" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_FreezeTables" bpmnElement="Task_FreezeTables">
+        <dc:Bounds x="1050" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_RelatedPlan" bpmnElement="Gateway_RelatedPlan" isMarkerVisible="true">
+        <dc:Bounds x="1250" y="90" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_RelatedPlan" bpmnElement="Task_RelatedPlan">
+        <dc:Bounds x="1360" y="80" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_FileSource" bpmnElement="End_FileSource">
+        <dc:Bounds x="1560" y="97" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_DefineOdooSelection" bpmnElement="Task_DefineOdooSelection">
+        <dc:Bounds x="370" y="190" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReviewEstimate" bpmnElement="Task_ReviewEstimate">
+        <dc:Bounds x="570" y="190" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_CaptureOdoo" bpmnElement="Task_CaptureOdoo">
+        <dc:Bounds x="770" y="420" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_PublishOdooSource" bpmnElement="Task_PublishOdooSource">
+        <dc:Bounds x="990" y="420" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_OdooSource" bpmnElement="End_OdooSource">
+        <dc:Bounds x="1210" y="437" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_01" bpmnElement="Flow_SRC_01">
+        <di:waypoint x="176" y="148" />
+        <di:waypoint x="220" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_02" bpmnElement="Flow_SRC_02">
+        <di:waypoint x="270" y="145" />
+        <di:waypoint x="330" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_03" bpmnElement="Flow_SRC_03">
+        <di:waypoint x="480" y="115" />
+        <di:waypoint x="530" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_04" bpmnElement="Flow_SRC_04">
+        <di:waypoint x="680" y="365" />
+        <di:waypoint x="730" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_05" bpmnElement="Flow_SRC_05">
+        <di:waypoint x="880" y="115" />
+        <di:waypoint x="940" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_06" bpmnElement="Flow_SRC_06">
+        <di:waypoint x="990" y="115" />
+        <di:waypoint x="1015" y="305" />
+        <di:waypoint x="875" y="305" />
+        <di:waypoint x="900" y="225" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_07" bpmnElement="Flow_SRC_07">
+        <di:waypoint x="900" y="225" />
+        <di:waypoint x="670" y="225" />
+        <di:waypoint x="670" y="60" />
+        <di:waypoint x="405" y="60" />
+        <di:waypoint x="405" y="80" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_08" bpmnElement="Flow_SRC_08">
+        <di:waypoint x="990" y="115" />
+        <di:waypoint x="1050" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_09" bpmnElement="Flow_SRC_09">
+        <di:waypoint x="1200" y="365" />
+        <di:waypoint x="1250" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_10" bpmnElement="Flow_SRC_10">
+        <di:waypoint x="1300" y="115" />
+        <di:waypoint x="1360" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_10B" bpmnElement="Flow_SRC_10B">
+        <di:waypoint x="1275" y="140" />
+        <di:waypoint x="1275" y="180" />
+        <di:waypoint x="1578" y="180" />
+        <di:waypoint x="1578" y="133" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_10C" bpmnElement="Flow_SRC_10C">
+        <di:waypoint x="1510" y="115" />
+        <di:waypoint x="1560" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_11" bpmnElement="Flow_SRC_11">
+        <di:waypoint x="245" y="170" />
+        <di:waypoint x="245" y="225" />
+        <di:waypoint x="370" y="225" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_12" bpmnElement="Flow_SRC_12">
+        <di:waypoint x="520" y="225" />
+        <di:waypoint x="570" y="225" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_13" bpmnElement="Flow_SRC_13">
+        <di:waypoint x="720" y="225" />
+        <di:waypoint x="770" y="455" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_14" bpmnElement="Flow_SRC_14">
+        <di:waypoint x="920" y="455" />
+        <di:waypoint x="990" y="455" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_SRC_15" bpmnElement="Flow_SRC_15">
+        <di:waypoint x="1140" y="455" />
+        <di:waypoint x="1210" y="455" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Shape_Participant_Odoo" bpmnElement="Participant_Odoo" isHorizontal="true">
+        <dc:Bounds x="30" y="560" width="1696" height="110" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Message_SRC_Read" bpmnElement="Message_SRC_Read">
+        <di:waypoint x="795" y="490" />
+        <di:waypoint x="795" y="560" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Message_SRC_Response" bpmnElement="Message_SRC_Response">
+        <di:waypoint x="895" y="560" />
+        <di:waypoint x="895" y="490" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

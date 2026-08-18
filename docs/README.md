@@ -52,6 +52,13 @@ voice rules.
 - [Architecture decisions](decisions/README.md) — accepted decisions that
   constrain implementation.
 
+## Process models
+
+- [Current Impodo BPMN models](bpmn/README.md) — BPMN 2.0 overview and detailed
+  diagrams for Project setup and all six implemented browser responsibilities,
+  including the current file-source, Odoo-source, and disposable-target
+  boundaries.
+
 ## Plans
 
 - [Impodo remaining work](plans/remaining-work.md) — the authoritative
