@@ -363,7 +363,9 @@ def _render_schema(
     project_id: str,
     *,
     error: str | None = None,
+    support_error: str | None = None,
     status_code: int = 200,
+    schema_load_failed: bool = False,
     key_drafts: Mapping[
         str,
         tuple[tuple[str, ...], tuple[str, ...], str],
@@ -413,6 +415,8 @@ def _render_schema(
             else {}
         ),
         error=error,
+        support_error=support_error,
+        schema_load_failed=schema_load_failed,
         status_code=status_code,
     )
 

@@ -762,6 +762,7 @@ def _mapping_dataset_views(
         model_keys = tuple(
             item for item in confirmed if item.model == selected_model_name
         )
+        matching_rule_labels = _matching_rule_labels(model_keys, models)
         existing_identity_fields = tuple(
             target
             for component in (
@@ -832,6 +833,10 @@ def _mapping_dataset_views(
                             )
                         ),
                         "related_keys": related_keys,
+                        "related_key_labels": _matching_rule_labels(
+                            related_keys,
+                            models,
+                        ),
                         "selected_related_key": selected_related_key,
                         "recommended_related_key_id": (
                             standard_related_key.key_id
@@ -1093,6 +1098,10 @@ def _mapping_dataset_views(
                 "mapping": mapping,
                 "disposition": disposition_by_target.get(field.name),
                 "related_keys": related_keys,
+                "related_key_labels": _matching_rule_labels(
+                    related_keys,
+                    models,
+                ),
                 "selected_key": _resolver_business_key(
                     mapping.resolver if mapping else None,
                     related_keys,
@@ -1135,6 +1144,7 @@ def _mapping_dataset_views(
                 "model": model,
                 "models": schema.models,
                 "business_keys": model_keys,
+                "matching_rule_labels": matching_rule_labels,
                 "selected_key": selected_key,
                 "identity_rows": tuple(identity_rows),
                 "scalar_rows": scalar_rows,
@@ -1202,6 +1212,36 @@ def _mapping_dataset_views(
             }
         )
     return tuple(result)
+
+
+def _matching_rule_labels(keys, models) -> dict[str, str]:
+    """Present confirmed rules through their governed Odoo field labels."""
+
+    labels: dict[str, str] = {}
+    for key in keys:
+        if key.description:
+            labels[key.key_id] = key.description
+            continue
+        model = models.get(key.model)
+        field_labels = (
+            {field.name: field.label for field in model.fields}
+            if model is not None
+            else {}
+        )
+        key_label = " + ".join(
+            field_labels.get(field_name, field_name)
+            for field_name in key.key_fields
+        )
+        scope_label = " + ".join(
+            field_labels.get(field_name, field_name)
+            for field_name in key.scope_fields
+        )
+        labels[key.key_id] = (
+            f"{key_label} within {scope_label}"
+            if scope_label
+            else key_label
+        )
+    return labels
 
 
 def _quality_check_view(

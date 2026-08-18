@@ -1658,7 +1658,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             headers=POST_HEADERS,
         )
         self.assertEqual(blocked.status_code, 422)
-        self.assertIn("Local mode does not require an API key", blocked.text)
+        self.assertIn("Impodo could not check Odoo", blocked.text)
 
         workspace = Path(self.temporary.name) / "local-odoo"
         config = workspace / "config" / "odoo.conf"
@@ -1716,7 +1716,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "The connection to local Odoo was checked during this session",
             verified_page.text,
         )
-        self.assertIn("Refresh from Odoo", verified_page.text)
+        self.assertIn("Update available choices", verified_page.text)
+        self.assertIn("Has Odoo changed?", verified_page.text)
+        self.assertIn("Save choices and continue", verified_page.text)
+        self.assertNotIn("Save Odoo choices", verified_page.text)
         context.local_stack = LocalStackService()
         cached_page = self.client.get(
             f"/projects/{registered.project_id}/schema"
@@ -1730,6 +1733,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("res.partner", cached_page.text)
         self.local_odoo_reader.get_model_catalog.assert_called_once()
 
+        context.local_stack = configured_local_stack
         project = context.projects.repository.get(registered.project_id)
         scoped = self._post(
             f"/projects/{registered.project_id}/schema",
@@ -1745,27 +1749,30 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"/projects/{registered.project_id}/schema#odoo-details",
         )
         self.local_odoo_reader.get_model_catalog.assert_called_once()
-        context.local_stack = configured_local_stack
-        scoped_page = self.client.get(scoped.headers["location"])
-        self.assertIn(
-            "Load selected Odoo details",
-            scoped_page.text,
-        )
-        captured = self._post(
-            f"/projects/{registered.project_id}/schema/capture",
-            {"csrf_token": self.csrf},
-        )
-        self.assertEqual(captured.status_code, 303)
-        self.assertEqual(
-            captured.headers["location"],
-            f"/projects/{registered.project_id}/schema#odoo-details",
-        )
         self.local_odoo_reader.get_model_metadata.assert_called_once()
         metadata_call = (
             self.local_odoo_reader.get_model_metadata.call_args.args
         )
         self.assertEqual(metadata_call[2], ("res.partner",))
         self.assertEqual(self.schema_calls, [])
+        scoped_page = self.client.get(scoped.headers["location"])
+        self.assertIn(
+            "Odoo data is ready",
+            scoped_page.text,
+        )
+        unchanged_project = context.projects.repository.get(
+            registered.project_id
+        )
+        unchanged_scope = self._post(
+            f"/projects/{registered.project_id}/schema",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(unchanged_project.revision),
+                "permitted_models": "res.partner",
+            },
+        )
+        self.assertEqual(unchanged_scope.status_code, 303)
+        self.local_odoo_reader.get_model_metadata.assert_called_once()
         context.local_stack = LocalStackService()
         cached_schema_page = self.client.get(
             f"/projects/{registered.project_id}/schema"
@@ -1780,10 +1787,65 @@ class ProjectSetupWizardTests(unittest.TestCase):
             cached_schema_page.text,
         )
         self.assertIn(
-            "Refresh selected Odoo details",
+            "Update selected Odoo data",
             cached_schema_page.text,
         )
         self.local_odoo_reader.get_model_metadata.assert_called_once()
+
+        context.local_stack = configured_local_stack
+        self.local_odoo_reader.get_model_metadata.side_effect = ConnectorError(
+            "raw local reader failure"
+        )
+        project = context.projects.repository.get(registered.project_id)
+        failed_load = self.client.post(
+            f"/projects/{registered.project_id}/schema",
+            data={
+                "csrf_token": self.csrf,
+                "revision": str(project.revision),
+                "permitted_models": "product.template",
+            },
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(failed_load.status_code, 422)
+        self.assertIn(
+            "Your Odoo choices were saved, but their details could not be loaded",
+            failed_load.text,
+        )
+        self.assertIn("Try loading details again", failed_load.text)
+        self.assertGreater(
+            failed_load.text.index('id="odoo-load-error"'),
+            failed_load.text.index('id="odoo-details"'),
+        )
+        self.assertLess(
+            failed_load.text.index('id="odoo-load-error"'),
+            failed_load.text.index("Try loading details again"),
+        )
+        self.assertNotIn("We could not complete that action", failed_load.text)
+        saved_after_failure = context.projects.repository.get(
+            registered.project_id
+        )
+        self.assertEqual(
+            saved_after_failure.intended_models,
+            ("product.template",),
+        )
+        product_snapshot = _browser_schema(saved_after_failure)
+        product_model = replace(
+            product_snapshot.models["res.partner"],
+            model="product.template",
+        )
+        self.local_odoo_reader.get_model_metadata.side_effect = None
+        self.local_odoo_reader.get_model_metadata.return_value = replace(
+            product_snapshot,
+            models={"product.template": product_model},
+        )
+        recovered = self._post(
+            f"/projects/{registered.project_id}/schema/capture",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(recovered.status_code, 303)
+        recovered_page = self.client.get(recovered.headers["location"])
+        self.assertIn("Odoo data is ready", recovered_page.text)
+        self.assertIn("Update selected Odoo data", recovered_page.text)
 
     def test_odoo_source_setup_skips_file_export_and_opens_schema_first(
         self,
@@ -1909,11 +1971,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         self.assertEqual(scoped.status_code, 303)
-        captured = self._post(
-            f"/projects/{project_id}/schema/capture",
-            {"csrf_token": self.csrf},
-        )
-        self.assertEqual(captured.status_code, 303)
+        self.assertEqual(self.schema_calls, [(project_id, "read-secret")])
 
         source_page = self.client.get(f"/projects/{project_id}/sources")
         self.assertEqual(source_page.status_code, 200)
@@ -2519,6 +2577,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "matches && (hasQuery || browseAll || choice.inFocus || selected)",
             model_picker_script.text,
         )
+        self.assertIn(
+            "Saving choices and loading Odoo data...",
+            model_picker_script.text,
+        )
         model_picker_styles = self.client.get("/static/app.css")
         self.assertIn("label.model-choice[hidden]", model_picker_styles.text)
 
@@ -2550,14 +2612,6 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(scope.status_code, 303)
         project = self.app.state.context.projects.repository.get(project_id)
         self.assertEqual(project.intended_models, ("res.partner",))
-
-        captured = self.client.post(
-            f"/projects/{project_id}/schema/capture",
-            data={"csrf_token": self.csrf},
-            headers=POST_HEADERS,
-            follow_redirects=False,
-        )
-        self.assertEqual(captured.status_code, 303)
         self.assertEqual(self.schema_calls, [(project_id, "super-secret-token")])
         project = self.app.state.context.projects.repository.get(project_id)
         read_credential = get_target_credential(
@@ -3665,6 +3719,17 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
 
         project = self.app.state.context.projects.repository.get(project_id)
+
+        def company_schema_reader(project, api_key):
+            self.schema_calls.append((project.project_id, api_key))
+            snapshot = _browser_schema(project)
+            company = replace(
+                snapshot.models["res.partner"],
+                model="res.company",
+            )
+            return replace(snapshot, models={"res.company": company})
+
+        self.app.state.context.schema_reader = company_schema_reader
         changed_scope = self.client.post(
             f"/projects/{project_id}/schema",
             data={
@@ -3680,8 +3745,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(project.intended_models, ("res.company",))
         self.assertIsNone(project.mapping_version)
         self.assertEqual(project.approval_status.value, "INVALIDATED")
-        self.assertIsNone(
-            self.app.state.context.schema_workspace.schemas.get_odoo_schema_catalog(project_id)
+        refreshed_schema = (
+            self.app.state.context.schema_workspace.schemas.get_odoo_schema_catalog(
+                project_id
+            )
+        )
+        self.assertIsNotNone(refreshed_schema)
+        self.assertEqual(
+            tuple(model.name for model in refreshed_schema.models),
+            ("res.company",),
         )
         self.assertIsNone(
             self.app.state.context.schema_workspace.schemas.get_schema_governance(project_id)
@@ -4001,6 +4073,20 @@ class ProjectSetupWizardTests(unittest.TestCase):
             .resolver.value_mappings,
             (ValueMapping("FRA", "FR"),),
         )
+
+    def test_matching_rule_without_description_uses_odoo_field_label(self) -> None:
+        project_id, _dataset, _business_key = self._mapping_ready_project(
+            scalar_field_count=0,
+            relationship_field_count=1,
+            business_key_description="",
+        )
+
+        page = self.client.get(f"/projects/{project_id}/mapping")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(">\n                        Reference\n", page.text)
+        self.assertIn(">\n                            Reference\n", page.text)
+        self.assertNotIn("Confirmed matching rule", page.text)
 
     def test_country_matching_uses_reviewed_code_without_schema_recapture(
         self,
@@ -4397,6 +4483,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.assertEqual(page.status_code, 200)
         self.assertIn('id="next-step-blockers"', page.text)
+        self.assertGreater(
+            page.text.index('id="next-step-blockers"'),
+            page.text.index('id="semantic-validation"'),
+        )
+        self.assertLess(
+            page.text.index('id="next-step-blockers"'),
+            page.text.index('class="actions mapping-actions"'),
+        )
         self.assertIn("You cannot continue yet — 1 reason", page.text)
         self.assertIn("large_contacts: Field 0000 needs attention", page.text)
         self.assertIn(
@@ -5434,6 +5528,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         required_scalar_indexes: tuple[int, ...] = (),
         required_relationship_indexes: tuple[int, ...] = (),
         relationship_field_type: str = "many2one",
+        business_key_description: str = "Unique reference",
     ):
         context = self.app.state.context
         created = context.projects.create_project(
@@ -5571,7 +5666,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             key_id="res.partner:ref",
             model="res.partner",
             key_fields=("ref",),
-            description="Unique reference",
+            description=business_key_description,
             status=BusinessKeyStatus.CONFIRMED,
         )
         governance = SchemaGovernance(

@@ -18,8 +18,9 @@ from ...domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
 )
-from ...projects import ProjectError
+from ...projects import MigrationProject, ProjectError
 from ...secrets import SecretStoreError
+from ...workspace_contracts import OdooSchemaCatalog, SchemaOrigin
 from ...workspace_errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
@@ -45,6 +46,66 @@ from ..target_credentials import (
     get_target_credential,
     local_read_credential_binding_hash,
 )
+
+
+async def _capture_selected_schema(
+    context: WebContext,
+    project: MigrationProject,
+) -> OdooSchemaCatalog:
+    """Load and persist field details for the saved Odoo model choices."""
+
+    local_profile = _selected_local_profile(context, project)
+    credential = get_target_credential(
+        context.secret_store,
+        project,
+        TargetCredentialRole.READ,
+    )
+    if local_profile is not None and credential is None:
+        snapshot = await run_in_threadpool(
+            context.local_odoo_reader.get_model_metadata,
+            project,
+            local_profile,
+            project.intended_models,
+        )
+        read_credential_binding_hash = local_read_credential_binding_hash(
+            project
+        )
+        read_identity = None
+    else:
+        if credential is None:
+            raise WorkspaceError(_missing_schema_reader_message(project))
+        read_identity = await run_in_threadpool(
+            context.read_identity_probe,
+            project,
+            credential.secret,
+            tuple(sorted(project.intended_models)),
+        )
+        snapshot = await run_in_threadpool(
+            context.schema_reader,
+            project,
+            credential.secret,
+        )
+        read_credential_binding_hash = credential.binding_hash
+    schema = context.schema_workspace.capture(
+        project.project_id,
+        snapshot,
+        read_credential_binding_hash=read_credential_binding_hash,
+        read_identity=read_identity,
+        actor=context.actor,
+    )
+    if local_profile is not None and credential is None:
+        catalog = context.queries.get_odoo_model_catalog(project.project_id)
+        context.local_stack.mark_metadata_ready(
+            project.project_id,
+            database=schema.database,
+            odoo_version=schema.odoo_version,
+            model_count=(
+                len(catalog.models)
+                if catalog is not None
+                else len(schema.models)
+            ),
+        )
+    return schema
 
 
 def build_schema_router(context: WebContext) -> APIRouter:
@@ -133,6 +194,8 @@ def build_schema_router(context: WebContext) -> APIRouter:
     async def update_project_schema_scope(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "permitted_models"})
+        project = context.queries.get(project_id)
+        existing_schema = context.queries.get_odoo_schema_catalog(project_id)
         try:
             permitted_models = _submitted_model_scope(form)
             model_catalog = context.queries.get_odoo_model_catalog(project_id)
@@ -145,7 +208,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     raise ProjectError(
                         f"{unknown[0]} is not in the refreshed Odoo model catalogue"
                     )
-            context.projects.update_schema_scope(
+            saved_project = context.projects.update_schema_scope(
                 project_id,
                 actor=context.actor,
                 expected_revision=_revision(form),
@@ -159,10 +222,29 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 error=str(error),
                 status_code=422,
             )
-        _flash(
-            request,
-            "Saved the Odoo choices. Load their details before matching data.",
+        needs_capture = (
+            saved_project.revision != project.revision
+            or existing_schema is None
+            or existing_schema.origin is SchemaOrigin.LOCAL_MANUAL
         )
+        if needs_capture:
+            try:
+                await _capture_selected_schema(context, saved_project)
+            except (
+                ConnectorError,
+                ProjectError,
+                SecretStoreError,
+                WorkspaceError,
+            ) as error:
+                return _render_schema(
+                    request,
+                    context,
+                    project_id,
+                    support_error=str(error),
+                    schema_load_failed=True,
+                    status_code=422,
+                )
+        _flash(request, "Odoo data is ready.")
         return RedirectResponse(
             f"/projects/{project_id}/schema#odoo-details",
             status_code=303,
@@ -176,59 +258,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
         _secure_form(request, form, {"csrf_token"})
         project = context.queries.get(project_id)
         try:
-            local_profile = _selected_local_profile(context, project)
-            credential = get_target_credential(
-                context.secret_store,
-                project,
-                TargetCredentialRole.READ,
-            )
-            if local_profile is not None and credential is None:
-                snapshot = await run_in_threadpool(
-                    context.local_odoo_reader.get_model_metadata,
-                    project,
-                    local_profile,
-                    project.intended_models,
-                )
-                read_credential_binding_hash = (
-                    local_read_credential_binding_hash(project)
-                )
-                read_identity = None
-            else:
-                if credential is None:
-                    raise WorkspaceError(
-                        _missing_schema_reader_message(project)
-                    )
-                read_identity = await run_in_threadpool(
-                    context.read_identity_probe,
-                    project,
-                    credential.secret,
-                    tuple(sorted(project.intended_models)),
-                )
-                snapshot = await run_in_threadpool(
-                    context.schema_reader,
-                    project,
-                    credential.secret,
-                )
-                read_credential_binding_hash = credential.binding_hash
-            schema = context.schema_workspace.capture(
-                project_id,
-                snapshot,
-                read_credential_binding_hash=read_credential_binding_hash,
-                read_identity=read_identity,
-                actor=context.actor,
-            )
-            if local_profile is not None and credential is None:
-                catalog = context.queries.get_odoo_model_catalog(project_id)
-                context.local_stack.mark_metadata_ready(
-                    project_id,
-                    database=schema.database,
-                    odoo_version=schema.odoo_version,
-                    model_count=(
-                        len(catalog.models)
-                        if catalog is not None
-                        else len(schema.models)
-                    ),
-                )
+            await _capture_selected_schema(context, project)
         except (
             ConnectorError,
             ProjectError,
@@ -239,10 +269,11 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 request,
                 context,
                 project_id,
-                error=str(error),
+                support_error=str(error),
+                schema_load_failed=True,
                 status_code=422,
             )
-        _flash(request, f"Loaded details for {len(schema.models)} Odoo choice(s).")
+        _flash(request, "Odoo data is ready.")
         return RedirectResponse(
             f"/projects/{project_id}/schema#odoo-details",
             status_code=303,

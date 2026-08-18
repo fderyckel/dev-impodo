@@ -1663,6 +1663,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const search = modelPicker.querySelector("[data-model-search]");
     const showAll = modelPicker.querySelector("[data-show-all-models]");
     const count = modelPicker.querySelector("[data-model-count]");
+    const submit = modelPicker.querySelector("[data-model-submit]");
+    const submitStatus = modelPicker.querySelector(
+      "[data-model-submit-status]"
+    );
     const choices = Array.from(
       modelPicker.querySelectorAll("[data-model-choice]")
     ).map((element) => ({
@@ -1697,8 +1701,21 @@ document.addEventListener("DOMContentLoaded", () => {
     for (const choice of choices) {
       choice.checkbox?.addEventListener("change", updateModelChoices);
     }
+    modelPicker.addEventListener("submit", () => {
+      modelPicker.setAttribute("aria-busy", "true");
+      if (submit) {
+        submit.disabled = true;
+        submit.textContent = "Saving choices and loading Odoo data...";
+      }
+      if (submitStatus) {
+        submitStatus.textContent = "This may take a moment.";
+      }
+    });
     updateModelChoices();
   }
+
+  const schemaLoadError = document.querySelector("[data-schema-load-error]");
+  schemaLoadError?.focus();
 
   for (const decision of document.querySelectorAll("[data-key-decision]")) {
     const primaryKey = decision.querySelector("[data-primary-key-field]");

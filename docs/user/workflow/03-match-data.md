@@ -68,10 +68,11 @@ types, unresolved relationships, unexpected selection values, and cleanup
 rules with zero matches. Keep a zero-match rule only after explicitly
 reviewing why it is intentional.
 
-When **Confirm field matches** is unavailable, the reason panel at the top of
-the page lists every current blocker even if a field search or page filter hides
-the affected field. Follow **Match this field**, **Let Odoo choose**, or the
-other recovery action shown there, then select **Check matches** again.
+When **Confirm field matches** is unavailable, the reason panel beside the
+bottom workflow actions lists every current blocker even if a field search or
+page filter hides the affected field. Follow **Match this field**, **Let Odoo
+choose**, or the other recovery action shown there, then select **Check
+matches** again.
 
 ## What makes this work stale
 

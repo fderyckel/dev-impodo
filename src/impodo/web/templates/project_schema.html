@@ -24,16 +24,14 @@
         <h2>Choose the Odoo data you need</h2>
         <p>Start with the business records included in this migration.</p>
       </div>
-      <form method="post" action="/projects/{{ project.project_id }}/schema/models/refresh">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
-          {% if model_catalog %}
-            Refresh from Odoo
-          {% else %}
+      {% if not model_catalog %}
+        <form method="post" action="/projects/{{ project.project_id }}/schema/models/refresh">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
             Show available Odoo data
-          {% endif %}
-        </button>
-      </form>
+          </button>
+        </form>
+      {% endif %}
     </div>
 
     {% if local_mode and not model_catalog %}
@@ -68,8 +66,18 @@
     {% if model_catalog %}
       <div class="notice stack-ready" role="status">
         <strong>The Odoo list is ready.</strong>
-        Choose what this project needs. Impodo reuses this saved list until you select <strong>Refresh from Odoo</strong>.
+        Choose what this project needs below.
       </div>
+      <details>
+        <summary>Has Odoo changed?</summary>
+        <p>Update this list only when Odoo apps or record types have changed.</p>
+        <form method="post" action="/projects/{{ project.project_id }}/schema/models/refresh">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
+            Update available choices
+          </button>
+        </form>
+      </details>
       {% if local_mode %}
         {% if local_access_verified %}
           <p class="muted">
@@ -145,7 +153,8 @@
           Changing these choices clears later matching work that no longer applies.
         </small>
         <div class="actions">
-          <button class="button secondary" type="submit">Save Odoo choices</button>
+          <button class="button primary" type="submit" data-model-submit>Save choices and continue</button>
+          <span class="muted" role="status" aria-live="polite" data-model-submit-status></span>
         </div>
       </form>
     {% else %}
@@ -154,12 +163,30 @@
       </div>
       {% if project.intended_models %}
         <p>
-          Saved Odoo choices are available. Refresh from Odoo to review or change them.
+          Saved Odoo choices are available. Show the available Odoo data to review or change them.
         </p>
       {% endif %}
     {% endif %}
 
     <p id="odoo-details">Odoo choices selected: <strong>{{ project.intended_models|length if project.intended_models else 0 }}</strong></p>
+    {% if schema_load_failed %}
+      <div
+        class="notice error"
+        id="odoo-load-error"
+        role="alert"
+        tabindex="-1"
+        data-schema-load-error
+      >
+        <strong>Your Odoo choices were saved, but their details could not be loaded.</strong>
+        <p>Try loading the details again. You do not need to select them again.</p>
+        {% if support_error %}
+          <details class="technical-details">
+            <summary>Support details</summary>
+            <code>{{ support_error }}</code>
+          </details>
+        {% endif %}
+      </div>
+    {% endif %}
     {% if schema and schema.origin.value != 'LOCAL_MANUAL' %}
       <div class="notice stack-ready" role="status">
         <strong>Odoo details are ready.</strong>
@@ -185,20 +212,36 @@
         {% endif %}
       </details>
     {% endif %}
-    <form method="post" action="/projects/{{ project.project_id }}/schema/capture">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <div class="actions">
-        <a class="button secondary" href="/projects/{{ project.project_id }}/{% if project.source_mode.value == 'ODOO' %}overview{% else %}datasets{% endif %}">{% if project.source_mode.value == 'ODOO' %}Back to overview{% else %}Back to tables{% endif %}</a>
-        <button class="button primary" type="submit" {% if (project.source_mode.value == 'FILE' and not selection) or not project.intended_models or not local_reader_ready %}disabled{% endif %}>
-          {% if schema %}Refresh selected Odoo details{% else %}Load selected Odoo details{% endif %}
-        </button>
-      </div>
-      {% if local_mode and project.intended_models and not local_stack.profile %}
-        <small>
-          The saved Odoo list remains available. Find local Odoo only if you need to refresh it.
-        </small>
-      {% endif %}
-    </form>
+    {% if schema_load_failed or schema or (not model_catalog and project.intended_models) %}
+      <form method="post" action="/projects/{{ project.project_id }}/schema/capture">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="actions">
+          <button
+            class="button {% if schema and schema.origin.value != 'LOCAL_MANUAL' and not schema_load_failed %}secondary{% else %}primary{% endif %}"
+            type="submit"
+            {% if (project.source_mode.value == 'FILE' and not selection) or not project.intended_models or not local_reader_ready %}disabled{% endif %}
+          >
+            {% if schema_load_failed %}
+              Try loading details again
+            {% elif schema and schema.origin.value == 'LOCAL_MANUAL' %}
+              Check selected data with Odoo
+            {% elif schema %}
+              Update selected Odoo data
+            {% else %}
+              Load saved Odoo data
+            {% endif %}
+          </button>
+        </div>
+        {% if schema and schema.origin.value != 'LOCAL_MANUAL' and not schema_load_failed %}
+          <small>Use this only when fields or choices have changed in Odoo.</small>
+        {% elif local_mode and project.intended_models and not local_stack.profile %}
+          <small>The saved choices remain available. Find local Odoo before loading their details.</small>
+        {% endif %}
+      </form>
+    {% endif %}
+    <div class="actions">
+      <a class="button secondary" href="/projects/{{ project.project_id }}/{% if project.source_mode.value == 'ODOO' %}overview{% else %}datasets{% endif %}">{% if project.source_mode.value == 'ODOO' %}Back to overview{% else %}Back to tables{% endif %}</a>
+    </div>
   </section>
 
   {% if project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' %}

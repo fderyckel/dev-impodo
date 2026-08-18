@@ -55,74 +55,6 @@
       {% endfor %}
       <div class="notice error" data-mapping-save-error role="alert" hidden></div>
 
-      {% if next_step.blockers %}
-        <section
-          class="notice warning mapping-next-step-blockers"
-          id="next-step-blockers"
-          tabindex="-1"
-          aria-labelledby="next-step-blockers-title"
-        >
-          <strong id="next-step-blockers-title">
-            You cannot continue yet — {{ next_step.blockers|length }} reason{{ "s" if next_step.blockers|length != 1 else "" }}
-          </strong>
-          <ul>
-            {% for blocker in next_step.blockers %}
-              <li>
-                <strong>{{ blocker.title }}</strong>
-                <p>{{ blocker.message }}</p>
-                {% if blocker.readonly_recovery %}
-                  <ul>
-                    {% for item in blocker.readonly_recovery.entries %}
-                      <li>{{ item.dataset_label }} · {{ item.model_label }} · {{ item.field_label }}</li>
-                    {% endfor %}
-                  </ul>
-                  <details class="technical-details">
-                    <summary>Support details</summary>
-                    <code>MAPPING_TARGET_FIELD_READONLY</code>
-                  </details>
-                {% endif %}
-                {% if blocker.issue_view %}
-                  {% set issue_view = blocker.issue_view %}
-                  <p><strong>How to fix:</strong> {{ issue_view.issue.remediation }}</p>
-                  <div class="actions">
-                    {% if issue_view.fix_url %}
-                      <a class="button secondary" href="{{ issue_view.fix_url }}">Match this field</a>
-                    {% endif %}
-                    {% if issue_view.can_choose_default %}
-                      <button
-                        class="button secondary"
-                        type="submit"
-                        name="action"
-                        value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_default"
-                      >Let Odoo choose</button>
-                    {% endif %}
-                    {% if issue_view.can_choose_managed %}
-                      <button
-                        class="button secondary"
-                        type="submit"
-                        name="action"
-                        value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_managed"
-                      >Odoo manages this field</button>
-                    {% endif %}
-                  </div>
-                  <details class="technical-details">
-                    <summary>Support details</summary>
-                    <code>{{ issue_view.issue.code }}</code>
-                    · <code>{{ issue_view.issue.target_model }}.{{ issue_view.issue.target_field }}</code>
-                  </details>
-                {% elif blocker.href %}
-                  <a class="button secondary" href="{{ blocker.href }}">{{ blocker.action_label }}</a>
-                {% elif blocker.action %}
-                  <button class="button secondary" type="submit" name="action" value="{{ blocker.action }}">
-                    {{ blocker.action_label }}
-                  </button>
-                {% endif %}
-              </li>
-            {% endfor %}
-          </ul>
-        </section>
-      {% endif %}
-
       <details class="technical-evidence">
         <summary>
           Support details
@@ -243,7 +175,7 @@
                   <select name="business_key_{{ dataset_index }}">
                     {% for key in view.business_keys %}
                       <option value="{{ key.key_id }}" {% if view.selected_key and key.key_id == view.selected_key.key_id %}selected{% endif %}>
-                        {{ key.description or "Confirmed matching rule" }}
+                        {{ view.matching_rule_labels[key.key_id] }}
                       </option>
                     {% endfor %}
                   </select>
@@ -272,7 +204,7 @@
                             <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
                             {% for key in row.related_keys %}
                               <option value="{{ key.key_id }}" {% if row.selected_related_key and key.key_id == row.selected_related_key.key_id %}selected{% endif %}>
-                                {{ key.description or "Confirmed matching rule" }}{% if key.key_id == row.recommended_related_key_id %} — recommended{% endif %}
+                                {{ row.related_key_labels[key.key_id] }}{% if key.key_id == row.recommended_related_key_id %} — recommended{% endif %}
                               </option>
                             {% endfor %}
                           </select>
@@ -840,7 +772,7 @@
                         <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
                         {% for key in row.related_keys %}
                           <option value="{{ key.key_id }}" {% if row.selected_key and key.key_id == row.selected_key.key_id %}selected{% endif %}>
-                            {{ key.description or "Confirmed matching rule" }}{% if key.key_id == row.recommended_key_id %} — recommended{% endif %}
+                            {{ row.related_key_labels[key.key_id] }}{% if key.key_id == row.recommended_key_id %} — recommended{% endif %}
                           </option>
                         {% endfor %}
                       </select>
@@ -1081,6 +1013,74 @@
               {% endfor %}
             </ul>
           </details>
+        </section>
+      {% endif %}
+
+      {% if next_step.blockers %}
+        <section
+          class="notice warning mapping-next-step-blockers"
+          id="next-step-blockers"
+          tabindex="-1"
+          aria-labelledby="next-step-blockers-title"
+        >
+          <strong id="next-step-blockers-title">
+            You cannot continue yet — {{ next_step.blockers|length }} reason{{ "s" if next_step.blockers|length != 1 else "" }}
+          </strong>
+          <ul>
+            {% for blocker in next_step.blockers %}
+              <li>
+                <strong>{{ blocker.title }}</strong>
+                <p>{{ blocker.message }}</p>
+                {% if blocker.readonly_recovery %}
+                  <ul>
+                    {% for item in blocker.readonly_recovery.entries %}
+                      <li>{{ item.dataset_label }} · {{ item.model_label }} · {{ item.field_label }}</li>
+                    {% endfor %}
+                  </ul>
+                  <details class="technical-details">
+                    <summary>Support details</summary>
+                    <code>MAPPING_TARGET_FIELD_READONLY</code>
+                  </details>
+                {% endif %}
+                {% if blocker.issue_view %}
+                  {% set issue_view = blocker.issue_view %}
+                  <p><strong>How to fix:</strong> {{ issue_view.issue.remediation }}</p>
+                  <div class="actions">
+                    {% if issue_view.fix_url %}
+                      <a class="button secondary" href="{{ issue_view.fix_url }}">Match this field</a>
+                    {% endif %}
+                    {% if issue_view.can_choose_default %}
+                      <button
+                        class="button secondary"
+                        type="submit"
+                        name="action"
+                        value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_default"
+                      >Let Odoo choose</button>
+                    {% endif %}
+                    {% if issue_view.can_choose_managed %}
+                      <button
+                        class="button secondary"
+                        type="submit"
+                        name="action"
+                        value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_managed"
+                      >Odoo manages this field</button>
+                    {% endif %}
+                  </div>
+                  <details class="technical-details">
+                    <summary>Support details</summary>
+                    <code>{{ issue_view.issue.code }}</code>
+                    · <code>{{ issue_view.issue.target_model }}.{{ issue_view.issue.target_field }}</code>
+                  </details>
+                {% elif blocker.href %}
+                  <a class="button secondary" href="{{ blocker.href }}">{{ blocker.action_label }}</a>
+                {% elif blocker.action %}
+                  <button class="button secondary" type="submit" name="action" value="{{ blocker.action }}">
+                    {{ blocker.action_label }}
+                  </button>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
         </section>
       {% endif %}
 
