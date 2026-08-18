@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Status:** Active roadmap from 2026-08-10.
+**Status:** Active roadmap, updated 2026-08-18.
 
 This is the authoritative cross-product roadmap in `docs/plans/`. Scoped
 implementation proposals may live beside it, but they do not change this
@@ -24,15 +24,18 @@ The current preparation limits are:
 - 50,000 physical rows for direct mappings requiring the Python oracle;
 - 25,000 physical rows for derived or materialized paths.
 
-The next unconditional goal is to qualify complete related and mixed-dataset
-workflows at 100,000 physical rows without changing evidence semantics.
+**Priority decision, 2026-08-18:** product ownership explicitly adopted and
+completed Phase 1 of the reusable-recipes plan ahead of the related/mixed
+100,000-row qualification. With that bounded gate passed, the qualification in
+section 1 is again the current priority. This decision did not raise any
+preparation limit.
 
 The scoped [Odoo source import and round-trip update implementation
 plan](odoo-source-import-plan.md) tracks existing Odoo records as governed
 Impodo source data. Capture, offline pinned preparation, and protected
 three-way comparison are implemented through Phase 6. Guarded update and the
-later write phases remain planned. This work does not displace the unconditional
-preparation-scale goal above.
+later write phases remain planned. This work remains behind the current
+reusable-recipes Phase 1 slice and does not raise the preparation limits above.
 
 The scoped [high-volume transformation architecture implementation
 plan](transformation-scale-architecture-plan.md) expands the first goal with a
@@ -42,14 +45,15 @@ Products plus 80,000 related BOM lines. It does not raise the current limits
 until its acceptance gates pass.
 
 The scoped [reusable recipes and data versions implementation
-plan](reusable-recipes-and-data-versions-implementation-plan.md) has started its
-Phase 0 contract-and-fixture work. That work may correct current documentation,
-record architecture decisions, and freeze deterministic future contracts, but
-it does not make recipe behavior current and does not displace the unconditional
-related/mixed 100,000-row goal. Phase 1 or later implementation requires an
-explicit priority change here or completion of that unconditional goal.
+plan](reusable-recipes-and-data-versions-implementation-plan.md) completed
+Phases 0 and 1. The completed slice is limited to mapping contract v11,
+categorical coverage evidence, split control semantics, the legacy review
+boundary, and the application-layer source scan. It does not implement recipe
+publication, series, editions, or later lifecycle behavior. Those later phases
+remain separately gated and are not the current roadmap priority.
 
 <a id="1-build-the-columnar-preparation-path-and-raise-the-scale-limit"></a>
+<a id="1-qualify-related-and-mixed-preparation-at-100000-rows"></a>
 
 ## 1. Qualify related and mixed preparation at 100,000 rows
 

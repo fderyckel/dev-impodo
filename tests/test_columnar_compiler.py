@@ -23,9 +23,10 @@ from impodo.domain.compiler.columnar_transformation import (
     compile_columnar_transformation_programs,
 )
 from impodo.domain.mapping.contracts import (
-    BusinessControlTotal,
+    BusinessControlDefinition,
     DatasetMapping,
     IdentityComponentMapping,
+    MappingControlExpectation,
     MappingDefinition,
     ReferenceKeyMapping,
     ReferenceLookupMapping,
@@ -874,10 +875,16 @@ def _supported_definition(selection: SourceSelection) -> MappingDefinition:
     return _definition(
         selection,
         fields=fields,
-        control_totals=(
-            BusinessControlTotal(
+        control_definitions=(
+            BusinessControlDefinition(
+                control_id="quantity-total",
                 name="Quantity",
                 target_field="quantity",
+            ),
+        ),
+        control_expectations=(
+            MappingControlExpectation(
+                control_id="quantity-total",
                 expected_total="100",
             ),
         ),
@@ -890,7 +897,8 @@ def _definition(
     fields: tuple[ScalarFieldMapping, ...],
     target_identity: tuple[IdentityComponentMapping, ...] | None = None,
     relationships: tuple[RelationshipMapping, ...] = (),
-    control_totals: tuple[BusinessControlTotal, ...] = (),
+    control_definitions: tuple[BusinessControlDefinition, ...] = (),
+    control_expectations: tuple[MappingControlExpectation, ...] = (),
 ) -> MappingDefinition:
     return MappingDefinition(
         mapping_id="mapping-columnar",
@@ -913,7 +921,8 @@ def _definition(
                 ),
                 fields=fields,
                 relationships=relationships,
-                control_totals=control_totals,
+                control_definitions=control_definitions,
+                control_expectations=control_expectations,
             ),
         ),
     )

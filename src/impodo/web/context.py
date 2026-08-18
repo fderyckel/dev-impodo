@@ -20,6 +20,7 @@ from typing import Callable
 
 from ..access import Actor, AuthorizationPolicy
 from ..application.browser_queries import BrowserQueryService
+from ..application.categorical_coverage_service import CategoricalCoverageService
 from ..application.mapping_workspace_service import MappingWorkspaceService
 from ..application.normalization_service import NormalizationService
 from ..application.odoo_capture_publication_service import OdooCapturePublicationService
@@ -114,6 +115,7 @@ class WebContext:
     derived_entities: DerivedEntityWorkspaceService
     schema_workspace: SchemaWorkspaceService
     mapping_workspace: MappingWorkspaceService
+    categorical_coverage: CategoricalCoverageService
     preparation: PreparationService
     preparation_jobs: PreparationJobManager | None
     quality: QualityService

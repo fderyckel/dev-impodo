@@ -11,10 +11,13 @@ from impodo.domain.schema.governance import (
     SchemaGovernance,
 )
 from impodo.domain.mapping.contracts import (
+    BusinessControlDefinition,
     BusinessControlTotal,
+    CategoricalCoveragePolicy,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
+    MappingControlExpectation,
     MappingTargetMode,
     ReferenceKeyMapping,
     RelationshipMapping,
@@ -300,11 +303,11 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(first.validation_hash, second.validation_hash)
         self.assertEqual(
             definition.content_hash,
-            "sha256:18040808d62cf7fea0d9220c04528acc5a4086f55e4fc4cdc227078cb95f4de6",
+            "sha256:fcfa3b28cc20b49950180dd7c8ba29579f4a24fdfa1fa2c808eb023fabebb6a9",
         )
         self.assertEqual(
             first.validation_hash,
-            "sha256:528dbe13e01785285944164d789cda31700332fa0ebcfa16ccd8836faf9b7a84",
+            "sha256:0da32fe4d0ce03fb1740431e0bf1e9d45ca9e340963e7de841bab02aa5f0f90d",
         )
         reversed_definition = replace(
             definition,
@@ -332,6 +335,7 @@ class MappingSemanticValidatorTests(unittest.TestCase):
                 "REFERENCE_RESOLUTION",
                 "REQUIRED_ROW_VALUES",
                 "SOURCE_IDENTITY_UNIQUENESS",
+                "TARGET_REFERENCE_COVERAGE_DEFERRED",
                 "TARGET_IDENTITY_UNIQUENESS",
             },
         )
@@ -1037,7 +1041,21 @@ class MappingSemanticValidatorTests(unittest.TestCase):
                 replace(
                     partner,
                     fields=(*partner.fields, amount),
-                    control_totals=(control,),
+                    control_definitions=(
+                        BusinessControlDefinition(
+                            control_id="control:x_amount",
+                            name=control.name,
+                            target_field=control.target_field,
+                            unit=control.unit,
+                            tolerance=control.tolerance,
+                        ),
+                    ),
+                    control_expectations=(
+                        MappingControlExpectation(
+                            control_id="control:x_amount",
+                            expected_total=control.expected_total,
+                        ),
+                    ),
                 ),
             ),
         )
@@ -1054,7 +1072,10 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             "MAPPING_CONTROL_TOTAL_FIELD_UNMAPPED",
             {item.code for item in result.issues},
         )
-        self.assertEqual(restored.datasets[1].control_totals, (control,))
+        self.assertEqual(
+            restored.datasets[1].effective_control_totals,
+            (control,),
+        )
         self.assertEqual(
             evaluate_scalar_mapping_value(
                 amount,
@@ -1062,6 +1083,24 @@ class MappingSemanticValidatorTests(unittest.TestCase):
                 source_values_by_ordinal={1: "2", 2: "1.235"},
             ),
             Decimal("2"),
+        )
+
+        missing_expectation = replace(
+            changed,
+            datasets=(
+                company,
+                replace(changed.datasets[1], control_expectations=()),
+            ),
+        )
+        missing_result = self.validator.validate(
+            missing_expectation,
+            self.selection,
+            schema,
+            self.governance,
+        )
+        self.assertIn(
+            "MAPPING_CONTROL_EXPECTATION_REQUIRED",
+            {item.code for item in missing_result.issues},
         )
 
     def test_unsafe_custom_pattern_and_formula_block_mapping_validation(
@@ -1241,9 +1280,20 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         )
 
     def test_version_eight_mapping_hash_and_json_remain_readable(self) -> None:
+        current = _valid_definition(self.selection, self.governance)
         legacy = replace(
-            _valid_definition(self.selection, self.governance),
+            current,
             contract_version=8,
+            datasets=tuple(
+                replace(
+                    dataset,
+                    relationships=tuple(
+                        replace(relation, categorical_policy=None)
+                        for relation in dataset.relationships
+                    ),
+                )
+                for dataset in current.datasets
+            ),
         )
 
         portable = legacy.to_dict()
@@ -1337,6 +1387,7 @@ def _valid_definition(
                         ReferenceKeyMapping("partner.category", "code"),
                     ),
                 ),
+                categorical_policy=CategoricalCoveragePolicy.EXACT_BUSINESS_KEY,
             ),
             RelationshipMapping(
                 target_field="tag_ids",
@@ -1351,6 +1402,7 @@ def _valid_definition(
                 ),
                 operation="add",
                 separator=";",
+                categorical_policy=CategoricalCoveragePolicy.EXACT_BUSINESS_KEY,
             ),
         ),
     )

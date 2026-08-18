@@ -42,6 +42,7 @@ from impodo.domain.schema.governance import (
     SchemaGovernance,
 )
 from impodo.domain.mapping.contracts import (
+    CategoricalCoveragePolicy,
     DatasetMapping,
     IdentityComponentMapping,
     MappingTargetMode,
@@ -4392,6 +4393,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Match values", page.text)
         self.assertIn("Choice field · 2 choice(s) captured from Odoo", page.text)
         self.assertIn("Review source choices", page.text)
+        self.assertIn("How must source choices be covered?", page.text)
         self.assertIn("French (France) — fr_FR", page.text)
         self.assertNotIn("datalist", page.text)
         mapping_script = self.client.get("/static/app.js")
@@ -4474,6 +4476,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(
             working.definition.datasets[0].fields[0].value_mappings,
             (ValueMapping("French", "fr_FR"),),
+        )
+        self.assertEqual(
+            working.definition.datasets[0].fields[0].categorical_policy,
+            CategoricalCoveragePolicy.EXPLICIT_VALUE_MATCH,
         )
 
     def test_relationship_choices_are_read_once_without_exposing_odoo_ids(
@@ -4576,6 +4582,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
             .relationships[0]
             .resolver.value_mappings,
             (ValueMapping("FRA", "FR"),),
+        )
+        self.assertEqual(
+            working.definition.datasets[0].relationships[0].categorical_policy,
+            CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH,
         )
 
     def test_matching_rule_without_description_uses_odoo_field_label(self) -> None:
@@ -5616,7 +5626,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 project_id
             )
         )
-        control = working.definition.datasets[0].control_totals[0]
+        control = working.definition.datasets[0].effective_control_totals[0]
         self.assertEqual(control.name, "Opening balance")
         self.assertEqual(control.target_field, "field_0000")
         self.assertEqual(control.expected_total, "1234.50")

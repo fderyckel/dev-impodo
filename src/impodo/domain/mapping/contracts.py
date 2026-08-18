@@ -12,7 +12,7 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields as dataclass_fields, replace
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 import json
@@ -29,8 +29,8 @@ from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
 
-MAPPING_CONTRACT_VERSION = 10
-SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset({8, 9, 10})
+MAPPING_CONTRACT_VERSION = 11
+SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset({8, 9, 10, 11})
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 MAX_CONTROL_TOTALS_PER_DATASET = 3
@@ -60,6 +60,15 @@ class ScalarValueSource(StrEnum):
     CONSTANT = "constant"
     SOURCE_WITH_FALLBACK = "source_with_fallback"
     ODOO_DEFAULT = "odoo_default"
+
+
+class CategoricalCoveragePolicy(StrEnum):
+    """Declare how a bounded categorical source domain is closed."""
+
+    EXACT_TARGET_VALUE = "EXACT_TARGET_VALUE"
+    EXPLICIT_VALUE_MATCH = "EXPLICIT_VALUE_MATCH"
+    EXACT_BUSINESS_KEY = "EXACT_BUSINESS_KEY"
+    EXPLICIT_KEY_MATCH = "EXPLICIT_KEY_MATCH"
 
 
 class TargetFieldHandling(StrEnum):
@@ -230,6 +239,7 @@ class ScalarFieldMapping:
     validate_only: bool = False
     null_policy: str = "distinct"
     reference_lookup: ReferenceLookupMapping | None = None
+    categorical_policy: CategoricalCoveragePolicy | None = None
 
     def __post_init__(self) -> None:
         if not self.target_field.strip() or len(self.target_field) > 200:
@@ -251,6 +261,12 @@ class ScalarFieldMapping:
             "value_mappings",
             _normalized_value_mappings(self.value_mappings),
         )
+        if self.categorical_policy is not None:
+            object.__setattr__(
+                self,
+                "categorical_policy",
+                CategoricalCoveragePolicy(self.categorical_policy),
+            )
         if self.reference_lookup is not None:
             if self.value_source is not ScalarValueSource.SOURCE:
                 raise ValueError("Reference lookups require a source value provider")
@@ -285,6 +301,15 @@ class RelationshipMapping:
     operation: str = "replace"
     separator: str = ";"
     null_policy: str = "distinct"
+    categorical_policy: CategoricalCoveragePolicy | None = None
+
+    def __post_init__(self) -> None:
+        if self.categorical_policy is not None:
+            object.__setattr__(
+                self,
+                "categorical_policy",
+                CategoricalCoveragePolicy(self.categorical_policy),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -308,6 +333,8 @@ class DatasetMapping:
     target_field_dispositions: tuple[TargetFieldDisposition, ...] = ()
     approved_write_fields: tuple[str, ...] = ()
     control_totals: tuple["BusinessControlTotal", ...] = ()
+    control_definitions: tuple["BusinessControlDefinition", ...] = ()
+    control_expectations: tuple["MappingControlExpectation", ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", MappingTargetMode(self.mode))
@@ -322,10 +349,35 @@ class DatasetMapping:
             "approved_write_fields",
             approved_write_fields,
         )
-        if len(self.control_totals) > MAX_CONTROL_TOTALS_PER_DATASET:
+        if max(
+            len(self.control_totals),
+            len(self.control_definitions),
+            len(self.control_expectations),
+        ) > MAX_CONTROL_TOTALS_PER_DATASET:
             raise ValueError(
                 "A dataset has too many declared business control totals"
             )
+
+    @property
+    def effective_control_totals(self) -> tuple["BusinessControlTotal", ...]:
+        """Project v11 definitions and expectations onto the current runtime."""
+
+        if self.control_totals:
+            return self.control_totals
+        expected_by_id = {
+            item.control_id: item for item in self.control_expectations
+        }
+        return tuple(
+            BusinessControlTotal(
+                name=definition.name,
+                target_field=definition.target_field,
+                expected_total=expected_by_id[definition.control_id].expected_total,
+                unit=definition.unit,
+                tolerance=definition.tolerance,
+            )
+            for definition in self.control_definitions
+            if definition.control_id in expected_by_id
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -365,6 +417,59 @@ class BusinessControlTotal:
 
 
 @dataclass(frozen=True, slots=True)
+class BusinessControlDefinition:
+    """Reusable meaning of one business reconciliation control."""
+
+    control_id: str
+    name: str
+    target_field: str
+    unit: str = ""
+    tolerance: str = "0"
+    calculation: str = "SUM"
+    invariant_expectation: bool = False
+
+    def __post_init__(self) -> None:
+        control_id = self.control_id.strip()
+        if not control_id or len(control_id) > 300:
+            raise ValueError("Control identifier is invalid")
+        normalized = BusinessControlTotal(
+            name=self.name,
+            target_field=self.target_field,
+            expected_total="0",
+            unit=self.unit,
+            tolerance=self.tolerance,
+        )
+        if self.calculation != "SUM":
+            raise ValueError("Control calculation is unsupported")
+        object.__setattr__(self, "control_id", control_id)
+        object.__setattr__(self, "name", normalized.name)
+        object.__setattr__(self, "target_field", normalized.target_field)
+        object.__setattr__(self, "unit", normalized.unit)
+        object.__setattr__(self, "tolerance", normalized.tolerance)
+
+
+@dataclass(frozen=True, slots=True)
+class MappingControlExpectation:
+    """Hashable mapping projection of one edition-local expected value."""
+
+    control_id: str
+    expected_total: str
+
+    def __post_init__(self) -> None:
+        control_id = self.control_id.strip()
+        if not control_id or len(control_id) > 300:
+            raise ValueError("Control expectation identifier is invalid")
+        try:
+            expected = Decimal(self.expected_total.strip())
+        except (InvalidOperation, AttributeError) as error:
+            raise ValueError("Control expectation requires a plain number") from error
+        if not expected.is_finite():
+            raise ValueError("Control expectation requires a finite number")
+        object.__setattr__(self, "control_id", control_id)
+        object.__setattr__(self, "expected_total", format(expected, "f"))
+
+
+@dataclass(frozen=True, slots=True)
 class MappingDefinition:
     """Portable mapping meaning, independent of revision/audit metadata."""
 
@@ -390,6 +495,25 @@ class MappingDefinition:
         ):
             raise ValueError(
                 "Pinned Odoo updates require mapping contract version 10"
+            )
+        has_v11_fields = any(
+            dataset.control_definitions
+            or dataset.control_expectations
+            or any(field.categorical_policy is not None for field in dataset.fields)
+            or any(
+                relation.categorical_policy is not None
+                for relation in dataset.relationships
+            )
+            for dataset in self.datasets
+        )
+        if self.contract_version < 11 and has_v11_fields:
+            raise ValueError("Categorical and split-control fields require version 11")
+        if self.contract_version >= 11 and any(
+            dataset.control_totals for dataset in self.datasets
+        ):
+            raise ValueError(
+                "Mapping contract version 11 requires split control definitions "
+                "and expectations"
             )
 
     @property
@@ -446,6 +570,18 @@ class MappingDefinition:
                                         control.target_field,
                                         control.name.casefold(),
                                     ),
+                                )
+                            ),
+                            control_definitions=tuple(
+                                sorted(
+                                    item.control_definitions,
+                                    key=lambda control: control.control_id,
+                                )
+                            ),
+                            control_expectations=tuple(
+                                sorted(
+                                    item.control_expectations,
+                                    key=lambda expectation: expectation.control_id,
                                 )
                             ),
                         )
@@ -507,6 +643,12 @@ def _dataset_mapping_from_dict(
     *,
     contract_version: int,
 ) -> DatasetMapping:
+    if contract_version >= 11:
+        _require_contract_fields(
+            payload,
+            _contract_fields(DatasetMapping).difference({"control_totals"}),
+            "Dataset mapping fields do not match contract v11",
+        )
     return DatasetMapping(
         dataset_id=str(payload["dataset_id"]),
         target_model=str(payload.get("target_model", "")),
@@ -516,30 +658,28 @@ def _dataset_mapping_from_dict(
             payload.get("source_identity_column_keys", ())
         ),
         target_identity=tuple(
-            _identity_component_from_dict(item)
+            _identity_component_from_dict(item, contract_version=contract_version)
             for item in payload.get("target_identity", ())
         ),
         target_scope=tuple(
-            _identity_component_from_dict(item)
+            _identity_component_from_dict(item, contract_version=contract_version)
             for item in payload.get("target_scope", ())
         ),
         fields=tuple(
-            _scalar_field_mapping_from_dict(item)
+            _scalar_field_mapping_from_dict(
+                item,
+                contract_version=contract_version,
+            )
             for item in payload.get("fields", ())
         ),
         relationships=tuple(
-            _relationship_from_dict(item)
+            _relationship_from_dict(item, contract_version=contract_version)
             for item in payload.get("relationships", ())
         ),
         target_field_dispositions=tuple(
-            TargetFieldDisposition(
-                target_field=str(item.get("target_field", "")),
-                handling=TargetFieldHandling(
-                    item.get(
-                        "handling",
-                        TargetFieldHandling.ODOO_DEFAULT.value,
-                    )
-                ),
+            _target_field_disposition_from_dict(
+                item,
+                contract_version=contract_version,
             )
             for item in payload.get("target_field_dispositions", ())
         ),
@@ -557,7 +697,15 @@ def _dataset_mapping_from_dict(
                 tolerance=str(item.get("tolerance", "0")),
             )
             for item in payload.get("control_totals", ())
-        ),
+        ) if contract_version < 11 else (),
+        control_definitions=tuple(
+            _business_control_definition_from_dict(item)
+            for item in payload.get("control_definitions", ())
+        ) if contract_version >= 11 else (),
+        control_expectations=tuple(
+            _mapping_control_expectation_from_dict(item)
+            for item in payload.get("control_expectations", ())
+        ) if contract_version >= 11 else (),
     )
 
 
@@ -571,12 +719,29 @@ def _dataset_mapping_to_dict(
         payload.pop("target_field_dispositions", None)
     if contract_version < 10:
         payload.pop("approved_write_fields", None)
+    if contract_version < 11:
+        payload.pop("control_definitions", None)
+        payload.pop("control_expectations", None)
+        for field_payload in payload.get("fields", ()):
+            field_payload.pop("categorical_policy", None)
+        for relationship_payload in payload.get("relationships", ()):
+            relationship_payload.pop("categorical_policy", None)
+    else:
+        payload.pop("control_totals", None)
     return _portable(payload)
 
 
 def _scalar_field_mapping_from_dict(
     payload: Mapping[str, Any],
+    *,
+    contract_version: int,
 ) -> ScalarFieldMapping:
+    if contract_version >= 11:
+        _require_contract_fields(
+            payload,
+            _contract_fields(ScalarFieldMapping),
+            "Scalar mapping fields do not match contract v11",
+        )
     transform_payload = payload.get("transform", {})
     if not isinstance(transform_payload, Mapping):
         raise ValueError("Scalar transform policy must be an object")
@@ -630,7 +795,10 @@ def _scalar_field_mapping_from_dict(
             ),
             formula=str(transform_payload.get("formula", "")),
             text_steps=tuple(
-                _text_transform_step_from_dict(item)
+                _text_transform_step_from_dict(
+                    item,
+                    contract_version=contract_version,
+                )
                 for item in transform_payload.get("text_steps", ())
             ),
         ),
@@ -654,7 +822,7 @@ def _scalar_field_mapping_from_dict(
             pattern=str(validation_payload.get("pattern", "")),
         ),
         value_mappings=tuple(
-            ValueMapping(**item)
+            _value_mapping_from_dict(item, contract_version=contract_version)
             for item in payload.get("value_mappings", ())
         ),
         value_type=str(payload.get("value_type", "string")),
@@ -666,8 +834,17 @@ def _scalar_field_mapping_from_dict(
         validate_only=bool(payload.get("validate_only", False)),
         null_policy=str(payload.get("null_policy", "distinct")),
         reference_lookup=(
-            ReferenceLookupMapping(**payload["reference_lookup"])
+            _reference_lookup_from_dict(
+                payload["reference_lookup"],
+                contract_version=contract_version,
+            )
             if payload.get("reference_lookup") is not None
+            else None
+        ),
+        categorical_policy=(
+            CategoricalCoveragePolicy(payload["categorical_policy"])
+            if contract_version >= 11
+            and payload.get("categorical_policy") is not None
             else None
         ),
     )
@@ -675,17 +852,13 @@ def _scalar_field_mapping_from_dict(
 
 def _text_transform_step_from_dict(
     payload: Mapping[str, Any],
+    *,
+    contract_version: int,
 ) -> TextTransformStep:
-    if not isinstance(payload, Mapping) or set(payload).difference(
-        {
-            "kind",
-            "search_value",
-            "replacement_value",
-            "search_mode",
-            "replace_all",
-            "characters",
-        }
-    ):
+    expected = _contract_fields(TextTransformStep)
+    if contract_version >= 11:
+        _require_contract_fields(payload, expected, "Ordered text changes are invalid")
+    elif not isinstance(payload, Mapping) or set(payload).difference(expected):
         raise ValueError("Ordered text changes are invalid")
     return TextTransformStep(
         kind=str(payload.get("kind", "find_replace")),
@@ -699,13 +872,24 @@ def _text_transform_step_from_dict(
 
 def _identity_component_from_dict(
     payload: Mapping[str, Any],
+    *,
+    contract_version: int,
 ) -> IdentityComponentMapping:
+    if contract_version >= 11:
+        _require_contract_fields(
+            payload,
+            _contract_fields(IdentityComponentMapping),
+            "Identity mapping fields do not match contract v11",
+        )
     return IdentityComponentMapping(
         source_column_keys=tuple(payload.get("source_column_keys", ())),
         target_fields=tuple(payload.get("target_fields", ())),
         value_type=str(payload.get("value_type", "string")),
         resolver=(
-            _resolver_from_dict(payload["resolver"])
+            _resolver_from_dict(
+                payload["resolver"],
+                contract_version=contract_version,
+            )
             if payload.get("resolver") is not None
             else None
         ),
@@ -714,12 +898,23 @@ def _identity_component_from_dict(
 
 def _relationship_from_dict(
     payload: Mapping[str, Any],
+    *,
+    contract_version: int,
 ) -> RelationshipMapping:
+    if contract_version >= 11:
+        _require_contract_fields(
+            payload,
+            _contract_fields(RelationshipMapping),
+            "Relationship mapping fields do not match contract v11",
+        )
     return RelationshipMapping(
         target_field=str(payload.get("target_field", "")),
         kind=str(payload.get("kind", "")),
         source_column_keys=tuple(payload.get("source_column_keys", ())),
-        resolver=_resolver_from_dict(payload["resolver"]),
+        resolver=_resolver_from_dict(
+            payload["resolver"],
+            contract_version=contract_version,
+        ),
         compare=bool(payload.get("compare", True)),
         validate_only=bool(payload.get("validate_only", False)),
         required=bool(payload.get("required", False)),
@@ -729,26 +924,142 @@ def _relationship_from_dict(
         operation=str(payload.get("operation", "replace")),
         separator=str(payload.get("separator", ";")),
         null_policy=str(payload.get("null_policy", "distinct")),
+        categorical_policy=(
+            CategoricalCoveragePolicy(payload["categorical_policy"])
+            if contract_version >= 11
+            and payload.get("categorical_policy") is not None
+            else None
+        ),
     )
 
 
 def _resolver_from_dict(
     payload: Mapping[str, Any],
+    *,
+    contract_version: int,
 ) -> RelationshipResolver:
+    if contract_version >= 11:
+        _require_contract_fields(
+            payload,
+            _contract_fields(RelationshipResolver),
+            "Relationship resolver fields do not match contract v11",
+        )
     return RelationshipResolver(
         origin=ResolverOrigin(payload["origin"]),
         dataset_id=payload.get("dataset_id"),
         model=payload.get("model"),
         key_mappings=tuple(
-            ReferenceKeyMapping(**item)
+            _reference_key_mapping_from_dict(
+                item,
+                contract_version=contract_version,
+            )
             for item in payload.get("key_mappings", ())
         ),
         scope_mappings=tuple(
-            ReferenceKeyMapping(**item)
+            _reference_key_mapping_from_dict(
+                item,
+                contract_version=contract_version,
+            )
             for item in payload.get("scope_mappings", ())
         ),
         value_mappings=tuple(
-            ValueMapping(**item)
+            _value_mapping_from_dict(item, contract_version=contract_version)
             for item in payload.get("value_mappings", ())
         ),
     )
+
+
+def _contract_fields(contract_type: type[object]) -> set[str]:
+    return {item.name for item in dataclass_fields(contract_type)}
+
+
+def _require_contract_fields(
+    payload: object,
+    expected: set[str],
+    message: str,
+) -> None:
+    if not isinstance(payload, Mapping) or set(payload) != expected:
+        raise ValueError(message)
+
+
+def _target_field_disposition_from_dict(
+    payload: Mapping[str, Any],
+    *,
+    contract_version: int,
+) -> TargetFieldDisposition:
+    if contract_version >= 11:
+        _require_contract_fields(
+            payload,
+            _contract_fields(TargetFieldDisposition),
+            "Target-field disposition fields do not match contract v11",
+        )
+    return TargetFieldDisposition(
+        target_field=str(payload.get("target_field", "")),
+        handling=TargetFieldHandling(
+            payload.get("handling", TargetFieldHandling.ODOO_DEFAULT.value)
+        ),
+    )
+
+
+def _business_control_definition_from_dict(
+    payload: Mapping[str, Any],
+) -> BusinessControlDefinition:
+    _require_contract_fields(
+        payload,
+        _contract_fields(BusinessControlDefinition),
+        "Control-definition fields do not match contract v11",
+    )
+    return BusinessControlDefinition(**payload)
+
+
+def _mapping_control_expectation_from_dict(
+    payload: Mapping[str, Any],
+) -> MappingControlExpectation:
+    _require_contract_fields(
+        payload,
+        _contract_fields(MappingControlExpectation),
+        "Control-expectation fields do not match contract v11",
+    )
+    return MappingControlExpectation(**payload)
+
+
+def _reference_lookup_from_dict(
+    payload: Mapping[str, Any],
+    *,
+    contract_version: int,
+) -> ReferenceLookupMapping:
+    if contract_version >= 11:
+        _require_contract_fields(
+            payload,
+            _contract_fields(ReferenceLookupMapping),
+            "Reference-lookup fields do not match contract v11",
+        )
+    return ReferenceLookupMapping(**payload)
+
+
+def _reference_key_mapping_from_dict(
+    payload: Mapping[str, Any],
+    *,
+    contract_version: int,
+) -> ReferenceKeyMapping:
+    if contract_version >= 11:
+        _require_contract_fields(
+            payload,
+            _contract_fields(ReferenceKeyMapping),
+            "Reference-key fields do not match contract v11",
+        )
+    return ReferenceKeyMapping(**payload)
+
+
+def _value_mapping_from_dict(
+    payload: Mapping[str, Any],
+    *,
+    contract_version: int,
+) -> ValueMapping:
+    if contract_version >= 11:
+        _require_contract_fields(
+            payload,
+            _contract_fields(ValueMapping),
+            "Value-match fields do not match contract v11",
+        )
+    return ValueMapping(**payload)

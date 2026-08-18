@@ -28,6 +28,7 @@ from ...domain.mapping.scalar_values import (
     ScalarValueError,
     evaluate_scalar_mapping_value,
 )
+from ...domain.mapping.upgrade_review import review_mapping_contract_upgrade
 from ...domain.mapping.validation.evidence import mapping_issue_fingerprint
 from ...quality import (
     MAX_MANAGER_RULES_PER_DATASET,
@@ -126,6 +127,13 @@ def _render_mapping(
             revision is None
             or working_draft.content_hash != revision.definition.content_hash
         )
+    )
+    contract_upgrade_review = (
+        review_mapping_contract_upgrade(active_definition, schema)
+        if active_definition is not None
+        and schema is not None
+        and active_definition.contract_version < 11
+        else None
     )
     validation = None if has_unvalidated_changes else stored_validation
     submission = None if has_unvalidated_changes else stored_submission
@@ -396,6 +404,7 @@ def _render_mapping(
             working_draft is not None and not working_draft_is_current
         ),
         has_unvalidated_changes=has_unvalidated_changes,
+        contract_upgrade_review=contract_upgrade_review,
         dataset_views=dataset_views,
         warning_issues=warning_issues,
         readonly_field_recovery=readonly_field_recovery,
@@ -906,10 +915,22 @@ def _mapping_dataset_views(
             for field in all_scalar_fields
             if field.type in {"integer", "float", "monetary"}
         )
-        existing_controls = existing.control_totals if existing else ()
+        existing_controls = existing.effective_control_totals if existing else ()
+        existing_control_ids = (
+            tuple(item.control_id for item in existing.control_definitions)
+            if existing and existing.control_definitions
+            else tuple(
+                f"control:{item.target_field}" for item in existing_controls
+            )
+        )
         control_total_slots = tuple(
             {
                 "index": index,
+                "control_id": (
+                    existing_control_ids[index]
+                    if index < len(existing_control_ids)
+                    else ""
+                ),
                 "control": (
                     existing_controls[index]
                     if index < len(existing_controls)

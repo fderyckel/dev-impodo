@@ -34,9 +34,10 @@ from impodo.inspection import (
     SourceTableCatalog,
 )
 from impodo.domain.mapping.contracts import (
-    BusinessControlTotal,
+    BusinessControlDefinition,
     DatasetMapping,
     IdentityComponentMapping,
+    MappingControlExpectation,
     MappingDefinition,
     MappingTargetMode,
     ReferenceKeyMapping,
@@ -583,12 +584,18 @@ class BrowserReadinessStagingTests(unittest.TestCase):
                 replace(
                     child,
                     fields=(*child.fields, quantity),
-                    control_totals=(
-                        BusinessControlTotal(
+                    control_definitions=(
+                        BusinessControlDefinition(
+                            control_id="component-quantity-total",
                             name="Component quantity",
                             target_field="product_qty",
-                            expected_total="3",
                             unit="units",
+                        ),
+                    ),
+                    control_expectations=(
+                        MappingControlExpectation(
+                            control_id="component-quantity-total",
+                            expected_total="3",
                         ),
                     ),
                 ),

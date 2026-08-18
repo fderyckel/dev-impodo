@@ -1593,6 +1593,16 @@ document.addEventListener("DOMContentLoaded", () => {
           target_value: select.value,
         }));
       activeValueMatch.storage.value = JSON.stringify(mappings);
+      const policy = activeValueMatch.storage
+        .closest("[data-scalar-mapping-row], [data-relation-mapping-row]")
+        ?.querySelector("[data-categorical-policy]");
+      if (policy instanceof HTMLSelectElement && mappings.length) {
+        policy.value =
+          activeValueMatch.trigger.dataset.valueMatchKind === "scalar"
+            ? "EXPLICIT_VALUE_MATCH"
+            : "EXPLICIT_KEY_MATCH";
+        policy.dispatchEvent(new Event("change", { bubbles: true }));
+      }
       activeValueMatch.storage.dispatchEvent(
         new Event("input", { bubbles: true })
       );

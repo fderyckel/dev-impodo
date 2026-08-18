@@ -43,9 +43,10 @@ from impodo.domain.coverage import (
 from impodo.domain.errors import ReadinessError
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
 from impodo.domain.mapping.contracts import (
-    BusinessControlTotal,
+    BusinessControlDefinition,
     DatasetMapping,
     IdentityComponentMapping,
+    MappingControlExpectation,
     MappingDefinition,
     MappingTargetMode,
     RelationshipMapping,
@@ -1693,12 +1694,18 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                         ),
                     ),
                     fields=product_fields,
-                    control_totals=(
-                        BusinessControlTotal(
+                    control_definitions=(
+                        BusinessControlDefinition(
+                            control_id="sales-price-total",
                             name="Sales price total",
                             target_field="list_price",
-                            expected_total=str(product_count),
                             unit="EUR",
+                        ),
+                    ),
+                    control_expectations=(
+                        MappingControlExpectation(
+                            control_id="sales-price-total",
+                            expected_total=str(product_count),
                         ),
                     ),
                 ),
@@ -1735,12 +1742,18 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                             required=True,
                         ),
                     ),
-                    control_totals=(
-                        BusinessControlTotal(
+                    control_definitions=(
+                        BusinessControlDefinition(
+                            control_id="component-quantity-total",
                             name="Component quantity total",
                             target_field="product_qty",
-                            expected_total=str(bom_line_count),
                             unit="unit",
+                        ),
+                    ),
+                    control_expectations=(
+                        MappingControlExpectation(
+                            control_id="component-quantity-total",
+                            expected_total=str(bom_line_count),
                         ),
                     ),
                 ),
@@ -1978,8 +1991,9 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                         ),
                     ),
                     fields=fields,
-                    control_totals=(
-                        BusinessControlTotal(
+                    control_definitions=(
+                        BusinessControlDefinition(
+                            control_id="prepared-value-total",
                             name=(
                                 "Sales price total"
                                 if PREPARATION_SCALE_WORKLOAD == "products"
@@ -1994,10 +2008,15 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                                 if PREPARATION_SCALE_WORKLOAD == "bom"
                                 else "credit_limit"
                             ),
-                            expected_total=str(row_count),
                             unit=(
                                 "unit" if PREPARATION_SCALE_WORKLOAD == "bom" else "EUR"
                             ),
+                        ),
+                    ),
+                    control_expectations=(
+                        MappingControlExpectation(
+                            control_id="prepared-value-total",
+                            expected_total=str(row_count),
                         ),
                     ),
                 ),

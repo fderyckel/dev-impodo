@@ -83,13 +83,15 @@ yet support reusable recipes. Later phases must add their contracts and storage
 without regressing the exact submission, publication, containment, bounded-read,
 and evidence-currentness behavior above.
 
-The authoritative roadmap still makes related/mixed 100,000-row preparation
-the unconditional priority. Phase 1 recipe implementation remains gated until
-that goal completes or product ownership explicitly changes the roadmap.
+At baseline capture, the authoritative roadmap still made related/mixed
+100,000-row preparation the unconditional priority. Product ownership later
+recorded the explicit bounded priority exception required by the Phase 0 gate;
+the completed Phase 1 report records that subsequent implementation.
 
 ## Related documentation
 
 - [Phase 0 contracts](../plans/reusable-recipes-phase-0-contracts.md)
+- [Phase 1 implementation report](reusable-recipes-phase-1-mapping-contract-2026-08-18.md)
 - [Reusable recipes implementation plan](../plans/reusable-recipes-and-data-versions-implementation-plan.md)
 - [Impodo remaining work](../plans/remaining-work.md)
 - [Architecture overview](../architecture/overview.md)

@@ -286,6 +286,13 @@ and content hash. Every non-invariant required control needs a new expectation
 before mapping submission. Recipe application never defaults it from origin
 provenance.
 
+Mapping contract v11 carries `MappingControlExpectation`, the minimal hashable
+current-mapping projection of the logical control ID and expected number.
+`EditionControlExpectation` is the full actor/provenance envelope reserved for
+edition persistence in Phase 2. The projection keeps current preparation
+compatible without pretending that the later series/edition store already
+exists.
+
 The export/as-of date and any other declared edition parameter follow the same
 rule: new value, current actor evidence, no silent copy from the prior edition.
 
@@ -417,11 +424,9 @@ browser actions, mapping contract v11 parsing, recipe application, credential
 copy, or deletion behavior. Those remain unavailable until their implementation
 phase and focused tests land.
 
-The current authoritative roadmap keeps related/mixed 100,000-row preparation
-as the unconditional priority. Phase 1 must not begin until product ownership
-explicitly adopts a different priority in
-[Impodo remaining work](remaining-work.md), or the existing unconditional gate
-is completed.
+The authoritative roadmap recorded the required product-ownership priority
+decision on 2026-08-18 and opened Phase 1. This frozen Phase 0 contract still
+does not claim that recipe publication, series, or edition behavior exists.
 
 ## Related documentation
 

@@ -34,6 +34,19 @@
     </div>
   {% endif %}
 
+  {% if contract_upgrade_review %}
+    <div class="notice warning">
+      <strong>Review legacy choice behavior before recipe reuse</strong>
+      <p>
+        This stored version {{ contract_upgrade_review.source_contract_version }} mapping still loads unchanged.
+        Confirm an explicit coverage rule for each of its {{ contract_upgrade_review.categorical_items|length }} affected choice field(s); Impodo will save the result as a new version 11 mapping rather than reinterpret the old evidence.
+      </p>
+      {% if contract_upgrade_review.unsupported_reasons %}
+        <p>{{ contract_upgrade_review.unsupported_reasons|length }} legacy construct(s) need a supported converter before recipe publication.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
   {% if selection and schema and (governance or odoo_pinned) %}
     <form
       method="post"
@@ -378,6 +391,18 @@
                             {% if not row.selection_choice_count %}Refresh the Odoo fields to load the available choices{% elif row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Exact Odoo codes pass; match every other populated source choice{% endif %}
                           </small>
                         </div>
+                        <label>
+                          How must source choices be covered?
+                          {% set scalar_policy = mapping.categorical_policy.value if mapping and mapping.categorical_policy else ('' if mapping else 'EXACT_TARGET_VALUE') %}
+                          <select
+                            name="scalar_categorical_policy_{{ dataset_index }}_{{ field_index }}"
+                            data-categorical-policy
+                          >
+                            {% if not scalar_policy %}<option value="" selected>Choose after reviewing this legacy field</option>{% endif %}
+                            <option value="EXACT_TARGET_VALUE" {% if scalar_policy == 'EXACT_TARGET_VALUE' %}selected{% endif %}>Every final value is already an exact Odoo code</option>
+                            <option value="EXPLICIT_VALUE_MATCH" {% if scalar_policy == 'EXPLICIT_VALUE_MATCH' %}selected{% endif %}>Every populated source choice must be explicitly matched</option>
+                          </select>
+                        </label>
                       {% endif %}
                     </td>
                     <td class="transform-cell">
@@ -817,6 +842,18 @@
                     </label>
                   </div>
                   <div class="policy-row">
+                    <label>
+                      How must source choices identify linked records?
+                      {% set relation_policy = mapping.categorical_policy.value if mapping and mapping.categorical_policy else ('' if mapping else 'EXACT_BUSINESS_KEY') %}
+                      <select
+                        name="relation_categorical_policy_{{ dataset_index }}_{{ relation_index }}"
+                        data-categorical-policy
+                      >
+                        {% if not relation_policy %}<option value="" selected>Choose after reviewing this legacy field</option>{% endif %}
+                        <option value="EXACT_BUSINESS_KEY" {% if relation_policy == 'EXACT_BUSINESS_KEY' %}selected{% endif %}>Every value is already an exact business key</option>
+                        <option value="EXPLICIT_KEY_MATCH" {% if relation_policy == 'EXPLICIT_KEY_MATCH' %}selected{% endif %}>Every populated source choice must be explicitly matched</option>
+                      </select>
+                    </label>
                     {% if row.metadata.type == 'many2one' %}
                       <input
                         type="hidden"
@@ -896,7 +933,7 @@
           </details>
           {% endif %}
 
-          <details class="technical-evidence" {% if view.mapping and view.mapping.control_totals %}open{% endif %}>
+          <details class="technical-evidence" {% if view.mapping and view.mapping.effective_control_totals %}open{% endif %}>
             <summary>
               Check a known total (optional)
               <small>For amounts or quantities you already know</small>
@@ -908,6 +945,7 @@
               {% for slot in view.control_total_slots %}
                 {% set control = slot.control %}
                 <section class="nested-rule-card">
+                  <input type="hidden" name="control_id_{{ dataset_index }}_{{ slot.index }}" value="{{ slot.control_id }}">
                   <div class="form-grid">
                     <label>
                       Check name

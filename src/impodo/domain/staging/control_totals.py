@@ -44,7 +44,7 @@ class CompiledControlTotalAccumulator:
         for dataset in definition.datasets:
             dataset_name = dataset_name_by_id[dataset.dataset_id]
             by_field: dict[str, _ControlFieldState] = {}
-            for control in dataset.control_totals:
+            for control in dataset.effective_control_totals:
                 by_field.setdefault(
                     control.target_field,
                     _ControlFieldState(first_control=control),
@@ -112,7 +112,7 @@ class CompiledControlTotalAccumulator:
         for dataset in self.definition.datasets:
             dataset_name = self.dataset_name_by_id[dataset.dataset_id]
             states = self.states[dataset_name]
-            for control in dataset.control_totals:
+            for control in dataset.effective_control_totals:
                 state = states[control.target_field]
                 control_id = (
                     "sha256:"

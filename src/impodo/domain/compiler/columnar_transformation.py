@@ -997,7 +997,7 @@ def _compile_dataset(
         for item in relationships
     )
     for control in sorted(
-        authored.control_totals,
+        authored.effective_control_totals,
         key=lambda item: (item.target_field, item.name.casefold()),
     ):
         draft.use(

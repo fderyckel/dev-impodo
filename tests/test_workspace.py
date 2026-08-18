@@ -53,6 +53,9 @@ from impodo.projects import (
     SourceFile,
 )
 from impodo.application.mapping_workspace_service import MappingWorkspaceService
+from impodo.application.categorical_coverage_service import (
+    CategoricalCoverageService,
+)
 from impodo.application.schema_workspace_service import SchemaWorkspaceService
 from impodo.application.source_workspace_service import SourceWorkspaceService
 from impodo.workspace_contracts import (
@@ -135,6 +138,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             self.schema_repository,
             self.mapping_repository,
             self.authorization,
+            CategoricalCoverageService(self.source_repository, object()),
         )
         self.catalog = _catalog(self.source, now)
         self.source_repository.save_source_catalogs(

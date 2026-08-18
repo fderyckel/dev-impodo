@@ -16,7 +16,12 @@ from ....value_rules import (
     validate_formula,
     validate_pattern,
 )
-from ..contracts import DatasetMapping, ScalarFieldMapping, ScalarValueSource
+from ..contracts import (
+    CategoricalCoveragePolicy,
+    DatasetMapping,
+    ScalarFieldMapping,
+    ScalarValueSource,
+)
 from ..scalar_values import (
     ScalarValueError,
     _DATE_FORMATS,
@@ -129,6 +134,14 @@ def _validate_scalar(
                 target_field=field_mapping.target_field,
             )
         )
+    _validate_categorical_policy(
+        context,
+        dataset,
+        field_mapping,
+        metadata.type,
+        path,
+        issues,
+    )
     if field_mapping.value_mappings:
         if field_mapping.value_source not in {
             ScalarValueSource.SOURCE,
@@ -358,6 +371,91 @@ def _validate_scalar(
                 target_field=field_mapping.target_field,
             )
         )
+
+def _validate_categorical_policy(
+    context: ValidationContext,
+    dataset: DatasetMapping,
+    field_mapping: ScalarFieldMapping,
+    target_type: str,
+    path: str,
+    issues: list[MappingValidationIssue],
+) -> None:
+    """Require explicit closed-domain meaning for v11 scalar selections."""
+
+    if context.definition.contract_version < 11:
+        return
+    policy = field_mapping.categorical_policy
+    is_selection = target_type == "selection"
+    provides_value = field_mapping.value_source is not ScalarValueSource.ODOO_DEFAULT
+    if is_selection and provides_value and policy is None:
+        issues.append(
+            _issue(
+                "MAPPING_CATEGORICAL_POLICY_REQUIRED",
+                f"{path}/categorical_policy",
+                "This Odoo choice field has no categorical coverage policy.",
+                "Confirm exact Odoo values or require an explicit match for every source choice.",
+                dataset=dataset,
+                target_field=field_mapping.target_field,
+            )
+        )
+        return
+    if not is_selection and policy is not None:
+        issues.append(
+            _issue(
+                "MAPPING_CATEGORICAL_POLICY_INVALID",
+                f"{path}/categorical_policy",
+                "Categorical target-value policy is only valid for an Odoo choice field.",
+                "Remove the categorical policy from this scalar field.",
+                dataset=dataset,
+                target_field=field_mapping.target_field,
+            )
+        )
+        return
+    if policy not in {
+        None,
+        CategoricalCoveragePolicy.EXACT_TARGET_VALUE,
+        CategoricalCoveragePolicy.EXPLICIT_VALUE_MATCH,
+    }:
+        issues.append(
+            _issue(
+                "MAPPING_CATEGORICAL_POLICY_INVALID",
+                f"{path}/categorical_policy",
+                "A business-key policy cannot govern an Odoo scalar choice.",
+                "Choose exact target value or explicit value match.",
+                dataset=dataset,
+                target_field=field_mapping.target_field,
+            )
+        )
+    elif (
+        policy is CategoricalCoveragePolicy.EXACT_TARGET_VALUE
+        and field_mapping.value_mappings
+    ):
+        issues.append(
+            _issue(
+                "MAPPING_CATEGORICAL_POLICY_CONFLICT",
+                f"{path}/categorical_policy",
+                "Exact target-value coverage cannot also translate source choices.",
+                "Remove the value matches or choose explicit value match.",
+                dataset=dataset,
+                target_field=field_mapping.target_field,
+            )
+        )
+    elif (
+        policy is CategoricalCoveragePolicy.EXPLICIT_VALUE_MATCH
+        and field_mapping.value_source
+        not in {ScalarValueSource.SOURCE, ScalarValueSource.SOURCE_WITH_FALLBACK}
+    ):
+        issues.append(
+            _issue(
+                "MAPPING_CATEGORICAL_POLICY_CONFLICT",
+                f"{path}/categorical_policy",
+                "Explicit value matching requires a source-based provider.",
+                "Choose a source column or exact target-value coverage.",
+                dataset=dataset,
+                target_field=field_mapping.target_field,
+            )
+        )
+
 
 def _validate_transform_policy(
     dataset: DatasetMapping,

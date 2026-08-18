@@ -2,12 +2,14 @@
 
 ## Status and authority
 
-**Status:** Proposed implementation plan from 2026-08-18. No phase is
-implemented unless the repository, tests, and current documentation say so.
+**Status:** Active implementation plan from 2026-08-18. No phase is complete
+unless the repository, tests, and current documentation say so.
 
-**Phase 0:** The contract-and-fixture slice was completed on 2026-08-18. The
-runtime feature is not implemented, and Phase 1 remains closed by the
-authoritative roadmap priority gate.
+**Phase 0:** Completed on 2026-08-18.
+
+**Phase 1:** Completed on 2026-08-18 after the bounded implementation and
+regression gate recorded below. Recipe publication, series, and edition
+behavior remain unavailable.
 
 This document defines a scoped delivery path for reusing a confirmed Impodo
 mapping and transformation recipe with later replacement files inside one
@@ -1085,11 +1087,13 @@ Phase 0 evidence:
 recovery action is agreed before persistence or browser work; the roadmap either
 adopts the priority explicitly or implementation does not begin.
 
-**Gate status:** Contract, fixture, architecture-documentation, and baseline
-checks pass. The roadmap explicitly retains related/mixed 100,000-row
-preparation as the unconditional goal, so Phase 1 must not begin yet.
+**Gate status:** Passed. Contract, fixture, architecture-documentation, and
+baseline checks pass, and the roadmap explicitly adopted Phase 1 on
+2026-08-18.
 
 ### Phase 1 - Make mapping contract v11 recipe-safe
+
+**Status:** Completed on 2026-08-18.
 
 - Add mapping contract v11 with the strict categorical coverage enum and a
   separate reusable control-definition/edition-expectation shape.
@@ -1105,6 +1109,13 @@ preparation as the unconditional goal, so Phase 1 must not begin yet.
 
 **Gate:** no eligible submitted mapping can silently accept a new categorical
 source value; legacy mappings have deterministic reviewed/unsupported outcomes.
+
+**Gate status:** Passed. Mapping contract v11, validation-bound categorical
+evidence, split control semantics, the focused legacy review boundary, and the
+shared application-layer source scan are implemented. Relationship target
+existence/uniqueness remains explicitly deferred to fresh preparation evidence,
+so mapping validation does not make a target-record coverage claim. See the
+[Phase 1 implementation report](../reports/reusable-recipes-phase-1-mapping-contract-2026-08-18.md).
 
 ### Phase 2 - Add series, lifecycle, and protected persistence
 

@@ -39,6 +39,11 @@ from ..domain.mapping.validation.evidence import (
     mapping_issue_fingerprint,
 )
 from ..domain.mapping.validation.validator import MappingSemanticValidator
+from ..domain.mapping.upgrade_review import (
+    MappingContractUpgradeReview,
+    review_mapping_contract_upgrade,
+)
+from .categorical_coverage_service import CategoricalCoverageService
 from ..domain.staging.transformation_impact import TransformationRuleReview
 from ..workspace_contracts import (
     MappingWorkingDraft,
@@ -193,6 +198,7 @@ class MappingWorkspaceService:
         schemas: MappingSchemaRepository,
         mappings: MappingWorkspaceRepository,
         authorization: AuthorizationPolicy,
+        categorical_coverage: CategoricalCoverageService,
         transformation_impacts: MappingTransformationImpactRepository | None = None,
     ) -> None:
         self.sources = sources
@@ -200,6 +206,7 @@ class MappingWorkspaceService:
         self.mappings = mappings
         self.authorization = authorization
         self.transformation_impacts = transformation_impacts
+        self.categorical_coverage = categorical_coverage
         self.validator = MappingSemanticValidator()
 
     def save_working_draft(
@@ -265,6 +272,25 @@ class MappingWorkspaceService:
             actor=actor,
         )
         return draft
+
+    def review_contract_upgrade(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+    ) -> MappingContractUpgradeReview:
+        """Return the focused, non-mutating v8-v10 recipe upgrade review."""
+
+        self.authorization.require(
+            actor,
+            Capability.MAPPING_EDIT,
+            project_id=project_id,
+        )
+        revision = self.mappings.get_mapping_revision(project_id)
+        schema = self.schemas.get_odoo_schema_catalog(project_id)
+        if revision is None or schema is None:
+            raise WorkspaceError("Save a mapping and capture Odoo fields first")
+        return review_mapping_contract_upgrade(revision.definition, schema)
 
     def remove_readonly_field_mappings(
         self,
@@ -520,7 +546,8 @@ class MappingWorkspaceService:
                 datasets=tuple(datasets),
             )
         )
-        validation = self.validator.validate(
+        validation = self._validate_definition(
+            project_id,
             definition,
             selection,
             schema,
@@ -757,7 +784,8 @@ class MappingWorkspaceService:
             raise WorkspaceError(
                 "Save a mapping revision before validating"
             )
-        validation = self.validator.validate(
+        validation = self._validate_definition(
+            project_id,
             revision.definition,
             selection,
             schema,
@@ -770,3 +798,54 @@ class MappingWorkspaceService:
             actor=actor,
         )
         return validation
+
+    def _validate_definition(
+        self,
+        project_id: str,
+        definition: MappingDefinition,
+        selection: SourceSelection,
+        schema: OdooSchemaCatalog,
+        governance: SchemaGovernance | None,
+    ) -> MappingValidationResult:
+        """Combine pure semantic validation with project-local scan evidence."""
+
+        validation = self.validator.validate(
+            definition,
+            selection,
+            schema,
+            governance,
+        )
+        if definition.contract_version < 11:
+            return validation
+        collected = self.categorical_coverage.collect(
+            project_id,
+            definition,
+            selection,
+            schema,
+        )
+        issues = tuple(
+            sorted(
+                (*validation.issues, *collected.issues),
+                key=lambda item: (
+                    item.severity,
+                    item.path,
+                    item.code,
+                    item.message,
+                ),
+            )
+        )
+        status = (
+            MappingValidationStatus.INVALID
+            if any(item.severity == "error" for item in issues)
+            else (
+                MappingValidationStatus.VALID_WITH_WARNINGS
+                if issues
+                else MappingValidationStatus.VALID
+            )
+        )
+        return replace(
+            validation,
+            status=status,
+            issues=issues,
+            categorical_coverage=collected.evidence,
+        )

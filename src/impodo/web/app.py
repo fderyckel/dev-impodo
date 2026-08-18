@@ -34,6 +34,7 @@ from ..access import (
 )
 from ..application.browser_queries import BrowserQueryService
 from ..application.mapping_workspace_service import MappingWorkspaceService
+from ..application.categorical_coverage_service import CategoricalCoverageService
 from ..application.normalization_service import NormalizationService
 from ..application.odoo_capture_publication_service import OdooCapturePublicationService
 from ..application.odoo_capture_job_service import OdooCaptureJobManager
@@ -267,6 +268,10 @@ def create_local_app(
         if odoo_capture_jobs_enabled
         else None
     )
+    categorical_coverage = CategoricalCoverageService(
+        source_repository,
+        resolved_artifacts,
+    )
     context = WebContext(
         queries=BrowserQueryService(
             project_repository,
@@ -308,8 +313,10 @@ def create_local_app(
             schema_repository,
             mapping_repository,
             resolved_authorization,
-            transformation_impact_repository,
+            categorical_coverage=categorical_coverage,
+            transformation_impacts=transformation_impact_repository,
         ),
+        categorical_coverage=categorical_coverage,
         preparation=preparation,
         preparation_jobs=preparation_jobs,
         quality=quality,

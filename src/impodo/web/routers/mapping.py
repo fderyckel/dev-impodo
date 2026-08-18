@@ -643,21 +643,23 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     )
                 _flash(request, message)
                 return RedirectResponse(mapping_return_url, status_code=303)
+            active_definition = _active_mapping_definition(
+                context,
+                project_id,
+                selection,
+                schema,
+                governance,
+            )
             datasets = _mapping_datasets_from_form(
                 form,
                 selection,
                 schema,
                 governance,
+                active_definition,
             )
             datasets = _merge_partial_mapping_datasets(
                 datasets,
-                _active_mapping_definition(
-                    context,
-                    project_id,
-                    selection,
-                    schema,
-                    governance,
-                ),
+                active_definition,
                 form,
                 selection,
                 schema,

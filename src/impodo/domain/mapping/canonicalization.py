@@ -38,6 +38,18 @@ def canonicalize_mapping_definition(
                             ),
                         )
                     ),
+                    control_definitions=tuple(
+                        sorted(
+                            item.control_definitions,
+                            key=lambda control: control.control_id,
+                        )
+                    ),
+                    control_expectations=tuple(
+                        sorted(
+                            item.control_expectations,
+                            key=lambda expectation: expectation.control_id,
+                        )
+                    ),
                 )
                 for item in definition.datasets
             ),

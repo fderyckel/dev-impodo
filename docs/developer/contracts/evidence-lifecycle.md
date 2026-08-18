@@ -50,6 +50,19 @@ one exact schema revision. Mapping binds the exact source selection, schema,
 governance, providers, transformations, relationships, validation result,
 reviewed warnings, and actor submission.
 
+Mapping contract v11 additionally binds an explicit closed-domain policy for
+every scalar selection and relationship. Application validation scans each
+affected physical dataset once across all relevant fields and embeds immutable
+`CategoricalCoverageEvidence` in validation contract v2, so its content hash
+participates in the submission validation hash. Relationship target existence
+and uniqueness remain declared deferred checks satisfied by fresh preparation
+evidence; mapping validation does not claim target-record coverage. Reusable
+control definitions and the current edition's expected values are separate v11
+objects, projected back to effective totals only at preparation time. The v11
+mapping contains the minimal hashable control expectation; the full actor- and
+time-bound `EditionControlExpectation` contract is reserved for edition
+persistence rather than falsely treated as current storage behavior.
+
 Portable evidence uses business keys and stable technical names. Numeric Odoo
 record IDs may appear only in protected target-specific evidence and never as
 portable source or relationship identities.

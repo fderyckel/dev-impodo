@@ -690,6 +690,17 @@ class MappingSemanticValidator:
                 )
                 for target_field in sorted(runtime_selection_fields)
             )
+            if definition.contract_version >= 11 and dataset.relationships:
+                deferred.append(
+                    DeferredRuntimeCheck(
+                        code="TARGET_REFERENCE_COVERAGE_DEFERRED",
+                        dataset_id=dataset.dataset_id,
+                        message=(
+                            "Target existence and uniqueness remain bound to "
+                            "fresh preparation evidence, not mapping submission."
+                        ),
+                    )
+                )
             deferred.extend(
                 (
                     DeferredRuntimeCheck(

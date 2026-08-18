@@ -9,11 +9,8 @@ boundary and are never passed into the preflight domain or report.
 
 from __future__ import annotations
 
-from collections import Counter
-
 from starlette.concurrency import run_in_threadpool
 
-from ..artifacts import ArtifactStoreError
 from ..adapters.odoo_source_capture import Json2OdooSourceCapture
 from ..connectors import (
     Json2Config,
@@ -31,14 +28,9 @@ from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from ..projects import MigrationProject, OdooConnectionMode, ProjectError, SourceMode
 from ..reference_keys import standard_reference_key
 from ..secrets import SecretStoreError
-from ..source_snapshot_io import (
-    load_source_snapshot_table,
-    validate_snapshot_for_dataset,
-)
 from ..workspace_contracts import OdooModelCatalog, SchemaField, SchemaOrigin
 from ..workspace_errors import WorkspaceError
 from .constants import (
-    VALUE_MATCH_MAX_SOURCE_CHOICES,
     VALUE_MATCH_MAX_TARGET_CHOICES,
 )
 from .context import WebContext
@@ -466,75 +458,12 @@ def _source_value_choices(
     dataset_id: str,
     source_column_key: str,
 ) -> tuple[dict[str, object], ...]:
-    """Count every non-empty source choice from one frozen physical column."""
+    """Delegate bounded source-choice enumeration to the application layer."""
 
-    selection = context.queries.get_source_selection(project_id)
-    dataset = next(
-        (
-            item
-            for item in (selection.datasets if selection else ())
-            if item.dataset_id == dataset_id
-        ),
-        None,
-    )
-    if dataset is None:
-        raise WorkspaceError(
-            "Value matching is available for original frozen datasets"
-        )
-    column = next(
-        (
-            item
-            for item in dataset.columns
-            if item.stable_key == source_column_key
-        ),
-        None,
-    )
-    if column is None:
-        raise WorkspaceError("Choose one current source column")
-    selection = context.queries.get_source_selection(project_id)
-    if selection is None:
-        raise WorkspaceError("Frozen source evidence is incomplete")
-    snapshot = next(
-        (
-            item
-            for item in context.queries.get_current_source_snapshots(project_id)
-            if item.dataset_id == dataset.dataset_id
-        ),
-        None,
-    )
-    if snapshot is None:
-        raise WorkspaceError("Frozen source snapshot is incomplete")
-    try:
-        validate_snapshot_for_dataset(selection, dataset, snapshot)
-        with context.artifacts.materialize_source_snapshot(
-            project_id,
-            snapshot.parquet_storage_key,
-            expected_sha256=snapshot.parquet_sha256,
-        ) as path:
-            table = load_source_snapshot_table(path, snapshot)
-    except (ArtifactStoreError, OSError, ValueError) as error:
-        raise WorkspaceError(
-            "The frozen source snapshot could not be verified"
-        ) from error
-    expected_hash = dataset.source_evidence_hash
-    if table.content_hash != expected_hash:
-        raise WorkspaceError("Stored source content changed after selection")
-    counts = Counter(
-        str(row.values.get(column.source_name)).strip()
-        for row in table.rows
-        if row.values.get(column.source_name) is not None
-        and str(row.values.get(column.source_name)).strip()
-    )
-    if len(counts) > VALUE_MATCH_MAX_SOURCE_CHOICES:
-        raise WorkspaceError(
-            "This column has too many distinct choices for quick matching"
-        )
-    return tuple(
-        {"value": value, "count": count}
-        for value, count in sorted(
-            counts.items(),
-            key=lambda item: item[0].casefold(),
-        )
+    return context.categorical_coverage.source_value_choices(
+        project_id,
+        dataset_id,
+        source_column_key,
     )
 
 

@@ -16,10 +16,12 @@ from ...domain.schema.governance import (
 )
 from ...domain.mapping.contracts import (
     MAX_CONTROL_TOTALS_PER_DATASET,
-    BusinessControlTotal,
+    BusinessControlDefinition,
+    CategoricalCoveragePolicy,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
+    MappingControlExpectation,
     MappingTargetMode,
     ReferenceKeyMapping,
     RelationshipMapping,
@@ -151,6 +153,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"scalar_character_class_{dataset_index}_{field_index}",
                     f"scalar_pattern_{dataset_index}_{field_index}",
                     f"scalar_value_matches_{dataset_index}_{field_index}",
+                    f"scalar_categorical_policy_{dataset_index}_{field_index}",
                     f"scalar_compare_{dataset_index}_{field_index}",
                     f"scalar_validate_only_{dataset_index}_{field_index}",
                     f"scalar_required_{dataset_index}_{field_index}",
@@ -162,6 +165,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
             allowed.update(
                 {
                     f"control_name_{dataset_index}_{control_index}",
+                    f"control_id_{dataset_index}_{control_index}",
                     f"control_target_{dataset_index}_{control_index}",
                     f"control_expected_{dataset_index}_{control_index}",
                     f"control_unit_{dataset_index}_{control_index}",
@@ -190,6 +194,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"relation_null_{dataset_index}_{relation_index}",
                     f"relation_separator_{dataset_index}_{relation_index}",
                     f"relation_value_matches_{dataset_index}_{relation_index}",
+                    f"relation_categorical_policy_{dataset_index}_{relation_index}",
                 }
             )
     return allowed
@@ -200,11 +205,22 @@ def _mapping_datasets_from_form(
     selection,
     schema,
     governance,
+    active_definition: MappingDefinition | None = None,
 ) -> tuple[DatasetMapping, ...]:
     models = {item.name: item for item in schema.models}
     keys = _available_mapping_business_keys(schema, governance)
     datasets: list[DatasetMapping] = []
     for dataset_index, source_dataset in enumerate(selection.datasets):
+        existing_dataset = next(
+            (
+                item
+                for item in (
+                    active_definition.datasets if active_definition else ()
+                )
+                if item.dataset_id == source_dataset.dataset_id
+            ),
+            None,
+        )
         pinned_update = source_dataset.origin is SourceOriginKind.ODOO
         target_model = _text(form, f"target_model_{dataset_index}")
         if pinned_update:
@@ -290,6 +306,10 @@ def _mapping_datasets_from_form(
             if item.type not in {"many2one", "many2many", "one2many"}
         ]
         scalar_mappings: list[ScalarFieldMapping] = []
+        existing_scalars = {
+            item.target_field: item
+            for item in (existing_dataset.fields if existing_dataset else ())
+        }
         for field_index, metadata in enumerate(scalar_fields):
             value_source_text = _text(
                 form,
@@ -308,6 +328,37 @@ def _mapping_datasets_from_form(
                 form,
                 f"scalar_text_steps_{dataset_index}_{field_index}",
             )
+            value_mappings = _value_mappings_from_form(
+                form,
+                f"scalar_value_matches_{dataset_index}_{field_index}",
+            )
+            categorical_policy = None
+            if (
+                metadata.type == "selection"
+                and value_source is not ScalarValueSource.ODOO_DEFAULT
+            ):
+                policy_text = _text(
+                    form,
+                    f"scalar_categorical_policy_{dataset_index}_{field_index}",
+                )
+                if (
+                    not policy_text
+                    and active_definition is not None
+                    and active_definition.contract_version < 11
+                    and metadata.name in existing_scalars
+                ):
+                    raise WorkspaceError(
+                        f"Confirm how every source choice is covered for {metadata.label}"
+                    )
+                categorical_policy = (
+                    CategoricalCoveragePolicy(policy_text)
+                    if policy_text
+                    else (
+                        CategoricalCoveragePolicy.EXPLICIT_VALUE_MATCH
+                        if value_mappings
+                        else CategoricalCoveragePolicy.EXACT_TARGET_VALUE
+                    )
+                )
             scalar_mappings.append(
                 ScalarFieldMapping(
                     target_field=metadata.name,
@@ -425,10 +476,8 @@ def _mapping_datasets_from_form(
                             f"scalar_pattern_{dataset_index}_{field_index}",
                         ),
                     ),
-                    value_mappings=_value_mappings_from_form(
-                        form,
-                        f"scalar_value_matches_{dataset_index}_{field_index}",
-                    ),
+                    value_mappings=value_mappings,
+                    categorical_policy=categorical_policy,
                     value_type=(
                         _text(
                             form,
@@ -471,6 +520,12 @@ def _mapping_datasets_from_form(
             if item.type in {"many2one", "many2many", "one2many"}
         ]
         relationships: list[RelationshipMapping] = []
+        existing_relationships = {
+            item.target_field: item
+            for item in (
+                existing_dataset.relationships if existing_dataset else ()
+            )
+        }
         for relation_index, metadata in enumerate(relation_fields):
             if metadata.name in identity_targets:
                 continue
@@ -527,6 +582,19 @@ def _mapping_datasets_from_form(
                             f"{relation_index}"
                         ),
                     ),
+                )
+            policy_text = _text(
+                form,
+                f"relation_categorical_policy_{dataset_index}_{relation_index}",
+            )
+            if (
+                not policy_text
+                and active_definition is not None
+                and active_definition.contract_version < 11
+                and metadata.name in existing_relationships
+            ):
+                raise WorkspaceError(
+                    f"Confirm how every source choice is covered for {metadata.label}"
                 )
             relationships.append(
                 RelationshipMapping(
@@ -600,6 +668,15 @@ def _mapping_datasets_from_form(
                         )
                         or "distinct"
                     ),
+                    categorical_policy=(
+                        CategoricalCoveragePolicy(policy_text)
+                        if policy_text
+                        else (
+                            CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH
+                            if resolver.value_mappings
+                            else CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+                        )
+                    ),
                 )
             )
         mode = MappingTargetMode(
@@ -646,7 +723,8 @@ def _mapping_datasets_from_form(
             raise WorkspaceError(
                 "Odoo update approval is only valid for captured Odoo records"
             )
-        control_totals: list[BusinessControlTotal] = []
+        control_definitions: list[BusinessControlDefinition] = []
+        control_expectations: list[MappingControlExpectation] = []
         numeric_targets = {
             item.name
             for item in scalar_fields
@@ -668,6 +746,10 @@ def _mapping_datasets_from_form(
             tolerance = _text(
                 form, f"control_tolerance_{dataset_index}_{control_index}"
             )
+            control_id = (
+                _text(form, f"control_id_{dataset_index}_{control_index}")
+                or f"control:{target_field}"
+            )
             if not any((name, target_field, expected, unit)):
                 continue
             if not name or not target_field or not expected:
@@ -679,13 +761,19 @@ def _mapping_datasets_from_form(
                 raise WorkspaceError(
                     "Choose a number, quantity or amount field for the totals check"
                 )
-            control_totals.append(
-                BusinessControlTotal(
+            control_definitions.append(
+                BusinessControlDefinition(
+                    control_id=control_id,
                     name=name,
                     target_field=target_field,
-                    expected_total=expected,
                     unit=unit,
                     tolerance=tolerance or "0",
+                )
+            )
+            control_expectations.append(
+                MappingControlExpectation(
+                    control_id=control_id,
+                    expected_total=expected,
                 )
             )
         datasets.append(
@@ -730,10 +818,41 @@ def _mapping_datasets_from_form(
                     )
                 ),
                 approved_write_fields=approved_write_fields,
-                control_totals=tuple(control_totals),
+                control_definitions=tuple(control_definitions),
+                control_expectations=tuple(control_expectations),
             )
         )
     return tuple(datasets)
+
+
+def _split_control_contract(
+    dataset: DatasetMapping,
+) -> tuple[
+    tuple[BusinessControlDefinition, ...],
+    tuple[MappingControlExpectation, ...],
+]:
+    """Upgrade same-edition legacy controls without making them reusable yet."""
+
+    if dataset.control_definitions or dataset.control_expectations:
+        return dataset.control_definitions, dataset.control_expectations
+    definitions = tuple(
+        BusinessControlDefinition(
+            control_id=f"control:{item.target_field}",
+            name=item.name,
+            target_field=item.target_field,
+            unit=item.unit,
+            tolerance=item.tolerance,
+        )
+        for item in dataset.control_totals
+    )
+    expectations = tuple(
+        MappingControlExpectation(
+            control_id=f"control:{item.target_field}",
+            expected_total=item.expected_total,
+        )
+        for item in dataset.control_totals
+    )
+    return definitions, expectations
 
 
 def _active_mapping_definition(
@@ -800,7 +919,8 @@ def _merge_partial_mapping_datasets(
             if (
                 parsed.fields
                 or parsed.relationships
-                or parsed.control_totals
+                or parsed.control_definitions
+                or parsed.control_expectations
                 or parsed.approved_write_fields
             ):
                 raise WorkspaceError(
@@ -824,8 +944,14 @@ def _merge_partial_mapping_datasets(
                         if compatible_existing
                         else ()
                     ),
-                    control_totals=(
-                        compatible_existing.control_totals
+                    control_totals=(),
+                    control_definitions=(
+                        _split_control_contract(compatible_existing)[0]
+                        if compatible_existing
+                        else ()
+                    ),
+                    control_expectations=(
+                        _split_control_contract(compatible_existing)[1]
                         if compatible_existing
                         else ()
                     ),

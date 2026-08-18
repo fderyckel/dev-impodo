@@ -9,6 +9,7 @@ from ....reference_keys import (
     standard_reference_key,
 )
 from ..contracts import (
+    CategoricalCoveragePolicy,
     DatasetMapping,
     RelationshipMapping,
     RelationshipResolver,
@@ -206,6 +207,47 @@ def _validate_relationship(
                 target_field=relation.target_field,
             )
         )
+    if context.definition.contract_version >= 11:
+        policy = relation.categorical_policy
+        if policy is None:
+            issues.append(
+                _issue(
+                    "MAPPING_CATEGORICAL_POLICY_REQUIRED",
+                    f"{path}/categorical_policy",
+                    "This relationship has no categorical business-key policy.",
+                    "Confirm exact business keys or require an explicit match for every source choice.",
+                    dataset=dataset,
+                    target_field=relation.target_field,
+                )
+            )
+        elif policy not in {
+            CategoricalCoveragePolicy.EXACT_BUSINESS_KEY,
+            CategoricalCoveragePolicy.EXPLICIT_KEY_MATCH,
+        }:
+            issues.append(
+                _issue(
+                    "MAPPING_CATEGORICAL_POLICY_INVALID",
+                    f"{path}/categorical_policy",
+                    "A target-value policy cannot govern a relationship key.",
+                    "Choose exact business key or explicit key match.",
+                    dataset=dataset,
+                    target_field=relation.target_field,
+                )
+            )
+        elif (
+            policy is CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+            and relation.resolver.value_mappings
+        ):
+            issues.append(
+                _issue(
+                    "MAPPING_CATEGORICAL_POLICY_CONFLICT",
+                    f"{path}/categorical_policy",
+                    "Exact business-key coverage cannot also translate source choices.",
+                    "Remove the value matches or choose explicit key match.",
+                    dataset=dataset,
+                    target_field=relation.target_field,
+                )
+            )
     _validate_resolver(
         context,
         dataset,
