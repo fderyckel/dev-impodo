@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from ..connectors import Json2Config, Json2WriteIdentityConnector
+from ..connectors import (
+    Json2Config,
+    Json2WriteIdentityConnector,
+    target_record_read_config,
+)
 from ..models import OdooWriteIdentity
 from ..odoo_scope import OdooApiScope
 from ..odoo_writer import Json2WriteExecutor, OdooWriteExecutor
@@ -20,12 +24,14 @@ def _probe_write_identity(
     if not api_key.strip():
         raise ProjectError("Enter an Odoo API key for this load")
     connector = Json2WriteIdentityConnector(
-        Json2Config(
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
-            api_key=api_key,
-            connection_mode=project.odoo_connection_mode.value,
-            retries=0,
+        target_record_read_config(
+            Json2Config(
+                base_url=project.odoo_base_url,
+                database=project.odoo_database,
+                api_key=api_key,
+                connection_mode=project.odoo_connection_mode.value,
+                retries=0,
+            )
         )
     )
     return connector.probe_write_identity(
@@ -65,12 +71,14 @@ def _readback_reader(
     if not api_key.strip():
         raise ProjectError("Enter an Odoo API key to verify this load")
     return Json2ReadbackReader(
-        Json2Config(
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
-            api_key=api_key,
-            connection_mode=project.odoo_connection_mode.value,
-            retries=0,
+        target_record_read_config(
+            Json2Config(
+                base_url=project.odoo_base_url,
+                database=project.odoo_database,
+                api_key=api_key,
+                connection_mode=project.odoo_connection_mode.value,
+                retries=0,
+            )
         ),
         scope,
     )

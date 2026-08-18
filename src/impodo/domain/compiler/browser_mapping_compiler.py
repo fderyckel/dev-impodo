@@ -21,7 +21,7 @@ from ...profile import (
 )
 from ...workspace_contracts import SourceSelection
 from ..errors import ReadinessError
-from ..staging.fields import synthetic_field
+from ..staging.fields import synthetic_field, synthetic_relationship_field
 from .contracts import CompiledMigrationPlan
 
 def compile_browser_mapping(
@@ -73,7 +73,12 @@ def compile_browser_mapping(
         relations = {
             item.target_field: RelationSpec(
                 kind=item.kind,
-                source_fields=item.source_column_keys,
+                source_fields=tuple(
+                    synthetic_relationship_field(index, source_index)
+                    for source_index, _source_column_key in enumerate(
+                        item.source_column_keys
+                    )
+                ),
                 resolve=resolver(item.resolver),
                 compare=item.compare,
                 validate_only=item.validate_only,
@@ -85,7 +90,7 @@ def compile_browser_mapping(
                 separator=item.separator,
                 null_policy=item.null_policy,
             )
-            for item in mapping.relationships
+            for index, item in enumerate(mapping.relationships)
         }
         identity_normalization = NormalizationSpec(
             trim=True,
@@ -175,4 +180,17 @@ def browser_mapping_labels(
             field_labels[(dataset.name, synthetic_field(index))] = (
                 names.get(field.source_column_key or "") or field.target_field
             )
+        for relationship_index, relationship in enumerate(mapping.relationships):
+            for source_index, source_column_key in enumerate(
+                relationship.source_column_keys
+            ):
+                field_labels[
+                    (
+                        dataset.name,
+                        synthetic_relationship_field(
+                            relationship_index,
+                            source_index,
+                        ),
+                    )
+                ] = names.get(source_column_key) or relationship.target_field
     return dataset_labels, field_labels

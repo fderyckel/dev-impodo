@@ -744,6 +744,159 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         self.assertEqual(result.counts[Classification.CREATE.value], 5)
         self.assertEqual(result.counts[Classification.BLOCKED.value], 0)
 
+    def test_selection_and_derived_relationship_share_source_without_collision(
+        self,
+    ) -> None:
+        evidence, _link = self._lookup_evidence(
+            (("P001", "Produit"), ("P002", "Service"))
+        )
+        definition = evidence[1]
+        category, products = definition.datasets
+        product_type = ScalarFieldMapping(
+            target_field="type",
+            source_column_key="column:category",
+            value_mappings=(
+                ValueMapping("Produit", "consu"),
+                ValueMapping("Service", "service"),
+            ),
+        )
+        definition = replace(
+            definition,
+            datasets=(
+                category,
+                replace(products, fields=(product_type,)),
+            ),
+        )
+        evidence = (evidence[0], definition, *evidence[2:])
+
+        staged = stage_browser_mapping(
+            *evidence,
+            collect_transformation_impact=True,
+        )
+        prepared = staged.prepared.by_dataset()["products"]
+
+        self.assertEqual(
+            [item.scalar_values["type"] for item in prepared],
+            ["consu", "service"],
+        )
+        self.assertEqual(
+            [item.references["categ_id"].key for item in prepared],
+            [("produit",), ("service",)],
+        )
+        self.assertTrue(
+            staged.plan.dataset("products").relations["categ_id"]
+            .source_fields[0]
+            .startswith("__impodo_relationship_")
+        )
+        report = staged.transformation_impact
+        self.assertIsNotNone(report)
+        type_changes = tuple(
+            item for item in report.rows if item.target_field == "type"
+        )
+        self.assertEqual(
+            [(item.raw_value, item.proposed_value) for item in type_changes],
+            [("Produit", "consu"), ("Service", "service")],
+        )
+
+        metadata, records = self._product_snapshots(evidence[0])
+        product_model = metadata.models["product.template"]
+        metadata = replace(
+            metadata,
+            models={
+                **metadata.models,
+                "product.template": replace(
+                    product_model,
+                    fields={
+                        **product_model.fields,
+                        "type": FieldMetadata(
+                            "type",
+                            "selection",
+                            selection=(
+                                ("consu", "Goods"),
+                                ("service", "Service"),
+                                ("combo", "Combo"),
+                            ),
+                        ),
+                    },
+                ),
+            },
+        )
+        records = replace(
+            records,
+            requested_fields={
+                **records.requested_fields,
+                "product.template": (
+                    "categ_id",
+                    "default_code",
+                    "type",
+                ),
+            },
+        )
+        result = PreflightEngine().run(
+            staged.plan,
+            staged.prepared,
+            metadata,
+            records,
+        )
+
+        self.assertEqual(result.counts[Classification.BLOCKED.value], 0)
+        self.assertNotIn(
+            "TARGET_SELECTION_VALUE_UNAVAILABLE",
+            {
+                issue.code
+                for decision in result.decisions
+                for issue in decision.issues
+            },
+        )
+
+    def test_relationship_value_matches_are_isolated_per_target_field(self) -> None:
+        evidence = self._evidence((("BOM-A", "1", "FRA"),))
+        definition = evidence[1]
+        parent, child = definition.datasets
+        country = RelationshipMapping(
+            target_field="country_id",
+            kind="many2one",
+            source_column_keys=("column:component",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.TARGET_CATALOG,
+                model="res.country",
+                key_mappings=(
+                    ReferenceKeyMapping("column:component", "code"),
+                ),
+                value_mappings=(ValueMapping("FRA", "FR"),),
+            ),
+        )
+        region = RelationshipMapping(
+            target_field="region_id",
+            kind="many2one",
+            source_column_keys=("column:component",),
+            resolver=RelationshipResolver(
+                origin=ResolverOrigin.TARGET_CATALOG,
+                model="res.country.group",
+                key_mappings=(
+                    ReferenceKeyMapping("column:component", "name"),
+                ),
+                value_mappings=(ValueMapping("FRA", "Europe"),),
+            ),
+        )
+        definition = replace(
+            definition,
+            datasets=(
+                parent,
+                replace(child, relationships=(country, region)),
+            ),
+        )
+
+        staged = stage_browser_mapping(
+            evidence[0],
+            definition,
+            *evidence[2:],
+        )
+        prepared = staged.prepared.by_dataset()["bom_components"][0]
+
+        self.assertEqual(prepared.references["country_id"].key, ("FR",))
+        self.assertEqual(prepared.references["region_id"].key, ("Europe",))
+
     def test_blank_derived_reference_blocks_only_affected_product(self) -> None:
         evidence, _link = self._lookup_evidence(
             (("P001", "Article"), ("P002", ""))

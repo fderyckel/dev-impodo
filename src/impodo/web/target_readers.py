@@ -22,6 +22,7 @@ from ..connectors import (
     MetadataSnapshot,
     RecordRequest,
     RecordSnapshot,
+    target_record_read_config,
 )
 from ..local_stack import LocalStackProfile
 from ..domain.schema.governance import BusinessKeyDefinition
@@ -52,6 +53,24 @@ class LocalOdooRecoveryRequired(WorkspaceError):
     """Raised when a live local Odoo read needs a matching session profile."""
 
 
+def _target_json2_config(
+    project: MigrationProject,
+    api_key: str,
+) -> Json2Config:
+    """Build the one archived-inclusive context for target-side reads."""
+
+    if project.odoo_connection_mode is None:
+        raise ProjectError("Configure the Odoo target before reading it")
+    return target_record_read_config(
+        Json2Config(
+            base_url=project.odoo_base_url,
+            database=project.odoo_database,
+            api_key=api_key,
+            connection_mode=project.odoo_connection_mode.value,
+        )
+    )
+
+
 def _source_capture_reader(
     project: MigrationProject,
     api_key: str,
@@ -76,14 +95,7 @@ def _test_connection(
 ) -> TargetFingerprint:
     if project.odoo_connection_mode is None:
         raise ProjectError("Choose Local Odoo or Remote Odoo")
-    connector = Json2ReadConnector(
-        Json2Config(
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
-            api_key=api_key,
-            connection_mode=project.odoo_connection_mode.value,
-        )
-    )
+    connector = Json2ReadConnector(_target_json2_config(project, api_key))
     metadata = connector.get_model_metadata(
         (MetadataRequest(model="res.partner", fields=("id",)),)
     )
@@ -99,14 +111,7 @@ def _probe_read_identity(
 
     if project.odoo_connection_mode is None:
         raise ProjectError("Configure the Odoo target before identity probing")
-    connector = Json2ReadConnector(
-        Json2Config(
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
-            api_key=api_key,
-            connection_mode=project.odoo_connection_mode.value,
-        )
-    )
+    connector = Json2ReadConnector(_target_json2_config(project, api_key))
     return connector.probe_read_identity(models)
 
 
@@ -158,14 +163,7 @@ def _read_schema(project: MigrationProject, api_key: str) -> MetadataSnapshot:
         raise ProjectError("Configure the Odoo target before schema capture")
     if not project.intended_models:
         raise ProjectError("Add at least one permitted technical Odoo model")
-    connector = Json2ReadConnector(
-        Json2Config(
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
-            api_key=api_key,
-            connection_mode=project.odoo_connection_mode.value,
-        )
-    )
+    connector = Json2ReadConnector(_target_json2_config(project, api_key))
     return connector.get_model_metadata(
         tuple(
             MetadataRequest(
@@ -187,14 +185,7 @@ def _read_model_catalog(
 
     if project.odoo_connection_mode is None:
         raise ProjectError("Configure the Odoo target before model discovery")
-    connector = Json2ReadConnector(
-        Json2Config(
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
-            api_key=api_key,
-            connection_mode=project.odoo_connection_mode.value,
-        )
-    )
+    connector = Json2ReadConnector(_target_json2_config(project, api_key))
     return connector.get_records(
         (
             RecordRequest(
@@ -406,12 +397,7 @@ def _read_readiness_snapshots(
             record_requests,
         )
     connector = Json2ReadConnector(
-        Json2Config(
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
-            api_key=credential.secret,
-            connection_mode=project.odoo_connection_mode.value,
-        )
+        _target_json2_config(project, credential.secret)
     )
     metadata = connector.get_model_metadata(metadata_requests)
     records = connector.get_records(record_requests)
@@ -466,12 +452,7 @@ def _read_pinned_odoo_snapshots(
             record_requests,
         )
     connector = Json2ReadConnector(
-        Json2Config(
-            base_url=project.odoo_base_url,
-            database=project.odoo_database,
-            api_key=credential.secret,
-            connection_mode=project.odoo_connection_mode.value,
-        )
+        _target_json2_config(project, credential.secret)
     )
     return (
         connector.get_model_metadata(metadata_requests),

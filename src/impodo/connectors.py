@@ -560,6 +560,25 @@ class Json2Config:
         )
 
 
+def target_record_read_context(
+    context: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return the governed target-read context including archived records."""
+
+    effective = dict(context)
+    effective["active_test"] = False
+    return effective
+
+
+def target_record_read_config(config: Json2Config) -> Json2Config:
+    """Bind a JSON-2 configuration to archived-inclusive target reads."""
+
+    return replace(
+        config,
+        context=target_record_read_context(config.context),
+    )
+
+
 Transport = Callable[
     [str, Mapping[str, str], bytes | None, float, str],
     tuple[int, Any],

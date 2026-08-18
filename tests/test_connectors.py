@@ -15,6 +15,7 @@ from impodo.connectors import (
     MetadataRequest,
     RecordRequest,
     _NoRedirectHandler,
+    target_record_read_config,
 )
 
 
@@ -49,7 +50,9 @@ class Json2ConnectorTests(unittest.TestCase):
             return 200, pages[offset]
 
         connector = Json2ReadConnector(
-            self.config(),
+            target_record_read_config(
+                self.config(context={"active_test": True, "lang": "fr_FR"})
+            ),
             transport=transport,
             now=lambda: datetime(2026, 7, 28, tzinfo=timezone.utc),
         )
@@ -75,6 +78,13 @@ class Json2ConnectorTests(unittest.TestCase):
             all(call[1]["X-Odoo-Database"] == "odoo_review" for call in post_calls)
         )
         self.assertTrue(all(call[2]["order"] == "id asc" for call in post_calls))
+        self.assertTrue(
+            all(
+                call[2]["context"]
+                == {"active_test": False, "lang": "fr_FR"}
+                for call in post_calls
+            )
+        )
 
     def test_read_identity_probe_is_closed_stable_and_secret_independent(
         self,

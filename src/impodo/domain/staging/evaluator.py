@@ -6,6 +6,7 @@ from dataclasses import (
     dataclass,
     replace,
 )
+from types import MappingProxyType
 from typing import (
     Callable,
     Iterable,
@@ -74,7 +75,7 @@ from ..structural import (
 
 from ..compiler.browser_mapping_compiler import compile_browser_mapping
 from .control_totals import _evaluate_control_totals
-from .fields import synthetic_field
+from .fields import synthetic_field, synthetic_relationship_field
 from .scale import require_supported_browser_scale
 from .transformation_impact import (
     TransformationImpactReport,
@@ -115,6 +116,7 @@ class _IdentityImpactPlan:
 @dataclass(frozen=True, slots=True)
 class _RelationshipValuePlan:
     source_column_key: str
+    prepared_column_key: str
     target_field: str
     target_by_source: Mapping[str, str]
     source_label: str
@@ -130,11 +132,18 @@ class _ScalarFieldPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class _RelationshipFieldPlan:
+    source_column_keys: tuple[str, ...]
+    prepared_column_keys: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _DatasetEvaluationPlan:
     dataset_id: str
     dataset_name: str
     ordinal_columns: tuple[tuple[int, str], ...]
     identities: tuple[_IdentityImpactPlan, ...]
+    relationship_fields: tuple[_RelationshipFieldPlan, ...]
     relationship_values: tuple[_RelationshipValuePlan, ...]
     scalar_fields: tuple[_ScalarFieldPlan, ...]
 
@@ -143,6 +152,7 @@ class _DatasetEvaluationPlan:
 class _DerivedReferencePlan:
     rule: DerivedEntityRule
     source_column_key: str
+    prepared_column_key: str
     target_field: str
 
 
@@ -151,6 +161,7 @@ class ProjectedBrowserRow:
     """Row-local projection before any cross-row grouping decision."""
 
     number: int
+    source_values: Mapping[str, object]
     values: dict[str, object]
     parent_key: tuple[str, ...] | None = None
 
@@ -179,10 +190,11 @@ class CompiledBrowserRowTransformer:
     def project(self, row: SourceRow) -> ProjectedBrowserRow:
         """Select stable columns and normalize governed related-row keys."""
 
-        values = {
+        source_values = {
             stable_key: row.values.get(self.source_name_by_key[stable_key])
             for stable_key in self.effective_column_keys
         }
+        values = dict(source_values)
         rule = self.related_rule
         if rule is not None:
             for key in (
@@ -207,6 +219,7 @@ class CompiledBrowserRowTransformer:
                 parent_key = tuple(str(value) for value in keys)
         return ProjectedBrowserRow(
             number=row.number,
+            source_values=MappingProxyType(source_values),
             values=values,
             parent_key=parent_key,
         )
@@ -219,6 +232,7 @@ class CompiledBrowserRowTransformer:
     ) -> tuple[SourceRow, tuple[Issue, ...]]:
         """Apply the row-local mapping rules after cross-row admission."""
 
+        _prepare_relationship_values(projected.values, self.evaluation_plan)
         issues = _normalize_derived_references(
             projected.values,
             self.derived_reference_plan,
@@ -226,7 +240,7 @@ class CompiledBrowserRowTransformer:
             source_row=projected.number,
         )
         _record_identity_preparation(
-            projected.values,
+            projected.source_values,
             self.evaluation_plan,
             source_row=projected.number,
             impact_collector=impact_collector,
@@ -240,6 +254,7 @@ class CompiledBrowserRowTransformer:
         _apply_scalar_mappings(
             projected.values,
             self.evaluation_plan,
+            source_values=projected.source_values,
             source_row=projected.number,
             impact_collector=impact_collector,
             reference_indexes=self.reference_indexes,
@@ -502,6 +517,22 @@ def evaluate_browser_mapping(
                 column_name_by_key.get(field.source_column_key or "")
                 or field.target_field
             )
+        for relationship_index, relationship in enumerate(mapping.relationships):
+            for source_index, source_column_key in enumerate(
+                relationship.source_column_keys
+            ):
+                source_labels[
+                    (
+                        effective.name,
+                        synthetic_relationship_field(
+                            relationship_index,
+                            source_index,
+                        ),
+                    )
+                ] = (
+                    column_name_by_key.get(source_column_key)
+                    or relationship.target_field
+                )
 
     prepared = prepare_source_tables(
         compiled_plan,
@@ -604,9 +635,22 @@ def _compile_dataset_evaluation_plan(
         _compile_identity_impact(component, labels)
         for component in (*mapping.target_identity, *mapping.target_scope)
     )
+    relationship_fields = tuple(
+        _RelationshipFieldPlan(
+            source_column_keys=relationship.source_column_keys,
+            prepared_column_keys=tuple(
+                synthetic_relationship_field(index, source_index)
+                for source_index, _source_column_key in enumerate(
+                    relationship.source_column_keys
+                )
+            ),
+        )
+        for index, relationship in enumerate(mapping.relationships)
+    )
     relationship_values = tuple(
         _RelationshipValuePlan(
             source_column_key=relationship.source_column_keys[0],
+            prepared_column_key=synthetic_relationship_field(index, 0),
             target_field=relationship.target_field,
             target_by_source={
                 item.source_value: item.target_value
@@ -621,7 +665,7 @@ def _compile_dataset_evaluation_plan(
                 f"({len(relationship.resolver.value_mappings)} confirmed choice(s))"
             ),
         )
-        for relationship in mapping.relationships
+        for index, relationship in enumerate(mapping.relationships)
         if relationship.resolver.value_mappings
         and len(relationship.source_column_keys) == 1
     )
@@ -644,6 +688,7 @@ def _compile_dataset_evaluation_plan(
             (column.ordinal, column.stable_key) for column in effective.columns
         ),
         identities=identities,
+        relationship_fields=relationship_fields,
         relationship_values=relationship_values,
         scalar_fields=scalar_fields,
     )
@@ -659,6 +704,31 @@ def _compile_identity_impact(
         source_label=" + ".join(
             labels.get(key, "Identity field")
             for key in component.source_column_keys
+        ),
+    )
+
+
+def _prepared_headers(
+    effective: SourceDataset,
+    mapping: DatasetMapping,
+) -> tuple[str, ...]:
+    """Compile source and consumer-private prepared columns once per dataset."""
+
+    return (
+        *(column.stable_key for column in effective.columns),
+        *(
+            synthetic_field(index)
+            for index, field in enumerate(mapping.fields)
+            if field.value_source is not ScalarValueSource.ODOO_DEFAULT
+        ),
+        *(
+            synthetic_relationship_field(relationship_index, source_index)
+            for relationship_index, relationship in enumerate(
+                mapping.relationships
+            )
+            for source_index, _source_column_key in enumerate(
+                relationship.source_column_keys
+            )
         ),
     )
 
@@ -679,14 +749,7 @@ def compile_browser_row_transformer(
 ) -> CompiledBrowserRowTransformer:
     """Compile the row-local half of browser staging exactly once."""
 
-    headers = (
-        *(column.stable_key for column in effective.columns),
-        *(
-            synthetic_field(index)
-            for index, field in enumerate(mapping.fields)
-            if field.value_source is not ScalarValueSource.ODOO_DEFAULT
-        ),
-    )
+    headers = _prepared_headers(effective, mapping)
     return CompiledBrowserRowTransformer(
         dataset_name=effective.name,
         effective_column_keys=tuple(
@@ -702,7 +765,7 @@ def compile_browser_row_transformer(
         ),
         related_rule=rule,
         role=role,
-        headers=tuple(headers),
+        headers=headers,
         reference_indexes=reference_indexes or {},
     )
 
@@ -847,8 +910,10 @@ def _stage_derived_table(
             values[link.parent_key_column_key] = (
                 " / ".join(key_path[:-1]) if key_path[:-1] else None
             )
+        source_values = MappingProxyType(dict(values))
+        _prepare_relationship_values(values, evaluation_plan)
         _record_identity_preparation(
-            values,
+            source_values,
             evaluation_plan,
             source_row=generated_row,
             impact_collector=impact_collector,
@@ -862,6 +927,7 @@ def _stage_derived_table(
         _apply_scalar_mappings(
             values,
             evaluation_plan,
+            source_values=source_values,
             source_row=generated_row,
             impact_collector=impact_collector,
             reference_indexes=reference_indexes or {},
@@ -889,19 +955,12 @@ def _stage_derived_table(
         assert isinstance(source_rows, set)
         source_rows_by_output[generated_row] = tuple(sorted(source_rows))
 
-    headers = (
-        *(column.stable_key for column in effective.columns),
-        *(
-            synthetic_field(index)
-            for index, field in enumerate(mapping.fields)
-            if field.value_source is not ScalarValueSource.ODOO_DEFAULT
-        ),
-    )
+    headers = _prepared_headers(effective, mapping)
     return (
         SourceTable(
             dataset=effective.name,
             path=table.path,
-            headers=tuple(headers),
+            headers=headers,
             rows=tuple(rows),
             content_hash=table.content_hash,
         ),
@@ -916,31 +975,35 @@ def _compile_derived_reference_plan(
         tuple[DerivedEntityRule, DerivedDatasetLink], ...
     ],
 ) -> tuple[_DerivedReferencePlan, ...]:
-    target_by_derived_source: dict[tuple[str, str], str] = {}
-    for relationship in mapping.relationships:
-        if relationship.resolver.origin is not ResolverOrigin.DATASET:
-            continue
-        derived_dataset_id = relationship.resolver.dataset_id
-        if derived_dataset_id is None:
-            continue
-        for source_column_key in relationship.source_column_keys:
-            target_by_derived_source.setdefault(
-                (derived_dataset_id, source_column_key),
-                relationship.target_field,
-            )
+    lookup_by_source = {
+        (link.derived_dataset_id, link.source_column_key): rule
+        for rule, link in lookup_bindings
+    }
     return tuple(
         _DerivedReferencePlan(
             rule=rule,
-            source_column_key=link.source_column_key,
-            target_field=target_field,
+            source_column_key=source_column_key,
+            prepared_column_key=synthetic_relationship_field(
+                relationship_index,
+                source_index,
+            ),
+            target_field=relationship.target_field,
         )
-        for rule, link in lookup_bindings
-        for target_field in (
-            target_by_derived_source.get(
-                (link.derived_dataset_id, link.source_column_key)
+        for relationship_index, relationship in enumerate(mapping.relationships)
+        if relationship.resolver.origin is ResolverOrigin.DATASET
+        and relationship.resolver.dataset_id is not None
+        for source_index, source_column_key in enumerate(
+            relationship.source_column_keys
+        )
+        for rule in (
+            lookup_by_source.get(
+                (
+                    relationship.resolver.dataset_id,
+                    source_column_key,
+                )
             ),
         )
-        if target_field is not None
+        if rule is not None
     )
 
 
@@ -954,13 +1017,13 @@ def _normalize_derived_references(
     issues: list[Issue] = []
     for item in plan:
         path = _normalized_path(
-            values.get(item.source_column_key),
+            values.get(item.prepared_column_key),
             item.rule.parent_separator,
         )
         if path is not None and path[0]:
-            values[item.source_column_key] = " / ".join(path[1])
+            values[item.prepared_column_key] = " / ".join(path[1])
             continue
-        values[item.source_column_key] = None
+        values[item.prepared_column_key] = None
         issues.append(
             Issue(
                 code=(
@@ -985,6 +1048,7 @@ def _apply_scalar_mappings(
     values: dict[str, object],
     plan: _DatasetEvaluationPlan,
     *,
+    source_values: Mapping[str, object],
     source_row: int,
     impact_collector: _TransformationImpactCollector | None = None,
     reference_indexes: Mapping[
@@ -993,13 +1057,13 @@ def _apply_scalar_mappings(
     ] | None = None,
 ) -> None:
     source_values_by_ordinal = {
-        ordinal: values.get(stable_key)
+        ordinal: source_values.get(stable_key)
         for ordinal, stable_key in plan.ordinal_columns
     }
     for field_plan in plan.scalar_fields:
         field = field_plan.field
         raw = (
-            values.get(field.source_column_key)
+            source_values.get(field.source_column_key)
             if field.source_column_key is not None
             else None
         )
@@ -1007,12 +1071,12 @@ def _apply_scalar_mappings(
             scalar_input = raw
             if field.reference_lookup is not None:
                 raw = tuple(
-                    values.get(key)
+                    source_values.get(key)
                     for key in field.reference_lookup.key_source_column_keys
                 )
                 scalar_input = _reference_lookup_value(
                     field,
-                    values,
+                    source_values,
                     reference_indexes or {},
                 )
             rules = transformation_rule_impact_definitions(
@@ -1221,6 +1285,21 @@ def _record_identity_preparation(
             )
 
 
+def _prepare_relationship_values(
+    values: dict[str, object],
+    plan: _DatasetEvaluationPlan,
+) -> None:
+    """Copy each relationship input into its consumer-private prepared slot."""
+
+    for relationship in plan.relationship_fields:
+        for source_column_key, prepared_column_key in zip(
+            relationship.source_column_keys,
+            relationship.prepared_column_keys,
+            strict=True,
+        ):
+            values[prepared_column_key] = values.get(source_column_key)
+
+
 def _apply_relationship_value_mappings(
     values: dict[str, object],
     plan: _DatasetEvaluationPlan,
@@ -1231,13 +1310,13 @@ def _apply_relationship_value_mappings(
     """Replace authored source choices with confirmed Odoo business keys."""
 
     for relationship in plan.relationship_values:
-        raw_value = values.get(relationship.source_column_key)
+        raw_value = values.get(relationship.prepared_column_key)
         if raw_value is None:
             continue
         source_value = str(raw_value).strip()
         target_value = relationship.target_by_source.get(source_value)
         if target_value is not None:
-            values[relationship.source_column_key] = target_value
+            values[relationship.prepared_column_key] = target_value
             if impact_collector is not None:
                 impact_collector.record(
                     dataset=plan.dataset_name,

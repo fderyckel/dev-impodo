@@ -730,7 +730,7 @@ for request in metadata_requests:
     }}
 captured_records = {{}}
 for request in record_requests:
-    model = env[request["model"]].sudo()
+    model = env[request["model"]].sudo().with_context(active_test=False)
     offset = 0
     rows = []
     while True:

@@ -260,6 +260,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         self.assertEqual(script.count(".search_read("), 1)
         self.assertIn("for request in metadata_requests:", script)
         self.assertIn("for request in record_requests:", script)
+        self.assertIn("with_context(active_test=False)", script)
         self.assertIn("while True:", script)
         self.assertIn("env.cr.rollback()", script)
 

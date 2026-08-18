@@ -613,6 +613,7 @@ class Json2ReadbackReaderTests(unittest.TestCase):
         self.assertEqual(result[0].values, {"name": "Verified"})
         self.assertTrue(self.calls[0][0].endswith("/res.partner/search_read"))
         self.assertEqual(self.calls[0][2]["domain"], [["id", "in", [42]]])
+        self.assertEqual(self.calls[0][2]["context"], {"active_test": False})
         self.assertNotIn("secret", json.dumps(self.calls[0][2]))
 
         custom = self.reader.read_ids(

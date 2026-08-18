@@ -28,6 +28,7 @@ from .connectors import (
     Json2Config,
     Json2ReadConnector,
     SnapshotConnector,
+    target_record_read_config,
     write_metadata_snapshot,
     write_record_snapshot,
 )
@@ -248,7 +249,9 @@ def _connector(arguments: argparse.Namespace):
         if not arguments.snapshot:
             raise ValueError("--snapshot is required with --connector snapshot")
         return SnapshotConnector(combined_path=arguments.snapshot)
-    return Json2ReadConnector(Json2Config.from_environment())
+    return Json2ReadConnector(
+        target_record_read_config(Json2Config.from_environment())
+    )
 
 
 def _portable_prepared(record: PreparedRecord) -> dict[str, object]:

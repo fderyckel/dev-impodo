@@ -13,7 +13,7 @@ from ...profile import DatasetSpec, validate_dataset_graph
 
 
 COMPILED_MIGRATION_PLAN_VERSION = 1
-MIGRATION_COMPILER_VERSION = 1
+MIGRATION_COMPILER_VERSION = 2
 
 
 class CompiledMigrationPlan(BaseModel):
@@ -34,7 +34,7 @@ class CompiledMigrationPlan(BaseModel):
     schema_hash: str | None = None
     derived_plan_hash: str | None = None
     contract_version: Literal[1] = COMPILED_MIGRATION_PLAN_VERSION
-    compiler_version: Literal[1] = MIGRATION_COMPILER_VERSION
+    compiler_version: Literal[2] = MIGRATION_COMPILER_VERSION
 
     @field_validator(
         "origin_hash",

@@ -9,7 +9,12 @@ from typing import Any, Mapping, Protocol, Sequence
 from urllib.error import URLError
 from urllib.parse import quote
 
-from .connectors import Json2Config, Transport, _urllib_transport
+from .connectors import (
+    Json2Config,
+    Transport,
+    _urllib_transport,
+    target_record_read_context,
+)
 from .models import canonical_json_bytes, target_identity_hash
 from .odoo_scope import OdooApiScope
 
@@ -303,7 +308,7 @@ class Json2ReadbackReader:
             "fields": ["id", *fields],
             "limit": limit,
             "order": "id asc",
-            "context": dict(self.config.context),
+            "context": target_record_read_context(self.config.context),
         }
         body = canonical_json_bytes(payload)
         if len(body) > MAX_READBACK_BODY_BYTES:
