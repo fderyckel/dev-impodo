@@ -37,6 +37,7 @@ from impodo.quality import (
     QualityRunStatus,
     QualityRun,
     SourceAccountingState,
+    StoredQualityRun,
     default_quality_ruleset,
     evaluate_quality,
     manager_quality_rule,
@@ -66,6 +67,18 @@ PHYSICAL_HASH = "sha256:" + "1" * 64
 MAPPING_HASH = "sha256:" + "2" * 64
 SCHEMA_HASH = "sha256:" + "3" * 64
 SOURCE_HASH = "sha256:" + "4" * 64
+
+
+class _SparseEvidence(tuple):
+    """Replay a sparse quality sequence in bounded repository batches."""
+
+    def iter_batches(self, _connection, batch_size: int):
+        for start in range(0, len(self), batch_size):
+            yield self[start : start + batch_size]
+
+
+class _SparseSourceAccounting(_SparseEvidence):
+    sparse_projection_contract = "direct-represented-v1"
 
 
 class QualityEvaluationTests(unittest.TestCase):
@@ -1132,6 +1145,87 @@ class QualityStoreTests(unittest.TestCase):
         self.assertEqual(first.run_id, repeated.run_id)
         self.assertEqual(first.status, QualityRunStatus.PUBLISHED)
         self.assertEqual(restored.to_json(), run.to_json())
+
+    def test_sparse_accounting_reloads_from_stored_canonical_rows(self) -> None:
+        row = _canonical_row("5", 2)
+        staging_run = _staging(self.project.project_id, (row,))
+        staging = self.staging.publish_canonical_staging(
+            self.project.project_id,
+            staging_run,
+            mapping_version=1,
+            actor=LOCAL_ACTOR,
+        )
+        ruleset = default_quality_ruleset(
+            project_id=self.project.project_id,
+            mapping_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=("contacts",),
+        )
+        self.quality.publish_quality_ruleset(
+            self.project.project_id,
+            ruleset,
+            actor=LOCAL_ACTOR,
+        )
+        expected = evaluate_quality(
+            project=self.project,
+            staging=staging_run,
+            physical_rows={"dataset:contacts": (2,)},
+            ruleset=ruleset,
+        )
+        assert expected.effective_dataset_hash is not None
+        sparse = StoredQualityRun(
+            project_id=expected.project_id,
+            staging_content_hash=expected.staging_content_hash,
+            ruleset_hash=expected.ruleset_hash,
+            mapping_hash=expected.mapping_hash,
+            schema_hash=expected.schema_hash,
+            retention_context_hash=expected.retention_context_hash,
+            row_results=_SparseEvidence(expected.row_results),
+            source_accounting=_SparseSourceAccounting(
+                expected.source_accounting
+            ),
+            issues=expected.issues,
+            quarantine=expected.quarantine,
+            effective_dataset_hash=expected.effective_dataset_hash,
+            eligible_row_ids=expected.eligible_row_ids,
+            summary_counts={
+                "ready_count": expected.ready_count,
+                "review_count": expected.review_count,
+                "quarantined_count": expected.quarantined_count,
+                "excluded_count": expected.excluded_count,
+                "blocked_count": expected.blocked_count,
+            },
+        )
+        summary = self.quality.publish_quality_run(
+            self.project.project_id,
+            sparse,
+            staging_run_id=staging.run_id,
+            actor=LOCAL_ACTOR,
+        )
+
+        database_path = (
+            self.projects.project_directory(self.project.project_id)
+            / "project.duckdb"
+        )
+        with self.quality._connect(database_path) as connection:
+            sparse_counts = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM canonical_prepared_projection),
+                    (SELECT COUNT(*) FROM source_accounting_entry),
+                    (SELECT COUNT(*) FROM quality_evidence_projection)
+                """
+            ).fetchone()
+        self.assertEqual(summary.content_hash, expected.content_hash)
+        restored = self.quality.get_quality_run(
+            self.project.project_id,
+            summary.run_id,
+        )
+
+        self.assertEqual(sparse_counts, (0, 0, 1))
+        self.assertIsNotNone(restored)
+        assert restored is not None
+        self.assertEqual(restored.to_json(), expected.to_json())
 
     def test_quality_review_reads_deterministic_50_row_pages(self) -> None:
         rows = tuple(

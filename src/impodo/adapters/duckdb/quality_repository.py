@@ -43,6 +43,7 @@ from ...quality import (
     StoredQualityRun,
     retention_context_hash,
 )
+from ...staging_contracts import CanonicalRow
 from ...workspace_errors import WorkspaceError
 from ...domain.serialization import CanonicalJsonObjectHasher
 from .database import DuckDbDatabase
@@ -672,6 +673,25 @@ class QualityRepository(DuckDbRepository):
                     """,
                     [str(header[1])],
                 ).fetchall()
+                stored_accounting = connection.execute(
+                    """
+                    SELECT staging.row_json
+                      FROM canonical_staging_row AS staging
+                     WHERE staging.run_id = ?
+                       AND staging.row_json != ''
+                       AND NOT EXISTS (
+                           SELECT 1
+                             FROM canonical_prepared_projection AS projection
+                            WHERE projection.run_id = staging.run_id
+                              AND staging.ordinal >= projection.ordinal_start
+                              AND staging.ordinal <
+                                  projection.ordinal_start
+                                  + projection.row_count
+                       )
+                     ORDER BY staging.ordinal
+                    """,
+                    [str(header[1])],
+                ).fetchall()
             else:
                 accounting = connection.execute(
                     """
@@ -682,6 +702,7 @@ class QualityRepository(DuckDbRepository):
                     """,
                     [canonical_run_id],
                 ).fetchall()
+                stored_accounting = []
             issues = connection.execute(
                 "SELECT issue_json FROM quality_issue WHERE run_id = ? ORDER BY ordinal",
                 [canonical_run_id],
@@ -751,6 +772,41 @@ class QualityRepository(DuckDbRepository):
                     ),
                 }
             )
+        for (row_json,) in stored_accounting:
+            try:
+                canonical_row = CanonicalRow.from_dict(
+                    json.loads(str(row_json))
+                )
+                physical_sources = canonical_row.lineage.physical_sources
+                if len(physical_sources) != 1:
+                    raise ValueError(
+                        "Sparse quality accounting requires direct lineage"
+                    )
+                physical_dataset_id, source_rows = next(
+                    iter(physical_sources.items())
+                )
+                if len(source_rows) != 1:
+                    raise ValueError(
+                        "Sparse quality accounting requires one source row"
+                    )
+            except (TypeError, ValueError) as error:
+                raise WorkspaceError(
+                    "Stored quality source accounting is invalid"
+                ) from error
+            accounting_payloads.append(
+                {
+                    "physical_dataset_id": physical_dataset_id,
+                    "source_row": source_rows[0],
+                    "state": SourceAccountingState.REPRESENTED.value,
+                    "canonical_row_ids": [canonical_row.row_id],
+                }
+            )
+        accounting_payloads.sort(
+            key=lambda item: (
+                str(item["physical_dataset_id"]),
+                int(item["source_row"]),
+            )
+        )
         payload = {
             "content_hash": str(header[0]),
             "project_id": project_id,

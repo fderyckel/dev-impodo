@@ -6,6 +6,20 @@ from impodo.web.presenters.common import _plain_ui_error
 
 
 class CommonPresenterTests(unittest.TestCase):
+    def test_stored_quality_failure_has_a_safe_recovery_message(self) -> None:
+        raw = "Stored quality evidence is invalid"
+
+        plain, support = _plain_ui_error(raw)
+
+        self.assertEqual(
+            plain,
+            "Impodo could not reopen the saved prepared-data review. "
+            "Nothing was sent to Odoo and your saved project was not changed. "
+            "Restart Impodo and try Compare with Odoo again. If it still fails, "
+            "contact support.",
+        )
+        self.assertEqual(support, raw)
+
     def test_snapshot_publication_failure_is_not_presented_as_stale_source(self) -> None:
         raw = (
             "Impodo could not create the immutable source snapshot: "

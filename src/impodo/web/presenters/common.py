@@ -74,15 +74,24 @@ def _plain_ui_error(message: str) -> tuple[str, str | None]:
         item in lowered
         for item in ("changed in another request", "reload before", "out of date")
     )
+    stored_quality_error = "stored quality evidence" in lowered
     if (
         not has_technical_code
         and not concurrency_message
+        and not stored_quality_error
         and not any(item in lowered for item in technical_markers)
     ):
         return raw, None
 
     if "csrf" in lowered:
         plain = "This page has expired. Refresh it, review your choices, and try again."
+    elif stored_quality_error:
+        plain = (
+            "Impodo could not reopen the saved prepared-data review. "
+            "Nothing was sent to Odoo and your saved project was not changed. "
+            "Restart Impodo and try Compare with Odoo again. If it still fails, "
+            "contact support."
+        )
     elif concurrency_message or any(
         item in lowered for item in ("revision", "version", "stale", "changed since")
     ):
