@@ -28,6 +28,17 @@ Use a reachable Odoo 19 target with the approved read access.
 6. Download the workbook or technical evidence package when required for the
    rehearsal record.
 
+For a project that started from captured Odoo records, the review is simpler:
+
+1. Select **Review checked records**.
+2. Read the result: **Ready to update**, **Already matches**, or
+   **Needs refresh**.
+3. If a refresh is needed, select **Refresh Odoo records** and repeat the
+   preparation. This is the only safe recovery action.
+
+Odoo-source review is update-only. It never proposes new records, offers no
+business-key fallback, and does not enable loading yet.
+
 ![Current final comparison with saved rows and per-table Odoo outcomes.](../../images/user/16-final-comparison.png)
 
 For local Odoo, **Reconnect local Odoo** may appear after Impodo restarts.
@@ -50,8 +61,9 @@ a hard stop until the identity or target evidence is corrected.
 ## What Complete means
 
 The current report is **Ready** with no ambiguous or blocked rows and remains
-bound to the exact prepared and target evidence. The load stage becomes
-available.
+bound to the exact prepared and target evidence. For file-source projects, the
+load stage can become available. For Odoo-source projects, load remains locked
+until the guarded-update phase is implemented.
 
 ## What changes and what does not
 

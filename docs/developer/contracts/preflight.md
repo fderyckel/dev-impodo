@@ -76,6 +76,21 @@ Comparison uses the same declared type, normalization, precision, and null
 policy for source and target values. Relationships compare through business
 references.
 
+### Pinned Odoo-source comparison
+
+An Odoo-source project has no identity-resolution or create branch. The
+service opens the protected capture origins, reads only exact numeric IDs in
+bounded model-level chunks, and compares each approved field across captured
+baseline, prepared proposal, and current Odoo value. It reuses the captured
+Tier-1 type semantics for all three values.
+
+The protected result distinguishes `UNCHANGED`, `UPDATE`,
+`RECORD_REMOVED_OR_INACCESSIBLE`, `CONCURRENT_FIELD_CHANGE`,
+`BASELINE_NOT_CAPTURED`, and `TARGET_SCHEMA_CHANGED`. Any result other than
+`UNCHANGED` or `UPDATE` is portable `BLOCKED` evidence and requires a complete
+capture refresh. Unrelated `write_date` movement is retained as evidence but
+does not authorize overwriting an approved field that changed concurrently.
+
 ## Portable result
 
 The canonical manifest binds source/snapshot hashes, input definition, target
@@ -86,6 +101,11 @@ identity/scope, match count, classification, differences, and issues.
 Serialization recursively rejects numeric record IDs, credentials, and
 transport authorization. Workbooks are projections of the manifest and contain
 no independent classification logic.
+
+For Odoo-source projects, the portable manifest additionally excludes all
+baseline, proposed, and current business values. Those values and exact IDs are
+application-encrypted with project/run/capture binding. The persisted record
+snapshot is redacted, and no execution snapshot is published in Phase 6.
 
 ## Integration boundary
 

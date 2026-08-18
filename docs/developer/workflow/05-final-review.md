@@ -30,6 +30,16 @@ serves the manifest, workbook, and review package.
 requests, captures the target fingerprint and snapshot, performs offline
 classification, and publishes the report and execution snapshot atomically.
 
+For `ODOO` source mode, `build_odoo_comparison_publication` follows a separate
+pinned-ID branch. It verifies protected capture origins once, loads the frozen
+Parquet baseline once, and groups exact IDs into fixed 500-record requests.
+The same governed JSON-2 read credential is re-probed for target, principal,
+permission, and context before any value read. Baseline, proposed, current,
+numeric ID, and write-date evidence is stored only in an AES-GCM-protected
+artifact; the portable manifest and persisted record snapshot are redacted.
+No business-key lookup, create fallback, per-row Odoo call, or write connector
+is available in this branch.
+
 For local Odoo, `_read_readiness_snapshots` requires a matching session
 profile. `LocalOdooRecoveryRequired` returns the user to the shared local-Odoo
 dialog; `target.py` validates the selected address, database, readiness, and
@@ -40,6 +50,8 @@ read-only fingerprint before comparison can resume.
 | Role | Code |
 | --- | --- |
 | Comparison orchestration | [`PreflightService`](../../../src/impodo/application/preflight_service.py) |
+| Protected Odoo comparison | [`odoo_comparison_service.py`](../../../src/impodo/application/odoo_comparison_service.py) |
+| Protected comparison contract | [`odoo_comparison.py`](../../../src/impodo/domain/odoo_comparison.py) |
 | Frozen input | [`frozen_input.py`](../../../src/impodo/domain/preflight/frozen_input.py) |
 | Review reports | [`reports.py`](../../../src/impodo/domain/preflight/reports.py) |
 | Browser routes | [`preflight.py`](../../../src/impodo/web/routers/preflight.py) |
@@ -49,16 +61,23 @@ read-only fingerprint before comparison can resume.
 
 ## Evidence and state
 
-The target snapshot is target-specific and may contain protected Odoo IDs. The
-portable report contains natural identities and deterministic classifications:
-`CREATE`, `UPDATE`, `UNCHANGED`, `AMBIGUOUS`, and `BLOCKED`. The execution
-snapshot binds only eligible writes to the exact reviewed evidence.
+For file sources, the target snapshot is target-specific and may contain
+protected Odoo IDs. The portable report contains natural identities and the
+existing deterministic classifications. The execution snapshot binds only
+eligible writes to the exact reviewed evidence.
+
+For Odoo sources, the persisted target snapshot is redacted. Exact IDs and
+baseline/proposed/current values live only in the protected comparison
+artifact. Portable rows expose `UPDATE`, `UNCHANGED`, or `BLOCKED`; protected
+rows distinguish missing/inaccessible records, missing baseline, schema drift,
+and concurrent intended-field changes.
 
 ## Completion and navigation
 
 Final review is complete only when the current report status is `READY`.
-Ambiguous or blocked rows keep the stage in **Needs attention**. The load stage
-remains locked until a ready report exists for the current bindings.
+Ambiguous or blocked rows keep the stage in **Needs attention**. File-source
+load requires a ready report. Odoo-source load remains unavailable in Phase 6
+even when every checked row is safe.
 
 ## Invalidation and recovery
 
@@ -85,6 +104,7 @@ and no write method belongs in this stage.
 - [`tests/test_preflight_scale.py`](../../../tests/test_preflight_scale.py)
 - [`tests/test_engine.py`](../../../tests/test_engine.py)
 - [`tests/test_connectors.py`](../../../tests/test_connectors.py)
+- [`tests/test_odoo_comparison.py`](../../../tests/test_odoo_comparison.py)
 - [`tests/test_web_app.py`](../../../tests/test_web_app.py)
 
 Verify fixed classification precedence, batched requests, portable identities,

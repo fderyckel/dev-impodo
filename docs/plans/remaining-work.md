@@ -29,9 +29,9 @@ workflows at 100,000 physical rows without changing evidence semantics.
 
 The scoped [Odoo source import and round-trip update implementation
 plan](odoo-source-import-plan.md) tracks existing Odoo records as governed
-Impodo source data. Capture and offline pinned preparation are
-implemented through Phase 5; protected three-way comparison and later write
-phases remain planned. This work does not displace the unconditional
+Impodo source data. Capture, offline pinned preparation, and protected
+three-way comparison are implemented through Phase 6. Guarded update and the
+later write phases remain planned. This work does not displace the unconditional
 preparation-scale goal above.
 
 The scoped [high-volume transformation architecture implementation

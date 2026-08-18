@@ -116,6 +116,14 @@ def build_odoo_comparison_publication(
     approved_fields = tuple(dataset_mapping.approved_write_fields)
     fields = tuple(sorted({*approved_fields, "write_date"}))
     record_ids = tuple(_origin_for_record(item.source_row, origins)[0] for item in prepared)
+    origin_set_hash = "sha256:" + sha256(
+        canonical_json_bytes(
+            {
+                "model": binding.model,
+                "record_ids": list(record_ids),
+            }
+        )
+    ).hexdigest()
     metadata_requests = (MetadataRequest(binding.model, fields),)
     record_requests = plan_pinned_record_requests(
         binding.model,
@@ -124,7 +132,14 @@ def build_odoo_comparison_publication(
     )
     metadata, records = reader(metadata_requests, record_requests)
     metadata, records = bind_snapshot_hashes(metadata, records)
-    _validate_live_binding(project, binding, metadata, records, fields)
+    _validate_live_binding(
+        project,
+        binding,
+        metadata,
+        records,
+        fields,
+        has_record_requests=bool(record_requests),
+    )
 
     captured_fields = _captured_fields(frozen.captured_schema, binding.model)
     live_fields = metadata.models.get(binding.model)
@@ -179,8 +194,8 @@ def build_odoo_comparison_publication(
 
     redacted = RecordSnapshot(
         fingerprint=records.fingerprint,
-        records={binding.model: ()},
-        requested_fields={binding.model: fields},
+        records={name: () for name in records.records},
+        requested_fields=dict(records.requested_fields),
         complete=True,
     )
     metadata, redacted = bind_snapshot_hashes(metadata, redacted)
@@ -197,33 +212,33 @@ def build_odoo_comparison_publication(
         metadata,
         redacted,
         checked_at,
-        protected.logical_hash,
+        origin_set_hash,
         protected.artifact_hash,
         checked_by=actor.identity.display_name,
         dataset_name=dataset.name,
         dataset_label=frozen.dataset_labels.get(dataset.name, dataset.name),
         chunk_count=len(record_requests),
+        requested_fields=fields,
     )
-    portable_manifest = canonical_json_bytes(
-        {
-            "contract": "odoo-pinned-comparison-v1",
-            "counts": artifact.counts,
-            "preflight_evidence": {
-                "capture_manifest_hash": manifest.content_hash,
-                "frozen_input_hash": frozen.content_hash,
-                "metadata_snapshot_hash": report.metadata_snapshot_hash,
-                "protected_artifact_hash": protected.artifact_hash,
-                "protected_comparison_hash": artifact.content_hash,
-                "protected_logical_hash": protected.logical_hash,
-                "record_chunk_count": len(record_requests),
-                "record_snapshot_hash": report.record_snapshot_hash,
-            },
-            "project_id": project.project_id,
-            "run_id": run_id,
-            "status": report.status,
-        }
-    ) + b"\n"
-    assert_no_numeric_odoo_ids(portable_manifest.decode("utf-8"))
+    portable_payload = {
+        "contract": "odoo-pinned-comparison-v1",
+        "counts": artifact.counts,
+        "preflight_evidence": {
+            "capture_manifest_hash": manifest.content_hash,
+            "frozen_input_hash": frozen.content_hash,
+            "metadata_snapshot_hash": report.metadata_snapshot_hash,
+            "protected_artifact_hash": protected.artifact_hash,
+            "protected_comparison_hash": artifact.content_hash,
+            "protected_logical_hash": protected.logical_hash,
+            "record_chunk_count": len(record_requests),
+            "record_snapshot_hash": report.record_snapshot_hash,
+        },
+        "project_id": project.project_id,
+        "run_id": run_id,
+        "status": report.status,
+    }
+    assert_no_numeric_odoo_ids(portable_payload)
+    portable_manifest = canonical_json_bytes(portable_payload) + b"\n"
     report = replace(
         report,
         manifest_hash="sha256:" + sha256(portable_manifest).hexdigest(),
@@ -362,6 +377,8 @@ def _validate_live_binding(
     metadata: MetadataSnapshot,
     records: RecordSnapshot,
     fields: tuple[str, ...],
+    *,
+    has_record_requests: bool,
 ) -> None:
     if metadata.fingerprint != records.fingerprint:
         raise ReadinessError("Odoo comparison snapshots came from different targets")
@@ -379,11 +396,13 @@ def _validate_live_binding(
     actual_fields = set(metadata.models[binding.model].fields)
     if actual_fields - set(fields):
         raise ReadinessError("Odoo comparison returned unapproved metadata fields")
-    if set(records.records) != {binding.model} or set(records.requested_fields) != {
-        binding.model
-    }:
+    expected_record_models = {binding.model} if has_record_requests else set()
+    if (
+        set(records.records) != expected_record_models
+        or set(records.requested_fields) != expected_record_models
+    ):
         raise ReadinessError("Odoo comparison record evidence is incomplete")
-    if tuple(records.requested_fields[binding.model]) != fields:
+    if has_record_requests and tuple(records.requested_fields[binding.model]) != fields:
         raise ReadinessError("Odoo comparison returned an unexpected field projection")
 
 
@@ -620,13 +639,14 @@ def _report(
     metadata: MetadataSnapshot,
     records: RecordSnapshot,
     checked_at: datetime,
-    protected_logical_hash: str,
+    origin_set_hash: str,
     protected_artifact_hash: str,
     *,
     checked_by: str,
     dataset_name: str,
     dataset_label: str,
     chunk_count: int,
+    requested_fields: tuple[str, ...],
 ) -> ReadinessReport:
     update_count = sum(item.classification == "UPDATE" for item in rows)
     unchanged_count = sum(item.classification == "UNCHANGED" for item in rows)
@@ -635,10 +655,10 @@ def _report(
         canonical_json_bytes(
             {
                 "chunk_count": chunk_count,
-                "fields": list(records.requested_fields.get(model, ())),
+                "fields": list(requested_fields),
                 "model": model,
                 "record_count": len(rows),
-                "protected_origin_set_hash": protected_logical_hash,
+                "protected_origin_set_hash": origin_set_hash,
             }
         )
     ).hexdigest()

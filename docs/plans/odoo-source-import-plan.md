@@ -2,8 +2,8 @@
 
 ## Status and authority
 
-**Status:** Active implementation plan, revised 2026-08-18. Phases 1–5 are
-implemented; Phases 6–9 remain open.
+**Status:** Active implementation plan, revised 2026-08-18. Phases 1–6 are
+implemented; Phases 7–9 remain open.
 
 This document defines a scoped delivery path for using Odoo 19 records as
 governed Impodo source data and, when explicitly authorized, applying reviewed
@@ -132,6 +132,16 @@ change.
   Empty portable identities are not grouped as duplicates; ordinary file
   identity checks remain unchanged. Final review and load remain locked until
   their later phases.
+- Slice 12 completes Phase 6. Final review re-verifies the exact capture,
+  prepared evidence, Odoo 19 target, read principal, permission, context, and
+  schema before reading only protected numeric IDs in fixed 500-record chunks.
+  One application-encrypted artifact retains baseline, proposed, and current
+  values plus field-level concurrency evidence; the portable manifest and
+  persisted review rows contain no numeric Odoo IDs or business values.
+  Classification is update-only: records either already match, are ready to
+  update, or require a complete source refresh. There is no business-key or
+  create fallback, no per-row Odoo request, and no Odoo write capability.
+  The browser exposes one primary next action and keeps load locked for Phase 7.
 - The current permission hash covers directly observed group membership and
   model-level read outcomes, not a complete fingerprint of all ACL/record-rule
   definitions. Local no-key shell metadata also remains explicitly unverified.
@@ -1079,7 +1089,7 @@ Slice 10 owns the governed browser action and session-scoped job control plane.
 
 - Authorized users can capture, transform, and compare Odoo records safely and
   reproducibly without enabling writes. Unsafe rows fail closed, and refresh is
-  the only remediation offered for stale source evidence.
+  the only remediation offered for stale source evidence. **Met.**
 
 ### Phase 7 — Disposable guarded update and reconciliation
 

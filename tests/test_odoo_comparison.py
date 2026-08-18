@@ -122,6 +122,25 @@ class PinnedOdooComparisonTests(unittest.TestCase):
         self.assertTrue(result.unrelated_current_change)
         self.assertEqual(result.fields[0].outcome, OdooFieldComparisonOutcome.UPDATE)
 
+    def test_records_external_approved_field_change_without_proposing_a_write(self) -> None:
+        result = self.compare(
+            current=TargetRecord(
+                "res.partner",
+                41,
+                {
+                    "name": "Alicia",
+                    "write_date": (NOW + timedelta(minutes=1)).isoformat(),
+                },
+            ),
+        )
+
+        self.assertEqual(result.outcome, OdooComparisonOutcome.UNCHANGED)
+        self.assertFalse(result.unrelated_current_change)
+        self.assertEqual(
+            result.fields[0].outcome,
+            OdooFieldComparisonOutcome.EXTERNAL_CHANGE_NOT_WRITTEN,
+        )
+
     def test_missing_record_baseline_and_schema_fail_closed(self) -> None:
         removed = compare_pinned_odoo_row(
             SimpleNamespace(
@@ -162,6 +181,14 @@ class PinnedOdooComparisonTests(unittest.TestCase):
         self.assertEqual(len(requests[0].domain[0][2]), ODOO_COMPARISON_CHUNK_SIZE)
         self.assertEqual(requests[-1].domain, (["id", "in", [1001]],))
         self.assertNotIn("name", str(requests[0].domain))
+        self.assertEqual(
+            plan_pinned_record_requests(
+                "res.partner",
+                ("name", "write_date"),
+                (),
+            ),
+            (),
+        )
         with self.assertRaisesRegex(ReadinessError, "identifiers"):
             plan_pinned_record_requests(
                 "res.partner",
@@ -185,6 +212,19 @@ class PinnedOdooComparisonTests(unittest.TestCase):
             rows=(row,),
         )
         restored = OdooComparisonArtifact.from_json(artifact.to_json())
+        repeated = OdooComparisonArtifact.create(
+            run_id=artifact.run_id,
+            project_id=artifact.project_id,
+            capture_manifest_hash=HASH,
+            frozen_input_hash=HASH,
+            model="res.partner",
+            connection_target_hash=HASH,
+            schema_scope_hash=HASH,
+            read_principal_hash=HASH,
+            context_hash=HASH,
+            checked_at=NOW,
+            rows=(row,),
+        )
         plaintext = restored.to_json().encode("utf-8")
         binding = b"project/run/capture"
         key = b"k" * 32
@@ -195,6 +235,7 @@ class PinnedOdooComparisonTests(unittest.TestCase):
         )
 
         self.assertEqual(restored, artifact)
+        self.assertEqual(repeated.content_hash, artifact.content_hash)
         self.assertEqual(
             decode_odoo_comparison(
                 encoded.encrypted_bytes,
