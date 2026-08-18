@@ -64,6 +64,8 @@ from impodo.domain.odoo_source_capture import (
     OdooCapturePage,
     OdooCaptureValueColumn,
 )
+from impodo.domain.odoo_comparison import OdooComparisonOutcome
+from impodo.application.preflight_service import MANIFEST_NAME
 from impodo.models import (
     FieldMetadata,
     ModelMetadata,
@@ -2269,6 +2271,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             [f"scalar_value_source_0_{field_index}", "source"],
             [f"scalar_source_0_{field_index}", source_column.stable_key],
             [f"scalar_type_0_{field_index}", "string"],
+            [f"scalar_case_0_{field_index}", "uppercase"],
             [f"scalar_compare_0_{field_index}", "1"],
             ["approved_write_field_0", "name"],
         ]
@@ -2313,6 +2316,202 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(normalization_page.status_code, 200)
         self.assertIn("Review prepared changes", normalization_page.text)
         self.assertEqual(tuple(gateway.calls), calls_after_capture)
+        approved = self._post(
+            f"/projects/{project_id}/normalization/approve",
+            {
+                "csrf_token": self.csrf,
+                "run_id": normalization.run_id,
+                "lifecycle_version": str(normalization.lifecycle_version),
+            },
+        )
+        self.assertEqual(approved.status_code, 303)
+        self.assertEqual(
+            approved.headers["location"],
+            f"/projects/{project_id}/summary",
+        )
+        approved_page = self.client.get(approved.headers["location"])
+        self.assertIn("Compare the approved data with Odoo", approved_page.text)
+        self.assertIn("Compare with Odoo", approved_page.text)
+        self.assertIn("Final review", approved_page.text)
+        self.assertEqual(tuple(gateway.calls), calls_after_capture)
+
+        def pinned_reader(selected_project, metadata_requests, record_requests):
+            self.readiness_calls.append(
+                (selected_project.project_id, metadata_requests, record_requests)
+            )
+            available = _browser_schema(selected_project)
+            metadata = replace(
+                available,
+                models={
+                    request.model: replace(
+                        available.models[request.model],
+                        fields={
+                            field: available.models[request.model].fields[field]
+                            for field in request.fields
+                        },
+                    )
+                    for request in metadata_requests
+                },
+            )
+            requested_fields = record_requests[0].fields
+            return metadata, RecordSnapshot(
+                fingerprint=metadata.fingerprint,
+                records={
+                    "res.partner": (
+                        TargetRecord(
+                            "res.partner",
+                            11,
+                            {
+                                "name": "Alice",
+                                "write_date": gateway.now.isoformat(),
+                            },
+                        ),
+                        TargetRecord(
+                            "res.partner",
+                            12,
+                            {
+                                "name": "Bob",
+                                "write_date": (
+                                    gateway.now + timedelta(seconds=1)
+                                ).isoformat(),
+                            },
+                        ),
+                    )
+                },
+                requested_fields={"res.partner": requested_fields},
+            )
+
+        self.app.state.context.readiness_reader = pinned_reader
+        compared = self._post(
+            f"/projects/{project_id}/summary/compare",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(compared.status_code, 303, compared.text)
+        comparison_page = self.client.get(compared.headers["location"])
+        self.assertIn("Comparison complete", comparison_page.text)
+        self.assertIn("Ready to update", comparison_page.text)
+        self.assertIn("2 records ready to update", comparison_page.text)
+        self.assertNotIn("New in Odoo", comparison_page.text)
+        self.assertNotIn("Create review workbook", comparison_page.text)
+        self.assertIn("Load into Odoo", comparison_page.text)
+        self.assertIn("Not yet available", comparison_page.text)
+        report = self.app.state.context.preflight.current_report(project_id)
+        self.assertIsNotNone(report)
+        assert report is not None
+        self.assertEqual(report.create_count, 0)
+        self.assertEqual(report.update_count, 2)
+        self.assertEqual(report.blocked_count, 0)
+        protected_comparison = (
+            self.app.state.context.preflight.current_odoo_comparison(
+                project_id,
+                actor=self.app.state.context.actor,
+            )
+        )
+        self.assertIsNotNone(protected_comparison)
+        assert protected_comparison is not None
+        self.assertEqual(
+            tuple(item.odoo_id for item in protected_comparison.rows),
+            (11, 12),
+        )
+        self.assertEqual(
+            {item.outcome for item in protected_comparison.rows},
+            {OdooComparisonOutcome.UPDATE},
+        )
+        with self.app.state.context.artifacts.materialize_report(
+            project_id,
+            report.run_id,
+            MANIFEST_NAME,
+        ) as manifest_path:
+            portable_manifest = manifest_path.read_text("utf-8")
+        self.assertNotIn('"odoo_id"', portable_manifest)
+        self.assertNotIn("Alice", portable_manifest)
+        self.assertEqual(len(self.readiness_calls), 1)
+        _project, _metadata_requests, record_requests = self.readiness_calls[0]
+        self.assertEqual(len(record_requests), 1)
+        self.assertEqual(record_requests[0].fields, ("name", "write_date"))
+        self.assertEqual(record_requests[0].domain, (["id", "in", [11, 12]],))
+
+        def conflicting_reader(selected_project, metadata_requests, record_requests):
+            metadata, records = pinned_reader(
+                selected_project,
+                metadata_requests,
+                record_requests,
+            )
+            return metadata, replace(
+                records,
+                records={
+                    "res.partner": (
+                        TargetRecord(
+                            "res.partner",
+                            11,
+                            {
+                                "name": "Changed elsewhere",
+                                "write_date": (
+                                    gateway.now + timedelta(minutes=1)
+                                ).isoformat(),
+                            },
+                        ),
+                        records.records["res.partner"][1],
+                    )
+                },
+            )
+
+        self.app.state.context.readiness_reader = conflicting_reader
+        blocked_compare = self._post(
+            f"/projects/{project_id}/summary/compare",
+            {"csrf_token": self.csrf},
+        )
+        self.assertEqual(blocked_compare.status_code, 303, blocked_compare.text)
+        blocked_page = self.client.get(blocked_compare.headers["location"])
+        self.assertIn("Refresh the captured Odoo records", blocked_page.text)
+        self.assertIn("Needs refresh", blocked_page.text)
+        self.assertNotIn("data-preflight-compare", blocked_page.text)
+        blocked_report = self.app.state.context.preflight.current_report(project_id)
+        self.assertIsNotNone(blocked_report)
+        assert blocked_report is not None
+        self.assertEqual(blocked_report.blocked_count, 1)
+        blocked_artifact = self.app.state.context.preflight.current_odoo_comparison(
+            project_id,
+            actor=self.app.state.context.actor,
+        )
+        self.assertIsNotNone(blocked_artifact)
+        assert blocked_artifact is not None
+        self.assertEqual(
+            blocked_artifact.rows[0].outcome,
+            OdooComparisonOutcome.CONCURRENT_FIELD_CHANGE,
+        )
+
+        previous_source_hash = source_selection.content_hash
+        refresh_gateway = _BrowserOdooCaptureGateway(project, schema)
+        refreshed_publication = (
+            self.app.state.context.odoo_capture_publication.publish(
+                project_id,
+                refresh_gateway,
+                actor=self.app.state.context.actor,
+            )
+        )
+        self.assertNotEqual(
+            refreshed_publication.source_selection.content_hash,
+            previous_source_hash,
+        )
+        self.assertIsNone(
+            self.app.state.context.queries.get_mapping_revision(project_id)
+        )
+        self.assertIsNone(
+            self.app.state.context.preflight.current_staging(project_id)
+        )
+        self.assertIsNone(
+            self.app.state.context.normalization.current_summary(project_id)
+        )
+        self.assertIsNone(
+            self.app.state.context.preflight.current_report(project_id)
+        )
+        self.assertIsNone(
+            self.app.state.context.preflight.current_odoo_comparison(
+                project_id,
+                actor=self.app.state.context.actor,
+            )
+        )
 
     def test_complete_project_setup_registration_without_yaml(self) -> None:
         created = self._post(

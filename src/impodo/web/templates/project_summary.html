@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ project.name }} · Impodo{% endblock %}
 {% block content %}
+  {% set odoo_source = project.source_mode.value == 'ODOO' %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Stage 5 of 6 · Final review</p>
@@ -207,6 +208,9 @@
         {% elif quality and quality.review_count and not (normalization and normalization.frozen) %}
           <h2 id="next-action-title">Review {{ quality.review_count }} quality finding{{ "s" if quality.review_count != 1 else "" }}</h2>
           <p>A warning cannot silently become a pass. Correct the source or guided check, then rerun.</p>
+        {% elif odoo_source and readiness.blocked_count %}
+          <h2 id="next-action-title">Refresh the captured Odoo records</h2>
+          <p>Odoo changed after these records were captured. Refreshing is the safe way to continue.</p>
         {% elif readiness.blocked_count %}
           <h2 id="next-action-title">Fix {{ readiness.blocked_count }} row{{ "s" if readiness.blocked_count != 1 else "" }} first</h2>
           <p>These rows cannot continue until their data or field matches are corrected.</p>
@@ -216,6 +220,9 @@
         {% elif readiness.needs_review_count %}
           <h2 id="next-action-title">Review {{ readiness.needs_review_count }} decision{{ "s" if readiness.needs_review_count != 1 else "" }}</h2>
           <p>Impodo needs your choice before it can mark the data check complete.</p>
+        {% elif odoo_source %}
+          <h2 id="next-action-title">Comparison complete</h2>
+          <p>{{ readiness.update_count }} record{{ "s" if readiness.update_count != 1 else "" }} ready to update and {{ readiness.unchanged_count }} already matching. Nothing was changed in Odoo.</p>
         {% elif load_preview and load_preview.can_load %}
           <h2 id="next-action-title">Preview the Odoo load</h2>
           <p>Review the exact create-and-update totals, then load them into the disposable local Odoo database.</p>
@@ -238,12 +245,16 @@
           <a class="button primary" href="?quality_status=blocked#quality-rows">Review setup</a>
         {% elif quality and quality.review_count and not (normalization and normalization.frozen) %}
           <a class="button primary" href="?quality_status=review#quality-rows">Review findings</a>
+        {% elif odoo_source and readiness.blocked_count %}
+          <a class="button primary" href="/projects/{{ project.project_id }}/sources">Refresh Odoo records</a>
         {% elif readiness.blocked_count %}
           <a class="button primary" href="?status=blocked#readiness-rows">Show rows to fix</a>
         {% elif staging and staging.failed_control_total_count %}
           <a class="button primary" href="#control-totals">Review totals</a>
         {% elif readiness.needs_review_count %}
           <a class="button primary" href="?status=needs_review#readiness-rows">Review decisions</a>
+        {% elif odoo_source %}
+          <a class="button primary" href="#readiness-rows">Review checked records</a>
         {% elif load_preview and (load_preview.can_load or load_preview.current_run) %}
           <a class="button primary" href="/projects/{{ project.project_id }}/load">{% if load_preview.current_run %}View load outcome{% else %}Preview Odoo load{% endif %}</a>
           {% if review_workbook_ready %}
@@ -275,7 +286,8 @@
             <button class="button primary" type="submit">Create review workbook</button>
           </form>
         {% endif %}
-        {% if local_odoo_recovery_needed %}
+        {% if odoo_source and readiness.blocked_count %}
+        {% elif local_odoo_recovery_needed %}
           <button class="button secondary" type="button" data-open-local-stack>Reconnect local Odoo</button>
         {% else %}
           <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
@@ -362,15 +374,17 @@
     {% endif %}
 
     <section class="readiness-cards comparison-cards" aria-label="Odoo comparison overview">
+      {% if not odoo_source %}
       <div class="readiness-card ready">
         <span>New in Odoo</span>
         <strong>{{ readiness.create_count }}</strong>
         <small>Ready to create later</small>
       </div>
+      {% endif %}
       <div class="readiness-card ready">
-        <span>Different from Odoo</span>
+        <span>{% if odoo_source %}Ready to update{% else %}Different from Odoo{% endif %}</span>
         <strong>{{ readiness.update_count }}</strong>
-        <small>Prepared values differ</small>
+        <small>{% if odoo_source %}Safe for a later load{% else %}Prepared values differ{% endif %}</small>
       </div>
       <div class="readiness-card ready">
         <span>Already matches</span>
@@ -378,9 +392,9 @@
         <small>No change is needed</small>
       </div>
       <a class="readiness-card review" href="#readiness-rows">
-        <span>Needs attention</span>
+        <span>{% if odoo_source %}Needs refresh{% else %}Needs attention{% endif %}</span>
         <strong>{{ readiness.attention_count }}</strong>
-        <small>A decision or correction is needed</small>
+        <small>{% if odoo_source %}Odoo changed since capture{% else %}A decision or correction is needed{% endif %}</small>
       </a>
       <a class="readiness-card blocked" href="#quality-rows">
         <span>Set aside</span>
@@ -400,13 +414,19 @@
       <div class="table-scroll">
         <table class="data-table">
           <thead>
+            {% if odoo_source %}
+            <tr><th>Record type</th><th>Ready to update</th><th>Already matches</th><th>Needs refresh</th></tr>
+            {% else %}
             <tr><th>Table</th><th>New in Odoo</th><th>Different</th><th>Already matches</th><th>Needs attention</th></tr>
+            {% endif %}
           </thead>
           <tbody>
             {% for item in readiness.datasets %}
               <tr>
                 <th>{{ item.label }}</th>
+                {% if not odoo_source %}
                 <td>{{ item.create_count }}</td>
+                {% endif %}
                 <td>{{ item.update_count }}</td>
                 <td>{{ item.unchanged_count }}</td>
                 <td>{{ item.ambiguous_count + item.blocked }}</td>

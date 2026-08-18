@@ -25,7 +25,6 @@ DERIVED_VALUE_ARTIFACT_STORAGE_LAYOUT_VERSION = 1
 DERIVED_VALUE_WRITER_CONTRACT_VERSION = 1
 DERIVED_VALUE_ORDINAL_COLUMN = "__impodo_derived_ordinal"
 
-_DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _SHA256 = re.compile(r"sha256:([0-9a-f]{64})")
 
 
@@ -51,7 +50,7 @@ class DerivedValueInput:
     evidence_hash: str
 
     def __post_init__(self) -> None:
-        _dataset_id(self.dataset_id, "input dataset ID")
+        _bounded_text(self.dataset_id, "input dataset ID")
         _hash_digest(self.evidence_hash, "input evidence hash")
 
     def to_portable_dict(self) -> dict[str, str]:
@@ -71,7 +70,7 @@ class DerivedValueArtifact:
     derivation_kind: DerivedValueKind
     input_evidence: tuple[DerivedValueInput, ...]
     physical_selection_hash: str
-    effective_selection_hash: str
+    source_selection_hash: str
     derived_plan_hash: str
     derivation_rule_hash: str
     mapping_hash: str
@@ -87,15 +86,9 @@ class DerivedValueArtifact:
     created_at: datetime
 
     def __post_init__(self) -> None:
-        if not self.project_id or len(self.project_id) > 200:
-            raise DerivedValueArtifactContractError(
-                "Derived value artifact project ID is invalid"
-            )
-        _dataset_id(self.dataset_id, "dataset ID")
-        if _DATASET_NAME.fullmatch(self.dataset_name) is None:
-            raise DerivedValueArtifactContractError(
-                "Derived value artifact dataset name is invalid"
-            )
+        _bounded_text(self.project_id, "project ID")
+        _bounded_text(self.dataset_id, "dataset ID")
+        _bounded_text(self.dataset_name, "dataset name")
         try:
             derivation_kind = DerivedValueKind(self.derivation_kind)
         except ValueError as error:
@@ -118,7 +111,7 @@ class DerivedValueArtifact:
             )
         for value, label in (
             (self.physical_selection_hash, "physical selection hash"),
-            (self.effective_selection_hash, "effective selection hash"),
+            (self.source_selection_hash, "source selection hash"),
             (self.derived_plan_hash, "derived plan hash"),
             (self.derivation_rule_hash, "derivation rule hash"),
             (self.mapping_hash, "mapping hash"),
@@ -165,7 +158,7 @@ class DerivedValueArtifact:
         derivation_kind: DerivedValueKind,
         input_evidence: Iterable[DerivedValueInput],
         physical_selection_hash: str,
-        effective_selection_hash: str,
+        source_selection_hash: str,
         derived_plan_hash: str,
         derivation_rule_hash: str,
         mapping_hash: str,
@@ -186,7 +179,7 @@ class DerivedValueArtifact:
             derivation_kind=derivation_kind,
             input_evidence=ordered_inputs,
             physical_selection_hash=physical_selection_hash,
-            effective_selection_hash=effective_selection_hash,
+            source_selection_hash=source_selection_hash,
             derived_plan_hash=derived_plan_hash,
             derivation_rule_hash=derivation_rule_hash,
             mapping_hash=mapping_hash,
@@ -203,7 +196,7 @@ class DerivedValueArtifact:
             derivation_kind=derivation_kind,
             input_evidence=ordered_inputs,
             physical_selection_hash=physical_selection_hash,
-            effective_selection_hash=effective_selection_hash,
+            source_selection_hash=source_selection_hash,
             derived_plan_hash=derived_plan_hash,
             derivation_rule_hash=derivation_rule_hash,
             mapping_hash=mapping_hash,
@@ -232,7 +225,7 @@ class DerivedValueArtifact:
             derivation_kind=self.derivation_kind,
             input_evidence=self.input_evidence,
             physical_selection_hash=self.physical_selection_hash,
-            effective_selection_hash=self.effective_selection_hash,
+            source_selection_hash=self.source_selection_hash,
             derived_plan_hash=self.derived_plan_hash,
             derivation_rule_hash=self.derivation_rule_hash,
             mapping_hash=self.mapping_hash,
@@ -266,7 +259,6 @@ class DerivedValueArtifact:
             "derivation_kind": self.derivation_kind.value,
             "derivation_rule_hash": self.derivation_rule_hash,
             "derived_plan_hash": self.derived_plan_hash,
-            "effective_selection_hash": self.effective_selection_hash,
             "input_evidence": [
                 item.to_portable_dict() for item in self.input_evidence
             ],
@@ -280,6 +272,7 @@ class DerivedValueArtifact:
             "project_id": self.project_id,
             "row_count": self.row_count,
             "schema_hash": self.schema_hash,
+            "source_selection_hash": self.source_selection_hash,
             "transformation_program_hash": self.transformation_program_hash,
             "writer_contract_version": self.writer_contract_version,
         }
@@ -311,7 +304,7 @@ class DerivedValueArtifact:
                     for item in payload["input_evidence"]
                 ),
                 physical_selection_hash=str(payload["physical_selection_hash"]),
-                effective_selection_hash=str(payload["effective_selection_hash"]),
+                source_selection_hash=str(payload["source_selection_hash"]),
                 derived_plan_hash=str(payload["derived_plan_hash"]),
                 derivation_rule_hash=str(payload["derivation_rule_hash"]),
                 mapping_hash=str(payload["mapping_hash"]),
@@ -354,7 +347,7 @@ def derived_value_artifact_logical_hash(
     derivation_kind: DerivedValueKind,
     input_evidence: Iterable[DerivedValueInput],
     physical_selection_hash: str,
-    effective_selection_hash: str,
+    source_selection_hash: str,
     derived_plan_hash: str,
     derivation_rule_hash: str,
     mapping_hash: str,
@@ -374,7 +367,6 @@ def derived_value_artifact_logical_hash(
             "derivation_kind": DerivedValueKind(derivation_kind).value,
             "derivation_rule_hash": derivation_rule_hash,
             "derived_plan_hash": derived_plan_hash,
-            "effective_selection_hash": effective_selection_hash,
             "input_evidence": [
                 item.to_portable_dict()
                 for item in sorted(input_evidence, key=lambda item: item.dataset_id)
@@ -385,6 +377,7 @@ def derived_value_artifact_logical_hash(
             "project_id": project_id,
             "row_count": row_count,
             "schema_hash": schema_hash,
+            "source_selection_hash": source_selection_hash,
             "transformation_program_hash": transformation_program_hash,
             "writer_contract_version": writer_contract_version,
         }
@@ -398,7 +391,7 @@ def derived_value_artifact_storage_key(
 ) -> str:
     """Return a safe content-addressed key for one derived Parquet artifact."""
 
-    _dataset_id(dataset_id, "dataset ID")
+    _bounded_text(dataset_id, "dataset ID")
     logical_digest = _hash_digest(logical_hash, "logical hash")
     artifact_digest = _hash_digest(parquet_sha256, "Parquet hash")
     binding_digest = _hash_digest(
@@ -422,7 +415,7 @@ def derived_value_artifact_storage_key(
     )
 
 
-def _dataset_id(value: str, label: str) -> str:
+def _bounded_text(value: str, label: str) -> str:
     clean = str(value).strip()
     if (
         clean != value

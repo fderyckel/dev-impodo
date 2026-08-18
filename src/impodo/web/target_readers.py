@@ -27,7 +27,7 @@ from ..local_stack import LocalStackProfile
 from ..domain.schema.governance import BusinessKeyDefinition
 from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
 from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
-from ..projects import MigrationProject, OdooConnectionMode, ProjectError
+from ..projects import MigrationProject, OdooConnectionMode, ProjectError, SourceMode
 from ..reference_keys import standard_reference_key
 from ..secrets import SecretStoreError
 from ..source_snapshot_io import (
@@ -319,6 +319,14 @@ def _read_readiness_snapshots(
     ``Json2ReadConnector``. This function does not widen planner domains.
     """
 
+    if project.source_mode is SourceMode.ODOO:
+        return _read_pinned_odoo_snapshots(
+            context,
+            project,
+            metadata_requests,
+            record_requests,
+        )
+
     local_profile = _selected_local_profile(context, project)
     if (
         context.readiness_reader is not None
@@ -408,6 +416,67 @@ def _read_readiness_snapshots(
     metadata = connector.get_model_metadata(metadata_requests)
     records = connector.get_records(record_requests)
     return metadata, records
+
+
+def _read_pinned_odoo_snapshots(
+    context: WebContext,
+    project: MigrationProject,
+    metadata_requests: tuple[MetadataRequest, ...],
+    record_requests: tuple[RecordRequest, ...],
+) -> tuple[MetadataSnapshot, RecordSnapshot]:
+    """Use the exact capture credential and context for pinned-ID comparison."""
+
+    credential = get_target_credential(
+        context.secret_store,
+        project,
+        TargetCredentialRole.READ,
+    )
+    if credential is None:
+        raise SecretStoreError(
+            "Save the Odoo read API key before comparing captured records."
+        )
+    if project.odoo_connection_mode is None:
+        raise WorkspaceError("Configure the Odoo target before comparing records")
+    schema = context.queries.get_odoo_schema_catalog(project.project_id)
+    if schema is None:
+        raise WorkspaceError(
+            "Refresh the captured Odoo fields before comparing records"
+        )
+    probe_models = tuple(sorted(item.name for item in schema.models))
+    identity = context.read_identity_probe(
+        project,
+        credential.secret,
+        probe_models,
+    )
+    if (
+        identity.target_hash != schema.connection_target_hash
+        or identity.principal_hash != schema.read_principal_hash
+        or identity.permission_hash != schema.read_permission_hash
+        or identity.context_hash != schema.read_context_hash
+        or identity.readable_models != probe_models
+    ):
+        raise WorkspaceError(
+            "The Odoo connection or access context changed. Refresh the captured "
+            "records before comparing."
+        )
+    if context.readiness_reader is not None:
+        return context.readiness_reader(
+            project,
+            metadata_requests,
+            record_requests,
+        )
+    connector = Json2ReadConnector(
+        Json2Config(
+            base_url=project.odoo_base_url,
+            database=project.odoo_database,
+            api_key=credential.secret,
+            connection_mode=project.odoo_connection_mode.value,
+        )
+    )
+    return (
+        connector.get_model_metadata(metadata_requests),
+        connector.get_records(record_requests),
+    )
 
 
 def _source_value_choices(

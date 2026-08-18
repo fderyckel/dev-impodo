@@ -84,7 +84,7 @@ class DerivedValueArtifactContractTests(unittest.TestCase):
                 (DerivedValueInput("dataset:a", HASHES[11]),),
             ),
             ("physical_selection_hash", HASHES[11]),
-            ("effective_selection_hash", HASHES[11]),
+            ("source_selection_hash", HASHES[11]),
             ("derived_plan_hash", HASHES[11]),
             ("derivation_rule_hash", HASHES[11]),
             ("mapping_hash", HASHES[11]),
@@ -129,6 +129,21 @@ class DerivedValueArtifactContractTests(unittest.TestCase):
                         HASHES[10],
                     )
 
+    def test_dataset_name_is_a_business_label_not_a_database_identifier(self) -> None:
+        artifact = DerivedValueArtifact.create(
+            **{
+                **_logical_arguments(),
+                "dataset_name": "Products & BOM Lines",
+            },
+            physical_schema_hash=HASHES[10],
+            parquet_sha256=HASHES[11],
+            created_at=NOW,
+        )
+
+        self.assertEqual(artifact.dataset_name, "Products & BOM Lines")
+        with self.assertRaises(DerivedValueArtifactContractError):
+            replace(artifact, dataset_name=" Products")
+
 
 def _logical_arguments() -> dict[str, object]:
     return {
@@ -141,7 +156,7 @@ def _logical_arguments() -> dict[str, object]:
             DerivedValueInput("dataset:b", HASHES[1]),
         ),
         "physical_selection_hash": HASHES[2],
-        "effective_selection_hash": HASHES[3],
+        "source_selection_hash": HASHES[3],
         "derived_plan_hash": HASHES[4],
         "derivation_rule_hash": HASHES[5],
         "mapping_hash": HASHES[6],

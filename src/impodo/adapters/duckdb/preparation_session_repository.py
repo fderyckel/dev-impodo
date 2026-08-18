@@ -16,6 +16,7 @@ import duckdb
 from ...access import Actor
 from ..polars_transformation import iter_polars_prepared_batches
 from ...artifacts import ArtifactStore, ArtifactStoreError, LocalArtifactStore
+from ...domain.derived_value_artifact import DerivedValueArtifact
 from ...domain.staging.canonical_projection import canonical_prepared_session_row
 from ...domain.serialization import CanonicalJsonObjectHasher
 from ...domain.prepared_snapshot import PreparedSnapshot
@@ -606,6 +607,221 @@ class PreparationSessionRepository(DuckDbRepository):
                         canonical_session_id,
                         snapshot.dataset_id,
                         snapshot.content_hash,
+                    ],
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def find_derived_value_artifact(
+        self,
+        project_id: str,
+        dataset_id: str,
+        logical_hash: str,
+    ) -> DerivedValueArtifact | None:
+        """Find one historical exact derived artifact for safe reuse."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            row = connection.execute(
+                """
+                SELECT manifest_json
+                  FROM derived_value_artifact_manifest
+                 WHERE dataset_id = ? AND logical_hash = ?
+                 ORDER BY created_at DESC, content_hash
+                 LIMIT 1
+                """,
+                [dataset_id, logical_hash],
+            ).fetchone()
+        return (
+            DerivedValueArtifact.from_json(str(row[0]))
+            if row is not None
+            else None
+        )
+
+    def current_derived_value_artifacts(
+        self,
+        project_id: str,
+    ) -> tuple[DerivedValueArtifact, ...]:
+        """Load derived artifacts advanced only by published preparation."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            rows = connection.execute(
+                """
+                SELECT manifest.manifest_json
+                  FROM derived_value_artifact_current AS current
+                  JOIN derived_value_artifact_manifest AS manifest
+                    ON manifest.content_hash = current.content_hash
+                 ORDER BY current.dataset_id
+                """
+            ).fetchall()
+        return tuple(DerivedValueArtifact.from_json(str(row[0])) for row in rows)
+
+    def session_derived_value_artifacts(
+        self,
+        project_id: str,
+        session_id: str,
+    ) -> tuple[DerivedValueArtifact, ...]:
+        """Load every exact derived artifact bound to one pending session."""
+
+        canonical_session_id = self._session_id(session_id)
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            rows = connection.execute(
+                """
+                SELECT binding.dataset_id, binding.content_hash,
+                       manifest.manifest_json
+                  FROM preparation_session_derived_artifact AS binding
+                  LEFT JOIN derived_value_artifact_manifest AS manifest
+                    ON manifest.content_hash = binding.content_hash
+                   AND manifest.dataset_id = binding.dataset_id
+                 WHERE binding.session_id = ?
+                 ORDER BY binding.dataset_id
+                """,
+                [canonical_session_id],
+            ).fetchall()
+        return self._derived_artifacts_from_bindings(rows)
+
+    def derived_value_artifact_storage_keys(
+        self,
+        project_id: str,
+    ) -> frozenset[str]:
+        """Return immutable derived files referenced by any manifest."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            rows = connection.execute(
+                """
+                SELECT parquet_storage_key
+                  FROM derived_value_artifact_manifest
+                 ORDER BY parquet_storage_key
+                """
+            ).fetchall()
+        return frozenset(str(row[0]) for row in rows)
+
+    def bind_derived_value_artifact(
+        self,
+        project_id: str,
+        session_id: str,
+        artifact: DerivedValueArtifact,
+    ) -> None:
+        """Register a manifest and bind it to one building session atomically."""
+
+        if artifact.project_id != project_id:
+            raise WorkspaceError("Derived-value artifact belongs to another project")
+        canonical_session_id = self._session_id(session_id)
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            connection.begin()
+            try:
+                self._require_status(
+                    connection,
+                    canonical_session_id,
+                    PreparationSessionStatus.BUILDING,
+                )
+                bindings = connection.execute(
+                    """
+                    SELECT physical_selection_hash, source_selection_hash,
+                           mapping_hash, schema_hash, derived_plan_hash
+                      FROM preparation_session
+                     WHERE session_id = ?
+                    """,
+                    [canonical_session_id],
+                ).fetchone()
+                if bindings != (
+                    artifact.physical_selection_hash,
+                    artifact.source_selection_hash,
+                    artifact.mapping_hash,
+                    artifact.schema_hash,
+                    artifact.derived_plan_hash,
+                ):
+                    raise WorkspaceError(
+                        "Derived-value artifact does not match the preparation session"
+                    )
+                self._require_derived_artifact_inputs(
+                    connection,
+                    canonical_session_id,
+                    artifact,
+                )
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO derived_value_artifact_manifest (
+                        content_hash, dataset_id, logical_hash, derivation_kind,
+                        physical_selection_hash, source_selection_hash,
+                        derived_plan_hash, derivation_rule_hash, mapping_hash,
+                        schema_hash, transformation_program_hash, lineage_hash,
+                        writer_contract_version, row_count, physical_schema_hash,
+                        parquet_sha256, parquet_storage_key, created_at,
+                        manifest_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                              ?, ?, ?)
+                    """,
+                    [
+                        artifact.content_hash,
+                        artifact.dataset_id,
+                        artifact.logical_hash,
+                        artifact.derivation_kind.value,
+                        artifact.physical_selection_hash,
+                        artifact.source_selection_hash,
+                        artifact.derived_plan_hash,
+                        artifact.derivation_rule_hash,
+                        artifact.mapping_hash,
+                        artifact.schema_hash,
+                        artifact.transformation_program_hash,
+                        artifact.lineage_hash,
+                        artifact.writer_contract_version,
+                        artifact.row_count,
+                        artifact.physical_schema_hash,
+                        artifact.parquet_sha256,
+                        artifact.parquet_storage_key,
+                        artifact.created_at.isoformat(),
+                        artifact.to_json(),
+                    ],
+                )
+                registered = connection.execute(
+                    """
+                    SELECT dataset_id, logical_hash, derivation_kind,
+                           parquet_sha256, parquet_storage_key, manifest_json
+                      FROM derived_value_artifact_manifest
+                     WHERE content_hash = ?
+                    """,
+                    [artifact.content_hash],
+                ).fetchone()
+                if registered is None:
+                    raise WorkspaceError(
+                        "Stored derived-value artifact manifest is missing"
+                    )
+                stored = DerivedValueArtifact.from_json(str(registered[5]))
+                if (
+                    registered[:5]
+                    != (
+                        artifact.dataset_id,
+                        artifact.logical_hash,
+                        artifact.derivation_kind.value,
+                        artifact.parquet_sha256,
+                        artifact.parquet_storage_key,
+                    )
+                    or stored.content_hash != artifact.content_hash
+                ):
+                    raise WorkspaceError(
+                        "Stored derived-value artifact manifest is inconsistent"
+                    )
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO preparation_session_derived_artifact
+                    VALUES (?, ?, ?)
+                    """,
+                    [
+                        canonical_session_id,
+                        artifact.dataset_id,
+                        artifact.content_hash,
                     ],
                 )
                 connection.commit()
@@ -3013,6 +3229,32 @@ class PreparationSessionRepository(DuckDbRepository):
                         """,
                         [str(dataset_id), str(content_hash)],
                     )
+                bound_derived_artifacts = connection.execute(
+                    """
+                    SELECT binding.dataset_id, binding.content_hash,
+                           manifest.manifest_json
+                      FROM preparation_session_derived_artifact AS binding
+                      LEFT JOIN derived_value_artifact_manifest AS manifest
+                        ON manifest.content_hash = binding.content_hash
+                       AND manifest.dataset_id = binding.dataset_id
+                     WHERE binding.session_id = ?
+                     ORDER BY binding.dataset_id
+                    """,
+                    [self._session_id(session_id)],
+                ).fetchall()
+                self._derived_artifacts_from_bindings(bound_derived_artifacts)
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO derived_value_artifact_current
+                    SELECT binding.dataset_id, binding.content_hash
+                      FROM preparation_session_derived_artifact AS binding
+                      JOIN derived_value_artifact_manifest AS manifest
+                        ON manifest.content_hash = binding.content_hash
+                       AND manifest.dataset_id = binding.dataset_id
+                     WHERE binding.session_id = ?
+                    """,
+                    [self._session_id(session_id)],
+                )
                 canonical_status = connection.execute(
                     """
                     SELECT status
@@ -3727,6 +3969,92 @@ class PreparationSessionRepository(DuckDbRepository):
             ) from error
 
     @staticmethod
+    def _require_derived_artifact_inputs(
+        connection,
+        session_id: str,
+        artifact: DerivedValueArtifact,
+    ) -> None:
+        """Require every declared carrier through one set-based evidence query."""
+
+        dataset_ids = [item.dataset_id for item in artifact.input_evidence]
+        evidence_hashes = [item.evidence_hash for item in artifact.input_evidence]
+        missing = connection.execute(
+            """
+            WITH expected AS (
+                SELECT unnest(?) AS dataset_id,
+                       unnest(?) AS evidence_hash
+            )
+            SELECT expected.dataset_id, expected.evidence_hash
+              FROM expected
+             WHERE NOT EXISTS (
+                       SELECT 1
+                         FROM source_snapshot_current AS current_source
+                         JOIN source_snapshot_manifest AS source_manifest
+                           ON source_manifest.content_hash =
+                              current_source.content_hash
+                          AND source_manifest.dataset_id =
+                              current_source.dataset_id
+                        WHERE current_source.dataset_id = expected.dataset_id
+                          AND source_manifest.content_hash =
+                              expected.evidence_hash
+                   )
+               AND NOT EXISTS (
+                       SELECT 1
+                         FROM preparation_session_snapshot AS prepared_binding
+                         JOIN prepared_snapshot_manifest AS prepared_manifest
+                           ON prepared_manifest.content_hash =
+                              prepared_binding.content_hash
+                          AND prepared_manifest.dataset_id =
+                              prepared_binding.dataset_id
+                        WHERE prepared_binding.session_id = ?
+                          AND prepared_binding.dataset_id = expected.dataset_id
+                          AND prepared_manifest.content_hash =
+                              expected.evidence_hash
+                   )
+               AND NOT EXISTS (
+                       SELECT 1
+                         FROM preparation_session_derived_artifact AS derived_binding
+                         JOIN derived_value_artifact_manifest AS derived_manifest
+                           ON derived_manifest.content_hash =
+                              derived_binding.content_hash
+                          AND derived_manifest.dataset_id =
+                              derived_binding.dataset_id
+                        WHERE derived_binding.session_id = ?
+                          AND derived_binding.dataset_id = expected.dataset_id
+                          AND derived_manifest.content_hash =
+                              expected.evidence_hash
+                   )
+             ORDER BY expected.dataset_id
+            """,
+            [dataset_ids, evidence_hashes, session_id, session_id],
+        ).fetchall()
+        if missing:
+            raise WorkspaceError(
+                "Derived-value artifact input evidence is unavailable"
+            )
+
+    @staticmethod
+    def _derived_artifacts_from_bindings(
+        rows: Sequence[tuple[object, object, object | None]],
+    ) -> tuple[DerivedValueArtifact, ...]:
+        artifacts: list[DerivedValueArtifact] = []
+        for dataset_id, content_hash, manifest_json in rows:
+            if manifest_json is None:
+                raise WorkspaceError(
+                    "Bound derived-value artifact manifest is missing"
+                )
+            artifact = DerivedValueArtifact.from_json(str(manifest_json))
+            if (
+                artifact.dataset_id != str(dataset_id)
+                or artifact.content_hash != str(content_hash)
+            ):
+                raise WorkspaceError(
+                    "Bound derived-value artifact manifest is inconsistent"
+                )
+            artifacts.append(artifact)
+        return tuple(artifacts)
+
+    @staticmethod
     def _require_status(
         connection,
         session_id: str,
@@ -3774,6 +4102,7 @@ class PreparationSessionRepository(DuckDbRepository):
             "preparation_relationship_edge",
             "preparation_direct_identity",
             "preparation_session_snapshot",
+            "preparation_session_derived_artifact",
         )
         available_tables = {
             str(row[0])

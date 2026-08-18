@@ -374,18 +374,57 @@ def build_project_navigation(
                 ),
             )
         )
-        stages.extend(
+        report = context.preflight.current_report(project_id) if preparation_complete else None
+        review_status = (
+            "complete"
+            if report is not None and report.status == "READY"
+            else (
+                "attention"
+                if report is not None
+                else ("current" if preparation_complete else "locked")
+            )
+        )
+        stages.append(
+            _stage(
+                project_id,
+                "review",
+                5,
+                "Final review",
+                "/summary" if preparation_complete else None,
+                status=review_status,
+                status_label=(
+                    "Complete"
+                    if review_status == "complete"
+                    else (
+                        "Refresh needed"
+                        if review_status == "attention"
+                        else (
+                            "Current"
+                            if review_status == "current"
+                            else "Prepare data first"
+                        )
+                    )
+                ),
+                pages=(
+                    _page(
+                        project_id,
+                        "summary",
+                        "Compare with Odoo",
+                        "/summary",
+                        complete=review_status == "complete",
+                        attention=review_status == "attention",
+                    ),
+                ) if preparation_complete else (),
+            )
+        )
+        stages.append(
             WorkflowStage(
-                stage_id=stage_id,
-                number=number,
-                label=label,
+                stage_id="load",
+                number=6,
+                label="Load into Odoo",
                 href=None,
                 status="locked",
                 status_label="Not yet available",
-            )
-            for stage_id, number, label in (
-                ("review", 5, "Final review"),
-                ("load", 6, "Load into Odoo"),
             )
         )
         return _navigation(

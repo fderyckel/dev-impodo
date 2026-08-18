@@ -55,6 +55,7 @@ from ..domain.staging.transformation_impact import (
     TransformationImpactRow,
 )
 from ..domain.prepared_snapshot import PreparedSnapshot
+from ..domain.derived_value_artifact import DerivedValueArtifact
 from ..domain.source_snapshot import SourceSnapshot
 from ..models import Issue
 
@@ -210,6 +211,36 @@ class PreparationSessionRepository(Protocol):
     ) -> None: ...
 
     def prepared_snapshot_storage_keys(self, project_id: str) -> frozenset[str]: ...
+
+    def find_derived_value_artifact(
+        self,
+        project_id: str,
+        dataset_id: str,
+        logical_hash: str,
+    ) -> DerivedValueArtifact | None: ...
+
+    def bind_derived_value_artifact(
+        self,
+        project_id: str,
+        session_id: str,
+        artifact: DerivedValueArtifact,
+    ) -> None: ...
+
+    def session_derived_value_artifacts(
+        self,
+        project_id: str,
+        session_id: str,
+    ) -> tuple[DerivedValueArtifact, ...]: ...
+
+    def current_derived_value_artifacts(
+        self,
+        project_id: str,
+    ) -> tuple[DerivedValueArtifact, ...]: ...
+
+    def derived_value_artifact_storage_keys(
+        self,
+        project_id: str,
+    ) -> frozenset[str]: ...
 
     def physical_rows(
         self,
@@ -442,6 +473,12 @@ class PreflightSourceRepository(Protocol):
 
     def get_mapping_source_selection(self, project_id: str) -> SourceSelection | None:
         """Return stable dataset/column identities used to compile Stage H."""
+        ...
+
+    def get_current_source_snapshots(
+        self, project_id: str
+    ) -> tuple[SourceSnapshot, ...]:
+        """Return the current immutable source snapshots for comparison."""
         ...
 
 

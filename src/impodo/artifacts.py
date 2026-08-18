@@ -1,9 +1,10 @@
 """Define governed artifact storage and its contained filesystem adapter.
 
-Migration stages: source evidence in A/B and report projections in H. The port
-uses opaque generated keys, bounded streaming, context-managed materialization,
-partial files, and atomic replacement. Callers never receive a generic path
-write capability outside one validated project/run boundary.
+Migration stages: source evidence in A/B, prepared and derived evidence in E,
+and report projections in H. The port uses opaque generated keys, bounded
+streaming, context-managed materialization, partial files, and atomic
+replacement. Callers never receive a generic path write capability outside one
+validated project/run boundary.
 
 See ``docs/architecture/security-and-infrastructure.md`` and
 ``tests/test_projects.py``.
@@ -23,6 +24,9 @@ import shutil
 from typing import BinaryIO, ContextManager, Protocol
 from uuid import UUID, uuid4
 
+from .domain.derived_value_artifact import (
+    DERIVED_VALUE_ARTIFACT_STORAGE_LAYOUT_VERSION,
+)
 from .domain.prepared_snapshot import PREPARED_SNAPSHOT_STORAGE_LAYOUT_VERSION
 from .domain.source_snapshot import SOURCE_SNAPSHOT_STORAGE_LAYOUT_VERSION
 
@@ -169,6 +173,50 @@ class ArtifactStore(Protocol):
         referenced_storage_keys: frozenset[str],
     ) -> int:
         """Remove only temporary and unregistered prepared snapshots."""
+        ...
+
+    def prepare_derived_value_artifact(
+        self,
+        project_id: str,
+    ) -> ContextManager[Path]:
+        """Yield one contained workspace for a derived-value artifact."""
+        ...
+
+    def publish_derived_value_artifact(
+        self,
+        project_id: str,
+        temporary_file: Path,
+        storage_key: str,
+        *,
+        expected_sha256: str,
+    ) -> bool:
+        """Publish verified bytes and report whether a new file was created."""
+        ...
+
+    def materialize_derived_value_artifact(
+        self,
+        project_id: str,
+        storage_key: str,
+        *,
+        expected_sha256: str,
+    ) -> ContextManager[Path]:
+        """Expose one hash-verified derived-value artifact for reading."""
+        ...
+
+    def delete_derived_value_artifact(
+        self,
+        project_id: str,
+        storage_key: str,
+    ) -> None:
+        """Delete one unbound derived-value artifact after publication failure."""
+        ...
+
+    def cleanup_derived_value_artifacts(
+        self,
+        project_id: str,
+        referenced_storage_keys: frozenset[str],
+    ) -> int:
+        """Remove only temporary and unregistered derived-value artifacts."""
         ...
 
     def write_report(
@@ -542,6 +590,133 @@ class LocalArtifactStore:
         _prune_empty_directories(root)
         return removed
 
+    @contextmanager
+    def prepare_derived_value_artifact(self, project_id: str) -> Iterator[Path]:
+        """Create and always remove one contained derived-value workspace."""
+
+        work_root = self._derived_value_root(project_id, create=True) / ".work"
+        if work_root.is_symlink():
+            raise ArtifactStoreError(
+                "Derived-value work directory must not be a symlink"
+            )
+        work_root.mkdir(exist_ok=True)
+        workspace = work_root / str(uuid4())
+        workspace.mkdir()
+        try:
+            yield workspace
+        finally:
+            shutil.rmtree(workspace, ignore_errors=True)
+
+    def publish_derived_value_artifact(
+        self,
+        project_id: str,
+        temporary_file: Path,
+        storage_key: str,
+        *,
+        expected_sha256: str,
+    ) -> bool:
+        """Hash-check and atomically publish one derived-value artifact."""
+
+        source = temporary_file.resolve()
+        work_root = self._derived_value_root(project_id, create=True) / ".work"
+        try:
+            source.relative_to(work_root.resolve())
+        except ValueError as error:
+            raise ArtifactStoreError(
+                "Derived-value source escapes its work directory"
+            ) from error
+        if temporary_file.is_symlink() or not source.is_file():
+            raise ArtifactStoreError(
+                "Derived-value writer did not create a regular file"
+            )
+        actual_hash = _file_sha256(source)
+        if actual_hash != _canonical_sha256(expected_sha256):
+            raise ArtifactStoreError(
+                "Derived-value artifact changed before publication"
+            )
+        final = self._derived_value_path(project_id, storage_key, create=True)
+        if final.is_symlink():
+            raise ArtifactStoreError(
+                "Derived-value artifacts must not be symbolic links"
+            )
+        if final.exists():
+            if not final.is_file() or _file_sha256(final) != actual_hash:
+                raise ArtifactStoreError(
+                    "A different derived-value artifact occupies the immutable path"
+                )
+            source.unlink()
+            return False
+        source.replace(final)
+        return True
+
+    @contextmanager
+    def materialize_derived_value_artifact(
+        self,
+        project_id: str,
+        storage_key: str,
+        *,
+        expected_sha256: str,
+    ) -> Iterator[Path]:
+        """Yield one derived-value artifact after exact hash verification."""
+
+        path = self._derived_value_path(project_id, storage_key, create=False)
+        if path.is_symlink() or not path.is_file():
+            raise ArtifactStoreError("Stored derived-value artifact is missing")
+        if _file_sha256(path) != _canonical_sha256(expected_sha256):
+            raise ArtifactStoreError(
+                "Stored derived-value artifact failed hash verification"
+            )
+        yield path
+
+    def delete_derived_value_artifact(
+        self,
+        project_id: str,
+        storage_key: str,
+    ) -> None:
+        """Remove one contained, not-yet-bound derived-value artifact."""
+
+        try:
+            self._derived_value_path(
+                project_id,
+                storage_key,
+                create=False,
+            ).unlink(missing_ok=True)
+        except OSError as error:
+            raise ArtifactStoreError(
+                "Stored derived-value artifact could not be deleted"
+            ) from error
+
+    def cleanup_derived_value_artifacts(
+        self,
+        project_id: str,
+        referenced_storage_keys: frozenset[str],
+    ) -> int:
+        """Delete work remnants and derived files absent from every manifest."""
+
+        root = self._derived_value_root(project_id, create=True)
+        referenced = {
+            self._derived_value_path(project_id, key, create=False)
+            for key in referenced_storage_keys
+        }
+        removed = 0
+        work_root = root / ".work"
+        if work_root.is_symlink():
+            work_root.unlink()
+            removed += 1
+        elif work_root.is_dir():
+            for child in tuple(work_root.iterdir()):
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink(missing_ok=True)
+                removed += 1
+        for candidate in tuple(root.rglob("*.parquet")):
+            if candidate.is_symlink() or candidate.resolve() not in referenced:
+                candidate.unlink(missing_ok=True)
+                removed += 1
+        _prune_empty_directories(root)
+        return removed
+
     def write_report(
         self,
         project_id: str,
@@ -737,6 +912,66 @@ class LocalArtifactStore:
         target = unresolved_target.resolve()
         if target.parent != parent.resolve():
             raise ArtifactStoreError("Prepared snapshot escapes the project")
+        return target
+
+    def _derived_value_root(self, project_id: str, *, create: bool) -> Path:
+        project = self._project_directory(project_id)
+        snapshots = project / "snapshots"
+        if snapshots.is_symlink():
+            raise ArtifactStoreError("Project snapshots must not be a symbolic link")
+        if create:
+            snapshots.mkdir(exist_ok=True)
+        derived = snapshots / "derived"
+        if derived.is_symlink():
+            raise ArtifactStoreError(
+                "Derived-value artifacts must not be a symbolic link"
+            )
+        if create:
+            derived.mkdir(exist_ok=True)
+        resolved = derived.resolve()
+        if resolved.parent != snapshots.resolve():
+            raise ArtifactStoreError("Derived-value directory escapes the project")
+        return resolved
+
+    def _derived_value_path(
+        self,
+        project_id: str,
+        storage_key: str,
+        *,
+        create: bool,
+    ) -> Path:
+        key = PurePosixPath(storage_key)
+        parts = key.parts
+        if (
+            key.is_absolute()
+            or str(key) != storage_key
+            or len(parts) != 5
+            or parts[:3]
+            != (
+                "snapshots",
+                "derived",
+                f"v{DERIVED_VALUE_ARTIFACT_STORAGE_LAYOUT_VERSION}",
+            )
+            or _DATASET_SNAPSHOT_SEGMENT.fullmatch(parts[3]) is None
+            or _PARQUET_SNAPSHOT_FILE.fullmatch(parts[4]) is None
+        ):
+            raise ArtifactStoreError("Invalid derived-value artifact key")
+        root = self._derived_value_root(project_id, create=create)
+        parent = root / parts[2] / parts[3]
+        current = root
+        for segment in parts[2:4]:
+            current = current / segment
+            if current.is_symlink():
+                raise ArtifactStoreError(
+                    "Derived-value path must not contain symbolic links"
+                )
+            if create:
+                current.mkdir(exist_ok=True)
+        unresolved_target = parent / parts[4]
+        _require_portable_windows_path(unresolved_target)
+        target = unresolved_target.resolve()
+        if target.parent != parent.resolve():
+            raise ArtifactStoreError("Derived-value artifact escapes the project")
         return target
 
     def _project_directory(self, project_id: str) -> Path:

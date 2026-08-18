@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from ...domain.errors import ReadinessError
-from ...projects import ProjectError
+from ...projects import ProjectError, SourceMode
 from ...workspace_errors import WorkspaceError
 from ..context import WebContext
 from ..forms import _secure_form
@@ -188,6 +188,16 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 project_id,
                 error=str(error),
                 status_code=422,
+            )
+        project = context.queries.get(project_id)
+        if project.source_mode is SourceMode.ODOO:
+            _flash(
+                request,
+                "Prepared Odoo records approved. Compare them with Odoo next.",
+            )
+            return RedirectResponse(
+                f"/projects/{project_id}/summary",
+                status_code=303,
             )
         _flash(request, "Prepared data approved. You can now compare it with Odoo.")
         return RedirectResponse(

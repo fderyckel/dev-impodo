@@ -7,6 +7,7 @@ import duckdb
 from ....projects import ProjectCompatibilityError
 from ..constants import SCHEMA_GENERATION, SCHEMA_VERSION
 from .advanced_coverage import create_advanced_coverage_schema
+from .derived_value_artifact import create_derived_value_artifact_schema
 from .execution import create_execution_schema
 from .preflight import create_preflight_schema
 from .preparation_session import create_preparation_session_schema
@@ -602,6 +603,7 @@ class ProjectSchemaMixin:
         create_reconciliation_schema(connection)
         create_source_snapshot_schema(connection)
         create_prepared_snapshot_schema(connection)
+        create_derived_value_artifact_schema(connection)
 
     def _ensure_project_database_schema(
         self,

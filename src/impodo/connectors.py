@@ -461,6 +461,8 @@ class Json2Config:
     timeout_seconds: float = 30.0
     page_size: int = 500
     retries: int = 2
+    max_request_bytes: int = 64 * 1024
+    max_response_bytes: int = 8 * 1024 * 1024
     context: Mapping[str, Any] = field(default_factory=dict)
     relevant_modules: tuple[str, ...] = ()
 
@@ -513,6 +515,10 @@ class Json2Config:
             )
         if self.page_size < 1:
             raise ConnectorConfigurationError("page_size must be positive")
+        if self.max_request_bytes < 1 or self.max_response_bytes < 1:
+            raise ConnectorConfigurationError(
+                "JSON-2 request and response limits must be positive"
+            )
 
     @classmethod
     def from_environment(cls) -> "Json2Config":
@@ -581,7 +587,16 @@ class Json2ReadConnector:
         """
 
         self._config = config
-        self._transport = transport or _urllib_transport
+        self._transport = transport or (
+            lambda url, headers, body, timeout, method: _urllib_transport(
+                url,
+                headers,
+                body,
+                timeout,
+                method,
+                maximum_bytes=config.max_response_bytes,
+            )
+        )
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._fingerprint: TargetFingerprint | None = None
         self._fingerprint_limitations: tuple[str, ...] = ()
@@ -1177,6 +1192,8 @@ class Json2ReadConnector:
             "X-Odoo-Database": self._config.database,
             "User-Agent": "impodo",
         }
+        if body is not None and len(body) > self._config.max_request_bytes:
+            raise ConnectorConfigurationError("JSON-2 request exceeds the safe limit")
         transient_statuses = {429, 502, 503, 504}
         for attempt in range(self._config.retries + 1):
             try:
@@ -1187,6 +1204,10 @@ class Json2ReadConnector:
                     self._config.timeout_seconds,
                     method,
                 )
+                if len(canonical_json_bytes(payload)) > self._config.max_response_bytes:
+                    raise ConnectorIncompleteResultError(
+                        "JSON-2 response exceeds the safe limit"
+                    )
             except (TimeoutError, socket.timeout, URLError) as exc:
                 if attempt >= self._config.retries:
                     raise ConnectorTransportError(
@@ -1547,6 +1568,8 @@ def _urllib_transport(
     body: bytes | None,
     timeout: float,
     method: str,
+    *,
+    maximum_bytes: int = 8 * 1024 * 1024,
 ) -> tuple[int, Any]:
     """Execute one JSON request without forwarding credentials on redirects.
 
@@ -1564,7 +1587,11 @@ def _urllib_transport(
     try:
         opener = build_opener(_NoRedirectHandler())
         with opener.open(request, timeout=timeout) as response:
-            raw = response.read()
+            raw = response.read(maximum_bytes + 1)
+            if len(raw) > maximum_bytes:
+                raise ConnectorIncompleteResultError(
+                    "JSON-2 response exceeds the safe limit"
+                )
             return response.status, json.loads(raw or b"null")
     except HTTPError as exc:
         # Do not expose response bodies; they can contain data or internals.

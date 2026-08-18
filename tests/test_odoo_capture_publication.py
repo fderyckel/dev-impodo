@@ -38,6 +38,7 @@ from impodo.domain.odoo_source_capture import (
     OdooCaptureValueColumn,
 )
 from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
+from impodo.domain.errors import ReadinessError
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     MappingDefinition,
@@ -193,7 +194,7 @@ class OdooCapturePublicationTests(unittest.TestCase):
         self.assertEqual((origins or (None, ()))[1][0].odoo_ids, (41, 42))
 
     def test_pinned_capture_prepares_offline_without_portable_ids(self) -> None:
-        gateway = _Gateway(self.schema, self.now)
+        gateway = _Gateway(self.schema, self.now, values=("", ""))
         publication = self.service.publish(
             self.project.project_id,
             gateway,
@@ -207,6 +208,14 @@ class OdooCapturePublicationTests(unittest.TestCase):
             self.provenance,
             actor=LOCAL_ACTOR,
         )
+        with self.assertRaisesRegex(ReadinessError, "protected Odoo capture"):
+            _verify_odoo_preparation_evidence(
+                self.project.project_id,
+                publication.source_selection,
+                (publication.source_snapshot,),
+                None,
+                actor=LOCAL_ACTOR,
+            )
         definition = MappingDefinition(
             mapping_id=str(uuid4()),
             source_selection_hash=publication.source_selection.content_hash,
@@ -437,9 +446,16 @@ class OdooCapturePublicationTests(unittest.TestCase):
 
 
 class _Gateway:
-    def __init__(self, schema: OdooSchemaCatalog, now: datetime) -> None:
+    def __init__(
+        self,
+        schema: OdooSchemaCatalog,
+        now: datetime,
+        *,
+        values: tuple[str, str] = ("Alice", "Bob"),
+    ) -> None:
         self.schema = schema
         self.now = now
+        self.values = values
         self.calls: list[str] = []
         self.context = ProtectedOdooReadContext(
             language="en_US",
@@ -507,14 +523,19 @@ class _Gateway:
 
     def open_capture(self, request, context, *, cancellation=None):
         self.calls.append("open")
-        return _Session(request, self.now)
+        return _Session(request, self.now, self.values)
 
     def sample(self, request, context, *, limit, cancellation=None):
         raise AssertionError("Publication never samples live records")
 
 
 class _Session:
-    def __init__(self, request, now: datetime) -> None:
+    def __init__(
+        self,
+        request,
+        now: datetime,
+        values: tuple[str, str],
+    ) -> None:
         self.page = OdooCapturePage(
             first_row_ordinal=1,
             odoo_ids=(41, 42),
@@ -523,7 +544,7 @@ class _Session:
                 OdooCaptureValueColumn(
                     field_name="name",
                     field_type="char",
-                    values=("Alice", "Bob"),
+                    values=values,
                 ),
             ),
             response_bytes=100,

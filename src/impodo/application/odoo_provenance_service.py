@@ -14,6 +14,11 @@ from ..adapters.protected_odoo_provenance import (
     decode_capture_provenance,
     encode_capture_provenance,
 )
+from ..adapters.protected_odoo_comparison import (
+    EncodedOdooComparison,
+    decode_odoo_comparison,
+    encode_odoo_comparison,
+)
 from ..domain.odoo_capture import OdooCaptureSelection
 from ..domain.odoo_provenance import (
     OdooCaptureManifest,
@@ -22,6 +27,7 @@ from ..domain.odoo_provenance import (
     OdooProvenanceBinding,
 )
 from ..projects import MigrationProject, ProjectRepository, SourceMode
+from ..models import canonical_json_bytes
 from ..secrets import SecretStore, SecretStoreError
 from ..workspace_errors import WorkspaceError
 
@@ -69,6 +75,15 @@ class OdooCaptureProvenanceCandidate:
 
     manifest: OdooCaptureManifest
     encrypted_bytes: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectedOdooComparisonCandidate:
+    """One encrypted comparison ready for immutable report publication."""
+
+    encrypted_bytes: bytes
+    logical_hash: str
+    artifact_hash: str
 
 
 class OdooProvenanceService:
@@ -233,6 +248,79 @@ class OdooProvenanceService:
             key=self._project_key(project_id, create=False),
         )
 
+    def protect_comparison(
+        self,
+        project_id: str,
+        run_id: str,
+        capture_manifest_hash: str,
+        plaintext: bytes,
+        *,
+        actor: Actor,
+    ) -> ProtectedOdooComparisonCandidate:
+        """Encrypt one comparison under its project, capture, and run binding."""
+
+        self._authorization.require(
+            actor,
+            Capability.PROTECTED_EVIDENCE_MANAGE,
+            project_id=project_id,
+        )
+        project = self._projects.get(project_id)
+        self._require_odoo_project(project)
+        manifest = self._provenance.get_current(project_id)
+        if manifest is None or manifest.content_hash != capture_manifest_hash:
+            raise WorkspaceError(
+                "The protected Odoo capture changed before comparison publication"
+            )
+        encoded: EncodedOdooComparison = encode_odoo_comparison(
+            plaintext,
+            authenticated_binding=_comparison_binding(
+                project_id,
+                run_id,
+                capture_manifest_hash,
+            ),
+            key=self._project_key(project_id, create=False),
+        )
+        return ProtectedOdooComparisonCandidate(
+            encrypted_bytes=encoded.encrypted_bytes,
+            logical_hash=encoded.logical_hash,
+            artifact_hash=encoded.artifact_hash,
+        )
+
+    def open_comparison(
+        self,
+        project_id: str,
+        run_id: str,
+        capture_manifest_hash: str,
+        encrypted_bytes: bytes,
+        *,
+        expected_logical_hash: str,
+        expected_artifact_hash: str,
+        actor: Actor,
+    ) -> bytes:
+        """Authorize and decrypt one current protected comparison artifact."""
+
+        self._authorization.require(
+            actor,
+            Capability.PROTECTED_EVIDENCE_READ,
+            project_id=project_id,
+        )
+        manifest = self._provenance.get_current(project_id)
+        if manifest is None or manifest.content_hash != capture_manifest_hash:
+            raise WorkspaceError(
+                "The protected Odoo comparison no longer matches the current capture"
+            )
+        return decode_odoo_comparison(
+            encrypted_bytes,
+            authenticated_binding=_comparison_binding(
+                project_id,
+                run_id,
+                capture_manifest_hash,
+            ),
+            expected_logical_hash=expected_logical_hash,
+            expected_artifact_hash=expected_artifact_hash,
+            key=self._project_key(project_id, create=False),
+        )
+
     def invalidate_current(
         self,
         project_id: str,
@@ -319,3 +407,18 @@ class OdooProvenanceService:
 
 def _key_id(project_id: str) -> str:
     return f"{project_id}:protected:origin-v1"
+
+
+def _comparison_binding(
+    project_id: str,
+    run_id: str,
+    capture_manifest_hash: str,
+) -> bytes:
+    return canonical_json_bytes(
+        {
+            "capture_manifest_hash": capture_manifest_hash,
+            "contract": "odoo-pinned-comparison-v1",
+            "project_id": project_id,
+            "run_id": run_id,
+        }
+    )

@@ -20,7 +20,7 @@ from ...domain.staging.scale import (
     browser_evaluation_scale,
 )
 from ...local_stack import LocalStackError, LocalStackStatus
-from ...projects import MigrationProject, OdooConnectionMode
+from ...projects import MigrationProject, OdooConnectionMode, SourceMode
 from ...reporting import WORKBOOK_NAME
 from ...workspace_errors import WorkspaceError
 from ..constants import (
@@ -171,6 +171,8 @@ def _render_summary(
     local_stack = context.local_stack.get(project_id)
     local_stack_matches = _local_stack_matches_project(project, local_stack)
     local_odoo_recovery_needed = (
+        project.source_mode is not SourceMode.ODOO
+        and
         project.odoo_connection_mode is OdooConnectionMode.LOCAL
         and (
             not local_stack_matches

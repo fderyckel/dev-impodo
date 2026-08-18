@@ -172,6 +172,7 @@ class EvidenceInvalidationMixin:
 
         cls._invalidate_resolution(connection, reason=reason)
         connection.execute("DELETE FROM prepared_snapshot_current")
+        connection.execute("DELETE FROM derived_value_artifact_current")
 
         current = connection.execute(
             """

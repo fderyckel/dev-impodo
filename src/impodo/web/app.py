@@ -244,6 +244,7 @@ def create_local_app(
         resolved_authorization,
         advanced_coverage_repository,
         schema_repository,
+        odoo_provenance_service,
     )
     execution = ExecutionService(
         project_repository,

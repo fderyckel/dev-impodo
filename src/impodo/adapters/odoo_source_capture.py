@@ -242,6 +242,8 @@ class Json2OdooSourceCapture:
             page_size=request.page_size,
             # The raw bounded transport below owns the one retry loop.
             retries=0,
+            max_request_bytes=request.max_request_bytes,
+            max_response_bytes=request.max_response_bytes,
             context=dict(context or {}),
             relevant_modules=self._config.relevant_modules,
         )

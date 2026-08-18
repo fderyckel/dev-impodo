@@ -41,11 +41,13 @@ from ..domain.preflight.reports import (
     ReadinessRowPage,
     _readiness_report,
 )
+from ..domain.odoo_comparison import OdooComparisonArtifact
 from ..engine import PreflightEngine
 from ..models import canonical_json_bytes, target_identity_hash
 from ..planner import plan_preflight_requirements
 from ..projects import SourceMode
 from ..staging import StagingRunSummary
+from ..workspace_errors import WorkspaceError
 from .readiness_ports import (
     PreflightMappingRepository,
     PreflightEffectiveRepository,
@@ -57,6 +59,11 @@ from .readiness_ports import (
     PreflightSourceRepository,
     PreflightStagingRepository,
 )
+from .odoo_comparison_service import (
+    ODOO_COMPARISON_ARTIFACT_NAME,
+    build_odoo_comparison_publication,
+)
+from .odoo_provenance_service import OdooProvenanceService
 
 
 MANIFEST_NAME = "impodo_preflight_manifest.json"
@@ -89,6 +96,7 @@ class PreflightService:
         authorization: AuthorizationPolicy,
         effective: PreflightEffectiveRepository | None = None,
         schemas: PreflightSchemaRepository | None = None,
+        odoo_provenance: OdooProvenanceService | None = None,
     ) -> None:
         self.staging = staging
         self.quality = quality
@@ -101,6 +109,7 @@ class PreflightService:
         self.authorization = authorization
         self.effective = effective
         self.schemas = schemas
+        self.odoo_provenance = odoo_provenance
         self.engine = PreflightEngine()
 
     def current_report(self, project_id: str) -> ReadinessReport | None:
@@ -182,6 +191,11 @@ class PreflightService:
         different execution input.
         """
 
+        if (
+            getattr(self.projects.get(project_id), "source_mode", SourceMode.FILE)
+            is SourceMode.ODOO
+        ):
+            return None
         report = self.current_report(project_id)
         if report is None:
             return None
@@ -289,9 +303,12 @@ class PreflightService:
             Capability.PREFLIGHT_RUN,
             project_id=project_id,
         )
-        if self.projects.get(project_id).source_mode is SourceMode.ODOO:
-            raise ReadinessError(
-                "Pinned Odoo comparison is not available yet. Odoo was not contacted."
+        project = self.projects.get(project_id)
+        if getattr(project, "source_mode", SourceMode.FILE) is SourceMode.ODOO:
+            return self._compare_odoo_source(
+                project,
+                reader=reader,
+                actor=actor,
             )
         frozen = self._load_frozen_input(project_id)
         requirements = plan_preflight_requirements(
@@ -314,7 +331,6 @@ class PreflightService:
             metadata,
             records,
         )
-        project = self.projects.get(project_id)
         expected_target = target_identity_hash(
             connection_mode=(
                 project.odoo_connection_mode.value
@@ -419,6 +435,132 @@ class PreflightService:
                     pass
             raise
         return report
+
+    def current_odoo_comparison(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+    ) -> OdooComparisonArtifact | None:
+        """Decrypt the current exact-ID comparison for an authorized backend."""
+
+        report = self.current_report(project_id)
+        if report is None or (
+            getattr(self.projects.get(project_id), "source_mode", SourceMode.FILE)
+            is not SourceMode.ODOO
+        ):
+            return None
+        if self.odoo_provenance is None:
+            raise ReadinessError("Protected Odoo comparison support is unavailable")
+        try:
+            with self.artifacts.materialize_report(
+                project_id,
+                report.run_id,
+                MANIFEST_NAME,
+            ) as path:
+                manifest = json.loads(path.read_text("utf-8"))
+            evidence = manifest["preflight_evidence"]
+            with self.artifacts.materialize_report(
+                project_id,
+                report.run_id,
+                ODOO_COMPARISON_ARTIFACT_NAME,
+            ) as path:
+                encrypted = path.read_bytes()
+            plaintext = self.odoo_provenance.open_comparison(
+                project_id,
+                report.run_id,
+                str(evidence["capture_manifest_hash"]),
+                encrypted,
+                expected_logical_hash=str(evidence["protected_logical_hash"]),
+                expected_artifact_hash=str(evidence["protected_artifact_hash"]),
+                actor=actor,
+            )
+            artifact = OdooComparisonArtifact.from_json(plaintext.decode("utf-8"))
+        except (
+            ArtifactStoreError,
+            KeyError,
+            OSError,
+            TypeError,
+            ValueError,
+            WorkspaceError,
+        ) as error:
+            raise ReadinessError(
+                "The protected Odoo comparison is missing or invalid. Compare again."
+            ) from error
+        if (
+            artifact.project_id != project_id
+            or artifact.run_id != report.run_id
+            or artifact.frozen_input_hash != report.frozen_input_hash
+            or artifact.content_hash != evidence.get("protected_comparison_hash")
+        ):
+            raise ReadinessError(
+                "The protected Odoo comparison no longer matches this review."
+            )
+        return artifact
+
+    def _compare_odoo_source(
+        self,
+        project,
+        *,
+        reader: ReadinessReader,
+        actor: Actor,
+    ) -> ReadinessReport:
+        """Publish a read-only pinned comparison without portable Odoo IDs."""
+
+        if self.odoo_provenance is None:
+            raise ReadinessError(
+                "Protected Odoo comparison support is unavailable. Odoo was not contacted."
+            )
+        frozen = self._load_frozen_input(project.project_id)
+        selection = self.sources.get_mapping_source_selection(project.project_id)
+        if selection is None:
+            raise ReadinessError(
+                "Refresh the captured Odoo records before comparing. Odoo was not contacted."
+            )
+        run_id = str(uuid4())
+        publication = build_odoo_comparison_publication(
+            project=project,
+            frozen=frozen,
+            selection=selection,
+            source_snapshots=self.sources.get_current_source_snapshots(
+                project.project_id
+            ),
+            artifacts=self.artifacts,
+            provenance=self.odoo_provenance,
+            reader=reader,
+            actor=actor,
+            run_id=run_id,
+        )
+        try:
+            self.artifacts.write_report(
+                project.project_id,
+                run_id,
+                MANIFEST_NAME,
+                publication.portable_manifest,
+            )
+            self.artifacts.write_report(
+                project.project_id,
+                run_id,
+                ODOO_COMPARISON_ARTIFACT_NAME,
+                publication.protected.encrypted_bytes,
+            )
+            self.preflight.save_readiness_report(
+                project.project_id,
+                replace(publication.report, rows=()),
+                decision_rows=iter(publication.rows),
+                decision_count=len(publication.rows),
+                metadata_snapshot=publication.metadata_snapshot,
+                record_snapshot=publication.redacted_record_snapshot,
+                actor=actor,
+            )
+        except Exception:
+            for filename in (MANIFEST_NAME, ODOO_COMPARISON_ARTIFACT_NAME):
+                try:
+                    self.artifacts.delete_report(project.project_id, run_id, filename)
+                except Exception:
+                    pass
+            raise
+        return publication.report
 
     def _load_frozen_input(self, project_id: str) -> FrozenPreflightInput:
         """Load version-checked durable evidence without source artifacts."""

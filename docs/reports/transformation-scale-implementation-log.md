@@ -860,3 +860,113 @@ Phase 5 still needs the derived/grouped canonical artifact path. Phase 7 still
 needs a 100,000-row mixed/derived fixture, three clean Windows runs for every
 release fixture, full hash/vectorization/storage gates, a completed relationship
 oracle, and the required 30 percent same-machine customer-memory improvement.
+
+### Phase 5 derived/grouped artifact contract - 2026-08-18
+
+Tracing the current derived route found the missing bounded-data-plane seam.
+`PreparationService.prepare` sends every derived plan to
+`stage_browser_mapping`; `evaluate_browser_mapping` then stages complete
+`SourceTable` outputs and calls `prepare_source_tables`. Structural joins build
+a complete right-side Python index and output row list, unions build complete
+row and lineage lists, groups retain complete groups of `SourceRow` objects,
+and derived-table staging accumulates every output row and source set in Python
+before canonical publication. This route cannot truthfully inherit the direct
+prepared-snapshot scale claim.
+
+The first Phase 5 continuation slice adds an inactive
+`DerivedValueArtifact` domain manifest. It is separate from `PreparedSnapshot`
+because cardinality-changing and multi-input outputs cannot be bound to one
+physical source-snapshot hash. Its logical identity includes:
+
+- the output dataset and derivation kind;
+- every input dataset and exact evidence hash in canonical order;
+- physical/source selection, derived-plan, derivation-rule, mapping, schema,
+  transformation-program, and lineage hashes; and
+- writer version and exact output row count.
+
+Its content identity additionally binds the physical schema, opaque
+content-addressed storage key, and exact Parquet hash. Creation time and Parquet
+encoding do not alter logical identity. Strict round-trip, tamper, semantic
+binding, input-order/uniqueness, and Windows-portable storage-key tests pass.
+
+This is a contract boundary, not a scale claim. No preparation route writes or
+reads this artifact yet, no pending session refers to it, and admission remains
+capped at 25,000 derived/materialized rows. The next Phase 5 slice is a governed
+artifact-store port plus a bounded writer/publication lifecycle; only then can
+set-based join/group execution and the logical projector replace the current
+whole-run Python collections.
+
+### Phase 5 derived-value storage and bounded writer - 2026-08-18
+
+The governed `ArtifactStore` now has a dedicated derived-value namespace and
+contained lifecycle: temporary workspace, hash-checked atomic publication,
+hash-verified materialization, exact pre-binding deletion, and referenced-key
+orphan cleanup. Storage keys accept only the compact
+`snapshots/derived/v1/<dataset-digest>/<binding-digest>.parquet` layout and pass
+the existing portable Windows path guard. A publication reports whether it
+created new bytes so failed read-back never deletes an older idempotently reused
+artifact.
+
+`DerivedValueArtifactCandidateWriter` accepts typed columnar pages no larger
+than its configured row bound. It assigns one contiguous zero-based artifact
+ordinal, writes bounded Parquet fragments, compacts them hierarchically with
+Polars streaming execution, and enforces both final-artifact and peak-workspace
+byte limits. It never holds the complete derived output as a dataframe or row
+object collection. Finalization verifies the exact physical schema and ordinal
+sequence before hashing the candidate.
+
+`DerivedValueArtifactPublisher` owns candidate creation, manifest construction,
+atomic publication, hash-verified materialization, and bounded read-back of the
+schema, row count, and ordinal sequence. A failed read-back removes only bytes
+newly created by that attempt. Empty cardinality-changing results remain valid
+typed artifacts, and identical bytes are published idempotently.
+
+Ten focused I/O tests cover page and byte bounds, stable order, empty results,
+schema drift, namespace containment, idempotence, tampering, read-back rollback,
+and referenced-key cleanup. The established source/prepared snapshot
+integration suite also remains green.
+
+At that checkpoint, preparation admission was unchanged and there was no
+DuckDB derived-artifact manifest/current repository, pending-session binding,
+set-based join/group page producer, or logical canonical projector. The
+existing 25,000-row materialized route stayed in place.
+
+### Phase 5 derived-artifact repository and session binding - 2026-08-18
+
+The exact project schema generation is now `s11`. New project databases contain
+three derived-value lifecycle relations:
+
+- `derived_value_artifact_manifest` retains immutable historical manifests;
+- `preparation_session_derived_artifact` binds one artifact per output dataset
+  to an unpublished session; and
+- `derived_value_artifact_current` advances only after the session is ready and
+  successfully published.
+
+Manifest registration and session binding share one DuckDB transaction. The
+repository rejects artifacts from another project or with a different physical
+selection, effective source selection, derived plan, mapping, or schema. It
+also verifies all declared input carriers in one set-based query: each input
+must be a current source snapshot, a prepared snapshot bound to the same
+session, or an upstream derived artifact already bound to that session. This
+makes derived dependency order explicit without one database query per input.
+
+Publication validates all pending manifest joins before using one set-based
+`INSERT ... SELECT` to advance current pointers, so database query count does
+not grow with the number of derived datasets. A failed session removes its
+temporary bindings but retains immutable manifests for exact reuse and orphan
+accounting. Staging invalidation clears only current pointers and retains
+historical evidence. Missing or inconsistent bound manifests stop publication
+and leave the session ready for diagnosis rather than partially advancing it.
+
+Seven focused repository tests cover transactional rollback, exact historical
+lookup, published-current advancement, failed-session behavior, unavailable
+input evidence, ordered upstream-derived dependencies, missing-manifest
+fail-closed behavior, and invalidation. The existing preparation-session,
+project-schema, and staging-store suites remain green. The schema change is an
+intentional testing-stage generation break; older project databases are
+rejected rather than opened without the required lifecycle tables.
+
+This is still not a route or capacity change. The repository has no Odoo calls,
+and the 25,000-row materialized derived route remains active. The next Phase 5
+slice is the bounded set-based join/group page producer plus durable lineage;
+the logical canonical projector follows before any admission increase.

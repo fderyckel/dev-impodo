@@ -36,8 +36,20 @@ audit:
 
 It also replaces the nested native value-mapping conditional chain with one
 Polars `replace_strict` lookup and verifies parity at the contract maximum of
-1,000 choices. These corrections do not raise a supported limit. The remaining
-release work is the derived/grouped canonical artifact path, a 100,000-row
+1,000 choices. The first Phase 5 continuation slice now defines the immutable
+`DerivedValueArtifact` manifest for lookup, parent, join, union, and group
+outputs. It binds every ordered input evidence hash, source selection and
+derivation revision, mapping/schema/program revision, lineage, row count,
+physical schema, and exact Parquet bytes. A governed derived-value store and
+bounded page writer now publish those artifacts atomically and verify their
+hash, schema, row count, and deterministic ordinal sequence on read-back. The
+DuckDB now also stores immutable manifests, building-session bindings, and
+published-current pointers. Binding verifies every source, prepared, or
+upstream-derived input carrier in one set-based query. The path remains
+intentionally inactive until the set-based derived executor and its logical
+projector exist. These corrections do not raise a supported limit. The
+remaining release work is that
+derived/grouped integration, a 100,000-row
 mixed/derived fixture and gates, full Windows three-run correctness/performance
 evidence, and the 30 percent same-machine customer-memory improvement.
 
@@ -1131,6 +1143,15 @@ sets.
 second logical construction pass and remains contract-identical to the oracle.
 
 ### Phase 5 - Add hybrid relationships and derived rows (2-3 weeks)
+
+**Current status (2026-08-18):** the direct Product/BOM relationship slice is
+set-based and bounded. The separate derived/grouped value-manifest contract now
+exists with a bounded page writer and governed artifact-store lifecycle.
+DuckDB manifest/current relations and transactional pending-session bindings
+also exist, including ordered upstream-derived dependency checks. Bounded
+set-based join/group page production, logical projection, and high-volume
+qualification do not. The 25,000-row derived/materialized boundary therefore
+remains unchanged.
 
 1. Extend the pending session to identity groups, relationship edges,
    multi-source lineage, and derived/grouped value artifacts where cardinality
