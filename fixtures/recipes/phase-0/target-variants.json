@@ -1,0 +1,38 @@
+{
+  "contract_version": 1,
+  "baseline": {
+    "selection_values": {
+      "res.partner.company_type": ["company", "person"],
+      "res.partner.lang": ["de_DE", "en_US", "fr_FR"]
+    },
+    "business_key_match_counts": {
+      "res.country.code:BE": 1,
+      "res.country.code:FR": 1,
+      "res.country.code:LU": 1,
+      "res.partner.category.legacy_code:VIP": 1
+    }
+  },
+  "variants": [
+    {
+      "name": "stale_target_language_choice",
+      "selection_values": {
+        "res.partner.lang": ["de_DE", "en_US"]
+      },
+      "expected_code": "MAPPING_SELECTION_VALUE_INVALID"
+    },
+    {
+      "name": "missing_country_business_key",
+      "business_key_match_counts": {
+        "res.country.code:LU": 0
+      },
+      "expected_code": "MAPPING_RELATIONSHIP_TARGET_MISSING"
+    },
+    {
+      "name": "ambiguous_custom_many2one_key",
+      "business_key_match_counts": {
+        "res.partner.category.legacy_code:VIP": 2
+      },
+      "expected_code": "MAPPING_RELATIONSHIP_TARGET_AMBIGUOUS"
+    }
+  ]
+}

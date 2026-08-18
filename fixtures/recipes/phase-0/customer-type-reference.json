@@ -1,0 +1,27 @@
+{
+  "contract_version": 1,
+  "logical_reference_id": "reference:customer_type",
+  "name": "Customer type",
+  "key_fields": ["source_value"],
+  "value_fields": ["target_value"],
+  "value_kinds": {
+    "target_value": "ODOO_SELECTION_KEY"
+  },
+  "entries": [
+    {
+      "key": ["Company"],
+      "values": {
+        "target_value": "company"
+      }
+    },
+    {
+      "key": ["Individual"],
+      "values": {
+        "target_value": "person"
+      }
+    }
+  ],
+  "classification": "INTERNAL",
+  "effective_label": "Customer type aliases v1",
+  "content_hash": "sha256:9d96388583bfbb7825e5794bb6b702f590c4c5c7794a244ce7149c5551ae70c7"
+}

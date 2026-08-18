@@ -249,3 +249,53 @@ project deletion or retention expiry.
 - encryption must not create a second copy of the wide typed source values;
 - credential removal produces actor-bound, non-secret registry receipts that
   survive project deletion.
+
+## ADR-012 — Project series group contained migration projects
+
+**Status:** Accepted
+
+**Decision:** A reusable business migration is represented by a new
+`ProjectSeries` aggregate above existing `MigrationProject` workspaces. Each
+data version remains a complete contained migration project with its own
+`project_id`, DuckDB database, artifacts, credentials, evidence, and audit
+boundary. The series has an independently generated `series_id`, owns the
+edition lineage and recipe history, and never substitutes its identifier for a
+project identifier.
+
+Only one registered edition is active. A newly allocated workspace is pending
+until normal project registration succeeds; it does not replace the current
+registered edition. Activation makes the new edition current and seals the
+prior edition. Sealing is enforced by series-aware application policy and a
+project-local marker, not only by browser presentation.
+
+Reusable recipe configuration belongs to a protected series-scoped store.
+Registry rows contain bounded series, edition, lifecycle, hash, intent, and
+read-model metadata, not confidential recipe payloads or edition evidence.
+
+**Why:** The existing `MigrationProject` is already the authorization,
+credential, filesystem-containment, lifecycle, and immutable-evidence boundary.
+Redefining it or adding a data-version discriminator to every project table
+would weaken those contracts. Cloning a project database would copy stale
+current pointers and evidence. A separate aggregate preserves the contained
+workspace while making portable business meaning reusable.
+
+**Consequences:**
+
+- backfill generates a new series UUID; `series_id = project_id` is forbidden;
+- routes, authorization, credentials, repositories, deletion, and logs keep
+  series and project scopes explicit and reject identifier confusion;
+- series-owned setup is a field-level allowlist and legacy hydration is lazy,
+  authorized, hash-bound, and unavailable to recipe actions until complete;
+- pending, active, sealed, abandoned, and deleting states have explicit
+  transitions and restart-safe recovery;
+- edition creation, recipe publication, persistent read-credential copy, and
+  whole-series deletion use idempotent intents/outboxes across stores;
+- only the active or pending edition may accept the mutations allowed by its
+  state; a sealed edition remains reopenable but cannot become current evidence;
+- full recipe payloads inherit series classification, retention, backup,
+  authorization, and deletion policy in a protected store; and
+- a recipe is execution-engine-neutral configuration, never a source, target,
+  validation, approval, comparison, or execution snapshot.
+
+The frozen proposed contract and acceptance examples are recorded in
+[Reusable recipe Phase 0 contracts](../plans/reusable-recipes-phase-0-contracts.md).

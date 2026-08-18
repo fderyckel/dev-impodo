@@ -1,0 +1,4 @@
+customer_code,name,language,country_alias,customer_type,open_balance
+CUST-001,Alpha Retail Group,German,FRA,Company,"1,500,000.00"
+CUST-002,Beta Services,French,BEL,Company,"2,000,000.00"
+CUST-004,Delta Advisory,French,LUX,Individual,"1,600,000.00"

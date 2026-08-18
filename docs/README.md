@@ -73,6 +73,10 @@ voice rules.
   — weighted comparison of four scale architectures, with a phased proposal
   for reducing transformation CPU and memory, extending bounded preparation to
   related Products and BOMs, and retaining governed audit evidence.
+- [Reusable recipes and data versions implementation plan](plans/reusable-recipes-and-data-versions-implementation-plan.md)
+  — scoped design for series-owned reusable business configuration and fresh,
+  contained evidence per replacement data version. Only its Phase 0
+  contract-and-fixture work is active; later phases remain roadmap-gated.
 
 ## Guides, runbooks, and quality
 

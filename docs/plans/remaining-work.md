@@ -41,6 +41,14 @@ columnar/set-based target design, and a phased route for qualifying 16,000
 Products plus 80,000 related BOM lines. It does not raise the current limits
 until its acceptance gates pass.
 
+The scoped [reusable recipes and data versions implementation
+plan](reusable-recipes-and-data-versions-implementation-plan.md) has started its
+Phase 0 contract-and-fixture work. That work may correct current documentation,
+record architecture decisions, and freeze deterministic future contracts, but
+it does not make recipe behavior current and does not displace the unconditional
+related/mixed 100,000-row goal. Phase 1 or later implementation requires an
+explicit priority change here or completion of that unconditional goal.
+
 <a id="1-build-the-columnar-preparation-path-and-raise-the-scale-limit"></a>
 
 ## 1. Qualify related and mixed preparation at 100,000 rows

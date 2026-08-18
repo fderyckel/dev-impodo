@@ -89,7 +89,9 @@ registered project then uses six browser stages:
    exact mapping revision to current evidence hashes.
 4. **Prepare data** evaluates every supported frozen row, publishes canonical
    staging and prepared snapshots, and requires quality and normalization
-   review. This stage is currently available only to file-origin selections.
+   review. It accepts file-origin selections and supported immutable Odoo-origin
+   captures; Odoo-origin preparation verifies the protected source provenance
+   and remains offline after capture.
 5. **Final review** reads Odoo in deterministic batches, classifies every row,
    and freezes the exact execution snapshot when the comparison is ready.
 6. **Load into Odoo** requires an explicit confirmation, executes only the
