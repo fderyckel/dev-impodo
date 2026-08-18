@@ -36,7 +36,7 @@ from ..odoo_writer import (
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
 )
-from ..projects import MigrationProject, OdooConnectionMode
+from ..projects import MigrationProject, OdooConnectionMode, SourceMode
 from ..workspace_errors import WorkspaceError
 from .preflight_service import PreflightService
 
@@ -182,6 +182,10 @@ class ExecutionService:
             project_id=project_id,
         )
         project = self.projects.get(project_id)
+        if project.source_mode is SourceMode.ODOO:
+            raise WorkspaceError(
+                "Pinned Odoo loading is not available yet. No Odoo record was changed."
+            )
         create_batch_rows = validated_create_batch_rows(batch_rows)
         preview = self.current_preview(project_id)
         if preview is None:

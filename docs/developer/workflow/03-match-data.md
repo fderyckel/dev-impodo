@@ -17,9 +17,11 @@ It does not prepare all rows or write to Odoo.
 
 ## Entry conditions
 
-A frozen source selection, captured Odoo schema, and current business-key
-governance are required. The editor must bind its definition to the exact
-source-selection and schema hashes.
+A frozen source selection and captured Odoo schema are required. File-source
+mappings also require current business-key governance. Pinned Odoo-source
+mappings use protected capture identity and bind directly to the captured
+schema hash. The editor binds every definition to the exact source-selection
+and schema evidence.
 
 ## Implementation flow
 
@@ -35,8 +37,8 @@ values without changing source evidence.
 
 ## Contract invariants
 
-Each dataset declares one permitted target model and `upsert`, `create`, or
-`reference` mode. Each scalar target field has one explicit provider: source,
+Each dataset declares one permitted target model and `upsert`, `create`,
+`reference`, or `odoo_pinned_update` mode. Each scalar target field has one explicit provider: source,
 constant, source with fallback, or leave unset for the Odoo default.
 Transformations, null behavior, comparison policy, and relationship resolution
 are closed, versioned choices rather than arbitrary code.
@@ -47,6 +49,16 @@ value, while `odoo_managed` is limited to captured computed, related, one2many,
 or many2many fields. Both remain warning-bearing decisions that require review;
 Impodo does not call arbitrary Odoo `default_get` logic while editing a mapping.
 Version 8 mappings remain readable and retain their original content hashes.
+
+Mapping contract version 10 adds `odoo_pinned_update` and sorted
+`approved_write_fields`. Pinned mappings require an `OdooSourceBinding`, keep
+the originating model, have no source/target business identity, create policy,
+field disposition, or relationship write, and require a separate approval for
+every non-validation scalar mapping. Each approved write needs a captured
+baseline and fail-closed Tier-1 metadata: supported scalar type, stored,
+writable, non-computed, non-related, non-translated, and non-company-dependent.
+The mapping content hash binds those approvals. Numeric Odoo IDs never enter
+the portable mapping or canonical rows.
 
 Many2one and many2many relationships resolve through incoming datasets or
 existing-target business keys. One2many is represented through the child

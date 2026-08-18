@@ -14,10 +14,11 @@ reported separately.
 The disposable-target practical path has local live-target acceptance: a
 150-record sanitized run completed with every row verified and a repeat
 preview proposed no writes. The same harness is ready for retained remote
-acceptance when the disposable on-premises target is available. Exact-snapshot
-direct mappings compiled entirely to the native columnar path are supported
-through 100,000 physical rows;
-direct mappings requiring the Python oracle remain at 50,000, and
+acceptance when the disposable on-premises target is available. Single-dataset
+exact-snapshot direct mappings compiled entirely to the native columnar path
+are supported through 100,000 physical rows. Direct multi-dataset or direct
+relationship routes and mappings requiring the Python oracle remain at 50,000,
+and
 derived/materialized preparation and durable preflight retain their separate
 25,000-row boundaries. Broader Odoo-side ACL/record-rule matrices and
 representative production sizing remain pending for later risk profiles.
@@ -174,10 +175,10 @@ the original source unavailable.
   deleting historical rows;
 - readiness reports bind the exact staging run and content hash;
 - the browser uses a plain saved/retry state and collapses technical evidence;
-- native-columnar direct projects above 100,000 physical rows,
-  Python-fallback direct projects above 50,000, and materialized or derived
-  projects above 25,000 block before artifact materialization with a plain
-  split-the-source instruction;
+- single-dataset native-columnar direct projects above 100,000 physical rows,
+  multi-dataset, relationship, or Python-fallback direct projects above
+  50,000, and materialized or derived projects above 25,000 block before
+  artifact materialization with a plain split-the-source instruction;
 - explicitly named expected sums use only user-selected mapped numeric fields,
   retain unit/tolerance evidence, persist atomically, and block package creation
   when they differ or contain empty values.
@@ -777,9 +778,10 @@ and both workers exited.
 The BOM-shaped fixture required the measured one-thread Polars default; the
 two-thread configuration reached 906.7 MiB and was rejected. An explicit
 `POLARS_MAX_THREADS` environment value still overrides the default. The
-100,000-row limit is selected only when every dataset is direct,
-columnar-supported, and bound to an exact source snapshot. Otherwise Impodo
-retains the preceding 50,000- or 25,000-row limit. Related and mixed-dataset
+100,000-row limit is selected only for one direct, columnar-supported dataset
+bound to an exact source snapshot. Multi-dataset and relationship routes retain
+the 50,000-row boundary; derived/materialized routes retain the 25,000-row
+boundary. Related and mixed-dataset
 100,000-row qualification remains follow-on work, not part of this direct-path
 claim.
 

@@ -14,6 +14,33 @@ quality, normalization, preflight, or execution evidence contract.
 Implementation status and before/after measurements are maintained separately
 in [Transformation scale implementation log](../reports/transformation-scale-implementation-log.md).
 
+### Completion checkpoint - 2026-08-18
+
+This plan is **not finished**. The direct-route foundation in Phases 0-4 is
+substantially implemented, and Phase 5 has a set-based direct Product/BOM
+relationship slice. Phase 6 remains conditional. Phase 7 failed its Windows
+release qualification, while the derived/grouped and mixed high-volume data
+plane from Phase 5 is still not implemented or qualified.
+
+The current worktree adds three fail-closed corrections discovered by the
+audit:
+
+- direct multi-dataset or direct relationship preparation remains capped at
+  the proven 50,000-row direct boundary until the 96,000-row release fixture
+  qualifies;
+- if a nominally native dataset has a data-dependent native-projection miss
+  above 50,000 rows, preparation stops instead of reconstructing every row in
+  Python; and
+- qualification fingerprints now bind the exact Git `HEAD` as well as tracked
+  and untracked worktree bytes.
+
+It also replaces the nested native value-mapping conditional chain with one
+Polars `replace_strict` lookup and verifies parity at the contract maximum of
+1,000 choices. These corrections do not raise a supported limit. The remaining
+release work is the derived/grouped canonical artifact path, a 100,000-row
+mixed/derived fixture and gates, full Windows three-run correctness/performance
+evidence, and the 30 percent same-machine customer-memory improvement.
+
 The immediate business target is one project containing approximately 16,000
 products and 80,000 BOM lines. The design must also explain and correct the
 reported 800-900 MiB peak for a real 1,000-customer preparation before a larger

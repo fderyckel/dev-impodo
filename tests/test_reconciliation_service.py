@@ -27,6 +27,7 @@ from impodo.odoo_readback import (
     ExternalIdBinding,
     Json2ReadbackReader,
     OdooReadbackError,
+    ReadbackLookup,
     ReadbackRecord,
 )
 from impodo.odoo_scope import OdooApiScope, OdooModelScope
@@ -88,6 +89,7 @@ class _Reader:
         }
         self.uncertain = ()
         self.references = {}
+        self.lookup_batches = []
         self.external_ids = {
             "impodo_test.categories_2": ExternalIdBinding(
                 "impodo_test.categories_2", "product.category", 10
@@ -115,6 +117,13 @@ class _Reader:
                 return (ReadbackRecord(identifier, {}),)
         del fields
         return self.uncertain
+
+    def find_records_many(self, model, lookups):
+        self.lookup_batches.append((model, tuple(lookups)))
+        return tuple(
+            self.find_records(model, lookup.domain, lookup.fields)
+            for lookup in lookups
+        )
 
     def read_external_ids(self, external_ids):
         return tuple(
@@ -345,6 +354,56 @@ class ReconciliationServiceTests(unittest.TestCase):
         self.assertTrue(report.rows[0].retry_safe)
         self.assertEqual(report.unknown_count, 0)
 
+    def test_batches_uncertain_business_keys_by_model(self):
+        snapshot = _snapshot()
+        contact = snapshot.rows[-1]
+        contacts = tuple(
+            replace(
+                contact,
+                row_id=f"contact-{index}",
+                source_row=index,
+                source_trace_id=f"trace-{index}",
+                source_identity=(f"C{index}",),
+                business_identity=(f"C{index}",),
+                proposed_external_id=f"impodo_test.contacts_{index}",
+            )
+            for index in range(1, 46)
+        )
+        scoped = replace(
+            snapshot,
+            datasets=(snapshot.datasets[-1],),
+            counts={
+                "CREATE": 0,
+                "UPDATE": len(contacts),
+                "UNCHANGED": 0,
+                "AMBIGUOUS": 0,
+                "BLOCKED": 0,
+            },
+            rows=contacts,
+        )
+        run = _run(
+            scoped,
+            tuple(ExecutionRowStatus.OUTCOME_UNKNOWN for _row in contacts),
+        )
+        service, _results = self._service(scoped, run)
+        reader = _Reader(execution_api_scope(scoped).semantic_hash)
+
+        service.reconcile(
+            scoped.project_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(len(reader.lookup_batches), 3)
+        self.assertTrue(
+            all(model == "res.partner" for model, _batch in reader.lookup_batches)
+        )
+        self.assertEqual(
+            tuple(len(batch) for _model, batch in reader.lookup_batches),
+            (20, 20, 5),
+        )
+
     def test_reports_only_differing_field_names(self):
         snapshot = _snapshot()
         run = _run(snapshot)
@@ -498,6 +557,13 @@ class ReconciliationServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(report.rows[-1].status, ReconciliationRowStatus.VERIFIED)
+        tag_batches = [
+            lookups
+            for model, lookups in reader.lookup_batches
+            if model == "x.tag"
+        ]
+        self.assertEqual(len(tag_batches), 1)
+        self.assertEqual(len(tag_batches[0]), 2)
 
 
 class Json2ReadbackReaderTests(unittest.TestCase):
@@ -525,7 +591,7 @@ class Json2ReadbackReaderTests(unittest.TestCase):
                     "res.partner",
                     write_fields=("customer_rank", "name", "x_impodo_note"),
                     read_fields=("customer_rank", "name", "x_impodo_note"),
-                    lookup_fields=("ref",),
+                    lookup_fields=("company_id", "ref"),
                 ),
             )
         )
@@ -564,6 +630,57 @@ class Json2ReadbackReaderTests(unittest.TestCase):
             self.reader.find_records("res.partner", (), ("name",))
         with self.assertRaises(OdooReadbackError):
             self.reader.read_ids("res.partner", (42,), ("password",))
+
+    def test_batches_exact_business_keys_in_one_request(self):
+        def transport(url, headers, body, timeout, method):
+            del headers, timeout, method
+            payload = json.loads(body)
+            self.calls.append((url, payload))
+            return 200, [
+                {
+                    "id": 41,
+                    "company_id": [1, "Main Company"],
+                    "name": "First",
+                    "ref": "C1",
+                },
+                {
+                    "id": 42,
+                    "company_id": [1, "Main Company"],
+                    "name": "Second",
+                    "ref": "C2",
+                },
+            ]
+
+        reader = replace(self.reader, transport=transport)
+        results = reader.find_records_many(
+            "res.partner",
+            (
+                ReadbackLookup(
+                    (("ref", "=", "C1"), ("company_id", "=", 1)),
+                    ("name",),
+                ),
+                ReadbackLookup(
+                    (("ref", "=", "C2"), ("company_id", "=", 1)),
+                    ("name",),
+                ),
+            ),
+        )
+
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(
+            self.calls[0][1]["domain"],
+            [
+                "|",
+                "&",
+                ["ref", "=", "C1"],
+                ["company_id", "=", 1],
+                "&",
+                ["ref", "=", "C2"],
+                ["company_id", "=", 1],
+            ],
+        )
+        self.assertEqual(tuple(item[0].odoo_id for item in results), (41, 42))
+        self.assertEqual(results[0][0].values, {"name": "First"})
 
     def test_rejects_an_unrequested_record(self):
         def transport(*_args):

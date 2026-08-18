@@ -739,8 +739,11 @@ def _provider_expression(
     matched = pl.lit(False)
     if provider.value_mappings:
         choice = raw.str.strip_chars()
-        for source_value, _target_value in provider.value_mappings:
-            matched = matched | (choice == source_value)
+        source_values = [
+            source_value
+            for source_value, _target_value in provider.value_mappings
+        ]
+        matched = choice.is_in(source_values)
     return proposed, matched.fill_null(False)
 
 
@@ -752,13 +755,14 @@ def _mapped_value_expression(
     if not provider.value_mappings or provider.source is None:
         return pl.lit(None, dtype=pl.String)
     choice = pl.col(source_value_column(provider.source.ordinal)).str.strip_chars()
-    mapped = pl.lit(None, dtype=pl.String)
-    for source_value, target_value in provider.value_mappings:
-        mapped = (
-            pl.when(choice == source_value)
-            .then(_bound_string_literal(target_value))
-            .otherwise(mapped)
-        )
+    source_values = [item[0] for item in provider.value_mappings]
+    target_values = [item[1] for item in provider.value_mappings]
+    mapped = choice.replace_strict(
+        old=source_values,
+        new=target_values,
+        default=None,
+        return_dtype=pl.String,
+    )
     return pl.when(matched).then(mapped).otherwise(None)
 
 

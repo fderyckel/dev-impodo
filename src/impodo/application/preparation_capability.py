@@ -16,6 +16,7 @@ from ..domain.coverage import ReferenceBundle
 from ..domain.mapping.contracts import MappingDefinition
 from ..domain.source_snapshot import SourceSnapshot
 from ..domain.staging.scale import (
+    BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 )
@@ -234,6 +235,26 @@ def compile_preparation_capability(
             else quality_reasons
         ),
     )
+    related_or_multi_dataset = (
+        len(effective_selection.datasets) > 1
+        or any(
+            item.relationships
+            for item in getattr(definition, "datasets", ())
+        )
+    )
+    relationship_limit = (
+        min(
+            normalization_limit,
+            BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+        )
+        if direct and not quality_reasons and related_or_multi_dataset
+        else normalization_limit
+    )
+    relationship_reasons = (
+        ("MULTI_DATASET_OR_RELATIONSHIP_SCALE_UNQUALIFIED",)
+        if direct and not quality_reasons and related_or_multi_dataset
+        else ()
+    )
     relationships = PreparationStageCapability(
         stage="relationships",
         behavior=(
@@ -242,12 +263,12 @@ def compile_preparation_capability(
             else PreparationRouteBehavior.MATERIALIZING
         ),
         supported_rows=(
-            normalization_limit
+            relationship_limit
             if direct and not quality_reasons
             else MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT
         ),
         reason_codes=(
-            ()
+            relationship_reasons
             if direct and not quality_reasons
             else ("SET_BASED_RELATIONSHIP_ROUTE_UNAVAILABLE",)
         ),

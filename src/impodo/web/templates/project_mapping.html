@@ -5,7 +5,7 @@
     <div>
       <p class="eyebrow">Stage 3 of 6 · Match data</p>
       <h1>Match your data to Odoo</h1>
-      <p>Choose where each source value belongs and how existing records are found.</p>
+      <p>{% if odoo_pinned %}Choose which captured values to prepare, then separately approve every field that may be updated.{% else %}Choose where each source value belongs and how existing records are found.{% endif %}</p>
     </div>
     {% if has_unvalidated_changes %}
       <span class="status">Saved changes need checking</span>
@@ -34,7 +34,7 @@
     </div>
   {% endif %}
 
-  {% if selection and schema and governance %}
+  {% if selection and schema and (governance or odoo_pinned) %}
     <form
       method="post"
       action="/projects/{{ project.project_id }}/mapping/save{% if request.url.query %}?{{ request.url.query }}{% endif %}"
@@ -61,7 +61,7 @@
         </summary>
         <div class="definition-list">
           <div><dt>Frozen source</dt><dd><code title="{{ selection.content_hash }}">{{ selection.content_hash }}</code></dd></div>
-          <div><dt>Governed schema</dt><dd><code title="{{ governance.content_hash }}">{{ governance.content_hash }}</code></dd></div>
+          <div><dt>{{ "Captured schema" if odoo_pinned else "Governed schema" }}</dt><dd><code title="{{ schema.content_hash if odoo_pinned else governance.content_hash }}">{{ schema.content_hash if odoo_pinned else governance.content_hash }}</code></dd></div>
           {% if working_draft_is_current %}<div><dt>Working draft</dt><dd><code title="{{ working_draft.content_hash }}">{{ working_draft.content_hash }}</code></dd></div>{% endif %}
           {% if revision %}<div><dt>Mapping</dt><dd><code title="{{ revision.definition.content_hash }}">{{ revision.definition.content_hash }}</code></dd></div>{% endif %}
           {% if validation %}<div><dt>Validation</dt><dd><code title="{{ validation.validation_hash }}">{{ validation.validation_hash }}</code></dd></div>{% endif %}
@@ -111,6 +111,15 @@
             {% endfor %}
           </template>
 
+          {% if view.odoo_pinned %}
+          <input type="hidden" name="target_model_{{ dataset_index }}" value="{{ view.selected_model }}">
+          <input type="hidden" name="mode_{{ dataset_index }}" value="odoo_pinned_update">
+          <div class="notice warning">
+            <strong>Update only the records selected from Odoo</strong>
+            <p>These rows stay bound to {{ view.model.label if view.model else view.selected_model }} through protected capture evidence. Blank or duplicate names are allowed because Impodo does not use a business key or create fallback.</p>
+            <p>Nothing is sent to Odoo here. A later comparison is required before any load.</p>
+          </div>
+          {% else %}
           <div class="form-grid">
             <label>
               Send these rows to
@@ -222,6 +231,7 @@
               {% endif %}
             </section>
           </div>
+          {% endif %}
 
           {% if view.active %}
           <h3 id="scalar-fields-{{ dataset_index }}">Choose what goes into each Odoo field</h3>
@@ -300,7 +310,7 @@
                         <option value="source" {% if value_source == 'source' %}selected{% endif %}>Source value</option>
                         <option value="constant" {% if value_source == 'constant' %}selected{% endif %}>Same value for every row</option>
                         <option value="source_with_fallback" {% if value_source == 'source_with_fallback' %}selected{% endif %}>Source value, or backup when blank</option>
-                        <option value="odoo_default" {% if value_source == 'odoo_default' %}selected{% endif %}>Let Odoo choose</option>
+                        {% if not view.odoo_pinned %}<option value="odoo_default" {% if value_source == 'odoo_default' %}selected{% endif %}>Let Odoo choose</option>{% endif %}
                       </select>
                       <div class="provider-control" data-provider-source {% if value_source not in ('source', 'source_with_fallback') %}hidden{% endif %}>
                         <label>Use value from
@@ -606,6 +616,19 @@
                     </td>
                     <th data-target="{{ view.selected_model }}::{{ row.metadata.name }}">
                       {{ row.metadata.label }}
+                      {% if view.odoo_pinned %}
+                        <label class="checkbox">
+                          <input
+                            type="checkbox"
+                            name="approved_write_field_{{ dataset_index }}"
+                            value="{{ row.metadata.name }}"
+                            {% if row.write_approved %}checked{% endif %}
+                            {% if not row.write_eligible or not row.write_baseline_captured %}disabled{% endif %}
+                          >
+                          Allow Impodo to update this field
+                        </label>
+                        {% if row.write_block_reason %}<small>{{ row.write_block_reason }}</small>{% else %}<small>Off by default and saved as auditable project evidence.</small>{% endif %}
+                      {% endif %}
                     </th>
                     <td class="support-cell">
                       <details class="technical-details">
@@ -631,7 +654,7 @@
                       <label><input type="checkbox" name="scalar_compare_{{ dataset_index }}_{{ field_index }}" value="1" data-scalar-compare {% if not mapping or mapping.compare %}checked{% endif %}> Compare with Odoo</label>
                       <label><input type="checkbox" name="scalar_validate_only_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.validate_only %}checked{% endif %}> Check only; do not prepare</label>
                       <label><input type="checkbox" name="scalar_required_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required %}checked{% endif %}> Must have a value</label>
-                      <label><input type="checkbox" name="scalar_required_create_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required_on_create %}checked{% endif %}> Required for new records</label>
+                      {% if not view.odoo_pinned %}<label><input type="checkbox" name="scalar_required_create_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required_on_create %}checked{% endif %}> Required for new records</label>{% endif %}
                       <select name="scalar_null_{{ dataset_index }}_{{ field_index }}">
                         {% set scalar_null = mapping.null_policy if mapping else 'distinct' %}
                         {% for policy in ('distinct', 'equivalent', 'ignore_source_null') %}
@@ -664,6 +687,7 @@
             </nav>
           </div>
 
+          {% if not view.odoo_pinned %}
           <details class="related-records" {% if view.relation_mapped_total %}open{% endif %}>
           <summary id="relationships-{{ dataset_index }}">
             <span class="related-records-heading">Connect values to existing Odoo lists</span>
@@ -870,6 +894,7 @@
           </nav>
           </div>
           </details>
+          {% endif %}
 
           <details class="technical-evidence" {% if view.mapping and view.mapping.control_totals %}open{% endif %}>
             <summary>
@@ -1104,7 +1129,7 @@
             Changes are not saved yet.
           {% endif %}
         </p>
-        <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Back to Odoo data</a>
+        <a class="button secondary" href="/projects/{{ project.project_id }}/{{ 'sources' if odoo_pinned else 'schema' }}">Back to Odoo data</a>
         <button class="button secondary" name="action" value="save_progress" type="submit" data-save-mapping-progress>Save progress</button>
         <button class="button secondary" name="action" value="draft" type="submit">Check matches</button>
         {% if next_step.available and next_step.kind == 'link' %}

@@ -13,9 +13,10 @@ identity, values, transformations, and relationships.
 
 ## Before you start
 
-Source data must be frozen and Odoo data must be confirmed. Have a functional
-decision for every required field, stable identity, selection value, and
-relationship.
+Source data must be frozen and Odoo data must be confirmed. For file sources,
+have a functional decision for every required field, stable identity,
+selection value, and relationship. Captured Odoo records keep their protected
+record identity automatically.
 
 ## Steps in Impodo
 
@@ -34,6 +35,18 @@ relationship.
 9. Review transformation effects, including rules that changed no values.
 10. Select **Confirm field matches** for the exact checked revision.
 
+### When the source is captured from Odoo
+
+The originating Odoo record type is fixed and Impodo prepares updates only; it
+does not ask for a business key and cannot fall back to creating records.
+Blank or duplicate names are therefore allowed.
+
+Match the captured values you want to transform, then separately select
+**Allow Impodo to update this field** for each intended write field. Approval
+is off by default. A field can be approved only when its original value was
+captured and Odoo metadata identifies it as a safe stored, writable scalar.
+Confirming these choices still does not contact or change Odoo.
+
 ![Current source and Odoo identity choices for one fictional customer table.](../../images/user/10-mapping-identity.png)
 
 ![Current field-value and cleanup controls for a fictional Contact mapping.](../../images/user/11-mapping-fields.png)
@@ -45,7 +58,8 @@ relationship.
 ## What to check
 
 - Every required Odoo field has a deliberate value or supported default.
-- Identity values remain stable across environments.
+- File-source identity values remain stable across environments; captured
+  Odoo records use protected target-bound identity instead.
 - Selection labels map to the current Odoo technical choices.
 - Many2one, One2many, and Many2many relationships use portable keys.
 - Cleanup rules change only the intended values and run in the intended order.
@@ -76,7 +90,8 @@ matches** again.
 
 ## What makes this work stale
 
-Changes to source evidence, Odoo fields, business keys, mapping choices, or
+Changes to source evidence, Odoo fields, business keys, mapping choices, field
+approvals, or
 transformation rules require a new mapping check and confirmation. A previously
 prepared or compared result must not be reused after such a change.
 

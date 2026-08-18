@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from ...odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from ...source_binding import OdooSourceBinding, SourceOriginKind
 from ...schema.governance import SchemaGovernance
 from ..canonicalization import canonicalize_mapping_definition
 from ..contracts import (
@@ -43,6 +45,21 @@ from .identities import (
 )
 from .relationships import _validate_relationship
 from .scalars import _validate_scalar
+
+
+def _is_pinned_write_field(metadata: object) -> bool:
+    """Apply the fail-closed Tier-1 write policy to captured schema evidence."""
+
+    return bool(
+        getattr(metadata, "type", None)
+        in CURRENT_ODOO_SOURCE_POLICY.writable_field_types
+        and getattr(metadata, "stored", None) is True
+        and getattr(metadata, "readonly", None) is False
+        and getattr(metadata, "computed", None) is False
+        and getattr(metadata, "related", None) is False
+        and getattr(metadata, "translated", None) is False
+        and getattr(metadata, "company_dependent", None) is False
+    )
 
 
 def _claim_target(
@@ -126,7 +143,15 @@ class MappingSemanticValidator:
                     "Reopen and validate the mapping against the current schema.",
                 )
             )
-        if (
+        pinned_only = bool(definition.datasets) and all(
+            dataset.mode is MappingTargetMode.ODOO_PINNED_UPDATE
+            and (
+                source_dataset := context.source_datasets.get(dataset.dataset_id)
+            ) is not None
+            and source_dataset.origin is SourceOriginKind.ODOO
+            for dataset in definition.datasets
+        )
+        if not pinned_only and (
             schema_governance is None
             or schema_governance.catalog_hash != schema_catalog.content_hash
         ):
@@ -173,6 +198,62 @@ class MappingSemanticValidator:
             columns = {
                 item.stable_key: item for item in source_dataset.columns
             }
+            is_odoo_source = source_dataset.origin is SourceOriginKind.ODOO
+            is_pinned_update = (
+                dataset.mode is MappingTargetMode.ODOO_PINNED_UPDATE
+            )
+            if is_odoo_source and not is_pinned_update:
+                issues.append(
+                    _issue(
+                        "MAPPING_ODOO_PINNED_MODE_REQUIRED",
+                        f"{base}/mode",
+                        "Captured Odoo records can only use pinned update mode.",
+                        "Use the protected records selected from Odoo; creating records is not available.",
+                        dataset=dataset,
+                    )
+                )
+            if is_pinned_update and not is_odoo_source:
+                issues.append(
+                    _issue(
+                        "MAPPING_ODOO_PINNED_SOURCE_REQUIRED",
+                        f"{base}/mode",
+                        "Pinned update mode requires a protected Odoo capture.",
+                        "Choose the normal file mapping mode for this dataset.",
+                        dataset=dataset,
+                    )
+                )
+            if not is_odoo_source and dataset.approved_write_fields:
+                issues.append(
+                    _issue(
+                        "MAPPING_ODOO_WRITE_APPROVAL_INVALID",
+                        f"{base}/approved_write_fields",
+                        "Odoo update approvals require captured Odoo records.",
+                        "Remove these approvals from the file mapping.",
+                        dataset=dataset,
+                    )
+                )
+            if is_odoo_source:
+                source_binding = source_dataset.source
+                if not isinstance(source_binding, OdooSourceBinding):
+                    issues.append(
+                        _issue(
+                            "MAPPING_ODOO_SOURCE_BINDING_INVALID",
+                            f"{base}/dataset_id",
+                            "The Odoo source binding is not valid.",
+                            "Refresh the Odoo capture before mapping.",
+                            dataset=dataset,
+                        )
+                    )
+                elif dataset.target_model != source_binding.model:
+                    issues.append(
+                        _issue(
+                            "MAPPING_ODOO_TARGET_MODEL_MISMATCH",
+                            f"{base}/target_model",
+                            "Captured Odoo records must stay bound to their originating model.",
+                            "Use the model recorded by the Odoo capture.",
+                            dataset=dataset,
+                        )
+                    )
             model = context.schema_models.get(dataset.target_model)
             if model is None:
                 issues.append(
@@ -213,9 +294,23 @@ class MappingSemanticValidator:
                     )
                 )
 
-            _validate_source_identity(
-                dataset, base, columns, issues
-            )
+            if is_odoo_source:
+                if (
+                    dataset.source_identity_column_keys
+                    or dataset.target_identity
+                    or dataset.target_scope
+                ):
+                    issues.append(
+                        _issue(
+                            "MAPPING_ODOO_PORTABLE_IDENTITY_FORBIDDEN",
+                            f"{base}/source_identity_column_keys",
+                            "Pinned Odoo updates do not use portable business or numeric record keys.",
+                            "Remove source and target identity fields; protected capture evidence identifies each record.",
+                            dataset=dataset,
+                        )
+                    )
+            else:
+                _validate_source_identity(dataset, base, columns, issues)
             provided: set[str] = set()
             identity_fields: list[str] = []
             scope_fields: list[str] = []
@@ -239,7 +334,9 @@ class MappingSemanticValidator:
                     )
                     provided.update(component.target_fields)
                     collected.extend(component.target_fields)
-            if not dataset.target_identity:
+            if is_odoo_source:
+                pass
+            elif not dataset.target_identity:
                 issues.append(
                     _issue(
                         "MAPPING_TARGET_IDENTITY_MISSING",
@@ -270,6 +367,11 @@ class MappingSemanticValidator:
             target_owners: dict[str, str] = {
                 item: "identity" for item in provided
             }
+            captured_field_names = {
+                item.source_name for item in source_dataset.columns
+            }
+            approved_write_fields = set(dataset.approved_write_fields)
+            mapped_write_fields: set[str] = set()
             for field_index, field_mapping in enumerate(dataset.fields):
                 path = f"{base}/fields/{field_index}"
                 _validate_scalar(
@@ -288,6 +390,71 @@ class MappingSemanticValidator:
                     issues,
                 )
                 provided.add(field_mapping.target_field)
+                if is_odoo_source and not field_mapping.validate_only:
+                    mapped_write_fields.add(field_mapping.target_field)
+                    metadata = fields.get(field_mapping.target_field)
+                    if field_mapping.target_field not in approved_write_fields:
+                        issues.append(
+                            _issue(
+                                "MAPPING_ODOO_WRITE_FIELD_UNAPPROVED",
+                                path,
+                                f"{field_mapping.target_field} is mapped for an update but has not been explicitly approved.",
+                                "Select the separate update approval for this field.",
+                                dataset=dataset,
+                                target_field=field_mapping.target_field,
+                            )
+                        )
+                    if metadata is not None and not _is_pinned_write_field(metadata):
+                        issues.append(
+                            _issue(
+                                "MAPPING_ODOO_WRITE_FIELD_INELIGIBLE",
+                                path,
+                                f"{dataset.target_model}.{field_mapping.target_field} is outside the safe Tier-1 update policy.",
+                                "Use a stored, writable scalar field without computed, related, translated, or company-dependent behavior.",
+                                dataset=dataset,
+                                target_field=field_mapping.target_field,
+                            )
+                        )
+                    if field_mapping.target_field not in captured_field_names:
+                        issues.append(
+                            _issue(
+                                "MAPPING_ODOO_WRITE_BASELINE_MISSING",
+                                path,
+                                f"The capture has no original value for {field_mapping.target_field}.",
+                                "Refresh the capture and include this field before approving an update.",
+                                dataset=dataset,
+                                target_field=field_mapping.target_field,
+                            )
+                        )
+                    if (
+                        field_mapping.value_source is ScalarValueSource.ODOO_DEFAULT
+                        or field_mapping.required_on_create
+                    ):
+                        issues.append(
+                            _issue(
+                                "MAPPING_ODOO_CREATE_SEMANTICS_FORBIDDEN",
+                                path,
+                                "Create-time field behavior is not valid for pinned updates.",
+                                "Provide a captured value, a fixed value, or a transformation without create-only behavior.",
+                                dataset=dataset,
+                                target_field=field_mapping.target_field,
+                            )
+                        )
+
+            if is_odoo_source:
+                for target_field in sorted(
+                    approved_write_fields.difference(mapped_write_fields)
+                ):
+                    issues.append(
+                        _issue(
+                            "MAPPING_ODOO_WRITE_APPROVAL_UNUSED",
+                            f"{base}/approved_write_fields",
+                            f"{target_field} is approved but has no active write mapping.",
+                            "Map the field for update or remove its approval.",
+                            dataset=dataset,
+                            target_field=target_field,
+                        )
+                    )
 
             _validate_control_totals(context, dataset, base, issues)
 
@@ -314,7 +481,28 @@ class MappingSemanticValidator:
                 )
                 provided.add(relation.target_field)
 
+            if is_odoo_source and dataset.relationships:
+                issues.append(
+                    _issue(
+                        "MAPPING_ODOO_RELATIONSHIP_UNSUPPORTED",
+                        f"{base}/relationships",
+                        "Relationship writes are not yet supported for captured Odoo records.",
+                        "Remove relationship mappings from this pinned update.",
+                        dataset=dataset,
+                    )
+                )
+
             intentionally_omitted: set[str] = set()
+            if is_odoo_source and dataset.target_field_dispositions:
+                issues.append(
+                    _issue(
+                        "MAPPING_ODOO_CREATE_SEMANTICS_FORBIDDEN",
+                        f"{base}/target_field_dispositions",
+                        "Create-time Odoo field decisions are not valid for pinned updates.",
+                        "Remove Odoo default and managed-field decisions.",
+                        dataset=dataset,
+                    )
+                )
             for disposition_index, disposition in enumerate(
                 dataset.target_field_dispositions
             ):
@@ -432,7 +620,10 @@ class MappingSemanticValidator:
                         )
                     )
 
-            if dataset.mode is not MappingTargetMode.REFERENCE:
+            if (
+                dataset.mode is not MappingTargetMode.REFERENCE
+                and not is_odoo_source
+            ):
                 for target_field in sorted(fields):
                     metadata = fields[target_field]
                     if (
@@ -528,6 +719,12 @@ class MappingSemanticValidator:
                         message=(
                             "Resolve every logical relationship by business key."
                         ),
+                    ),
+                ) if not is_odoo_source else (
+                    DeferredRuntimeCheck(
+                        code="REQUIRED_ROW_VALUES",
+                        dataset_id=dataset.dataset_id,
+                        message="Verify required values on every staged row.",
                     ),
                 )
             )

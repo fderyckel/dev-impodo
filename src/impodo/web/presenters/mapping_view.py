@@ -13,7 +13,12 @@ from ...derived_entities import (
     related_dataset_links,
 )
 from ...domain.schema.governance import BusinessKeyStatus
-from ...domain.source_binding import FileSourceBinding
+from ...domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
+from ...domain.source_binding import (
+    FileSourceBinding,
+    OdooSourceBinding,
+    SourceOriginKind,
+)
 from ...domain.mapping.contracts import (
     MAX_CONTROL_TOTALS_PER_DATASET,
     ScalarFieldMapping,
@@ -88,6 +93,14 @@ def _render_mapping(
         else None
     )
     working_draft = context.queries.get_mapping_working_draft(project_id)
+    odoo_pinned = bool(
+        selection is not None
+        and selection.datasets
+        and all(
+            item.origin is SourceOriginKind.ODOO
+            for item in selection.datasets
+        )
+    )
     expected_schema_hash = None
     if governance is not None:
         expected_schema_hash = governance.content_hash
@@ -373,6 +386,7 @@ def _render_mapping(
         selection=selection,
         schema=schema,
         governance=governance,
+        odoo_pinned=odoo_pinned,
         revision=revision,
         validation=validation,
         submission=submission,
@@ -711,6 +725,8 @@ def _mapping_dataset_views(
     prepared_source_samples = prepared_source_samples or {}
 
     def selected_mapping_model_name(dataset_index, source_dataset) -> str:
+        if isinstance(source_dataset.source, OdooSourceBinding):
+            return source_dataset.source.model
         existing = existing_by_id.get(source_dataset.dataset_id)
         derived_link = derived_by_dataset.get(source_dataset.dataset_id)
         selected_override = (
@@ -745,6 +761,7 @@ def _mapping_dataset_views(
     }
     result: list[dict[str, object]] = []
     for dataset_index, source_dataset in enumerate(selection.datasets):
+        odoo_pinned = source_dataset.origin is SourceOriginKind.ODOO
         active = (
             active_dataset_index is None
             or dataset_index == active_dataset_index
@@ -753,6 +770,9 @@ def _mapping_dataset_views(
             source_dataset.dataset_id,
             _mapping_source_samples(source_dataset, source_catalogs),
         )
+        captured_field_names = {
+            column.source_name for column in source_dataset.columns
+        }
         existing = existing_by_id.get(source_dataset.dataset_id)
         derived_link = derived_by_dataset.get(source_dataset.dataset_id)
         selected_model_name = selected_model_by_dataset[
@@ -979,6 +999,16 @@ def _mapping_dataset_views(
                     source_samples,
                     source_dataset.columns,
                 ),
+                "write_eligible": _odoo_pinned_write_eligible(field),
+                "write_baseline_captured": field.name in captured_field_names,
+                "write_approved": bool(
+                    existing is not None
+                    and field.name in existing.approved_write_fields
+                ),
+                "write_block_reason": _odoo_pinned_write_block_reason(
+                    field,
+                    baseline_captured=field.name in captured_field_names,
+                ),
             }
             for field_index, field in visible_scalars
         )
@@ -1051,7 +1081,7 @@ def _mapping_dataset_views(
                         f"{field.relation or ''}"
                     ).casefold()
                 )
-            ),
+            ) if not odoo_pinned else (),
             key=lambda item: (
                 0
                 if (
@@ -1137,6 +1167,10 @@ def _mapping_dataset_views(
                 },
                 "source_samples": source_samples,
                 "mapping": existing,
+                "odoo_pinned": odoo_pinned,
+                "approved_write_fields": (
+                    existing.approved_write_fields if existing else ()
+                ),
                 "target_field_dispositions": (
                     existing.target_field_dispositions if existing else ()
                 ),
@@ -1212,6 +1246,35 @@ def _mapping_dataset_views(
             }
         )
     return tuple(result)
+
+
+def _odoo_pinned_write_eligible(field) -> bool:
+    """Mirror the domain Tier-1 gate for an explanatory browser view only."""
+
+    return bool(
+        field.type in CURRENT_ODOO_SOURCE_POLICY.writable_field_types
+        and field.stored is True
+        and field.readonly is False
+        and field.computed is False
+        and field.related is False
+        and field.translated is False
+        and field.company_dependent is False
+    )
+
+
+def _odoo_pinned_write_block_reason(
+    field,
+    *,
+    baseline_captured: bool,
+) -> str:
+    if not baseline_captured:
+        return "Capture this field first so Impodo has its original value."
+    if _odoo_pinned_write_eligible(field):
+        return ""
+    return (
+        "This field is outside the current safe update policy; it remains "
+        "available only as source context."
+    )
 
 
 def _matching_rule_labels(keys, models) -> dict[str, str]:

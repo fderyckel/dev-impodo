@@ -126,6 +126,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
         request: Request,
         project_id: str,
         *,
+        step: str,
         error: str | None = None,
         status_code: int = 200,
     ):
@@ -136,6 +137,8 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 f"/projects/{project_id}/summary",
                 status_code=303,
             )
+        if step == "confirm" and preview.current_run is not None:
+            step = "outcome"
         try:
             has_stored_write_key = bool(
                 get_target_credential(
@@ -164,6 +167,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
             project=project,
             preview=preview,
             reconciliation=reconciliation,
+            load_step=step,
             load_row_page=load_row_page,
             load_row_page_size_options=tuple(
                 {
@@ -193,10 +197,78 @@ def build_execution_router(context: WebContext) -> APIRouter:
             status_code=status_code,
         )
 
-    @router.get("/projects/{project_id}/load", response_class=HTMLResponse)
-    async def preview_load(request: Request, project_id: str):
+    @router.get("/projects/{project_id}/load")
+    async def load_landing(request: Request, project_id: str):
         require_session(request)
-        return render(request, project_id)
+        preview = context.execution.current_preview(project_id)
+        if preview is None:
+            destination = f"/projects/{project_id}/summary"
+        elif preview.current_run is not None:
+            destination = f"/projects/{project_id}/load/outcome"
+            if request.url.query:
+                destination = f"{destination}?{request.url.query}"
+        else:
+            destination = f"/projects/{project_id}/load/review"
+        return RedirectResponse(destination, status_code=303)
+
+    @router.get(
+        "/projects/{project_id}/load/review",
+        response_class=HTMLResponse,
+    )
+    async def review_load(request: Request, project_id: str):
+        require_session(request)
+        return render(request, project_id, step="review")
+
+    @router.get(
+        "/projects/{project_id}/load/confirm",
+        response_class=HTMLResponse,
+    )
+    async def confirm_load(request: Request, project_id: str):
+        require_session(request)
+        preview = context.execution.current_preview(project_id)
+        if preview is None:
+            return RedirectResponse(
+                f"/projects/{project_id}/summary",
+                status_code=303,
+            )
+        if preview.current_run is not None:
+            return RedirectResponse(
+                f"/projects/{project_id}/load/outcome",
+                status_code=303,
+            )
+        if not preview.can_load:
+            _flash(
+                request,
+                preview.scope_error
+                or (
+                    "Resolve every row needing attention before confirming "
+                    "the Odoo load."
+                ),
+            )
+            return RedirectResponse(
+                f"/projects/{project_id}/load/review",
+                status_code=303,
+            )
+        return render(request, project_id, step="confirm")
+
+    @router.get(
+        "/projects/{project_id}/load/outcome",
+        response_class=HTMLResponse,
+    )
+    async def review_outcome(request: Request, project_id: str):
+        require_session(request)
+        preview = context.execution.current_preview(project_id)
+        if preview is None:
+            return RedirectResponse(
+                f"/projects/{project_id}/summary",
+                status_code=303,
+            )
+        if preview.current_run is None:
+            return RedirectResponse(
+                f"/projects/{project_id}/load/review",
+                status_code=303,
+            )
+        return render(request, project_id, step="outcome")
 
     @router.post("/projects/{project_id}/load")
     async def load_into_odoo(request: Request, project_id: str):
@@ -299,6 +371,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
             return render(
                 request,
                 project_id,
+                step="confirm",
                 error=str(error),
                 status_code=422,
             )
@@ -334,7 +407,10 @@ def build_execution_router(context: WebContext) -> APIRouter:
             )
         else:
             _flash_reconciliation(request, report)
-        return RedirectResponse(f"/projects/{project_id}/load", status_code=303)
+        return RedirectResponse(
+            f"/projects/{project_id}/load/outcome",
+            status_code=303,
+        )
 
     @router.post("/projects/{project_id}/load/reconcile")
     async def reconcile_load(request: Request, project_id: str):
@@ -425,9 +501,18 @@ def build_execution_router(context: WebContext) -> APIRouter:
             SecretStoreError,
             WorkspaceError,
         ) as error:
-            return render(request, project_id, error=str(error), status_code=422)
+            return render(
+                request,
+                project_id,
+                step="outcome",
+                error=str(error),
+                status_code=422,
+            )
         _flash_reconciliation(request, report)
-        return RedirectResponse(f"/projects/{project_id}/load", status_code=303)
+        return RedirectResponse(
+            f"/projects/{project_id}/load/outcome",
+            status_code=303,
+        )
 
     @router.get("/projects/{project_id}/load/fallout.csv")
     async def download_fallout(request: Request, project_id: str):

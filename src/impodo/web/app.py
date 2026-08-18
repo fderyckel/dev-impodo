@@ -230,6 +230,7 @@ def create_local_app(
         quality,
         normalization,
         resolution,
+        odoo_provenance=odoo_provenance_service,
     )
     preflight = PreflightService(
         staging_repository,

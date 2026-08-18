@@ -133,14 +133,18 @@
                     <ol class="sidebar-subnav" aria-label="{{ stage.label }} pages">
                       {% for page in stage.pages %}
                         <li>
-                          <a
-                            class="sidebar-subnav-link{% if page.current %} active{% endif %}"
-                            href="{{ page.href }}"
-                            {% if page.current %}aria-current="page"{% endif %}
-                          >
+                          {% if page.href %}
+                            <a
+                              class="sidebar-subnav-link{% if page.current %} active{% endif %}"
+                              href="{{ page.href }}"
+                              {% if page.current %}aria-current="page"{% endif %}
+                            >
+                          {% else %}
+                            <span class="sidebar-subnav-link disabled" aria-disabled="true">
+                          {% endif %}
                             <span>{{ page.label }}</span>
                             <small>{{ page.status_label }}</small>
-                          </a>
+                          {% if page.href %}</a>{% else %}</span>{% endif %}
                         </li>
                       {% endfor %}
                     </ol>

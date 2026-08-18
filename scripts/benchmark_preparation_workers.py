@@ -60,7 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
 def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
     _validate_arguments(arguments)
     revision = _revision()
-    worktree_fingerprint = _worktree_fingerprint()
+    worktree_fingerprint = _worktree_fingerprint(
+        expected_revision=revision,
+    )
     worktree_dirty = _worktree_dirty()
     _require_worktree_unchanged(worktree_fingerprint)
     if worktree_dirty and not arguments.allow_dirty_worktree:
@@ -350,9 +352,14 @@ def _worktree_dirty() -> bool:
     return bool(completed.stdout.strip())
 
 
-def _worktree_fingerprint() -> str:
-    """Identify the exact tracked and untracked worktree state for one run."""
+def _worktree_fingerprint(*, expected_revision: str | None = None) -> str:
+    """Identify the exact commit plus tracked and untracked state for one run."""
 
+    revision = _revision()
+    if expected_revision is not None and revision != expected_revision:
+        raise PreparationWorkerBenchmarkError(
+            "Git HEAD changed before the worker benchmark state was captured"
+        )
     status = subprocess.run(
         ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
         cwd=ROOT,
@@ -373,7 +380,14 @@ def _worktree_fingerprint() -> str:
     )
     if status.returncode or diff.returncode or untracked.returncode:
         raise PreparationWorkerBenchmarkError("Cannot fingerprint the Git worktree")
+    if _revision() != revision:
+        raise PreparationWorkerBenchmarkError(
+            "Git HEAD changed while the worker benchmark state was captured"
+        )
     digest = sha256()
+    digest.update(b"HEAD\0")
+    digest.update(revision.encode("utf-8"))
+    digest.update(b"\0")
     digest.update(status.stdout)
     digest.update(b"\0")
     digest.update(diff.stdout)

@@ -23,7 +23,7 @@ class WorkflowPage:
 
     page_id: str
     label: str
-    href: str
+    href: str | None
     status: str = "available"
     status_label: str = "Available"
     current: bool = False
@@ -136,6 +136,13 @@ def build_project_navigation(
         template_name,
         ("", "Project setup"),
     )
+    if template_name == "project_load.html":
+        if current_path.endswith("/load/confirm"):
+            viewed_page_label = "Confirm and load"
+        elif current_path.endswith("/load/outcome"):
+            viewed_page_label = "Verify result"
+        else:
+            viewed_page_label = "Check changes"
     if current_project.status is not ProjectStatus.REGISTERED:
         stages = _locked_stages(current_project.project_id)
         return ProjectNavigation(
@@ -241,23 +248,146 @@ def build_project_navigation(
                     ),
                 ) if schema is not None else (),
             ),
-            *(
-                WorkflowStage(
-                    stage_id=stage_id,
-                    number=number,
-                    label=label,
-                    href=None,
-                    status="locked",
-                    status_label="Not yet available",
-                )
-                for stage_id, number, label in (
-                    ("match", 3, "Match data"),
-                    ("prepare", 4, "Prepare data"),
-                    ("review", 5, "Final review"),
-                    ("load", 6, "Load into Odoo"),
-                )
-            ),
         ]
+        if frozen_source is None:
+            stages.extend(_locked_stages(current_project.project_id, after="source"))
+            return _navigation(
+                current_project,
+                template_name,
+                viewed_stage_id,
+                viewed_page_label,
+                stages,
+            )
+
+        project_id = current_project.project_id
+        revision = context.queries.get_mapping_revision(project_id)
+        submission = (
+            context.queries.get_mapping_submission(project_id, revision.version)
+            if revision is not None
+            else None
+        )
+        mapping_complete = bool(
+            revision is not None
+            and revision.definition.source_selection_hash == frozen_source.content_hash
+            and revision.definition.datasets
+            and all(
+                item.mode.value == "odoo_pinned_update"
+                for item in revision.definition.datasets
+            )
+            and submission is not None
+            and submission.mapping_id == revision.mapping_id
+            and submission.mapping_content_hash == revision.definition.content_hash
+        )
+        stages.append(
+            _stage(
+                project_id,
+                "match",
+                3,
+                "Match data",
+                "/mapping",
+                status=("complete" if mapping_complete else "current"),
+                status_label=("Complete" if mapping_complete else "Current"),
+                pages=(
+                    _page(
+                        project_id,
+                        "mapping",
+                        "Choose and approve update fields",
+                        "/mapping",
+                        complete=mapping_complete,
+                    ),
+                ),
+            )
+        )
+        if not mapping_complete:
+            stages.extend(_locked_stages(project_id, after="match"))
+            return _navigation(
+                current_project,
+                template_name,
+                viewed_stage_id,
+                viewed_page_label,
+                stages,
+            )
+
+        active_job = (
+            context.preparation_jobs.active(project_id)
+            if context.preparation_jobs is not None
+            else None
+        )
+        staging = context.preflight.current_staging(project_id)
+        quality = context.quality.current_summary(project_id) if staging else None
+        if quality is not None and quality.staging_run_id != staging.run_id:
+            quality = None
+        normalization = context.normalization.current_summary(project_id) if quality else None
+        if normalization is not None and (
+            normalization.staging_run_id != staging.run_id
+            or normalization.quality_run_id != quality.run_id
+        ):
+            normalization = None
+        preparation_complete = bool(normalization and normalization.frozen)
+        preparation_attention = bool(
+            normalization
+            and not normalization.frozen
+            and normalization.decisions_left
+        )
+        preparation_status = (
+            "complete"
+            if preparation_complete
+            else (
+                "attention"
+                if preparation_attention
+                else "current"
+            )
+        )
+        preparation_label = (
+            "Complete"
+            if preparation_complete
+            else (
+                "Needs attention"
+                if preparation_attention
+                else ("In progress" if active_job is not None else "Current")
+            )
+        )
+        stages.append(
+            _stage(
+                project_id,
+                "prepare",
+                4,
+                "Prepare data",
+                "/prepare",
+                status=preparation_status,
+                status_label=preparation_label,
+                pages=(
+                    _page(
+                        project_id,
+                        "prepare",
+                        "Prepare captured records",
+                        "/prepare",
+                        complete=staging is not None,
+                    ),
+                    _page(
+                        project_id,
+                        "normalization",
+                        "Review prepared changes",
+                        "/normalization",
+                        complete=preparation_complete,
+                    ),
+                ),
+            )
+        )
+        stages.extend(
+            WorkflowStage(
+                stage_id=stage_id,
+                number=number,
+                label=label,
+                href=None,
+                status="locked",
+                status_label="Not yet available",
+            )
+            for stage_id, number, label in (
+                ("review", 5, "Final review"),
+                ("load", 6, "Load into Odoo"),
+            )
+        )
         return _navigation(
             current_project,
             template_name,
@@ -603,6 +733,7 @@ def build_project_navigation(
         preview = None
         load_status = "attention"
         load_label = "Needs attention"
+    reconciliation = None
     if preview is not None:
         if preview.snapshot.write_count == 0:
             load_status = "complete"
@@ -620,6 +751,63 @@ def build_project_navigation(
                 load_label = "Needs attention"
             else:
                 load_label = "Verify outcome"
+        elif not preview.can_load:
+            load_status = "attention"
+            load_label = "Needs attention"
+    review_page = _page(
+        project_id,
+        "load-review",
+        "Check changes",
+        "/load/review",
+        complete=preview is not None,
+        attention=preview is not None and not preview.can_load,
+    )
+    if preview is not None and preview.current_run is not None:
+        confirm_page = WorkflowPage(
+            page_id="load-confirm",
+            label="Confirm and load",
+            href=None,
+            status="complete",
+            status_label="Complete",
+        )
+        outcome_page = _page(
+            project_id,
+            "load-outcome",
+            "Verify result",
+            "/load/outcome",
+            complete=(
+                reconciliation is not None
+                and reconciliation.status is ReconciliationRunStatus.VERIFIED
+            ),
+            attention=(
+                reconciliation is None
+                or reconciliation.status is not ReconciliationRunStatus.VERIFIED
+            ),
+        )
+    else:
+        confirm_page = (
+            _page(
+                project_id,
+                "load-confirm",
+                "Confirm and load",
+                "/load/confirm",
+            )
+            if preview is not None and preview.can_load
+            else WorkflowPage(
+                page_id="load-confirm",
+                label="Confirm and load",
+                href=None,
+                status="locked",
+                status_label="Review first",
+            )
+        )
+        outcome_page = WorkflowPage(
+            page_id="load-outcome",
+            label="Verify result",
+            href=None,
+            status="locked",
+            status_label="Not started",
+        )
     stages.append(
         _stage(
             project_id,
@@ -629,16 +817,7 @@ def build_project_navigation(
             "/load",
             status=load_status,
             status_label=load_label,
-            pages=(
-                _page(
-                    project_id,
-                    "load",
-                    "Preview, load and verify",
-                    "/load",
-                    complete=load_status == "complete",
-                    attention=load_status == "attention",
-                ),
-            ),
+            pages=(review_page, confirm_page, outcome_page),
         )
     )
     return _navigation(

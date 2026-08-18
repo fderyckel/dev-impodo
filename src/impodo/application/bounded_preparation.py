@@ -42,7 +42,7 @@ from ..domain.staging.evaluator import (
 )
 from ..domain.coverage import ReferenceBundle
 from ..domain.source_snapshot import SourceSnapshot
-from ..domain.source_binding import require_file_source
+from ..domain.source_binding import SourceOriginKind, require_file_source
 from ..domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
     PreparedCanonicalProjection,
@@ -301,26 +301,40 @@ def prepare_bounded_direct_session(
     try:
         for effective in effective_selection.datasets:
             physical = physical_by_id[effective.dataset_id]
-            binding = require_file_source(physical.source)
+            binding = physical.source
             mapping = mapping_by_id[effective.dataset_id]
-            source_file = source_file_by_id.get(binding.file_id)
-            catalog = catalog_by_file.get(binding.file_id)
-            table_catalog = next(
-                (
-                    item
-                    for item in (catalog.tables if catalog else ())
-                    if item.table_key == binding.table_key
-                ),
-                None,
-            )
-            if source_file is None or catalog is None or table_catalog is None:
-                raise ReadinessError("Frozen source evidence is incomplete")
-            named_range = (
-                table_catalog.named_tables[0].cell_range
-                if table_catalog.kind == "NAMED_TABLE" and table_catalog.named_tables
-                else None
-            )
             snapshot = snapshot_by_dataset.get(physical.dataset_id)
+            source_file: SourceFile | None = None
+            named_range: str | None = None
+            if physical.origin is SourceOriginKind.FILE:
+                file_binding = require_file_source(binding)
+                source_file = source_file_by_id.get(file_binding.file_id)
+                catalog = catalog_by_file.get(file_binding.file_id)
+                table_catalog = next(
+                    (
+                        item
+                        for item in (catalog.tables if catalog else ())
+                        if item.table_key == file_binding.table_key
+                    ),
+                    None,
+                )
+                if source_file is None or catalog is None or table_catalog is None:
+                    raise ReadinessError("Frozen source evidence is incomplete")
+                named_range = (
+                    table_catalog.named_tables[0].cell_range
+                    if (
+                        table_catalog.kind == "NAMED_TABLE"
+                        and table_catalog.named_tables
+                    )
+                    else None
+                )
+            elif physical.origin is SourceOriginKind.ODOO:
+                if snapshot is None:
+                    raise ReadinessError(
+                        "Pinned Odoo preparation requires its frozen snapshot"
+                    )
+            else:
+                raise ReadinessError("Frozen source evidence is incomplete")
             columnar = columnar_by_id[effective.dataset_id]
             if columnar.support is ColumnarSupport.SUPPORTED:
                 if snapshot is None:
@@ -404,6 +418,7 @@ def prepare_bounded_direct_session(
                             )
                             continue
 
+                        _require_python_row_adaptation_capacity(total_rows)
                         sessions.bind_prepared_canonical_projection(
                             project.project_id,
                             session.session_id,
@@ -612,6 +627,19 @@ def prepare_bounded_direct_session(
         raise
 
 
+def _require_python_row_adaptation_capacity(total_rows: int) -> None:
+    """Keep a data-dependent native miss inside the proven Python boundary."""
+
+    if total_rows <= BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:
+        return
+    raise ReadinessError(
+        "This prepared data requires the bounded compatibility checker, but "
+        f"this project contains {total_rows:,} rows. That route safely "
+        f"supports up to {BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:,} "
+        "rows. Split the source into smaller projects; no data was changed."
+    )
+
+
 def _canonical_session_row(
     record: PreparedRecord,
     *,
@@ -778,7 +806,7 @@ def _open_preparation_source(
     project: MigrationProject,
     selection: SourceSelection,
     dataset: SourceDataset,
-    source_file: SourceFile,
+    source_file: SourceFile | None,
     artifacts: ArtifactStore,
     snapshot: SourceSnapshot | None,
     *,
@@ -805,6 +833,9 @@ def _open_preparation_source(
             raise ReadinessError(
                 "The frozen source snapshot could not be verified"
             ) from error
+
+    if source_file is None:
+        raise ReadinessError("The frozen source snapshot is required")
 
     with artifacts.materialize_source(
         project.project_id,

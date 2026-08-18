@@ -28,9 +28,11 @@ The next unconditional goal is to qualify complete related and mixed-dataset
 workflows at 100,000 physical rows without changing evidence semantics.
 
 The scoped [Odoo source import and round-trip update implementation
-plan](odoo-source-import-plan.md) describes how existing Odoo records could
-become governed Impodo source data. It is a proposal and does not displace the
-unconditional preparation-scale goal above.
+plan](odoo-source-import-plan.md) tracks existing Odoo records as governed
+Impodo source data. Capture and offline pinned preparation are
+implemented through Phase 5; protected three-way comparison and later write
+phases remain planned. This work does not displace the unconditional
+preparation-scale goal above.
 
 The scoped [high-volume transformation architecture implementation
 plan](transformation-scale-architecture-plan.md) expands the first goal with a

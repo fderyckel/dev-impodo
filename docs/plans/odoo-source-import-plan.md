@@ -2,12 +2,14 @@
 
 ## Status and authority
 
-**Status:** Repository-checked implementation proposal, revised 2026-08-12.
+**Status:** Active implementation plan, revised 2026-08-18. Phases 1–5 are
+implemented; Phases 6–9 remain open.
 
 This document defines a scoped delivery path for using Odoo 19 records as
 governed Impodo source data and, when explicitly authorized, applying reviewed
-transformations back to the same Odoo database. It does not describe current
-behavior and does not replace the priority order in
+transformations back to the same Odoo database. The progress section separates
+implemented behavior from the remaining proposal. This plan does not replace
+the priority order in
 [Impodo remaining work](remaining-work.md).
 
 The first supported profile is intentionally narrow: one exact Odoo 19
@@ -24,7 +26,7 @@ numeric Odoo IDs. The remaining phased sequence resolves that and the other
 constraints explicitly rather than treating source capture as an adapter-only
 change.
 
-**Implementation progress (2026-08-12):**
+**Implementation progress (2026-08-18):**
 
 - Slice 1 is implemented in the current schema: persisted `FILE`/`ODOO` source
   mode, conditional registration/file-intake rules, the Odoo-only setup path,
@@ -119,6 +121,17 @@ change.
   the current published row count and immutable retained manifest history with
   zero Odoo traffic. A failed, stopped, or restarted candidate never replaces
   the previous current roots.
+- Slice 11 completes Phase 5. Mapping contract version 10 adds the explicit
+  `odoo_pinned_update` mode and hash-bound per-field write approvals. The
+  source model is fixed, create fallback and portable business identities are
+  forbidden, and every write mapping requires a captured baseline plus strict
+  stored/writable Tier-1 metadata. The browser presents those approvals as
+  separate unchecked decisions. Protected origins are verified once before
+  preparation, then the existing snapshot, transformation, staging, quality,
+  normalization, impact, accounting, and lineage path runs fully offline.
+  Empty portable identities are not grouped as duplicates; ordinary file
+  identity checks remain unchanged. Final review and load remain locked until
+  their later phases.
 - The current permission hash covers directly observed group membership and
   model-level read outcomes, not a complete fingerprint of all ACL/record-rule
   definitions. Local no-key shell metadata also remains explicitly unverified.
@@ -1039,7 +1052,7 @@ Slice 10 owns the governed browser action and session-scoped job control plane.
 **Exit gate**
 
 - The origin-neutral middle processes every captured row offline while the
-  target-bound identity remains protected and update-only.
+  target-bound identity remains protected and update-only. **Met.**
 
 ### Phase 6 — Read-only three-way comparison
 

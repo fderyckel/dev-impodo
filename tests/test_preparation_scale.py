@@ -40,6 +40,7 @@ from impodo.domain.coverage import (
     ReferenceEntry,
     ReferenceValueKind,
 )
+from impodo.domain.errors import ReadinessError
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
 from impodo.domain.mapping.contracts import (
     BusinessControlTotal,
@@ -2740,6 +2741,49 @@ class BoundedPreparationParityTests(unittest.TestCase):
         assert staging is not None
         self.assertEqual(staging.total_rows, 5)
         self.assertEqual(summary.project_id, project_id)
+
+    def test_native_projection_miss_above_python_limit_fails_closed(self) -> None:
+        project_id, _source_hash, _source_size = (
+            PreparationWorkflowScaleTests._prepare_project_and_evidence(
+                self,
+                row_count=5,
+                column_count=5,
+                mapped_field_count=5,
+                dirty=True,
+            )
+        )
+
+        with (
+            patch(
+                "impodo.adapters.duckdb.preparation_session_repository."
+                "supports_clean_native_projection",
+                return_value=False,
+            ),
+            patch.object(
+                bounded_preparation_module,
+                "BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT",
+                4,
+            ),
+            self.assertRaisesRegex(
+                ReadinessError,
+                "requires the bounded compatibility checker",
+            ),
+        ):
+            self.context.preparation.prepare(
+                project_id,
+                actor=self.context.actor,
+            )
+
+        database_path = self.root / project_id / "project.duckdb"
+        with self.context.preparation.staging._connect(database_path) as connection:
+            session = connection.execute(
+                "SELECT status, failure_code FROM preparation_session"
+            ).fetchone()
+            current = connection.execute(
+                "SELECT COUNT(*) FROM canonical_staging_current"
+            ).fetchone()
+        self.assertEqual(session, ("FAILED", "BOUNDED_PREPARATION_FAILED"))
+        self.assertEqual(current, (0,))
 
     def test_sparse_quality_manifest_failure_rolls_back_quality(self) -> None:
         project_id, _source_hash, _source_size = (

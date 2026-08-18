@@ -29,8 +29,8 @@ from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
 
-MAPPING_CONTRACT_VERSION = 9
-SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset({8, 9})
+MAPPING_CONTRACT_VERSION = 10
+SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset({8, 9, 10})
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 MAX_CONTROL_TOTALS_PER_DATASET = 3
@@ -42,6 +42,7 @@ class MappingTargetMode(StrEnum):
     UPSERT = "upsert"
     CREATE = "create"
     REFERENCE = "reference"
+    ODOO_PINNED_UPDATE = "odoo_pinned_update"
 
 
 class ResolverOrigin(StrEnum):
@@ -305,10 +306,22 @@ class DatasetMapping:
     fields: tuple[ScalarFieldMapping, ...] = ()
     relationships: tuple[RelationshipMapping, ...] = ()
     target_field_dispositions: tuple[TargetFieldDisposition, ...] = ()
+    approved_write_fields: tuple[str, ...] = ()
     control_totals: tuple["BusinessControlTotal", ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", MappingTargetMode(self.mode))
+        approved_write_fields = tuple(sorted(set(self.approved_write_fields)))
+        if any(
+            not item.strip() or len(item) > 200
+            for item in approved_write_fields
+        ):
+            raise ValueError("Approved Odoo write field is invalid")
+        object.__setattr__(
+            self,
+            "approved_write_fields",
+            approved_write_fields,
+        )
         if len(self.control_totals) > MAX_CONTROL_TOTALS_PER_DATASET:
             raise ValueError(
                 "A dataset has too many declared business control totals"
@@ -370,6 +383,14 @@ class MappingDefinition:
             raise ValueError(
                 "Target-field dispositions require mapping contract version 9"
             )
+        if self.contract_version < 10 and any(
+            dataset.approved_write_fields
+            or dataset.mode is MappingTargetMode.ODOO_PINNED_UPDATE
+            for dataset in self.datasets
+        ):
+            raise ValueError(
+                "Pinned Odoo updates require mapping contract version 10"
+            )
 
     @property
     def content_hash(self) -> str:
@@ -415,6 +436,9 @@ class MappingDefinition:
                                     ),
                                 )
                             ),
+                            approved_write_fields=tuple(
+                                sorted(item.approved_write_fields)
+                            ),
                             control_totals=tuple(
                                 sorted(
                                     item.control_totals,
@@ -459,7 +483,10 @@ class MappingDefinition:
             source_selection_hash=str(payload["source_selection_hash"]),
             schema_hash=str(payload["schema_hash"]),
             datasets=tuple(
-                _dataset_mapping_from_dict(item)
+                _dataset_mapping_from_dict(
+                    item,
+                    contract_version=int(payload["contract_version"]),
+                )
                 for item in payload["datasets"]
             ),
         )
@@ -475,7 +502,11 @@ class MappingDefinition:
 
 
 
-def _dataset_mapping_from_dict(payload: Mapping[str, Any]) -> DatasetMapping:
+def _dataset_mapping_from_dict(
+    payload: Mapping[str, Any],
+    *,
+    contract_version: int,
+) -> DatasetMapping:
     return DatasetMapping(
         dataset_id=str(payload["dataset_id"]),
         target_model=str(payload.get("target_model", "")),
@@ -512,6 +543,11 @@ def _dataset_mapping_from_dict(payload: Mapping[str, Any]) -> DatasetMapping:
             )
             for item in payload.get("target_field_dispositions", ())
         ),
+        approved_write_fields=(
+            tuple(payload.get("approved_write_fields", ()))
+            if contract_version >= 10
+            else ()
+        ),
         control_totals=tuple(
             BusinessControlTotal(
                 name=str(item["name"]),
@@ -533,6 +569,8 @@ def _dataset_mapping_to_dict(
     payload = asdict(mapping)
     if contract_version < 9:
         payload.pop("target_field_dispositions", None)
+    if contract_version < 10:
+        payload.pop("approved_write_fields", None)
     return _portable(payload)
 
 

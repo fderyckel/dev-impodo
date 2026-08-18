@@ -88,7 +88,12 @@ class TargetSpec(StrictModel):
     """Target Odoo model and create/upsert/reference behavior."""
 
     model: str = Field(min_length=3)
-    mode: Literal["upsert", "create", "reference"] = "upsert"
+    mode: Literal[
+        "upsert",
+        "create",
+        "reference",
+        "odoo_pinned_update",
+    ] = "upsert"
     on_existing: Literal["block", "unchanged"] | None = None
 
     @model_validator(mode="after")
@@ -250,14 +255,14 @@ class IdentityComponent(StrictModel):
 class TargetIdentitySpec(StrictModel):
     """Ordered target business identity plus optional uniqueness scope."""
 
-    components: tuple[IdentityComponent, ...] = Field(min_length=1)
+    components: tuple[IdentityComponent, ...] = ()
     scope: tuple[IdentityComponent, ...] = ()
 
 
 class SourceIdentitySpec(StrictModel):
     """Ordered source trace key used for duplicate detection and relations."""
 
-    fields: tuple[str, ...] = Field(min_length=1)
+    fields: tuple[str, ...] = ()
 
 
 class DatasetSpec(StrictModel):
@@ -280,6 +285,23 @@ class DatasetSpec(StrictModel):
         if overlap:
             raise ValueError(
                 f"target fields cannot be both scalar and relational: {sorted(overlap)}"
+            )
+        pinned = self.target.mode == "odoo_pinned_update"
+        if pinned and (
+            self.source_identity.fields
+            or self.target_identity.components
+            or self.target_identity.scope
+            or self.relations
+        ):
+            raise ValueError(
+                "odoo_pinned_update uses protected origins and scalar fields only"
+            )
+        if not pinned and (
+            not self.source_identity.fields
+            or not self.target_identity.components
+        ):
+            raise ValueError(
+                "source and target identities are required outside pinned updates"
             )
         return self
 

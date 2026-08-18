@@ -16,7 +16,7 @@ See ``docs/architecture/python-code-map.md``,
 from __future__ import annotations
 
 from contextlib import ExitStack
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Protocol
 
 from ..access import Actor, AuthorizationPolicy, Capability
 from ..artifacts import ArtifactStore, ArtifactStoreError
@@ -24,7 +24,16 @@ from ..derived_entities import DerivedEntityPlan
 from ..domain.contracts import TRANSFORMATION_IMPACT_DETAIL_LIMIT
 from ..domain.coverage import ReferenceBundle
 from ..domain.source_snapshot import SourceSnapshot
-from ..domain.source_binding import require_file_source
+from ..domain.odoo_provenance import (
+    OdooCaptureManifest,
+    OdooCaptureOriginHeader,
+    OdooOriginBatch,
+)
+from ..domain.source_binding import (
+    OdooSourceBinding,
+    SourceOriginKind,
+    require_file_source,
+)
 from ..domain.staging.evaluator import (
     StagedBrowserMapping,
     evaluate_browser_mapping,
@@ -46,10 +55,29 @@ from ..source_snapshot_io import (
 )
 from ..workspace_contracts import SourceSelection
 from ..domain.errors import ReadinessError
+from ..workspace_errors import WorkspaceError
 from .bounded_preparation import (
     prepare_bounded_direct_session,
     supports_bounded_direct_preparation,
 )
+
+
+class PreparationOdooProvenance(Protocol):
+    """Read the protected capture root once before offline preparation."""
+
+    def current_manifest(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+    ) -> OdooCaptureManifest | None: ...
+
+    def read_current_origins(
+        self,
+        project_id: str,
+        *,
+        actor: Actor,
+    ) -> tuple[OdooCaptureOriginHeader, tuple[OdooOriginBatch, ...]] | None: ...
 from .normalization_service import NormalizationService
 from .preparation_capability import compile_preparation_capability
 from .quality_service import QualityService
@@ -87,6 +115,7 @@ class PreparationService:
         quality: QualityService,
         normalization: NormalizationService,
         resolution: ResolutionService | None = None,
+        odoo_provenance: PreparationOdooProvenance | None = None,
     ) -> None:
         self.projects = projects
         self.sources = sources
@@ -99,6 +128,7 @@ class PreparationService:
         self.quality = quality
         self.normalization = normalization
         self.resolution = resolution
+        self.odoo_provenance = odoo_provenance
 
     def prepare(
         self,
@@ -155,6 +185,13 @@ class PreparationService:
         if physical_selection is None:
             raise ReadinessError("Freeze the source datasets before checking data")
         source_snapshots = self.sources.get_current_source_snapshots(project_id)
+        _verify_odoo_preparation_evidence(
+            project_id,
+            physical_selection,
+            source_snapshots,
+            self.odoo_provenance,
+            actor=actor,
+        )
         total_rows = sum(item.row_count for item in physical_selection.datasets)
         source_hashes = canonical_source_hashes(physical_selection)
         effective_selection = self.sources.get_mapping_source_selection(project_id)
@@ -377,10 +414,10 @@ class PreparationService:
 
 
 def canonical_source_hashes(selection: SourceSelection) -> dict[str, str]:
-    """Return one canonical content hash for every frozen source file.
+    """Return canonical evidence hashes without exposing protected Odoo IDs.
 
-    Conflicting dataset bindings for the same file fail closed so staging and
-    normalization evidence cannot claim two source contents for one file ID.
+    File projects retain their file-ID keys. A pinned Odoo capture is keyed by
+    its frozen dataset name and carries only the capture-selection hash.
     """
 
     invalid_message = (
@@ -389,13 +426,20 @@ def canonical_source_hashes(selection: SourceSelection) -> dict[str, str]:
     )
     source_hashes: dict[str, str] = {}
     for dataset in selection.datasets:
-        binding = require_file_source(dataset.source)
-        file_id = binding.file_id
-        source_hash = binding.source_sha256
+        origin = getattr(dataset, "origin", dataset.source.origin)
+        if origin is SourceOriginKind.FILE:
+            binding = require_file_source(dataset.source)
+            source_key = binding.file_id
+            source_hash = binding.source_sha256
+        elif origin is SourceOriginKind.ODOO:
+            source_key = dataset.name
+            source_hash = dataset.source_evidence_hash
+        else:
+            raise ReadinessError(invalid_message)
         if (
-            not isinstance(file_id, str)
-            or not file_id.strip()
-            or file_id != file_id.strip()
+            not isinstance(source_key, str)
+            or not source_key.strip()
+            or source_key != source_key.strip()
             or not isinstance(source_hash, str)
         ):
             raise ReadinessError(invalid_message)
@@ -407,12 +451,89 @@ def canonical_source_hashes(selection: SourceSelection) -> dict[str, str]:
         except ValueError as error:
             raise ReadinessError(invalid_message) from error
         canonical_hash = f"sha256:{digest.casefold()}"
-        existing = source_hashes.setdefault(file_id, canonical_hash)
+        existing = source_hashes.setdefault(source_key, canonical_hash)
         if existing != canonical_hash:
             raise ReadinessError(invalid_message)
     if not source_hashes:
         raise ReadinessError(invalid_message)
     return dict(sorted(source_hashes.items()))
+
+
+def _verify_odoo_preparation_evidence(
+    project_id: str,
+    selection: SourceSelection,
+    snapshots: Iterable[SourceSnapshot],
+    provenance: PreparationOdooProvenance | None,
+    *,
+    actor: Actor,
+) -> None:
+    """Fail closed on stale Odoo values/origins without contacting Odoo."""
+
+    datasets = tuple(selection.datasets)
+    origins = tuple(
+        getattr(item, "origin", item.source.origin) for item in datasets
+    )
+    if not any(origin is SourceOriginKind.ODOO for origin in origins):
+        return
+    invalid_message = (
+        "Impodo could not verify the protected Odoo capture. "
+        "Refresh the captured records before preparing data."
+    )
+    if (
+        len(datasets) != 1
+        or origins[0] is not SourceOriginKind.ODOO
+        or provenance is None
+    ):
+        raise ReadinessError(invalid_message)
+    dataset = datasets[0]
+    binding = dataset.source
+    if not isinstance(binding, OdooSourceBinding):
+        raise ReadinessError(invalid_message)
+    snapshot_by_dataset = {item.dataset_id: item for item in snapshots}
+    snapshot = snapshot_by_dataset.get(dataset.dataset_id)
+    if snapshot is None or len(snapshot_by_dataset) != 1:
+        raise ReadinessError(invalid_message)
+    try:
+        validate_snapshot_for_dataset(selection, dataset, snapshot)
+        manifest = provenance.current_manifest(project_id, actor=actor)
+        protected = provenance.read_current_origins(project_id, actor=actor)
+    except (WorkspaceError, ArtifactStoreError, ValueError) as error:
+        raise ReadinessError(invalid_message) from error
+    if manifest is None or protected is None:
+        raise ReadinessError(invalid_message)
+    _header, batches = protected
+    if any(
+        (
+            manifest.project_id != project_id,
+            manifest.selection_hash != binding.capture_selection_hash,
+            manifest.policy_hash != binding.policy_hash,
+            manifest.dataset_id != dataset.dataset_id,
+            manifest.dataset_name != dataset.name,
+            manifest.model != binding.model,
+            manifest.field_names
+            != tuple(sorted(column.source_name for column in dataset.columns)),
+            manifest.column_stable_keys
+            != tuple(column.stable_key for column in dataset.columns),
+            manifest.connection_target_hash != binding.connection_target_hash,
+            manifest.schema_scope_hash != binding.schema_scope_hash,
+            manifest.read_principal_hash != binding.read_principal_hash,
+            manifest.read_permission_hash != binding.read_permission_hash,
+            manifest.context_hash != binding.context_hash,
+            manifest.row_count != dataset.row_count,
+            manifest.row_count != snapshot.row_count,
+            manifest.data_logical_hash != snapshot.data_logical_hash,
+            manifest.data_sha256 != snapshot.parquet_sha256,
+            manifest.data_storage_key != snapshot.parquet_storage_key,
+        )
+    ):
+        raise ReadinessError(invalid_message)
+    expected_ordinal = 1
+    for batch in batches:
+        if batch.first_row_ordinal != expected_ordinal:
+            raise ReadinessError(invalid_message)
+        expected_ordinal += batch.row_count
+    if expected_ordinal - 1 != manifest.row_count:
+        raise ReadinessError(invalid_message)
 
 
 def stage_browser_mapping(

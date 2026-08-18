@@ -36,6 +36,7 @@ from ...value_rules import (
     ScalarValidationPolicy,
     TextTransformStep,
 )
+from ...domain.source_binding import OdooSourceBinding, SourceOriginKind
 from ...projects import MigrationProject, ProjectStatus
 from ...reference_keys import standard_reference_key
 from ...workspace_errors import WorkspaceError
@@ -107,6 +108,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                 f"visible_scalar_target_{dataset_index}",
                 f"visible_relation_target_{dataset_index}",
                 f"target_field_disposition_{dataset_index}",
+                f"approved_write_field_{dataset_index}",
             }
         )
         target_model = _text(form, f"target_model_{dataset_index}")
@@ -203,12 +205,23 @@ def _mapping_datasets_from_form(
     keys = _available_mapping_business_keys(schema, governance)
     datasets: list[DatasetMapping] = []
     for dataset_index, source_dataset in enumerate(selection.datasets):
+        pinned_update = source_dataset.origin is SourceOriginKind.ODOO
         target_model = _text(form, f"target_model_{dataset_index}")
+        if pinned_update:
+            binding = source_dataset.source
+            if not isinstance(binding, OdooSourceBinding):
+                raise WorkspaceError("The protected Odoo source is not current")
+            if target_model != binding.model:
+                raise WorkspaceError(
+                    "Captured Odoo records must stay on their originating model"
+                )
         model = models.get(target_model)
         if model is None:
             raise WorkspaceError("Choose a captured target model")
-        selected_key = keys.get(
-            _text(form, f"business_key_{dataset_index}")
+        selected_key = (
+            None
+            if pinned_update
+            else keys.get(_text(form, f"business_key_{dataset_index}"))
         )
         if selected_key is not None and selected_key.model != target_model:
             raise WorkspaceError("Target business key does not match its model")
@@ -592,6 +605,10 @@ def _mapping_datasets_from_form(
         mode = MappingTargetMode(
             _text(form, f"mode_{dataset_index}") or "upsert"
         )
+        if pinned_update and mode is not MappingTargetMode.ODOO_PINNED_UPDATE:
+            raise WorkspaceError(
+                "Captured Odoo records can only use protected update mode"
+            )
         dispositions: list[TargetFieldDisposition] = []
         disposition_targets: set[str] = set()
         for raw_disposition in _texts(
@@ -614,6 +631,21 @@ def _mapping_datasets_from_form(
                 )
             )
             disposition_targets.add(target_field)
+        if pinned_update and dispositions:
+            raise WorkspaceError(
+                "Create-time Odoo field decisions are not valid for captured records"
+            )
+        raw_approved_write_fields = _texts(
+            form,
+            f"approved_write_field_{dataset_index}",
+        )
+        if any(item not in field_by_name for item in raw_approved_write_fields):
+            raise WorkspaceError("An approved Odoo update field is not current")
+        approved_write_fields = tuple(sorted(set(raw_approved_write_fields)))
+        if not pinned_update and approved_write_fields:
+            raise WorkspaceError(
+                "Odoo update approval is only valid for captured Odoo records"
+            )
         control_totals: list[BusinessControlTotal] = []
         numeric_targets = {
             item.name
@@ -667,11 +699,15 @@ def _mapping_datasets_from_form(
                     else None
                 ),
                 source_identity_column_keys=tuple(
-                    item
-                    for item in _texts(
-                        form, f"source_identity_{dataset_index}"
+                    ()
+                    if pinned_update
+                    else (
+                        item
+                        for item in _texts(
+                            form, f"source_identity_{dataset_index}"
+                        )
+                        if item in source_columns
                     )
-                    if item in source_columns
                 ),
                 target_identity=tuple(identity_components),
                 target_scope=tuple(scope_components),
@@ -693,6 +729,7 @@ def _mapping_datasets_from_form(
                         key=lambda item: item.target_field,
                     )
                 ),
+                approved_write_fields=approved_write_fields,
                 control_totals=tuple(control_totals),
             )
         )
@@ -760,7 +797,12 @@ def _merge_partial_mapping_datasets(
             else None
         )
         if source_dataset.dataset_id != editable_dataset_id:
-            if parsed.fields or parsed.relationships or parsed.control_totals:
+            if (
+                parsed.fields
+                or parsed.relationships
+                or parsed.control_totals
+                or parsed.approved_write_fields
+            ):
                 raise WorkspaceError(
                     "Mapping request changed a dataset that is not being edited"
                 )
@@ -788,6 +830,11 @@ def _merge_partial_mapping_datasets(
                         else ()
                     ),
                     target_field_dispositions=existing_dispositions,
+                    approved_write_fields=(
+                        compatible_existing.approved_write_fields
+                        if compatible_existing
+                        else ()
+                    ),
                 )
             )
             continue
@@ -818,6 +865,11 @@ def _merge_partial_mapping_datasets(
         if any(item.target_field not in visible_scalars for item in parsed.fields):
             raise WorkspaceError("Mapping request changed a hidden scalar field")
         if any(
+            item not in visible_scalars
+            for item in parsed.approved_write_fields
+        ):
+            raise WorkspaceError("Mapping request changed a hidden Odoo approval")
+        if any(
             item.target_field not in visible_relations
             for item in parsed.relationships
         ):
@@ -839,6 +891,16 @@ def _merge_partial_mapping_datasets(
         relation_by_target.update(
             {item.target_field: item for item in parsed.relationships}
         )
+        approved_write_fields = {
+            item
+            for item in (
+                compatible_existing.approved_write_fields
+                if compatible_existing
+                else ()
+            )
+            if item not in visible_scalars
+        }
+        approved_write_fields.update(parsed.approved_write_fields)
         identity_targets = {
             target
             for component in (*parsed.target_identity, *parsed.target_scope)
@@ -857,6 +919,7 @@ def _merge_partial_mapping_datasets(
                     for target, item in sorted(relation_by_target.items())
                     if target not in identity_targets
                 ),
+                approved_write_fields=tuple(sorted(approved_write_fields)),
             )
         )
     return tuple(merged)

@@ -42,13 +42,19 @@ source, schema, key, or transformation decision is still changing.
 ## What Complete means
 
 Impodo has a frozen, fully accounted prepared result for the current source,
-schema, and mapping evidence. **Final review** becomes available.
+schema, and mapping evidence. **Final review** becomes available for file
+projects. For captured Odoo records, the prepared result is complete but Final
+review remains locked until the protected three-way comparison is available.
 
 ## What changes and what does not
 
 Preparation publishes local canonical evidence. It does not call Odoo and
 does not change the frozen source. Merge and normalization decisions affect
 the prepared result, not the original evidence.
+
+For captured Odoo records, Impodo verifies the encrypted origin sidecar once,
+then reads only the frozen local snapshot. Protected record IDs remain outside
+the portable prepared rows and reports.
 
 ## Needs attention
 

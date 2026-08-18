@@ -162,19 +162,20 @@ def append_clean_native_projection(
         """,
         params,
     )
-    connection.execute(
-        f"""
-        INSERT INTO preparation_direct_identity (
-            session_id, ordinal, dataset, identity_hash,
-            base_disposition, finalized_duplicate
+    if program.source_identity:
+        connection.execute(
+            f"""
+            INSERT INTO preparation_direct_identity (
+                session_id, ordinal, dataset, identity_hash,
+                base_disposition, finalized_duplicate
+            )
+            SELECT {_literal(session_id)}, {ordinal}, {_literal(projection.dataset)},
+                   identity_hash, {_literal(base_disposition)}, FALSE
+              FROM ({relation}) AS projected
+             ORDER BY {_identifier(SOURCE_ROW_COLUMN)}
+            """,
+            params,
         )
-        SELECT {_literal(session_id)}, {ordinal}, {_literal(projection.dataset)},
-               identity_hash, {_literal(base_disposition)}, FALSE
-          FROM ({relation}) AS projected
-         ORDER BY {_identifier(SOURCE_ROW_COLUMN)}
-        """,
-        params,
-    )
 
     relationship_items = _relationship_items_sql(projection, layout)
     if relationship_items:

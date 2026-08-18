@@ -1637,7 +1637,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.assertEqual(page.status_code, 200)
         self.assertEqual(page.text.count("data-load-row"), 20)
-        self.assertIn("Showing 21-40 of 55 rows", page.text)
+        self.assertIn("Showing 21-40 of 55 records", page.text)
         self.assertIn("Rows per page:", page.text)
         self.assertIn(">20</a>", page.text)
         self.assertIn(">50</a>", page.text)
@@ -1645,6 +1645,88 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("row 21", page.text)
         self.assertIn("row 40", page.text)
         self.assertNotIn("row 41", page.text)
+
+    def test_load_review_separates_read_only_review_from_confirmation(self) -> None:
+        context = self.app.state.context
+        project = context.projects.create_project(
+            actor=context.actor,
+            name="Staged load review",
+            source_system="Other",
+        )
+        project = context.projects.update_target(
+            project.project_id,
+            actor=context.actor,
+            expected_revision=project.revision,
+            odoo_connection_mode="REMOTE",
+            odoo_base_url="https://odoo.example.test",
+            odoo_database="migration",
+            intended_applications=("Contacts",),
+            intended_models=(),
+        )
+        preview = SimpleNamespace(
+            snapshot=SimpleNamespace(
+                counts={"CREATE": 2, "UPDATE": 1, "UNCHANGED": 4},
+                write_count=3,
+                target_database="migration",
+                target_odoo_version="19.0",
+                semantic_hash="sha256:" + "a" * 64,
+                target_hash="sha256:" + "b" * 64,
+            ),
+            datasets=(),
+            current_run=None,
+            can_load=True,
+            scope_error="",
+            deferred_create_count=0,
+        )
+
+        with (
+            patch.object(
+                type(context.execution),
+                "current_preview",
+                return_value=preview,
+            ),
+            patch.object(
+                type(context.reconciliation),
+                "current",
+                return_value=None,
+            ),
+        ):
+            review = self.client.get(
+                f"/projects/{project.project_id}/load/review"
+            )
+            confirm = self.client.get(
+                f"/projects/{project.project_id}/load/confirm"
+            )
+            outcome = self.client.get(
+                f"/projects/{project.project_id}/load/outcome",
+                follow_redirects=False,
+            )
+            preview.can_load = False
+            preview.scope_error = "One reviewed field is no longer available."
+            blocked_confirm = self.client.get(
+                f"/projects/{project.project_id}/load/confirm",
+                follow_redirects=False,
+            )
+
+        self.assertEqual(review.status_code, 200)
+        self.assertIn("Check what will change in Odoo", review.text)
+        self.assertIn("Nothing is written from this page", review.text)
+        self.assertNotIn('name="write_api_key"', review.text)
+        self.assertEqual(confirm.status_code, 200)
+        self.assertIn("Load 3 records into migration", confirm.text)
+        self.assertIn('name="write_api_key"', confirm.text)
+        self.assertIn("Advanced settings", confirm.text)
+        self.assertIn("Load 3 records into Odoo", confirm.text)
+        self.assertEqual(outcome.status_code, 303)
+        self.assertEqual(
+            outcome.headers["location"],
+            f"/projects/{project.project_id}/load/review",
+        )
+        self.assertEqual(blocked_confirm.status_code, 303)
+        self.assertEqual(
+            blocked_confirm.headers["location"],
+            f"/projects/{project.project_id}/load/review",
+        )
 
     def test_local_schema_draft_does_not_call_the_odoo_api(self) -> None:
         context = self.app.state.context
@@ -2151,6 +2233,86 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("2</dd>", frozen_page.text)
         self.assertIn("Immutable audit history", frozen_page.text)
         self.assertIn("Frozen", frozen_page.text)
+
+        mapping_page = self.client.get(f"/projects/{project_id}/mapping")
+        self.assertEqual(mapping_page.status_code, 200)
+        self.assertIn("Update only the records selected from Odoo", mapping_page.text)
+        self.assertIn("Allow Impodo to update this field", mapping_page.text)
+        self.assertIn('value="odoo_pinned_update"', mapping_page.text)
+        self.assertNotIn("Which column uniquely identifies each row?", mapping_page.text)
+        self.assertEqual(tuple(gateway.calls), calls_after_capture)
+
+        source_selection = (
+            self.app.state.context.queries.get_mapping_source_selection(project_id)
+        )
+        self.assertIsNotNone(source_selection)
+        assert source_selection is not None
+        name_row = re.search(
+            r'data-target-field="name".*?name="scalar_value_source_0_(\d+)"',
+            mapping_page.text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(name_row)
+        assert name_row is not None
+        field_index = name_row.group(1)
+        dataset = source_selection.datasets[0]
+        source_column = dataset.columns[0]
+        mapping_entries = [
+            ["csrf_token", self.csrf],
+            ["action", "draft"],
+            ["expected_parent_version", ""],
+            ["expected_working_draft_version", ""],
+            ["editable_dataset_id", dataset.dataset_id],
+            ["target_model_0", "res.partner"],
+            ["mode_0", "odoo_pinned_update"],
+            ["visible_scalar_target_0", "name"],
+            [f"scalar_value_source_0_{field_index}", "source"],
+            [f"scalar_source_0_{field_index}", source_column.stable_key],
+            [f"scalar_type_0_{field_index}", "string"],
+            [f"scalar_compare_0_{field_index}", "1"],
+            ["approved_write_field_0", "name"],
+        ]
+        checked = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            json={"entries": mapping_entries},
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+        self.assertEqual(checked.status_code, 200, checked.text)
+        revision = self.app.state.context.queries.get_mapping_revision(project_id)
+        working = self.app.state.context.queries.get_mapping_working_draft(project_id)
+        self.assertIsNotNone(revision)
+        self.assertIsNotNone(working)
+        assert revision is not None
+        assert working is not None
+        mapping_entries[1] = ["action", "submit"]
+        mapping_entries[2] = ["expected_parent_version", str(revision.version)]
+        mapping_entries[3] = [
+            "expected_working_draft_version",
+            str(working.version),
+        ]
+        submitted = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            json={"entries": mapping_entries},
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        prepared_page = self.client.get(f"/projects/{project_id}/prepare")
+        self.assertEqual(prepared_page.status_code, 200)
+        self.assertIn("Prepare data", prepared_page.text)
+        self.assertEqual(tuple(gateway.calls), calls_after_capture)
+        normalization = self.app.state.context.preparation.prepare(
+            project_id,
+            actor=self.app.state.context.actor,
+        )
+        self.assertEqual(
+            normalization.eligible_record_count,
+            2,
+            self.app.state.context.quality.current_summary(project_id),
+        )
+        normalization_page = self.client.get(f"/projects/{project_id}/normalization")
+        self.assertEqual(normalization_page.status_code, 200)
+        self.assertIn("Review prepared changes", normalization_page.text)
+        self.assertEqual(tuple(gateway.calls), calls_after_capture)
 
     def test_complete_project_setup_registration_without_yaml(self) -> None:
         created = self._post(
@@ -3533,16 +3695,45 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         load_preview = self.app.state.context.execution.current_preview(project_id)
         assert load_preview is not None
-        load_page = self.client.get(f"/projects/{project_id}/load")
+        final_review = self.client.get(f"/projects/{project_id}/summary")
+        self.assertIn("Final review complete", final_review.text)
+        self.assertNotIn("Preview the Odoo load", final_review.text)
+        self.assertLess(
+            final_review.text.index("Checked rows"),
+            final_review.text.index("Final review complete"),
+        )
+        load_landing = self.client.get(
+            f"/projects/{project_id}/load",
+            follow_redirects=False,
+        )
+        self.assertEqual(load_landing.status_code, 303)
+        self.assertTrue(load_landing.headers["location"].endswith("/load/review"))
+        load_page = self.client.get(load_landing.headers["location"])
         self.assertEqual(load_page.status_code, 200)
-        self.assertIn("Review the Odoo load", load_page.text)
-        self.assertIn("Load into Odoo", load_page.text)
-        self.assertIn("reviewed captured Odoo fields", load_page.text)
-        self.assertIn("small batches in dependency order", load_page.text)
-        self.assertIn("stop without retrying", load_page.text)
-        self.assertIn('name="write_api_key"', load_page.text)
-        self.assertIn('name="remember_write_api_key"', load_page.text)
-        self.assertIn("setup read key is never reused here", load_page.text)
+        self.assertIn("Check what will change in Odoo", load_page.text)
+        self.assertIn("Nothing is written from this page", load_page.text)
+        self.assertIn("Reviewed captured Odoo fields only", load_page.text)
+        self.assertIn("Continue to confirmation", load_page.text)
+        self.assertNotIn('name="write_api_key"', load_page.text)
+        outcome_before_load = self.client.get(
+            f"/projects/{project_id}/load/outcome",
+            follow_redirects=False,
+        )
+        self.assertEqual(outcome_before_load.status_code, 303)
+        self.assertTrue(
+            outcome_before_load.headers["location"].endswith("/load/review")
+        )
+        confirmation_page = self.client.get(
+            f"/projects/{project_id}/load/confirm"
+        )
+        self.assertEqual(confirmation_page.status_code, 200)
+        self.assertIn("Confirm the Odoo load", confirmation_page.text)
+        self.assertIn("bounded batches in dependency order", confirmation_page.text)
+        self.assertIn("will not retry blindly", confirmation_page.text)
+        self.assertIn("Advanced settings", confirmation_page.text)
+        self.assertIn('name="write_api_key"', confirmation_page.text)
+        self.assertIn('name="remember_write_api_key"', confirmation_page.text)
+        self.assertIn("setup read key is never reused here", confirmation_page.text)
 
         class FakeWriteExecutor:
             target_hash = load_preview.snapshot.target_hash
@@ -3608,6 +3799,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     return tuple(matches[:2])
                 return (ReadbackRecord(42, {}),) if not fields else ()
 
+            def find_records_many(self, model, lookups):
+                return tuple(
+                    self.find_records(model, lookup.domain, lookup.fields)
+                    for lookup in lookups
+                )
+
             def read_external_ids(self, external_ids):
                 del external_ids
                 return ()
@@ -3637,6 +3834,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(missing_write_key.status_code, 422)
         self.assertIn("Enter a separate Odoo write API key", missing_write_key.text)
+        self.assertIn("Confirm the Odoo load", missing_write_key.text)
         self.assertEqual(write_factory_keys, [])
         self.assertEqual(readback_factory_keys, [])
 
@@ -3658,6 +3856,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Odoo read-back complete", outcome_page.text)
         self.assertIn("Verified in Odoo", outcome_page.text)
         self.assertIn("Odoo now matches every field", outcome_page.text)
+        self.assertIn("Verify result", outcome_page.text)
         self.assertEqual(
             outcome_page.text.count("data-load-row"),
             repeated_report.create_count + repeated_report.update_count,

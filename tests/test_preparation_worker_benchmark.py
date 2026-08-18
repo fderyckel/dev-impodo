@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -9,6 +10,7 @@ from scripts.benchmark_preparation_workers import (
     RESULT_PREFIX,
     _require_comparable_results,
     _require_worktree_unchanged,
+    _worktree_fingerprint,
     extract_result,
     summarize,
 )
@@ -73,6 +75,41 @@ class PreparationWorkerBenchmarkHarnessTests(unittest.TestCase):
                 "worktree changed",
             ):
                 _require_worktree_unchanged("before")
+
+    def test_worktree_fingerprint_includes_git_head(self) -> None:
+        completed = SimpleNamespace(returncode=0, stdout=b"")
+        with (
+            patch(
+                "scripts.benchmark_preparation_workers._revision",
+                side_effect=("before", "before", "after", "after"),
+            ),
+            patch(
+                "scripts.benchmark_preparation_workers.subprocess.run",
+                return_value=completed,
+            ),
+        ):
+            before = _worktree_fingerprint()
+            after = _worktree_fingerprint()
+
+        self.assertNotEqual(before, after)
+
+    def test_worktree_fingerprint_rejects_head_change_during_capture(self) -> None:
+        completed = SimpleNamespace(returncode=0, stdout=b"")
+        with (
+            patch(
+                "scripts.benchmark_preparation_workers._revision",
+                side_effect=("before", "after"),
+            ),
+            patch(
+                "scripts.benchmark_preparation_workers.subprocess.run",
+                return_value=completed,
+            ),
+            self.assertRaisesRegex(
+                PreparationWorkerBenchmarkError,
+                "Git HEAD changed",
+            ),
+        ):
+            _worktree_fingerprint()
 
 
 def _result(

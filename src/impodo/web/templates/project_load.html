@@ -1,94 +1,242 @@
 {% extends "base.html" %}
-{% block title %}Load preview · {{ project.name }} · Impodo{% endblock %}
+{% block title %}Load into Odoo &middot; {{ project.name }} &middot; Impodo{% endblock %}
 {% block content %}
-  <div class="page-heading">
-    <div>
-      <p class="eyebrow">Stage 6 of 6 · Load into Odoo</p>
-      <h1>Review the Odoo load</h1>
-      <p>This is the exact create-and-update set from the latest completed comparison.</p>
-    </div>
-    {% if preview.current_run %}
-      <span class="status {% if reconciliation and reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}">
-        {% if not reconciliation %}Verification pending{% elif reconciliation.status.value == 'VERIFIED' %}Verified in Odoo{% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}Outcome needs checking{% else %}Verified with fallout{% endif %}
-      </span>
-    {% elif preview.can_load %}
-      <span class="status review">Ready for your confirmation</span>
-    {% else %}
-      <span class="status blocked">Cannot load</span>
-    {% endif %}
-  </div>
+  <nav class="load-stepper" aria-label="Load into Odoo progress">
+    <ol>
+      <li class="load-step {% if load_step == 'review' %}current{% else %}complete{% endif %}">
+        {% if load_step == 'review' %}<span aria-current="step">{% else %}<a href="/projects/{{ project.project_id }}/load/review">{% endif %}
+          <span class="load-step-number" aria-hidden="true">1</span>
+          <span><strong>Check changes</strong><small>{% if load_step == 'review' %}Current{% else %}Complete{% endif %}</small></span>
+        {% if load_step == 'review' %}</span>{% else %}</a>{% endif %}
+      </li>
+      <li class="load-step {% if load_step == 'confirm' %}current{% elif preview.current_run %}complete{% elif preview.can_load %}available{% else %}locked{% endif %}">
+        {% if load_step == 'confirm' %}
+          <span aria-current="step">
+        {% elif not preview.current_run and preview.can_load %}
+          <a href="/projects/{{ project.project_id }}/load/confirm">
+        {% else %}
+          <span{% if not preview.current_run %} aria-disabled="true"{% endif %}>
+        {% endif %}
+          <span class="load-step-number" aria-hidden="true">2</span>
+          <span>
+            <strong>Confirm and load</strong>
+            <small>{% if load_step == 'confirm' %}Current{% elif preview.current_run %}Complete{% elif preview.can_load %}Available{% else %}Review first{% endif %}</small>
+          </span>
+        {% if load_step != 'confirm' and not preview.current_run and preview.can_load %}</a>{% else %}</span>{% endif %}
+      </li>
+      <li class="load-step {% if load_step == 'outcome' %}current{% elif preview.current_run %}attention{% else %}locked{% endif %}">
+        {% if load_step == 'outcome' %}
+          <span aria-current="step">
+        {% elif preview.current_run %}
+          <a href="/projects/{{ project.project_id }}/load/outcome">
+        {% else %}
+          <span aria-disabled="true">
+        {% endif %}
+          <span class="load-step-number" aria-hidden="true">3</span>
+          <span>
+            <strong>Verify result</strong>
+            <small>
+              {% if load_step == 'outcome' and reconciliation and reconciliation.status.value == 'VERIFIED' %}Complete
+              {% elif load_step == 'outcome' %}Current
+              {% elif preview.current_run %}Needs review
+              {% else %}Not started{% endif %}
+            </small>
+          </span>
+        {% if load_step != 'outcome' and preview.current_run %}</a>{% else %}</span>{% endif %}
+      </li>
+    </ol>
+  </nav>
 
-  <section class="readiness-cards" aria-label="Load totals">
-    <div class="readiness-card ready">
-      <span>Create</span>
-      <strong>{{ preview.snapshot.counts.get('CREATE', 0) }}</strong>
-      <small>New Odoo records</small>
-    </div>
-    <div class="readiness-card review">
-      <span>Update</span>
-      <strong>{{ preview.snapshot.counts.get('UPDATE', 0) }}</strong>
-      <small>Existing records matched once</small>
-    </div>
-    <div class="readiness-card ready">
-      <span>No change</span>
-      <strong>{{ preview.snapshot.counts.get('UNCHANGED', 0) }}</strong>
-      <small>Left untouched</small>
-    </div>
-  </section>
-
-  <section class="form-card" aria-labelledby="load-scope-title">
-    <div class="page-heading compact">
+  {% if load_step == 'review' %}
+    <div class="page-heading">
       <div>
-        <p class="eyebrow">Destination</p>
-        <h2 id="load-scope-title">{{ preview.snapshot.target_database }}</h2>
-        <p>{{ project.odoo_connection_mode.value|title }} Odoo {{ preview.snapshot.target_odoo_version }} · reviewed captured Odoo fields only</p>
+        <p class="eyebrow">Stage 6 of 6 &middot; Check changes</p>
+        <h1>Check what will change in Odoo</h1>
+        <p>This is the exact create-and-update set from the latest completed comparison. Nothing is written from this page.</p>
       </div>
+      {% if preview.current_run %}
+        <span class="status review">Load already recorded</span>
+      {% elif preview.can_load %}
+        <span class="status ready">Ready for confirmation</span>
+      {% else %}
+        <span class="status blocked">Cannot load</span>
+      {% endif %}
     </div>
-    <div class="table-scroll">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Prepared data</th>
-            <th>Odoo record</th>
-            <th>Create</th>
-            <th>Update</th>
-            <th>No change</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in preview.datasets %}
-            <tr data-load-dataset>
-              <th scope="row">{{ item.dataset }}</th>
-              <td><code>{{ item.target_model }}</code></td>
-              <td>{{ item.create_count }}</td>
-              <td>{{ item.update_count }}</td>
-              <td>{{ item.unchanged_count }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    <details class="technical-details">
-      <summary>Support details</summary>
-      <p>Preview <code>{{ preview.snapshot.semantic_hash }}</code></p>
-      <p>Target <code>{{ preview.snapshot.target_hash }}</code></p>
-    </details>
-  </section>
 
-  {% if preview.current_run %}
+    <section class="readiness-cards" aria-label="Odoo change totals">
+      <div class="readiness-card ready">
+        <span>New records</span>
+        <strong>{{ preview.snapshot.counts.get('CREATE', 0) }}</strong>
+        <small>Will be created in Odoo</small>
+      </div>
+      <div class="readiness-card review">
+        <span>Existing records changed</span>
+        <strong>{{ preview.snapshot.counts.get('UPDATE', 0) }}</strong>
+        <small>Matched records with changed values</small>
+      </div>
+      <div class="readiness-card ready">
+        <span>Already up to date</span>
+        <strong>{{ preview.snapshot.counts.get('UNCHANGED', 0) }}</strong>
+        <small>Will remain untouched</small>
+      </div>
+    </section>
+
+    <section class="form-card" aria-labelledby="load-scope-title">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Odoo database</p>
+          <h2 id="load-scope-title">{{ preview.snapshot.target_database }}</h2>
+          <p>{{ project.odoo_connection_mode.value|title }} test &middot; Odoo {{ preview.snapshot.target_odoo_version }}</p>
+        </div>
+        <span class="status review">Explicit action only</span>
+      </div>
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Prepared data</th>
+              <th>Odoo record type</th>
+              <th>New</th>
+              <th>Changed</th>
+              <th>Up to date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in preview.datasets %}
+              <tr data-load-dataset>
+                <th scope="row">{{ item.dataset.replace('_', ' ')|title }}</th>
+                <td>{{ item.target_model }}</td>
+                <td>{{ item.create_count }}</td>
+                <td>{{ item.update_count }}</td>
+                <td>{{ item.unchanged_count }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <details class="technical-details">
+        <summary>Support details</summary>
+        <p>Reviewed captured Odoo fields only.</p>
+        <p>Preview <code>{{ preview.snapshot.semantic_hash }}</code></p>
+        <p>Target <code>{{ preview.snapshot.target_hash }}</code></p>
+      </details>
+    </section>
+
+    {% if preview.current_run %}
+      <section class="next-action-card review" aria-labelledby="review-outcome-title">
+        <div>
+          <p class="eyebrow">Load already recorded</p>
+          <h2 id="review-outcome-title">Continue with the saved result</h2>
+          <p>This reviewed preview cannot be loaded again. Verify the durable Odoo outcome instead.</p>
+        </div>
+        <a class="button primary" href="/projects/{{ project.project_id }}/load/outcome">View verification result</a>
+      </section>
+    {% elif preview.can_load %}
+      <section class="next-action-card ready" aria-labelledby="review-complete-title">
+        <div>
+          <p class="eyebrow">Review complete</p>
+          <h2 id="review-complete-title">Continue to confirmation</h2>
+          <p>The next page repeats the target and totals before asking for the separate Odoo write key. Nothing has been written yet.</p>
+        </div>
+        <a class="button primary" href="/projects/{{ project.project_id }}/load/confirm">Continue to confirmation</a>
+      </section>
+    {% else %}
+      <section class="next-action-card blocked" aria-labelledby="load-blocked-title">
+        <div>
+          <p class="eyebrow">Load unavailable</p>
+          <h2 id="load-blocked-title">Return to the final review</h2>
+          <p>{{ preview.scope_error or 'Resolve every row needing attention, or compare again if this review is no longer current.' }}</p>
+        </div>
+        <a class="button primary" href="/projects/{{ project.project_id }}/summary">Back to final review</a>
+      </section>
+    {% endif %}
+
+  {% elif load_step == 'confirm' %}
+    <div class="page-heading">
+      <div>
+        <p class="eyebrow">Stage 6 of 6 &middot; Confirm and load</p>
+        <h1>Confirm the Odoo load</h1>
+        <p>Check the target and exact record count once more before allowing Impodo to write.</p>
+      </div>
+      <span class="status review">Your confirmation is required</span>
+    </div>
+
+    <section class="load-target-banner" aria-labelledby="confirm-target-title">
+      <div>
+        <p class="eyebrow">Odoo database</p>
+        <h2 id="confirm-target-title">{{ preview.snapshot.target_database }}</h2>
+        <p>{{ project.odoo_connection_mode.value|title }} test &middot; Odoo {{ preview.snapshot.target_odoo_version }}</p>
+      </div>
+      <p class="load-target-total">
+        <strong>{{ preview.snapshot.write_count }}</strong>
+        record{{ 's' if preview.snapshot.write_count != 1 else '' }} will change
+      </p>
+    </section>
+
+    <section class="next-action-card review load-confirmation" aria-labelledby="confirm-load-title">
+      <div>
+        <p class="eyebrow">Explicit confirmation</p>
+        <h2 id="confirm-load-title">Load {{ preview.snapshot.write_count }} record{{ 's' if preview.snapshot.write_count != 1 else '' }} into {{ preview.snapshot.target_database }}</h2>
+        {% if preview.deferred_create_count %}
+          <p>{{ preview.deferred_create_count }} new {{ 'records need' if preview.deferred_create_count != 1 else 'record needs' }} a second relationship step. Impodo creates the records first, then sets those relationships after the related records exist.</p>
+        {% else %}
+          <p>Impodo sends bounded batches in dependency order.</p>
+        {% endif %}
+        <p>If a write response is lost, Impodo stops and requires verification. It will not retry blindly.</p>
+      </div>
+      <form method="post" action="/projects/{{ project.project_id }}/load" data-load-confirmation-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="snapshot_hash" value="{{ preview.snapshot.semantic_hash }}">
+        <label>
+          Odoo write API key
+          <input type="password" name="write_api_key" autocomplete="current-password" {% if not has_stored_write_key %}required{% endif %}>
+          <small>{% if has_stored_write_key %}A saved write key is available; leave this empty to use it.{% else %}Enter the separate write key for loading and verification on this exact target. The setup read key is never reused here.{% endif %}</small>
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" name="remember_write_api_key">
+          <span>Remember this write key on this computer</span>
+        </label>
+        <details class="technical-details advanced-settings">
+          <summary>Advanced settings</summary>
+          <label>
+            Records per Odoo batch
+            <input type="number" name="batch_rows" min="1" max="50" step="1" value="10" required>
+            <small>Keep 10 unless support recommends another value. This changes request size, not the total records loaded.</small>
+          </label>
+        </details>
+        <div class="button-row">
+          <button class="button primary" type="submit">Load {{ preview.snapshot.write_count }} record{{ 's' if preview.snapshot.write_count != 1 else '' }} into Odoo</button>
+          <a class="button secondary" href="/projects/{{ project.project_id }}/load/review">Back to check changes</a>
+        </div>
+        <small class="muted" role="status" data-load-confirmation-status hidden>Loading into Odoo. Keep this page open.</small>
+      </form>
+    </section>
+
+  {% else %}
+    <div class="page-heading">
+      <div>
+        <p class="eyebrow">Stage 6 of 6 &middot; Verify result</p>
+        <h1>Verify the Odoo result</h1>
+        <p>The API receipt is saved. Verification checks the actual Odoo records before this load is considered complete.</p>
+      </div>
+      <span class="status {% if reconciliation and reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}">
+        {% if not reconciliation %}Verification required{% elif reconciliation.status.value == 'VERIFIED' %}Verified in Odoo{% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}Outcome needs checking{% else %}Verified with fallout{% endif %}
+      </span>
+    </div>
+
     {% if reconciliation %}
       <section class="next-action-card {% if reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}" aria-labelledby="load-result-title">
         <div>
           <p class="eyebrow">Odoo read-back complete</p>
           <h2 id="load-result-title">
-            {{ reconciliation.verified_count }} verified ·
-            {{ reconciliation.fallout_count }} fallout ·
+            {{ reconciliation.verified_count }} verified &middot;
+            {{ reconciliation.fallout_count }} fallout &middot;
             {{ reconciliation.unknown_count }} unknown
           </h2>
           {% if reconciliation.status.value == 'VERIFIED' %}
-            <p>Odoo now matches every field in the confirmed load preview. Rows needing no change are included in the verified total.</p>
+            <p>Odoo now matches every field in the confirmed load review. Records needing no change are included in the verified total.</p>
           {% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}
-            <p>Impodo re-matched uncertain writes where possible. The remaining unknown outcomes must not be retried blindly.</p>
+            <p>Impodo re-matched uncertain writes where possible. Do not load this review again; the remaining unknown outcomes still need investigation.</p>
           {% else %}
             <p>The load was checked against Odoo. Review the concise fallout below before preparing another comparison.</p>
           {% endif %}
@@ -100,23 +248,23 @@
           {% if reconciliation.fallout_count %}
             <a class="button secondary" href="/projects/{{ project.project_id }}/load/fallout.csv">Download fallout</a>
           {% endif %}
-          <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to review</a>
+          <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to final review</a>
         </div>
       </section>
 
       <section class="form-card" id="row-outcomes" aria-labelledby="row-outcomes-title">
-        <h2 id="row-outcomes-title">Verified write rows</h2>
-        <p class="muted">Showing {{ load_row_page.first_row }}-{{ load_row_page.last_row }} of {{ load_row_page.total }} rows.</p>
+        <h2 id="row-outcomes-title">Verified write records</h2>
+        <p class="muted">Showing {{ load_row_page.first_row }}-{{ load_row_page.last_row }} of {{ load_row_page.total }} records.</p>
         <div class="table-scroll">
           <table class="data-table">
             <thead>
-              <tr><th>Prepared row</th><th>Odoo record</th><th>Action</th><th>Read-back result</th></tr>
+              <tr><th>Prepared record</th><th>Odoo record</th><th>Action</th><th>Verification result</th></tr>
             </thead>
             <tbody>
               {% for row in load_row_page.rows %}
                 <tr data-load-row data-reconciliation-row>
-                  <td>{{ row.dataset }} · row {{ row.source_row }}</td>
-                  <td><code>{{ row.target_model }}</code>{% if row.odoo_id %} · {{ row.odoo_id }}{% endif %}</td>
+                  <td>{{ row.dataset.replace('_', ' ')|title }} &middot; row {{ row.source_row }}</td>
+                  <td>{{ row.target_model }}{% if row.odoo_id %} &middot; {{ row.odoo_id }}{% endif %}</td>
                   <td>{{ row.operation|lower }}</td>
                   <td>
                     {{ row.status.value|replace('_', ' ')|lower }}
@@ -136,16 +284,12 @@
         <div>
           <p class="eyebrow">Load outcome saved</p>
           <h2 id="load-result-title">
-            {{ preview.current_run.committed_count }} accepted ·
-            {{ preview.current_run.failed_count + preview.current_run.blocked_count }} not written ·
-            {{ preview.current_run.partially_applied_count }} partially applied ·
+            {{ preview.current_run.committed_count }} accepted &middot;
+            {{ preview.current_run.failed_count + preview.current_run.blocked_count }} not written &middot;
+            {{ preview.current_run.partially_applied_count }} partially applied &middot;
             {{ preview.current_run.unknown_count }} unknown
           </h2>
-          {% if preview.current_run.partially_applied_count %}
-            <p><strong>Do not load this preview again.</strong> These records already exist in Odoo, but one or more relationship updates did not finish cleanly. Verify them now before preparing another comparison.</p>
-          {% else %}
-            <p>The API receipt is durable. Verify now to check the actual Odoo records and resolve uncertain responses without retrying them.</p>
-          {% endif %}
+          <p><strong>Do not load this review again.</strong> Verify the actual Odoo records before planning any recovery.</p>
         </div>
         <form method="post" action="/projects/{{ project.project_id }}/load/reconcile">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -153,29 +297,29 @@
           <label>
             Odoo write API key
             <input type="password" name="write_api_key" autocomplete="current-password" {% if not has_stored_write_key %}required{% endif %}>
-            <small>{% if has_stored_write_key %}Leave empty to use the saved write key.{% else %}Enter the separate write key used for loading and read-back; the setup read key is never reused here.{% endif %} For remote Odoo, Impodo rechecks the exact reviewed read/write scope and execution identity before verification.</small>
+            <small>{% if has_stored_write_key %}Leave empty to use the saved write key.{% else %}Enter the separate write key used for loading and verification; the setup read key is never reused here.{% endif %}</small>
           </label>
           <label class="checkbox">
             <input type="checkbox" name="remember_write_api_key">
             <span>Remember this write key on this computer</span>
           </label>
-          <button class="button primary" type="submit">Verify in Odoo</button>
+          <button class="button primary" type="submit">Verify what happened in Odoo</button>
         </form>
       </section>
 
       <section class="form-card" id="row-outcomes" aria-labelledby="row-outcomes-title">
         <h2 id="row-outcomes-title">Saved API receipt</h2>
-        <p class="muted">Showing {{ load_row_page.first_row }}-{{ load_row_page.last_row }} of {{ load_row_page.total }} rows.</p>
+        <p class="muted">Showing {{ load_row_page.first_row }}-{{ load_row_page.last_row }} of {{ load_row_page.total }} records.</p>
         <div class="table-scroll">
           <table class="data-table">
             <thead>
-              <tr><th>Prepared row</th><th>Odoo record</th><th>Action</th><th>API outcome</th></tr>
+              <tr><th>Prepared record</th><th>Odoo record</th><th>Action</th><th>API outcome</th></tr>
             </thead>
             <tbody>
               {% for row in load_row_page.rows %}
                 <tr data-load-row>
-                  <td>{{ row.dataset }} · row {{ row.source_row }}</td>
-                  <td><code>{{ row.target_model }}</code>{% if row.odoo_id %} · {{ row.odoo_id }}{% endif %}</td>
+                  <td>{{ row.dataset.replace('_', ' ')|title }} &middot; row {{ row.source_row }}</td>
+                  <td>{{ row.target_model }}{% if row.odoo_id %} &middot; {{ row.odoo_id }}{% endif %}</td>
                   <td>{{ row.operation|lower }}</td>
                   <td>{{ row.status.value|replace('_', ' ')|lower }}{% if row.safe_error %}<small>{{ row.safe_error }}</small>{% endif %}</td>
                 </tr>
@@ -186,48 +330,5 @@
         {% include "_load_row_pagination.html" %}
       </section>
     {% endif %}
-  {% elif preview.can_load %}
-    <section class="next-action-card review" aria-labelledby="confirm-load-title">
-      <div>
-        <p class="eyebrow">Explicit confirmation</p>
-        <h2 id="confirm-load-title">Load {{ preview.snapshot.write_count }} row{{ 's' if preview.snapshot.write_count != 1 else '' }}</h2>
-        {% if preview.deferred_create_count %}
-          <p>{{ preview.deferred_create_count }} new {{ 'records need' if preview.deferred_create_count != 1 else 'record needs' }} a second relationship step. Impodo will create the records first, then set those relationships through Odoo after the related records exist.</p>
-        {% else %}
-          <p>Impodo will send small batches in dependency order.</p>
-        {% endif %}
-        <p>Impodo will stop without retrying if a write response is lost.</p>
-      </div>
-      <form method="post" action="/projects/{{ project.project_id }}/load">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="snapshot_hash" value="{{ preview.snapshot.semantic_hash }}">
-        <label>
-          Rows per Odoo batch
-          <input type="number" name="batch_rows" min="1" max="50" step="1" value="10" required>
-          <small>
-            If an Odoo Online education/free database permits API loading, start with 10. For a tested on-premise server, 50 is a reasonable starting point. Lower this if a batch times out. This changes request size, not the total rows loaded.
-          </small>
-        </label>
-        <label>
-          Odoo write API key
-          <input type="password" name="write_api_key" autocomplete="current-password" {% if not has_stored_write_key %}required{% endif %}>
-          <small>{% if has_stored_write_key %}A saved write key is available; leave this empty to use it.{% else %}Enter a separate write key for loading and read-back on this exact target. The setup read key is never reused here.{% endif %} For remote Odoo, Impodo checks its exact reviewed read/write scope and execution identity before loading.</small>
-        </label>
-        <label class="checkbox">
-          <input type="checkbox" name="remember_write_api_key">
-          <span>Remember this write key on this computer</span>
-        </label>
-        <button class="button primary" type="submit">Load into Odoo</button>
-      </form>
-    </section>
-  {% else %}
-    <section class="next-action-card blocked">
-      <div>
-        <p class="eyebrow">Load unavailable</p>
-        <h2>Return to the data check</h2>
-        <p>{{ preview.scope_error or 'Resolve rows needing attention, or compare again if this preview is no longer current.' }}</p>
-      </div>
-      <a class="button primary" href="/projects/{{ project.project_id }}/summary">Back to review</a>
-    </section>
   {% endif %}
 {% endblock %}

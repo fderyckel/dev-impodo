@@ -13,6 +13,9 @@ from impodo.adapters.duckdb.database import DuckDbDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
 from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.preparation_session_repository import (
+    PreparationSessionRepository,
+)
 from impodo.adapters.duckdb.schema_repository import SchemaRepository
 from impodo.adapters.duckdb.source_repository import SourceRepository
 from impodo.application.odoo_capture_publication_service import (
@@ -20,6 +23,11 @@ from impodo.application.odoo_capture_publication_service import (
 )
 from impodo.application.odoo_provenance_service import OdooProvenanceService
 from impodo.application.odoo_source_capture_service import OdooSourceCaptureService
+from impodo.application.bounded_preparation import prepare_bounded_direct_session
+from impodo.application.preparation_service import (
+    _verify_odoo_preparation_evidence,
+    canonical_source_hashes,
+)
 from impodo.artifacts import ArtifactSizeError, LocalArtifactStore
 from impodo.connectors import MetadataSnapshot
 from impodo.domain.odoo_capture import OdooCaptureFilterPolicy, OdooCaptureSelection
@@ -30,6 +38,12 @@ from impodo.domain.odoo_source_capture import (
     OdooCaptureValueColumn,
 )
 from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
+from impodo.domain.mapping.contracts import (
+    DatasetMapping,
+    MappingDefinition,
+    MappingTargetMode,
+    ScalarFieldMapping,
+)
 from impodo.odoo_capture_jobs import OdooCapturePhase
 from impodo.domain.source_snapshot import SourceSnapshotColumn, SourceSnapshotSchema
 from impodo.models import (
@@ -177,6 +191,84 @@ class OdooCapturePublicationTests(unittest.TestCase):
         )
         self.assertIsNotNone(origins)
         self.assertEqual((origins or (None, ()))[1][0].odoo_ids, (41, 42))
+
+    def test_pinned_capture_prepares_offline_without_portable_ids(self) -> None:
+        gateway = _Gateway(self.schema, self.now)
+        publication = self.service.publish(
+            self.project.project_id,
+            gateway,
+            actor=LOCAL_ACTOR,
+        )
+        calls_after_capture = tuple(gateway.calls)
+        _verify_odoo_preparation_evidence(
+            self.project.project_id,
+            publication.source_selection,
+            (publication.source_snapshot,),
+            self.provenance,
+            actor=LOCAL_ACTOR,
+        )
+        definition = MappingDefinition(
+            mapping_id=str(uuid4()),
+            source_selection_hash=publication.source_selection.content_hash,
+            schema_hash=self.schema.content_hash,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=publication.source_selection.datasets[0].dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.ODOO_PINNED_UPDATE,
+                    fields=(
+                        ScalarFieldMapping(
+                            target_field="name",
+                            source_column_key=(
+                                publication.source_selection.datasets[0]
+                                .columns[0]
+                                .stable_key
+                            ),
+                        ),
+                    ),
+                    approved_write_fields=("name",),
+                ),
+            ),
+        )
+
+        bounded = prepare_bounded_direct_session(
+            self.project,
+            definition,
+            1,
+            publication.source_selection,
+            publication.source_selection,
+            (),
+            self.artifacts,
+            None,
+            PreparationSessionRepository(self.database, self.artifacts),
+            actor=LOCAL_ACTOR,
+            source_snapshots=(publication.source_snapshot,),
+        )
+
+        self.assertEqual(tuple(gateway.calls), calls_after_capture)
+        self.assertEqual(len(bounded.run.rows), 2)
+        self.assertEqual(
+            tuple(item.disposition.value for item in bounded.run.rows),
+            ("CANDIDATE", "CANDIDATE"),
+            tuple(item.issues for item in bounded.run.rows),
+        )
+        self.assertEqual(
+            tuple(item.issues for item in bounded.run.rows),
+            ((), ()),
+        )
+        self.assertEqual(
+            canonical_source_hashes(publication.source_selection),
+            {
+                publication.source_selection.datasets[0].name:
+                    publication.source_selection.datasets[0].source_evidence_hash
+            },
+        )
+        portable_rows = repr(
+            tuple(item.to_portable_dict() for item in bounded.run.rows)
+        )
+        self.assertNotIn("odoo_ids", portable_rows)
+        self.assertNotIn("'id': 41", portable_rows)
+        self.assertNotIn("'id': 42", portable_rows)
 
     def test_disk_preflight_fails_before_any_target_call(self) -> None:
         gateway = _Gateway(self.schema, self.now)

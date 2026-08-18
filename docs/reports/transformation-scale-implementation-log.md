@@ -822,3 +822,41 @@ Evidence retained locally:
 
 The focused qualification-harness suites passed 12 tests before the release
 run. The full ordinary test suite was not rerun as part of this qualification.
+
+### Post-qualification audit corrections - 2026-08-18
+
+The follow-up repository audit confirmed that Phase 7 is still open and found
+three places where implementation state was more permissive than the accepted
+evidence:
+
+1. a 96,000-row multi-dataset direct route could be admitted even though the
+   related release fixture failed qualification;
+2. a data-dependent miss in the clean DuckDB projection could move an admitted
+   100,000-row native route into Python row adaptation; and
+3. the benchmark stability fingerprint did not include the Git commit, so a
+   clean branch advance could escape the worktree-byte guard.
+
+The current worktree corrects all three. Direct multi-dataset or direct
+relationship routes now report a 50,000-row complete-pipeline limit. A native
+projection miss above that same bounded-Python limit fails the session without
+publishing canonical staging. Both qualification harnesses include `HEAD` in
+their stability digest, with regression tests proving that two otherwise
+identical worktrees at different commits produce different fingerprints.
+
+The audit also closed the nested value-mapping expression gap. A local
+100,000-row Polars diagnostic compared the old conditional chain,
+`replace_strict`, and a left lookup join at 10, 100, and 1,000 choices. At the
+1,000-choice contract maximum, collection took approximately 2.212 s for the
+nested chain, 0.003 s for `replace_strict`, and 0.002 s for the left join.
+`replace_strict` is used for the entire supported range because it is already
+competitive at low cardinality and preserves the scalar expression and row
+order without introducing a join. A maximum-cardinality test proves exact
+parity with the Python oracle, including transformation-impact evidence.
+
+This was a dirty-worktree engineering correction, not release evidence. It
+does not change the 100,000-row single-direct claim, raise the 50,000-row
+multi-dataset/relationship boundary, or raise the 25,000-row derived boundary.
+Phase 5 still needs the derived/grouped canonical artifact path. Phase 7 still
+needs a 100,000-row mixed/derived fixture, three clean Windows runs for every
+release fixture, full hash/vectorization/storage gates, a completed relationship
+oracle, and the required 30 percent same-machine customer-memory improvement.

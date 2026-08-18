@@ -197,6 +197,7 @@
   {% endif %}
 
   {% if readiness %}
+    {% if not (load_preview and (load_preview.can_load or load_preview.current_run)) %}
     <section class="next-action-card {% if readiness.blocked_count %}blocked{% elif readiness.needs_review_count %}review{% else %}ready{% endif %}" id="compare-with-odoo" aria-labelledby="next-action-title">
       <div>
         <p class="eyebrow">Next action</p>
@@ -285,6 +286,7 @@
         {% endif %}
       </div>
     </section>
+    {% endif %}
 
     {% if staging %}
       <section class="form-card" aria-labelledby="prepared-data-title" data-staging-summary>
@@ -497,6 +499,46 @@
       <summary>Support details</summary>
       <p>This check is read-only. Odoo remains unchanged. <a href="/projects/{{ project.project_id }}/summary/manifest">Download the support file</a></p>
     </details>
+
+    {% if load_preview and (load_preview.can_load or load_preview.current_run) %}
+      <section class="next-action-card ready" aria-labelledby="final-review-complete-title" data-final-review-transition>
+        <div>
+          <p class="eyebrow">Final review complete</p>
+          {% if load_preview.current_run %}
+            <h2 id="final-review-complete-title">The Odoo load outcome is saved</h2>
+            <p>Continue to the separate verification result. This reviewed load cannot be submitted again.</p>
+          {% else %}
+            <h2 id="final-review-complete-title">Continue to Load into Odoo</h2>
+            <p>
+              {{ load_preview.snapshot.counts.get('CREATE', 0) }} new &middot;
+              {{ load_preview.snapshot.counts.get('UPDATE', 0) }} changed &middot;
+              {{ readiness.attention_count }} needing attention.
+              The next page is read-only; nothing will be written yet.
+            </p>
+          {% endif %}
+        </div>
+        <div class="next-action-buttons">
+          <a class="button primary" href="/projects/{{ project.project_id }}/load">{% if load_preview.current_run %}View verification result{% else %}Continue to Load into Odoo{% endif %}</a>
+          {% if review_workbook_ready %}
+            <a class="button secondary" href="/projects/{{ project.project_id }}/summary/workbook">Download review workbook</a>
+          {% else %}
+            <form method="post" action="/projects/{{ project.project_id }}/summary/package">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="button secondary" type="submit">Create review workbook</button>
+            </form>
+          {% endif %}
+          {% if local_odoo_recovery_needed %}
+            <button class="button secondary" type="button" data-open-local-stack>Reconnect local Odoo</button>
+          {% else %}
+            <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="button secondary" type="submit">Compare with Odoo again</button>
+              <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
+            </form>
+          {% endif %}
+        </div>
+      </section>
+    {% endif %}
 
   {% elif normalization %}
     <details class="technical-details form-card">

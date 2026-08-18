@@ -325,6 +325,11 @@ class MappingWorkspaceService:
                     dataset,
                     fields=kept_fields,
                     relationships=kept_relationships,
+                    approved_write_fields=tuple(
+                        target
+                        for target in dataset.approved_write_fields
+                        if target not in readonly_fields
+                    ),
                 )
             )
         if not removed_count:

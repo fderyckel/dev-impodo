@@ -49,6 +49,15 @@ source-to-canonical lineage, control totals, quality findings, quarantine,
 resolution state, normalization decisions, and preparation-session status.
 Publication is project-scoped and hash-bound.
 
+For `odoo_pinned_update`, `PreparationService` verifies the one current
+protected manifest and bounded origin sidecar against the source binding and
+Parquet snapshot before row processing. This is one constant number of local
+reads, not a per-row provenance lookup. The transformation path then uses the
+same origin-neutral snapshot reader and canonical staging contracts as a file
+source. Empty business identity is intentional for pinned rows and is excluded
+from duplicate grouping; source ordinals remain ordinary lineage while numeric
+Odoo IDs stay protected.
+
 ## Completion and navigation
 
 An active job short-circuits navigation reads to avoid racing the DuckDB

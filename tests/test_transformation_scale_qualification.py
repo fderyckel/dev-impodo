@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -12,6 +13,7 @@ from scripts.qualify_transformation_scale import (
     _customer_baseline_evidence,
     _relationship_gates,
     _require_worktree_unchanged,
+    _worktree_fingerprint,
     _worker_command,
     _worker_gates,
     scenarios,
@@ -192,6 +194,41 @@ class TransformationScaleQualificationHarnessTests(unittest.TestCase):
                 "worktree changed",
             ):
                 _require_worktree_unchanged("before")
+
+    def test_worktree_fingerprint_includes_git_head(self) -> None:
+        completed = SimpleNamespace(returncode=0, stdout=b"")
+        with (
+            patch(
+                "scripts.qualify_transformation_scale._revision",
+                side_effect=("before", "before", "after", "after"),
+            ),
+            patch(
+                "scripts.qualify_transformation_scale.subprocess.run",
+                return_value=completed,
+            ),
+        ):
+            before = _worktree_fingerprint()
+            after = _worktree_fingerprint()
+
+        self.assertNotEqual(before, after)
+
+    def test_worktree_fingerprint_rejects_head_change_during_capture(self) -> None:
+        completed = SimpleNamespace(returncode=0, stdout=b"")
+        with (
+            patch(
+                "scripts.qualify_transformation_scale._revision",
+                side_effect=("before", "after"),
+            ),
+            patch(
+                "scripts.qualify_transformation_scale.subprocess.run",
+                return_value=completed,
+            ),
+            self.assertRaisesRegex(
+                TransformationQualificationError,
+                "Git HEAD changed",
+            ),
+        ):
+            _worktree_fingerprint()
 
     def test_release_requires_same_runtime_customer_gain_baseline(self) -> None:
         candidate = _customer_candidate()

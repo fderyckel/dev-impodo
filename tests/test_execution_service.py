@@ -28,7 +28,7 @@ from impodo.odoo_writer import (
 )
 from impodo.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.connectors import Json2Config
-from impodo.projects import OdooConnectionMode
+from impodo.projects import OdooConnectionMode, SourceMode
 from impodo.web.target_writers import _write_executor
 from impodo.workspace_errors import WorkspaceError
 
@@ -429,6 +429,7 @@ class ExecutionServiceTests(unittest.TestCase):
         project = SimpleNamespace(
             project_id=snapshot.project_id,
             odoo_connection_mode=mode,
+            source_mode=SourceMode.FILE,
         )
         service = ExecutionService(
             SimpleNamespace(get=lambda _project_id: project),
@@ -437,6 +438,48 @@ class ExecutionServiceTests(unittest.TestCase):
             CapabilityAuthorizationPolicy(),
         )
         return service, journal
+
+    def test_changed_confirmation_hash_stops_before_journal_or_target_io(self):
+        snapshot = _snapshot()
+        service, journal = self._service(snapshot)
+        executor = _Executor(execution_api_scope(snapshot).semantic_hash)
+
+        with self.assertRaisesRegex(WorkspaceError, "preview changed"):
+            service.execute(
+                snapshot.project_id,
+                expected_snapshot_hash="sha256:" + "9" * 64,
+                executor=executor,
+                actor=LOCAL_ACTOR,
+            )
+
+        self.assertIsNone(journal.run)
+        self.assertEqual(executor.creates, [])
+        self.assertEqual(executor.updates, [])
+
+    def test_loaded_preview_cannot_be_submitted_again(self):
+        snapshot = _snapshot()
+        service, journal = self._service(snapshot)
+        executor = _Executor(execution_api_scope(snapshot).semantic_hash)
+        service.execute(
+            snapshot.project_id,
+            expected_snapshot_hash=snapshot.semantic_hash,
+            executor=executor,
+            actor=LOCAL_ACTOR,
+        )
+        first_creates = tuple(executor.creates)
+        first_updates = tuple(executor.updates)
+
+        with self.assertRaisesRegex(WorkspaceError, "already loaded"):
+            service.execute(
+                snapshot.project_id,
+                expected_snapshot_hash=snapshot.semantic_hash,
+                executor=executor,
+                actor=LOCAL_ACTOR,
+            )
+
+        self.assertIsNotNone(journal.run)
+        self.assertEqual(tuple(executor.creates), first_creates)
+        self.assertEqual(tuple(executor.updates), first_updates)
 
     def test_loads_dependency_order_batches_creates_and_updates_unique_match(self):
         snapshot = _snapshot()

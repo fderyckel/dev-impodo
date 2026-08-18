@@ -889,6 +889,7 @@ class PreparationSessionRepository(DuckDbRepository):
                         "finalized_duplicate": False,
                     }
                     for item in rows
+                    if item.source_identity
                 )
                 identity_count = 0
                 for encoded_batch in iter_encoded_json_batches(
@@ -919,7 +920,9 @@ class PreparationSessionRepository(DuckDbRepository):
                         ],
                     )
                     identity_count += encoded_batch.row_count
-                if identity_count != len(rows):
+                if identity_count != sum(
+                    bool(item.source_identity) for item in rows
+                ):
                     raise WorkspaceError("Prepared identity fact batch is incomplete")
 
                 relationship_rows = (

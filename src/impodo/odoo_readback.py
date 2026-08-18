@@ -15,6 +15,7 @@ from .odoo_scope import OdooApiScope
 
 
 MAX_READBACK_IDS = 50
+MAX_READBACK_LOOKUPS = 20
 MAX_READBACK_BODY_BYTES = 1024 * 1024
 _EXTERNAL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.-]+")
 
@@ -34,6 +35,14 @@ class ExternalIdBinding:
     external_id: str
     model: str
     odoo_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReadbackLookup:
+    """One exact reviewed business-key lookup in a bounded batch."""
+
+    domain: tuple[tuple[str, str, Any], ...]
+    fields: tuple[str, ...] = ()
 
 
 class OdooReadbackReader(Protocol):
@@ -59,6 +68,12 @@ class OdooReadbackReader(Protocol):
         domain: Sequence[tuple[str, str, Any]],
         fields: Sequence[str],
     ) -> tuple[ReadbackRecord, ...]: ...
+
+    def find_records_many(
+        self,
+        model: str,
+        lookups: Sequence[ReadbackLookup],
+    ) -> tuple[tuple[ReadbackRecord, ...], ...]: ...
 
     def read_external_ids(
         self,
@@ -118,23 +133,86 @@ class Json2ReadbackReader:
         domain: Sequence[tuple[str, str, Any]],
         fields: Sequence[str],
     ) -> tuple[ReadbackRecord, ...]:
-        permitted = self.scope.lookup_fields(model)
-        if not permitted or not domain:
-            raise OdooReadbackError("An exact Odoo read-back key is required")
-        normalized = []
-        for field, operator, value in domain:
-            if field not in permitted or operator != "=":
-                raise OdooReadbackError(
-                    "Odoo read-back key is outside the reviewed load preview"
-                )
-            normalized.append([field, "=", value])
-        return self._search(
+        return self.find_records_many(
             model,
-            normalized,
-            self._fields(model, fields),
-            limit=2,
+            (
+                ReadbackLookup(
+                    domain=tuple(domain),
+                    fields=tuple(fields),
+                ),
+            ),
+        )[0]
+
+    def find_records_many(
+        self,
+        model: str,
+        lookups: Sequence[ReadbackLookup],
+    ) -> tuple[tuple[ReadbackRecord, ...], ...]:
+        """Resolve up to twenty exact keys with one bounded Odoo request."""
+
+        requested = tuple(lookups)
+        if not requested or len(requested) > MAX_READBACK_LOOKUPS:
+            raise OdooReadbackError(
+                "Odoo read-back keys are outside the safe batch bound"
+            )
+        permitted_lookup_fields = self.scope.lookup_fields(model)
+        if not permitted_lookup_fields:
+            raise OdooReadbackError("An exact Odoo read-back key is required")
+
+        normalized_domains = []
+        requested_fields = []
+        query_fields: set[str] = set()
+        for lookup in requested:
+            if not lookup.domain:
+                raise OdooReadbackError("An exact Odoo read-back key is required")
+            normalized = []
+            for field, operator, value in lookup.domain:
+                if field not in permitted_lookup_fields or operator != "=":
+                    raise OdooReadbackError(
+                        "Odoo read-back key is outside the reviewed load preview"
+                    )
+                normalized.append((field, operator, value))
+                query_fields.add(field)
+            clean_fields = self._fields(model, lookup.fields)
+            query_fields.update(clean_fields)
+            normalized_domains.append(tuple(normalized))
+            requested_fields.append(clean_fields)
+
+        permitted_result_fields = (
+            self.scope.read_fields(model) | permitted_lookup_fields
+        )
+        if not query_fields.issubset(permitted_result_fields):
+            raise OdooReadbackError(
+                "Odoo read-back fields are outside the reviewed load preview"
+            )
+        records = self._search(
+            model,
+            _combined_lookup_domain(normalized_domains),
+            tuple(sorted(query_fields)),
+            limit=(2 * len(requested)) + 1,
             permitted_ids=None,
         )
+        if len(records) > 2 * len(requested):
+            raise OdooReadbackError(
+                "Odoo read-back keys matched too many records safely"
+            )
+
+        grouped = []
+        for domain, fields in zip(
+            normalized_domains,
+            requested_fields,
+            strict=True,
+        ):
+            matches = tuple(
+                ReadbackRecord(
+                    odoo_id=record.odoo_id,
+                    values={field: record.values[field] for field in fields},
+                )
+                for record in records
+                if _record_matches_lookup(record, domain)
+            )
+            grouped.append(matches[:2])
+        return tuple(grouped)
 
     def read_external_ids(
         self,
@@ -272,3 +350,35 @@ class Json2ReadbackReader:
                 )
             )
         return tuple(records)
+
+
+def _combined_lookup_domain(
+    domains: Sequence[tuple[tuple[str, str, Any], ...]],
+) -> list[Any]:
+    """Return an Odoo prefix domain for an OR of exact AND keys."""
+
+    combined: list[Any] = ["|"] * (len(domains) - 1)
+    for domain in domains:
+        combined.extend(["&"] * (len(domain) - 1))
+        combined.extend(
+            [field, operator, value]
+            for field, operator, value in domain
+        )
+    return combined
+
+
+def _record_matches_lookup(
+    record: ReadbackRecord,
+    domain: tuple[tuple[str, str, Any], ...],
+) -> bool:
+    for field, _operator, expected in domain:
+        actual = record.values.get(field)
+        if (
+            isinstance(actual, (list, tuple))
+            and len(actual) == 2
+            and type(actual[0]) is int
+        ):
+            actual = actual[0]
+        if actual != expected:
+            return False
+    return True

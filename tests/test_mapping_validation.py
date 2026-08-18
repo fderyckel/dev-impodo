@@ -15,6 +15,7 @@ from impodo.domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
+    MappingTargetMode,
     ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipResolver,
@@ -37,7 +38,7 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationStatus,
 )
 from impodo.domain.mapping.validation.validator import MappingSemanticValidator
-from impodo.domain.source_binding import FileSourceBinding
+from impodo.domain.source_binding import FileSourceBinding, OdooSourceBinding
 from impodo.domain.staging.transformation_impact import (
     TransformationRuleImpact,
     transformation_rule_impact_definitions,
@@ -299,11 +300,11 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(first.validation_hash, second.validation_hash)
         self.assertEqual(
             definition.content_hash,
-            "sha256:b7ab8fafdab931d1b8cd5c70a893d217ea6a4782bbdc8d06e3c7618eda0deb70",
+            "sha256:18040808d62cf7fea0d9220c04528acc5a4086f55e4fc4cdc227078cb95f4de6",
         )
         self.assertEqual(
             first.validation_hash,
-            "sha256:3ba664329b6dec39eb4cb1655399cf6a00d3ac26ceb9e0d408a8965513e144ee",
+            "sha256:528dbe13e01785285944164d789cda31700332fa0ebcfa16ccd8836faf9b7a84",
         )
         reversed_definition = replace(
             definition,
@@ -333,6 +334,88 @@ class MappingSemanticValidatorTests(unittest.TestCase):
                 "SOURCE_IDENTITY_UNIQUENESS",
                 "TARGET_IDENTITY_UNIQUENESS",
             },
+        )
+
+    def test_pinned_odoo_update_needs_no_portable_business_key(self) -> None:
+        selection, schema = _pinned_odoo_inputs()
+        definition = MappingDefinition(
+            mapping_id="mapping:odoo-pinned",
+            source_selection_hash=selection.content_hash,
+            schema_hash=schema.content_hash,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=selection.datasets[0].dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.ODOO_PINNED_UPDATE,
+                    fields=(
+                        ScalarFieldMapping(
+                            target_field="name",
+                            source_column_key="odoo:name",
+                        ),
+                    ),
+                    approved_write_fields=("name",),
+                ),
+            ),
+        )
+
+        result = self.validator.validate(
+            definition,
+            selection,
+            schema,
+            None,
+        )
+
+        self.assertEqual(result.status, MappingValidationStatus.VALID)
+        self.assertEqual(result.issues, ())
+        self.assertEqual(
+            {item.code for item in result.deferred_runtime_checks},
+            {"REQUIRED_ROW_VALUES"},
+        )
+        restored = MappingDefinition.from_json(definition.to_json())
+        self.assertEqual(restored, definition)
+        self.assertEqual(restored.datasets[0].approved_write_fields, ("name",))
+        self.assertNotIn('"id"', definition.to_json())
+
+    def test_pinned_odoo_update_fails_closed_on_write_policy(self) -> None:
+        selection, schema = _pinned_odoo_inputs()
+        definition = MappingDefinition(
+            mapping_id="mapping:odoo-pinned-invalid",
+            source_selection_hash=selection.content_hash,
+            schema_hash=schema.content_hash,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=selection.datasets[0].dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.ODOO_PINNED_UPDATE,
+                    fields=(
+                        ScalarFieldMapping(
+                            target_field="email",
+                            source_column_key="odoo:name",
+                        ),
+                        ScalarFieldMapping(
+                            target_field="display_name",
+                            source_column_key="odoo:name",
+                        ),
+                    ),
+                    approved_write_fields=("display_name",),
+                ),
+            ),
+        )
+
+        result = self.validator.validate(
+            definition,
+            selection,
+            schema,
+            None,
+        )
+
+        self.assertEqual(result.status, MappingValidationStatus.INVALID)
+        self.assertTrue(
+            {
+                "MAPPING_ODOO_WRITE_FIELD_UNAPPROVED",
+                "MAPPING_ODOO_WRITE_BASELINE_MISSING",
+                "MAPPING_ODOO_WRITE_FIELD_INELIGIBLE",
+            }.issubset({item.code for item in result.issues})
         )
 
     def test_reviewed_country_code_resolves_without_capturing_country_as_target(
@@ -1336,6 +1419,93 @@ def _source_selection() -> SourceSelection:
         ),
         content_hash="sha256:source-selection",
     )
+
+
+def _pinned_odoo_inputs() -> tuple[SourceSelection, OdooSchemaCatalog]:
+    binding = OdooSourceBinding(
+        capture_selection_hash="sha256:" + "1" * 64,
+        model="res.partner",
+        policy_hash=ODOO_SOURCE_POLICY_HASH,
+        connection_target_hash="sha256:" + "2" * 64,
+        schema_scope_hash="sha256:" + "3" * 64,
+        read_principal_hash="sha256:" + "4" * 64,
+        read_permission_hash="sha256:" + "5" * 64,
+        context_hash="sha256:" + "6" * 64,
+    )
+    selection = SourceSelection(
+        selection_id="selection:odoo-pinned",
+        version=1,
+        project_id="project:test",
+        created_at=NOW,
+        created_by="Test operator",
+        datasets=(
+            SourceDataset(
+                dataset_id="dataset:odoo-partners",
+                name="res_partner",
+                source=binding,
+                row_count=3,
+                columns=(
+                    SourceDatasetColumn(1, "name", "odoo:name", "string"),
+                ),
+            ),
+        ),
+        content_hash="sha256:" + "7" * 64,
+    )
+
+    def pinned_field(
+        name: str,
+        *,
+        readonly: bool = False,
+        computed: bool = False,
+    ) -> SchemaField:
+        return SchemaField(
+            name=name,
+            label=name.replace("_", " ").title(),
+            type="char",
+            required=False,
+            readonly=readonly,
+            relation=None,
+            relation_field=None,
+            selection=(),
+            stored=True,
+            computed=computed,
+            has_inverse=False,
+            related=False,
+            translated=False,
+            company_dependent=False,
+            searchable=True,
+            sortable=True,
+            exportable=True,
+        )
+
+    schema = OdooSchemaCatalog(
+        project_id="project:test",
+        policy_hash=ODOO_SOURCE_POLICY_HASH,
+        captured_at=NOW,
+        captured_by="Test operator",
+        connection_mode="LOCAL",
+        database="odoo19_local",
+        odoo_version="19.0",
+        models=(
+            SchemaModel(
+                name="res.partner",
+                label="Contact",
+                fields=(
+                    pinned_field("display_name", readonly=True, computed=True),
+                    pinned_field("email"),
+                    pinned_field("name"),
+                ),
+            ),
+        ),
+        content_hash="sha256:" + "8" * 64,
+        origin=SchemaOrigin.LIVE_API,
+        read_credential_binding_hash="sha256:" + "9" * 64,
+        read_principal_hash=binding.read_principal_hash,
+        read_permission_hash=binding.read_permission_hash,
+        read_context_hash=binding.context_hash,
+        connection_target_hash=binding.connection_target_hash,
+    )
+    return selection, schema
 
 
 def _field(

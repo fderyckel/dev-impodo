@@ -23,6 +23,7 @@ from impodo.domain.compiler.columnar_transformation import (
 )
 from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
 from impodo.domain.mapping.contracts import (
+    MAX_VALUE_MAPPINGS,
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
@@ -138,6 +139,85 @@ class PolarsTransformationParityTests(unittest.TestCase):
                 self.assertEqual(collector.report(), expected_report)
                 self.assertTrue(observed_batch_sizes)
                 self.assertLessEqual(max(observed_batch_sizes), chunk_size)
+
+    def test_maximum_value_mapping_cardinality_matches_python_oracle(self) -> None:
+        dataset = self.definition.datasets[0]
+        category = next(
+            field for field in dataset.fields if field.target_field == "category"
+        )
+        value_mappings = (
+            ValueMapping("Retail", "retail"),
+            ValueMapping("Wholesale", "wholesale"),
+            *(
+                ValueMapping(f"Choice {index}", f"choice_{index}")
+                for index in range(MAX_VALUE_MAPPINGS - 2)
+            ),
+        )
+        definition = canonicalize_mapping_definition(
+            replace(
+                self.definition,
+                datasets=(
+                    replace(
+                        dataset,
+                        fields=tuple(
+                            replace(field, value_mappings=value_mappings)
+                            if field is category
+                            else field
+                            for field in dataset.fields
+                        ),
+                    ),
+                ),
+            )
+        )
+        expected_records, expected_report = _python_oracle(
+            definition,
+            self.selection,
+            self.rows,
+        )
+        decision = compile_columnar_transformation_program(
+            definition,
+            self.selection,
+            DATASET_ID,
+        )
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        assert decision.program is not None
+        destination, prepared = _write_prepared_snapshot(
+            self.root,
+            self.path,
+            self.snapshot,
+            decision.program,
+        )
+
+        records = tuple(
+            record
+            for batch in iter_polars_prepared_batches(
+                destination,
+                prepared,
+                self.snapshot,
+                decision.program,
+                batch_size=2,
+            )
+            for record in batch.records
+        )
+
+        self.assertEqual(records, expected_records)
+        collector = _TransformationImpactCollector(
+            mapping_content_hash=definition.content_hash,
+            detail_limit=10_000,
+        )
+        for batch in iter_polars_prepared_batches(
+            destination,
+            prepared,
+            self.snapshot,
+            decision.program,
+            batch_size=2,
+        ):
+            collector.record_precomputed(
+                batch.impact_counts,
+                batch.impacts,
+                batch.rule_impacts,
+            )
+        self.assertEqual(collector.report(), expected_report)
 
     def test_incoming_relationship_keys_match_python_oracle_across_batches(
         self,

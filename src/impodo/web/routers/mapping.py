@@ -104,7 +104,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             )
             schema = context.queries.get_odoo_schema_catalog(project_id)
             governance = context.queries.get_schema_governance(project_id)
-            if selection is None or schema is None or governance is None:
+            if selection is None or schema is None:
                 raise WorkspaceError(
                     "Freeze the source and confirm the Odoo schema first"
                 )
@@ -164,6 +164,10 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     for value, label in field.selection
                 )
             else:
+                if governance is None:
+                    raise WorkspaceError(
+                        "Linked record matching requires confirmed Odoo matching rules"
+                    )
                 if field.type != "many2one" or not field.relation:
                     raise WorkspaceError(
                         "Value matching currently supports linked single records"

@@ -28,7 +28,13 @@ from ..domain.reconciliation import (
     ReconciliationRunStatus,
 )
 from ..models import BusinessReference, LogicalReference, OdooWriteIdentity
-from ..odoo_readback import MAX_READBACK_IDS, OdooReadbackReader, ReadbackRecord
+from ..odoo_readback import (
+    MAX_READBACK_IDS,
+    MAX_READBACK_LOOKUPS,
+    OdooReadbackReader,
+    ReadbackLookup,
+    ReadbackRecord,
+)
 from ..workspace_errors import WorkspaceError
 from .execution_service import _identity_domain, _portable_key, execution_api_scope
 from .preflight_service import PreflightService
@@ -165,7 +171,14 @@ class ReconciliationService:
             reader,
         )
 
-        identity_cache: dict[tuple[str, tuple[tuple[str, str, Any], ...]], int] = {}
+        identity_cache = self._preload_reference_ids(
+            rows,
+            actual_by_row,
+            metadata,
+            by_source,
+            resolved_ids,
+            reader,
+        )
         outcomes = []
         for dataset in sorted(snapshot.datasets, key=lambda item: item.sequence):
             dataset_rows = sorted(
@@ -182,7 +195,6 @@ class ReconciliationService:
                     by_source,
                     resolved_ids,
                     identity_cache,
-                    reader,
                 )
                 issue = external_id_issues.get(row.row_id)
                 if (
@@ -278,7 +290,7 @@ class ReconciliationService:
         metadata: Mapping[str, ExecutionDataset],
         reader: OdooReadbackReader,
     ) -> dict[str, tuple[ReadbackRecord, ...]]:
-        matches = {}
+        by_model: dict[str, list[tuple[str, ReadbackLookup]]] = {}
         for row_id, attempt in attempts.items():
             if (
                 attempt.status is not ExecutionRowStatus.OUTCOME_UNKNOWN
@@ -296,8 +308,137 @@ class ReconciliationService:
             fields = tuple(
                 intent.field for intent in row.fields if intent.action != "OMIT"
             )
-            matches[row_id] = reader.find_records(row.target_model, domain, fields)
+            by_model.setdefault(row.target_model, []).append(
+                (
+                    row_id,
+                    ReadbackLookup(domain=domain, fields=fields),
+                )
+            )
+        matches = {}
+        for model, model_lookups in by_model.items():
+            for start in range(0, len(model_lookups), MAX_READBACK_LOOKUPS):
+                batch = model_lookups[start : start + MAX_READBACK_LOOKUPS]
+                results = reader.find_records_many(
+                    model,
+                    tuple(lookup for _row_id, lookup in batch),
+                )
+                if len(results) != len(batch):
+                    raise WorkspaceError(
+                        "Odoo verification returned incomplete key results"
+                    )
+                for (row_id, _lookup), row_matches in zip(
+                    batch,
+                    results,
+                    strict=True,
+                ):
+                    matches[row_id] = row_matches
         return matches
+
+    def _preload_reference_ids(
+        self,
+        rows: Mapping[str, ExecutionRow],
+        actual_by_row: Mapping[str, ReadbackRecord],
+        metadata: Mapping[str, ExecutionDataset],
+        by_source: Mapping[tuple[str, str], ExecutionRow],
+        resolved_ids: Mapping[str, int],
+        reader: OdooReadbackReader,
+    ) -> dict[tuple[str, tuple[tuple[str, str, Any], ...]], int | None]:
+        """Resolve every relationship key in bounded model batches."""
+
+        requested: dict[
+            str,
+            dict[tuple[tuple[str, str, Any], ...], ReadbackLookup],
+        ] = {}
+        for row_id, row in rows.items():
+            if row_id not in actual_by_row:
+                continue
+            for intent in row.fields:
+                if intent.kind == "scalar" or intent.action != "SET_VALUE":
+                    continue
+                values = intent.value if isinstance(intent.value, tuple) else (
+                    intent.value,
+                )
+                for value in values:
+                    try:
+                        lookup = self._reference_lookup(
+                            value,
+                            intent,
+                            metadata,
+                            by_source,
+                            resolved_ids,
+                        )
+                    except WorkspaceError:
+                        continue
+                    if lookup is None:
+                        continue
+                    model, domain = lookup
+                    requested.setdefault(model, {})[domain] = ReadbackLookup(
+                        domain=domain
+                    )
+
+        cache: dict[
+            tuple[str, tuple[tuple[str, str, Any], ...]],
+            int | None,
+        ] = {}
+        for model, lookups_by_domain in requested.items():
+            items = tuple(lookups_by_domain.items())
+            for start in range(0, len(items), MAX_READBACK_LOOKUPS):
+                batch = items[start : start + MAX_READBACK_LOOKUPS]
+                results = reader.find_records_many(
+                    model,
+                    tuple(lookup for _domain, lookup in batch),
+                )
+                if len(results) != len(batch):
+                    raise WorkspaceError(
+                        "Odoo verification returned incomplete key results"
+                    )
+                for (domain, _lookup), matches in zip(
+                    batch,
+                    results,
+                    strict=True,
+                ):
+                    cache[(model, domain)] = (
+                        matches[0].odoo_id if len(matches) == 1 else None
+                    )
+        return cache
+
+    @staticmethod
+    def _reference_lookup(
+        value: object,
+        intent: FieldIntent,
+        metadata: Mapping[str, ExecutionDataset],
+        by_source: Mapping[tuple[str, str], ExecutionRow],
+        resolved_ids: Mapping[str, int],
+    ) -> tuple[str, tuple[tuple[str, str, Any], ...]] | None:
+        if isinstance(value, LogicalReference) and value.origin == "incoming":
+            if value.dataset is None:
+                raise WorkspaceError("An incoming relationship is incomplete")
+            related = by_source.get((value.dataset, _portable_key(value.key)))
+            if related is None:
+                raise WorkspaceError("A related prepared row could not be found")
+            if related.row_id in resolved_ids:
+                return None
+            dataset = metadata[related.dataset]
+            return (
+                related.target_model,
+                _identity_domain(
+                    dataset.identity_fields,
+                    related.business_identity,
+                    dataset.scope_fields,
+                    related.business_scope,
+                ),
+            )
+        if isinstance(value, BusinessReference | LogicalReference):
+            return (
+                intent.related_model,
+                _identity_domain(
+                    intent.related_identity_fields,
+                    value.key,
+                    intent.related_scope_fields,
+                    value.scope,
+                ),
+            )
+        raise WorkspaceError("A relationship is not expressed by a business key")
 
     @staticmethod
     def _external_id_issues(
@@ -361,8 +502,10 @@ class ReconciliationService:
         metadata: Mapping[str, ExecutionDataset],
         by_source: Mapping[tuple[str, str], ExecutionRow],
         resolved_ids: Mapping[str, int],
-        identity_cache: dict[tuple[str, tuple[tuple[str, str, Any], ...]], int],
-        reader: OdooReadbackReader,
+        identity_cache: dict[
+            tuple[str, tuple[tuple[str, str, Any], ...]],
+            int | None,
+        ],
     ) -> ReconciliationRow:
         common = dict(
             row_id=row.row_id,
@@ -424,7 +567,6 @@ class ReconciliationService:
                     by_source,
                     resolved_ids,
                     identity_cache,
-                    reader,
                 )
                 actual_value = actual.values[intent.field]
                 if intent.kind != "scalar" and intent.action == "SET_VALUE":
@@ -464,8 +606,10 @@ class ReconciliationService:
         metadata: Mapping[str, ExecutionDataset],
         by_source: Mapping[tuple[str, str], ExecutionRow],
         resolved_ids: Mapping[str, int],
-        identity_cache: dict[tuple[str, tuple[tuple[str, str, Any], ...]], int],
-        reader: OdooReadbackReader,
+        identity_cache: dict[
+            tuple[str, tuple[tuple[str, str, Any], ...]],
+            int | None,
+        ],
     ) -> Any:
         if intent.action == "SET_NULL":
             return None
@@ -481,7 +625,6 @@ class ReconciliationService:
                     by_source,
                     resolved_ids,
                     identity_cache,
-                    reader,
                 )
                 for item in value
             )
@@ -495,7 +638,6 @@ class ReconciliationService:
             by_source,
             resolved_ids,
             identity_cache,
-            reader,
         )
 
     def _expected_reference_id(
@@ -505,8 +647,10 @@ class ReconciliationService:
         metadata: Mapping[str, ExecutionDataset],
         by_source: Mapping[tuple[str, str], ExecutionRow],
         resolved_ids: Mapping[str, int],
-        identity_cache: dict[tuple[str, tuple[tuple[str, str, Any], ...]], int],
-        reader: OdooReadbackReader,
+        identity_cache: dict[
+            tuple[str, tuple[tuple[str, str, Any], ...]],
+            int | None,
+        ],
     ) -> int:
         if isinstance(value, LogicalReference) and value.origin == "incoming":
             if value.dataset is None:
@@ -527,7 +671,6 @@ class ReconciliationService:
                 related.target_model,
                 domain,
                 identity_cache,
-                reader,
             )
         if isinstance(value, BusinessReference | LogicalReference):
             domain = _identity_domain(
@@ -540,7 +683,6 @@ class ReconciliationService:
                 intent.related_model,
                 domain,
                 identity_cache,
-                reader,
             )
         raise WorkspaceError("A relationship is not expressed by a business key")
 
@@ -548,18 +690,18 @@ class ReconciliationService:
     def _find_unique(
         model: str,
         domain: tuple[tuple[str, str, Any], ...],
-        cache: dict[tuple[str, tuple[tuple[str, str, Any], ...]], int],
-        reader: OdooReadbackReader,
+        cache: dict[
+            tuple[str, tuple[tuple[str, str, Any], ...]],
+            int | None,
+        ],
     ) -> int:
         cache_key = (model, domain)
-        if cache_key not in cache:
-            records = reader.find_records(model, domain, ())
-            if len(records) != 1:
-                raise WorkspaceError(
-                    "A related Odoo business key no longer matches one record"
-                )
-            cache[cache_key] = records[0].odoo_id
-        return cache[cache_key]
+        identifier = cache.get(cache_key)
+        if identifier is None:
+            raise WorkspaceError(
+                "A related Odoo business key no longer matches one record"
+            )
+        return identifier
 
 
 def _require_matching_write_identity(

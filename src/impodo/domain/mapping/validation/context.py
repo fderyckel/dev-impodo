@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping, Protocol, Sequence
 
+from ...source_binding import SourceBinding, SourceOriginKind
 from ...schema.governance import (
     BusinessKeyStatus,
     SchemaGovernance,
@@ -24,6 +25,8 @@ class SourceDatasetView(Protocol):
 
     dataset_id: str
     name: str
+    source: SourceBinding
+    origin: SourceOriginKind
     columns: Sequence[SourceColumnView]
 
 
@@ -44,6 +47,11 @@ class SchemaFieldView(Protocol):
     relation: str | None
     relation_field: str | None
     selection: Sequence[tuple[str, str]]
+    stored: bool | None
+    computed: bool | None
+    related: bool | None
+    translated: bool | None
+    company_dependent: bool | None
 
 
 class SchemaModelView(Protocol):

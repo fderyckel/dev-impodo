@@ -44,6 +44,7 @@ from ..domain.preflight.reports import (
 from ..engine import PreflightEngine
 from ..models import canonical_json_bytes, target_identity_hash
 from ..planner import plan_preflight_requirements
+from ..projects import SourceMode
 from ..staging import StagingRunSummary
 from .readiness_ports import (
     PreflightMappingRepository,
@@ -288,6 +289,10 @@ class PreflightService:
             Capability.PREFLIGHT_RUN,
             project_id=project_id,
         )
+        if self.projects.get(project_id).source_mode is SourceMode.ODOO:
+            raise ReadinessError(
+                "Pinned Odoo comparison is not available yet. Odoo was not contacted."
+            )
         frozen = self._load_frozen_input(project_id)
         requirements = plan_preflight_requirements(
             frozen.plan,
