@@ -31,6 +31,19 @@ Odoo target.
 Local mode does not require an Odoo API key. Impodo does not retain database
 or Odoo master passwords from the configuration file.
 
+## Reconnect during final review
+
+The local setup choice lasts only for the current Impodo session. If **Final
+review** shows **Reconnect local Odoo**:
+
+1. Choose the matching local Odoo setup.
+2. Review the checks.
+3. Select **Continue comparison** when every check is ready.
+
+Impodo blocks a setup that points to a different address or database.
+
+![Current local-Odoo reconnect dialog shown before comparison.](../../images/user/16b-local-odoo-reconnect.png)
+
 ## Understand the checks
 
 | Check | What it means |

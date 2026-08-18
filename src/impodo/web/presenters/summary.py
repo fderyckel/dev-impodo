@@ -19,7 +19,7 @@ from ...domain.staging.scale import (
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
     browser_evaluation_scale,
 )
-from ...local_stack import LocalStackError
+from ...local_stack import LocalStackError, LocalStackStatus
 from ...projects import MigrationProject, OdooConnectionMode
 from ...reporting import WORKBOOK_NAME
 from ...workspace_errors import WorkspaceError
@@ -50,7 +50,12 @@ def _render_target(
         applications=ODOO_APPLICATIONS,
         local_stack=context.local_stack.get(project.project_id),
         remote_connection=context.remote_connections.get(project),
-        open_local_stack=open_local_stack,
+        local_stack_auto_open=open_local_stack,
+        local_stack_dialog_error=None,
+        local_stack_support_error=None,
+        local_stack_return_to="target",
+        local_stack_resume_compare=False,
+        local_stack_resume_ready=False,
         error=error,
         status_code=status_code,
     )
@@ -154,12 +159,25 @@ def _render_summary(
     project_id: str,
     *,
     error: str | None = None,
+    local_stack_error: str | None = None,
+    local_stack_support_error: str | None = None,
+    open_local_stack: bool = False,
     status_code: int = 200,
 ):
     session_error = request.session.pop("summary_error", None)
     if error is None and isinstance(session_error, str):
         error = session_error
     project = context.queries.get(project_id)
+    local_stack = context.local_stack.get(project_id)
+    local_stack_matches = _local_stack_matches_project(project, local_stack)
+    local_odoo_recovery_needed = (
+        project.odoo_connection_mode is OdooConnectionMode.LOCAL
+        and (
+            not local_stack_matches
+            or not local_stack.odoo_ready
+            or not local_stack.metadata_ready
+        )
+    )
     source_selection = context.queries.get_source_selection(project_id)
     effective_selection = context.queries.get_mapping_source_selection(project_id)
     derived_plan = context.queries.get_derived_entity_plan(project_id)
@@ -409,8 +427,42 @@ def _render_summary(
         dataset_filter=dataset_filter,
         evaluation_scale=evaluation_scale,
         preparation_limit_message=preparation_limit_message,
+        local_stack=local_stack,
+        local_odoo_recovery_needed=local_odoo_recovery_needed,
+        local_stack_auto_open=(
+            open_local_stack
+            or request.query_params.get("local_stack") == "1"
+            or local_stack_error is not None
+        ),
+        local_stack_dialog_error=local_stack_error,
+        local_stack_support_error=local_stack_support_error,
+        local_stack_return_to="summary_compare",
+        local_stack_resume_compare=True,
+        local_stack_resume_ready=(
+            local_stack_matches
+            and local_stack.odoo_ready
+            and local_stack.metadata_ready
+        ),
         error=error,
         status_code=status_code,
+    )
+
+
+def _local_stack_matches_project(
+    project: MigrationProject,
+    status: LocalStackStatus,
+) -> bool:
+    """Return whether the selected local profile targets this exact project."""
+
+    profile = status.profile
+    if profile is None:
+        return False
+    if profile.base_url.rstrip("/") != project.odoo_base_url.rstrip("/"):
+        return False
+    return not (
+        profile.database_hint
+        and project.odoo_database
+        and profile.database_hint != project.odoo_database
     )
 
 

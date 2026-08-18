@@ -11,6 +11,16 @@ permission to write data.
 The selected `odoo.conf`, executable paths, process identifiers, and service
 ownership remain in memory for the current Impodo session.
 
+## Reconnect from final review
+
+A registered local project may reopen the same bounded assistant from **Final
+review**. The selected profile must match the project's loopback address and
+database. Impodo then reruns readiness checks and one read-only Odoo 19
+fingerprint before enabling **Continue comparison**.
+
+The return target is allowlisted; failures remain in the dialog with support
+details. No configuration path is persisted in project evidence.
+
 ## Connect to an existing local stack
 
 1. In Project setup, choose **Local Odoo**.

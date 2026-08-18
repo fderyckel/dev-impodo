@@ -30,6 +30,11 @@ serves the manifest, workbook, and review package.
 requests, captures the target fingerprint and snapshot, performs offline
 classification, and publishes the report and execution snapshot atomically.
 
+For local Odoo, `_read_readiness_snapshots` requires a matching session
+profile. `LocalOdooRecoveryRequired` returns the user to the shared local-Odoo
+dialog; `target.py` validates the selected address, database, readiness, and
+read-only fingerprint before comparison can resume.
+
 ## Code references
 
 | Role | Code |
@@ -38,6 +43,9 @@ classification, and publishes the report and execution snapshot atomically.
 | Frozen input | [`frozen_input.py`](../../../src/impodo/domain/preflight/frozen_input.py) |
 | Review reports | [`reports.py`](../../../src/impodo/domain/preflight/reports.py) |
 | Browser routes | [`preflight.py`](../../../src/impodo/web/routers/preflight.py) |
+| Local recovery routes | [`target.py`](../../../src/impodo/web/routers/target.py) |
+| Local target reader | [`target_readers.py`](../../../src/impodo/web/target_readers.py) |
+| Shared recovery dialog | [`_local_odoo_dialog.html`](../../../src/impodo/web/templates/_local_odoo_dialog.html) |
 
 ## Evidence and state
 

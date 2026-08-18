@@ -227,7 +227,10 @@ certification remain pending.
   preflight evidence;
 - the Review page shows New in Odoo, Different from Odoo, Already matches,
   Needs attention, and Set aside, and disables repeat submission while a
-  comparison is running.
+  comparison is running;
+- a local project with no matching session profile opens the reusable recovery
+  dialog, rejects a different database, and enables comparison only after the
+  read-only check succeeds.
 
 ### Practical local execution verified
 

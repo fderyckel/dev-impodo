@@ -19,7 +19,7 @@ Use a reachable Odoo 19 target with the approved read access.
 ## Steps in Impodo
 
 1. Open **Final review**.
-2. Select **Check all rows**.
+2. Select **Compare with Odoo**.
 3. Review totals for **Create**, **Update**, **Unchanged**, **Needs review**, and
    **Blocked**.
 4. Inspect field-level differences and relationship resolutions.
@@ -29,6 +29,11 @@ Use a reachable Odoo 19 target with the approved read access.
    rehearsal record.
 
 ![Current final comparison with saved rows and per-table Odoo outcomes.](../../images/user/16-final-comparison.png)
+
+For local Odoo, **Reconnect local Odoo** may appear after Impodo restarts.
+Choose the matching setup, then select **Continue comparison** when ready.
+
+![Current local-Odoo reconnect dialog shown before comparison.](../../images/user/16b-local-odoo-reconnect.png)
 
 ## What to check
 

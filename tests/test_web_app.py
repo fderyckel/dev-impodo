@@ -730,6 +730,89 @@ class LocalStackBrowserTests(unittest.TestCase):
         )
         self.assertEqual(self.picker_calls, 0)
 
+    def test_compare_missing_local_profile_opens_reusable_recovery(self) -> None:
+        self._register_local_project()
+        context = self.app.state.context
+
+        def compare_with_reader(_project_id, *, reader, actor):
+            self.assertEqual(actor, context.actor)
+            return reader((), ())
+
+        with patch.object(
+            context.preflight,
+            "compare",
+            side_effect=compare_with_reader,
+        ):
+            blocked = self.client.post(
+                f"/projects/{self.project_id}/summary/compare",
+                data={"csrf_token": self.csrf},
+                headers=POST_HEADERS,
+            )
+
+        self.assertEqual(blocked.status_code, 422)
+        self.assertIn("Reconnect local Odoo for this session", blocked.text)
+        self.assertIn('data-auto-open="true"', blocked.text)
+        self.assertIn('name="return_to" value="summary_compare"', blocked.text)
+        self.assertIn("Choose local Odoo setup", blocked.text)
+        self.assertIn("Continue comparison", blocked.text)
+        self.assertNotIn("We could not complete that action", blocked.text)
+
+    def test_registered_project_reconnects_and_returns_to_comparison(self) -> None:
+        self._register_local_project()
+        self.stack_running = True
+
+        selected = self.client.post(
+            f"/projects/{self.project_id}/local-stack/select-config",
+            data={
+                "csrf_token": self.csrf,
+                "return_to": "summary_compare",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(selected.status_code, 303)
+        self.assertEqual(
+            selected.headers["location"],
+            (
+                f"/projects/{self.project_id}/summary?local_stack=1"
+                "#compare-with-odoo"
+            ),
+        )
+        self.assertEqual(self.picker_calls, 1)
+        self.local_odoo_reader.get_target_fingerprint.assert_called_once()
+        status = self.app.state.context.local_stack.get(self.project_id)
+        self.assertTrue(status.metadata_ready)
+
+        summary = self.client.get(selected.headers["location"])
+        self.assertEqual(summary.status_code, 200)
+        self.assertIn('data-auto-open="true"', summary.text)
+        self.assertIn("Reconnect local Odoo", summary.text)
+        self.assertIn("Continue comparison", summary.text)
+        self.assertRegex(
+            summary.text,
+            r'<button class="button primary" type="submit"\s*>\s*Continue comparison',
+        )
+
+    def test_registered_recovery_rejects_another_local_database(self) -> None:
+        self._register_local_project(database="another_database")
+        self.stack_running = True
+
+        rejected = self.client.post(
+            f"/projects/{self.project_id}/local-stack/select-config",
+            data={
+                "csrf_token": self.csrf,
+                "return_to": "summary_compare",
+            },
+            headers=POST_HEADERS,
+        )
+
+        self.assertEqual(rejected.status_code, 422)
+        self.assertIn("Local Odoo is not ready yet", rejected.text)
+        self.assertIn("points to database odoo19_local", rejected.text)
+        self.assertIn("Choose another local setup", rejected.text)
+        self.local_odoo_reader.get_target_fingerprint.assert_not_called()
+
     def test_local_assistant_requires_its_explicit_capability(self) -> None:
         self.app.state.context.actor = Actor(
             identity=ActorIdentity(
@@ -804,6 +887,29 @@ class LocalStackBrowserTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(started.status_code, 303)
+
+    def _register_local_project(self, *, database: str = "odoo19_local"):
+        context = self.app.state.context
+        project = context.projects.repository.get(self.project_id)
+        now = datetime.now(timezone.utc)
+        registered = replace(
+            project,
+            odoo_connection_mode=OdooConnectionMode.LOCAL,
+            odoo_base_url="http://127.0.0.1:18069",
+            odoo_database=database,
+            status=ProjectStatus.REGISTERED,
+            revision=project.revision + 1,
+            updated_at=now,
+            registered_at=now,
+        )
+        context.projects.repository.save(
+            registered,
+            expected_revision=project.revision,
+            event_type="TEST_PROJECT_REGISTERED",
+            event_detail="",
+            actor=context.actor,
+        )
+        return registered
 
 
 class ProjectSetupWizardTests(unittest.TestCase):
@@ -2656,7 +2762,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             schema_catalog.read_permission_hash,
             model_catalog.read_permission_hash,
         )
-        schema_page = self.client.get(captured.headers["location"])
+        schema_page = self.client.get(scope.headers["location"])
         self.assertIn("Tell Impodo how to find existing records", schema_page.text)
         self.assertIn("How should Impodo find an existing Contact?", schema_page.text)
         self.assertNotIn("Reference (ref)", schema_page.text)

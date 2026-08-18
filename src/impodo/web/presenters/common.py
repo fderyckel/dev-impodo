@@ -21,7 +21,8 @@ def _render(
     if raw_error:
         plain_error, support_error = _plain_ui_error(str(raw_error))
         context["error"] = plain_error
-        context.setdefault("support_error", support_error)
+        if context.get("support_error") is None:
+            context["support_error"] = support_error
     project = context.get("project")
     if project is not None and "project_navigation" not in context:
         context["project_navigation"] = build_project_navigation(

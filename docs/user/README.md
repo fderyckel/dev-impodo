@@ -28,6 +28,5 @@ categories, and bills of materials, use the
 The user pages explain what to do, what to check, and what completion means.
 Implementation details are kept in the paired developer pages.
 
-All screenshots in this section were recaptured from the current browser UI on
-14 August 2026 using isolated fictional projects. They contain no operational
-or customer data.
+Screenshots are captured from the current browser UI using isolated fictional
+projects. They contain no operational or customer data.

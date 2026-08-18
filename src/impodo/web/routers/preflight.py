@@ -35,7 +35,10 @@ from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash
 from ..presenters.summary import _render_summary
-from ..target_readers import _read_readiness_snapshots
+from ..target_readers import (
+    LocalOdooRecoveryRequired,
+    _read_readiness_snapshots,
+)
 
 
 def _report_chunks(
@@ -81,6 +84,19 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 project_id,
                 reader=reader,
                 actor=context.actor,
+            )
+        except LocalOdooRecoveryRequired as error:
+            return _render_summary(
+                request,
+                context,
+                project_id,
+                local_stack_error=(
+                    "Reconnect local Odoo for this session before comparing "
+                    "data."
+                ),
+                local_stack_support_error=str(error),
+                open_local_stack=True,
+                status_code=422,
             )
         except (
             ConnectorError,

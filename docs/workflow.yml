@@ -178,6 +178,7 @@ stages:
     code_references:
       - src/impodo/application/preflight_service.py::PreflightService
       - src/impodo/application/preflight_service.py::PreflightService.compare
+      - src/impodo/web/target_readers.py::LocalOdooRecoveryRequired
     tests:
       - tests/test_preflight_service.py
       - tests/test_preflight_scale.py

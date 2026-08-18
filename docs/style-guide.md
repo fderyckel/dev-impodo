@@ -70,8 +70,10 @@ available.
 - Include useful alternative text.
 - Capture the decision point, not decorative browser chrome.
 - Keep counts small enough to review visually.
-- Recheck the screenshot when its route, label, or surrounding decision
-  changes.
+- Every user page must reference a current PNG under `docs/images/user/`.
+- When a route, label, or decision changes, recapture the affected state from
+  the authenticated current UI at 1440x1024 with isolated fictional data. Do
+  not keep an old image merely because its link still works.
 
 ## Required maintenance
 

@@ -455,8 +455,10 @@ records row lineage.
 Review every decision that needs attention. Do not continue while a required
 relationship, identity, value conversion, or business rule is unresolved.
 
-Then open **Final review** and select **Check all rows**. Impodo compares the
-prepared data with read-only Odoo evidence and classifies each row:
+Then open **Final review** and select **Compare with Odoo**. If local Odoo
+needs reconnecting, choose its setup and continue after every check is ready.
+Impodo compares the prepared data with read-only Odoo evidence and classifies
+each row:
 
 - **Create** — no existing record matched;
 - **Update** — exactly one existing record matched and values differ;

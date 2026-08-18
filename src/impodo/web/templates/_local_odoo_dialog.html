@@ -1,0 +1,220 @@
+{% set dialog_error = local_stack_dialog_error or error %}
+{% set dialog_support_error = local_stack_support_error or support_error %}
+<dialog
+  class="local-stack-dialog"
+  data-local-stack-dialog
+  data-auto-open="{{ 'true' if local_stack_auto_open else 'false' }}"
+  aria-labelledby="local-stack-title"
+>
+  <div class="dialog-heading">
+    <div>
+      <p class="eyebrow">Odoo on this computer</p>
+      <h2 id="local-stack-title">
+        {% if local_stack_resume_compare %}Reconnect local Odoo{% else %}Find and check local Odoo{% endif %}
+      </h2>
+      <p>
+        {% if local_stack_resume_compare %}
+          Choose the local Odoo setup used by this project. Impodo will check it before continuing the comparison.
+        {% else %}
+          Choose the local Odoo setup. Impodo will check what is available and can start missing local services after you confirm.
+        {% endif %}
+      </p>
+    </div>
+    <form method="dialog">
+      <button class="dialog-close" type="submit" aria-label="Close dialog">&times;</button>
+    </form>
+  </div>
+
+  {% if dialog_error %}
+    <div class="notice error dialog-error" role="alert">
+      {{ dialog_error }}
+      {% if dialog_support_error and dialog_support_error != dialog_error %}
+        <details class="technical-details">
+          <summary>Support details</summary>
+          <code>{{ dialog_support_error }}</code>
+        </details>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if local_stack.config_path %}
+    <details class="technical-details selected-config">
+      <summary>Support details</summary>
+      <p>Selected local setup: <code>{{ local_stack.config_path }}</code></p>
+    </details>
+  {% endif %}
+
+  <ol class="readiness-list" aria-live="polite">
+    {% for check in local_stack.checks %}
+      <li class="readiness-item status-{{ check.level.value }}">
+        <span class="status-dot" aria-hidden="true"></span>
+        <div>
+          <strong>{% if check.label == 'Configuration' %}Local setup{% elif check.label == 'PostgreSQL' %}Required local service{% elif check.label == 'Odoo server' %}Odoo{% elif check.label == 'Database access (read-only)' %}Odoo data access{% else %}{{ check.label }}{% endif %}</strong>
+          <span>
+            {% if check.level.value == 'ready' %}Ready.
+            {% elif check.level.value == 'error' %}Needs attention.
+            {% elif check.level.value == 'warning' %}Check this before continuing.
+            {% else %}Not checked yet.{% endif %}
+          </span>
+          {% if check.message or check.detail %}
+            <details class="technical-details">
+              <summary>Support details</summary>
+              <small>{{ check.message }}{% if check.detail %} &middot; {{ check.detail }}{% endif %}</small>
+            </details>
+          {% endif %}
+        </div>
+      </li>
+    {% endfor %}
+  </ol>
+
+  {% if local_stack.profile %}
+    <details class="detected-profile">
+      <summary>Support details</summary>
+      <dl>
+        <div>
+          <dt><code>pg_isready.exe</code></dt>
+          <dd>{{ local_stack.profile.pg_isready_path or "Not found" }}</dd>
+        </div>
+        <div>
+          <dt><code>pg_ctl.exe</code></dt>
+          <dd>{{ local_stack.profile.pg_ctl_path or "Not found" }}</dd>
+        </div>
+        <div>
+          <dt>PostgreSQL data</dt>
+          <dd>{{ local_stack.profile.pg_data_path or "Not found" }}</dd>
+        </div>
+        <div>
+          <dt>Python</dt>
+          <dd>{{ local_stack.profile.python_path or "Not found" }}</dd>
+        </div>
+        <div>
+          <dt><code>odoo-bin</code></dt>
+          <dd>{{ local_stack.profile.odoo_bin_path or "Not found" }}</dd>
+        </div>
+        <div>
+          <dt>Logs directory</dt>
+          <dd>{{ local_stack.profile.logs_path or "Not found" }}</dd>
+        </div>
+      </dl>
+      <p class="muted">
+        Impodo can start only these detected, workspace-local paths. It cannot accept a command or executable path typed into the browser.
+      </p>
+    </details>
+  {% endif %}
+
+  {% if local_stack.has_managed_services %}
+    <section class="stack-control-panel">
+      <h3>Control local services started by Impodo</h3>
+      <p>
+        Impodo can control only the local services it started during this session. Services started elsewhere are never stopped.
+      </p>
+      {% if "PostgreSQL" in local_stack.managed_services %}
+        <div class="notice warning">
+          PostgreSQL is managed by Impodo. Stopping it may disconnect other local tools that began using this same server after Impodo started it.
+        </div>
+      {% endif %}
+      <form
+        method="post"
+        action="/projects/{{ project.project_id }}/local-stack/control"
+        data-control-stack-form
+      >
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="return_to" value="{{ local_stack_return_to }}">
+        <input type="hidden" name="action" value="" data-control-stack-action>
+        <label class="checkbox stack-start-confirmation">
+          <input type="checkbox" name="confirm_control" value="1" required>
+          I confirm that Impodo may stop only the services listed above and understand the local PostgreSQL impact, when it is listed.
+        </label>
+        <div class="stack-control-actions">
+          <button
+            class="button secondary"
+            type="submit"
+            data-control-stack-action-value="stop"
+            data-control-stack-button
+          >
+            Stop managed services
+          </button>
+          <button
+            class="button primary"
+            type="submit"
+            data-control-stack-action-value="restart"
+            data-control-stack-button
+          >
+            Restart managed services
+          </button>
+        </div>
+      </form>
+      <small>
+        Stop managed services before quitting Impodo. Ownership is kept only in memory for this Impodo session.
+      </small>
+    </section>
+  {% elif local_stack.startup_needed %}
+    <section class="stack-start-panel">
+      <h3>Start local Odoo</h3>
+      <p>
+        Impodo will check the selected local setup and start only the services Odoo needs on this computer.
+      </p>
+      {% if local_stack.missing_start_requirements %}
+        <div class="notice error">
+          Local Odoo cannot start yet. Ask support to check this computer.
+          <details class="technical-details">
+            <summary>Support details</summary>
+            {{ local_stack.missing_start_requirements | join(", ") }}
+          </details>
+        </div>
+      {% else %}
+        <form
+          method="post"
+          action="/projects/{{ project.project_id }}/local-stack/start"
+          data-start-stack-form
+        >
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="return_to" value="{{ local_stack_return_to }}">
+          <label class="checkbox stack-start-confirmation">
+            <input type="checkbox" name="confirm_start" value="1" required>
+            I want Impodo to start the missing local Odoo services shown above.
+          </label>
+          <button class="button primary" type="submit" data-start-stack-button>
+            Start local Odoo
+          </button>
+        </form>
+      {% endif %}
+      <small>
+        Leave the Odoo console window open. Stop and Restart become available only for services successfully started by Impodo.
+      </small>
+    </section>
+  {% elif local_stack.profile %}
+    <div class="notice stack-ready">
+      Odoo is already responding, but it was not started by this Impodo session. Status checks remain available; Stop and Restart are intentionally disabled.
+    </div>
+  {% endif %}
+
+  <div class="dialog-actions">
+    <form method="post" action="/projects/{{ project.project_id }}/local-stack/select-config">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="return_to" value="{{ local_stack_return_to }}">
+      <button class="button secondary" type="submit">
+        {% if local_stack.config_path %}Choose another local setup{% else %}Choose local Odoo setup{% endif %}
+      </button>
+    </form>
+    <form method="post" action="/projects/{{ project.project_id }}/local-stack/refresh">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="return_to" value="{{ local_stack_return_to }}">
+      <button class="button {% if local_stack_resume_compare %}secondary{% else %}primary{% endif %}" type="submit" {% if not local_stack.profile %}disabled{% endif %}>
+        Check again
+      </button>
+    </form>
+    {% if local_stack_resume_compare %}
+      <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="button primary" type="submit" {% if not local_stack_resume_ready %}disabled{% endif %}>
+          Continue comparison
+        </button>
+        <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
+      </form>
+    {% endif %}
+    <form method="dialog">
+      <button class="button secondary" type="submit">Close</button>
+    </form>
+  </div>
+</dialog>

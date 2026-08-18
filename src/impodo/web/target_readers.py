@@ -48,6 +48,10 @@ from .target_credentials import (
 )
 
 
+class LocalOdooRecoveryRequired(WorkspaceError):
+    """Raised when a live local Odoo read needs a matching session profile."""
+
+
 def _source_capture_reader(
     project: MigrationProject,
     api_key: str,
@@ -119,11 +123,21 @@ def _selected_local_profile(
     if profile is None:
         return None
     if profile.base_url.rstrip("/") != project.odoo_base_url.rstrip("/"):
-        raise WorkspaceError(
+        raise LocalOdooRecoveryRequired(
             "The selected odoo.conf points to "
             f"{profile.base_url}, but this project targets "
             f"{project.odoo_base_url}. Choose the matching configuration or "
             "correct the project target."
+        )
+    if (
+        profile.database_hint
+        and project.odoo_database
+        and profile.database_hint != project.odoo_database
+    ):
+        raise LocalOdooRecoveryRequired(
+            "The selected odoo.conf points to database "
+            f"{profile.database_hint}, but this project targets "
+            f"{project.odoo_database}. Choose the matching configuration."
         )
     return profile
 
@@ -317,7 +331,7 @@ def _read_readiness_snapshots(
         )
     if project.odoo_connection_mode is OdooConnectionMode.LOCAL:
         if local_profile is None:
-            raise WorkspaceError(
+            raise LocalOdooRecoveryRequired(
                 "Choose and validate the matching local odoo.conf before "
                 "checking data."
             )

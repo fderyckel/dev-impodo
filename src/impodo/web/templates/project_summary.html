@@ -54,7 +54,7 @@
       <a class="button primary" href="/projects/{{ project.project_id }}/resolution">Review possible duplicates</a>
     </section>
   {% elif normalization and not readiness %}
-    <section class="next-action-card {% if normalization.frozen %}ready{% else %}review{% endif %}" aria-labelledby="normalization-next-title">
+    <section class="next-action-card {% if normalization.frozen %}ready{% else %}review{% endif %}" id="compare-with-odoo" aria-labelledby="normalization-next-title">
       <div>
         <p class="eyebrow">Next action</p>
         {% if normalization.frozen %}
@@ -67,11 +67,18 @@
       </div>
       <div class="next-action-buttons">
         {% if normalization.frozen %}
-          <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button primary" type="submit">Compare with Odoo</button>
-            <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
-          </form>
+          {% if local_odoo_recovery_needed %}
+            <div>
+              <button class="button primary" type="button" data-open-local-stack>Reconnect local Odoo</button>
+              <small class="muted">Required for this Impodo session before comparing data.</small>
+            </div>
+          {% else %}
+            <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="button primary" type="submit">Compare with Odoo</button>
+              <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
+            </form>
+          {% endif %}
           <a class="button secondary" href="/projects/{{ project.project_id }}/normalization">View approved data</a>
         {% else %}
           <a class="button primary" href="/projects/{{ project.project_id }}/normalization">Review prepared data</a>
@@ -190,7 +197,7 @@
   {% endif %}
 
   {% if readiness %}
-    <section class="next-action-card {% if readiness.blocked_count %}blocked{% elif readiness.needs_review_count %}review{% else %}ready{% endif %}" aria-labelledby="next-action-title">
+    <section class="next-action-card {% if readiness.blocked_count %}blocked{% elif readiness.needs_review_count %}review{% else %}ready{% endif %}" id="compare-with-odoo" aria-labelledby="next-action-title">
       <div>
         <p class="eyebrow">Next action</p>
         {% if quality and quality.blocked_count %}
@@ -267,11 +274,15 @@
             <button class="button primary" type="submit">Create review workbook</button>
           </form>
         {% endif %}
-        <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button secondary" type="submit">Compare with Odoo again</button>
-          <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
-        </form>
+        {% if local_odoo_recovery_needed %}
+          <button class="button secondary" type="button" data-open-local-stack>Reconnect local Odoo</button>
+        {% else %}
+          <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button secondary" type="submit">Compare with Odoo again</button>
+            <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
+          </form>
+        {% endif %}
       </div>
     </section>
 
@@ -572,5 +583,8 @@
         <a class="button primary" href="/projects/{{ project.project_id }}/sources">Check source data</a>
       </div>
     </section>
+  {% endif %}
+  {% if project.odoo_connection_mode and project.odoo_connection_mode.value == 'LOCAL' %}
+    {% include "_local_odoo_dialog.html" %}
   {% endif %}
 {% endblock %}
