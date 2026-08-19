@@ -23,6 +23,11 @@ before any publication begins.
 ## Implementation flow
 
 `preparation.py` starts and monitors work through `PreparationJobManager`.
+Before spawning, the route resolves and captures the active Recipe/DataVersion.
+`preparation_worker.py` composes project-only adapters and validates that
+captured identity against the project's immutable linkage; it cannot open the
+shared Recipe registry. The progress page renders from the same in-memory job
+snapshot and therefore does not race either DuckDB writer.
 `PreparationService` selects the supported preparation capability, compiles the
 mapping, writes bounded staging batches, publishes quality/accounting evidence,
 and records the preparation session.
@@ -38,6 +43,7 @@ the frozen source.
 | --- | --- |
 | Preparation orchestration | [`PreparationService`](../../../src/impodo/application/preparation_service.py) |
 | Background jobs | [`PreparationJobManager`](../../../src/impodo/application/preparation_job_service.py) |
+| Project-only worker wiring | [`create_preparation_worker`](../../../src/impodo/preparation_worker.py) |
 | Quality publication | [`QualityService`](../../../src/impodo/application/quality_service.py) |
 | Entity resolution | [`ResolutionService`](../../../src/impodo/application/resolution_service.py) |
 | Normalization decisions | [`NormalizationService`](../../../src/impodo/application/normalization_service.py) |
@@ -60,8 +66,9 @@ Odoo IDs stay protected.
 
 ## Completion and navigation
 
-An active job short-circuits navigation reads to avoid racing the DuckDB
-writer. Later stages remain locked while work is active or while required
+Preparation progress uses its captured job snapshot for navigation and Recipe
+context, avoiding both registry and project database reads while a writer owns
+either file. Later stages remain locked while work is active or while required
 resolution or normalization decisions remain. Completion requires frozen,
 fully accounted prepared evidence for the current bindings.
 
@@ -95,8 +102,9 @@ lineage parity before being called an optimization.
 - [`tests/test_web_app.py`](../../../tests/test_web_app.py)
 
 Verify atomic rollback, cancellation, retry, bounded memory, complete
-accounting, deterministic hashes, lineage, active-job navigation, and the
-appropriate scale gate for each execution class.
+accounting, deterministic hashes, lineage, progress rendering under real
+cross-process DuckDB locks, and the appropriate scale gate for each execution
+class.
 
 ## Related documentation
 

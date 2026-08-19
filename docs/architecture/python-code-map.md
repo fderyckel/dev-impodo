@@ -35,7 +35,7 @@ flowchart LR
 | Domain | What do mappings, rows, issues, identities, relationships, decisions, and hashes mean? | [`domain/`](../../src/impodo/domain), [`models.py`](../../src/impodo/models.py), [`quality.py`](../../src/impodo/quality.py), [`normalization.py`](../../src/impodo/normalization.py), [`staging_contracts.py`](../../src/impodo/staging_contracts.py) |
 | Ports | What must persistence or an external reader guarantee? | [`application/readiness_ports.py`](../../src/impodo/application/readiness_ports.py) and focused protocols beside services |
 | Adapters | How are durable records, files, credentials, and bounded Odoo reads implemented? | [`adapters/duckdb/`](../../src/impodo/adapters/duckdb), [`artifacts.py`](../../src/impodo/artifacts.py), [`connectors.py`](../../src/impodo/connectors.py), [`local_odoo_reader.py`](../../src/impodo/local_odoo_reader.py) |
-| Composition root | Which concrete implementations are connected for the local product? | [`web/app.py`](../../src/impodo/web/app.py), [`web/context.py`](../../src/impodo/web/context.py) |
+| Composition root | Which concrete implementations are connected for the local product? | [`web/app.py`](../../src/impodo/web/app.py), [`preparation_worker.py`](../../src/impodo/preparation_worker.py), [`web/context.py`](../../src/impodo/web/context.py) |
 
 Imports often cross several of these locations. Follow responsibility rather
 than file depth: routes translate HTTP, services order the use case, domain
@@ -92,6 +92,15 @@ injects them into application services, stores those services in
 [`WebContext`](../../src/impodo/web/context.py), and gives the same context to
 every router.
 
+Spawned preparation is the deliberate exception. The browser process resolves
+the active Recipe/DataVersion and captures that identity in the job before
+spawn. [`create_preparation_worker`](../../src/impodo/preparation_worker.py)
+then composes only project-scoped repositories; its project reader verifies the
+captured identity against the immutable project linkage and has no Recipe
+registry capability. Progress pages render their project, Recipe, and workflow
+context from the job snapshot, so polling cannot contend with either DuckDB
+writer.
+
 `WebContext` is dependency wiring, not a domain aggregate. When starting from
 a route such as `context.preparation.prepare(...)`, open the declared type of
 `preparation` to find the use case. When starting from a service dependency
@@ -107,6 +116,8 @@ must not absorb workflow decisions from the services or domain:
 ```mermaid
 flowchart LR
     Composition["web/app.py composition root"] --> Web["web routes and presenters"]
+    WorkerComposition["preparation_worker.py project-only root"] --> Application
+    WorkerComposition --> Adapters
     Composition --> Application["application services"]
     Composition --> Adapters["DuckDB, artifact, secret, and reader adapters"]
     Web --> Application
@@ -120,8 +131,8 @@ flowchart LR
 
 The intended direction is from delivery/orchestration toward domain contracts.
 Domain modules do not construct FastAPI routes, DuckDB repositories, secret
-stores, or Odoo transports. `create_local_app` is the one local place allowed
-to know all concrete implementations.
+stores, or Odoo transports. Concrete wiring belongs only in the local browser
+root or the narrower project-only preparation-worker root.
 
 | Guarantee | Owner | How it connects to workflow code |
 | --- | --- | --- |
@@ -548,9 +559,9 @@ sequenceDiagram
     participant Quality as "QualityService"
     participant Normalize as "NormalizationService"
 
-    Route->>Jobs: enqueue(project_id, actor)
+    Route->>Jobs: enqueue(project_id, actor, workspace snapshot)
     Jobs-->>Route: session-scoped job ID
-    Jobs->>Worker: start preparation
+    Jobs->>Worker: start project-only preparation
     Worker->>Service: prepare(project_id, actor, progress)
     Service->>Service: verify authorization, mapping submission, and frozen source
     Service->>Eval: stage_browser_mapping(...)
@@ -578,6 +589,10 @@ sequenceDiagram
    concurrent projects do not multiply the preparation RAM peak; later jobs
    remain queued for this application session. Restarting Impodo clears these
    transient snapshots without affecting completed evidence in DuckDB.
+   The job captures the registry-authorized Recipe/DataVersion before spawn;
+   the child uses the project-only composition root and validates that identity
+   against the project's linkage without opening `registry.duckdb`. The HTML
+   progress page and JSON poll endpoint also read only the in-memory snapshot.
 3. [`PreparationService.prepare`](../../src/impodo/application/preparation_service.py)
    enforces the workflow order and owns the use-case transaction boundaries.
 4. [`stage_browser_mapping`](../../src/impodo/application/preparation_service.py)
