@@ -51,6 +51,7 @@ class RecipeQualificationWebTests(unittest.TestCase):
             "/recipes/new",
             data={
                 "csrf_token": self.csrf,
+                "creation_request_id": str(uuid4()),
                 "name": "Customer rollout recipe",
                 "source_system": "CSV export",
                 "source_mode": "FILE",

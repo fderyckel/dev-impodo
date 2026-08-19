@@ -6,6 +6,7 @@
   <section class="form-card">
     <p class="eyebrow">Project setup · Source files</p>
     <h1>Add source files</h1>
+    {% include "_setup_blockers.html" %}
     <p>
       CSV and modern XLSX only. Legacy <code>.xls</code> files must be opened
       in Excel and saved as <code>.xlsx</code>; renaming the extension is not
@@ -41,8 +42,10 @@
       </label>
       <div class="actions">
         <a class="button secondary" href="/projects/{{ project.project_id }}/governance">Back</a>
-        <button class="button secondary" type="submit">Add file</button>
-        <a class="button primary" href="/projects/{{ project.project_id }}/target">Continue</a>
+        <button class="button {% if project.source_files %}secondary{% else %}primary{% endif %}" type="submit">Add file</button>
+        {% if project.source_files %}
+          <a class="button primary" href="/projects/{{ project.project_id }}/target">Continue</a>
+        {% endif %}
       </div>
     </form>
   </section>

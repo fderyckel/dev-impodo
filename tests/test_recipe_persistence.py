@@ -19,6 +19,7 @@ from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.recipe_repository import RecipeRepository
 from impodo.adapters.duckdb.schema.registry import (
     RECIPE_CLEAN_ROOT_MIGRATION_ID,
+    RECIPE_CREATION_IDEMPOTENCY_MIGRATION_ID,
     RECIPE_REGISTRY_MIGRATION_ID,
 )
 from impodo.adapters.protected_recipe_store import ProtectedRecipeStore
@@ -246,15 +247,23 @@ class RecipePersistenceTests(unittest.TestCase):
                 "WHERE migration_id = ?",
                 [RECIPE_CLEAN_ROOT_MIGRATION_ID],
             ).fetchone()
+            creation_migration = connection.execute(
+                "SELECT count(*) FROM registry_schema_migration "
+                "WHERE migration_id = ?",
+                [RECIPE_CREATION_IDEMPOTENCY_MIGRATION_ID],
+            ).fetchone()
 
         self.assertNotIn("pending_data_version_id", recipe_columns)
         self.assertNotIn("setup_hydration_state", recipe_columns)
         self.assertNotIn("state", recipe_columns)
+        self.assertIn("creation_request_id", recipe_columns)
+        self.assertIn("creation_request_hash", recipe_columns)
         self.assertNotIn("intake_status", data_columns)
         self.assertNotIn("retry_count", intent_columns)
         self.assertEqual(data_state, ("SEALED",))
         self.assertEqual(history_count, (2,))
         self.assertEqual(migration, (1,))
+        self.assertEqual(creation_migration, (1,))
 
     def test_native_recipe_registry_is_bounded_and_ids_are_not_interchangeable(self) -> None:
         project, recipe = self._project_and_recipe()
@@ -309,6 +318,78 @@ class RecipePersistenceTests(unittest.TestCase):
             linkage,
             (recipe.recipe_id, versions[0].data_version_id, 1),
         )
+
+    def test_recipe_creation_request_replays_one_workspace_and_migrates_once(self):
+        request_id = str(uuid4())
+        created = self.project_service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Customer migration",
+            source_system="CSV export",
+            creation_request_id=request_id,
+        )
+        replayed = self.project_service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Customer migration",
+            source_system="CSV export",
+            creation_request_id=request_id,
+        )
+
+        self.assertEqual(replayed.project_id, created.project_id)
+        with self.assertRaisesRegex(
+            ProjectError,
+            "already used with different details",
+        ):
+            self.project_service.create_project(
+                actor=LOCAL_ACTOR,
+                name="Changed migration",
+                source_system="CSV export",
+                creation_request_id=request_id,
+            )
+
+        same_name = self.project_service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Customer migration",
+            source_system="CSV export",
+            creation_request_id=str(uuid4()),
+        )
+        self.assertNotEqual(same_name.project_id, created.project_id)
+
+        with self.recipe_repository._connect(
+            self.recipe_repository.registry_path
+        ) as connection:
+            creation_columns = {
+                str(row[1])
+                for row in connection.execute(
+                    "PRAGMA table_info('recipe')"
+                ).fetchall()
+            }
+            pending_columns = {
+                str(row[1])
+                for row in connection.execute(
+                    "PRAGMA table_info('project_registry_sync_pending')"
+                ).fetchall()
+            }
+            stored = connection.execute(
+                "SELECT creation_request_hash FROM recipe "
+                "WHERE creation_request_id = ?",
+                [request_id],
+            ).fetchone()
+            recipe_count = connection.execute(
+                "SELECT count(*) FROM recipe"
+            ).fetchone()
+            migration_count = connection.execute(
+                "SELECT count(*) FROM registry_schema_migration "
+                "WHERE migration_id = ?",
+                [RECIPE_CREATION_IDEMPOTENCY_MIGRATION_ID],
+            ).fetchone()
+
+        self.assertIn("creation_request_id", creation_columns)
+        self.assertIn("creation_request_hash", creation_columns)
+        self.assertIn("creation_request_id", pending_columns)
+        self.assertIn("creation_request_hash", pending_columns)
+        self.assertTrue(str(stored[0]).startswith("sha256:"))
+        self.assertEqual(recipe_count, (2,))
+        self.assertEqual(migration_count, (1,))
 
     def test_protected_store_encrypts_authenticates_and_contains_paths(self) -> None:
         _, recipe = self._project_and_recipe()

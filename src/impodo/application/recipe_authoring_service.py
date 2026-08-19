@@ -162,6 +162,7 @@ class RecipeAuthoringService:
         name: str,
         source_system: str,
         source_mode: str | SourceMode,
+        creation_request_id: str | None = None,
         actor: Actor,
     ) -> tuple[Recipe, MigrationProject]:
         """Provision Recipe, DataVersion 1, and its contained workspace."""
@@ -172,6 +173,7 @@ class RecipeAuthoringService:
             name=name,
             source_system=source_system,
             source_mode=source_mode,
+            creation_request_id=creation_request_id,
         )
         workspace = self.recipes.resolve_workspace(project.project_id, actor=actor)
         recipe = self.recipes.get(workspace.recipe_id, actor=actor)

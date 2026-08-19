@@ -29,9 +29,11 @@ from impodo.projects import (
     ProjectError,
     ProjectRegistrationError,
     ProjectService,
+    ProjectSetupStep,
     ProjectStatus,
     SourceMode,
     SourceFile,
+    project_setup_requirements,
     registration_problems,
 )
 from impodo.domain.serialization import CanonicalJsonObjectHasher, content_hash
@@ -247,6 +249,23 @@ class ProjectLifecycleTests(unittest.TestCase):
                 expected_revision=project.revision,
             )
         self.assertIn("At least one source file is required", caught.exception.problems)
+
+        requirements = project_setup_requirements(project)
+        self.assertEqual(
+            [item.code for item in requirements[:2]],
+            [
+                "SOURCE_EXPORT_RECEIVED_REQUIRED",
+                "SOURCE_EXPORT_DATE_REQUIRED",
+            ],
+        )
+        source_file_requirement = next(
+            item for item in requirements if item.code == "SOURCE_FILE_REQUIRED"
+        )
+        self.assertIs(source_file_requirement.step, ProjectSetupStep.FILES)
+        self.assertEqual(
+            source_file_requirement.guidance,
+            "Add at least one source file.",
+        )
 
     def test_odoo_source_registration_needs_no_export_or_placeholder_file(
         self,

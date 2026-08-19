@@ -8,11 +8,34 @@
     <h1>Confirm the project setup</h1>
 
     {% if problems %}
-      <div class="notice warning">
-        <strong>Complete these items:</strong>
-        <ul>
-          {% for problem in problems %}<li>{{ problem }}</li>{% endfor %}
-        </ul>
+      <div
+        id="setup-blockers"
+        class="notice warning setup-blockers setup-recovery"
+        role="alert"
+        tabindex="-1"
+        data-setup-blockers
+        data-auto-focus="true"
+      >
+        <strong>Finish setup before confirming</strong>
+        {% if setup_recovery_steps %}
+          {% for recovery in setup_recovery_steps %}
+            <div class="setup-recovery-row">
+              <div>
+                <strong>{{ recovery.label }}</strong>
+                <ul>
+                  {% for requirement in recovery.requirements %}
+                    <li>{{ requirement.guidance }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+              <a class="button secondary" href="{{ recovery.href }}">Open {{ recovery.label }}</a>
+            </div>
+          {% endfor %}
+        {% else %}
+          <ul>
+            {% for problem in problems %}<li>{{ problem }}</li>{% endfor %}
+          </ul>
+        {% endif %}
       </div>
     {% endif %}
 

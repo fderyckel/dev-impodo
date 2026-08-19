@@ -6,8 +6,10 @@ import re
 
 from fastapi import Request
 
+from ...projects import MigrationProject, ProjectStatus
 from ..context import WebContext
 from .navigation import build_project_navigation
+from .setup import build_project_setup_view
 
 
 def _render(
@@ -30,6 +32,21 @@ def _render(
             project,
             template_name,
             current_path=request.url.path,
+        )
+    if (
+        isinstance(project, MigrationProject)
+        and project.status is ProjectStatus.DRAFT
+    ):
+        setup_view = build_project_setup_view(project, template_name)
+        context.setdefault("setup_steps", setup_view.steps)
+        context.setdefault(
+            "setup_current_requirements",
+            setup_view.current_requirements,
+        )
+        context.setdefault("setup_recovery_steps", setup_view.recovery_steps)
+        context["setup_attention_requested"] = bool(
+            context.get("setup_attention_requested")
+            or request.query_params.get("blocked") == "1"
         )
     if project is not None and "recipe_context" not in context:
         application = request.app.state.context

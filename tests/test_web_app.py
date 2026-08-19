@@ -242,6 +242,7 @@ class LocalBrowserSecurityTests(unittest.TestCase):
             "/recipes/new",
             data={
                 "csrf_token": csrf,
+                "creation_request_id": str(uuid4()),
                 "name": "Origin fallback",
                 "source_system": "Other",
             },
@@ -254,6 +255,7 @@ class LocalBrowserSecurityTests(unittest.TestCase):
             "/recipes/new",
             data={
                 "csrf_token": csrf,
+                "creation_request_id": str(uuid4()),
                 "name": "Referer fallback",
                 "source_system": "Other",
             },
@@ -451,6 +453,7 @@ class LocalStackBrowserTests(unittest.TestCase):
             "/recipes/new",
             data={
                 "csrf_token": self.csrf,
+                "creation_request_id": str(uuid4()),
                 "name": "Local readiness",
                 "source_system": "Other",
             },
@@ -458,6 +461,37 @@ class LocalStackBrowserTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.project_id = _created_workspace_id(self.app, created)
+        context = self.app.state.context
+        project = context.queries.get(self.project_id)
+        project = context.projects.update_details(
+            self.project_id,
+            actor=context.actor,
+            expected_revision=project.revision,
+            name=project.name,
+            source_system=project.source_system,
+            export_status="RECEIVED",
+            export_date=date.today().isoformat(),
+            description="Local readiness checks",
+        )
+        project = context.projects.update_governance(
+            self.project_id,
+            actor=context.actor,
+            expected_revision=project.revision,
+            data_manager="Data Manager",
+            functional_owner="Product Owner",
+            business_unit="Example Business Unit",
+            data_classification="INTERNAL",
+            retention_days=90,
+            support_access=False,
+        )
+        context.intake.accept(
+            self.project_id,
+            actor=context.actor,
+            expected_revision=project.revision,
+            display_name="local-readiness.csv",
+            stream=BytesIO(b"code,name\nP001,Example\n"),
+        )
+        self.project_revision = context.queries.get(self.project_id).revision
 
     def tearDown(self) -> None:
         self.client.close()
@@ -541,7 +575,7 @@ class LocalStackBrowserTests(unittest.TestCase):
             f"/projects/{self.project_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": "1",
+                "revision": str(self.project_revision),
                 "odoo_connection_mode": "LOCAL",
                 "odoo_base_url": "http://127.0.0.1:18069",
                 "odoo_database": "odoo19_local",
@@ -574,7 +608,7 @@ class LocalStackBrowserTests(unittest.TestCase):
             f"/projects/{self.project_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": "1",
+                "revision": str(self.project_revision),
                 "odoo_connection_mode": "LOCAL",
                 "odoo_base_url": "http://127.0.0.1:18069",
                 "odoo_database": "odoo19_local",
@@ -601,7 +635,7 @@ class LocalStackBrowserTests(unittest.TestCase):
             f"/projects/{self.project_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": "1",
+                "revision": str(self.project_revision),
                 "odoo_connection_mode": "LOCAL",
                 "odoo_base_url": "http://127.0.0.1:18069",
                 "odoo_database": "odoo19_local",
@@ -729,7 +763,7 @@ class LocalStackBrowserTests(unittest.TestCase):
             f"/projects/{self.project_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": "1",
+                "revision": str(self.project_revision),
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://odoo.example.com",
                 "odoo_database": "odoo_review",
@@ -1037,6 +1071,41 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.client.close()
         self.temporary.cleanup()
 
+    def _complete_setup_before_target(self, project_id: str):
+        """Prepare earlier setup steps for tests scoped to target behaviour."""
+
+        context = self.app.state.context
+        project = context.queries.get(project_id)
+        project = context.projects.update_details(
+            project_id,
+            actor=context.actor,
+            expected_revision=project.revision,
+            name=project.name,
+            source_system=project.source_system,
+            export_status="RECEIVED",
+            export_date=date.today().isoformat(),
+            description="Target behaviour test",
+        )
+        project = context.projects.update_governance(
+            project_id,
+            actor=context.actor,
+            expected_revision=project.revision,
+            data_manager="Data Manager",
+            functional_owner="Product Owner",
+            business_unit="Example Business Unit",
+            data_classification="INTERNAL",
+            retention_days=90,
+            support_access=False,
+        )
+        context.intake.accept(
+            project_id,
+            actor=context.actor,
+            expected_revision=project.revision,
+            display_name="target-test.csv",
+            stream=BytesIO(b"code,name\nP001,Example\n"),
+        )
+        return context.queries.get(project_id)
+
     def test_new_project_governance_defaults_data_sensitivity_to_internal(
         self,
     ) -> None:
@@ -1050,11 +1119,220 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         project_id = _created_workspace_id(self.app, created)
 
-        page = self.client.get(f"/projects/{project_id}/governance")
+        blocked = self.client.get(
+            f"/projects/{project_id}/governance",
+            follow_redirects=False,
+        )
+        self.assertEqual(blocked.status_code, 303)
+        self.assertEqual(
+            blocked.headers["location"],
+            f"/projects/{project_id}/details?blocked=1#setup-blockers",
+        )
+        details = self._post(
+            f"/projects/{project_id}/details",
+            {
+                "csrf_token": self.csrf,
+                "revision": "1",
+                "name": "Customer migration",
+                "source_system": "Dynamics AX 2012",
+                "export_status": "RECEIVED",
+                "export_date": date.today().isoformat(),
+                "description": "",
+            },
+        )
+        page = self.client.get(details.headers["location"])
 
         self.assertEqual(page.status_code, 200)
         self.assertIn('value="INTERNAL" selected', page.text)
         self.assertNotIn('value="CONFIDENTIAL" selected', page.text)
+
+    def test_setup_shows_each_blocker_before_the_user_can_move_forward(
+        self,
+    ) -> None:
+        created = self._post(
+            "/recipes/new",
+            {
+                "csrf_token": self.csrf,
+                "name": "Products migration",
+                "source_system": "Dynamics AX 2012",
+            },
+        )
+        project_id = _created_workspace_id(self.app, created)
+
+        details_page = self.client.get(f"/projects/{project_id}/details")
+        self.assertIn("Complete this step to continue", details_page.text)
+        self.assertIn("Confirm that the source files are final.", details_page.text)
+        self.assertIn(
+            "Enter when the source files were produced.",
+            details_page.text,
+        )
+        self.assertIn('class="setup-step attention current"', details_page.text)
+        self.assertIn('class="setup-step locked"', details_page.text)
+        self.assertNotIn(
+            f'href="/projects/{project_id}/governance"',
+            details_page.text,
+        )
+
+        registration_fallback = self._post(
+            f"/projects/{project_id}/register",
+            {"csrf_token": self.csrf, "revision": "1"},
+        )
+        self.assertEqual(registration_fallback.status_code, 422)
+        self.assertIn("Finish setup before confirming", registration_fallback.text)
+        self.assertIn(">Open Project</a>", registration_fallback.text)
+        self.assertIn(">Open Source files</a>", registration_fallback.text)
+        self.assertNotIn(
+            "Source export must be marked as received",
+            registration_fallback.text,
+        )
+
+        blocked_target = self.client.get(
+            f"/projects/{project_id}/target",
+            follow_redirects=False,
+        )
+        self.assertEqual(blocked_target.status_code, 303)
+        self.assertEqual(
+            blocked_target.headers["location"],
+            f"/projects/{project_id}/details?blocked=1#setup-blockers",
+        )
+        returned = self.client.get(blocked_target.headers["location"])
+        self.assertIn('data-auto-focus="true"', returned.text)
+
+        incomplete = self._post(
+            f"/projects/{project_id}/details",
+            {
+                "csrf_token": self.csrf,
+                "revision": "1",
+                "name": "Products migration",
+                "source_system": "Dynamics AX 2012",
+                "export_status": "PLANNED",
+                "export_date": "",
+                "description": "Waiting for final files",
+                "action": "continue",
+            },
+        )
+        self.assertEqual(incomplete.status_code, 422)
+        self.assertIn("Complete this step to continue", incomplete.text)
+        self.assertNotIn("We could not complete that action", incomplete.text)
+
+        details = self._post(
+            f"/projects/{project_id}/details",
+            {
+                "csrf_token": self.csrf,
+                "revision": "2",
+                "name": "Products migration",
+                "source_system": "Dynamics AX 2012",
+                "export_status": "RECEIVED",
+                "export_date": date.today().isoformat(),
+                "description": "Final files received",
+                "action": "continue",
+            },
+        )
+        self.assertEqual(
+            details.headers["location"],
+            f"/projects/{project_id}/governance",
+        )
+        governance = self._post(
+            details.headers["location"],
+            {
+                "csrf_token": self.csrf,
+                "revision": "3",
+                "data_manager": "Data Manager",
+                "functional_owner": "Product Owner",
+                "business_unit": "Example Business Unit",
+                "data_classification": "INTERNAL",
+                "retention_days": "90",
+            },
+        )
+        self.assertEqual(
+            governance.headers["location"],
+            f"/projects/{project_id}/files",
+        )
+
+        files_page = self.client.get(governance.headers["location"])
+        self.assertIn("Add at least one source file.", files_page.text)
+        self.assertIn(
+            'class="button primary" type="submit">Add file</button>',
+            files_page.text,
+        )
+        self.assertNotIn(
+            f'href="/projects/{project_id}/target">Continue</a>',
+            files_page.text,
+        )
+        blocked_target = self.client.get(
+            f"/projects/{project_id}/target",
+            follow_redirects=False,
+        )
+        self.assertEqual(
+            blocked_target.headers["location"],
+            f"/projects/{project_id}/files?blocked=1#setup-blockers",
+        )
+
+        uploaded = self.client.post(
+            f"/projects/{project_id}/files",
+            data={"csrf_token": self.csrf, "revision": "4"},
+            files={
+                "source_file": (
+                    "products.csv",
+                    b"code,name\nP001,Example\n",
+                    "text/csv",
+                )
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(uploaded.status_code, 303)
+        ready_files_page = self.client.get(uploaded.headers["location"])
+        self.assertNotIn("Complete this step to continue", ready_files_page.text)
+        self.assertIn(
+            f'href="/projects/{project_id}/target">Continue</a>',
+            ready_files_page.text,
+        )
+
+    def test_incomplete_setup_can_be_saved_without_unlocking_later_steps(
+        self,
+    ) -> None:
+        created = self._post(
+            "/recipes/new",
+            {
+                "csrf_token": self.csrf,
+                "name": "Waiting for files",
+                "source_system": "Dynamics AX 2012",
+            },
+        )
+        project_id = _created_workspace_id(self.app, created)
+
+        saved = self._post(
+            f"/projects/{project_id}/details",
+            {
+                "csrf_token": self.csrf,
+                "revision": "1",
+                "name": "Waiting for files",
+                "source_system": "Dynamics AX 2012",
+                "export_status": "PLANNED",
+                "export_date": "",
+                "description": "Resume when the final files arrive",
+                "action": "save_exit",
+            },
+        )
+        self.assertEqual(saved.status_code, 303)
+        self.assertEqual(saved.headers["location"], "/recipes")
+        recipe_list = self.client.get(saved.headers["location"])
+        self.assertIn("Draft saved.", recipe_list.text)
+
+        project = self.app.state.context.queries.get(project_id)
+        self.assertEqual(
+            project.description,
+            "Resume when the final files arrive",
+        )
+        blocked = self.client.get(
+            f"/projects/{project_id}/governance",
+            follow_redirects=False,
+        )
+        self.assertEqual(
+            blocked.headers["location"],
+            f"/projects/{project_id}/details?blocked=1#setup-blockers",
+        )
 
     def test_source_files_can_change_only_before_table_choices_are_saved(
         self,
@@ -1064,6 +1342,27 @@ class ProjectSetupWizardTests(unittest.TestCase):
             actor=context.actor,
             name="Correctable source files",
             source_system="CSV",
+        )
+        project = context.projects.update_details(
+            project.project_id,
+            actor=context.actor,
+            expected_revision=project.revision,
+            name=project.name,
+            source_system=project.source_system,
+            export_status="RECEIVED",
+            export_date=date.today().isoformat(),
+            description="Correctable source files",
+        )
+        project = context.projects.update_governance(
+            project.project_id,
+            actor=context.actor,
+            expected_revision=project.revision,
+            data_manager="Data Manager",
+            functional_owner="Product Owner",
+            business_unit="Example Business Unit",
+            data_classification="INTERNAL",
+            retention_days=90,
+            support_access=False,
         )
         kept = context.intake.accept(
             project.project_id,
@@ -1214,6 +1513,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         project_id = _created_workspace_id(self.app, created)
+        project = self._complete_setup_before_target(project_id)
         target_form = self.client.get(f"/projects/{project_id}/target")
         self.assertIn('name="read_api_key"', target_form.text)
         self.assertIn('name="remember_read_api_key"', target_form.text)
@@ -1223,7 +1523,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"/projects/{project_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": "1",
+                "revision": str(project.revision),
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://edu-ucaps.odoo.com",
                 "odoo_database": "edu-ucaps",
@@ -1322,12 +1622,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         project_id = _created_workspace_id(self.app, created)
+        project = self._complete_setup_before_target(project_id)
 
         tested = self.client.post(
             f"/projects/{project_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": "1",
+                "revision": str(project.revision),
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://odoo.example.com",
                 "odoo_database": "migration",
@@ -1368,12 +1669,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         project_id = _created_workspace_id(self.app, created)
+        project = self._complete_setup_before_target(project_id)
 
         tested = self.client.post(
             f"/projects/{project_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": "1",
+                "revision": str(project.revision),
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://odoo.example.com",
                 "odoo_database": "migration",
@@ -1441,11 +1743,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     },
                 )
                 project_id = _created_workspace_id(self.app, created)
+                project = self._complete_setup_before_target(project_id)
                 tested = self.client.post(
                     f"/projects/{project_id}/target",
                     data={
                         "csrf_token": self.csrf,
-                        "revision": "1",
+                        "revision": str(project.revision),
                         "odoo_connection_mode": "REMOTE",
                         "odoo_base_url": "https://odoo.example.com",
                         "odoo_database": f"migration_{index}",
@@ -1475,7 +1778,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         recipe_id = created.headers["location"].split("/")[2]
         project_id = _created_workspace_id(self.app, created)
-        project = self.app.state.context.projects.repository.get(project_id)
+        project = self._complete_setup_before_target(project_id)
         targeted = self._post(
             f"/projects/{project_id}/target",
             {
@@ -4310,11 +4613,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         project_id = _created_workspace_id(self.app, created)
+        project = self._complete_setup_before_target(project_id)
         local = self._post(
             f"/projects/{project_id}/target",
             {
                 "csrf_token": self.csrf,
-                "revision": "1",
+                "revision": str(project.revision),
                 "odoo_connection_mode": "LOCAL",
                 "odoo_base_url": "http://127.0.0.1:8069",
                 "odoo_database": "odoo19_local",
@@ -4328,7 +4632,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             f"/projects/{project_id}/target",
             data={
                 "csrf_token": self.csrf,
-                "revision": "2",
+                "revision": str(project.revision + 1),
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://odoo.example.com",
                 "odoo_database": "odoo_review",
@@ -6213,9 +6517,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         return registered.project_id, dataset, business_key
 
     def _post(self, path: str, data: dict[str, str]):
+        submitted = dict(data)
+        if path == "/recipes/new":
+            submitted.setdefault("creation_request_id", str(uuid4()))
         return self.client.post(
             path,
-            data=data,
+            data=submitted,
             headers=POST_HEADERS,
             follow_redirects=False,
         )

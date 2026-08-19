@@ -24,6 +24,7 @@ from typing import Protocol, Sequence
 from uuid import UUID, uuid4
 
 from .access import Actor, AuthorizationPolicy, Capability
+from .domain.serialization import content_hash
 
 
 class ProjectError(ValueError):
@@ -36,6 +37,19 @@ class ProjectNotFoundError(ProjectError):
 
 class ProjectConflictError(ProjectError):
     """Raised when a stale browser form attempts to overwrite newer data."""
+
+
+class ProjectCreationReplayError(ProjectConflictError):
+    """Report the workspace already created for one browser request."""
+
+    def __init__(
+        self,
+        workspace_project_id: str,
+        creation_request_hash: str,
+    ) -> None:
+        super().__init__("Recipe creation request was already completed")
+        self.workspace_project_id = workspace_project_id
+        self.creation_request_hash = creation_request_hash
 
 
 class ProjectCompatibilityError(ProjectError):
@@ -87,6 +101,16 @@ class OdooConnectionMode(StrEnum):
     REMOTE = "REMOTE"
 
 
+class ProjectSetupStep(StrEnum):
+    """Identify the setup page that owns one registration requirement."""
+
+    DETAILS = "details"
+    GOVERNANCE = "governance"
+    FILES = "files"
+    TARGET = "target"
+    REVIEW = "review"
+
+
 class ApprovalStatus(StrEnum):
     """Derived summary; immutable approval evidence remains authoritative."""
 
@@ -106,6 +130,16 @@ class SourceFile:
     size_bytes: int
     sha256: str
     received_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectSetupRequirement:
+    """Describe one unmet setup requirement and its user-facing recovery."""
+
+    code: str
+    step: ProjectSetupStep
+    problem: str
+    guidance: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +209,8 @@ class ProjectRepository(Protocol):
         *,
         recipe_id: str,
         data_version_id: str,
+        creation_request_id: str | None = None,
+        creation_request_hash: str | None = None,
         actor: Actor,
     ) -> None:
         """Persist a new Recipe with its first contained authoring workspace."""
@@ -298,6 +334,7 @@ class ProjectService:
         name: str,
         source_system: str,
         source_mode: str | SourceMode = SourceMode.FILE,
+        creation_request_id: str | None = None,
     ) -> MigrationProject:
         """Create and persist a minimal editable migration-project draft."""
 
@@ -308,6 +345,18 @@ class ProjectService:
             parsed_source_mode = SourceMode(source_mode)
         except ValueError as error:
             raise ProjectError("Choose files or data already in Odoo") from error
+        canonical_request_id = _creation_request_id(creation_request_id)
+        creation_request_hash = (
+            content_hash(
+                {
+                    "name": clean_name,
+                    "source_mode": parsed_source_mode.value,
+                    "source_system": clean_source,
+                }
+            )
+            if canonical_request_id is not None
+            else None
+        )
         now = _now()
         project = MigrationProject(
             project_id=str(uuid4()),
@@ -317,12 +366,28 @@ class ProjectService:
             created_at=now,
             updated_at=now,
         )
-        self.repository.create(
-            project,
-            recipe_id=str(uuid4()),
-            data_version_id=str(uuid4()),
-            actor=actor,
-        )
+        try:
+            self.repository.create(
+                project,
+                recipe_id=str(uuid4()),
+                data_version_id=str(uuid4()),
+                creation_request_id=canonical_request_id,
+                creation_request_hash=creation_request_hash,
+                actor=actor,
+            )
+        except ProjectCreationReplayError as replay:
+            if replay.creation_request_hash != creation_request_hash:
+                raise ProjectConflictError(
+                    "This New Recipe form was already used with different "
+                    "details. No new Recipe or Odoo records were created. "
+                    "Reload New Recipe to start another Recipe."
+                ) from replay
+            self.authorization.require(
+                actor,
+                Capability.PROJECT_VIEW,
+                project_id=replay.workspace_project_id,
+            )
+            return self.repository.get(replay.workspace_project_id)
         return project
 
     def create_data_version_workspace(
@@ -862,34 +927,150 @@ class ProjectService:
         return saved
 
 
+def project_setup_requirements(
+    project: MigrationProject,
+) -> tuple[ProjectSetupRequirement, ...]:
+    """Return every unmet setup requirement with one owning browser step."""
+
+    requirements: list[ProjectSetupRequirement] = []
+    if not project.name:
+        requirements.append(
+            ProjectSetupRequirement(
+                code="PROJECT_NAME_REQUIRED",
+                step=ProjectSetupStep.DETAILS,
+                problem="Project name is required",
+                guidance="Enter a project name.",
+            )
+        )
+    if not project.source_system:
+        requirements.append(
+            ProjectSetupRequirement(
+                code="SOURCE_SYSTEM_REQUIRED",
+                step=ProjectSetupStep.DETAILS,
+                problem="Source system is required",
+                guidance="Choose the source system.",
+            )
+        )
+    if project.source_mode is SourceMode.FILE:
+        if project.export_status is not ExportStatus.RECEIVED:
+            requirements.append(
+                ProjectSetupRequirement(
+                    code="SOURCE_EXPORT_RECEIVED_REQUIRED",
+                    step=ProjectSetupStep.DETAILS,
+                    problem="Source export must be marked as received",
+                    guidance="Confirm that the source files are final.",
+                )
+            )
+        if project.export_date is None:
+            requirements.append(
+                ProjectSetupRequirement(
+                    code="SOURCE_EXPORT_DATE_REQUIRED",
+                    step=ProjectSetupStep.DETAILS,
+                    problem="Source export date is required",
+                    guidance="Enter when the source files were produced.",
+                )
+            )
+        if not project.source_files:
+            requirements.append(
+                ProjectSetupRequirement(
+                    code="SOURCE_FILE_REQUIRED",
+                    step=ProjectSetupStep.FILES,
+                    problem="At least one source file is required",
+                    guidance="Add at least one source file.",
+                )
+            )
+    elif project.source_files:
+        requirements.append(
+            ProjectSetupRequirement(
+                code="ODOO_SOURCE_FILES_NOT_ALLOWED",
+                step=ProjectSetupStep.DETAILS,
+                problem="Odoo-source projects cannot contain source files",
+                guidance=(
+                    "This data version uses Odoo records and cannot also use "
+                    "uploaded source files."
+                ),
+            )
+        )
+    if not project.data_manager:
+        requirements.append(
+            ProjectSetupRequirement(
+                code="DATA_MANAGER_REQUIRED",
+                step=ProjectSetupStep.GOVERNANCE,
+                problem="Responsible data manager is required",
+                guidance="Enter who is preparing the data.",
+            )
+        )
+    if not project.functional_owner:
+        requirements.append(
+            ProjectSetupRequirement(
+                code="FUNCTIONAL_OWNER_REQUIRED",
+                step=ProjectSetupStep.GOVERNANCE,
+                problem="Functional owner is required",
+                guidance="Enter who confirms that the data is correct.",
+            )
+        )
+    if project.odoo_connection_mode is None:
+        requirements.append(
+            ProjectSetupRequirement(
+                code="ODOO_CONNECTION_MODE_REQUIRED",
+                step=ProjectSetupStep.TARGET,
+                problem="Choose a Local Odoo or Remote Odoo connection",
+                guidance="Choose where Odoo is running.",
+            )
+        )
+    if not project.odoo_base_url:
+        requirements.append(
+            ProjectSetupRequirement(
+                code="ODOO_BASE_URL_REQUIRED",
+                step=ProjectSetupStep.TARGET,
+                problem="Odoo base URL is required",
+                guidance="Enter the Odoo web address.",
+            )
+        )
+    if not project.odoo_database:
+        requirements.append(
+            ProjectSetupRequirement(
+                code="ODOO_DATABASE_REQUIRED",
+                step=ProjectSetupStep.TARGET,
+                problem="Odoo database is required",
+                guidance="Enter the Odoo database name.",
+            )
+        )
+    return tuple(requirements)
+
+
+def project_setup_requirements_for_step(
+    project: MigrationProject,
+    step: ProjectSetupStep,
+) -> tuple[ProjectSetupRequirement, ...]:
+    """Return only the unmet requirements owned by ``step``."""
+
+    return tuple(
+        requirement
+        for requirement in project_setup_requirements(project)
+        if requirement.step is step
+    )
+
+
 def registration_problems(project: MigrationProject) -> tuple[str, ...]:
     """Return every user-actionable reason a draft cannot be registered."""
 
-    problems: list[str] = []
-    if not project.name:
-        problems.append("Project name is required")
-    if not project.source_system:
-        problems.append("Source system is required")
-    if project.source_mode is SourceMode.FILE:
-        if project.export_status is not ExportStatus.RECEIVED:
-            problems.append("Source export must be marked as received")
-        if project.export_date is None:
-            problems.append("Source export date is required")
-        if not project.source_files:
-            problems.append("At least one source file is required")
-    elif project.source_files:
-        problems.append("Odoo-source projects cannot contain source files")
-    if not project.data_manager:
-        problems.append("Responsible data manager is required")
-    if not project.functional_owner:
-        problems.append("Functional owner is required")
-    if project.odoo_connection_mode is None:
-        problems.append("Choose a Local Odoo or Remote Odoo connection")
-    if not project.odoo_base_url:
-        problems.append("Odoo base URL is required")
-    if not project.odoo_database:
-        problems.append("Odoo database is required")
-    return tuple(problems)
+    return tuple(
+        requirement.problem
+        for requirement in project_setup_requirements(project)
+    )
+
+
+def _creation_request_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        return str(UUID(value.strip()))
+    except (AttributeError, ValueError) as error:
+        raise ProjectError(
+            "This New Recipe form is no longer valid. No Recipe or Odoo "
+            "records were created. Reload New Recipe and try again."
+        ) from error
 
 
 def _now() -> datetime:

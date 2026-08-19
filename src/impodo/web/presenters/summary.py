@@ -31,6 +31,10 @@ from ..constants import (
 )
 from ..context import WebContext
 from ..forms import _positive_query_int
+from ..target_credentials import (
+    TargetCredentialRole,
+    get_target_credential_status,
+)
 from .common import _render
 
 
@@ -42,6 +46,7 @@ def _render_target(
     error: str | None = None,
     status_code: int = 200,
     open_local_stack: bool = False,
+    setup_attention_requested: bool = False,
 ):
     return _render(
         request,
@@ -50,12 +55,18 @@ def _render_target(
         applications=ODOO_APPLICATIONS,
         local_stack=context.local_stack.get(project.project_id),
         remote_connection=context.remote_connections.get(project),
+        read_credential_status=get_target_credential_status(
+            context.secret_store,
+            project,
+            TargetCredentialRole.READ,
+        ),
         local_stack_auto_open=open_local_stack,
         local_stack_dialog_error=None,
         local_stack_support_error=None,
         local_stack_return_to="target",
         local_stack_resume_compare=False,
         local_stack_resume_ready=False,
+        setup_attention_requested=setup_attention_requested,
         error=error,
         status_code=status_code,
     )
@@ -162,12 +173,33 @@ def _render_summary(
     local_stack_error: str | None = None,
     local_stack_support_error: str | None = None,
     open_local_stack: bool = False,
+    remote_read_error: str | None = None,
+    open_remote_read_recovery: bool = False,
     status_code: int = 200,
 ):
     session_error = request.session.pop("summary_error", None)
     if error is None and isinstance(session_error, str):
         error = session_error
     project = context.queries.get(project_id)
+    read_credential_status = get_target_credential_status(
+        context.secret_store,
+        project,
+        TargetCredentialRole.READ,
+    )
+    schema_catalog = (
+        context.queries.get_odoo_schema_catalog(project_id)
+        if project.odoo_connection_mode is OdooConnectionMode.REMOTE
+        else None
+    )
+    remote_read_recovery_needed = (
+        project.odoo_connection_mode is OdooConnectionMode.REMOTE
+        and schema_catalog is not None
+        and (
+            not read_credential_status.available
+            or read_credential_status.binding_hash
+            != schema_catalog.read_credential_binding_hash
+        )
+    )
     local_stack = context.local_stack.get(project_id)
     local_stack_matches = _local_stack_matches_project(project, local_stack)
     local_odoo_recovery_needed = (
@@ -246,6 +278,14 @@ def _render_summary(
     ):
         quality = None
     report = context.preflight.current_report(project_id)
+    remote_read_recovery_visible = (
+        remote_read_recovery_needed
+        and (
+            open_remote_read_recovery
+            or report is not None
+            or (normalization is not None and normalization.frozen)
+        )
+    )
     try:
         load_preview = context.execution.current_preview(project_id)
     except (ReadinessError, WorkspaceError):
@@ -431,6 +471,10 @@ def _render_summary(
         preparation_limit_message=preparation_limit_message,
         local_stack=local_stack,
         local_odoo_recovery_needed=local_odoo_recovery_needed,
+        read_credential_status=read_credential_status,
+        remote_read_recovery_needed=remote_read_recovery_needed,
+        remote_read_recovery_visible=remote_read_recovery_visible,
+        remote_read_error=remote_read_error,
         local_stack_auto_open=(
             open_local_stack
             or request.query_params.get("local_stack") == "1"

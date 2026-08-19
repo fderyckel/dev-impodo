@@ -66,7 +66,6 @@ class CredentialVault:
         clean_secret = secret.strip()
         if not clean_secret:
             raise SecretStoreError("API key is empty")
-        self._session[credential_id] = clean_secret
         if persistent:
             try:
                 keyring.set_password(
@@ -78,6 +77,7 @@ class CredentialVault:
                 raise SecretStoreError(
                     "Could not save the API key in Windows Credential Manager"
                 ) from error
+        self._session[credential_id] = clean_secret
 
     def delete(self, credential_id: str) -> None:
         """Delete the in-memory and operating-system copies of a credential."""

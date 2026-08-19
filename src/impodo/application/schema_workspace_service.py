@@ -14,7 +14,7 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import re
 from typing import Iterable, Mapping, Protocol
@@ -102,6 +102,18 @@ class SchemaWorkspaceRepository(Protocol):
         actor: Actor,
     ) -> None:
         """Publish detailed schema and retire governance/mapping dependents."""
+        ...
+
+    def rebind_odoo_schema_access(
+        self,
+        project_id: str,
+        catalog: OdooSchemaCatalog,
+        *,
+        expected_content_hash: str,
+        expected_read_credential_binding_hash: str,
+        actor: Actor,
+    ) -> None:
+        """Update verified access evidence without retiring semantic dependents."""
         ...
 
     def get_schema_governance(
@@ -322,51 +334,11 @@ class SchemaWorkspaceService:
                     "The Odoo read principal or context changed; refresh the "
                     "model catalogue before capturing schema"
                 )
-        discovered_labels = (
-            {model.name: model.label for model in discovered.models}
-            if discovered
-            and discovered.connection_target_hash == _target_identity_hash(project)
-            and discovered.policy_hash == ODOO_SOURCE_POLICY_HASH
-            else {}
-        )
-        missing_discovered = permitted - set(discovered_labels)
-        if discovered and missing_discovered:
-            missing = sorted(missing_discovered)[0]
-            raise WorkspaceError(
-                f"{missing} is no longer in the refreshed Odoo model catalogue; "
-                "save the permitted model scope again"
-            )
-        models = tuple(
-            SchemaModel(
-                name=name,
-                label=discovered_labels.get(name) or model.description or name,
-                fields=tuple(
-                    SchemaField(
-                        name=field_name,
-                        label=field.label or field_name,
-                        type=field.type,
-                        required=field.required,
-                        readonly=field.readonly,
-                        relation=field.relation,
-                        relation_field=field.relation_field,
-                        selection=field.selection,
-                        stored=field.stored,
-                        computed=field.computed,
-                        has_inverse=field.has_inverse,
-                        related=field.related,
-                        translated=field.translated,
-                        company_dependent=field.company_dependent,
-                        searchable=field.searchable,
-                        sortable=field.sortable,
-                        exportable=field.exportable,
-                        digits=field.digits,
-                        currency_field=field.currency_field,
-                    )
-                    for field_name, field in sorted(model.fields.items())
-                ),
-                unique_constraints=model.unique_constraints,
-            )
-            for name, model in sorted(snapshot.models.items())
+        models = self._schema_models_from_snapshot(
+            project,
+            permitted,
+            snapshot,
+            discovered=discovered,
         )
         self._validate_schema_models(models, permitted)
         return self._store_catalog(
@@ -381,6 +353,104 @@ class SchemaWorkspaceService:
             identity_hashes=identity_hashes,
             actor=actor,
         )
+
+    def rebind_current_access(
+        self,
+        project_id: str,
+        snapshot: MetadataSnapshot,
+        *,
+        read_credential_binding_hash: str,
+        read_identity: OdooReadIdentity,
+        actor: Actor,
+    ) -> OdooSchemaCatalog:
+        """Rebind a new read-key generation only after semantic equivalence.
+
+        A credential envelope receives a new random binding whenever a key is
+        entered. Re-entry alone must not invalidate approved mapping or prepared
+        rows, but it also must not silently bless changed fields or access.
+        """
+
+        project, permitted = self._capture_context(project_id, actor=actor)
+        _validate_read_credential_binding_hash(read_credential_binding_hash)
+        if not snapshot.complete:
+            raise WorkspaceError("Odoo schema response is incomplete")
+        if set(snapshot.models) != permitted:
+            raise WorkspaceError(
+                "Odoo schema response does not match permitted models"
+            )
+        if snapshot.fingerprint.target_hash != _target_identity_hash(project):
+            raise WorkspaceError("Odoo schema target does not match the project")
+        if (
+            snapshot.fingerprint.connection_mode
+            != project.odoo_connection_mode.value
+        ):
+            raise WorkspaceError(
+                "Odoo schema connection mode does not match the project"
+            )
+        if snapshot.fingerprint.database != project.odoo_database:
+            raise WorkspaceError("Odoo schema database does not match the project")
+        if not snapshot.fingerprint.odoo_version.startswith("19."):
+            raise WorkspaceError("Odoo schema capture requires Odoo 19")
+        identity_hashes = _validate_read_identity(
+            project,
+            read_identity,
+            required_models=tuple(sorted(permitted)),
+        )
+        current = self.schemas.get_odoo_schema_catalog(project_id)
+        if current is None:
+            raise WorkspaceError(
+                "Capture the Odoo schema before reconnecting read access"
+            )
+        if current.origin is not SchemaOrigin.LIVE_API:
+            raise WorkspaceError(
+                "Refresh the live Odoo schema before reconnecting read access"
+            )
+        models = self._schema_models_from_snapshot(
+            project,
+            permitted,
+            snapshot,
+        )
+        self._validate_schema_models(models, permitted)
+        semantic_access_matches = (
+            current.project_id == project_id
+            and current.policy_hash == ODOO_SOURCE_POLICY_HASH
+            and current.connection_target_hash == _target_identity_hash(project)
+            and current.connection_mode == snapshot.fingerprint.connection_mode
+            and current.database == snapshot.fingerprint.database
+            and current.odoo_version == snapshot.fingerprint.odoo_version
+            and current.models == models
+            and current.read_principal_hash
+            == identity_hashes["read_principal_hash"]
+            and current.read_permission_hash
+            == identity_hashes["read_permission_hash"]
+            and current.read_context_hash == identity_hashes["read_context_hash"]
+        )
+        if not semantic_access_matches:
+            raise WorkspaceError(
+                "The available Odoo fields or read access changed. Impodo kept "
+                "your saved matching and prepared data unchanged. Review the "
+                "Odoo connection before comparing again. Nothing was changed "
+                "in Odoo."
+            )
+        rebound = replace(
+            current,
+            captured_at=datetime.now(timezone.utc),
+            captured_by=actor.identity.display_name,
+            read_credential_binding_hash=read_credential_binding_hash,
+            read_principal_hash=identity_hashes["read_principal_hash"],
+            read_permission_hash=identity_hashes["read_permission_hash"],
+            read_context_hash=identity_hashes["read_context_hash"],
+        )
+        self.schemas.rebind_odoo_schema_access(
+            project_id,
+            rebound,
+            expected_content_hash=current.content_hash,
+            expected_read_credential_binding_hash=(
+                current.read_credential_binding_hash
+            ),
+            actor=actor,
+        )
+        return rebound
 
     def capture_local_manual(
         self,
@@ -459,6 +529,69 @@ class SchemaWorkspaceService:
                 "Configure the Odoo target before capturing schema"
             )
         return project, permitted
+
+    def _schema_models_from_snapshot(
+        self,
+        project: MigrationProject,
+        permitted: set[str],
+        snapshot: MetadataSnapshot,
+        *,
+        discovered: OdooModelCatalog | None = None,
+    ) -> tuple[SchemaModel, ...]:
+        """Project live metadata into the exact semantic schema contract."""
+
+        model_catalog = discovered
+        if model_catalog is None:
+            model_catalog = self.schemas.get_odoo_model_catalog(
+                project.project_id
+            )
+        discovered_labels = (
+            {model.name: model.label for model in model_catalog.models}
+            if model_catalog
+            and model_catalog.connection_target_hash
+            == _target_identity_hash(project)
+            and model_catalog.policy_hash == ODOO_SOURCE_POLICY_HASH
+            else {}
+        )
+        missing_discovered = permitted - set(discovered_labels)
+        if model_catalog and missing_discovered:
+            missing = sorted(missing_discovered)[0]
+            raise WorkspaceError(
+                f"{missing} is no longer in the refreshed Odoo model catalogue; "
+                "save the permitted model scope again"
+            )
+        return tuple(
+            SchemaModel(
+                name=name,
+                label=discovered_labels.get(name) or model.description or name,
+                fields=tuple(
+                    SchemaField(
+                        name=field_name,
+                        label=field.label or field_name,
+                        type=field.type,
+                        required=field.required,
+                        readonly=field.readonly,
+                        relation=field.relation,
+                        relation_field=field.relation_field,
+                        selection=field.selection,
+                        stored=field.stored,
+                        computed=field.computed,
+                        has_inverse=field.has_inverse,
+                        related=field.related,
+                        translated=field.translated,
+                        company_dependent=field.company_dependent,
+                        searchable=field.searchable,
+                        sortable=field.sortable,
+                        exportable=field.exportable,
+                        digits=field.digits,
+                        currency_field=field.currency_field,
+                    )
+                    for field_name, field in sorted(model.fields.items())
+                ),
+                unique_constraints=model.unique_constraints,
+            )
+            for name, model in sorted(snapshot.models.items())
+        )
 
     @staticmethod
     def _validate_schema_models(

@@ -19,7 +19,7 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from ...artifacts import ArtifactStoreError
 from ...connectors import ConnectorError
-from ...projects import ProjectError
+from ...projects import OdooConnectionMode, ProjectError
 from ...domain.errors import ReadinessError
 from ...application.preflight_service import MANIFEST_NAME
 from ...reporting import (
@@ -32,13 +32,66 @@ from ...workspace_errors import WorkspaceError
 from ..security import require_session
 from fastapi import APIRouter
 from ..context import WebContext
-from ..forms import _secure_form
+from ..forms import _secure_form, _text
 from ..presenters.common import _flash
 from ..presenters.summary import _render_summary
 from ..target_readers import (
     LocalOdooRecoveryRequired,
     _read_readiness_snapshots,
 )
+from ..target_credentials import (
+    TargetCredentialRole,
+    audit_stored_target_credential,
+    get_target_credential,
+    store_target_credential,
+)
+
+
+def _read_key_persistence(form) -> bool:
+    """Translate the explicit retention choice into the secret-store boundary."""
+
+    storage = _text(form, "read_api_key_storage")
+    if storage == "vault":
+        return True
+    if storage == "session":
+        return False
+    raise SecretStoreError(
+        "Choose whether Impodo should keep the read-only key on this computer "
+        "or only until Impodo closes."
+    )
+
+
+def _rebind_remote_read_access(context: WebContext, project, credential):
+    """Verify and rebind a replacement key without recapturing semantic state."""
+
+    if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+        return None
+    schema = context.queries.get_odoo_schema_catalog(project.project_id)
+    if (
+        schema is None
+        or credential.binding_hash == schema.read_credential_binding_hash
+    ):
+        return None
+    probe_models = tuple(sorted(model.name for model in schema.models))
+    identity = context.read_identity_probe(
+        project,
+        credential.secret,
+        probe_models,
+    )
+    snapshot = context.schema_reader(project, credential.secret)
+    context.schema_workspace.rebind_current_access(
+        project.project_id,
+        snapshot,
+        read_credential_binding_hash=credential.binding_hash,
+        read_identity=identity,
+        actor=context.actor,
+    )
+    context.remote_connections.mark_checked(
+        project,
+        snapshot.fingerprint,
+        identity,
+    )
+    return identity
 
 
 def _report_chunks(
@@ -67,8 +120,13 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         """Compare the exact approved rows through a bounded read-only reader."""
 
         form = await request.form()
-        _secure_form(request, form, {"csrf_token"})
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "read_api_key", "read_api_key_storage"},
+        )
         project = context.queries.get(project_id)
+        verified_read_identity = None
 
         def reader(metadata_requests, record_requests):
             return _read_readiness_snapshots(
@@ -76,9 +134,44 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 project,
                 metadata_requests,
                 record_requests,
+                verified_read_identity=verified_read_identity,
             )
 
         try:
+            submitted_key = _text(form, "read_api_key")
+            if submitted_key:
+                if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+                    raise SecretStoreError(
+                        "A read-only API key can be entered here only for Remote Odoo."
+                    )
+                credential = store_target_credential(
+                    context.secret_store,
+                    project,
+                    TargetCredentialRole.READ,
+                    submitted_key,
+                    persistent=_read_key_persistence(form),
+                )
+                audit_stored_target_credential(
+                    context.projects,
+                    project,
+                    TargetCredentialRole.READ,
+                    credential,
+                    actor=context.actor,
+                )
+                context.remote_connections.clear(project_id)
+            else:
+                credential = get_target_credential(
+                    context.secret_store,
+                    project,
+                    TargetCredentialRole.READ,
+                )
+            if credential is not None:
+                verified_read_identity = await run_in_threadpool(
+                    _rebind_remote_read_access,
+                    context,
+                    project,
+                    credential,
+                )
             await run_in_threadpool(
                 context.preflight.compare,
                 project_id,
@@ -98,11 +191,19 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 open_local_stack=True,
                 status_code=422,
             )
+        except SecretStoreError as error:
+            return _render_summary(
+                request,
+                context,
+                project_id,
+                remote_read_error=str(error),
+                open_remote_read_recovery=True,
+                status_code=422,
+            )
         except (
             ConnectorError,
             ProjectError,
             ReadinessError,
-            SecretStoreError,
             WorkspaceError,
         ) as error:
             return _render_summary(
@@ -110,6 +211,9 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 context,
                 project_id,
                 error=str(error),
+                open_remote_read_recovery=(
+                    project.odoo_connection_mode is OdooConnectionMode.REMOTE
+                ),
                 status_code=422,
             )
         _flash(request, "Prepared data compared with Odoo. Nothing was changed.")

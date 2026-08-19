@@ -1,12 +1,26 @@
-<nav class="steps" aria-label="Project setup steps">
-  <a class="{% if step == 'details' %}current{% endif %}" href="/projects/{{ project.project_id }}/details">1. Project</a>
-  <a class="{% if step == 'governance' %}current{% endif %}" href="/projects/{{ project.project_id }}/governance">2. People</a>
-  {% if project.source_mode.value == 'FILE' %}
-    <a class="{% if step == 'files' %}current{% endif %}" href="/projects/{{ project.project_id }}/files">3. Source files</a>
-    <a class="{% if step == 'target' %}current{% endif %}" href="/projects/{{ project.project_id }}/target">4. Connect Odoo</a>
-    <a class="{% if step == 'review' %}current{% endif %}" href="/projects/{{ project.project_id }}/review">5. Confirm</a>
-  {% else %}
-    <a class="{% if step == 'target' %}current{% endif %}" href="/projects/{{ project.project_id }}/target">3. Connect Odoo</a>
-    <a class="{% if step == 'review' %}current{% endif %}" href="/projects/{{ project.project_id }}/review">4. Confirm</a>
-  {% endif %}
+<nav class="steps steps-{{ setup_steps|length }}" aria-label="Project setup steps">
+  {% for item in setup_steps %}
+    {% if item.href %}
+      <a
+        class="setup-step {{ item.status }}{% if item.current %} current{% endif %}"
+        href="{{ item.href }}"
+        {% if item.current %}aria-current="step"{% endif %}
+      >
+    {% else %}
+      <span
+        class="setup-step {{ item.status }}"
+        aria-disabled="true"
+      >
+    {% endif %}
+        <span>{{ loop.index }}. {{ item.label }}</span>
+        <span class="visually-hidden"> — {{ item.status_label }}</span>
+        {% if item.status == "complete" %}
+          {{ app_icon("check-circle-fill", "setup-step-status-icon") }}
+        {% elif item.status == "attention" %}
+          {{ app_icon("exclamation-circle-fill", "setup-step-status-icon") }}
+        {% elif item.status == "locked" %}
+          {{ app_icon("lock-fill", "setup-step-status-icon") }}
+        {% endif %}
+    {% if item.href %}</a>{% else %}</span>{% endif %}
+  {% endfor %}
 </nav>

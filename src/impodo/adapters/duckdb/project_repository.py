@@ -21,13 +21,14 @@ from ...access import Actor
 from ...projects import (
     MigrationProject,
     ProjectConflictError,
+    ProjectCreationReplayError,
     ProjectError,
     ProjectNotFoundError,
     ProjectStatus,
     ProjectSummary,
     SourceFile,
 )
-from ...recipes import require_uuid
+from ...recipes import require_hash, require_uuid
 from .database import DuckDbDatabase
 from .repository import DuckDbRepository
 from .serialization import (
@@ -50,12 +51,28 @@ class ProjectRepository(DuckDbRepository):
         *,
         recipe_id: str,
         data_version_id: str,
+        creation_request_id: str | None = None,
+        creation_request_hash: str | None = None,
         actor: Actor,
     ) -> None:
         """Create one Recipe and its first authoring workspace."""
 
         recipe_id = require_uuid(recipe_id, "recipe_id")
         data_version_id = require_uuid(data_version_id, "data_version_id")
+        if (creation_request_id is None) != (creation_request_hash is None):
+            raise ProjectError("Recipe creation request identity is incomplete")
+        if creation_request_id is not None:
+            creation_request_id = require_uuid(
+                creation_request_id,
+                "creation_request_id",
+            )
+            creation_request_hash = require_hash(
+                creation_request_hash or "",
+                "creation_request_hash",
+            )
+            replay = self._creation_request_replay(creation_request_id)
+            if replay is not None:
+                raise ProjectCreationReplayError(*replay)
         if len({project.project_id, recipe_id, data_version_id}) != 3:
             raise ProjectError("Recipe workspace identities must be distinct")
         self._create_workspace(
@@ -63,6 +80,8 @@ class ProjectRepository(DuckDbRepository):
             actor=actor,
             recipe_id=recipe_id,
             data_version_id=data_version_id,
+            creation_request_id=creation_request_id,
+            creation_request_hash=creation_request_hash,
         )
 
     def create_unlinked(self, project: MigrationProject, *, actor: Actor) -> None:
@@ -77,11 +96,15 @@ class ProjectRepository(DuckDbRepository):
         actor: Actor,
         recipe_id: str | None = None,
         data_version_id: str | None = None,
+        creation_request_id: str | None = None,
+        creation_request_hash: str | None = None,
     ) -> None:
         self._mark_registry_sync_pending(
             project.project_id,
             recipe_id=recipe_id,
             data_version_id=data_version_id,
+            creation_request_id=creation_request_id,
+            creation_request_hash=creation_request_hash,
         )
         project_dir = self.project_directory(project.project_id)
         try:
@@ -111,11 +134,17 @@ class ProjectRepository(DuckDbRepository):
                 project,
                 recipe_id=recipe_id,
                 data_version_id=data_version_id,
+                creation_request_id=creation_request_id,
+                creation_request_hash=creation_request_hash,
             )
-        except Exception:
+        except Exception as error:
             if project_dir.is_dir():
                 shutil.rmtree(project_dir)
             self._clear_registry_sync_pending(project.project_id)
+            if creation_request_id is not None:
+                replay = self._creation_request_replay(creation_request_id)
+                if replay is not None:
+                    raise ProjectCreationReplayError(*replay) from error
             raise
 
     def discard_unlinked(self, project_id: str) -> None:
@@ -657,6 +686,8 @@ class ProjectRepository(DuckDbRepository):
         *,
         recipe_id: str | None = None,
         data_version_id: str | None = None,
+        creation_request_id: str | None = None,
+        creation_request_hash: str | None = None,
     ) -> None:
         with self._connect(self.registry_path) as connection:
             connection.begin()
@@ -704,6 +735,8 @@ class ProjectRepository(DuckDbRepository):
                         project=project,
                         recipe_id=recipe_id,
                         data_version_id=data_version_id,
+                        creation_request_id=creation_request_id,
+                        creation_request_hash=creation_request_hash,
                     )
                 connection.execute(
                     """
@@ -723,13 +756,18 @@ class ProjectRepository(DuckDbRepository):
         *,
         recipe_id: str | None = None,
         data_version_id: str | None = None,
+        creation_request_id: str | None = None,
+        creation_request_hash: str | None = None,
     ) -> None:
         """Journal a cross-database summary write before project mutation."""
 
         with self._connect(self.registry_path) as connection:
             connection.execute(
                 """
-                INSERT INTO project_registry_sync_pending VALUES (?, ?, ?)
+                INSERT INTO project_registry_sync_pending (
+                    project_id, recipe_id, data_version_id,
+                    creation_request_id, creation_request_hash
+                ) VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT (project_id) DO UPDATE SET
                     recipe_id = coalesce(
                         excluded.recipe_id,
@@ -738,9 +776,23 @@ class ProjectRepository(DuckDbRepository):
                     data_version_id = coalesce(
                         excluded.data_version_id,
                         project_registry_sync_pending.data_version_id
+                    ),
+                    creation_request_id = coalesce(
+                        excluded.creation_request_id,
+                        project_registry_sync_pending.creation_request_id
+                    ),
+                    creation_request_hash = coalesce(
+                        excluded.creation_request_hash,
+                        project_registry_sync_pending.creation_request_hash
                     )
                 """,
-                [project_id, recipe_id, data_version_id],
+                [
+                    project_id,
+                    recipe_id,
+                    data_version_id,
+                    creation_request_id,
+                    creation_request_hash,
+                ],
             )
 
     def _recover_pending_registry_sync(self) -> None:
@@ -749,13 +801,28 @@ class ProjectRepository(DuckDbRepository):
         with self._connect(self.registry_path) as connection:
             pending = tuple(
                 connection.execute(
-                    "SELECT project_id, recipe_id, data_version_id "
+                    "SELECT project_id, recipe_id, data_version_id, "
+                    "creation_request_id, creation_request_hash "
                     "FROM project_registry_sync_pending ORDER BY project_id"
                 ).fetchall()
             )
 
-        for project_value, recipe_value, data_version_value in pending:
+        for (
+            project_value,
+            recipe_value,
+            data_version_value,
+            creation_request_value,
+            creation_request_hash_value,
+        ) in pending:
             project_id = str(project_value)
+            creation_request_id = (
+                str(creation_request_value) if creation_request_value else None
+            )
+            if creation_request_id is not None:
+                replay = self._creation_request_replay(creation_request_id)
+                if replay is not None and replay[0] != project_id:
+                    self.discard_unlinked(project_id)
+                    continue
             try:
                 project = self._get_project_unresolved(project_id)
             except ProjectNotFoundError:
@@ -766,6 +833,12 @@ class ProjectRepository(DuckDbRepository):
                 recipe_id=(str(recipe_value) if recipe_value else None),
                 data_version_id=(
                     str(data_version_value) if data_version_value else None
+                ),
+                creation_request_id=creation_request_id,
+                creation_request_hash=(
+                    str(creation_request_hash_value)
+                    if creation_request_hash_value
+                    else None
                 ),
             )
 
@@ -837,6 +910,8 @@ class ProjectRepository(DuckDbRepository):
         project: MigrationProject,
         recipe_id: str,
         data_version_id: str,
+        creation_request_id: str | None,
+        creation_request_hash: str | None,
     ) -> None:
         existing = connection.execute(
             """
@@ -878,8 +953,9 @@ class ProjectRepository(DuckDbRepository):
                 recipe_id, display_name, business_purpose,
                 data_classification, retention_days, current_recipe_revision,
                 current_data_version_id, cutover_candidate_id,
-                optimistic_revision, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, 1, ?, ?)
+                optimistic_revision, created_at, updated_at,
+                creation_request_id, creation_request_hash
+            ) VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, 1, ?, ?, ?, ?)
             """,
             [
                 recipe_id,
@@ -890,6 +966,8 @@ class ProjectRepository(DuckDbRepository):
                 data_version_id,
                 project.created_at.isoformat(),
                 now,
+                creation_request_id,
+                creation_request_hash,
             ],
         )
         connection.execute(
@@ -911,6 +989,28 @@ class ProjectRepository(DuckDbRepository):
                 project.created_at.isoformat(),
             ],
         )
+
+    def _creation_request_replay(
+        self,
+        creation_request_id: str,
+    ) -> tuple[str, str] | None:
+        with self._connect(self.registry_path) as connection:
+            row = connection.execute(
+                """
+                SELECT data.workspace_project_id, recipe.creation_request_hash
+                  FROM recipe
+                  JOIN data_version data
+                    ON data.recipe_id = recipe.recipe_id
+                   AND data.version_number = 1
+                 WHERE recipe.creation_request_id = ?
+                """,
+                [creation_request_id],
+            ).fetchone()
+        if row is None:
+            return None
+        if not row[1]:
+            raise ProjectError("Stored Recipe creation request is invalid")
+        return str(row[0]), str(row[1])
 
     def _clear_registry_sync_pending(self, project_id: str) -> None:
         with self._connect(self.registry_path) as connection:

@@ -1,0 +1,23 @@
+{% if setup_current_requirements %}
+  <div
+    id="setup-blockers"
+    class="notice warning setup-blockers"
+    {% if setup_attention_requested %}
+      role="alert"
+      tabindex="-1"
+      data-setup-blockers
+      data-auto-focus="true"
+    {% endif %}
+  >
+    <strong>Complete this step to continue</strong>
+    {% if setup_current_requirements|length == 1 %}
+      <p>{{ setup_current_requirements[0].guidance }}</p>
+    {% else %}
+      <ul>
+        {% for requirement in setup_current_requirements %}
+          <li>{{ requirement.guidance }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+{% endif %}

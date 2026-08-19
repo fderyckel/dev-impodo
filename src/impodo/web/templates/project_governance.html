@@ -6,6 +6,7 @@
   <section class="form-card">
     <p class="eyebrow">Project setup · People</p>
     <h1>Who is responsible for this project?</h1>
+    {% include "_setup_blockers.html" %}
     <form method="post" action="/projects/{{ project.project_id }}/governance">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ project.revision }}">

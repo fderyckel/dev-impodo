@@ -35,6 +35,16 @@ class TargetCredentialRemovalReason(StrEnum):
 
     TARGET_CHANGED = "TARGET_CHANGED"
     RECIPE_DELETED = "RECIPE_DELETED"
+    USER_REQUESTED = "USER_REQUESTED"
+
+
+class TargetCredentialAvailability(StrEnum):
+    """Safe presentation state for one role-qualified vault entry."""
+
+    MISSING = "MISSING"
+    SESSION = "SESSION"
+    PERSISTENT = "PERSISTENT"
+    UNAVAILABLE = "UNAVAILABLE"
 
 
 TARGET_CREDENTIAL_CONTRACT_VERSION = 2
@@ -48,6 +58,56 @@ class TargetCredential:
     binding_hash: str
     replaced: bool = field(default=False, compare=False)
     persistent: bool = field(default=False, compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class TargetCredentialStatus:
+    """Expose credential availability without exposing the stored secret."""
+
+    availability: TargetCredentialAvailability
+    binding_hash: str | None = field(default=None, repr=False)
+    support_error: str | None = field(default=None, repr=False)
+
+    @property
+    def available(self) -> bool:
+        """Whether Impodo can use the credential in this process."""
+
+        return self.availability in {
+            TargetCredentialAvailability.SESSION,
+            TargetCredentialAvailability.PERSISTENT,
+        }
+
+    @property
+    def label(self) -> str:
+        """Return a short non-secret status label."""
+
+        labels = {
+            TargetCredentialAvailability.MISSING: "Not available",
+            TargetCredentialAvailability.SESSION: "Available this session",
+            TargetCredentialAvailability.PERSISTENT: "Saved on this computer",
+            TargetCredentialAvailability.UNAVAILABLE: "Could not be accessed",
+        }
+        return labels[self.availability]
+
+    @property
+    def guidance(self) -> str:
+        """Explain retention and the next action in business language."""
+
+        guidance = {
+            TargetCredentialAvailability.MISSING: (
+                "Enter the read-only key before Impodo checks Odoo data."
+            ),
+            TargetCredentialAvailability.SESSION: (
+                "Impodo will forget this key when Impodo closes."
+            ),
+            TargetCredentialAvailability.PERSISTENT: (
+                "Windows Credential Manager will keep this key after Impodo closes."
+            ),
+            TargetCredentialAvailability.UNAVAILABLE: (
+                "Enter the read-only key again or review Windows Credential Manager."
+            ),
+        }
+        return guidance[self.availability]
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +224,32 @@ def get_target_credential(
         secret=secret,
         binding_hash=_binding_hash(role, target_hash, binding_id),
         persistent=storage_class == "OPERATING_SYSTEM_VAULT",
+    )
+
+
+def get_target_credential_status(
+    store: SecretStore,
+    project: MigrationProject,
+    role: TargetCredentialRole,
+) -> TargetCredentialStatus:
+    """Return a safe status even when the operating-system vault is unavailable."""
+
+    try:
+        credential = get_target_credential(store, project, role)
+    except SecretStoreError as error:
+        return TargetCredentialStatus(
+            TargetCredentialAvailability.UNAVAILABLE,
+            support_error=str(error),
+        )
+    if credential is None:
+        return TargetCredentialStatus(TargetCredentialAvailability.MISSING)
+    return TargetCredentialStatus(
+        (
+            TargetCredentialAvailability.PERSISTENT
+            if credential.persistent
+            else TargetCredentialAvailability.SESSION
+        ),
+        binding_hash=credential.binding_hash,
     )
 
 

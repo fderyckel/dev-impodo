@@ -1,6 +1,39 @@
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
+  for (const form of document.querySelectorAll("[data-single-submit]")) {
+    let submitting = false;
+    const button = form.querySelector('button[type="submit"]');
+    const idleLabel = button?.textContent || "";
+
+    form.addEventListener("submit", (event) => {
+      if (submitting) {
+        event.preventDefault();
+        return;
+      }
+      submitting = true;
+      form.setAttribute("aria-busy", "true");
+      if (button) {
+        button.disabled = true;
+        button.textContent = button.dataset.submittingLabel || idleLabel;
+      }
+    });
+
+    window.addEventListener("pageshow", () => {
+      submitting = false;
+      form.removeAttribute("aria-busy");
+      if (button) {
+        button.disabled = false;
+        button.textContent = idleLabel;
+      }
+    });
+  }
+
+  const setupBlockers = document.querySelector(
+    "[data-setup-blockers][data-auto-focus='true']"
+  );
+  setupBlockers?.focus();
+
   const sidebar = document.querySelector("#app-sidebar");
   const sidebarToggle = document.querySelector("[data-sidebar-toggle]");
   const sidebarToggleLabel = document.querySelector(

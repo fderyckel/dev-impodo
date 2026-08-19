@@ -6,6 +6,7 @@
   <section class="form-card">
     <p class="eyebrow">Project setup · Project details</p>
     <h1>{{ project.name }}</h1>
+    {% include "_setup_blockers.html" %}
     <form method="post" action="/projects/{{ project.project_id }}/details">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ project.revision }}">
@@ -32,8 +33,8 @@
           </label>
           <label>
             When were these files produced?
-            <input type="date" name="export_date" value="{{ project.export_date.isoformat() if project.export_date else '' }}">
-            <small>Use the date the source system created the files. This is required before setup can be confirmed.</small>
+            <input type="date" name="export_date" required value="{{ project.export_date.isoformat() if project.export_date else '' }}">
+            <small>Use the date shown by the source system.</small>
           </label>
         {% else %}
           <div class="notice stack-ready">
@@ -47,8 +48,8 @@
         <textarea name="description" rows="4" maxlength="2000">{{ project.description }}</textarea>
       </label>
       <div class="actions">
-        <a class="button secondary" href="/recipes">Save and exit</a>
-        <button class="button primary" type="submit">Save and continue</button>
+        <button class="button secondary" type="submit" name="action" value="save_exit" formnovalidate>Save and exit</button>
+        <button class="button primary" type="submit" name="action" value="continue">Save and continue</button>
       </div>
     </form>
   </section>

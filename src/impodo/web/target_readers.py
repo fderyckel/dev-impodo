@@ -293,6 +293,8 @@ def _read_readiness_snapshots(
     project: MigrationProject,
     metadata_requests: tuple[MetadataRequest, ...],
     record_requests: tuple[RecordRequest, ...],
+    *,
+    verified_read_identity: OdooReadIdentity | None = None,
 ) -> tuple[MetadataSnapshot, RecordSnapshot]:
     """Read one consistent snapshot using the project's configured boundary.
 
@@ -308,6 +310,7 @@ def _read_readiness_snapshots(
             project,
             metadata_requests,
             record_requests,
+            verified_read_identity=verified_read_identity,
         )
 
     local_profile = _selected_local_profile(context, project)
@@ -371,7 +374,7 @@ def _read_readiness_snapshots(
             "The comparison needs Odoo models outside the captured schema; "
             "refresh the schema before checking data"
         )
-    identity = context.read_identity_probe(
+    identity = verified_read_identity or context.read_identity_probe(
         project,
         credential.secret,
         probe_models,
@@ -407,6 +410,8 @@ def _read_pinned_odoo_snapshots(
     project: MigrationProject,
     metadata_requests: tuple[MetadataRequest, ...],
     record_requests: tuple[RecordRequest, ...],
+    *,
+    verified_read_identity: OdooReadIdentity | None = None,
 ) -> tuple[MetadataSnapshot, RecordSnapshot]:
     """Use the exact capture credential and context for pinned-ID comparison."""
 
@@ -427,7 +432,7 @@ def _read_pinned_odoo_snapshots(
             "Refresh the captured Odoo fields before comparing records"
         )
     probe_models = tuple(sorted(item.name for item in schema.models))
-    identity = context.read_identity_probe(
+    identity = verified_read_identity or context.read_identity_probe(
         project,
         credential.secret,
         probe_models,

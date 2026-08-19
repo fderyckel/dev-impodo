@@ -14,6 +14,12 @@ RECIPE_CLEAN_ROOT_MIGRATION_ID = "2026-08-19-recipe-clean-root-v2"
 RECIPE_CLEAN_ROOT_MIGRATION_CHECKSUM = (
     "sha256:84954535ac8c1342ca4735553811a24c9347e13b53ad38ce9434224c83049e89"
 )
+RECIPE_CREATION_IDEMPOTENCY_MIGRATION_ID = (
+    "2026-08-19-recipe-creation-idempotency-v3"
+)
+RECIPE_CREATION_IDEMPOTENCY_MIGRATION_CHECKSUM = (
+    "sha256:fa615fef0b79872f6544419e21a4e528c1445a07d98144ba6e5b7b34b32a97e4"
+)
 
 
 def ensure_registry_schema(connection: duckdb.DuckDBPyConnection) -> None:
@@ -199,6 +205,7 @@ def _ensure_recipe_registry_schema(
         """
     )
     _migrate_clean_recipe_root(connection)
+    _migrate_recipe_creation_idempotency(connection)
     existing = connection.execute(
         """
         SELECT checksum
@@ -234,6 +241,24 @@ def _ensure_recipe_registry_schema(
         [
             RECIPE_CLEAN_ROOT_MIGRATION_ID,
             RECIPE_CLEAN_ROOT_MIGRATION_CHECKSUM,
+            datetime.now(timezone.utc).isoformat(),
+        ],
+    )
+    creation_existing = connection.execute(
+        "SELECT checksum FROM registry_schema_migration WHERE migration_id = ?",
+        [RECIPE_CREATION_IDEMPOTENCY_MIGRATION_ID],
+    ).fetchone()
+    if (
+        creation_existing is not None
+        and str(creation_existing[0])
+        != RECIPE_CREATION_IDEMPOTENCY_MIGRATION_CHECKSUM
+    ):
+        raise RuntimeError("Recipe creation idempotency migration checksum changed")
+    connection.execute(
+        "INSERT OR IGNORE INTO registry_schema_migration VALUES (?, ?, ?)",
+        [
+            RECIPE_CREATION_IDEMPOTENCY_MIGRATION_ID,
+            RECIPE_CREATION_IDEMPOTENCY_MIGRATION_CHECKSUM,
             datetime.now(timezone.utc).isoformat(),
         ],
     )
@@ -393,3 +418,30 @@ def _migrate_clean_recipe_root(connection: duckdb.DuckDBPyConnection) -> None:
         connection.execute(
             "ALTER TABLE cutover_candidate_history RENAME TO cutover_candidate"
         )
+
+
+def _migrate_recipe_creation_idempotency(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Add replay identity without changing earlier checksum-pinned migrations."""
+
+    connection.execute(
+        "ALTER TABLE recipe "
+        "ADD COLUMN IF NOT EXISTS creation_request_id VARCHAR"
+    )
+    connection.execute(
+        "ALTER TABLE recipe "
+        "ADD COLUMN IF NOT EXISTS creation_request_hash VARCHAR"
+    )
+    connection.execute(
+        "ALTER TABLE project_registry_sync_pending "
+        "ADD COLUMN IF NOT EXISTS creation_request_id VARCHAR"
+    )
+    connection.execute(
+        "ALTER TABLE project_registry_sync_pending "
+        "ADD COLUMN IF NOT EXISTS creation_request_hash VARCHAR"
+    )
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS recipe_creation_request_id_unique "
+        "ON recipe (creation_request_id)"
+    )

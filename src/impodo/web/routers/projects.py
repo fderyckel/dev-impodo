@@ -9,6 +9,8 @@ See ``docs/architecture/python-code-map.md`` and ``tests/test_web_app.py``.
 """
 
 from __future__ import annotations
+from uuid import uuid4
+
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
@@ -18,11 +20,14 @@ from ...intake import SourceIntakeError
 from ...local_stack import LocalStackError
 from ...projects import (
     DataClassification,
+    MigrationProject,
     ProjectConflictError,
     ProjectError,
     ProjectRegistrationError,
+    ProjectSetupStep,
     ProjectStatus,
     SourceMode,
+    project_setup_requirements_for_step,
     registration_problems,
 )
 from ...recipes import DataVersionPurpose, RecipeError
@@ -36,6 +41,7 @@ from ..context import WebContext
 from ..forms import _form_values, _revision, _secure_form, _text
 from ..presenters.common import _flash, _project_error, _render
 from ..presenters.mapping_forms import _draft_or_redirect
+from ..presenters.setup import blocking_setup_url
 from ..target_credentials import (
     TargetCredentialRole,
     TargetCredentialRemovalReason,
@@ -152,7 +158,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
             request,
             "recipe_new.html",
             source_systems=SOURCE_SYSTEMS,
-            values={},
+            values={"creation_request_id": str(uuid4())},
         )
 
     @router.post("/recipes/new")
@@ -163,7 +169,13 @@ def build_projects_router(context: WebContext) -> APIRouter:
         _secure_form(
             request,
             form,
-            {"csrf_token", "name", "source_system", "source_mode"},
+            {
+                "csrf_token",
+                "creation_request_id",
+                "name",
+                "source_system",
+                "source_mode",
+            },
         )
         values = _form_values(form)
         try:
@@ -172,6 +184,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 name=values.get("name", ""),
                 source_system=values.get("source_system", ""),
                 source_mode=values.get("source_mode", SourceMode.FILE.value),
+                creation_request_id=values.get("creation_request_id", ""),
             )
         except (ProjectError, RecipeError) as error:
             return _render(
@@ -747,6 +760,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 "export_status",
                 "export_date",
                 "description",
+                "action",
             },
         )
         try:
@@ -773,6 +787,21 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 error,
                 source_systems=SOURCE_SYSTEMS,
             )
+        if _text(form, "action") == "save_exit":
+            _flash(request, "Draft saved.")
+            return RedirectResponse("/recipes", status_code=303)
+        if project_setup_requirements_for_step(
+            project,
+            ProjectSetupStep.DETAILS,
+        ):
+            return _render(
+                request,
+                "project_details.html",
+                project=project,
+                source_systems=SOURCE_SYSTEMS,
+                setup_attention_requested=True,
+                status_code=422,
+            )
         return RedirectResponse(
             f"/projects/{project.project_id}/governance",
             status_code=303,
@@ -784,6 +813,12 @@ def build_projects_router(context: WebContext) -> APIRouter:
         project = _draft_or_redirect(context, project_id)
         if isinstance(project, RedirectResponse):
             return project
+        blocked = _blocked_setup_redirect(
+            project,
+            ProjectSetupStep.GOVERNANCE,
+        )
+        if blocked is not None:
+            return blocked
         governance_was_saved = context.queries.has_project_audit_event(
             project_id,
             "PROJECT_GOVERNANCE_UPDATED",
@@ -816,6 +851,15 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 "support_access",
             },
         )
+        current = _draft_or_redirect(context, project_id)
+        if isinstance(current, RedirectResponse):
+            return current
+        blocked = _blocked_setup_redirect(
+            current,
+            ProjectSetupStep.GOVERNANCE,
+        )
+        if blocked is not None:
+            return blocked
         try:
             project = context.projects.update_governance(
                 project_id,
@@ -840,6 +884,18 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 "project_governance.html",
                 error,
             )
+        if project_setup_requirements_for_step(
+            project,
+            ProjectSetupStep.GOVERNANCE,
+        ):
+            return _render(
+                request,
+                "project_governance.html",
+                project=project,
+                data_classification_for_form=project.data_classification.value,
+                setup_attention_requested=True,
+                status_code=422,
+            )
         next_page = "files" if project.source_mode is SourceMode.FILE else "target"
         return RedirectResponse(
             f"/projects/{project.project_id}/{next_page}",
@@ -852,6 +908,12 @@ def build_projects_router(context: WebContext) -> APIRouter:
         project = _draft_or_redirect(context, project_id)
         if isinstance(project, RedirectResponse):
             return project
+        blocked = _blocked_setup_redirect(
+            project,
+            ProjectSetupStep.FILES,
+        )
+        if blocked is not None:
+            return blocked
         if project.source_mode is SourceMode.ODOO:
             return RedirectResponse(
                 f"/projects/{project.project_id}/target",
@@ -870,6 +932,12 @@ def build_projects_router(context: WebContext) -> APIRouter:
         project = _draft_or_redirect(context, project_id)
         if isinstance(project, RedirectResponse):
             return project
+        blocked = _blocked_setup_redirect(
+            project,
+            ProjectSetupStep.FILES,
+        )
+        if blocked is not None:
+            return blocked
         if project.source_mode is SourceMode.ODOO:
             return RedirectResponse(
                 f"/projects/{project.project_id}/target",
@@ -914,6 +982,12 @@ def build_projects_router(context: WebContext) -> APIRouter:
         project = _draft_or_redirect(context, project_id)
         if isinstance(project, RedirectResponse):
             return project
+        blocked = _blocked_setup_redirect(
+            project,
+            ProjectSetupStep.REVIEW,
+        )
+        if blocked is not None:
+            return blocked
         return _render(
             request,
             "project_review.html",
@@ -958,6 +1032,18 @@ def build_projects_router(context: WebContext) -> APIRouter:
         )
 
     return router
+
+
+def _blocked_setup_redirect(
+    project: MigrationProject,
+    requested_step: ProjectSetupStep,
+) -> RedirectResponse | None:
+    destination = blocking_setup_url(project, requested_step)
+    return (
+        RedirectResponse(destination, status_code=303)
+        if destination is not None
+        else None
+    )
 
 
 def _render_recipe_overview(

@@ -6,7 +6,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 from ...connectors import ConnectorError
 from ...local_stack import LocalStackError, LocalStackStatus, ReadinessLevel
-from ...projects import OdooConnectionMode, ProjectError
+from ...projects import (
+    OdooConnectionMode,
+    ProjectError,
+    ProjectSetupStep,
+    project_setup_requirements_for_step,
+)
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
 from ..security import require_session
@@ -15,6 +20,7 @@ from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash
 from ..presenters.mapping_forms import _draft_or_redirect
+from ..presenters.setup import blocking_setup_url
 from ..presenters.summary import (
     _render_summary,
     _render_target,
@@ -142,6 +148,9 @@ def build_target_router(context: WebContext) -> APIRouter:
         project = _draft_or_redirect(context, project_id)
         if isinstance(project, RedirectResponse):
             return project
+        blocked = blocking_setup_url(project, ProjectSetupStep.TARGET)
+        if blocked is not None:
+            return RedirectResponse(blocked, status_code=303)
         return _render_target(
             request,
             context,
@@ -330,6 +339,12 @@ def build_target_router(context: WebContext) -> APIRouter:
                 "action",
             },
         )
+        current = _draft_or_redirect(context, project_id)
+        if isinstance(current, RedirectResponse):
+            return current
+        blocked = blocking_setup_url(current, ProjectSetupStep.TARGET)
+        if blocked is not None:
+            return RedirectResponse(blocked, status_code=303)
         local_test_requested = False
         remote_test_requested = False
         show_local_results = False
@@ -481,6 +496,17 @@ def build_target_router(context: WebContext) -> APIRouter:
                 error=str(error),
                 status_code=422,
                 open_local_stack=local_test_requested,
+            )
+        if project_setup_requirements_for_step(
+            project,
+            ProjectSetupStep.TARGET,
+        ):
+            return _render_target(
+                request,
+                context,
+                project,
+                setup_attention_requested=True,
+                status_code=422,
             )
         return RedirectResponse(
             f"/projects/{project.project_id}/review",

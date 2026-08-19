@@ -3,7 +3,8 @@
 Layer: adapter. Model and schema catalogs are current target-bound snapshots;
 schema governance is immutable revision evidence with a current pointer.
 Recapture and regovernance atomically invalidate downstream mapping and
-staging pointers.
+staging pointers. A separately verified access rebind updates only credential
+provenance when the semantic schema and read identity remain unchanged.
 
 See ``docs/architecture/python-code-map.md`` and ``tests/test_workspace.py``.
 """
@@ -113,6 +114,76 @@ class SchemaRepository(DuckDbRepository):
                 "schema_governance_current",
             ),
         )
+    def rebind_odoo_schema_access(
+        self,
+        project_id: str,
+        catalog: OdooSchemaCatalog,
+        *,
+        expected_content_hash: str,
+        expected_read_credential_binding_hash: str,
+        actor: Actor,
+    ) -> None:
+        """Replace access provenance without invalidating semantic dependents."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            connection.begin()
+            try:
+                row = connection.execute(
+                    """
+                    SELECT catalog_json
+                      FROM odoo_schema_catalog
+                     WHERE singleton_id = 1
+                    """
+                ).fetchone()
+                if row is None:
+                    raise WorkspaceError("Capture the Odoo schema first")
+                current = OdooSchemaCatalog.from_json(str(row[0]))
+                unchanged_semantics = (
+                    current.project_id == project_id
+                    and current.content_hash == expected_content_hash
+                    and current.read_credential_binding_hash
+                    == expected_read_credential_binding_hash
+                    and catalog.project_id == current.project_id
+                    and catalog.content_hash == current.content_hash
+                    and catalog.policy_hash == current.policy_hash
+                    and catalog.connection_target_hash
+                    == current.connection_target_hash
+                    and catalog.connection_mode == current.connection_mode
+                    and catalog.database == current.database
+                    and catalog.odoo_version == current.odoo_version
+                    and catalog.origin is current.origin
+                    and catalog.models == current.models
+                )
+                if not unchanged_semantics:
+                    raise WorkspaceError(
+                        "Odoo schema access was modified by another request"
+                    )
+                connection.execute(
+                    """
+                    UPDATE odoo_schema_catalog
+                       SET catalog_json = ?
+                     WHERE singleton_id = 1
+                    """,
+                    [catalog.to_json()],
+                )
+                self._insert_workspace_audit(
+                    connection,
+                    revision=self._project_revision(connection),
+                    event_type="ODOO_SCHEMA_ACCESS_REBOUND",
+                    detail=(
+                        f"{len(catalog.models)} permitted model(s); "
+                        "semantic schema unchanged"
+                    ),
+                    actor=actor,
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
     def get_schema_governance(
         self,
         project_id: str,

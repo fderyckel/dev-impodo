@@ -8,6 +8,7 @@
     {% set is_recipe_production = recipe_context and recipe_context.data_version_purpose == 'PRODUCTION' %}
     <p class="eyebrow">{% if is_recipe_test %}Recipe rehearsal · Test target{% elif is_recipe_production %}Recipe rollout · Production target{% else %}Project setup · Connect Odoo{% endif %}</p>
     <h1>{% if is_recipe_test %}Connect the Test Odoo server{% elif is_recipe_production %}Connect the Production Odoo server{% else %}Where is your Odoo?{% endif %}</h1>
+    {% include "_setup_blockers.html" %}
     <p>
       Impodo uses a read-only connection to learn which Odoo records and fields are available. Nothing can be changed in Odoo.
       {% if is_recipe_test %}These server settings and credentials belong only to this Test data version; they are never copied into the Recipe.{% elif is_recipe_production %}Enter the current Production endpoint, database, and read-only API key. Test access is never reused, and the later write key is established separately at load confirmation.{% endif %}

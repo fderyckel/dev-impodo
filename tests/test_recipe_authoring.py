@@ -488,6 +488,7 @@ class RecipeAuthoringTests(unittest.TestCase):
                     "/recipes/new",
                     data={
                         "csrf_token": csrf,
+                        "creation_request_id": str(uuid4()),
                         "name": "Customer migration",
                         "source_system": "CSV export",
                         "source_mode": "FILE",
@@ -507,6 +508,100 @@ class RecipeAuthoringTests(unittest.TestCase):
                     recipes[0].current_workspace_project_id
                 )
                 self.assertEqual(project.status, ProjectStatus.DRAFT)
+
+    def test_recipe_native_create_is_idempotent_per_browser_form(self):
+        (ROOT / ".tmp").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as temporary:
+            app = create_local_app(
+                temporary,
+                launch_token="launch-secret",
+                session_secret="session-secret",
+                secret_store=MemorySecretStore(),
+            )
+            with TestClient(app) as client:
+                client.get("/launch?token=launch-secret")
+                new_page = client.get("/recipes/new")
+                csrf = re.search(
+                    r'name="csrf_token" value="([^"]+)"',
+                    new_page.text,
+                ).group(1)
+                request_id = re.search(
+                    r'name="creation_request_id"\s+value="([^"]+)"',
+                    new_page.text,
+                ).group(1)
+                self.assertIn("data-single-submit", new_page.text)
+                self.assertIn(
+                    'data-submitting-label="Creating Recipe..."',
+                    new_page.text,
+                )
+                payload = {
+                    "csrf_token": csrf,
+                    "creation_request_id": request_id,
+                    "name": "Customer migration",
+                    "source_system": "CSV export",
+                    "source_mode": "FILE",
+                }
+
+                created = client.post(
+                    "/recipes/new",
+                    data=payload,
+                    headers=POST_HEADERS,
+                    follow_redirects=False,
+                )
+                replayed = client.post(
+                    "/recipes/new",
+                    data=payload,
+                    headers=POST_HEADERS,
+                    follow_redirects=False,
+                )
+
+                self.assertEqual(created.status_code, 303)
+                self.assertEqual(replayed.status_code, 303)
+                self.assertEqual(
+                    replayed.headers["location"],
+                    created.headers["location"],
+                )
+                self.assertEqual(
+                    len(app.state.context.recipes.list(actor=LOCAL_ACTOR)),
+                    1,
+                )
+
+                changed = client.post(
+                    "/recipes/new",
+                    data={**payload, "name": "Changed customer migration"},
+                    headers=POST_HEADERS,
+                    follow_redirects=False,
+                )
+                self.assertEqual(changed.status_code, 422)
+                self.assertIn(
+                    "This New Recipe form was already used with different details",
+                    changed.text,
+                )
+                self.assertIn(
+                    "No new Recipe or Odoo records were created",
+                    changed.text,
+                )
+
+                fresh_page = client.get("/recipes/new")
+                fresh_request_id = re.search(
+                    r'name="creation_request_id"\s+value="([^"]+)"',
+                    fresh_page.text,
+                ).group(1)
+                fresh = client.post(
+                    "/recipes/new",
+                    data={**payload, "creation_request_id": fresh_request_id},
+                    headers=POST_HEADERS,
+                    follow_redirects=False,
+                )
+                self.assertEqual(fresh.status_code, 303)
+                self.assertNotEqual(
+                    fresh.headers["location"],
+                    created.headers["location"],
+                )
+                self.assertEqual(
+                    len(app.state.context.recipes.list(actor=LOCAL_ACTOR)),
+                    2,
+                )
 
     def test_parameter_definitions_persist_in_the_authoring_workspace(self):
         (ROOT / ".tmp").mkdir(exist_ok=True)
