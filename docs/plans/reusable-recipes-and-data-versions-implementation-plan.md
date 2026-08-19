@@ -5,7 +5,7 @@
 **Status:** Active implementation plan from 2026-08-19 and the only current
 product-delivery priority.
 
-Phases R0 through R3 completed on 2026-08-19. Phase R4 is the current
+Phases R0 through R4 completed on 2026-08-19. Phase R5 is the current
 implementation phase. The frozen active contracts are in the
 [Recipe-first Phase R0 contract](reusable-recipes-phase-r0-contracts.md).
 
@@ -1035,7 +1035,7 @@ application evidence.
 
 ### Phase R4 - Fine-tune and qualify on Test Odoo
 
-**Status:** Current priority.
+**Status:** Completed on 2026-08-19.
 
 - Run preparation, quality, comparison, execution, read-back, and reconciliation
   against the Test TargetBinding.
@@ -1049,7 +1049,19 @@ application evidence.
 reconciliation satisfy the qualification policy; neither v1/v2 evidence nor a
 changed v4 inherits that status.
 
+**Evidence:** the
+[Phase R4 implementation report](../reports/reusable-recipes-phase-r4-test-qualification-2026-08-19.md),
+focused
+[`test_recipe_qualification`](../../tests/test_recipe_qualification.py),
+[`test_recipe_qualification_web`](../../tests/test_recipe_qualification_web.py),
+and registry persistence tests cover exact Test readiness, immutable protected
+qualification, explicit outcome confirmation, stale target credentials,
+current-revision-only status, explicit rollout-candidate selection, and the
+focused Recipe UI layered over the existing six-stage workspace.
+
 ### Phase R5 - Run qualified Recipe with latest Production data
+
+**Status:** Current priority.
 
 - Add **Run with latest data** from the selected cutover candidate.
 - Create a clean Production DataVersion/workspace and collect the latest source,

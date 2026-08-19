@@ -7,6 +7,7 @@ import json
 from ...access import Actor
 from ...domain.recipe_applications import (
     RecipeApplicationDraft,
+    RecipeApplicationEvidence,
     RecipeControlValues,
     RecipeParameterValues,
     TargetBinding,
@@ -277,6 +278,36 @@ class RecipeApplicationRepository(DuckDbRepository):
                 """,
                 [application_id, content_hash, evidence_json, created_at],
             )
+
+    def get_evidence(
+        self,
+        project_id: str,
+        application_id: str,
+    ) -> RecipeApplicationEvidence | None:
+        """Reload and verify one immutable application evidence projection."""
+
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            self._ensure_project_database_schema(connection)
+            row = connection.execute(
+                """
+                SELECT content_hash, evidence_json
+                  FROM recipe_application_evidence
+                 WHERE application_id = ?
+                """,
+                [application_id],
+            ).fetchone()
+        if row is None:
+            return None
+        evidence = RecipeApplicationEvidence.from_dict(json.loads(str(row[1])))
+        if (
+            evidence.content_hash != str(row[0])
+            or evidence.workspace_project_id != project_id
+        ):
+            raise WorkspaceError("Stored Recipe application evidence is invalid")
+        return evidence
 
     def save_quality_seed(
         self,

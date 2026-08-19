@@ -40,6 +40,13 @@ categorical domains, and saves a normal `MappingWorkingDraft`. It stages
 manager-authored quality rules for that exact mapping hash; `QualityService`
 regenerates automatic rules after the mapping is confirmed.
 
+After the existing Test preparation, comparison, load, and read-back stages,
+`RecipeQualificationService` derives readiness from those exact current
+artifacts. The Recipe page requires explicit expected-outcome confirmation to
+publish protected qualification evidence, then a separate action to select
+that exact qualification as the rollout candidate. A later Recipe revision is
+untested and cannot inherit the earlier status.
+
 Registration validates the complete setup, advances the project to
 `REGISTERED`, increments its optimistic revision, writes canonical
 registration evidence, and records an actor-bound audit event. The overview
@@ -51,6 +58,7 @@ then delegates stage status to `build_project_navigation`.
 | --- | --- |
 | Recipe creation and publication | [`RecipeAuthoringService`](../../../src/impodo/application/recipe_authoring_service.py) |
 | Recipe Test application | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
+| Recipe Test qualification | [`RecipeQualificationService`](../../../src/impodo/application/recipe_qualification_service.py) |
 | Application contracts | [`recipe_applications.py`](../../../src/impodo/domain/recipe_applications.py) |
 | Contained project lifecycle | [`ProjectService`](../../../src/impodo/projects.py) |
 | Registration command | `ProjectService.register` in [`projects.py`](../../../src/impodo/projects.py) |
@@ -94,6 +102,8 @@ per-stage or per-dataset repository reads in a loop.
 - [`tests/test_project_security.py`](../../../tests/test_project_security.py)
 - [`tests/test_recipe_authoring.py`](../../../tests/test_recipe_authoring.py)
 - [`tests/test_recipe_application.py`](../../../tests/test_recipe_application.py)
+- [`tests/test_recipe_qualification.py`](../../../tests/test_recipe_qualification.py)
+- [`tests/test_recipe_qualification_web.py`](../../../tests/test_recipe_qualification_web.py)
 - [`tests/test_web_app.py`](../../../tests/test_web_app.py)
 
 Verify optimistic revisions, registration readiness, contained file paths,

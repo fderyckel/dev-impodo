@@ -245,9 +245,7 @@ class RecipePersistenceTests(unittest.TestCase):
     def test_publication_rejects_nonportable_runtime_envelopes(self) -> None:
         project, recipe = self._project_and_recipe()
         recipe = self.service.hydrate_legacy_project(project, actor=LOCAL_ACTOR)
-        envelope = json.loads(
-            self._envelope(recipe.recipe_id, 1).decode("utf-8")
-        )
+        envelope = json.loads(self._envelope(recipe.recipe_id, 1).decode("utf-8"))
 
         for mutation in (
             lambda value: value.update({"recipe_contract_version": 3}),
@@ -257,19 +255,13 @@ class RecipePersistenceTests(unittest.TestCase):
             lambda value: value["recipe"]["source_shape"].update(
                 {"portable_note": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}
             ),
-            lambda value: value["recipe"]["source_shape"].update(
-                {"record_id": 42}
-            ),
+            lambda value: value["recipe"]["source_shape"].update({"record_id": 42}),
         ):
             invalid = deepcopy(envelope)
             mutation(invalid)
             invalid["semantic_hash"] = content_hash(invalid["recipe"])
             invalid["payload_hash"] = content_hash(
-                {
-                    key: value
-                    for key, value in invalid.items()
-                    if key != "payload_hash"
-                }
+                {key: value for key, value in invalid.items() if key != "payload_hash"}
             )
             with self.subTest(mutation=mutation):
                 with self.assertRaises(RecipeIntegrityError):
@@ -400,6 +392,7 @@ class RecipePersistenceTests(unittest.TestCase):
             "application_id": application_id,
             "comparison_hash": "sha256:" + "8" * 64,
             "control_hash": "sha256:" + "9" * 64,
+            "data_version_id": data_version.data_version_id,
             "environment": "TEST",
             "execution_hash": "sha256:" + "a" * 64,
             "findings": [],
@@ -410,6 +403,7 @@ class RecipePersistenceTests(unittest.TestCase):
             "reconciliation_hash": "sha256:" + "e" * 64,
             "status": "TEST_QUALIFIED",
             "test_target_binding_hash": target_binding_hash,
+            "workspace_project_id": project.project_id,
         }
         qualification = self.service.publish_qualification(
             recipe.recipe_id,
@@ -437,14 +431,41 @@ class RecipePersistenceTests(unittest.TestCase):
         self.assertNotIn("credential", json.dumps(cutover.detail).casefold())
         self.assertNotIn("production", json.dumps(cutover.detail).casefold())
 
+        next_envelope = json.loads(self._envelope(recipe.recipe_id, 2).decode("utf-8"))
+        next_envelope["recipe"]["parameter_definitions"]["parameters"][0]["label"] = (
+            "Rollout batch reference"
+        )
+        next_envelope["semantic_hash"] = content_hash(next_envelope["recipe"])
+        next_envelope["payload_hash"] = content_hash(
+            {
+                key: value
+                for key, value in next_envelope.items()
+                if key != "payload_hash"
+            }
+        )
+        selected = self.recipe_repository.get(recipe.recipe_id)
+        self.service.publish_revision(
+            recipe.recipe_id,
+            expected_recipe_revision=selected.optimistic_revision,
+            envelope_bytes=json.dumps(next_envelope).encode("utf-8"),
+            actor=LOCAL_ACTOR,
+        )
+        summary = self.recipe_repository.list()[0]
+        self.assertIsNone(summary.qualification_status)
+        self.assertIsNone(
+            self.service.current_qualification(recipe.recipe_id, actor=LOCAL_ACTOR)
+        )
+        self.assertEqual(
+            len(self.service.qualifications(recipe.recipe_id, actor=LOCAL_ACTOR)), 1
+        )
+        self.assertEqual(summary.cutover_recipe_revision, 1)
+
     def test_deletion_tombstone_persists_only_exact_targets(self) -> None:
         project, recipe = self._project_and_recipe()
         publication = self._publish_first_revision(recipe.recipe_id)
         recipe = self.recipe_repository.get(recipe.recipe_id)
         with self.assertRaises(ProjectError):
-            self.projects.assert_standalone_project_deletion_allowed(
-                project.project_id
-            )
+            self.projects.assert_standalone_project_deletion_allowed(project.project_id)
         operation_id = str(uuid4())
 
         def crash(stage: str) -> None:
@@ -460,9 +481,7 @@ class RecipePersistenceTests(unittest.TestCase):
                 fault=crash,
             )
         recovered = self.service.recover_incomplete(actor=LOCAL_ACTOR)
-        deletion = next(
-            item for item in recovered if item.operation_id == operation_id
-        )
+        deletion = next(item for item in recovered if item.operation_id == operation_id)
         self.assertEqual(deletion.state, RecipeIntentState.TARGETS_ENUMERATED)
         self.assertEqual(
             self.recipe_repository.get(recipe.recipe_id).state,

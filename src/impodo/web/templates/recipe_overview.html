@@ -22,14 +22,51 @@
       <a class="button primary" href="/projects/{{ project.project_id }}/{% if current_data_version and current_data_version.purpose.value == 'TEST' %}files{% else %}details{% endif %}">Continue setup</a>
     </section>
   {% elif current_data_version and current_data_version.purpose.value == 'TEST' %}
-    <section class="next-action-card current" aria-labelledby="recipe-apply-title">
+    {% if qualification_review.state.value == 'SELECTED' %}
+    <section class="next-action-card ready" aria-labelledby="recipe-selected-title">
       <div>
         <p class="eyebrow">Test data version {{ current_data_version.version_number }}</p>
-        <h2 id="recipe-apply-title">Apply Recipe v{{ current_data_version.pinned_recipe_revision }}</h2>
-        <p>Review only source, target, parameter, control and credential drift before creating fresh field matches.</p>
+        <h2 id="recipe-selected-title">Recipe v{{ recipe.current_recipe_revision }} is ready for rollout preparation</h2>
+        <p>The exact qualified Test result is pinned as the rollout candidate. Production access is still separate and has not been granted.</p>
       </div>
-      <a class="button primary" href="/recipes/{{ recipe.recipe_id }}/application">Review application</a>
+      <a class="button secondary" href="/recipes/{{ recipe.recipe_id }}/qualification">View qualification</a>
     </section>
+    {% elif qualification_review.state.value == 'QUALIFIED' %}
+    <section class="next-action-card ready" aria-labelledby="recipe-qualified-title">
+      <div>
+        <p class="eyebrow">Test qualified</p>
+        <h2 id="recipe-qualified-title">Select Recipe v{{ recipe.current_recipe_revision }} for rollout</h2>
+        <p>The full Test load and Odoo read-back passed. Selection pins this exact revision and qualification; it does not grant Production access.</p>
+      </div>
+      <a class="button primary" href="/recipes/{{ recipe.recipe_id }}/qualification">Review and select</a>
+    </section>
+    {% elif qualification_review.state.value == 'READY' %}
+    <section class="next-action-card ready" aria-labelledby="recipe-qualify-title">
+      <div>
+        <p class="eyebrow">Test rehearsal verified</p>
+        <h2 id="recipe-qualify-title">Qualify Recipe v{{ recipe.current_recipe_revision }}</h2>
+        <p>Confirm the expected create, update, unchanged and verified totals from this exact Test result.</p>
+      </div>
+      <a class="button primary" href="/recipes/{{ recipe.recipe_id }}/qualification">Review qualification</a>
+    </section>
+    {% else %}
+    <section class="next-action-card current" aria-labelledby="recipe-rehearsal-title">
+      <div>
+        <p class="eyebrow">Test data version {{ current_data_version.version_number }}</p>
+        <h2 id="recipe-rehearsal-title">Complete the Test rehearsal</h2>
+        {% if qualification_review.issues %}
+          <p>{{ qualification_review.issues[0].message }} {{ qualification_review.issues[0].recovery_action }}</p>
+        {% else %}
+          <p>Apply the Recipe, prepare and compare the data, then load and verify it on the Test server.</p>
+        {% endif %}
+      </div>
+      {% if qualification_review.issues and qualification_review.issues[0].recovery_href %}
+        <a class="button primary" href="{{ qualification_review.issues[0].recovery_href }}">Continue Test rehearsal</a>
+      {% else %}
+        <a class="button primary" href="/recipes/{{ recipe.recipe_id }}/application">Review application</a>
+      {% endif %}
+    </section>
+    {% endif %}
   {% elif recipe.current_recipe_revision %}
     <section class="next-action-card ready" aria-labelledby="recipe-test-title">
       <div>

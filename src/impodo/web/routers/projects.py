@@ -27,6 +27,7 @@ from ...projects import (
 )
 from ...recipes import RecipeError
 from ...domain.recipe_applications import RecipeApplicationError
+from ...domain.recipe_qualifications import RecipeQualificationError
 from ...secrets import SecretStoreError
 from ..security import require_session
 from fastapi import APIRouter
@@ -190,6 +191,10 @@ def build_projects_router(context: WebContext) -> APIRouter:
             ),
             None,
         )
+        qualification_review = _recipe_qualification_review(
+            context,
+            recipe_id,
+        )
         return _render(
             request,
             "recipe_overview.html",
@@ -199,12 +204,103 @@ def build_projects_router(context: WebContext) -> APIRouter:
             recipe_draft=draft,
             project=project,
             current_data_version=current_data_version,
+            qualification_review=qualification_review,
             recovery_href=(
                 _recipe_recovery_href(project, draft.issues[0].code)
                 if project is not None and draft.issues
                 else None
             ),
         )
+
+    @router.get("/recipes/{recipe_id}/qualification", response_class=HTMLResponse)
+    async def recipe_qualification(request: Request, recipe_id: str):
+        require_session(request)
+        return _render_recipe_qualification(request, context, recipe_id)
+
+    @router.post("/recipes/{recipe_id}/qualify")
+    async def qualify_recipe(request: Request, recipe_id: str):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {
+                "csrf_token",
+                "expected_recipe_revision",
+                "create_count",
+                "update_count",
+                "unchanged_count",
+                "verified_count",
+            },
+        )
+        try:
+            credential_generation, storage_class = _recipe_test_credential(
+                context,
+                recipe_id,
+            )
+            qualification = context.recipe_qualifications.qualify(
+                recipe_id,
+                expected_recipe_revision=int(_text(form, "expected_recipe_revision")),
+                expected_outcomes={
+                    "create_count": _text(form, "create_count"),
+                    "update_count": _text(form, "update_count"),
+                    "unchanged_count": _text(form, "unchanged_count"),
+                    "verified_count": _text(form, "verified_count"),
+                },
+                credential_generation=credential_generation,
+                credential_storage_class=storage_class,
+                actor=context.actor,
+            )
+        except (
+            RecipeError,
+            RecipeApplicationError,
+            RecipeQualificationError,
+            ProjectError,
+            SecretStoreError,
+            ValueError,
+        ) as error:
+            return _render_recipe_qualification(
+                request,
+                context,
+                recipe_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            f"Recipe v{qualification.recipe_revision} qualified from the exact Test result.",
+        )
+        return RedirectResponse(
+            f"/recipes/{recipe_id}/qualification",
+            status_code=303,
+        )
+
+    @router.post("/recipes/{recipe_id}/cutover")
+    async def select_recipe_cutover(request: Request, recipe_id: str):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "expected_recipe_revision"},
+        )
+        try:
+            candidate = context.recipe_qualifications.select_current(
+                recipe_id,
+                expected_recipe_revision=int(_text(form, "expected_recipe_revision")),
+                actor=context.actor,
+            )
+        except (RecipeError, RecipeQualificationError, ValueError) as error:
+            return _render_recipe_qualification(
+                request,
+                context,
+                recipe_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            f"Recipe v{candidate.recipe_revision} selected for rollout preparation.",
+        )
+        return RedirectResponse(f"/recipes/{recipe_id}", status_code=303)
 
     @router.get("/recipes/{recipe_id}/test", response_class=HTMLResponse)
     async def start_recipe_test_form(request: Request, recipe_id: str):
@@ -270,14 +366,16 @@ def build_projects_router(context: WebContext) -> APIRouter:
             for item in parameters
         }
         try:
-            _data_version, project = context.recipe_applications.start_test_data_version(
-                recipe_id,
-                expected_recipe_revision=int(
-                    _text(form, "expected_recipe_revision")
-                ),
-                label=_text(form, "label"),
-                parameter_values=supplied,
-                actor=context.actor,
+            _data_version, project = (
+                context.recipe_applications.start_test_data_version(
+                    recipe_id,
+                    expected_recipe_revision=int(
+                        _text(form, "expected_recipe_revision")
+                    ),
+                    label=_text(form, "label"),
+                    parameter_values=supplied,
+                    actor=context.actor,
+                )
             )
         except (RecipeError, RecipeApplicationError, ProjectError, ValueError) as error:
             return _render(
@@ -289,7 +387,10 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 error=str(error),
                 status_code=422,
             )
-        _flash(request, "Test data version created. Add the representative replacement files.")
+        _flash(
+            request,
+            "Test data version created. Add the representative replacement files.",
+        )
         return RedirectResponse(
             f"/projects/{project.project_id}/files",
             status_code=303,
@@ -384,7 +485,13 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 ),
                 actor=context.actor,
             )
-        except (RecipeError, RecipeApplicationError, ProjectError, SecretStoreError, ValueError) as error:
+        except (
+            RecipeError,
+            RecipeApplicationError,
+            ProjectError,
+            SecretStoreError,
+            ValueError,
+        ) as error:
             return _render_recipe_application(
                 request,
                 context,
@@ -400,7 +507,10 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 error="Review the focused drift items before applying this Recipe.",
                 status_code=422,
             )
-        _flash(request, "Recipe applied. Review the fresh field matches before submitting them.")
+        _flash(
+            request,
+            "Recipe applied. Review the fresh field matches before submitting them.",
+        )
         return RedirectResponse(
             f"/projects/{evidence.workspace_project_id}/mapping",
             status_code=303,
@@ -417,9 +527,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
         try:
             context.recipe_authoring.publish_current(
                 recipe_id,
-                expected_recipe_revision=int(
-                    _text(form, "expected_recipe_revision")
-                ),
+                expected_recipe_revision=int(_text(form, "expected_recipe_revision")),
                 actor=context.actor,
             )
         except (RecipeError, ValueError) as error:
@@ -605,9 +713,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 "project_governance.html",
                 error,
             )
-        next_page = (
-            "files" if project.source_mode is SourceMode.FILE else "target"
-        )
+        next_page = "files" if project.source_mode is SourceMode.FILE else "target"
         return RedirectResponse(
             f"/projects/{project.project_id}/{next_page}",
             status_code=303,
@@ -717,9 +823,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 project_id,
                 "project_review.html",
                 error,
-                problems=registration_problems(
-                    context.queries.get(project_id)
-                ),
+                problems=registration_problems(context.queries.get(project_id)),
             )
         return RedirectResponse(
             f"/projects/{project.project_id}/overview",
@@ -757,6 +861,73 @@ def _recipe_application_review(context: WebContext, recipe_id: str):
             else "SESSION"
         ),
         actor=context.actor,
+    )
+
+
+def _recipe_test_credential(
+    context: WebContext,
+    recipe_id: str,
+) -> tuple[str, str]:
+    """Return only the current read-key generation and safe storage class."""
+
+    recipe = context.recipes.get(recipe_id, actor=context.actor)
+    versions = context.recipes.data_versions(recipe_id, actor=context.actor)
+    current = next(
+        (
+            item
+            for item in versions
+            if item.data_version_id == recipe.current_data_version_id
+        ),
+        None,
+    )
+    if current is None:
+        return "", "SESSION"
+    project = context.queries.get(current.workspace_project_id)
+    credential = get_target_credential(
+        context.secret_store,
+        project,
+        TargetCredentialRole.READ,
+    )
+    return (
+        credential.binding_hash if credential else "",
+        (
+            "OPERATING_SYSTEM_VAULT"
+            if credential is not None and credential.persistent
+            else "SESSION"
+        ),
+    )
+
+
+def _recipe_qualification_review(context: WebContext, recipe_id: str):
+    try:
+        generation, storage_class = _recipe_test_credential(context, recipe_id)
+    except SecretStoreError:
+        generation, storage_class = "", "SESSION"
+    return context.recipe_qualifications.review(
+        recipe_id,
+        credential_generation=generation,
+        credential_storage_class=storage_class,
+        actor=context.actor,
+    )
+
+
+def _render_recipe_qualification(
+    request: Request,
+    context: WebContext,
+    recipe_id: str,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+):
+    review = _recipe_qualification_review(context, recipe_id)
+    return _render(
+        request,
+        "recipe_qualification.html",
+        recipe=review.recipe,
+        project=review.project,
+        qualification_review=review,
+        error=error,
+        status_code=status_code,
     )
 
 

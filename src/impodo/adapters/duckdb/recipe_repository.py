@@ -6,8 +6,14 @@ from datetime import date, datetime, timezone
 import json
 from typing import Mapping
 
+import duckdb
+
 from ...access import Actor, ActorIdentity
 from ...domain.serialization import canonical_json, content_hash
+from ...domain.recipe_qualifications import (
+    CutoverCandidateRecord,
+    RecipeQualificationRecord,
+)
 from ...projects import ProjectError, ProjectNotFoundError
 from ...recipes import (
     DataVersion,
@@ -52,6 +58,7 @@ class RecipeRepository(DuckDbRepository):
                          WHERE d.recipe_id = r.recipe_id) AS data_version_count,
                        (SELECT q.status FROM recipe_qualification q
                          WHERE q.recipe_id = r.recipe_id
+                           AND q.recipe_revision = r.current_recipe_revision
                          ORDER BY q.qualified_at DESC, q.qualification_id DESC
                          LIMIT 1) AS qualification_status,
                        (SELECT c.recipe_revision FROM cutover_candidate c
@@ -130,8 +137,7 @@ class RecipeRepository(DuckDbRepository):
         if not rows:
             self.get(recipe_id)
         return tuple(
-            self._data_version(dict(zip(columns, row, strict=True)))
-            for row in rows
+            self._data_version(dict(zip(columns, row, strict=True))) for row in rows
         )
 
     def update_data_version_parameter_values_hash(
@@ -247,6 +253,91 @@ class RecipeRepository(DuckDbRepository):
                 published_at=datetime.fromisoformat(str(row[12])),
             )
             for row in rows
+        )
+
+    def qualifications(
+        self,
+        recipe_id: str,
+    ) -> tuple[RecipeQualificationRecord, ...]:
+        """Return bounded immutable qualification lineage."""
+
+        recipe_id = require_uuid(recipe_id, "recipe_id")
+        with self._connect(self.registry_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT qualification_id, recipe_revision, application_id,
+                       test_target_binding_hash, status, findings_json,
+                       actor_issuer, actor_subject, actor_display_name,
+                       qualified_at, evidence_storage_key, evidence_hash
+                  FROM recipe_qualification
+                 WHERE recipe_id = ?
+                 ORDER BY qualified_at, qualification_id
+                """,
+                [recipe_id],
+            ).fetchall()
+        return tuple(
+            RecipeQualificationRecord(
+                qualification_id=str(row[0]),
+                recipe_id=recipe_id,
+                recipe_revision=int(row[1]),
+                application_id=str(row[2]),
+                test_target_binding_hash=str(row[3]),
+                status=str(row[4]),
+                findings=tuple(dict(item) for item in json.loads(str(row[5]))),
+                qualified_by=ActorIdentity(str(row[6]), str(row[7]), str(row[8])),
+                qualified_at=datetime.fromisoformat(str(row[9])),
+                evidence_storage_key=str(row[10]),
+                evidence_hash=str(row[11]),
+            )
+            for row in rows
+        )
+
+    def current_qualification(
+        self,
+        recipe_id: str,
+    ) -> RecipeQualificationRecord | None:
+        """Return only a qualification for the Recipe's current revision."""
+
+        recipe = self.get(recipe_id)
+        if recipe.current_recipe_revision is None:
+            return None
+        return next(
+            (
+                item
+                for item in reversed(self.qualifications(recipe_id))
+                if item.recipe_revision == recipe.current_recipe_revision
+            ),
+            None,
+        )
+
+    def cutover_candidate(
+        self,
+        recipe_id: str,
+    ) -> CutoverCandidateRecord | None:
+        """Return the exact selected rollout candidate, if one exists."""
+
+        recipe_id = require_uuid(recipe_id, "recipe_id")
+        with self._connect(self.registry_path) as connection:
+            row = connection.execute(
+                """
+                SELECT cutover_candidate_id, recipe_revision, qualification_id,
+                       actor_issuer, actor_subject, actor_display_name,
+                       selected_at, content_hash
+                  FROM cutover_candidate
+                 WHERE recipe_id = ?
+                """,
+                [recipe_id],
+            ).fetchone()
+        if row is None:
+            return None
+        return CutoverCandidateRecord(
+            cutover_candidate_id=str(row[0]),
+            recipe_id=recipe_id,
+            recipe_revision=int(row[1]),
+            qualification_id=str(row[2]),
+            selected_by=ActorIdentity(str(row[3]), str(row[4]), str(row[5])),
+            selected_at=datetime.fromisoformat(str(row[6])),
+            content_hash=str(row[7]),
         )
 
     def revision_version_by_semantic_hash(
@@ -438,9 +529,7 @@ class RecipeRepository(DuckDbRepository):
                 """
             ).fetchall()
             columns = [item[0] for item in connection.description]
-        return tuple(
-            self._intent(dict(zip(columns, row, strict=True))) for row in rows
-        )
+        return tuple(self._intent(dict(zip(columns, row, strict=True))) for row in rows)
 
     def transition_intent(
         self,
@@ -664,11 +753,7 @@ class RecipeRepository(DuckDbRepository):
                         workspace_project_id,
                         parent_id,
                         purpose.value,
-                        (
-                            int(recipe_row[0])
-                            if recipe_row[0] is not None
-                            else None
-                        ),
+                        (int(recipe_row[0]) if recipe_row[0] is not None else None),
                         str(detail["label"]),
                         detail.get("export_as_of_date"),
                         detail.get("parameter_values_hash"),
@@ -781,8 +866,7 @@ class RecipeRepository(DuckDbRepository):
                         """,
                         [
                             (
-                                data_version.sealed_at
-                                or datetime.now(timezone.utc)
+                                data_version.sealed_at or datetime.now(timezone.utc)
                             ).isoformat()
                         ],
                     )
@@ -921,7 +1005,7 @@ class RecipeRepository(DuckDbRepository):
                 application = connection.execute(
                     """
                     SELECT recipe_revision, target_binding_hash, status,
-                           evidence_hash
+                           evidence_hash, data_version_id, workspace_project_id
                       FROM recipe_application
                      WHERE application_id = ? AND recipe_id = ?
                     """,
@@ -930,10 +1014,11 @@ class RecipeRepository(DuckDbRepository):
                 if (
                     application is None
                     or int(application[0]) != int(detail["recipe_revision"])
-                    or str(application[1])
-                    != str(detail["test_target_binding_hash"])
+                    or str(application[1]) != str(detail["test_target_binding_hash"])
                     or str(application[2]) != "APPLIED"
                     or str(application[3]) != application_evidence_hash
+                    or str(application[4]) != str(detail["data_version_id"])
+                    or str(application[5]) != str(detail["workspace_project_id"])
                 ):
                     raise RecipeConflictError(
                         "Qualification application evidence is unavailable"
@@ -1011,6 +1096,10 @@ class RecipeRepository(DuckDbRepository):
                 ).fetchone()
                 if recipe is None or int(recipe[1]) != intent.expected_recipe_revision:
                     raise RecipeConflictError("Recipe changed before cutover selection")
+                if int(recipe[0]) != int(detail["recipe_revision"]):
+                    raise RecipeConflictError(
+                        "Only the current Recipe revision can be selected"
+                    )
                 qualification = connection.execute(
                     """
                     SELECT recipe_revision, evidence_hash, status

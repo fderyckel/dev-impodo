@@ -98,7 +98,10 @@ class TargetBinding:
             raise RecipeApplicationError("Target endpoint is invalid")
         if not self.database.strip() or len(self.database) > 200:
             raise RecipeApplicationError("Target database is invalid")
-        if not self.credential_generation.strip() or len(self.credential_generation) > 200:
+        if (
+            not self.credential_generation.strip()
+            or len(self.credential_generation) > 200
+        ):
             raise RecipeApplicationError("Credential generation is invalid")
         if self.credential_storage_class not in {
             "SESSION",
@@ -192,7 +195,10 @@ class RecipeParameterValues:
             raise RecipeApplicationError("Parameter reason is invalid")
         if self.confirmed_at.tzinfo is None or self.confirmed_at.utcoffset() is None:
             raise RecipeApplicationError("Parameter confirmation time is invalid")
-        if len(canonical_json(portable(dict(self.values))).encode("utf-8")) > MAX_PARAMETER_VALUES_BYTES:
+        if (
+            len(canonical_json(portable(dict(self.values))).encode("utf-8"))
+            > MAX_PARAMETER_VALUES_BYTES
+        ):
             raise RecipeApplicationError("Recipe parameter values are too large")
 
     @property
@@ -264,7 +270,10 @@ class RecipeControlValues:
         result = cls(
             contract_version=int(payload["contract_version"]),
             data_version_id=str(payload["data_version_id"]),
-            values={str(key): str(value) for key, value in dict(payload.get("values", {})).items()},
+            values={
+                str(key): str(value)
+                for key, value in dict(payload.get("values", {})).items()
+            },
             actor=ActorIdentity(
                 issuer=str(actor["issuer"]),
                 subject_id=str(actor["subject_id"]),
@@ -461,7 +470,10 @@ class RecipeApplicationEvidence:
         if self.mapping_content_hash is not None:
             require_hash(self.mapping_content_hash, "mapping_content_hash")
         object.__setattr__(self, "status", RecipeApplicationState(self.status))
-        if self.status not in {RecipeApplicationState.APPLIED, RecipeApplicationState.BLOCKED}:
+        if self.status not in {
+            RecipeApplicationState.APPLIED,
+            RecipeApplicationState.BLOCKED,
+        }:
             raise RecipeApplicationError("Application evidence status is invalid")
         if self.contract_version != RECIPE_APPLICATION_CONTRACT_VERSION:
             raise RecipeApplicationError("Application evidence contract is unsupported")
@@ -481,3 +493,47 @@ class RecipeApplicationEvidence:
 
     def to_json(self) -> str:
         return canonical_json(self.to_dict())
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> "RecipeApplicationEvidence":
+        actor = dict(payload["created_by"])
+        evidence = cls(
+            contract_version=int(payload["contract_version"]),
+            application_id=str(payload["application_id"]),
+            recipe_id=str(payload["recipe_id"]),
+            recipe_revision=int(payload["recipe_revision"]),
+            recipe_semantic_hash=str(payload["recipe_semantic_hash"]),
+            data_version_id=str(payload["data_version_id"]),
+            workspace_project_id=str(payload["workspace_project_id"]),
+            source_artifact_hash=str(payload["source_artifact_hash"]),
+            source_selection_hash=str(payload["source_selection_hash"]),
+            parameter_values_hash=str(payload["parameter_values_hash"]),
+            control_values_hash=str(payload["control_values_hash"]),
+            target_binding_id=str(payload["target_binding_id"]),
+            target_binding_hash=str(payload["target_binding_hash"]),
+            target_contract_assessment_hash=str(
+                payload["target_contract_assessment_hash"]
+            ),
+            binding_hash=str(payload["binding_hash"]),
+            issue_hash=str(payload["issue_hash"]),
+            mapping_id=(
+                str(payload["mapping_id"]) if payload.get("mapping_id") else None
+            ),
+            mapping_content_hash=(
+                str(payload["mapping_content_hash"])
+                if payload.get("mapping_content_hash")
+                else None
+            ),
+            status=RecipeApplicationState(str(payload["status"])),
+            created_at=datetime.fromisoformat(str(payload["created_at"])),
+            created_by=ActorIdentity(
+                issuer=str(actor["issuer"]),
+                subject_id=str(actor["subject_id"]),
+                display_name=str(actor["display_name"]),
+            ),
+        )
+        if payload.get("content_hash") != evidence.content_hash:
+            raise RecipeApplicationError(
+                "Stored Recipe application evidence is invalid"
+            )
+        return evidence

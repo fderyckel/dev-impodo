@@ -13,6 +13,10 @@ from ..access import Actor, AuthorizationPolicy, Capability
 from ..adapters.duckdb.recipe_repository import RecipeRepository
 from ..adapters.protected_recipe_store import ProtectedRecipeStore
 from ..domain.serialization import content_hash
+from ..domain.recipe_qualifications import (
+    CutoverCandidateRecord,
+    RecipeQualificationRecord,
+)
 from ..models import assert_no_numeric_odoo_ids
 from ..projects import MigrationProject
 from ..recipes import (
@@ -141,6 +145,33 @@ class RecipeService:
 
         self.authorization.require(actor, Capability.RECIPE_VIEW)
         return self.repository.revisions(recipe_id)
+
+    def qualifications(
+        self,
+        recipe_id: str,
+        *,
+        actor: Actor,
+    ) -> tuple[RecipeQualificationRecord, ...]:
+        self.authorization.require(actor, Capability.RECIPE_VIEW)
+        return self.repository.qualifications(recipe_id)
+
+    def current_qualification(
+        self,
+        recipe_id: str,
+        *,
+        actor: Actor,
+    ) -> RecipeQualificationRecord | None:
+        self.authorization.require(actor, Capability.RECIPE_VIEW)
+        return self.repository.current_qualification(recipe_id)
+
+    def cutover_candidate(
+        self,
+        recipe_id: str,
+        *,
+        actor: Actor,
+    ) -> CutoverCandidateRecord | None:
+        self.authorization.require(actor, Capability.RECIPE_VIEW)
+        return self.repository.cutover_candidate(recipe_id)
 
     def resolve_workspace(
         self,
@@ -368,6 +399,7 @@ class RecipeService:
         payload["qualified_at"] = str(
             payload.get("qualified_at") or datetime.now(timezone.utc).isoformat()
         )
+        assert_no_numeric_odoo_ids(payload)
         evidence_hash = content_hash(payload)
         payload_bytes = json.dumps(
             payload,

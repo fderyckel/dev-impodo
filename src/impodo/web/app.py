@@ -46,6 +46,7 @@ from ..application.reconciliation_service import ReconciliationService
 from ..application.recipe_service import RecipeService
 from ..application.recipe_authoring_service import RecipeAuthoringService
 from ..application.recipe_application_service import RecipeApplicationService
+from ..application.recipe_qualification_service import RecipeQualificationService
 from ..application.preparation_service import PreparationService
 from ..application.preparation_job_service import PreparationJobManager
 from ..application.quality_service import QualityService
@@ -325,6 +326,18 @@ def create_local_app(
         reconciliation_repository,
         resolved_authorization,
     )
+    recipe_qualifications = RecipeQualificationService(
+        recipes=recipes,
+        recipe_applications=recipe_applications,
+        applications=recipe_application_repository,
+        mappings=mapping_repository,
+        staging=staging_repository,
+        quality=quality_repository,
+        preflight=preflight,
+        execution=execution_repository,
+        reconciliation=reconciliation,
+        authorization=resolved_authorization,
+    )
     preparation_jobs = (
         PreparationJobManager(project_root) if preparation_jobs_enabled else None
     )
@@ -347,6 +360,7 @@ def create_local_app(
         recipes=recipes,
         recipe_authoring=recipe_authoring,
         recipe_applications=recipe_applications,
+        recipe_qualifications=recipe_qualifications,
         intake=SourceIntakeService(projects, resolved_artifacts),
         inspections=SourceInspectionService(
             project_repository,

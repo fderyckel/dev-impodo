@@ -249,6 +249,9 @@
             <a class="button secondary" href="/projects/{{ project.project_id }}/load/fallout.csv">Download fallout</a>
           {% endif %}
           <a class="button secondary" href="/projects/{{ project.project_id }}/summary">Back to final review</a>
+          {% if reconciliation.status.value == 'VERIFIED' and recipe_context.data_version_purpose == 'TEST' %}
+            <a class="button primary" href="/recipes/{{ recipe_context.recipe_id }}/qualification">Qualify this Recipe revision</a>
+          {% endif %}
         </div>
       </section>
 
