@@ -30,6 +30,7 @@ from ..application.odoo_source_capture_service import OdooSourceCapturePort
 from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
 from ..application.reconciliation_service import ReconciliationService
+from ..application.recipe_service import RecipeService
 from ..application.preparation_service import PreparationService
 from ..application.preparation_job_service import PreparationJobManager
 from ..application.quality_service import QualityService
@@ -109,6 +110,7 @@ class WebContext:
 
     queries: BrowserQueryService
     projects: ProjectService
+    recipes: RecipeService
     intake: SourceIntakeService
     inspections: SourceInspectionService
     sources: SourceWorkspaceService

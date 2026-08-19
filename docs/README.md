@@ -62,9 +62,9 @@ voice rules.
 ## Plans
 
 - [Impodo remaining work](plans/remaining-work.md) — the authoritative
-  forward-looking roadmap for related/mixed 100,000-row preparation, optional
-  clean-package certification, retained remote acceptance, production loading,
-  and conditional gateway or hosted work.
+  forward-looking roadmap. Recipe-first Test-to-Production reuse is the only
+  current product-delivery focus; every competing feature, scale,
+  certification, gateway, and hosted track is deferred until it is complete.
 - [Odoo source import and round-trip update implementation plan](plans/odoo-source-import-plan.md)
   — scoped proposal for selecting existing Odoo 19 records as immutable
   Impodo source data, transforming them, and applying guarded updates back to
@@ -74,9 +74,18 @@ voice rules.
   for reducing transformation CPU and memory, extending bounded preparation to
   related Products and BOMs, and retaining governed audit evidence.
 - [Reusable recipes and data versions implementation plan](plans/reusable-recipes-and-data-versions-implementation-plan.md)
-  — scoped design for series-owned reusable business configuration and fresh,
-  contained evidence per replacement data version. Only its Phase 0
-  contract-and-fixture work is active; later phases remain roadmap-gated.
+  — active Recipe-first plan for authoring and fine-tuning immutable revisions
+  against remote Test Odoo, qualifying one cutover candidate, then applying it
+  to the latest same-format-kind data on a different Production Odoo server
+  with current independent credentials and fresh evidence.
+- [Recipe-first Phase R0 contracts](plans/reusable-recipes-phase-r0-contracts.md)
+  — active aggregate, identity, target-binding, qualification, cutover,
+  credential-rotation, intent, recovery, bound, and UI-continuity contracts
+  for the Recipe implementation.
+- [Recipe-first Phase R1 implementation report](reports/reusable-recipes-phase-r1-persistence-2026-08-19.md)
+  — completed Recipe/DataVersion registry lineage, protected payload storage,
+  workspace linkage and sealing, compatibility resolution, and deterministic
+  intent-recovery evidence.
 
 ## Guides, runbooks, and quality
 

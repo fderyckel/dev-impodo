@@ -1,1526 +1,1305 @@
-# Reusable recipes and data versions implementation plan
+# Recipe-first test-to-production implementation plan
 
 ## Status and authority
 
-**Status:** Active implementation plan from 2026-08-18. No phase is complete
-unless the repository, tests, and current documentation say so.
+**Status:** Active implementation plan from 2026-08-19 and the only current
+product-delivery priority.
 
-**Phase 0:** Completed on 2026-08-18.
+Phases R0 and R1 completed on 2026-08-19. Phase R2 is the current
+implementation phase. The frozen active contracts are in the
+[Recipe-first Phase R0 contract](reusable-recipes-phase-r0-contracts.md).
 
-**Phase 1:** Completed on 2026-08-18 after the bounded implementation and
-regression gate recorded below. Recipe publication, series, and edition
-behavior remain unavailable.
+Product ownership replaced the earlier project-series proposal with a
+Recipe-first architecture. The earlier Phase 0 `ProjectSeries` contract is a
+superseded historical design snapshot and must not be implemented. The mapping
+contract v11 work completed on 2026-08-18 remains valid foundation work.
+The aggregate, target, credential, qualification, and cutover boundaries are
+accepted in
+[ADR-013](../decisions/README.md#adr-013--recipe-is-the-aggregate-root-and-target-bindings-are-application-specific).
 
-This document defines a scoped delivery path for reusing a confirmed Impodo
-mapping and transformation recipe with later replacement files inside one
-business migration project. It does not replace the priority order in
-[Impodo remaining work](remaining-work.md), weaken the
-[workflow evidence lifecycle](../developer/contracts/evidence-lifecycle.md),
-or describe source replacement as current behavior.
+Until the definition of done in this plan passes, the authoritative
+[Impodo remaining work](remaining-work.md) defers the related/mixed 100,000-row
+qualification, general Odoo-source guarded updates, optional certification,
+general remote-production hardening, target-side gateway, and hosted
+composition tracks. Existing implemented limits and security controls remain
+in force; deferral is not permission to weaken them.
 
-The first supported profile is intentionally narrow:
+This plan is authoritative for the first complete workflow in which a data
+manager:
 
-- the source is a complete replacement set of CSV/XLSX files;
-- the business purpose and Odoo 19 target remain the same;
-- the latest confirmed mapping becomes an immutable reusable recipe;
-- the operator starts a new data version under the same visible project;
-- Impodo rebinds compatible rules and asks the operator to review only drift;
-- every new data version receives fresh source, preparation, comparison,
-  approval, and execution evidence.
+1. authors a reusable Recipe with representative migration data;
+2. applies and fine-tunes immutable Recipe revisions against a remote Test Odoo
+   server;
+3. qualifies one exact revision from successful execution and reconciliation;
+4. pins that qualified revision as the rollout candidate;
+5. uploads the latest same-format-kind data on rollout day;
+6. binds the Recipe to a different Production Odoo server using current,
+   independently supplied API credentials;
+7. reviews only source or target drift; and
+8. explicitly approves, executes, and reconciles the production load using
+   entirely fresh evidence.
 
-Delta files, automatic deletion for records absent from a later file, sharing
-recipes between unrelated projects, and unattended recurring execution are
-out of scope for the first release.
+## 1. Product outcome
 
-## 1. Outcome
+Impodo's primary business object is the **Recipe**: the reusable migration
+knowledge that a data manager authors, tests, qualifies, applies, and improves.
 
-An operator who has completed and submitted customer mapping authoring, whether
-or not they also ran a rehearsal, can return two weeks later, choose **Use new
-files**, upload the updated export, and retain the confirmed business rules
-without recreating the project from scratch.
+The intended product promise is:
 
-Impodo must:
+> Build and qualify the Recipe before rollout. On rollout day, apply that exact
+> qualified revision to the latest data and current Production Odoo server,
+> review only drift, and execute with fresh approval and reconciliation.
 
-1. keep the earlier files, rules, preparation, review, and load evidence
-   immutable and reopenable;
-2. create a fresh contained workspace for the new data version;
-3. pin the then-current recipe when creating the pending edition and apply that
-   exact revision only after the new source and current Odoo schema are known;
-4. bind recipe datasets and columns to the new physical dataset identities;
-5. reuse transformations, business keys, value matches, relationship rules,
-   source-preparation rules, reusable quality rules, reference dependencies,
-   validations, and control definitions when compatible;
-6. surface new or stale values, columns, target fields, and relationships as
-   targeted recovery actions;
-7. prevent mapping submission, preparation, or loading while a required
-   exception remains unresolved; and
-8. create a new immutable recipe revision when the corrected mapping is
-   confirmed.
+The main lifecycle is:
 
-Reusable configuration is not reusable current evidence. In particular,
-normalization corrections, approvals, expected control-total values, source or
-target snapshots, validation results, comparisons, execution snapshots, and
-write journals remain specific to one data version. An operator who wants a
-normalization correction to recur must promote it into a mapping
-transformation, value match, governed reference dependency, or reusable quality
-rule before it can enter a recipe.
+```text
+Recipe Draft
+    |
+    | publish reusable meaning
+    v
+Recipe Revision
+    |
+    | apply with representative data + Test Odoo binding
+    v
+Test Recipe Application
+    |
+    | prepare, compare, execute, reconcile
+    v
+Qualification Evidence
+    |
+    | explicitly select
+    v
+Cutover Candidate
+    |
+    | latest data + Production Odoo binding + new credentials
+    v
+Production Recipe Application
+    |
+    | fresh compare, approval, execution, reconciliation
+    v
+Completed rollout
+```
 
-The normal result should read like:
+This is not project cloning. It is not reuse of a prior approval, target
+snapshot, API key, or execution package. It is deterministic recompilation of
+portable business meaning against new exact source and target evidence.
 
-> Recipe applied: 47 rules reused. Two new values need attention.
+## 2. First-release scope
 
-The operator should not have to reopen the 47 compatible rules.
+The first release supports:
 
-## 2. Current repository boundary
+- complete replacement CSV/XLSX source packages;
+- one Recipe containing one or more logically related datasets;
+- source packages that retain the same logical purpose and approximately the
+  same shape while allowing controlled, reviewed drift;
+- remote Test and Production Odoo 19 servers with different endpoints,
+  databases, principals, permissions, and API keys;
+- multiple immutable Recipe revisions produced by a data manager's test and
+  fine-tuning loop;
+- one exact test-qualified revision pinned for rollout;
+- fresh data-version parameters and control expectations;
+- fresh target schema, reference, permission, comparison, approval, execution,
+  and reconciliation evidence for every application; and
+- existing `UPSERT`, `CREATE`, and `REFERENCE` mapping modes that satisfy the
+  Recipe eligibility contract.
 
-The current design correctly protects one project's evidence, but it does not
-yet provide a reusable-recipe boundary:
+Examples include:
 
-- `ProjectRepository` creates one UUID-contained directory and DuckDB database
-  for each project. Source, mapping, preparation, quality, comparison, and load
-  pointers live in that database.
-- `source_selection`, `mapping_working_draft`, `mapping_current`, and several
-  downstream tables use singleton current pointers inside one project.
-- adding or removing a source file fails once `source_selection` exists.
-- a `MappingDefinition` binds the exact source-selection hash and Odoo schema
-  hash.
-- physical dataset IDs include the registered file ID and table key. Column
-  stable keys include the source name and ordinal. A later upload therefore
-  cannot safely receive the previous raw dataset IDs.
-- value matching already stores portable source and target strings rather than
-  numeric Odoo IDs, and it supports scalar selections plus eligible
-  single-key relationships.
-- preparation also consumes a current source-preparation plan, quality ruleset,
-  approved coverage, and reference bundle. A recipe based only on
-  `MappingDefinition` would silently omit reusable business configuration.
-- formula expressions may refer to physical `column_<ordinal>` aliases, and
-  reference lookups contain exact project-local reference IDs and hashes. Those
-  constructs need explicit logical conversion or must make Recipe v1
-  ineligible.
-- source `candidate_type` is inspection guidance rather than a guaranteed
-  runtime type, so a changed inference is not automatically an incompatible
-  physical contract.
-- the central `registry.duckdb` stores lightweight project summaries but has no
-  project-series, data-version, or recipe lineage.
+- Customers;
+- Products;
+- Product plus BOM when their source preparation and dependency order belong
+  to one reusable unit; and
+- stock levels applied for a declared warehouse and as-of date.
 
-The feature must not replace files in a frozen project, mutate old mapping
-JSON, copy a project database, or edit project storage directly. It must create
-new evidence and explicitly rebind portable meaning.
+The first release does not include:
+
+- unattended or scheduled production execution;
+- inferred deletion from records absent in a replacement export;
+- delta-file semantics;
+- sharing a Recipe across unrelated authorization tenants;
+- a public Recipe catalogue;
+- automatic fuzzy source or target binding;
+- arbitrary Odoo RPC or caller-selected methods;
+- automatic promotion from Test to Production;
+- reuse of Test credentials, approvals, snapshots, write journals, or target
+  record IDs in Production;
+- support for materially different business purposes under one Recipe; or
+- orchestration of several independent Recipes as one cutover plan.
+
+A thin multi-Recipe cutover plan may be considered only after Customers and at
+least one related or parameterized Recipe complete this plan independently.
 
 ## 3. Product vocabulary
 
-### 3.1 Project series
+### 3.1 Recipe
 
-The business migration scope visible to the operator, for example **Customer
-migration**. In code and technical contracts this is a distinct aggregate such
-as `ProjectSeries`; it owns data-version history and the current recipe. The
-browser may continue to label it **Project**, but a `series_id` is never a
-`project_id` and is never accepted by project-scoped authorization, credential,
-filesystem, or deletion operations.
+The aggregate root and operator-facing identity for one reusable migration
+purpose, such as **Customer migration** or **Opening stock by warehouse**.
 
-### 3.2 Migration project or edition workspace
+A Recipe owns its name, purpose, classification, retention policy, optimistic
+revision, current RecipeRevision pointer, optional rollout-candidate pointer,
+Recipe revision lineage, DataVersion lineage, and bounded status projections.
+It does not own one fixed Odoo endpoint, database, credential, source file, or
+approval.
 
-The existing `MigrationProject`, identified by `project_id`, remains one
-contained governance and evidence boundary with its own DuckDB and artifacts.
-Each workspace is one edition in exactly one project series. Existing domain
-contracts must not redefine `MigrationProject` to mean the series.
+### 3.2 RecipeDraft
 
-### 3.3 Data version
+Mutable authoring coordination for the next RecipeRevision. In the first
+release it references the current contained workspace's exact authoring
+evidence rather than duplicating mapping, preparation, quality, reference, and
+control drafts into a second source of truth.
 
-The operator-facing name for one edition workspace and its source package.
-Examples are **Data version 1 - rehearsal** and **Data version 2 - 31 August
-export**. Evidence written within an edition remains immutable and versioned,
-but an unfinished edition may still advance its normal current pointers until
-the edition is sealed.
+Publishing compiles that exact current authoring state into an immutable
+RecipeRevision. A stale or incomplete draft cannot publish.
 
-Each data version uses a distinct `project_id` and contained DuckDB workspace
-internally. This preserves the existing singleton and invalidation contracts
-while the browser groups those workspaces under one visible project.
+### 3.3 RecipeRevision
 
-### 3.4 Recipe
+An immutable, append-only, content-hashed version of reusable migration
+semantics. It contains no server endpoint, database, credential, authenticated
+principal, source snapshot, target snapshot, approval, execution result, or
+numeric Odoo ID.
 
-Portable, versioned business meaning that can be rebound to another compatible
-data version. A recipe revision is append-only and content-hashed. It is not a
-source snapshot, target snapshot, preparation result, approval, or permission
-to write Odoo.
+### 3.4 DataVersion
 
-### 3.5 Recipe application
+One exact source package used to author, test, rehearse, or roll out a Recipe.
+Examples include **Rehearsal export - 18 August** and **Rollout export - 31
+August**.
 
-The deterministic assessment that binds one recipe revision to one data
-version's current source selection and Odoo schema. It produces either a new
-mapping working draft or a bounded list of issues that must be resolved first.
+Each DataVersion has an independent `data_version_id` and owns one existing
+contained `MigrationProject` workspace through `workspace_project_id`. The
+workspace retains its own DuckDB, artifacts, credentials, audit, singleton
+current pointers, and exact evidence chain.
+
+### 3.5 MigrationProject workspace
+
+The existing `MigrationProject`, identified by `project_id`, remains the
+internal containment, authorization, credential, filesystem, and evidence
+boundary. It is not renamed to Recipe or DataVersion and is not exposed as the
+primary product concept.
+
+### 3.6 OdooTargetContract
+
+The environment-neutral Odoo requirements stored in a RecipeRevision:
+
+- Odoo major version;
+- required applications, models, and technical fields;
+- field types, relations, required/readonly semantics, and intended write use;
+- ordered business keys and scope;
+- required selection codes;
+- required custom fields or module-dependent capabilities;
+- reference dependencies; and
+- approved write fields.
+
+It describes what a compatible Odoo target must provide. It does not identify
+where that target is hosted or who may access it.
+
+### 3.7 TargetBinding
+
+The exact, application-specific binding to a current Odoo server. It includes
+non-secret endpoint/database identity, connection-target hash, credential
+generation, authenticated principal, permissions, context, schema snapshot,
+reference snapshots, probe evidence, and timestamps.
+
+A Test binding and a Production binding are always distinct even when they
+happen to use similar settings. A credential rotation creates a new binding
+generation.
+
+### 3.8 RecipeApplicationDraft
+
+A mutable, project-local recovery object used while logical datasets and
+columns are bound to one DataVersion and one TargetBinding. It stores only
+binding overrides, dependency hashes, bounded issue fingerprints, optimistic
+revision, and recovery state. It cannot authorize preparation or Odoo writes.
+
+### 3.9 RecipeApplicationEvidence
+
+Immutable evidence explaining how one RecipeRevision, DataVersion, parameter
+set, and TargetBinding produced one exact `MappingDefinition` or a terminal
+blocked assessment.
+
+### 3.10 RecipeQualificationEvidence
+
+Immutable evidence that one RecipeRevision successfully passed the declared
+Test Odoo rehearsal policy. It binds the application, preparation, quality,
+comparison, execution, read-back, reconciliation, controls, actor, and exact
+Test TargetBinding used.
+
+Qualification demonstrates tested logic. It is not Production authorization.
+
+### 3.11 CutoverCandidate
+
+An explicit pointer to one test-qualified RecipeRevision and its qualification
+evidence. It pins reusable semantics for rollout but contains no Production
+server, API key, source file, comparison, approval, or write authority.
+
+### 3.12 MappingDefinition
+
+The compiled, evidence-bound result of applying a RecipeRevision. It correctly
+contains the exact source-selection hash, schema hash, physical dataset/column
+bindings, and mapping ID required by the existing evidence pipeline. It is not
+the reusable Recipe.
 
 ## 4. Architecture decision
 
-### 4.1 Use a project series with clean child workspaces
-
-Keep the current one-database-per-`project_id` boundary. Add registry-level
-series and edition metadata so several contained workspaces appear as one
-business project.
-
-This is preferred over adding `data_version_id` to every project table because
-the current schema contains many singleton pointers and hash-bound downstream
-artifacts. Retrofitting all of them would create a large cross-stage migration
-and increase the risk that old evidence accidentally satisfies a new run.
-
-It is also preferred over cloning the prior DuckDB database. A database clone
-would copy old source rows, current pointers, approvals, protected evidence,
-execution journals, and target-specific state that must not carry forward.
-
-### 4.2 Store recipe metadata and payloads through separate boundaries
-
-Recipe revisions belong to the project series, not to one edition. Extend the
-registry with bounded recipe metadata, hashes, current pointers, and protected
-storage keys. Store the canonical payload in a series-scoped `RecipeStore`,
-protected artifact boundary, or dedicated series database rather than casually
-placing every series' business literals in the lightweight global registry.
-The payload may contain confidential aliases, internal codes, reference values,
-or constants, so it inherits the series classification, retention, access,
-backup, and deletion policy and must never be exposed across a series.
-
-Do not store source rows, distinct-value scans, credentials, Odoo numeric IDs,
-protected provenance, or row-level compatibility issues in the registry.
-
-### 4.3 Make edition state and series invariants explicit
-
-`ProjectSeries` owns a UUID generated independently from every child
-`project_id`, its optimistic revision, one current registered edition, and at
-most one pending edition. Existing projects receive a newly generated series
-UUID during backfill; `series_id = project_id` is forbidden because identical
-identifier values make scope-confusion bugs more likely.
-
-The first release treats the business purpose, source mode, source system,
-non-secret Odoo connection target, intended applications/models,
-classification, and retention policy as series-owned invariants. Starting a new
-edition copies those values through a field-level allowlist and prevents them
-from diverging.
-A materially different target or purpose requires a new series. Edition-owned
-values such as export status, export date, lifecycle label, files, and current
-workflow evidence are always new.
-
-Edition metadata uses explicit states:
-
-- `PENDING`: a resumable child workspace exists but is not the current
-  registered edition;
-- `ACTIVE`: the one current registered edition that may accept workflow
-  mutations;
-- `SEALED`: a historical edition that is reopenable but rejects every mutation;
-- `ABANDONED`: an unfinished edition discarded through governed cleanup.
-
-The series state is `ACTIVE` or `DELETING`; `DELETING` is the tombstone while a
-series-deletion intent is completed or recovered.
-
-Creating a pending edition does not displace the current active edition. The
-pending edition becomes active and the prior edition becomes sealed only after
-the new workspace is registered with its new export identity. A pending edition
-may be resumed, or discarded only while it has no frozen source selection,
-active job, or downstream immutable workflow evidence. Sealing must be enforced
-below the browser through a series-aware application policy and a project-local
-seal marker; merely hiding controls or relying on a registry pointer is not a
-sufficient immutability boundary.
-
-### 4.4 Keep application results project-local
-
-The successful application materializes a normal `MappingWorkingDraft` in the
-new edition, bound to its current source-selection and schema hashes. The
-application audit event records recipe ID, version, semantic hash, and payload
-hash.
-
-Structural compatibility issues are calculated from the immutable recipe,
-source snapshots, schema snapshot, and a narrow project-local
-`RecipeApplicationDraft`. That draft stores only explicit dataset/column
-binding overrides, its optimistic revision, dependency hashes, and current
-issue fingerprints. It cannot represent mapping semantics or authorize
-preparation. Once all structural bindings resolve, it is consumed to create the
-normal `MappingWorkingDraft`. Categorical coverage issues then join mapping
-validation through separately hash-bound coverage evidence.
-
-## 5. Recipe contract
-
-Introduce a strict `RecipeDefinition` contract independent of
-`MappingDefinition`. It must exclude instance-specific IDs and hashes while
-retaining enough information to create a new exact mapping.
-
-### 5.1 Compose the reusable business configuration
-
-Do not flatten every current runtime object into one mapping-shaped payload.
-`RecipeDefinition` is a composition of strict subcontracts:
-
-- `SourceShapeRecipe`: logical datasets and columns plus compatibility
-  expectations;
-- `SourcePreparationRecipe`: portable derived-entity, parent/child, exact join,
-  union, grouping, and aggregate definitions supported by Recipe v1;
-- `MappingRecipe`: target models and modes, scalar providers,
-  transformations, validations, relationships, dispositions, approved write
-  fields, comparison policy, value matches, and unmatched-value policies;
-- `TargetGovernanceRecipe`: business keys, scope, and exact semantic target
-  dependencies;
-- `QualityRecipe`: portable manager-authored rules and reusable approved-scope
-  applicability, while mapping/schema-derived rules are regenerated;
-- `ReferenceDependencies`: logical, content-hashed governed reference packages
-  needed by mapping or quality rules; and
-- `ControlDefinitions`: what must reconcile, excluding edition-specific
-  expected values by default.
-
-Every node receives a deterministic logical ID derived from its semantic path
-or another canonical name. Random mapping, plan, rule, project, reference, and
-dataset IDs never leak into recipe semantics.
-
-The recipe is execution-engine neutral: it contains no DuckDB concepts,
-Parquet paths, PostgreSQL SQL, or engine-selection decisions. The edition
-workspace decides how to execute the portable meaning.
-
-### 5.2 Semantic and payload hashes
-
-Each revision has two hashes:
-
-- `semantic_hash` covers the canonical reusable business configuration and is
-  the identity used to decide whether a new recipe version is needed; and
-- `payload_hash` covers the complete stored canonical bytes, including bounded
-  compatibility hints and contract metadata, and is verified whenever the
-  artifact is read.
-
-Both include the applicable recipe contract versions. Both exclude author,
-timestamp, origin project, source-selection/schema hashes, and mapping/plan
-revision identities. Prior file display names, exact ordered header signatures,
-and ordinals are diagnostic binding hints rather than business meaning and do
-not enter the semantic hash. Confirming unchanged meaning reuses the current
-recipe revision; it does not append a new version merely because a file ID,
-column order, or unrelated schema field changed.
-
-### 5.3 Logical dataset and column bindings
-
-A physical recipe dataset stores:
-
-- the operator-confirmed dataset name;
-- expected source kind (`FILE` in the first release);
-- selected-table hints such as prior display name, header row, and exact header
-  signature;
-- logical recipe-column IDs;
-- exact prior source names;
-- prior ordinals for diagnostics only;
-- expected candidate types; and
-- whether each column is required by identity, mapping, relationship,
-  derivation, formula, validation, quality, reference, or control rules.
-
-Recipe rules refer to logical recipe dataset/column IDs. They never refer to a
-registered `file_id`, physical `dataset_id`, table key, source hash, snapshot
-path, or current column stable key.
-
-Application matching is deliberately conservative:
-
-1. match datasets by the operator-confirmed dataset name;
-2. match columns by exact source name when the name is unique;
-3. permit reordered columns after exact unique-name binding and successful
-   semantic compatibility checks;
-4. never accept duplicate source headers, which the current source-confirmation
-   boundary already rejects;
-5. never fuzzy-match renamed columns without confirmation; and
-6. report new unused columns or datasets as information rather than silently
-   mapping them.
-
-`candidate_type` drift alone is a review signal, not a blocker. Application
-blocks only when the current values and declared provider/transformation/type
-requirements demonstrate an incompatible semantic change. Formula policies
-that use `column_<ordinal>` must be parsed and rewritten through logical column
-IDs before reorder compatibility can be claimed; otherwise the recipe is
-ineligible.
-
-### 5.4 Target dependency bindings
-
-Recipes retain Odoo technical model and field names, field roles, business-key
-order, scope, and portable selection/business-key values. They do not retain
-numeric record IDs or claim that the prior schema remains current.
-
-Store a canonical `RecipeTargetDependencyFingerprint` for only the models,
-fields, selections, relation targets, business-key fields, scope fields, and
-required-field coverage on which the recipe depends. Application resolves those
-dependencies against a newly captured Odoo 19 schema. An unchanged dependency
-may be rebound even when the complete schema hash changed elsewhere.
-
-Compatibility is direction-sensitive. A dependency blocks when it becomes
-missing, readonly for an intended write, type-incompatible, relation-incompatible,
-or newly required without a provider/disposition. A harmless relaxation or an
-unrelated schema change does not block. A successful application still creates
-a new `MappingDefinition` bound to the complete current schema/governance hash.
-
-### 5.5 Recipe v1 eligibility
-
-Eligibility is an application-service gate, not merely a hidden browser action.
-Recipe v1 supports only:
-
-- registered `FILE`-origin editions in the same series-owned target and purpose;
-- the new strict mapping contract containing categorical coverage and split
-  control-definition/expectation semantics;
-- mapping modes `UPSERT`, `CREATE`, and `REFERENCE`; and
-- source-preparation, quality, formula, and reference constructs for which a
-  reviewed logical converter and round-trip acceptance fixture exists.
-
-Recipe v1 rejects `ODOO_PINNED_UPDATE`, Odoo-origin sources, numeric target IDs,
-unconverted ordinal formulas, project-local reference IDs, unsupported
-source-preparation rules, stale/incomplete submissions, and any current quality
-or coverage dependency that would otherwise be lost. Rejection returns one
-bounded eligibility report listing the exact unsupported constructs and their
-recovery actions.
-
-Approved reference data that is supported for reuse is republished as a
-series-scoped, content-addressed protected recipe dependency with logical IDs.
-Application materializes a fresh edition-local reference bundle with new local
-IDs and verifies the exact dependency hash. It never treats the prior
-project-local `reference_id` as portable.
-
-### 5.6 Categorical coverage policy and evidence
-
-Add an explicit policy wherever categorical values can be matched. Current
-partial value mappings otherwise allow an unknown source value to continue as
-its original text, which is unsafe for a reusable categorical recipe.
-
-The domain distinction should be:
-
-- `EXACT_TARGET_VALUE`: the transformed source value must already be a valid
-  current Odoo selection code;
-- `EXPLICIT_VALUE_MATCH`: every nonblank distinct source choice must have a
-  confirmed portable source-to-target match;
-- `EXACT_BUSINESS_KEY`: a relationship value is resolved directly through the
-  governed target key/scope and must resolve exactly once; and
-- `EXPLICIT_KEY_MATCH`: every nonblank distinct source choice must first map to
-  a portable target business-key value, which must then resolve exactly once.
-
-Blank handling remains separate. Required fields, null policy,
-`on_missing`, and `on_ambiguous` continue to decide whether a blank or failed
-relationship is blocking.
-
-New authoring should default scalar selections and choice-like relationships
-that use **Match values** to explicit coverage. Existing mapping contract
-versions retain their current behavior until the operator confirms the new
-policy. Implement this as mapping contract version 11 with strict parsing; do
-not reinterpret stored version 8-10 JSON in place.
-
-The mapping-contract upgrade must precede recipe extraction. Lazy bootstrap
-from versions 8-10 opens a focused review for every affected field and creates a
-new checked and submitted mapping before Recipe v1 can be published. Impodo
-must not infer whether an old partial value match meant aliases or a closed
-categorical domain.
-
-Introduce immutable `CategoricalCoverageEvidence` bound to the mapping hash,
-effective source-selection hash, exact source snapshot hashes, scan contract,
-normalization semantics, and the target-choice or target-reference evidence it
-used. Scan each dataset once for all relevant fields. `EXPLICIT_*` policies use
-the same trimmed raw-choice semantics as runtime value matching;
-`EXACT_TARGET_VALUE` evaluates the declared transformation semantics. A formula
-or multi-column dependency must use a set-based supported evaluator or make the
-recipe ineligible; scanning one raw column is not sufficient.
-
-If missing or ambiguous relationship targets must block mapping submission,
-the evidence also binds current target-reference snapshot hashes and read
-principal, permission, context, and connection identity. Those target hashes
-participate in validation and cache keys because target records can change
-without a schema change. Otherwise the product must explicitly defer the
-condition to preparation and must not claim it blocks mapping submission.
-
-### 5.7 Reusable control definitions and edition expectations
-
-`BusinessControlTotal.expected_total` is edition-specific unless an explicit
-business contract says it is invariant. Recipes therefore reuse the control
-name, target field, unit, tolerance, and calculation method, but application
-creates a fresh `EditionControlExpectation` supplied or confirmed for the new
-data version. The old expected number remains origin evidence and is never
-silently copied into the new mapping.
-
-The new mapping contract must separate control definitions from exact
-expectations while continuing to parse stored versions 8-10 unchanged. Recipe
-application cannot produce a submittable mapping until every required new
-expectation is present. The same contract distinguishes reusable semantic
-constants from explicitly declared edition parameters such as extract or batch
-dates.
-
-### 5.8 Recipe provenance
-
-Each immutable revision records outside its semantic hash:
-
-- `recipe_id`, version, and parent version;
-- series ID;
-- semantic hash, payload hash, byte length, storage key, and contract versions;
-- originating project/data-version ID;
-- originating mapping ID, version, and content hash;
-- originating effective source-selection/snapshot hashes and target
-  schema/governance hashes;
-- originating source-preparation plan, governance, quality-ruleset, approved
-  coverage, and reference-bundle hashes where applicable;
-- actor issuer, stable subject, display name, and timestamp; and
-- a bounded reason such as `MAPPING_SUBMITTED` or `EXISTING_PROJECT_BOOTSTRAP`.
-
-Only a successfully submitted, current mapping may publish a reusable recipe
-in the first release. A stale or unsubmitted working draft cannot become the
-series recipe. Provenance distinguishes the actor who originally submitted the
-mapping from the actor who later performed a lazy recipe bootstrap. Neither
-identity is inferred from a display name alone.
-
-## 6. Registry and persistence changes
-
-Add an additive, transactionally versioned registry migration. Keep series
-metadata and recipe revision metadata in the registry, but permit the minimum
-additive project-database changes needed to enforce edition sealing and persist
-an application draft. Do not duplicate recipe payloads across project databases
-or add a data-version discriminator to every existing table.
-
-### 6.1 Proposed registry tables
-
-`project_series`
-
-- independent `series_id` UUID primary key, never accepted where a project ID is
-  required;
-- display name and lifecycle state, including a deletion tombstone;
-- current registered/active `project_id`;
-- optional pending `project_id`;
-- series-owned business purpose, source mode/system, non-secret target
-  connection settings, intended applications/models, classification, and
+### 4.1 Recipe is the aggregate root
+
+There is no `ProjectSeries` aggregate in the active design. The earlier series
+added an identity above a lineage that already has one Recipe and one current
+RecipeRevision. Recipe now owns the lineage directly:
+
+```text
+Recipe
+|-- RecipeDraft
+|-- RecipeRevision 1
+|-- RecipeRevision 2
+|-- RecipeRevision 3  [test-qualified, cutover candidate]
+|-- DataVersion 1     [authoring/rehearsal workspace]
+|-- DataVersion 2     [later rehearsal workspace]
+`-- DataVersion 3     [rollout workspace]
+```
+
+`recipe_id`, `data_version_id`, and `workspace_project_id` are independently
+generated UUIDs. Routes, repositories, authorization checks, logs, and
+deletion services never accept one identity type where another is required.
+
+### 4.2 Preserve contained workspaces
+
+Every DataVersion receives a clean project workspace. Do not add
+`data_version_id` to every existing project table and do not clone a prior
+project database.
+
+The contained workspace preserves existing singleton pointers and exact
+invalidation behavior. A new workspace prevents old source rows, mappings,
+quality results, approvals, target snapshots, credentials, execution journals,
+or current pointers from becoming current for the new DataVersion.
+
+### 4.3 Compile through the existing pipeline
+
+Recipe application creates a normal fresh `MappingWorkingDraft` only after
+structural binding is complete. The existing pipeline remains authoritative:
+
+```text
+RecipeRevision
+    + DataVersion
+    + ParameterValues
+    + TargetBinding
+             |
+             v
+RecipeApplicationService
+             |
+             v
+MappingDefinition / MappingWorkingDraft
+             |
+             v
+submission -> preparation -> quality -> comparison -> execution -> reconciliation
+```
+
+There is no parallel Recipe execution engine.
+
+### 4.4 Keep portable meaning separate from exact evidence
+
+RecipeRevision stores reusable intent. DataVersion, TargetBinding,
+RecipeApplicationEvidence, RecipeQualificationEvidence, and the current
+workspace store exact evidence.
+
+Reusable configuration never includes:
+
+- source or target rows;
+- source-selection, snapshot, or full-schema hashes;
+- server endpoints or database names;
+- API keys or secret references that could authorize access;
+- credential generations, principals, or permission snapshots;
+- numeric Odoo IDs;
+- data-version control expectations;
+- comparisons, approvals, execution snapshots, journals, or reconciliation
+  outcomes; or
+- observed normalization corrections unless explicitly promoted to supported
+  Recipe semantics.
+
+## 5. Composite RecipeRevision contract
+
+### 5.1 Reusable semantic composition
+
+`RecipeDefinition` is independent of `MappingDefinition` and composes strict
+subcontracts:
+
+- `SourceShapeRecipe`;
+- `RecipeParameterDefinitions`;
+- `SourcePreparationRecipe`;
+- `MappingRecipe`;
+- `OdooTargetContract`;
+- `TargetGovernanceRecipe`;
+- `QualityRecipe`;
+- `ReferenceDependencies`; and
+- `ControlDefinitions`.
+
+Every semantic node uses a deterministic logical ID. Physical file IDs,
+dataset IDs, column stable keys, project IDs, random rule IDs, project-local
+reference IDs, engine decisions, and ordinals never become reusable identity.
+
+The Recipe remains execution-engine neutral. It specifies what must happen,
+not whether the workspace uses Python, Polars, DuckDB, Parquet, PostgreSQL, or
+another supported implementation.
+
+### 5.2 Hashes
+
+Every RecipeRevision has:
+
+- `semantic_hash`, covering canonical reusable business meaning; and
+- `payload_hash`, covering complete stored bytes including compatibility hints
+  and provenance.
+
+Changing transformations, value matches, identities, target dependencies,
+quality rules, references, parameter definitions, or control definitions
+changes the semantic hash. Changing author, timestamp, origin workspace,
+prior file name, endpoint, database, API credential, or provenance does not.
+
+Reads verify payload integrity before parsing and recompute semantic identity
+after canonicalization.
+
+### 5.3 Declared parameters
+
+A Recipe may declare bounded parameters that legitimately vary by DataVersion,
+such as:
+
+- export/as-of date;
+- warehouse business key;
+- company business key;
+- batch reference;
+- effective date; and
+- other reviewed semantic constants whose variability is intentional.
+
+Each definition contains a logical parameter ID, label, type, required flag,
+validation constraints, allowed use sites, and whether it participates in
+identity, scope, transformations, references, or controls.
+
+Each DataVersion supplies fresh `RecipeParameterValues` with actor, source,
+reason, timestamp, and content hash. Values bind application and compiled
+mapping evidence. They do not create a new RecipeRevision when they remain
+within the declared parameter contract.
+
+Undeclared mutable constants are forbidden. A proposed new parameter changes
+Recipe semantics and requires a new revision and test qualification.
+
+### 5.4 Controls
+
+RecipeRevision stores reusable control definitions: logical control ID, name,
+dataset, field, unit, tolerance, and calculation.
+
+Each DataVersion supplies fresh expected values unless the Recipe explicitly
+declares an invariant expectation. Prior expected totals never transfer
+silently from Test to Production or from one export to another.
+
+### 5.5 References and relationships
+
+Recipes store portable strings, ordered business keys, scope, and protected
+content-addressed reference dependencies. They never store numeric target IDs.
+
+Application resolves current target records in bounded batches under the
+current TargetBinding. Missing or ambiguous Production references block that
+Production application even when the Test rehearsal resolved successfully.
+
+## 6. Same-format-kind source compatibility
+
+Recipe application is conservative and deterministic:
+
+1. bind datasets by confirmed logical name;
+2. bind columns by exact unique source name;
+3. allow reordered columns after exact logical binding;
+4. treat candidate-type inference drift as review unless provider semantics
+   prove incompatibility;
+5. require explicit confirmation for a renamed used column;
+6. reject duplicate headers before application;
+7. block a missing dataset or used column;
+8. report new unused datasets or columns as information;
+9. rebuild all supported derived and related datasets from the new source; and
+10. scan categorical domains set-wise and surface only new or stale choices.
+
+Fuzzy or AI suggestions may be displayed as bounded, non-authoritative help,
+but never become bindings without explicit confirmation.
+
+A missing prior business key is not a delete instruction. At most it appears
+in an informational cross-version summary.
+
+## 7. Odoo portability and compatibility
+
+### 7.1 Recipe target requirements
+
+The Recipe's `OdooTargetContract` retains stable technical model and field
+names, types, relation models, business-key order, scope, selection codes,
+required/readonly semantics, custom dependencies, and intended write use.
+
+It does not retain a whole prior schema as the compatibility rule. Application
+checks only required dependency semantics, then binds the compiled mapping to
+the complete current schema/governance hash.
+
+### 7.2 Test and Production are independent bindings
+
+Test qualification records the exact Test TargetBinding as provenance. It does
+not make that target part of Recipe semantic identity.
+
+Production application always:
+
+- accepts or selects current Production connection settings;
+- establishes a current credential generation;
+- probes and captures the authenticated principal and permissions;
+- captures fresh required schema and reference evidence;
+- compares required semantics with the Recipe target contract; and
+- creates new application, comparison, approval, execution, and reconciliation
+  evidence.
+
+An unrelated Production schema addition does not block. A missing custom
+field, changed relation, readonly intended write, newly required field without
+a provider, unavailable selection code, or missing/ambiguous governed target
+key does block.
+
+A Production incompatibility blocks only that application. It does not rewrite
+or retroactively invalidate honest Test qualification evidence.
+
+## 8. Credential and remote-server contract
+
+### 8.1 Credentials are never Recipe content
+
+Remote API keys remain only in the governed secret store. Recipe, registry,
+application, qualification, browser, logs, errors, URLs, and exported evidence
+must not contain secret material.
+
+Non-secret evidence may contain:
+
+- connection-target hash;
+- credential role and generation;
+- storage class;
+- principal hash;
+- permission hash;
+- context hash;
+- probe result and timestamp; and
+- revocation/removal receipt hashes.
+
+### 8.2 Different server means new credentials
+
+No credential is copied automatically from Test to Production or between
+different endpoint/database identities. The operator establishes the current
+Production read credential explicitly. Write authority is established
+separately at the existing load boundary.
+
+Even when the same secret text is supplied for read and write, the bindings
+remain separate evidence roles.
+
+### 8.3 Rotation creates a new binding generation
+
+When an API key changes on the same server, Impodo creates or selects a new
+credential generation and must:
+
+1. re-probe connectivity;
+2. recapture principal and permission evidence;
+3. refresh target-dependent schema and reference evidence;
+4. invalidate comparison or load readiness bound to the prior generation; and
+5. leave RecipeRevision and source evidence unchanged.
+
+If credential generation, connection target, principal, permissions, or target
+context changes after comparison and before load, execution stops. The
+operator must refresh target evidence and regain exact current readiness.
+
+### 8.4 Read and write separation
+
+Read credentials support schema inspection, reference resolution, comparison,
+and reconciliation reads. They do not authorize writes.
+
+Write credentials are requested or established only for explicit execution,
+receive a new probe, bind the execution snapshot, and never inherit authority
+from Test qualification, a prior DataVersion, or a read credential.
+
+Unknown remote write outcomes continue to use the existing execution journal
+and reconciliation recovery. Recipe reuse never authorizes blind retry.
+
+## 9. Authoring, testing, qualification, and rollout lifecycle
+
+### 9.1 Create and author
+
+The normal journey starts with **Create Recipe**. Impodo creates the Recipe
+root, reserves DataVersion 1, and provisions a clean contained workspace.
+
+The data manager completes source inspection, Odoo target inspection, mapping,
+preparation, quality, references, parameters, and controls through existing
+workspace boundaries. RecipeDraft is a coordination projection over those
+exact drafts and evidence.
+
+### 9.2 Publish a revision
+
+Only a current, submitted, Recipe-eligible mapping plus all supported reusable
+preparation, quality, reference, governance, coverage, parameter, and control
+configuration may publish.
+
+Publication compiles logical reusable meaning, verifies eligibility and bounds,
+stores the protected payload, records provenance, and advances the current
+RecipeRevision through an idempotent publication intent.
+
+An interruption after mapping submission leaves the mapping submitted and the
+publication intent retryable. It never points current at a missing or corrupt
+payload.
+
+### 9.3 Test and fine-tune
+
+The data manager selects or enters a Test TargetBinding and applies the current
+RecipeRevision to representative data. Every application creates fresh exact
+mapping and downstream evidence.
+
+If the rehearsal exposes incorrect transformations, relationships, controls,
+or quality semantics, the data manager creates a RecipeDraft based on the
+current revision, corrects it, publishes the next revision, and tests again.
+
+Example:
+
+```text
+Recipe v1 -> Test failed: country mapping incomplete
+Recipe v2 -> Test failed: Product Category hierarchy incorrect
+Recipe v3 -> Test execution and reconciliation passed
+```
+
+Prior revisions and test evidence remain immutable.
+
+### 9.4 Qualification
+
+A RecipeRevision is test-qualified only when the configured policy proves:
+
+- the exact application completed without unresolved blockers;
+- preparation and mandatory quality evidence are current;
+- every required control reconciles;
+- comparison is current for the exact Test TargetBinding;
+- the authorized Test execution reached terminal known outcomes;
+- read-back and reconciliation account for every proposed record;
+- unknown writes are resolved;
+- required expected outcomes match; and
+- the qualifying actor explicitly confirms the result.
+
+Where the Test target can be reset or recreated, the qualification records its
+baseline identity. A repeated preview after successful execution should
+propose no unexpected writes. The first release records an idempotency result
+when the chosen recipe mode and test-target policy permit it; it never fabricates
+one where the target cannot be reset or compared safely.
+
+Qualification statuses are derived as `UNTESTED`, `TEST_FAILED`,
+`TEST_QUALIFIED`, or `QUALIFICATION_STALE`.
+
+Publishing any later semantic revision makes that new revision `UNTESTED`; it
+does not mutate the prior revision's qualification history.
+
+### 9.5 Select the cutover candidate
+
+The data manager explicitly selects one `TEST_QUALIFIED` revision. The
+CutoverCandidate pins the Recipe revision and qualification evidence.
+
+Selecting a candidate does not reserve Production credentials, approve a
+future source package, or authorize a write. Replacing the candidate is an
+explicit actor-bound action.
+
+### 9.6 Run with latest data
+
+The primary rollout action is **Run with latest data**:
+
+1. pin the selected cutover candidate;
+2. reserve a new DataVersion and clean workspace;
+3. upload the complete latest source package;
+4. enter fresh parameter values and control expectations;
+5. establish and probe the Production TargetBinding;
+6. capture current Production schema and reference evidence;
+7. apply the exact RecipeRevision;
+8. review only structural, categorical, parameter, target, or credential drift;
+9. submit the fresh compiled mapping;
+10. prepare, run quality, and compare with Production Odoo;
+11. establish explicit current Production write authority;
+12. confirm and execute the exact current load snapshot; and
+13. reconcile every write outcome.
+
+Day-of semantic editing is exceptional. A one-off physical column binding may
+remain application evidence. A reusable semantic correction creates a new
+RecipeRevision, which is not automatically test-qualified or selected for
+cutover.
+
+## 10. Persistence and recovery design
+
+### 10.1 Registry metadata
+
+Add a transactionally versioned registry migration and bounded tables.
+
+`recipe`
+
+- `recipe_id` UUID primary key;
+- display name, business purpose, lifecycle state, classification, and
   retention policy;
-- setup-hydration state and hash for legacy series;
-- optimistic revision;
+- current RecipeRevision pointer;
+- optional cutover-candidate pointer;
+- current DataVersion pointer and optional pending DataVersion pointer;
+- setup-hydration state/hash for legacy projects;
+- optimistic revision; and
 - created/updated timestamps.
-
-`project_edition`
-
-- `project_id` primary key;
-- `series_id`;
-- positive edition number unique within the series;
-- optional parent `project_id`;
-- lifecycle state: `PENDING`, `ACTIVE`, `SEALED`, or `ABANDONED`;
-- recipe ID/version applied, nullable until application;
-- created timestamp and actor identity; and
-- lifecycle label supplied by the operator;
-- new export/as-of date and intake status; and
-- bounded history projections: workflow status, source row summary, seal hash,
-  sealed timestamp/actor, and registry synchronization revision.
 
 `recipe_revision`
 
-- composite primary key `(recipe_id, version)`;
-- `series_id` and optional parent version;
-- unique semantic hash within the series;
-- full payload-integrity hash, byte length, and protected storage key;
+- `(recipe_id, version)` primary key;
+- optional parent version;
+- semantic hash and payload hash;
+- protected storage key and byte length;
 - constituent contract versions;
-- origin identifiers and hashes;
-- actor identity and timestamp.
-
-The confidential recipe document itself is stored in a protected,
-series-scoped `RecipeStore` or dedicated database, not as casually queryable JSON
-in the global registry. The store validates the full payload hash before parse
-and the semantic hash after canonicalization.
-
-`recipe_current`
-
-- `series_id` primary key;
-- current recipe ID/version; and
-- current semantic and payload hashes.
-
-`recipe_publication_intent`
-
-- operation ID, series ID, source project ID, and mapping submission hash;
-- expected series revision and intended parent/current recipe;
-- state, retry count, correlation ID, bounded error category, and timestamps.
-
-Mapping submission and recipe storage span project and registry stores. A
-successful mapping remains submitted if recipe publication is interrupted; the
-intent/outbox is retried idempotently, and **Use new files** remains unavailable
-until the recipe revision and current pointer are complete.
-
-`project_edition_creation_intent`
-
-- operation ID and series ID;
-- reserved project ID and edition number;
-- parent project ID;
-- state and timestamps.
-
-The creation intent closes the cross-database/filesystem seam. Startup recovery
-must finalize an existing contained workspace or remove only an empty,
-unpublished workspace created by that exact intent. It must never guess at or
-delete an unrelated project directory.
-
-`credential_copy_intent`
-
-- operation ID, series ID, source and destination project IDs;
-- exact connection-target hash and `READ` role;
-- source secret generation, destination generation, state, and timestamps.
-
-This intent makes an explicit credential-copy operation idempotent without
-placing secret material in either database.
-
-`series_deletion_intent`
-
-- operation ID, series ID, tombstone revision, actor, and timestamps;
-- the exact edition, recipe, credential, key, job, artifact, and directory
-  targets enumerated before deletion; and
-- per-target progress plus a bounded error category.
-
-Deletion first tombstones the series so no new edition or recipe can be created.
-It then retries only the enumerated targets through their governed deletion
-services. Recovery must never infer targets by scanning unrelated directories.
-
-`registry_schema_migration`
-
-- monotonically increasing migration version;
-- migration name, checksum, start/completion timestamps, and outcome.
-
-Each schema change runs transactionally where supported and has an idempotent
-recovery path where filesystem work prevents one transaction.
-
-### 6.2 Existing-project migration
-
-On startup, apply the migration ledger and backfill each unlinked
-`project_registry` row in one idempotent transaction as:
-
-- a newly generated `series_id` distinct from the project ID;
-- edition number `1`;
-- no parent edition;
-- state `ACTIVE`, with current registered project pointing to the existing
-  project;
-- setup hydration `PENDING`, because the current lightweight registry contains
-  only project ID, name, status, revision, and update time; and
-- no current recipe until one is safely bootstrapped.
-
-Backfill must be idempotent and must not open every project database during the
-normal project-list query. Recipe bootstrap is lazy: an eligible existing
-project first authorizes and opens only its current workspace, copies the
-series-owned allowlist into the registry, validates it, records the setup hash,
-and marks hydration `READY`. It can then create Recipe v1 from its current
-submitted mapping when the user chooses **Use new files** or explicitly confirms
-**Create reusable recipe**. The action is unavailable while hydration is
-incomplete. If its mapping contract predates the strict recipe-eligible
-contract, the focused upgrade/review described in Phase 1 is required before
-bootstrap.
-
-If the project has no current submitted mapping, the browser directs the user
-to finish and confirm the mapping. It must not silently use a working draft.
-
-### 6.3 Repository concurrency
-
-- Use optimistic series revision checks for edition reservation, pending and
-  current-registered pointers, publication, activation, and deletion.
-- Serialize recipe version allocation inside one registry transaction.
-- Reuse an identical current recipe by semantic hash after verifying its full
-  payload hash.
-- Reject a supplied parent recipe that is no longer current and ask the user
-  to reload.
-- Keep project registry synchronization and edition linkage restart-safe through
-  explicit intents/outboxes; do not claim cross-store atomicity.
-- A pending edition does not replace the current registered edition. Activation
-  occurs only after its workspace is registered and the prior active edition is
-  sealed. Resume or discard addresses the exact pending ID.
-- List project series, their current editions, pending state, and history
-  summaries from registry read models in bounded set-based queries; do not open
-  one DuckDB database per card or history row. Every child state change that
-  affects a projection has a versioned synchronization event and recovery path.
-
-### 6.4 Authorization scope
-
-Existing project-scoped authorization is insufficient for operations that
-cross editions. Add explicit series-scoped capabilities for series view, edition
-create/resume/discard, recipe publish/apply, credential copy, and series delete.
-An operation must also authorize every source or destination project it opens;
-membership in a series is not an authority shortcut. Routes reject a series UUID
-where a project UUID is expected and vice versa.
-
-## 7. New data-version lifecycle
-
-### 7.1 Preconditions
-
-Show **Use new files** only when:
-
-- the series has one current registered edition and no unresolved pending
-  edition; an existing pending edition instead offers **Resume** or **Discard**;
-- the source mode is `FILE`;
-- a current submitted, Recipe-v1-eligible mapping exists and any legacy
-  categorical-policy upgrade has been reviewed;
-- that mapping still matches the current source selection and schema;
-- no preparation or execution job is active for the current edition; and
-- the actor has series view and edition-create capabilities plus source-project
-  view and the new project's required setup, registration, source, schema,
-  mapping, and governance capabilities.
-
-Recipe publication requires both existing mapping-submission authority on the
-origin project and recipe-publish authority on the series. Recipe application
-requires recipe-apply authority on the series and mapping-edit authority on the
-new edition. Credential copy is a separate capability. The first release
-exposes no cross-series recipe catalogue.
-
-The first release uses the current submitted mapping as the publication source;
-a completed execution rehearsal is not a hidden prerequisite. If product policy
-later requires a successful rehearsal, add the exact eligible terminal status
-to this contract and its acceptance fixtures before implementation.
-
-### 7.2 Start the edition
-
-The confirmation page states:
-
-- previous files and outcomes remain unchanged;
-- the new upload is treated as a complete replacement snapshot;
-- mapping and transformation rules will be reused where compatible;
-- missing old records are not deletion instructions; and
-- all preparation, Odoo comparison, and load evidence will be recreated.
-
-It also collects or confirms the new export/as-of date. That date and the
-edition label are edition parameters, not reusable recipe constants.
-
-After confirmation, `ProjectEditionService`:
-
-1. reserves the next edition through a creation intent;
-2. creates a clean project workspace through the normal repository boundary;
-3. applies the series-owned business purpose, source mode/system, non-secret
-   target settings, intended applications/models, classification, and retention
-   policy as locked setup values;
-4. resets export date/status to the newly confirmed edition values;
-5. links the workspace as `PENDING` to the series and parent edition without
-   changing the current registered pointer; and
-6. records actor-bound `DATA_VERSION_CREATED` events in the registry and new
-   project audit.
-
-The operator can resume the exact pending workspace or discard it while it is
-still empty/unregistered. After required setup and files exist, normal project
-registration completes through the creation intent: seal the prior active
-edition, register and activate the new one, then advance the current registered
-pointer. A failure leaves the prior edition active and the new edition pending
-and recoverable; it cannot strand a half-created edition as current.
-
-It must not copy source files, catalogues, selections, snapshots, derived
-results, mapping tables, schema snapshots, target record snapshots,
-preparation, quality, normalization, comparisons, approvals, protected
-evidence, execution snapshots, or journals.
-
-### 7.3 Credentials
-
-Credentials are not recipe content. Copying non-secret connection settings
-does not authorize reuse of a credential.
-
-When the prior and new connection-target hashes are identical, the browser may
-offer **Reuse saved read connection** as a separate explicit confirmation after
-checking `CREDENTIAL_COPY` authority. A narrow, intent-backed secret-store
-operation may copy only a persistent `READ` credential into a new
-project-specific secret generation for the exact target. It never returns the
-secret to the browser and records a non-secret central/series event plus a new
-edition audit event. It must not mutate the sealed prior edition merely to add
-an audit row. Session-only credentials that are no longer present cannot be
-reused.
-
-Immediately re-probe the copied credential and bind the new probe evidence,
-principal, permission set, context, connection identity, and secret generation
-to the new edition. A failed probe leaves the new edition without a usable read
-credential. Never copy a `WRITE` credential during edition creation; the
-operator supplies or explicitly establishes write authority later at the normal
-load boundary.
-
-If the target settings differ, credential reuse is unavailable. Target changes
-continue to invalidate bindings through the existing project service.
-
-### 7.4 Upload and freeze
-
-The operator uploads the complete replacement source set through the existing
-intake boundary while the edition is pending, then registers it through the
-normal boundary before source inspection/freeze. Impodo inspects each new file
-and presents the expected logical datasets from the recipe as suggestions.
-
-Exact header signatures may select a likely file table, but the operator still
-confirms table choices and dataset names. The new source selection and
-snapshots receive new physical IDs and hashes through the normal freeze path.
-No old artifact is linked as current evidence.
-
-### 7.5 Refresh Odoo metadata
-
-Capture current selected Odoo 19 details before recipe application. Dynamic
-selection choices, readonly/required state, relation metadata, and business-key
-fields must be current.
-
-For example, a new source language may be mapped only to a language code
-available in the captured target choices. If the code is unavailable, the
-operator can refresh selected Odoo details. If it remains unavailable, an Odoo
-administrator must activate or configure it outside Impodo before mapping can
-continue.
-
-### 7.6 Apply the recipe
-
-`RecipeApplicationService` performs these bounded steps:
-
-1. load and verify the exact recipe revision pinned when the pending edition was
-   reserved; if it is no longer current, require an explicit restart/rebase;
-2. bind logical datasets and columns to the new effective source selection;
-3. create/update a project-local `RecipeApplicationDraft` containing binding
-   overrides, dependency hashes, issues, and completion state only;
-4. materialize supported source-preparation rules and rebuild derived rules
-   against new dataset/column IDs;
-5. materialize fresh edition-local reference bundles, reusable quality rules,
-   approved coverage policy, governance, and control definitions;
-6. resolve target models, fields, keys, scope, types, and relation metadata
-   against the current schema;
-7. collect/confirm every required `EditionControlExpectation` and edition
-   parameter;
-8. construct a fresh `MappingDefinition` with a new mapping ID and the new
-   source-selection/schema hashes;
-9. validate its semantics through the existing mapping validator;
-10. scan each affected dataset once for all required categorical source fields
-    through a bounded, set-based local snapshot service;
-11. bind immutable categorical coverage evidence, including current target
-    reference evidence where the policy requires it;
-12. persist the mapping working draft only when structural binding is complete;
-    and
-13. record `RECIPE_APPLIED` with recipe, application-draft, and resulting
-    mapping-draft hashes.
-
-User-confirmed renamed-column or other rebindings live in
-`RecipeApplicationDraft`, so a reload or target refresh does not lose them. They
-do not mutate the recipe or become reusable semantics until a corrected mapping
-is submitted and a later recipe revision is published. Likewise, observed
-normalization corrections remain edition evidence unless explicitly promoted to
-a supported reusable preparation or mapping rule.
-
-The service must not contact Odoo inside a source-row loop. Relationship target
-candidates are loaded in bounded model/key batches and indexed once. Source
-distinct values are computed columnarly from immutable local snapshots.
-
-## 8. Compatibility and error handling
-
-### 8.1 Issue model
-
-Introduce `RecipeCompatibilityIssue` for failures that occur before a valid
-mapping draft can exist. Each issue has:
-
-- stable code and deterministic fingerprint;
-- severity: information, needs review, or blocker;
-- logical dataset and source field labels;
-- target model/field labels where applicable;
-- bounded source value and affected-row count where safe;
-- concise business-language explanation; and
-- one explicit recovery action/URL.
-
-Once a mapping draft exists, use canonical `MappingValidationIssue` evidence
-for current-schema and value-coverage failures so the existing submission and
-validation-hash boundary remains authoritative.
-
-Do not put raw exception text, SQL, file paths, Odoo numeric IDs, or credentials
-in browser messages. Log technical causes locally with correlation identifiers
-where the current error boundary already supports them.
-
-### 8.2 Compatibility issue matrix
-
-| Condition | Proposed code | Severity | Recovery |
-| --- | --- | --- | --- |
-| Expected dataset absent | `RECIPE_DATASET_MISSING` | Blocker | Return to source selection and bind the correct table |
-| Several unconfirmed file tables are plausible for a logical dataset | `RECIPE_DATASET_BINDING_REQUIRED` | Needs review | Confirm one table during source selection |
-| New dataset not used by the recipe | `RECIPE_DATASET_NEW` | Information | Ignore it or extend the mapping deliberately |
-| Used source column absent or renamed | `RECIPE_SOURCE_COLUMN_MISSING` | Blocker | Bind the new column or correct the source |
-| Duplicate source headers prevent confirmation | Existing source-confirmation issue | Blocker | Correct the file headers; recipe ordinal hints do not disambiguate duplicates |
-| Candidate source type changed | `RECIPE_SOURCE_TYPE_REVIEW` | Needs review by default | Confirm parsing/transformation; block only when semantic validation proves incompatibility |
-| New unused source column appears | `RECIPE_SOURCE_COLUMN_NEW` | Information | Ignore or map it deliberately |
-| Derived rule cannot bind an input | `RECIPE_DERIVED_RULE_UNBOUND` | Blocker | Repair the source binding before deriving rows |
-| Ordinal formula cannot be rewritten to logical columns | `RECIPE_FORMULA_NOT_PORTABLE` | Blocker | Rewrite it through the supported logical formula contract |
-| Required reference bundle is absent or changed incompatibly | `RECIPE_REFERENCE_STALE` | Blocker | Republish or bind the governed reference dependency |
-| Required edition control expectation is missing | `RECIPE_CONTROL_EXPECTATION_REQUIRED` | Blocker | Enter or confirm the new edition's expected value |
-| Target model/field disappeared | `RECIPE_TARGET_FIELD_MISSING` | Blocker | Refresh Odoo details or remap the field |
-| Target kind, relation, readonly, or required semantics changed | `RECIPE_TARGET_FIELD_CHANGED` | Blocker | Review the affected Odoo field and mapping |
-| Governed business-key field is unavailable | `RECIPE_BUSINESS_KEY_STALE` | Blocker | Refresh schema and confirm a valid key/scope |
-| A source choice has no required explicit match | `MAPPING_SOURCE_VALUE_UNMATCHED` | Blocker | Open **Match values** for that field |
-| A stored selection target code is no longer available | Existing `MAPPING_SELECTION_VALUE_INVALID` | Blocker | Refresh choices and select a current Odoo value |
-| Relationship key has no target match | Existing missing-relationship evidence | Blocker when policy is `error` | Match another key, provide a related dataset, or create the governed master record |
-| Relationship key has several target matches | Existing ambiguous-relationship evidence | Blocker when policy is `error` | Correct duplicates or add governed scope |
-
-### 8.3 New language example
-
-Recipe v1 contains:
-
-- `English -> en_US`;
-- `French -> fr_FR`; and
-- explicit coverage for `res.partner.lang`.
-
-Data version 2 contains `German`. Application reuses the field provider and
-old matches but emits one `MAPPING_SOURCE_VALUE_UNMATCHED` issue with the
-affected count. The mapping page opens directly on Language. The user selects
-`German -> de_DE` from current captured choices.
-
-If `de_DE` is absent, the mapping stays blocked and offers **Refresh Odoo
-choices**. No free-text target code is accepted. After confirmation, the new
-mapping submission publishes Recipe v2; Recipe v1 and Data version 1 remain
-unchanged.
-
-### 8.4 New country many2one example
-
-Recipe v1 contains `FRA -> FR` and `BEL -> BE` for the governed unique
-`res.country.code` key. Data version 2 contains `LUX`.
-
-- `LUX` is reported as an unmatched source choice.
-- Impodo may recommend `LU` only when the target key resolves uniquely.
-- The operator confirms `LUX -> LU`; no numeric country ID enters the recipe.
-- No target record produces a blocking missing relationship and explains that
-  mapping cannot create master data by itself.
-- Several target records produce a blocking ambiguity; Impodo does not choose
-  one by row order or ID.
-
-### 8.5 Failures during edition creation or application
-
-- A stale series revision returns a conflict and leaves no second current
-  edition.
-- A failed workspace creation keeps the previous edition current and records
-  or cleans the exact creation intent; an initialized pending edition is resumed
-  or explicitly discarded, not guessed away.
-- An interrupted activation leaves the prior edition current until recovery can
-  verify the new edition is registered and the prior edition is sealed.
-- An interrupted recipe publication leaves the mapping submitted and the
-  idempotent publication intent pending; it never points at a missing payload.
-- A recipe parse/hash failure blocks use and preserves the stored bytes for
-  diagnosis.
-- A source/schema change during application aborts before saving the mapping
-  draft while retaining safe binding overrides in `RecipeApplicationDraft`.
-- A failed categorical scan returns a retryable local-read error without
-  changing recipe or mapping pointers.
-- Odoo connection failures retain the new source evidence but block schema
-  refresh and recipe application.
-- A credential-copy or re-probe failure leaves the new edition without an
-  accepted read credential and does not expose or reuse write authority.
-- Interrupted series deletion retains its tombstone and exact deletion intent;
-  retry continues only the enumerated remaining targets.
-- Unknown Odoo write outcomes remain governed by the existing execution
-  journal; recipe reuse never authorizes a blind retry.
-
-## 9. Browser experience
-
-### 9.1 Project list and overview
-
-The project list shows one card per series, not one card per internal edition.
-The card includes the current data-version label and recipe version without
-opening child databases. If a pending edition exists, it is shown separately as
-**Setup in progress** with **Resume** and, while policy allows, **Discard**; it
-does not replace the current data label.
-
-The overview adds a compact section:
-
-> **Reusable recipe**
->
-> Recipe v2 - ready
->
-> Current data: 31 August export
-
-- Primary action: **Use new files**
-- Secondary action: **View previous data versions**
-
-Use business labels in the browser. Keep internal terms such as
-`series_id`, `project_id`, content hashes, and contract versions in audit or
-technical evidence.
-
-### 9.2 New-data confirmation
-
-Use one confirmation page rather than extending the initial project-creation
-wizard. Prefill an editable data-version label and export/as-of date, and show
-exactly what is kept and recreated. The page separately confirms optional saved
-read-credential reuse and states that write access will not be reused.
-
-The confirmation is explicit because it creates a new retained workspace. It
-does not imply an Odoo write.
-
-### 9.3 Exception-focused mapping
-
-After application, show one summary card above the existing mapping page:
-
-- rules reused;
+- bounded origin/provenance metadata; and
+- actor and timestamp.
+
+`data_version`
+
+- `data_version_id` UUID primary key;
+- `recipe_id`;
+- positive version number unique within the Recipe;
+- independent `workspace_project_id`;
+- optional parent DataVersion;
+- purpose: `AUTHORING`, `TEST`, or `PRODUCTION`;
+- lifecycle state: `PENDING`, `ACTIVE`, `SEALED`, or `ABANDONED`;
+- pinned Recipe revision, nullable during initial authoring;
+- label, export/as-of date, parameter hash, and intake status;
+- bounded workflow/row/status projections; and
+- created/sealed actor and timestamps.
+
+`recipe_application`
+
+- application ID, Recipe revision, and DataVersion;
+- workspace project ID;
+- source-selection and parameter hashes;
+- TargetBinding dependency hashes and credential generation;
+- binding and issue hashes;
+- resulting mapping ID/content hash when applied;
+- terminal status; and
+- actor and timestamps.
+
+The detailed immutable application evidence remains project-local or in a
+protected Recipe-scoped store according to classification. The global registry
+contains only bounded projections and protected storage keys.
+
+`recipe_qualification`
+
+- qualification ID, Recipe revision, and application ID;
+- Test TargetBinding hashes;
+- preparation, quality, control, comparison, execution, read-back,
+  reconciliation, and optional idempotency hashes;
+- status and bounded findings;
+- qualifying actor and timestamp; and
+- protected evidence storage key/hash.
+
+`cutover_candidate`
+
+- Recipe ID;
+- pinned Recipe revision and qualification ID;
+- optimistic Recipe revision used for selection; and
+- selecting actor and timestamp.
+
+### 10.2 Protected RecipeStore
+
+Recipe payloads and confidential qualification/application evidence use a
+protected Recipe-scoped store with payload hashing, semantic hashing,
+classification, retention, backup, authorization, and deletion policy. Full
+Recipe JSON is not casually queryable global-registry content.
+
+### 10.3 Project-local additions
+
+Add only the minimum project-database state required for:
+
+- the DataVersion/workspace linkage marker;
+- historical workspace seal enforcement;
+- RecipeApplicationDraft recovery; and
+- exact Recipe/Application provenance required by contained evidence.
+
+Do not add a DataVersion discriminator to all existing project tables.
+
+### 10.4 Intents and outboxes
+
+Cross-store operations use explicit idempotent intents:
+
+- Recipe creation and initial workspace reservation;
+- Recipe publication;
+- DataVersion/workspace creation and activation;
+- qualification publication;
+- cutover-candidate selection where protected evidence and registry pointers
+  cross stores; and
+- whole-Recipe deletion.
+
+Credential entry and rotation use the existing secret-store boundary and
+project credential events. There is no Test-to-Production credential-copy
+intent. Optional reuse of a saved credential on the exact same target remains
+an explicit separately authorized action and always requires a new probe.
+
+Deletion first tombstones the Recipe and persists the exact enumerated Recipe,
+revision, qualification, DataVersion, project, credential, key, artifact, job,
+and directory targets. Recovery deletes only those persisted targets.
+
+### 10.5 Existing-project migration
+
+Backfill each existing `project_registry` row as:
+
+- a newly generated `recipe_id` distinct from the project ID;
+- one newly generated `data_version_id`;
+- DataVersion number `1` with the existing project as
+  `workspace_project_id`;
+- lifecycle state `ACTIVE`;
+- setup hydration `PENDING`; and
+- no current RecipeRevision until an authorized, eligible current mapping is
+  explicitly published.
+
+Backfill is idempotent and does not open every project database during list
+queries. Lazy hydration opens only the authorized current workspace and copies
+the exact allowlisted Recipe-owned metadata.
+
+## 11. Authorization and isolation
+
+Add explicit Recipe-scoped capabilities for:
+
+- Recipe view/edit/delete;
+- Recipe revision publish;
+- DataVersion create/resume/discard/view;
+- Recipe apply;
+- test qualification;
+- cutover-candidate select;
+- Production application; and
+- protected Recipe evidence access.
+
+Every operation also authorizes the exact workspace project and credential
+role it accesses. Recipe membership is not an authority shortcut.
+
+Test execution authority never implies Production execution authority.
+Qualification authority never implies credential access. Production
+application authority never implies write authority.
+
+Errors, cards, audit projections, and URLs must not leak Recipe content,
+credentials, connection secrets, paths, Odoo numeric IDs, or data from another
+Recipe.
+
+## 12. Browser experience
+
+UI continuity is a constraint, not a prohibition on change. Refactor the
+surfaces whose user task changes under Recipe ownership—landing, creation,
+overview, target binding, qualification, rollout, and history. Preserve mature
+workspace interactions where the task is unchanged. In particular, keep the
+current matching phase largely intact and add RecipeRevision/DataVersion
+context through navigation and surrounding status rather than building a
+second matching interface.
+
+### 12.1 Recipe list
+
+The landing page becomes **Recipes**. Each card shows:
+
+- Recipe name and purpose;
+- current revision;
+- qualification status;
+- cutover-candidate revision;
+- last Test run;
+- latest DataVersion; and
+- one context-appropriate primary action.
+
+Examples:
+
+> Customer migration<br>
+> Recipe v3 - Test qualified<br>
+> Rollout candidate: v3<br>
+> **Run with latest data**
+
+> Product and BOM<br>
+> Recipe v5 - Test failed<br>
+> 2 issues to fix<br>
+> **Review test results**
+
+### 12.2 Authoring and testing
+
+The Recipe overview shows reusable meaning separately from the current
+DataVersion evidence. Primary actions progress through:
+
+- **Continue authoring**;
+- **Publish Recipe revision**;
+- **Test on Odoo**;
+- **Review test results**;
+- **Qualify Recipe revision**; and
+- **Select for rollout**.
+
+### 12.3 Application review
+
+After application, show:
+
+- reused semantic rules;
+- confirmed physical rebindings;
 - fields needing review;
 - new source choices;
-- stale target choices; and
-- structural blockers.
+- stale target choices or references;
+- parameter/control requirements;
+- target contract mismatches; and
+- credential/probe freshness.
 
-The primary action is **Review N items** and links to the first affected
-mapping card or source correction. Reuse the existing **Match values** dialog
-for scalar selections and eligible many2one relationships. Existing valid
-cards remain collapsed/green.
+Compatible rules remain collapsed. Every blocker remains visible outside
+search and pagination and links to one recovery action.
 
-All blockers must remain visible outside search and pagination. Filtering may
-not hide a condition that prevents confirmation.
+### 12.4 Server and credential UX
 
-### 9.4 History
+Test and Production server forms clearly state which environment is being
+used. The browser may retain non-secret endpoint/database settings, but secret
+entry uses the governed credential boundary.
 
-The history view lists, newest first:
+The UI must never suggest that a Test API key will be reused in Production.
+When a saved same-target credential is offered, it states that Impodo will
+probe it again and that changed principal or permissions invalidate dependent
+evidence.
 
-- data-version number and label;
-- export/as-of date and received/created timestamp;
-- lifecycle state;
-- recipe version applied;
-- workflow status;
-- source row summary when available; and
-- a read-only link to the edition's evidence.
+### 12.5 History
 
-Historic editions never become current merely because they are opened. Every
-mutating application service rejects a sealed edition even if a route, API
-client, background job, or stale browser request bypasses the read-only UI. A
-project-local seal marker provides the contained database with the same policy;
-browser disabling alone is not an enforcement boundary.
+Recipe history presents two independent axes:
 
-### 9.5 Deletion and retention
+- Recipe revisions and their Test qualification evidence; and
+- DataVersions/applications and their exact target environment outcomes.
 
-For the first release, the normal project delete action operates on the whole
-series and explicitly names the number of data versions and recipe revisions
-that will be permanently deleted. It must enumerate and remove each edition's
-credentials, keys, jobs, artifacts, project directory, registry row, series
-metadata, and protected recipe history through existing governed deletion
-services. The confirmation creates the tombstoned `series_deletion_intent`
-before removing anything. Partial failure is visible and safely retryable; it
-does not resurrect the series or silently report success.
+Opening a sealed historical workspace is read-only and never makes it current.
 
-Independent historical-edition purge is deferred until recipe provenance,
-retention, current-pointer recovery, and credential cleanup have a complete
-contract. Do not expose a partial delete button first.
+## 13. Failure and recovery invariants
 
-## 10. Security, governance, and Odoo 19 rules
+- A stale Recipe optimistic revision cannot publish, reserve a DataVersion, or
+  replace the cutover candidate.
+- A pending DataVersion never displaces the current active one before its
+  workspace is fully linked.
+- Interrupted Recipe publication creates or reuses exactly one semantic
+  revision.
+- Corrupt Recipe bytes fail payload verification before parse.
+- Source or target dependency changes during application abort before a mapping
+  draft is saved while retaining safe physical binding overrides.
+- A credential probe failure leaves no accepted TargetBinding.
+- Credential rotation invalidates target-dependent readiness, not Recipe or
+  source evidence.
+- A Production target mismatch blocks only the Production application.
+- Test qualification remains immutable and cannot authorize Production.
+- A changed RecipeRevision has no inherited qualification or cutover status.
+- Old expected control values never satisfy a new DataVersion.
+- Old comparisons, approvals, execution snapshots, or journals never satisfy
+  a new application.
+- Missing source records never imply target deletion.
+- Unknown writes are reconciled before retry.
+- Deletion recovery touches only exact enumerated targets.
 
-- Recipes contain no credentials, session tokens, local file paths, source rows,
-  or numeric Odoo record IDs. Provenance may retain exact immutable artifact
-  hashes outside recipe semantics.
-- Formula and pattern rules retain the existing allowlists and bounds. Recipe
-  application never evaluates arbitrary code.
-- Recipe reads and writes are series-scoped and actor-authorized, and project
-  access is checked independently for each edition opened.
-- Recipe payloads inherit project classification and local filesystem
-  protections through the series-owned classification/retention policy and live
-  in the protected RecipeStore. Browser responses include only the selected
-  series and never expose the full payload unless a specific authorized workflow
-  requires it.
-- Every publication and application records stable actor identity.
-- Historical sealing is enforced at application/repository boundaries, not only
-  in browser presentation. Central events describe cross-edition operations so
-  sealed project audit bytes remain unchanged.
-- Only an explicitly confirmed, persistent read credential may be copied into a
-  new generation and re-probed. Write credentials are never copied by edition
-  creation.
-- A recipe revision is mapping configuration, not approval or execution
-  authorization.
-- Odoo 19 models and fields are addressed by technical names captured through
-  the current metadata boundary.
-- Dynamic selections are refreshed from the selected Odoo target before load.
-- Relationship resolution uses governed business keys and scope, never
-  numeric IDs or display names alone.
-- Target reads are planned and batched by model/key. No metadata lookup,
-  connector call, or database query is permitted inside a source-row loop.
-- Odoo writes remain in the existing closed writer and journal boundary. This
-  feature adds no generic RPC surface and performs no write during recipe
-  creation or application.
+## 14. Performance and boundedness
 
-## 11. Performance contract
+Recipe implementation must respect current proven preparation limits:
 
-Recipe reuse must remove repeated authoring, not introduce row-wise work.
-
-- Project-series listing uses one registry query.
-- Project-series history uses bounded registry queries and no per-edition
-  database opens.
-- Recipe extraction walks mappings, rule graphs, reusable preparation, quality,
-  coverage, references, governance, and controls once.
-- Dataset/column compatibility uses indexed dictionaries keyed by logical name
-  and exact source name.
-- Distinct categorical values are computed by one set-based DuckDB/Polars scan
-  per affected dataset for all required frozen columns.
-- Target selection choices come from the captured schema snapshot.
-- Many2one candidate keys are retrieved in bounded batches and indexed once
-  per model/key/scope combination.
-- Duplicate and missing relationship checks reuse run-scoped indexes during
-  preparation.
-- The existing value-mapping contract maximum remains enforced; raising it is
-  separate performance work.
-- Recipe bytes, logical nodes, datasets, fields, rules, reference literals,
-  issues, distinct values, target candidate keys, and aggregate evidence are
-  independently bounded before persistence or browser rendering.
-- Repeated compatibility views may cache only hash-bound results keyed by
-  recipe semantic and payload hashes, effective source-selection hash,
-  application-draft binding hash, required target-schema dependency hash,
-  categorical-evidence contract/hash, and any required target-reference
-  snapshot/principal/permission/context/connection hashes. A whole-schema hash
-  alone is too broad for reuse and insufficient for mutable target values; any
-  required dependency change invalidates the cache.
-
-Measure recipe extraction/application separately from full preparation. A
-compatible recipe application should scale with datasets, columns, rules, and
-distinct governed choices rather than total source rows, apart from the
-columnar distinct-value scan.
-
-Report reuse counts using stable definitions: a rule is reused only when its
-semantic recipe node materializes unchanged; a rebound or operator-edited node
-is reported separately. Do not count containers, validation passes, or inherited
-labels as reused rules.
-
-## 12. Implementation sequence
-
-### Phase 0 - Freeze contracts and acceptance fixtures
-
-- Record a decision that `ProjectSeries` is a new aggregate above the existing
-  `MigrationProject`; it does not rename or redefine the current project domain.
-- Correct the [architecture overview](../architecture/overview.md), which
-  describes preparation as file-only: the current `PreparationService` also
-  handles Odoo-origin sources.
-- Reconcile this feature with [Impodo remaining work](remaining-work.md). If
-  product ownership adopts it ahead of the currently stated unconditional
-  related/mixed-source 100,000-row objective, update that authoritative roadmap
-  in the same decision;
-  this plan alone does not silently change priority.
-- Add customer fixtures for Data versions 1 and 2 with added, changed,
-  unchanged, and absent business keys.
-- Add new `German` language and `LUX` country values.
-- Add stale target-choice, missing country, ambiguous custom many2one,
-  reordered ordinal-formula column, renamed-column, duplicate-header,
-  candidate-type-drift, reference-bundle, quality-rule, and new-unused-column
-  cases.
-- Decide the exact composite recipe, categorical policy/evidence, control
-  definition/expectation, application draft, lifecycle, intent/outbox, semantic
-  hash, payload hash, and size/aggregate-bound contracts.
-- Produce an explicit Recipe v1 eligibility matrix covering mapping constructs,
-  formulas, references, preparation rules, quality rules, coverage policy,
-  source mode, and target governance.
-- Record baseline project-list, mapping submission, value-choice, preparation,
-  and comparison behavior.
-
-Phase 0 evidence:
-
-- [ADR-012](../decisions/README.md#adr-012--project-series-group-contained-migration-projects)
-  fixes the aggregate boundary;
-- [the frozen proposed contracts](reusable-recipes-phase-0-contracts.md) define
-  shapes, versions, eligibility, recovery, and bounds;
-- [the deterministic acceptance fixture](../../fixtures/recipes/phase-0/acceptance-contract.json)
-  and `tests/test_recipe_phase_zero_contract.py` cover the two-edition examples;
+- 100,000 physical rows only for the already verified exact-snapshot,
+  single-dataset native-columnar direct route;
+- 50,000 physical rows for current direct Python-fallback/relationship routes;
   and
-- [the current behavior baseline](../reports/reusable-recipes-phase-0-baseline-2026-08-18.md)
-  records repository ownership and focused verification.
+- 25,000 physical rows for current derived or materialized routes.
 
-**Gate:** domain examples serialize deterministically and every expected
-recovery action is agreed before persistence or browser work; the roadmap either
-adopts the priority explicitly or implementation does not begin.
+This plan does not raise those limits and does not require the deferred
+related/mixed 100,000-row qualification.
 
-**Gate status:** Passed. Contract, fixture, architecture-documentation, and
-baseline checks pass, and the roadmap explicitly adopted Phase 1 on
-2026-08-18.
+Recipe operations must nevertheless be bounded:
 
-### Phase 1 - Make mapping contract v11 recipe-safe
+- Recipe list/history uses bounded registry queries and opens no project
+  database per card;
+- source categorical discovery scans each physical dataset once for all
+  relevant fields;
+- target keys resolve in bounded model/key batches with no Odoo call per row;
+- compatibility scales with datasets, columns, rules, parameters, and distinct
+  governed choices rather than total rows, apart from set-based scans;
+- Recipe/application/qualification payload and issue bounds are checked before
+  persistence or rendering; and
+- customer, Product/BOM, and stock-level fixtures run at representative
+  business volumes within their currently supported route limits.
+
+Performance work outside a concrete Recipe acceptance blocker remains deferred.
+
+## 15. Implementation sequence
+
+### Foundation F1 - Mapping contract v11
 
 **Status:** Completed on 2026-08-18.
 
-- Add mapping contract v11 with the strict categorical coverage enum and a
-  separate reusable control-definition/edition-expectation shape.
-- Implement immutable, bounded `CategoricalCoverageEvidence` over exact
-  transformed semantics, scanning each dataset once for all relevant fields.
-- Add current target-reference evidence when missing/ambiguous relationship
-  targets are a mapping-submission blocker.
-- Perform a focused v8-v10 upgrade review. Stored payloads still parse unchanged,
-  but legacy inferred categorical behavior must be explicitly confirmed before
-  a mapping becomes recipe-eligible.
-- Extract browser-only source-choice enumeration into an application service and
-  make evidence participate in validation hashes.
+Retain:
 
-**Gate:** no eligible submitted mapping can silently accept a new categorical
-source value; legacy mappings have deterministic reviewed/unsupported outcomes.
+- strict categorical policies;
+- immutable validation-bound categorical evidence;
+- split reusable control definitions and DataVersion expectations;
+- deterministic v8-v10 upgrade review;
+- shared application-layer source-choice scanning; and
+- current relationship target existence/uniqueness deferral to fresh
+  preparation evidence.
 
-**Gate status:** Passed. Mapping contract v11, validation-bound categorical
-evidence, split control semantics, the focused legacy review boundary, and the
-shared application-layer source scan are implemented. Relationship target
-existence/uniqueness remains explicitly deferred to fresh preparation evidence,
-so mapping validation does not make a target-record coverage claim. See the
+Evidence is recorded in the
 [Phase 1 implementation report](../reports/reusable-recipes-phase-1-mapping-contract-2026-08-18.md).
 
-### Phase 2 - Add series, lifecycle, and protected persistence
+### Phase R0 - Rebase contracts around Recipe
 
-- Add the registry migration ledger, independent-series-ID backfill, lifecycle
-  projections, pending/current registered pointers, and project-local seal and
-  recipe-application-draft storage.
-- Implement `ProjectSeriesRepository`, protected `RecipeStore`, and recipe
-  metadata repository with optimistic concurrency, both hash validations, and
-  bounded payloads.
-- Add immutable recipe revision/current-pointer contracts.
-- Add publication, edition-creation, credential-copy, and series-deletion
-  intents/outboxes with fault-injection recovery tests.
-- Add series capabilities and explicit cross-scope authorization tests.
-- Change project list and history queries to return set-based series projections.
-- Preserve current single-edition routes through the current `project_id`.
+**Status:** Completed on 2026-08-19.
 
-**Gate:** all existing projects appear as one-edition series without opening
-their contained databases in the list query; interrupted creation recovery is
-deterministic; a series ID cannot be confused with its project ID.
+- Supersede the ProjectSeries architecture decision and frozen contract.
+- Freeze Recipe, RecipeRevision, DataVersion, parameter, OdooTargetContract,
+  TargetBinding, application, qualification, cutover-candidate, lifecycle,
+  intent, and bound contracts.
+- Replace `series_id` fixtures with independent Recipe, DataVersion, and
+  workspace IDs.
+- Extend the existing Customer fixture with distinct remote Test and Production
+  targets and different credential generations without storing secret values.
+- Add credential rotation between Production comparison and load.
+- Add expected transformation, test execution, reconciliation, qualification,
+  and production application outcomes.
+- Record exact bounds and recovery actions.
+- Update the authoritative roadmap and documentation links.
 
-### Phase 3 - Extract and publish composite recipes
+**Gate:** deterministic fixtures prove that Recipe semantic identity is
+independent of source files, Test/Production endpoints, databases, actors, and
+credential generations, while application and qualification hashes change
+with exact bound evidence.
 
-- Implement deterministic conversion from the current source selection,
-  reusable preparation, derived plan, submitted mapping, schema governance,
-  quality rules, approved coverage, references, and control definitions to
-  `RecipeDefinition`.
-- Replace physical dataset/column/reference IDs with deterministic logical
-  recipe bindings. Parse/rewrite supported ordinal formulas through those
-  logical IDs and reject the rest.
-- Reject numeric IDs, secrets, stale evidence, unsupported mapping contracts,
-  Odoo-origin sources, pinned Odoo update, unsupported/local-only references,
-  incomplete quality/coverage dependencies, and incomplete submissions.
-- Republish supported reference data into the protected series recipe rather
-  than retaining project-local IDs.
-- Queue idempotent recipe publication from the successful mapping-submission
-  workflow and expose pending/failed publication truthfully.
-- Add lazy **Create reusable recipe** bootstrap for eligible existing projects.
-- Record recipe provenance and audit.
+**Evidence:** the
+[Recipe-first Phase R0 contract](reusable-recipes-phase-r0-contracts.md),
+active [Customer Recipe v3
+fixture](../../fixtures/recipes/phase-r0/customer-recipe-v3.json),
+[Test-to-Production acceptance
+fixture](../../fixtures/recipes/phase-r0/acceptance-contract.json), and focused
+[contract test](../../tests/test_recipe_phase_r0_contract.py) freeze and verify
+the gate. This phase intentionally makes no browser or runtime behavior change.
 
-**Gate:** two semantically identical mappings over different file IDs produce
-the same semantic hash and valid payload hashes; changing one semantic
-transformation, value match, quality rule, reference, or control definition
-changes it, while changing only provenance does not.
+### Phase R1 - Add Recipe root, lineage, and protected persistence
 
-### Phase 4 - Create, activate, seal, and delete data versions
+**Status:** Completed on 2026-08-19.
 
-- Implement `ProjectEditionService` and the new-data confirmation route.
-- Apply series-owned setup to a fresh pending project workspace, collect a new
-  export/as-of date, and reset edition status/evidence.
-- Add resume/discard and activate only after normal registration; seal the prior
-  edition through application/repository policy before switching current.
-- Add explicit same-target persistent `READ` credential copy into a new
-  generation followed by re-probe. Never copy `WRITE` at creation.
-- Add tombstoned, intent-backed series deletion without weakening path
-  containment or cleanup behavior.
-- Expose history and current-edition navigation.
+- Add registry migration ledger and independent Recipe/DataVersion backfill.
+- Implement Recipe repository, bounded projections, lifecycle policy, protected
+  RecipeStore, and project linkage/seal markers.
+- Add publication, DataVersion creation, qualification, cutover selection, and
+  Recipe deletion intents with fault injection.
+- Add Recipe/DataVersion/application/qualification contracts and authorization.
+- Preserve current project routes temporarily through explicit Recipe and
+  DataVersion resolution.
 
-**Gate:** creating Data version 2 leaves Data version 1 semantic artifacts and
-contained audit bytes unchanged after sealing; a failed or abandoned pending
-edition cannot switch the current pointer early, and partial deletion resumes
-only its enumerated targets.
+**Gate:** every existing project appears as a one-DataVersion Recipe without
+opening its database during list queries; Recipe, DataVersion, and project IDs
+cannot be confused; interruption recovery is deterministic.
 
-### Phase 5 - Rebind the composite recipe
+**Evidence:** the
+[Phase R1 implementation report](../reports/reusable-recipes-phase-r1-persistence-2026-08-19.md)
+and focused
+[`test_recipe_persistence`](../../tests/test_recipe_persistence.py) suite cover
+registry-only backfill/listing, disjoint identity resolution, encrypted
+protected storage, project linkage and sealing, runtime publication guards,
+and fault recovery for publication, DataVersion creation, qualification,
+cutover selection, and deletion target enumeration.
 
-- Implement exact dataset/column compatibility and deterministic issue
-  fingerprints.
-- Persist operator binding overrides and recovery state in
-  `RecipeApplicationDraft`.
-- Rebuild supported source preparation, derived entity rules, reference bundles,
-  quality rules, approved coverage, and governance against new local IDs.
-- Rebuild mapping datasets, scalar fields, relationships, identities, scope,
-  dispositions, write fields, and reusable control definitions; require fresh
-  edition control expectations.
-- Validate only required current Odoo dependency semantics and capture current
-  target-reference evidence where categorical policy needs it.
-- Persist a fresh mapping working draft only after complete structural binding.
-- Add `RECIPE_APPLIED` audit with recipe, application-draft, and new mapping
-  draft hashes.
+### Phase R2 - Create, author, and publish a Customer Recipe
 
-**Gate:** compatible reordered columns rebind only when every formula uses
-logical columns; confirmed renamed bindings survive refresh, duplicate headers
-are rejected by source confirmation, and incompatible changes fail closed with
-a direct recovery action.
+**Status:** Current priority.
 
-### Phase 6 - Complete exception recovery and regenerate evidence
+- Make **Create Recipe** provision Recipe plus DataVersion 1 workspace.
+- Implement RecipeDraft as a projection over exact current authoring evidence.
+- Convert source shape, preparation, submitted mapping, governance, quality,
+  references, parameters, and controls into logical RecipeDefinition.
+- Reject every unsupported or nonportable construct with one recovery action.
+- Store and verify semantic/payload hashes and publication provenance.
+- Support explicit bootstrap of an eligible existing project.
 
-- Integrate structural and categorical compatibility issues into the existing
-  mapping validation and exception-focused UX.
-- Reuse the Match values UI for new scalar/many2one choices.
-- Link each issue to the affected mapping field and keep blockers visible
-  outside filters/pagination.
-- Publish Recipe v2 only after the corrected mapping is submitted.
-- Run transformation impact, preparation, quality, normalization, Odoo
-  comparison, preflight, and execution snapshot through their existing
-  boundaries.
-- Prove that no prior current pointer or approval satisfies the new edition.
-- Confirm new/changed/unchanged Odoo outcomes through governed business keys.
-- Confirm that a key absent from the replacement file never becomes an
-  automatic delete proposal.
-- Retain unknown-write stopping and reconciliation behavior.
+**Gate:** semantically identical Customer authoring over different physical
+file/project IDs produces the same Recipe semantic hash; every semantic change
+produces a new immutable revision.
 
-**Gate:** `German` and `LUX` block only their affected mappings, can be mapped
-without editing other fields, and appear in Recipe v2; only exact new-edition
-hashes reach comparison/load and the sealed previous edition remains
-independently reopenable.
+### Phase R3 - Bind remote Test Odoo and apply same-ish data
 
-### Phase 7 - UX, documentation, and qualification
+- Implement TargetBinding creation from current non-secret target settings,
+  credential generation, probe, principal, permission, context, schema, and
+  reference evidence.
+- Implement exact source and target compatibility, parameter values, controls,
+  binding overrides, issue fingerprints, and RecipeApplicationEvidence.
+- Materialize fresh source preparation, references, governance, quality rules,
+  categorical evidence, and MappingWorkingDraft.
+- Integrate focused issues into existing mapping UX.
+- Ensure Test credentials remain project-local secrets.
 
-- Finish grouped project cards, overview recipe status, new-data confirmation,
-  exception summary, and history presentation.
-- Add source-to-source added/changed/unchanged/absent summaries only if they can
-  be derived set-wise from governed business keys without weakening evidence
-  boundaries. This summary is informational and never a deletion policy.
-- Update user workflow, developer workflow, evidence lifecycle, architecture
-  map, glossary, authoritative roadmap when applicable, and `docs/workflow.yml`
-  coverage.
-- Capture fictional-data screenshots and run visual/accessibility acceptance.
-- Measure project-list and recipe-application query counts and timings.
-- Run the focused and complete test suites in a writable Windows temp context.
+**Gate:** Customer Recipe application reuses compatible rules, blocks only
+`German`, `LUX`, structural, target, parameter, or credential drift, and creates
+a fresh exact MappingDefinition without copying old evidence.
 
-**Gate:** a data-informed non-technical operator can complete the two-version
-customer scenario with one obvious next action at each step and no manual
-recreation of compatible rules.
+### Phase R4 - Fine-tune and qualify on Test Odoo
 
-## 13. Acceptance scenarios
+- Run preparation, quality, comparison, execution, read-back, and reconciliation
+  against the Test TargetBinding.
+- Support Recipe v1 -> v2 -> v3 refinement without mutating prior revisions.
+- Implement immutable qualification evidence and explicit qualification action.
+- Record expected outcomes and optional safe repeat-preview/idempotency result.
+- Derive qualification status and make later revisions untested.
+- Implement explicit cutover-candidate selection.
 
-### 13.1 Compatible replacement
+**Gate:** Recipe v3 can be selected only after current Test execution and
+reconciliation satisfy the qualification policy; neither v1/v2 evidence nor a
+changed v4 inherits that status.
 
-Given an eligible submitted composite Customer Recipe v1 and a complete later
-file with the same logical structure, when the operator starts Data version 2,
-then all supported preparation, mapping, governance, quality, coverage,
-reference, and control-definition rules rebind, no old evidence becomes current,
-and the operator proceeds without manual remapping apart from edition
-parameters/expectations.
+### Phase R5 - Run qualified Recipe with latest Production data
 
-### 13.2 Added and changed customers
+- Add **Run with latest data** from the selected cutover candidate.
+- Create a clean Production DataVersion/workspace and collect the latest source,
+  parameters, and controls.
+- Establish a different Production endpoint/database and fresh read credential.
+- Capture and validate the Production TargetBinding against the Recipe contract.
+- Apply the exact qualified revision and review only current drift.
+- Run fresh preparation, quality, comparison, approval, execution, and
+  reconciliation.
+- Require separately established current Production write authority.
 
-Given stable governed customer business keys, new keys become creates, changed
-approved fields become updates, and identical records become unchanged in a
-fresh Odoo comparison. A changed business key appears as an absent old key and
-new key; it is not guessed as an update.
+**Gate:** the exact test-qualified v3 runs with a later source package on a
+different compatible Production server and different API key, while no Test
+credential/evidence satisfies Production readiness.
 
-### 13.3 Missing prior customer
+### Phase R6 - Credential rotation and remote failure qualification
 
-A customer absent from the complete replacement file is reported only in an
-informational cross-version summary when available. No delete/archive action
-is inferred or authorized.
+- Rotate the same Production server's API key before comparison, between
+  comparison and load, and during recovery.
+- Prove new generation/probe/principal/permission bindings and exact
+  invalidation.
+- Inject expiry, ACL change, connection failure, schema drift, missing reference,
+  unknown write, and read-back failure.
+- Preserve journal and reconciliation safety and redact every secret/error path.
 
-### 13.4 New selection value
+**Gate:** no operation proceeds with stale credential-dependent evidence, no
+secret leaks, and unknown writes are never retried blindly.
 
-`German` under explicit language coverage produces one blocking unmatched
-value issue. Mapping it to an available current code clears the issue. An
-unavailable code remains blocked after refresh.
+### Phase R7 - Expand representative Recipe shapes
 
-### 13.5 New many2one value
+- Qualify Products.
+- Qualify Product plus BOM with related/derived dependencies inside current
+  supported limits.
+- Qualify parameterized stock levels using warehouse and as-of parameters plus
+  fresh per-DataVersion controls.
+- Capture browser, accessibility, security, and representative-volume evidence.
+- Update current user/developer documentation only for behavior that has passed.
 
-`LUX` under explicit country matching requires confirmation to the portable
-`LU` key. Missing and ambiguous target keys fail closed. No numeric Odoo ID is
-stored.
+**Gate:** the Recipe abstraction supports one scalar/reference-heavy, one
+related/derived, and one parameterized transactional snapshot without adding a
+parallel execution path or weakening evidence semantics.
 
-### 13.6 Existing target value removed
+## 16. Acceptance scenarios
 
-A recipe target selection code removed from the current Odoo metadata produces
-the existing selection-value-invalid issue and cannot be submitted.
+### 16.1 Customer refinement and qualification
 
-### 13.7 Column reorder and rename
+Recipe v1 fails Test because one country mapping is incomplete. Recipe v2 fixes
+the country but exposes an incorrect transformation. Recipe v3 passes current
+Test preparation, comparison, execution, read-back, reconciliation, and
+controls and becomes the explicitly selected cutover candidate. v1 and v2
+remain immutable and unqualified.
 
-A uniquely named reordered column rebinds only when all dependent formulas use
-logical column identities. An ordinal formula is rewritten or makes the recipe
-ineligible. A renamed used column blocks and requires an explicit new binding;
-the choice survives reload/refresh in the application draft. Duplicate headers
-fail existing source confirmation. A new unused column is informational.
+### 16.2 Different Production server and API key
 
-### 13.8 Derived and related datasets
+Qualified v3 is applied to the latest Customer export using a Production
+endpoint/database and API key never used in Test. Production required
+dependencies are compatible, fresh comparison succeeds, and only fresh
+Production approval/write authority can execute.
 
-Derived categories and relationships are recreated from the new physical
-selection. They do not reuse prior derived rows or dataset IDs. Missing or
-ambiguous references block preparation.
+### 16.3 Credential rotation
 
-### 13.9 Concurrency and interruption
+The Production API key changes after comparison. The old credential generation,
+principal, permission, target-reference, comparison, and execution readiness
+cannot authorize load. A new probe and required target refresh are mandatory;
+Recipe v3 and source evidence remain unchanged.
 
-Two stale **Use new files** submissions cannot allocate the same edition or
-both become current. Process interruption at every creation/activation step
-leaves the old edition current plus at most one exact pending edition, or one
-recoverable, fully linked new active edition. A pending edition can be resumed
-or safely discarded and never replaces the current card label prematurely.
+### 16.4 Production target incompatibility
 
-### 13.10 Authorization and isolation
+Production lacks a required custom field or exposes it readonly for an intended
+write. Application blocks with one direct recovery action. Test qualification
+remains honest historical evidence and no mapping/load snapshot is created for
+the incompatible target.
 
-An actor cannot read or apply a recipe from an unrelated series and cannot use
-series authority to bypass an edition's project authority. Series and project
-UUIDs are not interchangeable. Recipe payloads, credentials, file paths, and
-protected evidence do not leak through cards, errors, logs, or URLs.
+### 16.5 Compatible source replacement
 
-### 13.11 Performance and N+1
+Reordered uniquely named columns bind automatically. A renamed used column
+requires an explicit override. A new unused column is informational. A missing
+used column blocks. Duplicate headers fail source confirmation.
 
-Listing 100 series with multiple editions executes a bounded registry query
-set and opens no edition databases. Applying a recipe performs no Odoo call per
-source row or distinct value, scans each source dataset once for all required
-categorical fields, and performs no parent scan per child relationship. Every
-aggregate bound fails with a controlled issue rather than unbounded memory or
-browser output.
+### 16.6 Categorical drift
 
-### 13.12 Publication recovery and integrity
+The latest export introduces `German` and `LUX`. Existing rules remain reused;
+only those source choices block under explicit policies. Confirmed portable
+matches clear the issues without numeric target IDs.
 
-An interruption after mapping submission but before recipe publication leaves
-the mapping submitted and **Use new files** unavailable. Intent recovery creates
-or reuses exactly one revision and current pointer. Corrupted recipe bytes fail
-the payload hash before parse; semantic-equivalent payloads deduplicate only
-after both integrity and canonical semantic checks.
+### 16.7 Parameters and controls
 
-### 13.13 Controls, references, and quality
+The stock-level Recipe declares warehouse and as-of parameters. Each DataVersion
+supplies current values and expected quantity controls. A new warehouse value
+does not create a Recipe revision when valid under the declaration; a new
+undeclared parameter use does.
 
-Data version 2 receives the reusable control calculation/tolerance but requires
-a fresh expected total. Supported reference literals receive new edition-local
-IDs while preserving semantic identity. Reusable quality rules run on the new
-snapshots; prior quality outcomes and normalization corrections never become
-current evidence or recipe rules automatically.
+### 16.8 No inferred deletion
 
-### 13.14 Credentials
+A customer present in rehearsal but absent from the rollout export is not
+deleted, archived, or proposed for write. It may appear only in an informational
+summary.
 
-The operator can explicitly copy only a persistent same-target read credential.
-The copy creates a new secret generation and must pass a new probe before use.
-Session-only, changed-target, failed-probe, and write credentials are not reused;
-Data version 1 remains sealed and byte-unchanged by the copy audit.
+### 16.9 Qualification invalidation
 
-### 13.15 Lifecycle and deletion recovery
+Publishing v4 after v3 qualification leaves v3 history and cutover selection
+intact until explicitly replaced, while v4 is `UNTESTED`. Selecting v4 is
+rejected until v4 qualifies.
 
-After activation, every mutation path rejects Data version 1 even if invoked
-outside the browser. Opening it is read-only and cannot change current. A crash
-after any series deletion step leaves a tombstone and resumes only the exact
-remaining enumerated resources; no unrelated project path is removed.
+### 16.10 Interruption and concurrency
 
-### 13.16 Legacy mapping and unsupported sources
+Stale or concurrent publication, DataVersion creation, qualification, cutover
+selection, activation, and deletion commands cannot create two current pointers
+or lose the last valid state. Every retry is idempotent.
 
-A stored v8-v10 mapping still parses unchanged but cannot bootstrap a recipe
-until categorical and control semantics receive focused review. An Odoo-origin
-source, `ODOO_PINNED_UPDATE`, unsupported local reference, or nonportable formula
-is rejected with a precise eligibility reason rather than partially extracted.
+### 16.11 Authorization and isolation
 
-## 14. Expected code and documentation boundaries
+An actor with Test execution cannot execute Production. An actor with Recipe
+view cannot read credentials or protected evidence. A Recipe ID cannot be used
+as a DataVersion/project ID, and another Recipe's payload or target evidence
+never leaks.
+
+### 16.12 Bounded performance
+
+Listing 100 Recipes opens no workspace databases. Application performs no Odoo
+call per source row, scans each dataset once for categorical needs, and fails
+closed at every documented payload, issue, distinct-value, batch, row, and byte
+bound.
+
+## 17. Expected code and documentation boundaries
 
 Likely new modules:
 
-- `src/impodo/domain/recipes.py` or a focused `domain/recipes/` package;
-- `src/impodo/domain/project_series.py` for the aggregate above the existing
-  `MigrationProject`;
+- `src/impodo/domain/recipes/`;
+- `src/impodo/domain/data_versions.py`;
+- `src/impodo/domain/recipe_applications.py`;
+- `src/impodo/domain/recipe_qualification.py`;
 - `src/impodo/application/recipe_service.py`;
-- `src/impodo/application/project_edition_service.py`;
-- a protected `RecipeStore` port and local adapter, separate from registry
-  metadata;
-- registry intent/outbox repositories and recovery services;
-- `src/impodo/adapters/duckdb/project_series_repository.py`; and
-- `src/impodo/web/routers/recipes.py` if project routes would otherwise become
-  too broad.
+- `src/impodo/application/data_version_service.py`;
+- `src/impodo/application/recipe_application_service.py`;
+- `src/impodo/application/recipe_qualification_service.py`;
+- protected Recipe store and registry adapters;
+- intent/outbox recovery services; and
+- `src/impodo/web/routers/recipes.py`.
 
 Likely existing modules to change:
 
-- `src/impodo/projects.py` for safe series-owned setup application or a narrow
-  new port;
-- `src/impodo/access.py` for explicit series and credential-copy capabilities;
-- `src/impodo/adapters/duckdb/schema/registry.py` and registry queries;
-- `src/impodo/adapters/duckdb/project_repository.py` for project-local seal and
-  recipe-application-draft persistence;
-- `src/impodo/domain/mapping/contracts.py` for categorical coverage policy and
-  evidence, control definition/expectation separation, and the next strict
-  contract version;
-- `src/impodo/application/mapping_workspace_service.py` for recipe publication
-  and value-coverage validation orchestration;
-- preparation, derived-entity, quality, reference, and governance conversion
-  services for logical rebinds;
-- `src/impodo/web/app.py`, context, project/mapping presenters, routers, and
-  templates;
-- `src/impodo/web/target_credentials.py` and `src/impodo/secrets.py` for a
-  narrow explicit same-target credential-copy operation; and
-- navigation/project-list queries so internal editions do not become duplicate
-  top-level projects.
+- `src/impodo/projects.py` and project repository only for narrow workspace
+  provisioning/link/seal boundaries;
+- `src/impodo/access.py` for Recipe, qualification, cutover, and environment
+  capabilities;
+- registry schema and bounded queries;
+- mapping workspace service for publication and application provenance;
+- source preparation, quality, reference, governance, control, comparison,
+  execution, and reconciliation services only through their existing ports;
+- target credential and secret adapters for explicit per-application bindings
+  and rotation invalidation;
+- app composition, navigation, presenters, routers, templates, and JavaScript;
+  and
+- workflow, architecture, glossary, user/developer, testing, and release
+  documentation after behavior becomes current.
 
-Focused tests should include:
+Focused tests include:
 
-- a new `tests/test_recipes.py` and repository tests;
-- registry migration, intent/outbox fault-injection, protected-store integrity,
-  and aggregate-bound tests;
-- `tests/test_projects.py`;
-- `tests/test_workspace.py`;
-- `tests/test_mapping_validation.py`;
-- `tests/test_mapping_forms.py`;
-- `tests/test_derived_entities.py`;
-- `tests/test_readiness.py`;
-- `tests/test_web_app.py`;
-- `tests/test_project_security.py`;
-- series/project ID confusion, per-edition authorization, historical-mutation,
-  credential-copy generation/probe, and deletion-containment tests;
-- `tests/test_documentation_quality.py`;
-- `tests/test_code_documentation.py`; and
-- `tests/test_internal_release.py`.
+- Recipe semantic/payload hashing and bounds;
+- registry migration and ID confusion;
+- protected-store integrity;
+- publication, DataVersion, qualification, cutover, and deletion fault
+  injection;
+- application compatibility and binding override persistence;
+- Test/Production target contract compatibility;
+- credential generation, principal, ACL, expiry, rotation, and redaction;
+- qualification and cutover state transitions;
+- Customers, Product/BOM, and stock parameter/control scenarios;
+- no inferred delete;
+- unknown-write reconciliation;
+- bounded Recipe list/application query counts; and
+- complete regression, documentation, security, browser, accessibility, and
+  Windows acceptance suites.
 
-The final implementation should run focused tests after each slice, then the
-complete suite, `scripts/documentation_quality.py --check`, `git diff --check`,
-and `git status --short`. Windows test runs must use a verified writable temp
-directory before application failures are diagnosed.
+## 18. Approaches explicitly rejected
 
-## 15. Approaches explicitly rejected
+### Keep ProjectSeries above Recipe
 
-### Replace the frozen files in place
+Rejected because the first supported business lineage owns exactly one Recipe.
+The extra aggregate weakens the Recipe-centered product model and duplicates
+identity without adding current business meaning.
 
-Rejected because it breaks source hashes, snapshots, mapping bindings, audit
-meaning, and downstream evidence.
+### Bind Recipe to one endpoint/database
 
-### Copy the prior project DuckDB and delete rows from it
+Rejected because the required workflow qualifies on Test and applies on a
+different Production server. Recipe owns target requirements; application owns
+the exact target binding.
 
-Rejected because it begins with stale evidence and relies on a fragile
-denylist of tables/pointers to clear.
+### Store or copy API keys in Recipe metadata
 
-### Add a data-version column to every existing project table first
+Rejected because credentials rotate, differ across environments, and confer
+authority. Secrets remain only in the secret store and are reprobed per
+binding.
 
-Rejected for the initial delivery because it expands a focused feature into a
-cross-product schema and query rewrite. It can be reconsidered only if measured
-operational needs make separate contained workspaces untenable.
+### Treat Test qualification as Production approval
 
-### Copy the raw `MappingDefinition`
+Rejected because Production data, target state, principal, permissions,
+credentials, comparison, and write risks are new evidence.
 
-Rejected because it contains the old source-selection/schema hashes and
-physical dataset/column identities.
+### Mutate a qualified Recipe revision
 
-### Store full recipe JSON in the global registry
+Rejected because qualification must retain exact meaning. Corrections create a
+new immutable revision that requires new testing.
 
-Rejected because reusable aliases, constants, reference literals, and quality
-rules can be confidential business configuration. Keep only bounded metadata
-and protected storage keys in the registry; payload access follows series
-classification and authorization.
+### Duplicate every workspace draft into RecipeDraft
 
-### Advance current when the new workspace is allocated
+Rejected because two mutable sources of truth would drift. RecipeDraft
+coordinates exact existing authoring evidence and publication compiles it.
 
-Rejected because upload, registration, credential setup, or recovery can still
-fail. Allocation creates a pending edition; activation alone seals the prior
-edition and advances the current registered pointer.
+### Copy a prior project database
 
-### Copy the prior read/write credential binding
+Rejected because it copies stale rows, pointers, credentials, approvals,
+snapshots, journals, and evidence.
 
-Rejected because edition creation does not confer current write authority.
-Only a separately authorized persistent read secret may be copied to a new
-generation for the same exact target and must be re-probed. Write credentials
-are established later through the normal load boundary.
+### Copy raw MappingDefinition as the Recipe
 
-### Promote observed corrections automatically
+Rejected because it is intentionally bound to physical source and schema
+evidence.
 
-Rejected because normalization decisions and application rebindings are
-edition evidence, not necessarily reusable business intent. Only explicit
-promotion into a supported mapping, preparation, quality, or reference rule can
-publish them in a later recipe.
+### Automatically promote physical overrides
 
-### Match renamed fields or values with fuzzy/AI guesses
+Rejected because a one-off renamed-column binding may not be reusable business
+meaning. Promotion is explicit and creates a new revision.
 
-Rejected as an authoritative action. Impodo may show a bounded recommendation,
-but ambiguous or inexact changes require explicit confirmation.
+### Fuzzy-bind authoritative source or target fields
 
-### Treat every many2one value as an enumerated choice
+Rejected. Suggestions may assist review but never authorize bindings.
 
-Rejected because high-cardinality relationships such as customers, products,
-or accounts should resolve through governed keys in batches. Explicit choice
-coverage is for bounded categorical domains such as country aliases.
+### Infer deletes from missing replacement rows
 
-### Reuse approvals, comparisons, or execution snapshots
+Rejected because exports may be filtered or incomplete. Deletes need a separate
+explicit policy and evidence model.
 
-Rejected because every one of those artifacts binds exact source, mapping,
-schema, target, or prepared evidence.
+### Resume unrelated roadmap work before Recipe completion
 
-### Infer deletes from missing rows
+Rejected by the current product-priority decision. Existing safety maintenance
+and fixes remain allowed; competing feature/scale plans stay deferred.
 
-Rejected because a replacement export may be filtered or incomplete. Deletion
-requires a separate explicit business policy, evidence model, and Odoo write
-scope.
+## 19. Definition of done
 
-## 16. Definition of done
+The Recipe-first feature is implemented only when:
 
-The feature is complete only when:
-
-- one visible project series with an ID distinct from every contained project
-  can contain at least two immutable data versions;
-- pending editions are resumable/discardable and cannot displace the current
-  registered edition before activation;
-- historical mutability is rejected by application/repository policy, not just
-  hidden in the browser;
-- an eligible submitted mapping publishes a protected, versioned recipe whose
-  payload and semantic hashes are verified through a recoverable outbox;
-- that recipe includes every supported reusable preparation, mapping,
-  governance, quality, coverage, reference, and control-definition dependency;
-- a later complete file set can reuse all compatible business rules without
-  copying old evidence, project-local IDs, or prior control expectations;
-- new Language selection and Country many2one choices produce focused,
-  actionable blockers and can create Recipe v2 after confirmation;
-- structural, schema, selection, relationship, and business-key drift fail
-  closed;
-- the browser keeps compatible rules green and offers one obvious next action;
-- previous versions remain reopenable and cannot satisfy current readiness;
-- only an explicitly confirmed persistent read credential can be copied into a
-  new generation and re-probed; write credentials are never copied at creation;
-- registry listing and relationship matching have no N+1 project/row behavior;
-- no recipe operation writes Odoo or stores a numeric Odoo ID;
-- permanent series deletion cleans every contained edition and secret through
-  a tombstoned, recoverable intent and governed services;
-- focused, full-suite, documentation, visual, accessibility, and Windows
-  qualification evidence passes;
-- current user/developer documentation is updated only after the behavior is
-  implemented and verified; and
-- the authoritative roadmap reflects the adopted delivery priority before
-  implementation begins.
+- Recipe is the aggregate root and primary browser concept;
+- existing projects migrate safely to one Recipe and one independent
+  DataVersion/workspace without rewriting contained evidence;
+- RecipeDraft publishes complete immutable composite Recipe revisions with
+  verified semantic and payload hashes;
+- Recipe semantics exclude endpoints, databases, credentials, principals,
+  physical IDs, source/target snapshots, approvals, and numeric Odoo IDs;
+- a data manager can fine-tune v1 -> v2 -> v3 on a remote Test Odoo server;
+- v3 can become test-qualified only from exact successful preparation,
+  comparison, execution, read-back, reconciliation, and controls;
+- a qualified revision can be explicitly selected as cutover candidate;
+- rollout can apply that exact revision to the latest same-format-kind source
+  on a different compatible Production Odoo server with different API keys;
+- Production application creates fresh target, mapping, preparation, quality,
+  comparison, approval, execution, and reconciliation evidence;
+- credential rotation changes binding generation and invalidates all dependent
+  readiness without changing Recipe/source evidence;
+- Test credentials and authority never satisfy Production access or writes;
+- source, target, categorical, parameter, reference, and credential drift fail
+  closed with focused recovery actions;
+- missing source rows never imply deletion;
+- current row and payload bounds remain enforced and the deferred 100,000-row
+  mixed/related goal is not a release dependency;
+- publication, creation, qualification, cutover, rotation, execution, and
+  deletion interruption recovery is deterministic and idempotent;
+- no Recipe path introduces Odoo N+1 reads or blind unknown-write retries;
+- Customers, Product/BOM, and warehouse-parameterized stock acceptance paths
+  pass within their current supported limits;
+- complete regression, security, documentation, browser, accessibility, and
+  required Windows acceptance evidence passes; and
+- only then does product ownership explicitly reopen another roadmap track.

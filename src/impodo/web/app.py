@@ -43,6 +43,7 @@ from ..application.odoo_source_capture_service import OdooSourceCaptureService
 from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
 from ..application.reconciliation_service import ReconciliationService
+from ..application.recipe_service import RecipeService
 from ..application.preparation_service import PreparationService
 from ..application.preparation_job_service import PreparationJobManager
 from ..application.quality_service import QualityService
@@ -66,6 +67,7 @@ from ..adapters.duckdb.preflight_repository import PreflightRepository
 from ..adapters.duckdb.execution_repository import ExecutionRepository
 from ..adapters.duckdb.reconciliation_repository import ReconciliationRepository
 from ..adapters.duckdb.project_repository import ProjectRepository
+from ..adapters.duckdb.recipe_repository import RecipeRepository
 from ..adapters.duckdb.quality_repository import QualityRepository
 from ..adapters.duckdb.schema_repository import SchemaRepository
 from ..adapters.duckdb.source_repository import SourceRepository
@@ -77,6 +79,7 @@ from ..adapters.duckdb.advanced_coverage_repository import AdvancedCoverageRepos
 from ..adapters.duckdb.transformation_impact_repository import (
     TransformationImpactRepository,
 )
+from ..adapters.protected_recipe_store import ProtectedRecipeStore
 from ..projects import (
     ProjectCompatibilityError,
     ProjectNotFoundError,
@@ -164,6 +167,7 @@ def create_local_app(
     database = DuckDbDatabase(project_root)
     resolved_artifacts = artifact_store or LocalArtifactStore(project_root)
     project_repository = ProjectRepository(database)
+    recipe_repository = RecipeRepository(database)
     derived_entity_repository = DerivedEntityRepository(database)
     source_repository = SourceRepository(database, derived_entity_repository)
     schema_repository = SchemaRepository(database)
@@ -185,6 +189,11 @@ def create_local_app(
     transformation_impact_repository = TransformationImpactRepository(database)
     resolved_authorization = authorization or CapabilityAuthorizationPolicy()
     resolved_secret_store = secret_store or CredentialVault()
+    recipes = RecipeService(
+        recipe_repository,
+        ProtectedRecipeStore(project_root, resolved_secret_store),
+        resolved_authorization,
+    )
     odoo_provenance_repository = OdooProvenanceRepository(
         database,
         resolved_artifacts,
@@ -283,6 +292,7 @@ def create_local_app(
             transformation_impact_repository,
         ),
         projects=projects,
+        recipes=recipes,
         intake=SourceIntakeService(projects, resolved_artifacts),
         inspections=SourceInspectionService(
             project_repository,
@@ -363,6 +373,7 @@ def create_local_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
+            recipes.recover_incomplete(actor=LOCAL_ACTOR)
             for summary in project_repository.list():
                 try:
                     project = project_repository.get(summary.project_id)

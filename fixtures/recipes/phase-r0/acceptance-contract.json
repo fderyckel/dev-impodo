@@ -1,0 +1,489 @@
+{
+  "contract_versions": {
+    "application_readiness_projection": 1,
+    "cutover_candidate": 1,
+    "cross_store_intents": 2,
+    "data_version": 1,
+    "credential_rotation": 1,
+    "odoo_target_contract": 1,
+    "recipe_application_evidence": 1,
+    "recipe_lifecycle": 1,
+    "recipe_parameter_values": 1,
+    "recipe_qualification_evidence": 1,
+    "recipe_revision": 2,
+    "required_mapping_contract": 11,
+    "target_binding": 1
+  },
+  "recipe": {
+    "recipe_id": "11111111-1111-4111-8111-111111111111",
+    "display_name": "Customer migration",
+    "business_purpose": "Rehearse and roll out customer master data",
+    "state": "ACTIVE",
+    "optimistic_revision": 7,
+    "current_recipe_revision": 3,
+    "current_data_version_id": "33333333-3333-4333-8333-333333333333",
+    "pending_data_version_id": null,
+    "cutover_candidate_id": "88888888-8888-4888-8888-888888888888"
+  },
+  "recipe_revisions": [
+    {
+      "version": 1,
+      "parent_version": null,
+      "semantic_hash": "sha256:1010101010101010101010101010101010101010101010101010101010101010",
+      "state": "SUPERSEDED"
+    },
+    {
+      "version": 2,
+      "parent_version": 1,
+      "semantic_hash": "sha256:2020202020202020202020202020202020202020202020202020202020202020",
+      "state": "SUPERSEDED"
+    },
+    {
+      "version": 3,
+      "parent_version": 2,
+      "semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+      "payload_hash": "sha256:09729b7e6ddf62a85420018d66efb4ec8116dd0676fe86c86f75b3d6415c82d6",
+      "state": "CURRENT"
+    }
+  ],
+  "data_versions": [
+    {
+      "data_version_id": "22222222-2222-4222-8222-222222222222",
+      "recipe_id": "11111111-1111-4111-8111-111111111111",
+      "version_number": 1,
+      "workspace_project_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "parent_data_version_id": null,
+      "purpose": "TEST",
+      "state": "SEALED",
+      "pinned_recipe_revision": 3,
+      "label": "Customer rehearsal export - 19 August",
+      "source_artifact": "customer-test-data.csv",
+      "source_artifact_hash": "sha256:f3b81a2e2a453ad8b662856b20736bcba04cd941f39c62bfdce02fdd67c6a629",
+      "row_count": 3,
+      "export_as_of_date": "2026-08-19"
+    },
+    {
+      "data_version_id": "33333333-3333-4333-8333-333333333333",
+      "recipe_id": "11111111-1111-4111-8111-111111111111",
+      "version_number": 2,
+      "workspace_project_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "parent_data_version_id": "22222222-2222-4222-8222-222222222222",
+      "purpose": "PRODUCTION",
+      "state": "ACTIVE",
+      "pinned_recipe_revision": 3,
+      "label": "Customer rollout export - 31 August",
+      "source_artifact": "customer-rollout-data.csv",
+      "source_artifact_hash": "sha256:8918995c887d59ad5cc2823f8193e97837658b0e886c3476767eedf85a08e786",
+      "row_count": 4,
+      "export_as_of_date": "2026-08-31"
+    }
+  ],
+  "parameter_value_sets": [
+    {
+      "contract_version": 1,
+      "data_version_id": "22222222-2222-4222-8222-222222222222",
+      "values": {
+        "parameter:batch_reference": "TEST-2026-08-19",
+        "parameter:export_as_of_date": "2026-08-19"
+      },
+      "source": "OPERATOR_CONFIRMED",
+      "reason": "Remote Test rehearsal",
+      "actor": {"issuer": "impodo.fixture", "subject_id": "data-manager-1"},
+      "confirmed_at": "2026-08-19T09:05:00+02:00",
+      "content_hash": "sha256:95e8e0bdd52bba9e319d0979dc15073d9c4bcd137da053778354844279dde5ac"
+    },
+    {
+      "contract_version": 1,
+      "data_version_id": "33333333-3333-4333-8333-333333333333",
+      "values": {
+        "parameter:batch_reference": "ROLL-OUT-2026-08-31",
+        "parameter:export_as_of_date": "2026-08-31"
+      },
+      "source": "OPERATOR_CONFIRMED",
+      "reason": "Production rollout",
+      "actor": {"issuer": "impodo.fixture", "subject_id": "data-manager-1"},
+      "confirmed_at": "2026-08-31T06:05:00+02:00",
+      "content_hash": "sha256:d649c4b0ecc8bdce1f2d72277a540a4697713f25b9d7ea614a3a682ccfcc3e25"
+    }
+  ],
+  "target_bindings": [
+    {
+      "contract_version": 1,
+      "target_binding_id": "91111111-1111-4111-8111-111111111111",
+      "environment": "TEST",
+      "endpoint": "https://test-odoo.example.invalid",
+      "database": "customer_rehearsal",
+      "connection_target_hash": "sha256:02495b7f73e4b94c2cbd072fbd00b424afaa4c412022ed422a8340665aa89635",
+      "credential_role": "READ",
+      "credential_generation": "test-read-generation-3",
+      "credential_storage_class": "PROJECT_SECRET_STORE",
+      "principal_hash": "sha256:3131313131313131313131313131313131313131313131313131313131313131",
+      "permission_hash": "sha256:3232323232323232323232323232323232323232323232323232323232323232",
+      "context_hash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "schema_dependency_hash": "sha256:3434343434343434343434343434343434343434343434343434343434343434",
+      "reference_snapshot_hashes": [
+        "sha256:3535353535353535353535353535353535353535353535353535353535353535"
+      ],
+      "probe_status": "ACCEPTED",
+      "probed_at": "2026-08-19T09:10:00+02:00",
+      "captured_by": {"issuer": "impodo.fixture", "subject_id": "data-manager-1"},
+      "content_hash": "sha256:2e376657556dcfd0450f9f37bd428fcae01c39b2ea271c682667f0b992944b63"
+    },
+    {
+      "contract_version": 1,
+      "target_binding_id": "92222222-2222-4222-8222-222222222222",
+      "environment": "PRODUCTION",
+      "endpoint": "https://production-odoo.example.invalid",
+      "database": "customer_live",
+      "connection_target_hash": "sha256:046770c456aae33d65bf7d9ca5a941be287faa96d139765051a73ffe7fe43e55",
+      "credential_role": "READ",
+      "credential_generation": "production-read-generation-1",
+      "credential_storage_class": "PROJECT_SECRET_STORE",
+      "principal_hash": "sha256:4141414141414141414141414141414141414141414141414141414141414141",
+      "permission_hash": "sha256:4242424242424242424242424242424242424242424242424242424242424242",
+      "context_hash": "sha256:4343434343434343434343434343434343434343434343434343434343434343",
+      "schema_dependency_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "reference_snapshot_hashes": [
+        "sha256:4545454545454545454545454545454545454545454545454545454545454545"
+      ],
+      "probe_status": "ACCEPTED",
+      "probed_at": "2026-08-31T06:10:00+02:00",
+      "captured_by": {"issuer": "impodo.fixture", "subject_id": "data-manager-1"},
+      "content_hash": "sha256:80a6252b6be493ff435b66015c5f7fe6bd1686982eb2ad6b4608f5646c249ed2"
+    },
+    {
+      "contract_version": 1,
+      "target_binding_id": "93333333-3333-4333-8333-333333333333",
+      "environment": "PRODUCTION",
+      "endpoint": "https://production-odoo.example.invalid",
+      "database": "customer_live",
+      "connection_target_hash": "sha256:046770c456aae33d65bf7d9ca5a941be287faa96d139765051a73ffe7fe43e55",
+      "credential_role": "READ",
+      "credential_generation": "production-read-generation-2",
+      "credential_storage_class": "PROJECT_SECRET_STORE",
+      "principal_hash": "sha256:4646464646464646464646464646464646464646464646464646464646464646",
+      "permission_hash": "sha256:4747474747474747474747474747474747474747474747474747474747474747",
+      "context_hash": "sha256:4848484848484848484848484848484848484848484848484848484848484848",
+      "schema_dependency_hash": "sha256:4949494949494949494949494949494949494949494949494949494949494949",
+      "reference_snapshot_hashes": [
+        "sha256:5050505050505050505050505050505050505050505050505050505050505050"
+      ],
+      "probe_status": "ACCEPTED",
+      "probed_at": "2026-08-31T06:25:00+02:00",
+      "captured_by": {"issuer": "impodo.fixture", "subject_id": "rollout-manager-1"},
+      "content_hash": "sha256:a79da238114b8d268195605cd63eb592635824ff963787bf84bf5aa6bd632a9d"
+    },
+    {
+      "contract_version": 1,
+      "target_binding_id": "94444444-4444-4444-8444-444444444444",
+      "environment": "PRODUCTION",
+      "endpoint": "https://production-odoo.example.invalid",
+      "database": "customer_live",
+      "connection_target_hash": "sha256:046770c456aae33d65bf7d9ca5a941be287faa96d139765051a73ffe7fe43e55",
+      "credential_role": "WRITE",
+      "credential_generation": "production-write-generation-2",
+      "credential_storage_class": "PROJECT_SECRET_STORE",
+      "principal_hash": "sha256:5151515151515151515151515151515151515151515151515151515151515151",
+      "permission_hash": "sha256:5252525252525252525252525252525252525252525252525252525252525252",
+      "context_hash": "sha256:5353535353535353535353535353535353535353535353535353535353535353",
+      "schema_dependency_hash": "sha256:4949494949494949494949494949494949494949494949494949494949494949",
+      "reference_snapshot_hashes": [
+        "sha256:5050505050505050505050505050505050505050505050505050505050505050"
+      ],
+      "probe_status": "ACCEPTED",
+      "probed_at": "2026-08-31T06:40:00+02:00",
+      "captured_by": {"issuer": "impodo.fixture", "subject_id": "rollout-manager-1"},
+      "content_hash": "sha256:cd0faeac5d59631338a12c6512d580d5daf2a45d37e5c81c2a495dcdcc6dca8f"
+    }
+  ],
+  "applications": [
+    {
+      "contract_version": 1,
+      "application_id": "44444444-4444-4444-8444-444444444444",
+      "recipe_id": "11111111-1111-4111-8111-111111111111",
+      "recipe_revision": 3,
+      "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+      "data_version_id": "22222222-2222-4222-8222-222222222222",
+      "workspace_project_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "source_artifact_hash": "sha256:f3b81a2e2a453ad8b662856b20736bcba04cd941f39c62bfdce02fdd67c6a629",
+      "source_selection_hash": "sha256:6161616161616161616161616161616161616161616161616161616161616161",
+      "parameter_values_hash": "sha256:95e8e0bdd52bba9e319d0979dc15073d9c4bcd137da053778354844279dde5ac",
+      "target_binding_id": "91111111-1111-4111-8111-111111111111",
+      "target_binding_hash": "sha256:2e376657556dcfd0450f9f37bd428fcae01c39b2ea271c682667f0b992944b63",
+      "target_contract_assessment_hash": "sha256:6262626262626262626262626262626262626262626262626262626262626262",
+      "binding_hash": "sha256:6363636363636363636363636363636363636363636363636363636363636363",
+      "mapping_id": "a1111111-1111-4111-8111-111111111111",
+      "mapping_content_hash": "sha256:6464646464646464646464646464646464646464646464646464646464646464",
+      "comparison_hash": "sha256:6565656565656565656565656565656565656565656565656565656565656565",
+      "status": "APPLIED",
+      "created_at": "2026-08-19T09:20:00+02:00",
+      "content_hash": "sha256:02a3266ccdfed50a142416b031a5ca5fec2f00e745f4257bbec21eaa9e3d19be"
+    },
+    {
+      "contract_version": 1,
+      "application_id": "55555555-5555-4555-8555-555555555555",
+      "recipe_id": "11111111-1111-4111-8111-111111111111",
+      "recipe_revision": 3,
+      "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+      "data_version_id": "33333333-3333-4333-8333-333333333333",
+      "workspace_project_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "source_artifact_hash": "sha256:8918995c887d59ad5cc2823f8193e97837658b0e886c3476767eedf85a08e786",
+      "source_selection_hash": "sha256:7171717171717171717171717171717171717171717171717171717171717171",
+      "parameter_values_hash": "sha256:d649c4b0ecc8bdce1f2d72277a540a4697713f25b9d7ea614a3a682ccfcc3e25",
+      "target_binding_id": "92222222-2222-4222-8222-222222222222",
+      "target_binding_hash": "sha256:80a6252b6be493ff435b66015c5f7fe6bd1686982eb2ad6b4608f5646c249ed2",
+      "target_contract_assessment_hash": "sha256:7272727272727272727272727272727272727272727272727272727272727272",
+      "binding_hash": "sha256:7373737373737373737373737373737373737373737373737373737373737373",
+      "mapping_id": "a2222222-2222-4222-8222-222222222222",
+      "mapping_content_hash": "sha256:7474747474747474747474747474747474747474747474747474747474747474",
+      "comparison_hash": "sha256:7575757575757575757575757575757575757575757575757575757575757575",
+      "status": "APPLIED",
+      "created_at": "2026-08-31T06:15:00+02:00",
+      "content_hash": "sha256:bd85e0a5ca2f3defb3fbd259e4f85336b1ddc9e80e8d2b456d3b013e5c6a060d"
+    },
+    {
+      "contract_version": 1,
+      "application_id": "66666666-6666-4666-8666-666666666666",
+      "recipe_id": "11111111-1111-4111-8111-111111111111",
+      "recipe_revision": 3,
+      "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+      "data_version_id": "33333333-3333-4333-8333-333333333333",
+      "workspace_project_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "source_artifact_hash": "sha256:8918995c887d59ad5cc2823f8193e97837658b0e886c3476767eedf85a08e786",
+      "source_selection_hash": "sha256:7171717171717171717171717171717171717171717171717171717171717171",
+      "parameter_values_hash": "sha256:d649c4b0ecc8bdce1f2d72277a540a4697713f25b9d7ea614a3a682ccfcc3e25",
+      "target_binding_id": "93333333-3333-4333-8333-333333333333",
+      "target_binding_hash": "sha256:a79da238114b8d268195605cd63eb592635824ff963787bf84bf5aa6bd632a9d",
+      "target_contract_assessment_hash": "sha256:7676767676767676767676767676767676767676767676767676767676767676",
+      "binding_hash": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      "mapping_id": "a3333333-3333-4333-8333-333333333333",
+      "mapping_content_hash": "sha256:7878787878787878787878787878787878787878787878787878787878787878",
+      "comparison_hash": "sha256:7979797979797979797979797979797979797979797979797979797979797979",
+      "status": "APPLIED",
+      "created_at": "2026-08-31T06:35:00+02:00",
+      "content_hash": "sha256:e6547b90b361389a1a1fb9e9b917d83a8d988aaaa8787f21689ea6e7fb45bd6d"
+    }
+  ],
+  "application_readiness": [
+    {
+      "application_id": "55555555-5555-4555-8555-555555555555",
+      "state": "INVALIDATED",
+      "reason": "CREDENTIAL_GENERATION_CHANGED",
+      "invalidated_by_rotation_id": "99999999-9999-4999-8999-999999999999"
+    },
+    {
+      "application_id": "66666666-6666-4666-8666-666666666666",
+      "state": "CURRENT",
+      "reason": "FRESH_TARGET_EVIDENCE",
+      "invalidated_by_rotation_id": null
+    }
+  ],
+  "qualification": {
+    "contract_version": 1,
+    "qualification_id": "77777777-7777-4777-8777-777777777777",
+    "recipe_id": "11111111-1111-4111-8111-111111111111",
+    "recipe_revision": 3,
+    "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+    "environment": "TEST",
+    "application_id": "44444444-4444-4444-8444-444444444444",
+    "application_evidence_hash": "sha256:02a3266ccdfed50a142416b031a5ca5fec2f00e745f4257bbec21eaa9e3d19be",
+    "target_binding_id": "91111111-1111-4111-8111-111111111111",
+    "target_binding_hash": "sha256:2e376657556dcfd0450f9f37bd428fcae01c39b2ea271c682667f0b992944b63",
+    "preparation_hash": "sha256:8181818181818181818181818181818181818181818181818181818181818181",
+    "quality_hash": "sha256:8282828282828282828282828282828282828282828282828282828282828282",
+    "control_hash": "sha256:8383838383838383838383838383838383838383838383838383838383838383",
+    "comparison_hash": "sha256:6565656565656565656565656565656565656565656565656565656565656565",
+    "execution_hash": "sha256:8484848484848484848484848484848484848484848484848484848484848484",
+    "read_back_hash": "sha256:8585858585858585858585858585858585858585858585858585858585858585",
+    "reconciliation_hash": "sha256:8686868686868686868686868686868686868686868686868686868686868686",
+    "status": "TEST_QUALIFIED",
+    "outcome": {"created": 3, "updated": 0, "unchanged": 0, "failed": 0},
+    "qualified_by": {"issuer": "impodo.fixture", "subject_id": "data-manager-1"},
+    "qualified_at": "2026-08-19T10:00:00+02:00",
+    "content_hash": "sha256:e569be87e53d63540c778c99a39bc7c1422841792f6b38c5ad82ff03924746e4"
+  },
+  "cutover_candidate": {
+    "contract_version": 1,
+    "cutover_candidate_id": "88888888-8888-4888-8888-888888888888",
+    "recipe_id": "11111111-1111-4111-8111-111111111111",
+    "recipe_revision": 3,
+    "recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+    "qualification_id": "77777777-7777-4777-8777-777777777777",
+    "qualification_evidence_hash": "sha256:e569be87e53d63540c778c99a39bc7c1422841792f6b38c5ad82ff03924746e4",
+    "expected_recipe_optimistic_revision": 6,
+    "selected_by": {"issuer": "impodo.fixture", "subject_id": "data-manager-1"},
+    "selected_at": "2026-08-19T10:05:00+02:00",
+    "content_hash": "sha256:ac8aa02b65bb766c5d468e7b6498e706d4119af7c17a879542106de12f9c3baf"
+  },
+  "credential_rotation": {
+    "contract_version": 1,
+    "rotation_id": "99999999-9999-4999-8999-999999999999",
+    "environment": "PRODUCTION",
+    "connection_target_hash": "sha256:046770c456aae33d65bf7d9ca5a941be287faa96d139765051a73ffe7fe43e55",
+    "previous_target_binding_id": "92222222-2222-4222-8222-222222222222",
+    "previous_target_binding_hash": "sha256:80a6252b6be493ff435b66015c5f7fe6bd1686982eb2ad6b4608f5646c249ed2",
+    "new_target_binding_id": "93333333-3333-4333-8333-333333333333",
+    "new_target_binding_hash": "sha256:a79da238114b8d268195605cd63eb592635824ff963787bf84bf5aa6bd632a9d",
+    "invalidated_application_id": "55555555-5555-4555-8555-555555555555",
+    "preserved_recipe_semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+    "preserved_source_selection_hash": "sha256:7171717171717171717171717171717171717171717171717171717171717171",
+    "invalidated_evidence": ["COMPARISON", "LOAD_READINESS"],
+    "recovery_actions": ["REPROBE_TARGET", "REFRESH_TARGET_EVIDENCE", "RECOMPARE"],
+    "rotated_at": "2026-08-31T06:20:00+02:00",
+    "content_hash": "sha256:3ccb77690a2b1a7ca7f5b649615f3a596a68a3d18481456bac428ca6a8705f86"
+  },
+  "production_rollout_sequence": [
+    "LATEST_DATA_VERSION_SEALED",
+    "PRODUCTION_READ_BINDING_PROBED",
+    "PRODUCTION_COMPARISON_ACCEPTED",
+    "READ_CREDENTIAL_ROTATED",
+    "OLD_READINESS_INVALIDATED",
+    "NEW_READ_BINDING_PROBED",
+    "TARGET_EVIDENCE_REFRESHED",
+    "PRODUCTION_RECOMPARISON_ACCEPTED",
+    "WRITE_BINDING_ESTABLISHED",
+    "EXPLICIT_WRITE_APPROVAL",
+    "EXECUTION_JOURNALED",
+    "READ_BACK_RECONCILED"
+  ],
+  "expected_transformations": [
+    {
+      "source": {"customer_code": "CUST-001", "language": "German", "country_alias": "FRA"},
+      "target": {"ref": "CUST-001", "lang": "de_DE", "country_code": "FR"}
+    },
+    {
+      "source": {"customer_code": "CUST-004", "language": "French", "country_alias": "LUX"},
+      "target": {"ref": "CUST-004", "lang": "fr_FR", "country_code": "LU"}
+    }
+  ],
+  "expected_outcomes": {
+    "test": {
+      "source_rows": 3,
+      "created": 3,
+      "updated": 0,
+      "unchanged": 0,
+      "failed": 0,
+      "expected_open_balance": "4800000.00",
+      "reconciled_open_balance": "4800000.00"
+    },
+    "production": {
+      "source_rows": 4,
+      "created": 2,
+      "updated": 1,
+      "unchanged": 1,
+      "failed": 0,
+      "inferred_deletes": 0,
+      "expected_open_balance": "6000000.00",
+      "reconciled_open_balance": "6000000.00"
+    }
+  },
+  "intent_examples": [
+    {
+      "kind": "RECIPE_PUBLICATION",
+      "operation_id": "b1111111-1111-4111-8111-111111111111",
+      "recipe_id": "11111111-1111-4111-8111-111111111111",
+      "expected_recipe_optimistic_revision": 3,
+      "source_data_version_id": "22222222-2222-4222-8222-222222222222",
+      "state": "PAYLOAD_STORED",
+      "retry_count": 0
+    },
+    {
+      "kind": "DATA_VERSION_CREATION",
+      "operation_id": "b2222222-2222-4222-8222-222222222222",
+      "recipe_id": "11111111-1111-4111-8111-111111111111",
+      "expected_recipe_optimistic_revision": 5,
+      "reserved_data_version_id": "33333333-3333-4333-8333-333333333333",
+      "reserved_workspace_project_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "state": "WORKSPACE_PROVISIONED",
+      "retry_count": 0
+    },
+    {
+      "kind": "QUALIFICATION_PUBLICATION",
+      "operation_id": "b3333333-3333-4333-8333-333333333333",
+      "recipe_id": "11111111-1111-4111-8111-111111111111",
+      "expected_recipe_optimistic_revision": 5,
+      "qualification_id": "77777777-7777-4777-8777-777777777777",
+      "state": "EVIDENCE_STORED",
+      "retry_count": 0
+    },
+    {
+      "kind": "CUTOVER_SELECTION",
+      "operation_id": "b4444444-4444-4444-8444-444444444444",
+      "recipe_id": "11111111-1111-4111-8111-111111111111",
+      "expected_recipe_optimistic_revision": 6,
+      "cutover_candidate_id": "88888888-8888-4888-8888-888888888888",
+      "state": "POINTER_COMMITTED",
+      "retry_count": 0
+    },
+    {
+      "kind": "RECIPE_DELETION",
+      "operation_id": "b5555555-5555-4555-8555-555555555555",
+      "recipe_id": "11111111-1111-4111-8111-111111111111",
+      "expected_recipe_optimistic_revision": 7,
+      "state": "TARGETS_ENUMERATED",
+      "retry_count": 0,
+      "targets": [
+        "data-version:22222222-2222-4222-8222-222222222222",
+        "data-version:33333333-3333-4333-8333-333333333333",
+        "project:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "project:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "recipe-revision:11111111-1111-4111-8111-111111111111:3"
+      ]
+    }
+  ],
+  "recovery_scenarios": [
+    {
+      "scenario": "credential_rotated_after_comparison",
+      "code": "TARGET_BINDING_STALE",
+      "recovery_action": "REPROBE_REFRESH_RECOMPARE"
+    },
+    {
+      "scenario": "production_schema_incompatible",
+      "code": "RECIPE_TARGET_INCOMPATIBLE",
+      "recovery_action": "FIX_TARGET_OR_PUBLISH_NEW_REVISION"
+    },
+    {
+      "scenario": "used_source_column_renamed",
+      "code": "RECIPE_SOURCE_COLUMN_MISSING",
+      "recovery_action": "CONFIRM_COLUMN_BINDING"
+    },
+    {
+      "scenario": "new_categorical_value",
+      "code": "MAPPING_SOURCE_VALUE_UNMATCHED",
+      "recovery_action": "MAP_VALUE_AND_PUBLISH_NEW_REVISION"
+    },
+    {
+      "scenario": "stale_cross_store_intent",
+      "code": "RECIPE_REVISION_CONFLICT",
+      "recovery_action": "RELOAD_RECIPE"
+    },
+    {
+      "scenario": "unknown_remote_write_outcome",
+      "code": "EXECUTION_OUTCOME_UNKNOWN",
+      "recovery_action": "RECONCILE_BEFORE_RETRY"
+    },
+    {
+      "scenario": "qualification_evidence_changed",
+      "code": "QUALIFICATION_EVIDENCE_MISMATCH",
+      "recovery_action": "REQUALIFY_EXACT_REVISION"
+    }
+  ],
+  "bounds": {
+    "recipe_payload_bytes": 4194304,
+    "reference_package_aggregate_bytes": 67108864,
+    "logical_datasets": 100,
+    "logical_columns": 10000,
+    "semantic_nodes": 10000,
+    "parameter_definitions": 100,
+    "parameter_value_bytes": 65536,
+    "data_versions_per_recipe": 1000,
+    "recipe_revisions_per_recipe": 1000,
+    "applications_per_data_version": 100,
+    "qualification_findings": 2000,
+    "application_overrides": 10000,
+    "application_issues": 2000,
+    "examples_per_issue": 20,
+    "target_candidate_keys_per_batch": 10000,
+    "intent_retries_before_escalation": 20
+  }
+}

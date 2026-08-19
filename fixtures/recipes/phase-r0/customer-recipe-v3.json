@@ -1,0 +1,389 @@
+{
+  "recipe_contract_version": 2,
+  "semantic_hash": "sha256:33766da378cd7476ea99c17e75f674427321bb835582d083e5eef578eb27d0c5",
+  "payload_hash": "sha256:09729b7e6ddf62a85420018d66efb4ec8116dd0676fe86c86f75b3d6415c82d6",
+  "recipe": {
+    "contract_versions": {
+      "control_definitions": 1,
+      "mapping_recipe": 2,
+      "odoo_target_contract": 1,
+      "quality_recipe": 1,
+      "recipe_definition": 2,
+      "recipe_parameter_definitions": 1,
+      "reference_dependencies": 1,
+      "source_preparation_recipe": 1,
+      "source_shape_recipe": 1,
+      "target_governance_recipe": 1
+    },
+    "source_shape": {
+      "datasets": [
+        {
+          "logical_dataset_id": "dataset:customers",
+          "logical_name": "Customers",
+          "required": true,
+          "columns": [
+            {
+              "logical_column_id": "column:customers.country_alias",
+              "source_name": "country_alias",
+              "candidate_type_hint": "string",
+              "required_by": ["mapping", "relationship"]
+            },
+            {
+              "logical_column_id": "column:customers.customer_code",
+              "source_name": "customer_code",
+              "candidate_type_hint": "string",
+              "required_by": ["identity", "mapping"]
+            },
+            {
+              "logical_column_id": "column:customers.customer_type",
+              "source_name": "customer_type",
+              "candidate_type_hint": "string",
+              "required_by": ["mapping", "reference"]
+            },
+            {
+              "logical_column_id": "column:customers.language",
+              "source_name": "language",
+              "candidate_type_hint": "string",
+              "required_by": ["mapping"]
+            },
+            {
+              "logical_column_id": "column:customers.name",
+              "source_name": "name",
+              "candidate_type_hint": "string",
+              "required_by": ["mapping"]
+            },
+            {
+              "logical_column_id": "column:customers.open_balance",
+              "source_name": "open_balance",
+              "candidate_type_hint": "decimal",
+              "required_by": ["control", "mapping", "quality"]
+            }
+          ]
+        }
+      ]
+    },
+    "parameter_definitions": {
+      "parameters": [
+        {
+          "logical_parameter_id": "parameter:batch_reference",
+          "label": "Batch reference",
+          "type": "string",
+          "required": true,
+          "constraints": {"max_length": 80},
+          "allowed_use_sites": ["provenance"]
+        },
+        {
+          "logical_parameter_id": "parameter:export_as_of_date",
+          "label": "Export as-of date",
+          "type": "date",
+          "required": true,
+          "constraints": {"not_after_application_date": true},
+          "allowed_use_sites": ["controls", "provenance"]
+        }
+      ]
+    },
+    "source_preparation": {
+      "rules": [
+        {
+          "logical_rule_id": "preparation:customers.normalized_name",
+          "operation": "NORMALIZE_TEXT",
+          "input_column_ids": ["column:customers.name"],
+          "output_logical_column_id": "column:customers.normalized_name",
+          "parameters": {"collapse_whitespace": true, "trim": true}
+        }
+      ]
+    },
+    "mapping": {
+      "datasets": [
+        {
+          "logical_dataset_id": "dataset:customers",
+          "target_model": "res.partner",
+          "mode": "UPSERT",
+          "identity": [
+            {
+              "source_column_ids": ["column:customers.customer_code"],
+              "target_fields": ["ref"],
+              "value_type": "string"
+            }
+          ],
+          "fields": [
+            {
+              "logical_field_id": "field:customers.company_type",
+              "target_field": "company_type",
+              "provider": {
+                "kind": "REFERENCE_LOOKUP",
+                "source_column_ids": ["column:customers.customer_type"],
+                "logical_reference_id": "reference:customer_type"
+              },
+              "categorical_policy": "EXACT_TARGET_VALUE",
+              "compare": true,
+              "required": true
+            },
+            {
+              "logical_field_id": "field:customers.lang",
+              "target_field": "lang",
+              "provider": {
+                "kind": "SOURCE",
+                "source_column_ids": ["column:customers.language"]
+              },
+              "categorical_policy": "EXPLICIT_VALUE_MATCH",
+              "value_matches": [
+                {"source_value": "English", "target_value": "en_US"},
+                {"source_value": "French", "target_value": "fr_FR"},
+                {"source_value": "German", "target_value": "de_DE"}
+              ],
+              "compare": true,
+              "required": false
+            },
+            {
+              "logical_field_id": "field:customers.name",
+              "target_field": "name",
+              "provider": {
+                "kind": "SOURCE",
+                "source_column_ids": ["column:customers.normalized_name"]
+              },
+              "categorical_policy": null,
+              "compare": true,
+              "required": true
+            },
+            {
+              "logical_field_id": "field:customers.open_balance",
+              "target_field": "x_open_balance",
+              "provider": {
+                "kind": "SOURCE",
+                "source_column_ids": ["column:customers.open_balance"]
+              },
+              "transform": {"kind": "DECIMAL", "trim": true},
+              "categorical_policy": null,
+              "compare": true,
+              "required": false
+            }
+          ],
+          "relationships": [
+            {
+              "logical_relationship_id": "relationship:customers.country",
+              "target_field": "country_id",
+              "kind": "many2one",
+              "source_column_ids": ["column:customers.country_alias"],
+              "target_model": "res.country",
+              "target_key_fields": ["code"],
+              "target_scope_fields": [],
+              "categorical_policy": "EXPLICIT_KEY_MATCH",
+              "value_matches": [
+                {"source_value": "BEL", "target_value": "BE"},
+                {"source_value": "FRA", "target_value": "FR"},
+                {"source_value": "LUX", "target_value": "LU"}
+              ],
+              "on_missing": "error",
+              "on_ambiguous": "error",
+              "compare": true,
+              "required": false
+            }
+          ],
+          "approved_write_fields": [
+            "company_type",
+            "country_id",
+            "lang",
+            "name",
+            "ref",
+            "x_open_balance"
+          ],
+          "comparison_policy": {
+            "missing_source_row": "NO_DELETE_INFERENCE",
+            "null_policy": "distinct"
+          }
+        }
+      ]
+    },
+    "odoo_target_contract": {
+      "odoo_major_version": 19,
+      "required_applications": ["base"],
+      "models": [
+        {
+          "model": "res.country",
+          "fields": [
+            {
+              "name": "code",
+              "field_type": "char",
+              "required": false,
+              "readonly": false,
+              "write_use": false
+            }
+          ]
+        },
+        {
+          "model": "res.partner",
+          "fields": [
+            {
+              "name": "company_type",
+              "field_type": "selection",
+              "required": true,
+              "readonly": false,
+              "write_use": true,
+              "required_selection_codes": ["company", "person"]
+            },
+            {
+              "name": "country_id",
+              "field_type": "many2one",
+              "relation_model": "res.country",
+              "required": false,
+              "readonly": false,
+              "write_use": true
+            },
+            {
+              "name": "lang",
+              "field_type": "selection",
+              "required": false,
+              "readonly": false,
+              "write_use": true,
+              "required_selection_codes": ["de_DE", "en_US", "fr_FR"]
+            },
+            {
+              "name": "name",
+              "field_type": "char",
+              "required": true,
+              "readonly": false,
+              "write_use": true
+            },
+            {
+              "name": "ref",
+              "field_type": "char",
+              "required": false,
+              "readonly": false,
+              "write_use": true
+            },
+            {
+              "name": "x_open_balance",
+              "field_type": "monetary",
+              "required": false,
+              "readonly": false,
+              "write_use": true,
+              "required_custom_capability": "customer_open_balance"
+            }
+          ]
+        }
+      ],
+      "business_keys": [
+        {
+          "model": "res.country",
+          "ordered_fields": ["code"],
+          "scope_fields": []
+        },
+        {
+          "model": "res.partner",
+          "ordered_fields": ["ref"],
+          "scope_fields": []
+        }
+      ],
+      "approved_write_fields": {
+        "res.partner": [
+          "company_type",
+          "country_id",
+          "lang",
+          "name",
+          "ref",
+          "x_open_balance"
+        ]
+      }
+    },
+    "target_governance": {
+      "dependencies": [
+        {
+          "logical_dependency_id": "target:res.country.code",
+          "model": "res.country",
+          "field": "code",
+          "field_type": "char",
+          "role": "relationship_key"
+        },
+        {
+          "logical_dependency_id": "target:res.partner.ref",
+          "model": "res.partner",
+          "field": "ref",
+          "field_type": "char",
+          "role": "business_key"
+        },
+        {
+          "logical_dependency_id": "target:res.partner.x_open_balance",
+          "model": "res.partner",
+          "field": "x_open_balance",
+          "field_type": "monetary",
+          "role": "mapped_field"
+        }
+      ]
+    },
+    "quality": {
+      "regenerate_mapping_and_schema_rules": true,
+      "rules": [
+        {
+          "logical_rule_id": "quality:customers.open_balance_nonnegative",
+          "origin": "MANAGER_AUTHORED",
+          "kind": "DECIMAL_MINIMUM",
+          "dataset_id": "dataset:customers",
+          "column_ids": ["column:customers.open_balance"],
+          "parameters": {"minimum": "0.00"},
+          "severity": "BLOCK"
+        }
+      ]
+    },
+    "reference_dependencies": {
+      "references": [
+        {
+          "logical_reference_id": "reference:customer_type",
+          "name": "Customer type",
+          "contract_version": 1,
+          "content_hash": "sha256:9d96388583bfbb7825e5794bb6b702f590c4c5c7794a244ce7149c5551ae70c7",
+          "key_fields": ["source_value"],
+          "value_fields": ["target_value"],
+          "classification": "INTERNAL"
+        }
+      ]
+    },
+    "control_definitions": {
+      "controls": [
+        {
+          "logical_control_id": "control:customers.open_balance",
+          "name": "Open customer balance",
+          "dataset_id": "dataset:customers",
+          "target_field": "x_open_balance",
+          "unit": "EUR",
+          "tolerance": "0.01",
+          "calculation": "SUM",
+          "invariant_expectation": false
+        }
+      ]
+    }
+  },
+  "compatibility_hints": {
+    "datasets": [
+      {
+        "logical_dataset_id": "dataset:customers",
+        "prior_display_name": "Customer export",
+        "ordered_header_signature": [
+          "customer_code",
+          "name",
+          "language",
+          "country_alias",
+          "customer_type",
+          "open_balance"
+        ]
+      }
+    ]
+  },
+  "provenance": {
+    "recipe_id": "11111111-1111-4111-8111-111111111111",
+    "recipe_revision": 3,
+    "origin_data_version_id": "22222222-2222-4222-8222-222222222222",
+    "origin_workspace_project_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "origin_mapping_version": 11,
+    "original_submitter": {
+      "issuer": "impodo.fixture",
+      "subject_id": "data-manager-1"
+    },
+    "publisher": {
+      "issuer": "impodo.fixture",
+      "subject_id": "data-manager-1"
+    },
+    "published_at": "2026-08-19T09:00:00+02:00",
+    "reason": "TEST_REFINEMENT_PASSED"
+  }
+}

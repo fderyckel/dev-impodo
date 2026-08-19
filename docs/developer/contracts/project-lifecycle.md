@@ -8,10 +8,11 @@ status: current
 
 ## Scope
 
-One migration project is the governance boundary for one migration scope. Its
-setup selects exactly one source mode: governed files (`FILE`) or existing
-records in the configured Odoo database (`ODOO`). A project is not created per
-Odoo model.
+One migration project is the contained evidence, credential, authorization,
+and filesystem workspace for one Recipe DataVersion. Its setup selects exactly
+one source mode: governed files (`FILE`) or existing records in the configured
+Odoo database (`ODOO`). A project is not created per Odoo model and is no
+longer the reusable operator-facing aggregate root.
 
 The browser is the normal authoring interface. Stored manifests, hashes, audit
 events, and DuckDB records are machine evidence and must not be edited directly.
@@ -81,15 +82,24 @@ evidence.
 
 ## Persistence boundary
 
-The local composition stores a registry plus one protected project directory
-and DuckDB database per project. Domain and application code access artifacts
-through ports; filesystem paths are not domain contract values. Hosted
-deployments must supply their own identity, database, storage, secret, and job
-adapters.
+The local composition stores Recipe/DataVersion lineage in the registry, one
+application-encrypted protected Recipe store, plus one protected project
+directory and DuckDB database per DataVersion workspace. Domain and
+application code access artifacts through ports; filesystem paths are not
+domain contract values. Hosted deployments must supply their own identity,
+database, storage, secret, and job adapters.
 
-Projects outside the exact supported database contract are not opened or
-silently upgraded. Deletion resolves and removes only the exact registered,
-contained project after authorization and credential cleanup.
+Every registry project has one exact Recipe/DataVersion linkage. Existing
+projects receive that shell without opening their contained database during
+registry list/backfill; opening the workspace hydrates only the approved setup
+allowlist and writes the exact local linkage marker. Sealed DataVersion
+workspaces reject project mutation. Standalone project deletion is permitted
+only for an unpublished one-DataVersion bootstrap shell; otherwise deletion
+must begin at the Recipe boundary and persist an exact target enumeration.
+
+Projects outside the exact supported base database contract are not opened.
+Checksum-pinned additive Recipe linkage migrations are the only current
+in-place schema migration mechanism.
 
 ## Related documentation
 

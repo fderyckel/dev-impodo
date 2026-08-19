@@ -252,7 +252,12 @@ project deletion or retention expiry.
 
 ## ADR-012 — Project series group contained migration projects
 
-**Status:** Accepted
+**Status:** Superseded by ADR-013 on 2026-08-19
+
+This decision is retained as the historical architecture used by the original
+reusable-Recipe Phase 0 fixtures. Do not implement `ProjectSeries` or
+`series_id` from this decision. ADR-013 preserves contained project workspaces
+while replacing the aggregate and target-ownership model.
 
 **Decision:** A reusable business migration is represented by a new
 `ProjectSeries` aggregate above existing `MigrationProject` workspaces. Each
@@ -299,3 +304,88 @@ workspace while making portable business meaning reusable.
 
 The frozen proposed contract and acceptance examples are recorded in
 [Reusable recipe Phase 0 contracts](../plans/reusable-recipes-phase-0-contracts.md).
+
+## ADR-013 — Recipe is the aggregate root and target bindings are application-specific
+
+**Status:** Accepted
+
+**Decision:** Recipe is Impodo's primary business object and aggregate root.
+It owns immutable Recipe revision lineage, DataVersion lineage, qualification
+history, and the selected cutover candidate. There is no separate
+`ProjectSeries` aggregate.
+
+Each DataVersion has its own identity and provisions one existing contained
+`MigrationProject` workspace. The workspace remains the project-scoped
+authorization, credential, DuckDB, filesystem, artifact, audit, and exact
+evidence boundary. Recipe authoring and application compile through the
+existing mapping, preparation, quality, comparison, execution, and
+reconciliation pipeline rather than introducing a parallel Recipe engine.
+
+A RecipeRevision owns an environment-neutral `OdooTargetContract` containing
+required Odoo version, models, fields, types, relations, business keys, scope,
+selection codes, custom dependencies, and intended write fields. It does not
+own an endpoint, database, API key, authenticated principal, permission set,
+target snapshot, or write approval.
+
+Every Test or Production Recipe application owns a fresh `TargetBinding` to
+the exact remote endpoint/database, current credential generation,
+authenticated principal, permissions, context, schema, references, and probe
+evidence. Test and Production bindings are independent. Credential rotation
+creates a new generation and invalidates target-dependent readiness without
+changing Recipe or source semantics.
+
+One immutable RecipeRevision may become test-qualified only through exact
+application, preparation, comparison, authorized Test execution, read-back,
+controls, and reconciliation evidence. An explicitly selected cutover
+candidate pins that revision and qualification. Test qualification never
+authorizes Production: rollout uses the latest source package, a fresh
+Production TargetBinding, fresh comparison and approval, and separately
+established current write authority.
+
+**Why:** The product need is to let a data manager fine-tune reusable migration
+logic on a Test Odoo server, qualify one revision, and apply that exact logic on
+rollout day to the latest same-format-kind data on a different compatible
+Production server with different or rotated API keys. A series above one
+Recipe adds identity without business meaning. Binding Recipe to one target or
+credential would make tested logic nonportable and could transfer authority
+across environments.
+
+**Consequences:**
+
+- `recipe_id`, `data_version_id`, and `workspace_project_id` are independently
+  generated and never accepted interchangeably;
+- existing project databases are not cloned or given a DataVersion column in
+  every table;
+- existing projects backfill to one Recipe shell and one DataVersion pointing
+  to the contained project workspace;
+- RecipeDraft coordinates exact workspace authoring evidence rather than
+  duplicating all mutable drafts;
+- RecipeRevision excludes source/target snapshots, endpoints, databases,
+  credentials, principals, approvals, numeric Odoo IDs, and execution results;
+- declared parameter definitions make reviewed values such as warehouse and
+  as-of date variable per DataVersion without turning arbitrary constants into
+  mutable Recipe semantics;
+- `MappingDefinition` is the fresh evidence-bound compiled result, not the
+  reusable Recipe;
+- `RecipeApplicationEvidence` records how Recipe, DataVersion, parameters, and
+  TargetBinding produced an exact mapping or blocking assessment;
+- `RecipeQualificationEvidence` remains immutable historical Test evidence and
+  cannot satisfy Production readiness;
+- API keys remain only in the governed secret store; registry and evidence use
+  non-secret hashes, roles, generations, principals, permissions, and probes;
+- read and write bindings remain separate even if an operator supplies the same
+  secret text;
+- a credential change after comparison stops execution until the new binding
+  is probed and target-dependent evidence is refreshed;
+- publication, DataVersion creation, qualification, cutover selection, and
+  whole-Recipe deletion use idempotent cross-store intents;
+- missing prior source rows never imply deletion; and
+- all competing roadmap tracks remain deferred until the Recipe-first
+  definition of done passes.
+
+The delivery sequence and acceptance gates are defined in the
+[Recipe-first test-to-production implementation
+plan](../plans/reusable-recipes-and-data-versions-implementation-plan.md). The
+active payload, lifecycle, evidence, recovery, and bound details are frozen in
+the [Recipe-first Phase R0
+contracts](../plans/reusable-recipes-phase-r0-contracts.md).

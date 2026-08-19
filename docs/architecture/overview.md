@@ -39,8 +39,8 @@ flowchart LR
 ```
 
 The browser is server-rendered. FastAPI coordinates application services; it
-does not contain the core project, mapping, or validation rules. DuckDB and
-the filesystem are local adapters behind those rules.
+does not contain the core Recipe, project, mapping, or validation rules.
+DuckDB and the filesystem are local adapters behind those rules.
 
 ## Current capability boundary
 
@@ -61,6 +61,15 @@ The browser implements:
   and `BLOCKED` classifications;
 - an exact execution snapshot, explicit disposable local or remote loading,
   a durable write journal, and post-write reconciliation.
+
+The runtime also has the Recipe-first persistence foundation. Every existing
+project is represented by one registry-only Recipe and DataVersion shell;
+opening that workspace hydrates an allowlisted Recipe setup projection and
+writes exact local linkage. Published Recipe and qualification payloads use an
+application-encrypted protected store, while bounded registry projections hold
+lineage and recovery state. Create Recipe and Recipe-oriented browser history
+remain Phase R2 work, so current project URLs continue through explicit
+Recipe/DataVersion resolution.
 
 The repository also contains a profile-driven preflight engine and CLI. It is
 a separate entry path that retains strict CSV and declared-sheet XLSX loading
@@ -106,9 +115,9 @@ governed business keys invalidates downstream mapping evidence.
 | Layer | Responsibilities | Main modules |
 | --- | --- | --- |
 | Browser | Local route composition, workflow routers, presenters, templates, sessions, CSRF, and security headers | `web/app.py`, `web/routers/`, `web/presenters/` |
-| Application | Project commands, intake, source capture/publication, schema governance, mapping, preparation, quality, normalization, preflight, execution, and reconciliation orchestration | `projects.py`, `intake.py`, `application/source_workspace_service.py`, `application/odoo_source_capture_service.py`, `application/odoo_capture_publication_service.py`, `application/schema_workspace_service.py`, `application/mapping_workspace_service.py`, `application/preparation_service.py`, `application/quality_service.py`, `application/normalization_service.py`, `application/preflight_service.py`, `application/execution_service.py`, `application/reconciliation_service.py` |
-| Domain | Authorization, project lifecycle, source bindings and snapshots, mapping meaning, staging evaluation, execution snapshots, reconciliation, approvals, and deterministic values | `access.py`, `projects.py`, `domain/source_binding.py`, `domain/source_snapshot.py`, `domain/odoo_capture.py`, `domain/mapping/`, `domain/compiler/`, `domain/staging/`, `domain/execution.py`, `domain/reconciliation.py`, `approvals.py`, `models.py` |
-| Local adapters | Focused DuckDB repositories, artifacts, credentials, protected Odoo provenance, jobs, and resource-bounded workers | `adapters/duckdb/`, `adapters/protected_odoo_provenance.py`, `artifacts.py`, `secrets.py`, `jobs.py`, `source_worker.py`, `application/preparation_job_service.py` |
+| Application | Recipe lineage and recovery, project commands, intake, source capture/publication, schema governance, mapping, preparation, quality, normalization, preflight, execution, and reconciliation orchestration | `application/recipe_service.py`, `projects.py`, `intake.py`, `application/source_workspace_service.py`, `application/odoo_source_capture_service.py`, `application/odoo_capture_publication_service.py`, `application/schema_workspace_service.py`, `application/mapping_workspace_service.py`, `application/preparation_service.py`, `application/quality_service.py`, `application/normalization_service.py`, `application/preflight_service.py`, `application/execution_service.py`, `application/reconciliation_service.py` |
+| Domain | Authorization, Recipe/DataVersion identities, project lifecycle, source bindings and snapshots, mapping meaning, staging evaluation, execution snapshots, reconciliation, approvals, and deterministic values | `access.py`, `recipes.py`, `projects.py`, `domain/source_binding.py`, `domain/source_snapshot.py`, `domain/odoo_capture.py`, `domain/mapping/`, `domain/compiler/`, `domain/staging/`, `domain/execution.py`, `domain/reconciliation.py`, `approvals.py`, `models.py` |
+| Local adapters | Focused DuckDB repositories, protected Recipe and Odoo payloads, artifacts, credentials, jobs, and resource-bounded workers | `adapters/duckdb/`, `adapters/protected_recipe_store.py`, `adapters/protected_odoo_provenance.py`, `artifacts.py`, `secrets.py`, `jobs.py`, `source_worker.py`, `application/preparation_job_service.py` |
 | Odoo boundary | Remote JSON-2 identity and data reads, bounded source capture, fixed local metadata reads, schema-bound writes, post-write read-back, and local-stack readiness | `connectors.py`, `adapters/odoo_source_capture.py`, `local_odoo_reader.py`, `odoo_writer.py`, `odoo_readback.py`, `local_stack.py` |
 | Preflight | Compiled semantics, frozen-row adaptation, bounded read planning, comparison, and reporting | `domain/compiler/`, `domain/preflight/`, `planner.py`, `metadata.py`, `catalog.py`, `engine.py`, `reporting.py` |
 
@@ -119,13 +128,18 @@ may be replaced without changing lifecycle or mapping semantics.
 
 On Windows, the normal local root is `%LOCALAPPDATA%\Impodo\projects`. A
 configured macOS root uses owner-only permissions. The root contains a small
-registry plus one directory and DuckDB database per project. Project
+registry, an application-encrypted Recipe payload store, plus one directory
+and DuckDB database per project. The registry owns Recipe and DataVersion
+lineage, bounded application/qualification projections, cutover selection,
+and restart-safe intents without scanning project databases. Project
 directories separate inbox, staging, snapshots, reports, and audit artifacts;
 canonical staging, prepared Parquet snapshots, protected target evidence,
 execution journals, and reconciliation results are implemented within those
-boundaries. The current build accepts one exact project-database generation and
-version. A project from another generation is rejected rather than upgraded or
-read through a compatibility adapter.
+boundaries. The current build accepts one exact base project-database
+generation and version, then applies only checksum-pinned additive Recipe
+workspace migrations through a local ledger. A project from another base
+generation or version is rejected rather than read through a compatibility
+adapter.
 
 Important evidence is immutable or versioned:
 

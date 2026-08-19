@@ -1,17 +1,27 @@
-# Reusable recipe Phase 0 contracts
+# Historical reusable Recipe Phase 0 contracts
 
 ## Status and authority
 
-**Status:** Frozen proposed contract from 2026-08-18. It constrains later
-recipe phases but does not describe implemented browser or persistence
-behavior.
+**Status:** Superseded architecture snapshot from 2026-08-18.
 
-The implementation plan remains
-[Reusable recipes and data versions](reusable-recipes-and-data-versions-implementation-plan.md).
-This document makes its Phase 0 decisions precise enough for deterministic
-fixtures and review. A later phase may change a frozen shape only by updating
-this document, its fixture hashes, the decision record, and all affected
-acceptance cases in the same change.
+This document and its deterministic fixtures record the original
+`ProjectSeries` proposal. They remain historical evidence for the completed
+contract-design and mapping-v11 work, but they no longer constrain future
+Recipe persistence or lifecycle implementation. Do not implement
+`ProjectSeries`, `series_id`, series-owned target settings, or credential-copy
+behavior from this snapshot.
+
+The active authority is the
+[Recipe-first test-to-production implementation
+plan](reusable-recipes-and-data-versions-implementation-plan.md) and
+[ADR-013](../decisions/README.md#adr-013--recipe-is-the-aggregate-root-and-target-bindings-are-application-specific).
+Phase R0 of that plan replaces these aggregate/lifecycle fixtures with Recipe,
+DataVersion, application-specific TargetBinding, qualification, cutover, and
+credential-rotation contracts. Mapping contract v11 and its implemented
+evidence boundary remain valid.
+
+The replacement is now frozen in the
+[Recipe-first Phase R0 contracts](reusable-recipes-phase-r0-contracts.md).
 
 ## 1. Scope
 
@@ -424,9 +434,10 @@ browser actions, mapping contract v11 parsing, recipe application, credential
 copy, or deletion behavior. Those remain unavailable until their implementation
 phase and focused tests land.
 
-The authoritative roadmap recorded the required product-ownership priority
-decision on 2026-08-18 and opened Phase 1. This frozen Phase 0 contract still
-does not claim that recipe publication, series, or edition behavior exists.
+The authoritative roadmap opened and completed the mapping-v11 foundation on
+2026-08-18, then superseded this aggregate design on 2026-08-19. This historical
+contract does not claim that Recipe publication, DataVersion, application,
+qualification, or cutover behavior currently exists.
 
 ## Related documentation
 

@@ -68,6 +68,12 @@ series/edition persistence, rebinding drafts, and the intent/outbox work remain
 future phases. Per the authoritative roadmap, related/mixed 100,000-row
 qualification resumes as the next priority.
 
+**Subsequent priority decision, 2026-08-19:** Product ownership superseded the
+project-series architecture, made Recipe-first Test-to-Production reuse the
+only active product-delivery track, and deferred the related/mixed 100,000-row
+qualification again. This does not change the Phase 1 evidence or implemented
+mapping-v11 boundary.
+
 ## Related documentation
 
 - [Implementation plan](../plans/reusable-recipes-and-data-versions-implementation-plan.md)

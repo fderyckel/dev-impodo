@@ -592,6 +592,14 @@ infrastructure.
 
 ## 8. Delivery roadmap
 
+**Current priority note, 2026-08-19:** The historical capability phases below
+describe the wider product progression. Product ownership has made the
+[Recipe-first Test-to-Production plan](plans/reusable-recipes-and-data-versions-implementation-plan.md)
+the only active product-delivery track. Scale expansion, general certification,
+general production hardening, Odoo-source guarded updates, gateway, and hosted
+work remain deferred under the
+[authoritative remaining-work roadmap](plans/remaining-work.md).
+
 ### Phase 1 — Source discovery
 
 - build sheet/table inventory and preview above the strict XLSX reader;

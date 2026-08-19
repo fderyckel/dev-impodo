@@ -3,9 +3,10 @@
 ## Current conclusion
 
 The repository has automated evidence for the current browser workflow,
-profile-driven preflight, local-stack controls, security boundaries, and
-internal release process. The maintained preflight fixture produces all five
-classifications, and unchanged saved inputs produce deterministic manifests.
+Recipe/DataVersion persistence and recovery, profile-driven preflight,
+local-stack controls, security boundaries, and internal release process. The
+maintained preflight fixture produces all five classifications, and unchanged
+saved inputs produce deterministic manifests.
 
 Do not copy a fixed test count into documentation. The discovered suite is the
 current executable inventory; optional environment-gated integrations must be
@@ -94,6 +95,7 @@ the original source unavailable.
 
 | Area | Current test modules |
 | --- | --- |
+| Recipe contracts, persistence, protected storage, and recovery | `test_recipe_phase_r0_contract`, `test_recipe_persistence` |
 | Browser projects and source workflow | `test_projects`, `test_inspection`, `test_workspace`, `test_source_snapshot`, `test_source_snapshot_io`, `test_web_app` |
 | Mapping, preparation, staging, and quality | `test_mapping_validation`, `test_derived_entities`, `test_advanced_coverage`, `test_preparation_session`, `test_readiness`, `test_staging_store`, `test_quality` |
 | Profile-driven preflight and practical execution | `test_profile_and_values`, `test_source_and_planner`, `test_catalog_metadata`, `test_engine`, `test_connectors`, `test_preflight_service`, `test_execution_snapshot`, `test_execution_service`, `test_execution_repository`, `test_preflight_scale`, `test_reporting_cli` |

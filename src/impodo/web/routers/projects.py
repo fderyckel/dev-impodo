@@ -164,6 +164,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
     async def open_project(request: Request, project_id: str):
         require_session(request)
         project = context.queries.get(project_id)
+        context.recipes.hydrate_legacy_project(project, actor=context.actor)
         destination = (
             "overview" if project.status is ProjectStatus.REGISTERED else "details"
         )
@@ -176,6 +177,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
     async def project_overview(request: Request, project_id: str):
         require_session(request)
         project = context.queries.get(project_id)
+        context.recipes.hydrate_legacy_project(project, actor=context.actor)
         if project.status is not ProjectStatus.REGISTERED:
             return RedirectResponse(
                 f"/projects/{project.project_id}/details",

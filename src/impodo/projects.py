@@ -185,6 +185,14 @@ class ProjectRepository(Protocol):
         """Return lightweight registry projections without opening every project."""
         ...
 
+    def assert_workspace_mutable(self, project_id: str) -> None:
+        """Reject mutation when Recipe/DataVersion lifecycle seals the workspace."""
+        ...
+
+    def assert_standalone_project_deletion_allowed(self, project_id: str) -> None:
+        """Permit the legacy delete route only for an unpublished one-workspace shell."""
+        ...
+
     def delete(
         self,
         project_id: str,
@@ -350,6 +358,9 @@ class ProjectService:
             project_id=canonical_project_id,
         )
         project = self.repository.get_for_deletion(canonical_project_id)
+        self.repository.assert_standalone_project_deletion_allowed(
+            canonical_project_id
+        )
         if project.revision != expected_revision:
             raise ProjectConflictError(
                 "The project changed in another request; reload before deleting"
@@ -523,6 +534,7 @@ class ProjectService:
             project_id=project_id,
         )
         project = self.repository.get(project_id)
+        self.repository.assert_workspace_mutable(project.project_id)
         if project.revision != expected_revision:
             raise ProjectConflictError(
                 "The project changed in another request; reload before continuing"
@@ -754,6 +766,7 @@ class ProjectService:
             project_id=project_id,
         )
         project = self.repository.get(project_id)
+        self.repository.assert_workspace_mutable(project.project_id)
         if project.revision != expected_revision:
             raise ProjectConflictError(
                 "The project changed in another request; reload before continuing"
@@ -812,6 +825,7 @@ class ProjectService:
             project_id=project_id,
         )
         project = self.repository.get(project_id)
+        self.repository.assert_workspace_mutable(project.project_id)
         if project.revision != expected_revision:
             raise ProjectConflictError(
                 "The project changed in another request; reload before continuing"

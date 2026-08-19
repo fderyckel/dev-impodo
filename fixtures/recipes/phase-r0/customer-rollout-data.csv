@@ -1,0 +1,5 @@
+customer_code,name,language,country_alias,customer_type,open_balance,marketing_segment
+CUST-001,Alpha Retail Group,German,FRA,Company,1500000.00,Strategic
+CUST-002,Beta Services,French,BEL,Company,2000000.00,Core
+CUST-004,Delta Advisory,French,LUX,Individual,1600000.00,Growth
+CUST-005,Epsilon Trading,English,BEL,Company,900000.00,Growth

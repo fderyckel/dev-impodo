@@ -13,6 +13,7 @@ from .preflight import create_preflight_schema
 from .preparation_session import create_preparation_session_schema
 from .prepared_snapshot import create_prepared_snapshot_schema
 from .reconciliation import create_reconciliation_schema
+from .recipe_workspace import ensure_recipe_workspace_schema
 from .source_snapshot import create_source_snapshot_schema
 
 
@@ -604,6 +605,7 @@ class ProjectSchemaMixin:
         create_source_snapshot_schema(connection)
         create_prepared_snapshot_schema(connection)
         create_derived_value_artifact_schema(connection)
+        ensure_recipe_workspace_schema(connection)
 
     def _ensure_project_database_schema(
         self,
@@ -629,3 +631,4 @@ class ProjectSchemaMixin:
                 "This project uses a different Impodo data contract and cannot "
                 "be opened by this build."
             )
+        ensure_recipe_workspace_schema(connection)
