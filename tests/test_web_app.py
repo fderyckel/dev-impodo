@@ -150,6 +150,23 @@ def _wait_for_odoo_capture(
     raise AssertionError("background Odoo capture did not finish in time")
 
 
+def _created_workspace_id(app, response) -> str:
+    recipe_id = response.headers["location"].split("/")[2]
+    recipe = app.state.context.recipes.get(
+        recipe_id,
+        actor=app.state.context.actor,
+    )
+    versions = app.state.context.recipes.data_versions(
+        recipe_id,
+        actor=app.state.context.actor,
+    )
+    return next(
+        item.workspace_project_id
+        for item in versions
+        if item.data_version_id == recipe.current_data_version_id
+    )
+
+
 class LocalBrowserSecurityTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
@@ -167,7 +184,7 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_launch_session_host_and_origin_controls(self) -> None:
-        unauthenticated = self.client.get("/projects")
+        unauthenticated = self.client.get("/recipes")
         self.assertEqual(unauthenticated.status_code, 401)
 
         wrong_host = self.client.get(
@@ -190,7 +207,7 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         )
         self.assertEqual(reused.status_code, 401)
 
-        projects = self.client.get("/projects")
+        projects = self.client.get("/recipes")
         self.assertEqual(projects.status_code, 200)
         self.assertIn(
             '<span class="brand-tagline">Prepare clean data for Odoo</span>',
@@ -207,10 +224,12 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         self.assertIn("flag-luxembourg.svg", projects.text)
         self.assertEqual(projects.headers["x-frame-options"], "DENY")
         self.assertIn("frame-ancestors 'none'", projects.headers["content-security-policy"])
+        self.assertEqual(self.client.get("/projects").status_code, 404)
+        self.assertEqual(self.client.get("/projects/new").status_code, 404)
 
         csrf = _csrf(projects.text)
         missing_origin = self.client.post(
-            "/projects/new",
+            "/recipes/new",
             data={
                 "csrf_token": csrf,
                 "name": "Blocked",
@@ -220,7 +239,7 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         self.assertEqual(missing_origin.status_code, 403)
 
         origin_fallback = self.client.post(
-            "/projects/new",
+            "/recipes/new",
             data={
                 "csrf_token": csrf,
                 "name": "Origin fallback",
@@ -232,19 +251,19 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         self.assertEqual(origin_fallback.status_code, 303)
 
         referer_fallback = self.client.post(
-            "/projects/new",
+            "/recipes/new",
             data={
                 "csrf_token": csrf,
                 "name": "Referer fallback",
                 "source_system": "Other",
             },
-            headers={"Referer": "http://testserver/projects/new"},
+            headers={"Referer": "http://testserver/recipes/new"},
             follow_redirects=False,
         )
         self.assertEqual(referer_fallback.status_code, 303)
 
         cross_site = self.client.post(
-            "/projects/new",
+            "/recipes/new",
             data={
                 "csrf_token": csrf,
                 "name": "Cross-site",
@@ -258,13 +277,13 @@ class LocalBrowserSecurityTests(unittest.TestCase):
         self.assertEqual(cross_site.status_code, 403)
 
         hostile_referer = self.client.post(
-            "/projects/new",
+            "/recipes/new",
             data={
                 "csrf_token": csrf,
                 "name": "Hostile",
                 "source_system": "Other",
             },
-            headers={"Referer": "http://testserver.attacker.example/projects/new"},
+            headers={"Referer": "http://testserver.attacker.example/recipes/new"},
         )
         self.assertEqual(hostile_referer.status_code, 403)
 
@@ -426,10 +445,10 @@ class LocalStackBrowserTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(launched.status_code, 303)
-        projects = self.client.get("/projects")
+        projects = self.client.get("/recipes")
         self.csrf = _csrf(projects.text)
         created = self.client.post(
-            "/projects/new",
+            "/recipes/new",
             data={
                 "csrf_token": self.csrf,
                 "name": "Local readiness",
@@ -438,7 +457,7 @@ class LocalStackBrowserTests(unittest.TestCase):
             headers=POST_HEADERS,
             follow_redirects=False,
         )
-        self.project_id = created.headers["location"].split("/")[2]
+        self.project_id = _created_workspace_id(self.app, created)
 
     def tearDown(self) -> None:
         self.client.close()
@@ -1012,7 +1031,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(launched.status_code, 303)
-        self.csrf = _csrf(self.client.get("/projects").text)
+        self.csrf = _csrf(self.client.get("/recipes").text)
 
     def tearDown(self) -> None:
         self.client.close()
@@ -1022,14 +1041,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self,
     ) -> None:
         created = self._post(
-            "/projects/new",
+            "/recipes/new",
             {
                 "csrf_token": self.csrf,
                 "name": "Customer migration",
                 "source_system": "Dynamics AX 2012",
             },
         )
-        project_id = created.headers["location"].split("/")[2]
+        project_id = _created_workspace_id(self.app, created)
 
         page = self.client.get(f"/projects/{project_id}/governance")
 
@@ -1187,14 +1206,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self,
     ) -> None:
         created = self._post(
-            "/projects/new",
+            "/recipes/new",
             {
                 "csrf_token": self.csrf,
                 "name": "Remote connection feedback",
                 "source_system": "Other",
             },
         )
-        project_id = created.headers["location"].split("/")[2]
+        project_id = _created_workspace_id(self.app, created)
         target_form = self.client.get(f"/projects/{project_id}/target")
         self.assertIn('name="read_api_key"', target_form.text)
         self.assertIn('name="remember_read_api_key"', target_form.text)
@@ -1295,14 +1314,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.app.state.context.connection_tester = rejected_connection
         created = self._post(
-            "/projects/new",
+            "/recipes/new",
             {
                 "csrf_token": self.csrf,
                 "name": "Rejected remote connection",
                 "source_system": "Other",
             },
         )
-        project_id = created.headers["location"].split("/")[2]
+        project_id = _created_workspace_id(self.app, created)
 
         tested = self.client.post(
             f"/projects/{project_id}/target",
@@ -1341,14 +1360,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         self.app.state.context.read_identity_probe = denied_identity
         created = self._post(
-            "/projects/new",
+            "/recipes/new",
             {
                 "csrf_token": self.csrf,
                 "name": "Read principal permission",
                 "source_system": "Other",
             },
         )
-        project_id = created.headers["location"].split("/")[2]
+        project_id = _created_workspace_id(self.app, created)
 
         tested = self.client.post(
             f"/projects/{project_id}/target",
@@ -1414,14 +1433,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
             with self.subTest(support_code=support_code):
                 self.app.state.context.connection_tester = tester
                 created = self._post(
-                    "/projects/new",
+                    "/recipes/new",
                     {
                         "csrf_token": self.csrf,
                         "name": f"Remote failure {index}",
                         "source_system": "Other",
                     },
                 )
-                project_id = created.headers["location"].split("/")[2]
+                project_id = _created_workspace_id(self.app, created)
                 tested = self.client.post(
                     f"/projects/{project_id}/target",
                     data={
@@ -1443,18 +1462,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 self.assertIn(support_code, result.text)
                 self.assertNotIn(f"secret-{index}", result.text)
 
-    def test_project_list_permanently_deletes_project_after_confirmation(
+    def test_recipe_list_permanently_deletes_draft_after_confirmation(
         self,
     ) -> None:
         created = self._post(
-            "/projects/new",
+            "/recipes/new",
             {
                 "csrf_token": self.csrf,
                 "name": "Disposable rehearsal",
                 "source_system": "Other",
             },
         )
-        project_id = created.headers["location"].split("/")[2]
+        recipe_id = created.headers["location"].split("/")[2]
+        project_id = _created_workspace_id(self.app, created)
         project = self.app.state.context.projects.repository.get(project_id)
         targeted = self._post(
             f"/projects/{project_id}/target",
@@ -1475,62 +1495,69 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         project = self.app.state.context.projects.repository.get(project_id)
         project_dir = self.app.state.context.projects.repository.project_directory(project_id)
-        project_list = self.client.get("/projects")
+        recipe_list = self.client.get("/recipes")
         self.assertIn(
-            f'action="/projects/{project_id}/delete"',
-            project_list.text,
+            f'action="/recipes/{recipe_id}/delete"',
+            recipe_list.text,
         )
-        self.assertIn('data-project-delete-dialog', project_list.text)
-        self.assertIn('data-project-delete-trigger', project_list.text)
-        self.assertIn('bootstrap-icons.svg#trash3', project_list.text)
+        self.assertIn('data-recipe-delete-dialog', recipe_list.text)
+        self.assertIn('data-recipe-delete-trigger', recipe_list.text)
+        self.assertIn('bootstrap-icons.svg#trash3', recipe_list.text)
         self.assertIn(
-            "This deletes the project, uploaded files, mappings, reports, and audit",
-            project_list.text,
+            "This deletes the Recipe draft, its contained workspace, uploaded files",
+            recipe_list.text,
         )
-        self.assertIn("This cannot be undone.", project_list.text)
-        self.assertNotIn("does not change Odoo", project_list.text)
+        self.assertIn("This cannot be undone.", recipe_list.text)
+        self.assertNotIn("does not change Odoo", recipe_list.text)
         self.assertNotIn(
             "Records already created or updated in Odoo will remain",
-            project_list.text,
+            recipe_list.text,
+        )
+
+        recipe = self.app.state.context.recipes.get(
+            recipe_id,
+            actor=self.app.state.context.actor,
         )
 
         stale = self._post(
-            f"/projects/{project_id}/delete",
+            f"/recipes/{recipe_id}/delete",
             {
                 "csrf_token": self.csrf,
-                "revision": str(project.revision - 1),
+                "recipe_revision": str(recipe.optimistic_revision),
+                "workspace_revision": str(project.revision - 1),
             },
         )
         self.assertEqual(stale.status_code, 422)
-        self.assertIn("This page is out of date", stale.text)
+        self.assertIn("Recipe workspace changed", stale.text)
         self.assertIn("<summary>Support details</summary>", stale.text)
         self.assertTrue(project_dir.is_dir())
         self.assertEqual(len(self.secrets.values), 1)
 
         deleted = self._post(
-            f"/projects/{project_id}/delete",
+            f"/recipes/{recipe_id}/delete",
             {
                 "csrf_token": self.csrf,
-                "revision": str(project.revision),
+                "recipe_revision": str(recipe.optimistic_revision),
+                "workspace_revision": str(project.revision),
             },
         )
         self.assertEqual(deleted.status_code, 303)
-        self.assertEqual(deleted.headers["location"], "/projects")
+        self.assertEqual(deleted.headers["location"], "/recipes")
         self.assertFalse(project_dir.exists())
         self.assertEqual(self.secrets.values, {})
         missing = self.client.get(f"/projects/{project_id}")
         self.assertEqual(missing.status_code, 404)
         refreshed = self.client.get(deleted.headers["location"])
         self.assertIn(
-            'Deleted project "Disposable rehearsal".',
+            'Deleted Recipe "Disposable rehearsal".',
             unescape(refreshed.text),
         )
 
         script = self.client.get("/static/app.js")
-        self.assertIn("projectDeleteDialog.showModal()", script.text)
+        self.assertIn("recipeDeleteDialog.showModal()", script.text)
         self.assertIn("form?.requestSubmit()", script.text)
 
-    def test_incompatible_project_explains_recovery_and_remains_deletable(
+    def test_incompatible_project_explains_recovery(
         self,
     ) -> None:
         context = self.app.state.context
@@ -1552,22 +1579,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         opened = self.client.get(f"/projects/{project.project_id}")
         self.assertEqual(opened.status_code, 409)
         self.assertIn("uses a different Impodo data contract", opened.text)
-        self.assertIn(
-            f'action="/projects/{project.project_id}/delete"',
-            opened.text,
-        )
         self.assertNotIn("Traceback", opened.text)
-
-        deleted = self._post(
-            f"/projects/{project.project_id}/delete",
-            {
-                "csrf_token": self.csrf,
-                "revision": str(project.revision),
-            },
-        )
-        self.assertEqual(deleted.status_code, 303)
-        self.assertEqual(deleted.headers["location"], "/projects")
-        self.assertFalse(project_dir.exists())
 
     def test_load_receipt_rows_offer_twenty_or_fifty_with_pagination(self) -> None:
         context = self.app.state.context
@@ -2041,12 +2053,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
     def test_odoo_source_setup_skips_file_export_and_opens_schema_first(
         self,
     ) -> None:
-        new_page = self.client.get("/projects/new")
+        new_page = self.client.get("/recipes/new")
         self.assertIn("Use files", new_page.text)
         self.assertIn("Use data already in Odoo", new_page.text)
 
         created = self._post(
-            "/projects/new",
+            "/recipes/new",
             {
                 "csrf_token": self.csrf,
                 "name": "Odoo product cleanup",
@@ -2054,8 +2066,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "source_mode": "ODOO",
             },
         )
-        project_id = created.headers["location"].split("/")[2]
-        details_page = self.client.get(created.headers["location"])
+        project_id = _created_workspace_id(self.app, created)
+        details_page = self.client.get(f"/projects/{project_id}/details")
         self.assertIn("Source: data already in Odoo", details_page.text)
         self.assertNotIn("Have you received the final files?", details_page.text)
 
@@ -2516,7 +2528,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
     def test_complete_project_setup_registration_without_yaml(self) -> None:
         created = self._post(
-            "/projects/new",
+            "/recipes/new",
             {
                 "csrf_token": self.csrf,
                 "name": "Customer migration",
@@ -2524,7 +2536,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         self.assertEqual(created.status_code, 303)
-        project_id = created.headers["location"].split("/")[2]
+        project_id = _created_workspace_id(self.app, created)
 
         details = self._post(
             f"/projects/{project_id}/details",
@@ -4290,14 +4302,14 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
     def test_saved_key_is_not_reused_after_target_change(self) -> None:
         created = self._post(
-            "/projects/new",
+            "/recipes/new",
             {
                 "csrf_token": self.csrf,
                 "name": "Credential binding",
                 "source_system": "Other",
             },
         )
-        project_id = created.headers["location"].split("/")[2]
+        project_id = _created_workspace_id(self.app, created)
         local = self._post(
             f"/projects/{project_id}/target",
             {

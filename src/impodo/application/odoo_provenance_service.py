@@ -369,12 +369,12 @@ class OdooProvenanceService:
             actor=actor,
         )
 
-    def delete_project_key(self, project_id: str, *, actor: Actor) -> None:
-        """Remove the application-encryption key during governed deletion."""
+    def delete_recipe_workspace_key(self, project_id: str, *, actor: Actor) -> None:
+        """Remove one workspace key during governed Recipe deletion."""
 
         self._authorization.require(
             actor,
-            Capability.PROJECT_DELETE,
+            Capability.RECIPE_DELETE,
             project_id=project_id,
         )
         self._secrets.delete(_key_id(project_id))

@@ -5,14 +5,14 @@
 **Status:** Active implementation plan from 2026-08-19 and the only current
 product-delivery priority.
 
-Phases R0 through R4 completed on 2026-08-19. Phase R5 is the current
-implementation phase. The frozen active contracts are in the
+Phases R0 through R4 and the R4.5 clean-root consolidation completed on
+2026-08-19. Phase R5 is the current implementation phase. The active contracts
+are in the
 [Recipe-first Phase R0 contract](reusable-recipes-phase-r0-contracts.md).
 
-Product ownership replaced the earlier project-series proposal with a
-Recipe-first architecture. The earlier Phase 0 `ProjectSeries` contract is a
-superseded historical design snapshot and must not be implemented. The mapping
-contract v11 work completed on 2026-08-18 remains valid foundation work.
+Product ownership replaced and removed the earlier project-series proposal with
+a Recipe-first architecture. The mapping contract v11 work completed on
+2026-08-18 remains valid foundation work.
 The aggregate, target, credential, qualification, and cutover boundaries are
 accepted in
 [ADR-013](../decisions/README.md#adr-013--recipe-is-the-aggregate-root-and-target-bindings-are-application-specific).
@@ -516,8 +516,9 @@ and reconciliation recovery. Recipe reuse never authorizes blind retry.
 
 ### 9.1 Create and author
 
-The normal journey starts with **Create Recipe**. Impodo creates the Recipe
-root, reserves DataVersion 1, and provisions a clean contained workspace.
+The normal journey starts with **Create Recipe**. Impodo natively creates the
+Recipe root, DataVersion 1, and its clean contained workspace as one recoverable
+creation operation.
 
 The data manager completes source inspection, Odoo target inspection, mapping,
 preparation, quality, references, parameters, and controls through existing
@@ -535,8 +536,8 @@ stores the protected payload, records provenance, and advances the current
 RecipeRevision through an idempotent publication intent.
 
 An interruption after mapping submission leaves the mapping submitted and the
-publication intent retryable. It never points current at a missing or corrupt
-payload.
+publication intent recoverable. Recovery either finishes the exact operation or
+abandons it without pointing current at a missing or corrupt payload.
 
 ### 9.3 Test and fine-tune
 
@@ -625,12 +626,10 @@ Add a transactionally versioned registry migration and bounded tables.
 `recipe`
 
 - `recipe_id` UUID primary key;
-- display name, business purpose, lifecycle state, classification, and
-  retention policy;
+- display name, business purpose, classification, and retention policy;
 - current RecipeRevision pointer;
 - optional cutover-candidate pointer;
-- current DataVersion pointer and optional pending DataVersion pointer;
-- setup-hydration state/hash for legacy projects;
+- current DataVersion pointer;
 - optimistic revision; and
 - created/updated timestamps.
 
@@ -652,9 +651,9 @@ Add a transactionally versioned registry migration and bounded tables.
 - independent `workspace_project_id`;
 - optional parent DataVersion;
 - purpose: `AUTHORING`, `TEST`, or `PRODUCTION`;
-- lifecycle state: `PENDING`, `ACTIVE`, `SEALED`, or `ABANDONED`;
+- lifecycle state: `ACTIVE` or `SEALED`;
 - pinned Recipe revision, nullable during initial authoring;
-- label, export/as-of date, parameter hash, and intake status;
+- label, export/as-of date, and parameter hash;
 - bounded workflow/row/status projections; and
 - created/sealed actor and timestamps.
 
@@ -690,6 +689,9 @@ contains only bounded projections and protected storage keys.
 - optimistic Recipe revision used for selection; and
 - selecting actor and timestamp.
 
+Selections are append-only history. `recipe.cutover_candidate_id` identifies the
+current selection without overwriting any prior qualified selection.
+
 ### 10.2 Protected RecipeStore
 
 Recipe payloads and confidential qualification/application evidence use a
@@ -710,41 +712,35 @@ Do not add a DataVersion discriminator to all existing project tables.
 
 ### 10.4 Intents and outboxes
 
-Cross-store operations use explicit idempotent intents:
+Cross-store operations use explicit idempotent intents for:
 
-- Recipe creation and initial workspace reservation;
 - Recipe publication;
 - DataVersion/workspace creation and activation;
 - qualification publication;
 - cutover-candidate selection where protected evidence and registry pointers
-  cross stores; and
-- whole-Recipe deletion.
+  cross stores.
+
+Initial Recipe/workspace creation uses the project-registry synchronization
+journal because no Recipe aggregate exists yet. An unpublished Recipe draft is
+deleted directly after exact Recipe and workspace revisions are validated.
+Published Recipe deletion remains outside the current product surface.
 
 Credential entry and rotation use the existing secret-store boundary and
 project credential events. There is no Test-to-Production credential-copy
 intent. Optional reuse of a saved credential on the exact same target remains
 an explicit separately authorized action and always requires a new probe.
 
-Deletion first tombstones the Recipe and persists the exact enumerated Recipe,
-revision, qualification, DataVersion, project, credential, key, artifact, job,
-and directory targets. Recovery deletes only those persisted targets.
+### 10.5 Clean-root migration and provisional workspaces
 
-### 10.5 Existing-project migration
+Every newly created workspace is Recipe-native. There is no shell backfill,
+lazy hydration, bootstrap adoption, or standalone-project creation route.
 
-Backfill each existing `project_registry` row as:
-
-- a newly generated `recipe_id` distinct from the project ID;
-- one newly generated `data_version_id`;
-- DataVersion number `1` with the existing project as
-  `workspace_project_id`;
-- lifecycle state `ACTIVE`;
-- setup hydration `PENDING`; and
-- no current RecipeRevision until an authorized, eligible current mapping is
-  explicitly published.
-
-Backfill is idempotent and does not open every project database during list
-queries. Lazy hydration opens only the authorized current workspace and copies
-the exact allowlisted Recipe-owned metadata.
+The clean-root registry migration removes the superseded bootstrap columns,
+single-active Recipe state, inert retry counter, deletion-intent tables, and
+single-row cutover constraint while preserving valid Recipe, DataVersion, and
+cutover history. A later DataVersion workspace is temporarily unlinked only
+while it is being provisioned. Startup retains it only when an incomplete exact
+DataVersion-creation intent references it; otherwise startup removes it.
 
 ## 11. Authorization and isolation
 
@@ -855,9 +851,9 @@ Opening a sealed historical workspace is read-only and never makes it current.
 ## 13. Failure and recovery invariants
 
 - A stale Recipe optimistic revision cannot publish, reserve a DataVersion, or
-  replace the cutover candidate.
-- A pending DataVersion never displaces the current active one before its
-  workspace is fully linked.
+  select a new cutover candidate.
+- A provisional workspace never displaces the current active DataVersion before
+  its exact creation intent commits.
 - Interrupted Recipe publication creates or reuses exactly one semantic
   revision.
 - Corrupt Recipe bytes fail payload verification before parse.
@@ -874,7 +870,8 @@ Opening a sealed historical workspace is read-only and never makes it current.
   a new application.
 - Missing source records never imply target deletion.
 - Unknown writes are reconciled before retry.
-- Deletion recovery touches only exact enumerated targets.
+- Draft deletion validates exact Recipe and workspace revisions before removing
+  credentials, keys, contained workspace state, and registry lineage.
 
 ## 14. Performance and boundedness
 
@@ -960,27 +957,27 @@ the gate. This phase intentionally makes no browser or runtime behavior change.
 
 **Status:** Completed on 2026-08-19.
 
-- Add registry migration ledger and independent Recipe/DataVersion backfill.
+- Add the registry migration ledger and native Recipe/DataVersion creation.
 - Implement Recipe repository, bounded projections, lifecycle policy, protected
   RecipeStore, and project linkage/seal markers.
-- Add publication, DataVersion creation, qualification, cutover selection, and
-  Recipe deletion intents with fault injection.
+- Add publication, DataVersion creation, qualification, and cutover-selection
+  intents with fault injection.
 - Add Recipe/DataVersion/application/qualification contracts and authorization.
 - Preserve current project routes temporarily through explicit Recipe and
   DataVersion resolution.
 
-**Gate:** every existing project appears as a one-DataVersion Recipe without
-opening its database during list queries; Recipe, DataVersion, and project IDs
-cannot be confused; interruption recovery is deterministic.
+**Gate:** every creation produces one Recipe with one authoring DataVersion
+without opening workspace databases during list queries; Recipe, DataVersion,
+and project IDs cannot be confused; interruption recovery is deterministic.
 
 **Evidence:** the
 [Phase R1 implementation report](../reports/reusable-recipes-phase-r1-persistence-2026-08-19.md)
 and focused
 [`test_recipe_persistence`](../../tests/test_recipe_persistence.py) suite cover
-registry-only backfill/listing, disjoint identity resolution, encrypted
+registry-only listing, disjoint identity resolution, encrypted
 protected storage, project linkage and sealing, runtime publication guards,
-and fault recovery for publication, DataVersion creation, qualification,
-cutover selection, and deletion target enumeration.
+and fault recovery for publication, DataVersion creation, qualification, and
+cutover selection.
 
 ### Phase R2 - Create, author, and publish a Customer Recipe
 
@@ -992,7 +989,8 @@ cutover selection, and deletion target enumeration.
   references, parameters, and controls into logical RecipeDefinition.
 - Reject every unsupported or nonportable construct with one recovery action.
 - Store and verify semantic/payload hashes and publication provenance.
-- Support explicit bootstrap of an eligible existing project.
+- Keep the existing matching and downstream workspace screens as contained
+  Recipe authoring surfaces.
 
 **Gate:** semantically identical Customer authoring over different physical
 file/project IDs produces the same Recipe semantic hash; every semantic change
@@ -1002,7 +1000,7 @@ produces a new immutable revision.
 [Phase R2 implementation report](../reports/reusable-recipes-phase-r2-authoring-2026-08-19.md)
 and focused
 [`test_recipe_authoring`](../../tests/test_recipe_authoring.py) suite cover
-Recipe-native creation, project-route compatibility, readiness projection,
+Recipe-native creation, contained workspace routing, readiness projection,
 portable compilation, exact envelope validation, identity-independent hashes,
 semantic-change hashes, publication, and revision history.
 
@@ -1058,6 +1056,32 @@ and registry persistence tests cover exact Test readiness, immutable protected
 qualification, explicit outcome confirmation, stale target credentials,
 current-revision-only status, explicit rollout-candidate selection, and the
 focused Recipe UI layered over the existing six-stage workspace.
+
+### Phase R4.5 - Consolidate the clean Recipe root
+
+**Status:** Completed on 2026-08-19.
+
+- Remove Recipe shells, project backfill, lazy setup hydration, bootstrap
+  adoption, standalone project deletion, deletion intents, and list/create route
+  aliases.
+- Make creation native and restart-safe with exact Recipe, DataVersion, and
+  workspace identities from the first write.
+- Keep only meaningful DataVersion and intent states; remove inert Recipe state,
+  retry counters, and obsolete setup/intake fields.
+- Make cutover selections append-only and retain the current pointer on Recipe.
+- Delete unpublished drafts through Recipe ownership and keep published deletion
+  outside the current product surface.
+- Preserve the familiar contained workspace UI while making `/recipes` and
+  `/recipes/new` the only list and creation entry points.
+
+**Gate:** a clean install and an upgraded development registry expose the same
+Recipe-native model; restart completes reserved DataVersion creation, removes
+true provisional orphans, and never resurrects a compatibility shell.
+
+**Evidence:** the
+[Phase R4.5 clean-root report](../reports/reusable-recipes-phase-r4-5-clean-root-2026-08-19.md),
+focused persistence, authoring, web, hosting, and workspace tests, and the full
+regression suite.
 
 ### Phase R5 - Run qualified Recipe with latest Production data
 
@@ -1169,8 +1193,9 @@ rejected until v4 qualifies.
 ### 16.10 Interruption and concurrency
 
 Stale or concurrent publication, DataVersion creation, qualification, cutover
-selection, activation, and deletion commands cannot create two current pointers
-or lose the last valid state. Every retry is idempotent.
+selection, activation, and draft deletion commands cannot create two current
+pointers, erase selection history, or lose the last valid state. Recoverable
+cross-store operations are idempotent.
 
 ### 16.11 Authorization and isolation
 
@@ -1224,8 +1249,9 @@ Focused tests include:
 - Recipe semantic/payload hashing and bounds;
 - registry migration and ID confusion;
 - protected-store integrity;
-- publication, DataVersion, qualification, cutover, and deletion fault
-  injection;
+- publication, DataVersion, qualification, and cutover fault injection;
+- native creation recovery, provisional-workspace cleanup, and exact draft
+  deletion conflicts;
 - application compatibility and binding override persistence;
 - Test/Production target contract compatibility;
 - credential generation, principal, ACL, expiry, rotation, and redaction;
@@ -1306,8 +1332,8 @@ and fixes remain allowed; competing feature/scale plans stay deferred.
 The Recipe-first feature is implemented only when:
 
 - Recipe is the aggregate root and primary browser concept;
-- existing projects migrate safely to one Recipe and one independent
-  DataVersion/workspace without rewriting contained evidence;
+- every new Recipe starts with one independent authoring
+  DataVersion/workspace and no standalone project shell;
 - RecipeDraft publishes complete immutable composite Recipe revisions with
   verified semantic and payload hashes;
 - Recipe semantics exclude endpoints, databases, credentials, principals,
@@ -1328,8 +1354,9 @@ The Recipe-first feature is implemented only when:
 - missing source rows never imply deletion;
 - current row and payload bounds remain enforced and the deferred 100,000-row
   mixed/related goal is not a release dependency;
-- publication, creation, qualification, cutover, rotation, execution, and
-  deletion interruption recovery is deterministic and idempotent;
+- publication, creation, qualification, cutover, rotation, and execution
+  interruption recovery is deterministic and idempotent, while draft deletion
+  fails closed on stale revisions;
 - no Recipe path introduces Odoo N+1 reads or blind unknown-write retries;
 - Customers, Product/BOM, and warehouse-parameterized stock acceptance paths
   pass within their current supported limits;

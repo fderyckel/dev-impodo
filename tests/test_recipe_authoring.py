@@ -35,8 +35,6 @@ from impodo.recipes import (
     DataVersionState,
     Recipe,
     RecipeDraftState,
-    RecipeState,
-    SetupHydrationState,
 )
 from impodo.secrets import MemorySecretStore
 from impodo.web.app import create_local_app
@@ -264,15 +262,11 @@ def _authoring_fixture(marker: str, *, name_required: bool = True):
         recipe_id=recipe_id,
         display_name="Customer migration",
         business_purpose="Customer migration",
-        state=RecipeState.ACTIVE,
         data_classification="INTERNAL",
         retention_days=90,
         current_recipe_revision=None,
         current_data_version_id=data_version_id,
-        pending_data_version_id=None,
         cutover_candidate_id=None,
-        setup_hydration_state=SetupHydrationState.READY,
-        setup_hydration_hash="sha256:" + "0" * 64,
         optimistic_revision=2,
         created_at=now,
         updated_at=now,
@@ -289,7 +283,6 @@ def _authoring_fixture(marker: str, *, name_required: bool = True):
         label="Authoring data",
         export_as_of_date=None,
         parameter_values_hash=None,
-        intake_status="READY",
         created_at=now,
         sealed_at=None,
     )

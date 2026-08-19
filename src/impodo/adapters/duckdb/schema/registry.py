@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
-from uuid import uuid4
-
 import duckdb
 
 
 RECIPE_REGISTRY_MIGRATION_ID = "2026-08-19-recipe-root-v1"
 RECIPE_REGISTRY_MIGRATION_CHECKSUM = (
     "sha256:ee5f62e9ff7400a62e65195dd84759398c60cf831ea178909bd88c93b4151bd9"
+)
+RECIPE_CLEAN_ROOT_MIGRATION_ID = "2026-08-19-recipe-clean-root-v2"
+RECIPE_CLEAN_ROOT_MIGRATION_CHECKSUM = (
+    "sha256:84954535ac8c1342ca4735553811a24c9347e13b53ad38ce9434224c83049e89"
 )
 
 
@@ -32,9 +33,19 @@ def ensure_registry_schema(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS project_registry_sync_pending (
-            project_id VARCHAR PRIMARY KEY
+            project_id VARCHAR PRIMARY KEY,
+            recipe_id VARCHAR,
+            data_version_id VARCHAR
         )
         """
+    )
+    connection.execute(
+        "ALTER TABLE project_registry_sync_pending "
+        "ADD COLUMN IF NOT EXISTS recipe_id VARCHAR"
+    )
+    connection.execute(
+        "ALTER TABLE project_registry_sync_pending "
+        "ADD COLUMN IF NOT EXISTS data_version_id VARCHAR"
     )
     connection.execute(
         """
@@ -54,78 +65,6 @@ def ensure_registry_schema(connection: duckdb.DuckDBPyConnection) -> None:
         """
     )
     _ensure_recipe_registry_schema(connection)
-    _backfill_project_recipes(connection)
-
-
-def ensure_project_recipe_shell(
-    connection: duckdb.DuckDBPyConnection,
-    *,
-    project_id: str,
-    name: str,
-    project_status: str,
-    updated_at: str,
-) -> tuple[str, str]:
-    """Ensure one legacy-compatible Recipe/DataVersion shell for a project.
-
-    This operates only on the lightweight registry connection. It never opens
-    the contained project database and therefore remains safe for project-list
-    and startup backfill paths.
-    """
-
-    existing = connection.execute(
-        """
-        SELECT recipe_id, data_version_id
-          FROM data_version
-         WHERE workspace_project_id = ?
-        """,
-        [project_id],
-    ).fetchone()
-    if existing is not None:
-        return str(existing[0]), str(existing[1])
-
-    recipe_id = str(uuid4())
-    data_version_id = str(uuid4())
-    data_version_state = "ACTIVE" if project_status != "CLOSED" else "SEALED"
-    connection.execute(
-        """
-        INSERT INTO recipe (
-            recipe_id, display_name, business_purpose, state,
-            data_classification, retention_days, current_recipe_revision,
-            current_data_version_id, pending_data_version_id,
-            cutover_candidate_id, setup_hydration_state,
-            setup_hydration_hash, optimistic_revision, created_at, updated_at
-        ) VALUES (?, ?, ?, 'ACTIVE', 'INTERNAL', 90, NULL, ?, NULL, NULL,
-                  'PENDING', NULL, 1, ?, ?)
-        """,
-        [
-            recipe_id,
-            name,
-            "Legacy project awaiting Recipe publication",
-            data_version_id,
-            updated_at,
-            updated_at,
-        ],
-    )
-    connection.execute(
-        """
-        INSERT INTO data_version (
-            data_version_id, recipe_id, version_number,
-            workspace_project_id, parent_data_version_id, purpose, state,
-            pinned_recipe_revision, label, export_as_of_date,
-            parameter_values_hash, intake_status, created_at, sealed_at
-        ) VALUES (?, ?, 1, ?, NULL, 'AUTHORING', ?, NULL, ?, NULL, NULL,
-                  'LEGACY_BACKFILL', ?, NULL)
-        """,
-        [
-            data_version_id,
-            recipe_id,
-            project_id,
-            data_version_state,
-            f"{name} data version 1",
-            updated_at,
-        ],
-    )
-    return recipe_id, data_version_id
 
 
 def _ensure_recipe_registry_schema(
@@ -143,15 +82,11 @@ def _ensure_recipe_registry_schema(
             recipe_id VARCHAR PRIMARY KEY,
             display_name VARCHAR NOT NULL,
             business_purpose VARCHAR NOT NULL,
-            state VARCHAR NOT NULL,
             data_classification VARCHAR NOT NULL,
             retention_days INTEGER NOT NULL,
             current_recipe_revision INTEGER,
             current_data_version_id VARCHAR,
-            pending_data_version_id VARCHAR,
             cutover_candidate_id VARCHAR,
-            setup_hydration_state VARCHAR NOT NULL,
-            setup_hydration_hash VARCHAR,
             optimistic_revision INTEGER NOT NULL,
             created_at VARCHAR NOT NULL,
             updated_at VARCHAR NOT NULL
@@ -188,7 +123,6 @@ def _ensure_recipe_registry_schema(
             label VARCHAR NOT NULL,
             export_as_of_date VARCHAR,
             parameter_values_hash VARCHAR,
-            intake_status VARCHAR NOT NULL,
             created_at VARCHAR NOT NULL,
             sealed_at VARCHAR,
             UNIQUE (recipe_id, version_number)
@@ -239,7 +173,7 @@ def _ensure_recipe_registry_schema(
 
         CREATE TABLE IF NOT EXISTS cutover_candidate (
             cutover_candidate_id VARCHAR PRIMARY KEY,
-            recipe_id VARCHAR NOT NULL UNIQUE,
+            recipe_id VARCHAR NOT NULL,
             recipe_revision INTEGER NOT NULL,
             qualification_id VARCHAR NOT NULL,
             expected_recipe_revision INTEGER NOT NULL,
@@ -256,22 +190,15 @@ def _ensure_recipe_registry_schema(
             kind VARCHAR NOT NULL,
             state VARCHAR NOT NULL,
             expected_recipe_revision INTEGER NOT NULL,
-            retry_count INTEGER NOT NULL,
             detail_json VARCHAR NOT NULL,
             last_error VARCHAR NOT NULL,
             created_at VARCHAR NOT NULL,
             updated_at VARCHAR NOT NULL
         );
 
-        CREATE TABLE IF NOT EXISTS recipe_deletion_target (
-            operation_id VARCHAR NOT NULL,
-            target_kind VARCHAR NOT NULL,
-            target_id VARCHAR NOT NULL,
-            deleted_at VARCHAR,
-            PRIMARY KEY (operation_id, target_kind, target_id)
-        );
         """
     )
+    _migrate_clean_recipe_root(connection)
     existing = connection.execute(
         """
         SELECT checksum
@@ -293,48 +220,176 @@ def _ensure_recipe_registry_schema(
             datetime.now(timezone.utc).isoformat(),
         ],
     )
+    clean_existing = connection.execute(
+        "SELECT checksum FROM registry_schema_migration WHERE migration_id = ?",
+        [RECIPE_CLEAN_ROOT_MIGRATION_ID],
+    ).fetchone()
+    if (
+        clean_existing is not None
+        and str(clean_existing[0]) != RECIPE_CLEAN_ROOT_MIGRATION_CHECKSUM
+    ):
+        raise RuntimeError("Clean Recipe-root migration checksum changed")
+    connection.execute(
+        "INSERT OR IGNORE INTO registry_schema_migration VALUES (?, ?, ?)",
+        [
+            RECIPE_CLEAN_ROOT_MIGRATION_ID,
+            RECIPE_CLEAN_ROOT_MIGRATION_CHECKSUM,
+            datetime.now(timezone.utc).isoformat(),
+        ],
+    )
 
 
-def _backfill_project_recipes(connection: duckdb.DuckDBPyConnection) -> None:
-    rows = connection.execute(
-        """
-        SELECT project_id, name, status, updated_at
-          FROM project_registry
-         WHERE project_id NOT IN (
-               SELECT workspace_project_id FROM data_version
-         )
-         ORDER BY project_id
-        """
-    ).fetchall()
-    for project_id, name, status, updated_at in rows:
-        ensure_project_recipe_shell(
-            connection,
-            project_id=str(project_id),
-            name=str(name),
-            project_status=str(status),
-            updated_at=str(updated_at),
+def _migrate_clean_recipe_root(connection: duckdb.DuckDBPyConnection) -> None:
+    """Remove superseded bootstrap fields and make cutover history append-only."""
+
+    connection.execute(
+        "DELETE FROM recipe_intent WHERE kind = 'RECIPE_DELETION'"
+    )
+    connection.execute("DROP TABLE IF EXISTS recipe_deletion_target")
+    connection.execute("DROP TABLE IF EXISTS unlinked_recipe_workspace")
+
+    recipe_columns = {
+        str(row[1])
+        for row in connection.execute("PRAGMA table_info('recipe')").fetchall()
+    }
+    if "state" in recipe_columns:
+        connection.execute("UPDATE recipe SET state = 'ACTIVE' WHERE state = 'DELETING'")
+        connection.execute(
+            """
+            CREATE TABLE recipe_clean_root (
+                recipe_id VARCHAR PRIMARY KEY,
+                display_name VARCHAR NOT NULL,
+                business_purpose VARCHAR NOT NULL,
+                data_classification VARCHAR NOT NULL,
+                retention_days INTEGER NOT NULL,
+                current_recipe_revision INTEGER,
+                current_data_version_id VARCHAR,
+                cutover_candidate_id VARCHAR,
+                optimistic_revision INTEGER NOT NULL,
+                created_at VARCHAR NOT NULL,
+                updated_at VARCHAR NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO recipe_clean_root
+            SELECT recipe_id, display_name, business_purpose,
+                   data_classification, retention_days, current_recipe_revision,
+                   current_data_version_id, cutover_candidate_id,
+                   optimistic_revision, created_at, updated_at
+              FROM recipe
+            """
+        )
+        connection.execute("DROP TABLE recipe")
+        connection.execute("ALTER TABLE recipe_clean_root RENAME TO recipe")
+
+    data_columns = {
+        str(row[1])
+        for row in connection.execute("PRAGMA table_info('data_version')").fetchall()
+    }
+    if "intake_status" in data_columns:
+        connection.execute(
+            """
+            CREATE TABLE data_version_clean_root (
+                data_version_id VARCHAR PRIMARY KEY,
+                recipe_id VARCHAR NOT NULL,
+                version_number INTEGER NOT NULL,
+                workspace_project_id VARCHAR NOT NULL UNIQUE,
+                parent_data_version_id VARCHAR,
+                purpose VARCHAR NOT NULL,
+                state VARCHAR NOT NULL,
+                pinned_recipe_revision INTEGER,
+                label VARCHAR NOT NULL,
+                export_as_of_date VARCHAR,
+                parameter_values_hash VARCHAR,
+                created_at VARCHAR NOT NULL,
+                sealed_at VARCHAR,
+                UNIQUE (recipe_id, version_number)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO data_version_clean_root
+            SELECT data_version_id, recipe_id, version_number,
+                   workspace_project_id, parent_data_version_id, purpose,
+                   CASE WHEN state IN ('ACTIVE', 'SEALED') THEN state ELSE 'SEALED' END,
+                   pinned_recipe_revision, label, export_as_of_date,
+                   parameter_values_hash, created_at, sealed_at
+              FROM data_version
+            """
+        )
+        connection.execute("DROP TABLE data_version")
+        connection.execute(
+            "ALTER TABLE data_version_clean_root RENAME TO data_version"
         )
 
+    intent_columns = {
+        str(row[1])
+        for row in connection.execute("PRAGMA table_info('recipe_intent')").fetchall()
+    }
+    if "retry_count" in intent_columns:
+        connection.execute(
+            """
+            CREATE TABLE recipe_intent_clean_root (
+                operation_id VARCHAR PRIMARY KEY,
+                recipe_id VARCHAR NOT NULL,
+                kind VARCHAR NOT NULL,
+                state VARCHAR NOT NULL,
+                expected_recipe_revision INTEGER NOT NULL,
+                detail_json VARCHAR NOT NULL,
+                last_error VARCHAR NOT NULL,
+                created_at VARCHAR NOT NULL,
+                updated_at VARCHAR NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO recipe_intent_clean_root
+            SELECT operation_id, recipe_id, kind, state,
+                   expected_recipe_revision, detail_json, last_error,
+                   created_at, updated_at
+              FROM recipe_intent
+            """
+        )
+        connection.execute("DROP TABLE recipe_intent")
+        connection.execute(
+            "ALTER TABLE recipe_intent_clean_root RENAME TO recipe_intent"
+        )
 
-def recipe_migration_ledger_json(connection: duckdb.DuckDBPyConnection) -> str:
-    """Return a deterministic bounded migration projection for diagnostics."""
-
-    rows = connection.execute(
+    legacy_cutover_constraint = connection.execute(
         """
-        SELECT migration_id, checksum, applied_at
-          FROM registry_schema_migration
-         ORDER BY migration_id
+        SELECT EXISTS (
+            SELECT 1 FROM duckdb_constraints()
+             WHERE table_name = 'cutover_candidate'
+               AND constraint_type = 'UNIQUE'
+               AND constraint_column_names = ['recipe_id']
+        )
         """
-    ).fetchall()
-    return json.dumps(
-        [
-            {
-                "migration_id": str(row[0]),
-                "checksum": str(row[1]),
-                "applied_at": str(row[2]),
-            }
-            for row in rows
-        ],
-        separators=(",", ":"),
-        sort_keys=True,
-    )
+    ).fetchone()
+    if legacy_cutover_constraint and bool(legacy_cutover_constraint[0]):
+        connection.execute(
+            """
+            CREATE TABLE cutover_candidate_history (
+                cutover_candidate_id VARCHAR PRIMARY KEY,
+                recipe_id VARCHAR NOT NULL,
+                recipe_revision INTEGER NOT NULL,
+                qualification_id VARCHAR NOT NULL,
+                expected_recipe_revision INTEGER NOT NULL,
+                actor_issuer VARCHAR NOT NULL,
+                actor_subject VARCHAR NOT NULL,
+                actor_display_name VARCHAR NOT NULL,
+                selected_at VARCHAR NOT NULL,
+                content_hash VARCHAR NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO cutover_candidate_history SELECT * FROM cutover_candidate"
+        )
+        connection.execute("DROP TABLE cutover_candidate")
+        connection.execute(
+            "ALTER TABLE cutover_candidate_history RENAME TO cutover_candidate"
+        )

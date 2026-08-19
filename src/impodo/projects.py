@@ -169,16 +169,27 @@ class MigrationProject:
 class ProjectRepository(Protocol):
     """Persistence port used by the project application service."""
 
-    def create(self, project: MigrationProject, *, actor: Actor) -> None:
-        """Persist a new draft, its contained storage, registry, and audit."""
+    def create(
+        self,
+        project: MigrationProject,
+        *,
+        recipe_id: str,
+        data_version_id: str,
+        actor: Actor,
+    ) -> None:
+        """Persist a new Recipe with its first contained authoring workspace."""
+        ...
+
+    def create_unlinked(self, project: MigrationProject, *, actor: Actor) -> None:
+        """Persist a contained workspace before its reserved DataVersion commits."""
+        ...
+
+    def discard_unlinked(self, project_id: str) -> None:
+        """Remove an unlinked workspace whose DataVersion could not commit."""
         ...
 
     def get(self, project_id: str) -> MigrationProject:
         """Return the complete current aggregate or raise ``ProjectNotFoundError``."""
-        ...
-
-    def get_for_deletion(self, project_id: str) -> MigrationProject:
-        """Load deletion metadata without requiring a supported work schema."""
         ...
 
     def list(self) -> tuple[ProjectSummary, ...]:
@@ -187,19 +198,6 @@ class ProjectRepository(Protocol):
 
     def assert_workspace_mutable(self, project_id: str) -> None:
         """Reject mutation when Recipe/DataVersion lifecycle seals the workspace."""
-        ...
-
-    def assert_standalone_project_deletion_allowed(self, project_id: str) -> None:
-        """Permit the legacy delete route only for an unpublished one-workspace shell."""
-        ...
-
-    def delete(
-        self,
-        project_id: str,
-        *,
-        expected_revision: int,
-    ) -> None:
-        """Delete exactly the expected project revision and its contained data."""
         ...
 
     def save(
@@ -319,53 +317,59 @@ class ProjectService:
             created_at=now,
             updated_at=now,
         )
-        self.repository.create(project, actor=actor)
-        return project
-
-    def delete_project(
-        self,
-        project_id: str,
-        *,
-        actor: Actor,
-        expected_revision: int,
-    ) -> MigrationProject:
-        """Permanently delete one project regardless of lifecycle status."""
-
-        project = self.deletion_target(
-            project_id,
+        self.repository.create(
+            project,
+            recipe_id=str(uuid4()),
+            data_version_id=str(uuid4()),
             actor=actor,
-            expected_revision=expected_revision,
-        )
-        self.repository.delete(
-            project.project_id,
-            expected_revision=expected_revision,
         )
         return project
 
-    def deletion_target(
+    def create_data_version_workspace(
         self,
-        project_id: str,
         *,
         actor: Actor,
-        expected_revision: int,
+        name: str,
+        source_system: str,
+        data_manager: str,
+        functional_owner: str,
+        business_unit: str,
+        data_classification: str | DataClassification,
+        retention_days: int,
+        support_access: bool,
     ) -> MigrationProject:
-        """Authorize and load the exact project selected for deletion."""
+        """Create a complete unlinked workspace for one reserved DataVersion."""
 
-        canonical_project_id = _canonical_project_id(project_id)
-        self.authorization.require(
-            actor,
-            Capability.PROJECT_DELETE,
-            project_id=canonical_project_id,
+        self.authorization.require(actor, Capability.PROJECT_CREATE)
+        try:
+            classification = DataClassification(data_classification)
+        except ValueError as error:
+            raise ProjectError("Choose a valid data classification") from error
+        if not 1 <= retention_days <= 3650:
+            raise ProjectError("Retention must be between 1 and 3650 days")
+        now = _now()
+        project = MigrationProject(
+            project_id=str(uuid4()),
+            name=_required_text(name, "Project name"),
+            source_system=_required_text(source_system, "Source system"),
+            source_mode=SourceMode.FILE,
+            description=f"Data version workspace for {name.strip()}",
+            data_manager=data_manager.strip(),
+            functional_owner=functional_owner.strip(),
+            business_unit=business_unit.strip(),
+            data_classification=classification,
+            retention_days=retention_days,
+            support_access=support_access,
+            created_at=now,
+            updated_at=now,
         )
-        project = self.repository.get_for_deletion(canonical_project_id)
-        self.repository.assert_standalone_project_deletion_allowed(
-            canonical_project_id
-        )
-        if project.revision != expected_revision:
-            raise ProjectConflictError(
-                "The project changed in another request; reload before deleting"
-            )
+        self.repository.create_unlinked(project, actor=actor)
         return project
+
+    def discard_unlinked_workspace(self, project_id: str) -> None:
+        """Compensate a failed DataVersion operation before Recipe adoption."""
+
+        self.repository.discard_unlinked(_canonical_project_id(project_id))
 
     def update_details(
         self,
@@ -633,7 +637,7 @@ class ProjectService:
         normalized_storage = storage_class.strip().upper()
         if normalized_role not in {"READ", "WRITE"}:
             raise ProjectError("Credential removal role is invalid")
-        if normalized_reason not in {"TARGET_CHANGED", "PROJECT_DELETED"}:
+        if normalized_reason not in {"TARGET_CHANGED", "RECIPE_DELETED"}:
             raise ProjectError("Credential removal reason is invalid")
         if normalized_storage not in {
             "SESSION",
@@ -660,8 +664,8 @@ class ProjectService:
         self.authorization.require(
             actor,
             (
-                Capability.PROJECT_DELETE
-                if normalized_reason == "PROJECT_DELETED"
+                Capability.RECIPE_DELETE
+                if normalized_reason == "RECIPE_DELETED"
                 else Capability.PROJECT_EDIT
             ),
             project_id=canonical_project_id,

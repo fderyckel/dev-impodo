@@ -302,8 +302,9 @@ workspace while making portable business meaning reusable.
 - a recipe is execution-engine-neutral configuration, never a source, target,
   validation, approval, comparison, or execution snapshot.
 
-The frozen proposed contract and acceptance examples are recorded in
-[Reusable recipe Phase 0 contracts](../plans/reusable-recipes-phase-0-contracts.md).
+The superseded detailed contract and acceptance fixtures were removed during
+the Recipe clean-root consolidation; this ADR remains the historical decision
+record.
 
 ## ADR-013 — Recipe is the aggregate root and target bindings are application-specific
 

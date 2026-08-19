@@ -40,17 +40,6 @@ class RecipeIntegrityError(RecipeError):
     """Raised when protected Recipe content or hashes do not verify."""
 
 
-class RecipeState(StrEnum):
-    ACTIVE = "ACTIVE"
-    DELETING = "DELETING"
-
-
-class SetupHydrationState(StrEnum):
-    PENDING = "PENDING"
-    READY = "READY"
-    FAILED_RETRYABLE = "FAILED_RETRYABLE"
-
-
 class DataVersionPurpose(StrEnum):
     AUTHORING = "AUTHORING"
     TEST = "TEST"
@@ -58,10 +47,8 @@ class DataVersionPurpose(StrEnum):
 
 
 class DataVersionState(StrEnum):
-    PENDING = "PENDING"
     ACTIVE = "ACTIVE"
     SEALED = "SEALED"
-    ABANDONED = "ABANDONED"
 
 
 class RecipeIntentKind(StrEnum):
@@ -69,17 +56,14 @@ class RecipeIntentKind(StrEnum):
     DATA_VERSION_CREATION = "DATA_VERSION_CREATION"
     QUALIFICATION_PUBLICATION = "QUALIFICATION_PUBLICATION"
     CUTOVER_SELECTION = "CUTOVER_SELECTION"
-    RECIPE_DELETION = "RECIPE_DELETION"
 
 
 class RecipeIntentState(StrEnum):
     RESERVED = "RESERVED"
     PAYLOAD_STORED = "PAYLOAD_STORED"
     REGISTRY_COMMITTED = "REGISTRY_COMMITTED"
-    TARGETS_ENUMERATED = "TARGETS_ENUMERATED"
     COMPLETE = "COMPLETE"
     ABANDONED = "ABANDONED"
-    FAILED_RETRYABLE = "FAILED_RETRYABLE"
 
 
 class RecipeDraftState(StrEnum):
@@ -123,30 +107,19 @@ class Recipe:
     recipe_id: str
     display_name: str
     business_purpose: str
-    state: RecipeState
     data_classification: str
     retention_days: int
     current_recipe_revision: int | None
     current_data_version_id: str | None
-    pending_data_version_id: str | None
     cutover_candidate_id: str | None
-    setup_hydration_state: SetupHydrationState
-    setup_hydration_hash: str | None
     optimistic_revision: int
     created_at: datetime
     updated_at: datetime
 
     def __post_init__(self) -> None:
         _uuid(self.recipe_id, "recipe_id")
-        object.__setattr__(self, "state", RecipeState(self.state))
-        object.__setattr__(
-            self,
-            "setup_hydration_state",
-            SetupHydrationState(self.setup_hydration_state),
-        )
         for value, name in (
             (self.current_data_version_id, "current_data_version_id"),
-            (self.pending_data_version_id, "pending_data_version_id"),
             (self.cutover_candidate_id, "cutover_candidate_id"),
         ):
             if value is not None:
@@ -163,13 +136,12 @@ class Recipe:
 class RecipeSummary:
     recipe_id: str
     display_name: str
-    state: RecipeState
     current_recipe_revision: int | None
     current_data_version_id: str | None
     current_workspace_project_id: str | None
     current_workspace_revision: int | None
     data_version_count: int
-    deletable_as_bootstrap: bool
+    deletable: bool
     qualification_status: str | None
     cutover_recipe_revision: int | None
     optimistic_revision: int
@@ -189,7 +161,6 @@ class DataVersion:
     label: str
     export_as_of_date: date | None
     parameter_values_hash: str | None
-    intake_status: str
     created_at: datetime
     sealed_at: datetime | None
 
@@ -216,7 +187,6 @@ class WorkspaceResolution:
     data_version_id: str
     data_version_number: int
     workspace_project_id: str
-    recipe_state: RecipeState
     data_version_state: DataVersionState
 
 
@@ -243,7 +213,6 @@ class RecipeIntent:
     kind: RecipeIntentKind
     state: RecipeIntentState
     expected_recipe_revision: int
-    retry_count: int
     detail: Mapping[str, object]
     last_error: str
     created_at: datetime

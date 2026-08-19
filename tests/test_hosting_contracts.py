@@ -31,7 +31,11 @@ from impodo.jobs import (
 )
 from impodo.adapters.duckdb.database import DuckDbDatabase
 from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.recipe_repository import RecipeRepository
+from impodo.adapters.protected_recipe_store import ProtectedRecipeStore
+from impodo.application.recipe_service import RecipeService
 from impodo.projects import ProjectService
+from impodo.secrets import MemorySecretStore
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,9 +63,15 @@ class AuthorizationContractTests(unittest.TestCase):
     def setUp(self) -> None:
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
-        self.repository = ProjectRepository(DuckDbDatabase(self.temporary.name))
+        database = DuckDbDatabase(self.temporary.name)
+        self.repository = ProjectRepository(database)
         self.service = ProjectService(
             self.repository,
+            CapabilityAuthorizationPolicy(),
+        )
+        self.recipes = RecipeService(
+            RecipeRepository(database),
+            ProtectedRecipeStore(self.temporary.name, MemorySecretStore()),
             CapabilityAuthorizationPolicy(),
         )
 
@@ -80,19 +90,25 @@ class AuthorizationContractTests(unittest.TestCase):
 
         self.assertEqual(self.repository.list(), ())
 
-    def test_project_delete_requires_its_own_capability(self) -> None:
-        creator = actor("Project creator", Capability.PROJECT_CREATE)
+    def test_recipe_delete_requires_its_own_capability(self) -> None:
+        creator = actor(
+            "Project creator",
+            Capability.PROJECT_CREATE,
+            Capability.PROJECT_VIEW,
+        )
         project = self.service.create_project(
             actor=creator,
             name="Protected project",
             source_system="CSV",
         )
 
-        with self.assertRaisesRegex(AuthorizationError, "project.delete"):
-            self.service.delete_project(
-                project.project_id,
+        resolution = self.recipes.resolve_workspace(project.project_id, actor=creator)
+        with self.assertRaisesRegex(AuthorizationError, "recipe.delete"):
+            self.recipes.delete_draft(
+                resolution.recipe_id,
                 actor=creator,
-                expected_revision=project.revision,
+                expected_recipe_revision=1,
+                expected_workspace_revision=project.revision,
             )
 
         self.assertEqual(self.repository.get(project.project_id), project)

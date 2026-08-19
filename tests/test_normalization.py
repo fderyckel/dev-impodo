@@ -344,7 +344,12 @@ class NormalizationStoreTests(unittest.TestCase):
         self.quality = QualityRepository(database, self.projects)
         self.repository = NormalizationRepository(database, self.projects)
         self.project = _project()
-        self.projects.create(self.project, actor=LOCAL_ACTOR)
+        self.projects.create(
+            self.project,
+            recipe_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+        )
         now = datetime.now(timezone.utc)
         selection = SourceSelection(
             selection_id=str(uuid4()),

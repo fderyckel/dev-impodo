@@ -27,7 +27,6 @@ from impodo.projects import (
     ProjectCompatibilityError,
     ProjectConflictError,
     ProjectError,
-    ProjectNotFoundError,
     ProjectRegistrationError,
     ProjectService,
     ProjectStatus,
@@ -189,7 +188,7 @@ class ProjectLifecycleTests(unittest.TestCase):
         )
         self.assertNotIn("secret", str(event).casefold())
 
-    def test_credential_removal_receipt_survives_project_deletion(self) -> None:
+    def test_credential_removal_receipt_is_registry_scoped(self) -> None:
         project = self.service.create_project(
             actor=LOCAL_ACTOR,
             name="Removal receipt",
@@ -204,19 +203,13 @@ class ProjectLifecycleTests(unittest.TestCase):
             receipt_hash=receipt_hash,
             project_id=project.project_id,
             role="READ",
-            reason="PROJECT_DELETED",
+            reason="RECIPE_DELETED",
             connection_target_hash=connection_hash,
             credential_binding_hash=binding_hash,
             storage_class="OPERATING_SYSTEM_VAULT",
             removed_at=removed_at,
             actor=LOCAL_ACTOR,
         )
-        self.service.delete_project(
-            project.project_id,
-            actor=LOCAL_ACTOR,
-            expected_revision=project.revision,
-        )
-
         with self.repository._connect(self.repository.registry_path) as connection:
             receipt = connection.execute(
                 """
@@ -233,7 +226,7 @@ class ProjectLifecycleTests(unittest.TestCase):
             (
                 project.project_id,
                 "READ",
-                "PROJECT_DELETED",
+                "RECIPE_DELETED",
                 connection_hash,
                 binding_hash,
                 "OPERATING_SYSTEM_VAULT",
@@ -421,15 +414,6 @@ class ProjectLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(ProjectCompatibilityError, "different Impodo"):
             self.repository.get(project.project_id)
 
-        deleted = self.service.delete_project(
-            project.project_id,
-            actor=LOCAL_ACTOR,
-            expected_revision=project.revision,
-        )
-        self.assertEqual(deleted, project)
-        self.assertFalse(database_path.parent.exists())
-        self.assertEqual(self.repository.list(), ())
-
     def test_noncurrent_project_schema_version_is_rejected(self) -> None:
         project = self.service.create_project(
             actor=LOCAL_ACTOR,
@@ -608,64 +592,6 @@ class ProjectLifecycleTests(unittest.TestCase):
                 identity,
             )
         )
-
-    def test_delete_permanently_removes_registered_project_and_artifacts(
-        self,
-    ) -> None:
-        project = self.service.create_project(
-            actor=LOCAL_ACTOR,
-            name="Disposable rehearsal",
-            source_system="CSV",
-        )
-        project_dir = self.repository.project_directory(project.project_id)
-        (project_dir / "reports" / "review.txt").write_text(
-            "disposable",
-            encoding="utf-8",
-        )
-        now = datetime.now(timezone.utc)
-        registered = replace(
-            project,
-            status=ProjectStatus.REGISTERED,
-            revision=project.revision + 1,
-            updated_at=now,
-            registered_at=now,
-        )
-        self.repository.save(
-            registered,
-            expected_revision=project.revision,
-            event_type="TEST_PROJECT_REGISTERED",
-            event_detail="",
-            actor=LOCAL_ACTOR,
-        )
-        scoped = self.service.update_schema_scope(
-            registered.project_id,
-            actor=LOCAL_ACTOR,
-            expected_revision=registered.revision,
-            permitted_models=("res.partner",),
-        )
-        summary = self.repository.list()[0]
-        self.assertEqual(summary.revision, scoped.revision)
-        self.assertEqual(summary.updated_at, scoped.updated_at)
-
-        with self.assertRaisesRegex(ProjectConflictError, "reload before deleting"):
-            self.service.delete_project(
-                project.project_id,
-                actor=LOCAL_ACTOR,
-                expected_revision=registered.revision,
-            )
-        self.assertTrue(project_dir.is_dir())
-
-        deleted = self.service.delete_project(
-            scoped.project_id,
-            actor=LOCAL_ACTOR,
-            expected_revision=scoped.revision,
-        )
-
-        self.assertEqual(deleted, scoped)
-        self.assertFalse(project_dir.exists())
-        self.assertEqual(self.repository.list(), ())
-        with self.assertRaises(ProjectNotFoundError):
-            self.repository.get(scoped.project_id)
 
     def test_pending_registry_summary_is_recovered_after_interrupted_write(
         self,

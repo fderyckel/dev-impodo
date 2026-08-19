@@ -429,7 +429,7 @@ def create_local_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
-            recipes.recover_incomplete(actor=LOCAL_ACTOR)
+            recipes.recover_incomplete(actor=actor)
             for summary in project_repository.list():
                 try:
                     project = project_repository.get(summary.project_id)
@@ -489,7 +489,7 @@ def create_local_app(
     ):
         return _render(
             request,
-            "project_list.html",
+            "recipe_list.html",
             recipes=context.recipes.list(actor=context.actor),
             error=str(error),
             status_code=409,

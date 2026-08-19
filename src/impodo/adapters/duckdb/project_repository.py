@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
-from uuid import uuid4
 
 import duckdb
 
@@ -28,9 +27,9 @@ from ...projects import (
     ProjectSummary,
     SourceFile,
 )
+from ...recipes import require_uuid
 from .database import DuckDbDatabase
 from .repository import DuckDbRepository
-from .schema.registry import ensure_project_recipe_shell
 from .serialization import (
     _project_from_rows,
     _project_values,
@@ -43,63 +42,118 @@ class ProjectRepository(DuckDbRepository):
     def __init__(self, database: DuckDbDatabase) -> None:
         super().__init__(database)
         self._recover_pending_registry_sync()
+        self._recover_unlinked_workspaces()
 
-    def create(self, project: MigrationProject, *, actor: Actor) -> None:
-        """Create the contained project directory, database, audit, and registry row."""
+    def create(
+        self,
+        project: MigrationProject,
+        *,
+        recipe_id: str,
+        data_version_id: str,
+        actor: Actor,
+    ) -> None:
+        """Create one Recipe and its first authoring workspace."""
 
-        self._mark_registry_sync_pending(project.project_id)
+        recipe_id = require_uuid(recipe_id, "recipe_id")
+        data_version_id = require_uuid(data_version_id, "data_version_id")
+        if len({project.project_id, recipe_id, data_version_id}) != 3:
+            raise ProjectError("Recipe workspace identities must be distinct")
+        self._create_workspace(
+            project,
+            actor=actor,
+            recipe_id=recipe_id,
+            data_version_id=data_version_id,
+        )
+
+    def create_unlinked(self, project: MigrationProject, *, actor: Actor) -> None:
+        """Create a contained workspace before DataVersion adoption."""
+
+        self._create_workspace(project, actor=actor)
+
+    def _create_workspace(
+        self,
+        project: MigrationProject,
+        *,
+        actor: Actor,
+        recipe_id: str | None = None,
+        data_version_id: str | None = None,
+    ) -> None:
+        self._mark_registry_sync_pending(
+            project.project_id,
+            recipe_id=recipe_id,
+            data_version_id=data_version_id,
+        )
         project_dir = self.project_directory(project.project_id)
-        project_dir.mkdir(parents=False, exist_ok=False)
-        for child in (
-            "inbox",
-            "staging",
-            "snapshots",
-            "protected",
-            "reports",
-            "audit",
-        ):
-            (project_dir / child).mkdir()
-        (project_dir / "protected").chmod(0o700)
-        database_path = project_dir / "project.duckdb"
-        with self._connect(database_path) as connection:
-            self._initialize_project_database(connection)
-            self._insert_project(connection, project)
-            self._insert_audit(
-                connection,
+        try:
+            project_dir.mkdir(parents=False, exist_ok=False)
+            for child in (
+                "inbox",
+                "staging",
+                "snapshots",
+                "protected",
+                "reports",
+                "audit",
+            ):
+                (project_dir / child).mkdir()
+            (project_dir / "protected").chmod(0o700)
+            database_path = project_dir / "project.duckdb"
+            with self._connect(database_path) as connection:
+                self._initialize_project_database(connection)
+                self._insert_project(connection, project)
+                self._insert_audit(
+                    connection,
+                    project,
+                    event_type="PROJECT_CREATED",
+                    detail="",
+                    actor=actor,
+                )
+            self._update_registry(
                 project,
-                event_type="PROJECT_CREATED",
-                detail="",
-                actor=actor,
+                recipe_id=recipe_id,
+                data_version_id=data_version_id,
             )
-        self._update_registry(project)
+        except Exception:
+            if project_dir.is_dir():
+                shutil.rmtree(project_dir)
+            self._clear_registry_sync_pending(project.project_id)
+            raise
+
+    def discard_unlinked(self, project_id: str) -> None:
+        """Remove only a workspace that has not joined any Recipe lineage."""
+
+        project_dir = self.project_directory(project_id)
+        with self._connect(self.registry_path) as connection:
+            linked = connection.execute(
+                "SELECT EXISTS (SELECT 1 FROM data_version "
+                "WHERE workspace_project_id = ?)",
+                [project_id],
+            ).fetchone()
+            if linked and bool(linked[0]):
+                return
+            connection.execute(
+                "DELETE FROM project_registry WHERE project_id = ?",
+                [project_id],
+            )
+            connection.execute(
+                "DELETE FROM project_registry_sync_pending WHERE project_id = ?",
+                [project_id],
+            )
+        if project_dir.is_dir():
+            shutil.rmtree(project_dir)
+
     def get(self, project_id: str) -> MigrationProject:
         """Load one complete project aggregate from its contained database."""
 
-        return self._get_project(project_id, require_supported_schema=True)
+        return self._get_project(project_id)
 
-    def get_for_deletion(self, project_id: str) -> MigrationProject:
-        """Load a deletion target without upgrading its working schema.
-
-        This narrow path exists so a project rejected by the current schema
-        baseline can still be removed through the governed project service.
-        """
-
-        return self._get_project(project_id, require_supported_schema=False)
-
-    def _get_project(
-        self,
-        project_id: str,
-        *,
-        require_supported_schema: bool,
-    ) -> MigrationProject:
+    def _get_project(self, project_id: str) -> MigrationProject:
         resolution = self._recipe_workspace_resolution(project_id)
         database_path = self.project_directory(project_id) / "project.duckdb"
         if not database_path.is_file():
             raise ProjectNotFoundError("Project not found")
         with self._connect(database_path) as connection:
-            if require_supported_schema:
-                self._ensure_project_database_schema(connection)
-                self._ensure_workspace_linkage(connection, resolution)
+            self._ensure_project_database_schema(connection)
+            self._ensure_workspace_linkage(connection, resolution)
             row = connection.execute("SELECT * FROM project").fetchone()
             if row is None:
                 raise ProjectNotFoundError("Project not found")
@@ -116,11 +170,9 @@ class ProjectRepository(DuckDbRepository):
         return _project_from_rows(data, source_rows)
 
     def assert_workspace_mutable(self, project_id: str) -> None:
-        """Reject writes to sealed DataVersions or deleting Recipes."""
+        """Reject writes to sealed DataVersion workspaces."""
 
         resolution = self._recipe_workspace_resolution(project_id)
-        if resolution[4] == "DELETING":
-            raise ProjectError("This Recipe is being deleted")
         if resolution[3] != "ACTIVE":
             raise ProjectError("This historical data version is read-only")
         database_path = self.project_directory(project_id) / "project.duckdb"
@@ -134,27 +186,6 @@ class ProjectRepository(DuckDbRepository):
             ).fetchone()
         if sealed and bool(sealed[0]):
             raise ProjectError("This historical data version is read-only")
-
-    def assert_standalone_project_deletion_allowed(self, project_id: str) -> None:
-        """Block project-only deletion once reusable Recipe evidence exists."""
-
-        resolution = self._recipe_workspace_resolution(project_id)
-        with self._connect(self.registry_path) as connection:
-            counts = connection.execute(
-                """
-                SELECT
-                    (SELECT count(*) FROM data_version WHERE recipe_id = ?),
-                    (SELECT count(*) FROM recipe_revision WHERE recipe_id = ?),
-                    (SELECT count(*) FROM recipe_qualification WHERE recipe_id = ?),
-                    (SELECT count(*) FROM cutover_candidate WHERE recipe_id = ?)
-                """,
-                [resolution[0], resolution[0], resolution[0], resolution[0]],
-            ).fetchone()
-        if counts is None or tuple(int(value) for value in counts) != (1, 0, 0, 0):
-            raise ProjectError(
-                "This workspace belongs to a reusable Recipe and cannot be "
-                "deleted as a standalone project"
-            )
 
     def has_audit_event(self, project_id: str, event_type: str) -> bool:
         """Return whether the project recorded the exact lifecycle event."""
@@ -249,6 +280,10 @@ class ProjectRepository(DuckDbRepository):
                 """
                 SELECT project_id, name, status, revision, updated_at
                   FROM project_registry
+                 WHERE EXISTS (
+                       SELECT 1 FROM data_version
+                        WHERE workspace_project_id = project_registry.project_id
+                 )
                  ORDER BY updated_at DESC, project_id
                 """
             ).fetchall()
@@ -262,109 +297,7 @@ class ProjectRepository(DuckDbRepository):
             )
             for row in rows
         )
-    def delete(
-        self,
-        project_id: str,
-        *,
-        expected_revision: int,
-    ) -> None:
-        """Permanently remove one contained project and its registry row."""
 
-        self.assert_standalone_project_deletion_allowed(project_id)
-        project_dir = self.project_directory(project_id)
-        canonical_project_id = project_dir.name
-        database_path = project_dir / "project.duckdb"
-        if not database_path.is_file():
-            raise ProjectNotFoundError("Project not found")
-
-        with self._connect(database_path) as connection:
-            current = connection.execute(
-                "SELECT revision FROM project"
-            ).fetchone()
-        if current is None:
-            raise ProjectNotFoundError("Project not found")
-        if int(current[0]) != expected_revision:
-            raise ProjectConflictError(
-                "The project was modified by another request"
-            )
-
-        staged = self.root / f".{canonical_project_id}.deleting-{uuid4()}"
-        if staged.parent != self.root or staged.exists():
-            raise ProjectError("Could not prepare the project for deletion")
-
-        project_dir.rename(staged)
-        registry_deleted = False
-        try:
-            with self._connect(self.registry_path) as connection:
-                registered = connection.execute(
-                    """
-                    SELECT revision
-                      FROM project_registry
-                     WHERE project_id = ?
-                    """,
-                    [canonical_project_id],
-                ).fetchone()
-                if registered is None:
-                    raise ProjectNotFoundError("Project not found")
-                if int(registered[0]) != expected_revision:
-                    raise ProjectConflictError(
-                        "The project was modified by another request"
-                    )
-                connection.execute(
-                    "DELETE FROM project_registry WHERE project_id = ?",
-                    [canonical_project_id],
-                )
-                recipe_row = connection.execute(
-                    """
-                    SELECT recipe_id, data_version_id
-                      FROM data_version
-                     WHERE workspace_project_id = ?
-                    """,
-                    [canonical_project_id],
-                ).fetchone()
-                if recipe_row is not None:
-                    recipe_id = str(recipe_row[0])
-                    data_version_id = str(recipe_row[1])
-                    connection.execute(
-                        "DELETE FROM data_version WHERE data_version_id = ?",
-                        [data_version_id],
-                    )
-                    remaining = connection.execute(
-                        """
-                        SELECT count(*) FROM data_version WHERE recipe_id = ?
-                        """,
-                        [recipe_id],
-                    ).fetchone()
-                    if remaining is not None and int(remaining[0]) == 0:
-                        connection.execute(
-                            "DELETE FROM cutover_candidate WHERE recipe_id = ?",
-                            [recipe_id],
-                        )
-                        connection.execute(
-                            "DELETE FROM recipe_revision WHERE recipe_id = ?",
-                            [recipe_id],
-                        )
-                        connection.execute(
-                            "DELETE FROM recipe_intent WHERE recipe_id = ?",
-                            [recipe_id],
-                        )
-                        connection.execute(
-                            "DELETE FROM recipe WHERE recipe_id = ?",
-                            [recipe_id],
-                        )
-                connection.execute(
-                    """
-                    DELETE FROM project_registry_sync_pending
-                     WHERE project_id = ?
-                    """,
-                    [canonical_project_id],
-                )
-                registry_deleted = True
-            shutil.rmtree(staged)
-        except Exception:
-            if not registry_deleted and staged.exists() and not project_dir.exists():
-                staged.rename(project_dir)
-            raise
     def save(
         self,
         project: MigrationProject,
@@ -529,7 +462,7 @@ class ProjectRepository(DuckDbRepository):
     def _recipe_workspace_resolution(
         self,
         project_id: str,
-    ) -> tuple[str, str, int, str, str]:
+    ) -> tuple[str, str, int, str]:
         """Resolve a project route through explicit Recipe/DataVersion identity."""
 
         canonical_project_id = self.project_directory(project_id).name
@@ -537,7 +470,7 @@ class ProjectRepository(DuckDbRepository):
             row = connection.execute(
                 """
                 SELECT d.recipe_id, d.data_version_id, d.version_number,
-                       d.state, r.state
+                       d.state
                   FROM data_version d
                   JOIN recipe r ON r.recipe_id = d.recipe_id
                  WHERE d.workspace_project_id = ?
@@ -546,14 +479,14 @@ class ProjectRepository(DuckDbRepository):
             ).fetchone()
         if row is None:
             raise ProjectNotFoundError("Project is not linked to a Recipe")
-        return str(row[0]), str(row[1]), int(row[2]), str(row[3]), str(row[4])
+        return str(row[0]), str(row[1]), int(row[2]), str(row[3])
 
     @staticmethod
     def _ensure_workspace_linkage(
         connection: duckdb.DuckDBPyConnection,
-        resolution: tuple[str, str, int, str, str],
+        resolution: tuple[str, str, int, str],
     ) -> None:
-        recipe_id, data_version_id, version_number, data_version_state, _ = resolution
+        recipe_id, data_version_id, version_number, data_version_state = resolution
         current = connection.execute(
             """
             SELECT recipe_id, data_version_id, data_version_number
@@ -718,7 +651,13 @@ class ProjectRepository(DuckDbRepository):
         if project.status is ProjectStatus.REGISTERED:
             self._write_registration_manifest(project)
 
-    def _update_registry(self, project: MigrationProject) -> None:
+    def _update_registry(
+        self,
+        project: MigrationProject,
+        *,
+        recipe_id: str | None = None,
+        data_version_id: str | None = None,
+    ) -> None:
         with self._connect(self.registry_path) as connection:
             connection.begin()
             try:
@@ -757,13 +696,15 @@ class ProjectRepository(DuckDbRepository):
                         project.project_id,
                     ],
                 )
-                ensure_project_recipe_shell(
-                    connection,
-                    project_id=project.project_id,
-                    name=project.name,
-                    project_status=project.status.value,
-                    updated_at=project.updated_at.isoformat(),
-                )
+                if recipe_id is not None or data_version_id is not None:
+                    if recipe_id is None or data_version_id is None:
+                        raise ProjectError("Recipe workspace identity is incomplete")
+                    self._insert_initial_recipe_workspace(
+                        connection,
+                        project=project,
+                        recipe_id=recipe_id,
+                        data_version_id=data_version_id,
+                    )
                 connection.execute(
                     """
                     DELETE FROM project_registry_sync_pending
@@ -776,35 +717,200 @@ class ProjectRepository(DuckDbRepository):
                 connection.rollback()
                 raise
 
-    def _mark_registry_sync_pending(self, project_id: str) -> None:
+    def _mark_registry_sync_pending(
+        self,
+        project_id: str,
+        *,
+        recipe_id: str | None = None,
+        data_version_id: str | None = None,
+    ) -> None:
         """Journal a cross-database summary write before project mutation."""
 
         with self._connect(self.registry_path) as connection:
             connection.execute(
                 """
-                INSERT OR IGNORE INTO project_registry_sync_pending VALUES (?)
+                INSERT INTO project_registry_sync_pending VALUES (?, ?, ?)
+                ON CONFLICT (project_id) DO UPDATE SET
+                    recipe_id = coalesce(
+                        excluded.recipe_id,
+                        project_registry_sync_pending.recipe_id
+                    ),
+                    data_version_id = coalesce(
+                        excluded.data_version_id,
+                        project_registry_sync_pending.data_version_id
+                    )
                 """,
-                [project_id],
+                [project_id, recipe_id, data_version_id],
             )
 
     def _recover_pending_registry_sync(self) -> None:
         """Finish only project-summary writes journaled before interruption."""
 
         with self._connect(self.registry_path) as connection:
-            pending = {
-                str(row[0])
-                for row in connection.execute(
-                    "SELECT project_id FROM project_registry_sync_pending"
+            pending = tuple(
+                connection.execute(
+                    "SELECT project_id, recipe_id, data_version_id "
+                    "FROM project_registry_sync_pending ORDER BY project_id"
                 ).fetchall()
-            }
+            )
 
-        for project_id in sorted(pending):
+        for project_value, recipe_value, data_version_value in pending:
+            project_id = str(project_value)
             try:
-                project = self.get(project_id)
+                project = self._get_project_unresolved(project_id)
             except ProjectNotFoundError:
                 self._clear_registry_sync_pending(project_id)
                 continue
-            self._update_registry(project)
+            self._update_registry(
+                project,
+                recipe_id=(str(recipe_value) if recipe_value else None),
+                data_version_id=(
+                    str(data_version_value) if data_version_value else None
+                ),
+            )
+
+    def _recover_unlinked_workspaces(self) -> None:
+        """Discard provisional workspaces with no recoverable creation intent."""
+
+        with self._connect(self.registry_path) as connection:
+            provisional = tuple(
+                str(row[0])
+                for row in connection.execute(
+                    """
+                    SELECT p.project_id
+                      FROM project_registry p
+                     WHERE NOT EXISTS (
+                           SELECT 1 FROM data_version d
+                            WHERE d.workspace_project_id = p.project_id
+                     )
+                     ORDER BY p.project_id
+                    """
+                ).fetchall()
+            )
+            intent_details = tuple(
+                str(row[0])
+                for row in connection.execute(
+                    """
+                    SELECT detail_json FROM recipe_intent
+                     WHERE kind = 'DATA_VERSION_CREATION'
+                       AND state NOT IN ('COMPLETE', 'ABANDONED')
+                    """
+                ).fetchall()
+            )
+        retained = {
+            str(detail.get("workspace_project_id"))
+            for encoded in intent_details
+            if isinstance((detail := json.loads(encoded)), dict)
+            and detail.get("workspace_project_id")
+        }
+        for project_id in provisional:
+            if project_id in retained:
+                continue
+            self.discard_unlinked(project_id)
+
+    def _get_project_unresolved(self, project_id: str) -> MigrationProject:
+        database_path = self.project_directory(project_id) / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Project not found")
+        with self._connect(database_path) as connection:
+            row = connection.execute("SELECT * FROM project").fetchone()
+            if row is None:
+                raise ProjectNotFoundError("Project not found")
+            columns = [item[0] for item in connection.description]
+            source_rows = connection.execute(
+                """
+                SELECT file_id, display_name, stored_name, size_bytes, sha256,
+                       received_at
+                  FROM source_file
+                 ORDER BY received_at, file_id
+                """
+            ).fetchall()
+        return _project_from_rows(
+            dict(zip(columns, row, strict=True)),
+            source_rows,
+        )
+
+    @staticmethod
+    def _insert_initial_recipe_workspace(
+        connection: duckdb.DuckDBPyConnection,
+        *,
+        project: MigrationProject,
+        recipe_id: str,
+        data_version_id: str,
+    ) -> None:
+        existing = connection.execute(
+            """
+            SELECT d.recipe_id, d.data_version_id
+              FROM data_version d
+             WHERE d.workspace_project_id = ?
+            """,
+            [project.project_id],
+        ).fetchone()
+        if existing is not None:
+            if (str(existing[0]), str(existing[1])) != (
+                recipe_id,
+                data_version_id,
+            ):
+                raise ProjectError("Workspace is already linked to another Recipe")
+            return
+        collision = connection.execute(
+            """
+            SELECT
+                EXISTS (SELECT 1 FROM recipe WHERE recipe_id IN (?, ?)),
+                EXISTS (SELECT 1 FROM data_version WHERE data_version_id IN (?, ?)),
+                EXISTS (SELECT 1 FROM project_registry WHERE project_id IN (?, ?))
+            """,
+            [
+                recipe_id,
+                data_version_id,
+                recipe_id,
+                data_version_id,
+                recipe_id,
+                data_version_id,
+            ],
+        ).fetchone()
+        if collision and any(bool(value) for value in collision):
+            raise ProjectError("Recipe workspace identity is already in use")
+        now = project.updated_at.isoformat()
+        connection.execute(
+            """
+            INSERT INTO recipe (
+                recipe_id, display_name, business_purpose,
+                data_classification, retention_days, current_recipe_revision,
+                current_data_version_id, cutover_candidate_id,
+                optimistic_revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, 1, ?, ?)
+            """,
+            [
+                recipe_id,
+                project.name,
+                project.description or project.name,
+                project.data_classification.value,
+                project.retention_days,
+                data_version_id,
+                project.created_at.isoformat(),
+                now,
+            ],
+        )
+        connection.execute(
+            """
+            INSERT INTO data_version (
+                data_version_id, recipe_id, version_number,
+                workspace_project_id, parent_data_version_id, purpose, state,
+                pinned_recipe_revision, label, export_as_of_date,
+                parameter_values_hash, created_at, sealed_at
+            ) VALUES (?, ?, 1, ?, NULL, 'AUTHORING', 'ACTIVE', NULL, ?, ?, NULL,
+                      ?, NULL)
+            """,
+            [
+                data_version_id,
+                recipe_id,
+                project.project_id,
+                f"{project.name} data version 1",
+                project.export_date.isoformat() if project.export_date else None,
+                project.created_at.isoformat(),
+            ],
+        )
 
     def _clear_registry_sync_pending(self, project_id: str) -> None:
         with self._connect(self.registry_path) as connection:
@@ -815,6 +921,7 @@ class ProjectRepository(DuckDbRepository):
                 """,
                 [project_id],
             )
+
     def _insert_project(
         self,
         connection: duckdb.DuckDBPyConnection,

@@ -1317,7 +1317,12 @@ class AdvancedCoveragePersistenceTests(unittest.TestCase):
             status=ProjectStatus.REGISTERED,
             registered_at=NOW,
         )
-        self.projects.create(self.project, actor=LOCAL_ACTOR)
+        self.projects.create(
+            self.project,
+            recipe_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+        )
         selection = SourceSelection(
             selection_id=str(uuid4()),
             version=1,

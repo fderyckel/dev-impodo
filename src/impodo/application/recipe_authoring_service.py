@@ -149,8 +149,19 @@ class RecipeAuthoringService:
             source_system=source_system,
             source_mode=source_mode,
         )
-        recipe = self.recipes.hydrate_legacy_project(project, actor=actor)
+        workspace = self.recipes.resolve_workspace(project.project_id, actor=actor)
+        recipe = self.recipes.get(workspace.recipe_id, actor=actor)
         return recipe, project
+
+    def synchronize_setup(
+        self,
+        project: MigrationProject,
+        *,
+        actor: Actor,
+    ) -> Recipe:
+        """Synchronize editable authoring setup into the Recipe root."""
+
+        return self.recipes.synchronize_unpublished_setup(project, actor=actor)
 
     def draft(self, recipe_id: str, *, actor: Actor) -> RecipeDraft:
         """Return publication readiness without creating mutable Recipe state."""

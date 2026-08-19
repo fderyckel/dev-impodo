@@ -22,8 +22,8 @@ stages:
       - src/impodo/web/routers/projects.py
       - src/impodo/web/routers/target.py
     templates:
-      - src/impodo/web/templates/project_list.html
-      - src/impodo/web/templates/project_new.html
+      - src/impodo/web/templates/recipe_list.html
+      - src/impodo/web/templates/recipe_new.html
       - src/impodo/web/templates/project_details.html
       - src/impodo/web/templates/project_governance.html
       - src/impodo/web/templates/project_files.html

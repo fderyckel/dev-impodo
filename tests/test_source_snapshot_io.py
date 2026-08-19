@@ -839,7 +839,12 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             status=ProjectStatus.REGISTERED,
             registered_at=now,
         )
-        self.projects.create(project, actor=LOCAL_ACTOR)
+        self.projects.create(
+            project,
+            recipe_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+        )
         stored = self.artifacts.store_source(
             project.project_id,
             artifact_id=str(uuid4()),
@@ -939,7 +944,12 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             status=ProjectStatus.REGISTERED,
             registered_at=now,
         )
-        self.projects.create(project, actor=LOCAL_ACTOR)
+        self.projects.create(
+            project,
+            recipe_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+        )
         stored = self.artifacts.store_source(
             project.project_id,
             artifact_id=str(uuid4()),

@@ -11,10 +11,9 @@ active contract authority for Recipe persistence and workflow implementation.
 [ADR-013](../decisions/README.md#adr-013--recipe-is-the-aggregate-root-and-target-bindings-are-application-specific)
 governs the architecture.
 
-The earlier
-[Phase 0 contract](reusable-recipes-phase-0-contracts.md) remains historical
-evidence only. Its `ProjectSeries`, `series_id`, edition, series-owned endpoint,
-and credential-copy contracts are not implementation inputs.
+The superseded `ProjectSeries`, `series_id`, edition, series-owned endpoint, and
+credential-copy contracts and fixtures have been removed and are not
+implementation inputs.
 
 ## 1. Phase boundary and UI continuity
 
@@ -56,9 +55,9 @@ Its executable gate is
 owns:
 
 - `recipe_id`, name, business purpose, classification, and retention policy;
-- lifecycle state and optimistic revision;
+- optimistic revision;
 - current immutable RecipeRevision pointer;
-- current and optional pending DataVersion pointers;
+- current DataVersion pointer;
 - optional CutoverCandidate pointer; and
 - bounded RecipeRevision, DataVersion, application, and qualification
   projections.
@@ -87,18 +86,17 @@ Recipe, DataVersion, and workspace IDs are disjoint UUID namespaces. No route,
 repository, or service may infer one ID from another. Each application must
 carry all three identities explicitly.
 
-DataVersion states are:
+Persisted DataVersion states are:
 
 | State | Meaning | Allowed next state |
 | --- | --- | --- |
-| `PENDING` | Reserved and being provisioned or completed | `ACTIVE`, `ABANDONED` |
-| `ACTIVE` | Current mutable contained workspace | `SEALED`, `ABANDONED` before immutable downstream evidence |
+| `ACTIVE` | Current mutable contained workspace | `SEALED` |
 | `SEALED` | Exact source and workspace evidence fixed | none |
-| `ABANDONED` | Reserved version intentionally discarded | none |
 
-Activating a successor seals its predecessor. A pending DataVersion never
-displaces the current pointer until its contained workspace and linkage marker
-are valid.
+Activating a successor seals its predecessor. A provisional workspace never
+replaces the current pointer until its exact DataVersion-creation intent commits.
+Startup retains a provisional workspace only while such an incomplete intent
+references it and otherwise removes it.
 
 ## 3. RecipeRevision envelope version 2
 
@@ -295,16 +293,15 @@ Version 2 freezes these idempotent intent kinds:
 - `RECIPE_PUBLICATION`;
 - `DATA_VERSION_CREATION`;
 - `QUALIFICATION_PUBLICATION`;
-- `CUTOVER_SELECTION`; and
-- `RECIPE_DELETION`.
+- `CUTOVER_SELECTION`.
 
-Every intent carries operation ID, Recipe ID, expected optimistic revision,
-state, and retry count plus only the exact identifiers required by that
-operation. No intent contains `series_id` or secret material.
+Every intent carries operation ID, Recipe ID, expected optimistic revision, and
+state plus only the exact identifiers required by that operation. No intent
+contains `series_id` or secret material.
 
-Deletion first tombstones the Recipe and persists exact enumerated revision,
-qualification, DataVersion, project, credential, protected-key, artifact, job,
-and directory targets. Recovery may delete only that persisted set.
+An unpublished Recipe draft is deleted directly through the Recipe aggregate
+after its exact Recipe and workspace revisions are validated. Published Recipe
+deletion is outside the current product surface.
 
 The frozen focused recovery outcomes are:
 
@@ -339,7 +336,6 @@ The initial bounds are:
 | Application issues | 2,000 |
 | Examples per issue | 20 |
 | Target candidate keys per batch | 10,000 |
-| Intent retries before escalation | 20 |
 
 These are metadata and evidence bounds. They do not raise current preparation
 row limits or reopen the deferred 100,000-row work.

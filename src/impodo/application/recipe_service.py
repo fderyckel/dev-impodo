@@ -30,7 +30,6 @@ from ..recipes import (
     RecipeIntentState,
     RecipeRevision,
     RecipeSummary,
-    SetupHydrationState,
     WorkspaceResolution,
     require_hash,
 )
@@ -102,6 +101,40 @@ class RecipeService:
     def get(self, recipe_id: str, *, actor: Actor) -> Recipe:
         self.authorization.require(actor, Capability.RECIPE_VIEW)
         return self.repository.get(recipe_id)
+
+    def delete_draft(
+        self,
+        recipe_id: str,
+        *,
+        expected_recipe_revision: int,
+        expected_workspace_revision: int,
+        actor: Actor,
+    ) -> str:
+        """Delete one unpublished Recipe through the aggregate root."""
+
+        self.authorization.require(actor, Capability.RECIPE_DELETE)
+        return self.repository.delete_draft(
+            recipe_id,
+            expected_recipe_revision=expected_recipe_revision,
+            expected_workspace_revision=expected_workspace_revision,
+        )
+
+    def validate_draft_deletion(
+        self,
+        recipe_id: str,
+        *,
+        expected_recipe_revision: int,
+        expected_workspace_revision: int,
+        actor: Actor,
+    ) -> str:
+        """Validate deletion before credentials or runtime state are removed."""
+
+        self.authorization.require(actor, Capability.RECIPE_DELETE)
+        return self.repository.validate_draft_deletion(
+            recipe_id,
+            expected_recipe_revision=expected_recipe_revision,
+            expected_workspace_revision=expected_workspace_revision,
+        )
 
     def data_versions(
         self,
@@ -188,21 +221,23 @@ class RecipeService:
         )
         return self.repository.resolve_workspace(workspace_project_id)
 
-    def hydrate_legacy_project(
+    def synchronize_unpublished_setup(
         self,
         project: MigrationProject,
         *,
         actor: Actor,
     ) -> Recipe:
-        """Copy only the approved setup allowlist after one project is opened."""
+        """Move editable setup fields to their Recipe aggregate owner."""
 
+        self.authorization.require(actor, Capability.RECIPE_CREATE)
         resolution = self.resolve_workspace(project.project_id, actor=actor)
-        return self.repository.hydrate_legacy_setup(
+        return self.repository.update_unpublished_setup(
             resolution.recipe_id,
+            workspace_project_id=project.project_id,
+            display_name=project.name,
+            business_purpose=project.description or project.name,
             data_classification=project.data_classification.value,
             retention_days=project.retention_days,
-            business_purpose=(project.description or project.name),
-            actor=actor,
         )
 
     def publish_revision(
@@ -220,10 +255,6 @@ class RecipeService:
         self.authorization.require(actor, Capability.RECIPE_PUBLISH)
         envelope = self._validated_envelope(envelope_bytes)
         recipe = self.repository.get(recipe_id)
-        if recipe.setup_hydration_state is not SetupHydrationState.READY:
-            raise RecipeConflictError(
-                "Open the current workspace to finish Recipe setup hydration"
-            )
         version = (recipe.current_recipe_revision or 0) + 1
         provenance = envelope["provenance"]
         if not isinstance(provenance, dict):
@@ -313,11 +344,7 @@ class RecipeService:
         """Adopt a clean workspace as the next active DataVersion."""
 
         self.authorization.require(actor, Capability.DATA_VERSION_CREATE)
-        recipe = self.repository.get(recipe_id)
-        if recipe.setup_hydration_state is not SetupHydrationState.READY:
-            raise RecipeConflictError(
-                "Open the current workspace to finish Recipe setup hydration"
-            )
+        self.repository.get(recipe_id)
         if parameter_values_hash is not None:
             require_hash(parameter_values_hash, "parameter_values_hash")
         clean_label = label.strip()
@@ -330,7 +357,6 @@ class RecipeService:
             "export_as_of_date": (
                 export_as_of_date.isoformat() if export_as_of_date else None
             ),
-            "intake_status": "PENDING",
             "label": clean_label,
             "parameter_values_hash": parameter_values_hash,
             "purpose": DataVersionPurpose(purpose).value,
@@ -344,7 +370,24 @@ class RecipeService:
             detail=detail,
         )
         self._fault(fault, "INTENT_RESERVED")
-        intent = self.repository.commit_data_version(intent.operation_id)
+        try:
+            intent = self.repository.commit_data_version(intent.operation_id)
+        except Exception as error:
+            try:
+                current = self.repository.get_intent(intent.operation_id)
+                if current.state is RecipeIntentState.RESERVED:
+                    self.repository.transition_intent(
+                        intent.operation_id,
+                        expected_state=RecipeIntentState.RESERVED,
+                        new_state=RecipeIntentState.ABANDONED,
+                        last_error=str(error),
+                    )
+            except Exception as abandonment_error:
+                error.add_note(
+                    "The failed DataVersion intent could not be abandoned: "
+                    f"{abandonment_error}"
+                )
+            raise
         self._fault(fault, "REGISTRY_COMMITTED")
         self.repository.synchronize_workspace_markers(recipe_id)
         self._fault(fault, "WORKSPACE_LINKED")
@@ -547,30 +590,6 @@ class RecipeService:
             new_state=RecipeIntentState.COMPLETE,
         )
 
-    def begin_deletion(
-        self,
-        recipe_id: str,
-        *,
-        expected_recipe_revision: int,
-        actor: Actor,
-        operation_id: str | None = None,
-        fault: FaultInjector | None = None,
-    ) -> RecipeIntent:
-        """Tombstone a Recipe and persist its exact deletion target set."""
-
-        self.authorization.require(actor, Capability.RECIPE_DELETE)
-        intent = self.repository.reserve_intent(
-            operation_id=operation_id or str(uuid4()),
-            recipe_id=recipe_id,
-            kind=RecipeIntentKind.RECIPE_DELETION,
-            expected_recipe_revision=expected_recipe_revision,
-            detail={"actor": self._actor(actor)},
-        )
-        self._fault(fault, "INTENT_RESERVED")
-        intent = self.repository.enumerate_deletion(intent.operation_id)
-        self._fault(fault, "TARGETS_ENUMERATED")
-        return intent
-
     def recover_incomplete(self, *, actor: Actor) -> tuple[RecipeIntent, ...]:
         """Deterministically finish or abandon every recoverable operation."""
 
@@ -585,8 +604,6 @@ class RecipeService:
                 recovered.append(self._recover_data_version(intent))
             elif intent.kind is RecipeIntentKind.CUTOVER_SELECTION:
                 recovered.append(self._recover_cutover(intent))
-            elif intent.kind is RecipeIntentKind.RECIPE_DELETION:
-                recovered.append(self._recover_deletion(intent))
         return tuple(recovered)
 
     def _recover_publication(self, intent: RecipeIntent) -> RecipeIntent:
@@ -614,11 +631,6 @@ class RecipeService:
         if intent.state is RecipeIntentState.RESERVED:
             intent = self.repository.commit_cutover(intent.operation_id)
         return self._complete_registry_intent(intent)
-
-    def _recover_deletion(self, intent: RecipeIntent) -> RecipeIntent:
-        if intent.state is RecipeIntentState.RESERVED:
-            return self.repository.enumerate_deletion(intent.operation_id)
-        return intent
 
     def _recover_stored_payload(
         self,

@@ -172,7 +172,7 @@ class TargetCredentialTests(unittest.TestCase):
         receipts = delete_target_credentials(
             self.store,
             self.project,
-            reason=TargetCredentialRemovalReason.PROJECT_DELETED,
+            reason=TargetCredentialRemovalReason.RECIPE_DELETED,
         )
 
         self.assertEqual(self.store.values, {})
@@ -186,7 +186,7 @@ class TargetCredentialTests(unittest.TestCase):
         self.assertTrue(
             all(
                 receipt.reason
-                is TargetCredentialRemovalReason.PROJECT_DELETED
+                is TargetCredentialRemovalReason.RECIPE_DELETED
                 for receipt in receipts
             )
         )

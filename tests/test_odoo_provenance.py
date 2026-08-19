@@ -115,7 +115,12 @@ class OdooProvenanceTests(unittest.TestCase):
             created_at=self.now,
             updated_at=self.now,
         )
-        self.projects.create(self.project, actor=LOCAL_ACTOR)
+        self.projects.create(
+            self.project,
+            recipe_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+        )
         schema = OdooSchemaCatalog(
             project_id=self.project.project_id,
             policy_hash=ODOO_SOURCE_POLICY_HASH,
@@ -471,7 +476,10 @@ class OdooProvenanceTests(unittest.TestCase):
         self._publish(self._batches())
         self.assertTrue(self.secrets.values)
 
-        self.service.delete_project_key(self.project.project_id, actor=LOCAL_ACTOR)
+        self.service.delete_recipe_workspace_key(
+            self.project.project_id,
+            actor=LOCAL_ACTOR,
+        )
 
         self.assertEqual(self.secrets.values, {})
         with self.assertRaisesRegex(SecretStoreError, "key is missing"):

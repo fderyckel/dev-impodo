@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 import json
+from pathlib import Path
+import shutil
 from typing import Mapping
+from uuid import uuid4
 
-import duckdb
-
-from ...access import Actor, ActorIdentity
-from ...domain.serialization import canonical_json, content_hash
+from ...access import ActorIdentity
+from ...domain.serialization import canonical_json
 from ...domain.recipe_qualifications import (
     CutoverCandidateRecord,
     RecipeQualificationRecord,
@@ -27,9 +28,7 @@ from ...recipes import (
     RecipeIntentState,
     RecipeRevision,
     RecipeNotFoundError,
-    RecipeState,
     RecipeSummary,
-    SetupHydrationState,
     WorkspaceResolution,
     require_hash,
     require_uuid,
@@ -50,8 +49,8 @@ class RecipeRepository(DuckDbRepository):
         with self._connect(self.registry_path) as connection:
             rows = connection.execute(
                 """
-                SELECT r.recipe_id, r.display_name, r.state,
-                       r.current_recipe_revision, r.current_data_version_id,
+                SELECT r.recipe_id, r.display_name, r.current_recipe_revision,
+                       r.current_data_version_id,
                        current_data.workspace_project_id,
                        project.revision,
                        (SELECT count(*) FROM data_version d
@@ -62,7 +61,8 @@ class RecipeRepository(DuckDbRepository):
                          ORDER BY q.qualified_at DESC, q.qualification_id DESC
                          LIMIT 1) AS qualification_status,
                        (SELECT c.recipe_revision FROM cutover_candidate c
-                         WHERE c.recipe_id = r.recipe_id) AS cutover_revision,
+                         WHERE c.cutover_candidate_id = r.cutover_candidate_id
+                       ) AS cutover_revision,
                        (
                            r.current_recipe_revision IS NULL
                            AND (SELECT count(*) FROM data_version d
@@ -75,7 +75,7 @@ class RecipeRepository(DuckDbRepository):
                                SELECT 1 FROM cutover_candidate c
                                 WHERE c.recipe_id = r.recipe_id
                            )
-                       ) AS deletable_as_bootstrap,
+                       ) AS deletable,
                        r.optimistic_revision, r.updated_at
                   FROM recipe r
              LEFT JOIN data_version current_data
@@ -89,19 +89,18 @@ class RecipeRepository(DuckDbRepository):
             RecipeSummary(
                 recipe_id=str(row[0]),
                 display_name=str(row[1]),
-                state=RecipeState(str(row[2])),
-                current_recipe_revision=(int(row[3]) if row[3] is not None else None),
-                current_data_version_id=(str(row[4]) if row[4] else None),
-                current_workspace_project_id=(str(row[5]) if row[5] else None),
+                current_recipe_revision=(int(row[2]) if row[2] is not None else None),
+                current_data_version_id=(str(row[3]) if row[3] else None),
+                current_workspace_project_id=(str(row[4]) if row[4] else None),
                 current_workspace_revision=(
-                    int(row[6]) if row[6] is not None else None
+                    int(row[5]) if row[5] is not None else None
                 ),
-                data_version_count=int(row[7]),
-                deletable_as_bootstrap=bool(row[10]),
-                qualification_status=(str(row[8]) if row[8] else None),
-                cutover_recipe_revision=(int(row[9]) if row[9] is not None else None),
-                optimistic_revision=int(row[11]),
-                updated_at=datetime.fromisoformat(str(row[12])),
+                data_version_count=int(row[6]),
+                deletable=bool(row[9]),
+                qualification_status=(str(row[7]) if row[7] else None),
+                cutover_recipe_revision=(int(row[8]) if row[8] is not None else None),
+                optimistic_revision=int(row[10]),
+                updated_at=datetime.fromisoformat(str(row[11])),
             )
             for row in rows
         )
@@ -119,6 +118,124 @@ class RecipeRepository(DuckDbRepository):
         if row is None:
             raise RecipeNotFoundError("Recipe not found")
         return self._recipe(dict(zip(columns, row, strict=True)))
+
+    def delete_draft(
+        self,
+        recipe_id: str,
+        *,
+        expected_recipe_revision: int,
+        expected_workspace_revision: int,
+    ) -> str:
+        """Delete one unpublished Recipe and its sole contained workspace."""
+
+        project_id = self.validate_draft_deletion(
+            recipe_id,
+            expected_recipe_revision=expected_recipe_revision,
+            expected_workspace_revision=expected_workspace_revision,
+        )
+        recipe_id = require_uuid(recipe_id, "recipe_id")
+        project_dir = self.project_directory(project_id)
+        database_path = project_dir / "project.duckdb"
+        if not database_path.is_file():
+            raise ProjectNotFoundError("Recipe workspace not found")
+        staged: Path = self.root / f".{project_id}.deleting-{uuid4()}"
+        project_dir.rename(staged)
+        registry_deleted = False
+        try:
+            with self._connect(self.registry_path) as connection:
+                connection.begin()
+                current = connection.execute(
+                    """
+                    SELECT r.optimistic_revision, p.revision
+                      FROM recipe r
+                      JOIN data_version d
+                        ON d.data_version_id = r.current_data_version_id
+                      JOIN project_registry p
+                        ON p.project_id = d.workspace_project_id
+                     WHERE r.recipe_id = ? AND d.workspace_project_id = ?
+                    """,
+                    [recipe_id, project_id],
+                ).fetchone()
+                if current != (
+                    expected_recipe_revision,
+                    expected_workspace_revision,
+                ):
+                    raise RecipeConflictError(
+                        "Recipe changed during deletion; reload before retrying"
+                    )
+                connection.execute(
+                    "DELETE FROM data_version WHERE recipe_id = ?",
+                    [recipe_id],
+                )
+                connection.execute(
+                    "DELETE FROM recipe_intent WHERE recipe_id = ?",
+                    [recipe_id],
+                )
+                connection.execute(
+                    "DELETE FROM recipe WHERE recipe_id = ?",
+                    [recipe_id],
+                )
+                connection.execute(
+                    "DELETE FROM project_registry WHERE project_id = ?",
+                    [project_id],
+                )
+                connection.execute(
+                    "DELETE FROM project_registry_sync_pending WHERE project_id = ?",
+                    [project_id],
+                )
+                connection.commit()
+                registry_deleted = True
+            shutil.rmtree(staged)
+        except Exception:
+            if not registry_deleted and staged.exists() and not project_dir.exists():
+                staged.rename(project_dir)
+            raise
+        return project_id
+
+    def validate_draft_deletion(
+        self,
+        recipe_id: str,
+        *,
+        expected_recipe_revision: int,
+        expected_workspace_revision: int,
+    ) -> str:
+        """Validate an exact draft deletion before any external cleanup."""
+
+        recipe_id = require_uuid(recipe_id, "recipe_id")
+        with self._connect(self.registry_path) as connection:
+            row = connection.execute(
+                """
+                SELECT r.optimistic_revision, d.workspace_project_id,
+                       p.revision,
+                       (SELECT count(*) FROM data_version x
+                         WHERE x.recipe_id = r.recipe_id),
+                       (SELECT count(*) FROM recipe_revision x
+                         WHERE x.recipe_id = r.recipe_id),
+                       (SELECT count(*) FROM recipe_application x
+                         WHERE x.recipe_id = r.recipe_id),
+                       (SELECT count(*) FROM recipe_qualification x
+                         WHERE x.recipe_id = r.recipe_id),
+                       (SELECT count(*) FROM cutover_candidate x
+                         WHERE x.recipe_id = r.recipe_id)
+                  FROM recipe r
+                  JOIN data_version d
+                    ON d.data_version_id = r.current_data_version_id
+                  JOIN project_registry p
+                    ON p.project_id = d.workspace_project_id
+                 WHERE r.recipe_id = ? AND r.current_recipe_revision IS NULL
+                   AND d.purpose = 'AUTHORING' AND d.state = 'ACTIVE'
+                """,
+                [recipe_id],
+            ).fetchone()
+        if row is None:
+            raise RecipeConflictError("Only an unpublished Recipe can be deleted")
+        if int(row[0]) != expected_recipe_revision:
+            raise RecipeConflictError("Recipe changed; reload before deleting")
+        if int(row[2]) != expected_workspace_revision:
+            raise RecipeConflictError("Recipe workspace changed; reload before deleting")
+        if tuple(int(value) for value in row[3:]) != (1, 0, 0, 0, 0):
+            raise RecipeConflictError("Recipe has reusable evidence and cannot be deleted")
+        return str(row[1])
 
     def data_versions(self, recipe_id: str) -> tuple[DataVersion, ...]:
         """Return bounded DataVersion lineage for one Recipe."""
@@ -139,6 +256,55 @@ class RecipeRepository(DuckDbRepository):
         return tuple(
             self._data_version(dict(zip(columns, row, strict=True))) for row in rows
         )
+
+    def update_unpublished_setup(
+        self,
+        recipe_id: str,
+        *,
+        workspace_project_id: str,
+        display_name: str,
+        business_purpose: str,
+        data_classification: str,
+        retention_days: int,
+    ) -> Recipe:
+        """Synchronize Recipe-owned setup while its first revision is unpublished."""
+
+        recipe_id = require_uuid(recipe_id, "recipe_id")
+        workspace_project_id = require_uuid(
+            workspace_project_id,
+            "workspace_project_id",
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect(self.registry_path) as connection:
+            updated = connection.execute(
+                """
+                UPDATE recipe
+                   SET display_name = ?, business_purpose = ?,
+                       data_classification = ?, retention_days = ?,
+                       optimistic_revision = optimistic_revision + 1,
+                       updated_at = ?
+                 WHERE recipe_id = ? AND current_recipe_revision IS NULL
+                   AND current_data_version_id = (
+                       SELECT data_version_id FROM data_version
+                        WHERE recipe_id = ? AND workspace_project_id = ?
+                          AND purpose = 'AUTHORING' AND state = 'ACTIVE'
+                   )
+                 RETURNING recipe_id
+                """,
+                [
+                    display_name,
+                    business_purpose,
+                    data_classification,
+                    retention_days,
+                    now,
+                    recipe_id,
+                    recipe_id,
+                    workspace_project_id,
+                ],
+            ).fetchone()
+        if updated is None:
+            raise RecipeConflictError("Only unpublished Recipe setup can change")
+        return self.get(recipe_id)
 
     def update_data_version_parameter_values_hash(
         self,
@@ -165,7 +331,6 @@ class RecipeRepository(DuckDbRepository):
                        SELECT 1 FROM recipe r
                         WHERE r.recipe_id = data_version.recipe_id
                           AND r.current_data_version_id = data_version.data_version_id
-                          AND r.state = 'ACTIVE'
                    )
                  RETURNING *
                 """,
@@ -324,7 +489,9 @@ class RecipeRepository(DuckDbRepository):
                        actor_issuer, actor_subject, actor_display_name,
                        selected_at, content_hash
                   FROM cutover_candidate
-                 WHERE recipe_id = ?
+                 WHERE cutover_candidate_id = (
+                       SELECT cutover_candidate_id FROM recipe WHERE recipe_id = ?
+                 )
                 """,
                 [recipe_id],
             ).fetchone()
@@ -367,7 +534,7 @@ class RecipeRepository(DuckDbRepository):
             row = connection.execute(
                 """
                 SELECT d.recipe_id, d.data_version_id, d.version_number,
-                       d.workspace_project_id, r.state, d.state
+                       d.workspace_project_id, d.state
                   FROM data_version d
                   JOIN recipe r ON r.recipe_id = d.recipe_id
                  WHERE d.workspace_project_id = ?
@@ -393,57 +560,8 @@ class RecipeRepository(DuckDbRepository):
             data_version_id=str(row[1]),
             data_version_number=int(row[2]),
             workspace_project_id=str(row[3]),
-            recipe_state=RecipeState(str(row[4])),
-            data_version_state=DataVersionState(str(row[5])),
+            data_version_state=DataVersionState(str(row[4])),
         )
-
-    def hydrate_legacy_setup(
-        self,
-        recipe_id: str,
-        *,
-        data_classification: str,
-        retention_days: int,
-        business_purpose: str,
-        actor: Actor,
-    ) -> Recipe:
-        """Hydrate the allowlisted Recipe setup projection after one exact open."""
-
-        del actor
-        recipe = self.get(recipe_id)
-        if recipe.setup_hydration_state is SetupHydrationState.READY:
-            return recipe
-        setup = {
-            "business_purpose": business_purpose.strip(),
-            "data_classification": data_classification.strip().upper(),
-            "retention_days": retention_days,
-        }
-        setup_hash = content_hash(setup)
-        now = datetime.now(timezone.utc).isoformat()
-        with self._connect(self.registry_path) as connection:
-            updated = connection.execute(
-                """
-                UPDATE recipe
-                   SET business_purpose = ?, data_classification = ?,
-                       retention_days = ?, setup_hydration_state = 'READY',
-                       setup_hydration_hash = ?, optimistic_revision = ?,
-                       updated_at = ?
-                 WHERE recipe_id = ? AND optimistic_revision = ?
-                 RETURNING recipe_id
-                """,
-                [
-                    setup["business_purpose"],
-                    setup["data_classification"],
-                    setup["retention_days"],
-                    setup_hash,
-                    recipe.optimistic_revision + 1,
-                    now,
-                    recipe.recipe_id,
-                    recipe.optimistic_revision,
-                ],
-            )
-            if updated.fetchone() is None:
-                raise RecipeConflictError("Recipe changed during setup hydration")
-        return self.get(recipe.recipe_id)
 
     def reserve_intent(
         self,
@@ -480,18 +598,13 @@ class RecipeRepository(DuckDbRepository):
                     raise RecipeConflictError("Operation ID is already in use")
                 return current
         recipe = self.get(recipe_id)
-        if (
-            recipe.state is RecipeState.DELETING
-            and kind is not RecipeIntentKind.RECIPE_DELETION
-        ):
-            raise RecipeConflictError("Recipe is being deleted")
         if recipe.optimistic_revision != expected_recipe_revision:
             raise RecipeConflictError("Recipe changed; reload before continuing")
         with self._connect(self.registry_path) as connection:
             connection.execute(
                 """
                 INSERT INTO recipe_intent
-                VALUES (?, ?, ?, 'RESERVED', ?, 0, ?, '', ?, ?)
+                VALUES (?, ?, ?, 'RESERVED', ?, ?, '', ?, ?)
                 """,
                 [
                     operation_id,
@@ -552,19 +665,16 @@ class RecipeRepository(DuckDbRepository):
             raise RecipeConflictError("Recipe operation state changed")
         next_detail = detail if detail is not None else current.detail
         encoded_error = last_error.strip()[:1000]
-        retry_increment = 1 if new_state is RecipeIntentState.FAILED_RETRYABLE else 0
         with self._connect(self.registry_path) as connection:
             updated = connection.execute(
                 """
                 UPDATE recipe_intent
-                   SET state = ?, retry_count = retry_count + ?, detail_json = ?,
-                       last_error = ?, updated_at = ?
+                   SET state = ?, detail_json = ?, last_error = ?, updated_at = ?
                  WHERE operation_id = ? AND state = ?
                  RETURNING operation_id
                 """,
                 [
                     new_state.value,
-                    retry_increment,
                     canonical_json(next_detail),
                     encoded_error,
                     datetime.now(timezone.utc).isoformat(),
@@ -691,7 +801,7 @@ class RecipeRepository(DuckDbRepository):
                     """
                     SELECT current_recipe_revision, current_data_version_id,
                            optimistic_revision
-                      FROM recipe WHERE recipe_id = ? AND state = 'ACTIVE'
+                      FROM recipe WHERE recipe_id = ?
                     """,
                     [intent.recipe_id],
                 ).fetchone()
@@ -711,11 +821,6 @@ class RecipeRepository(DuckDbRepository):
                 ).fetchone()
                 if not project_exists or not bool(project_exists[0]):
                     raise ProjectNotFoundError("Workspace project not found")
-                self._detach_eligible_bootstrap_shell(
-                    connection,
-                    workspace_project_id=workspace_project_id,
-                    destination_recipe_id=intent.recipe_id,
-                )
                 collision = connection.execute(
                     """
                     SELECT
@@ -742,9 +847,12 @@ class RecipeRepository(DuckDbRepository):
                 now = str(detail["created_at"])
                 connection.execute(
                     """
-                    INSERT INTO data_version VALUES (
-                        ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, NULL
-                    )
+                    INSERT INTO data_version (
+                        data_version_id, recipe_id, version_number,
+                        workspace_project_id, parent_data_version_id, purpose,
+                        state, pinned_recipe_revision, label, export_as_of_date,
+                        parameter_values_hash, created_at, sealed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, NULL)
                     """,
                     [
                         data_version_id,
@@ -757,7 +865,6 @@ class RecipeRepository(DuckDbRepository):
                         str(detail["label"]),
                         detail.get("export_as_of_date"),
                         detail.get("parameter_values_hash"),
-                        str(detail.get("intake_status", "PENDING")),
                         now,
                     ],
                 )
@@ -774,7 +881,6 @@ class RecipeRepository(DuckDbRepository):
                     """
                     UPDATE recipe
                        SET current_data_version_id = ?,
-                           pending_data_version_id = NULL,
                            optimistic_revision = ?, updated_at = ?
                      WHERE recipe_id = ?
                     """,
@@ -994,7 +1100,7 @@ class RecipeRepository(DuckDbRepository):
                 recipe = connection.execute(
                     """
                     SELECT current_recipe_revision, optimistic_revision
-                      FROM recipe WHERE recipe_id = ? AND state = 'ACTIVE'
+                      FROM recipe WHERE recipe_id = ?
                     """,
                     [intent.recipe_id],
                 ).fetchone()
@@ -1090,7 +1196,7 @@ class RecipeRepository(DuckDbRepository):
                 recipe = connection.execute(
                     """
                     SELECT current_recipe_revision, optimistic_revision
-                      FROM recipe WHERE recipe_id = ? AND state = 'ACTIVE'
+                      FROM recipe WHERE recipe_id = ?
                     """,
                     [intent.recipe_id],
                 ).fetchone()
@@ -1164,126 +1270,6 @@ class RecipeRepository(DuckDbRepository):
                 raise
         return self.get_intent(operation_id)
 
-    def enumerate_deletion(self, operation_id: str) -> RecipeIntent:
-        """Tombstone a Recipe and freeze the exact deletion target set."""
-
-        intent = self.get_intent(operation_id)
-        if intent.kind is not RecipeIntentKind.RECIPE_DELETION:
-            raise RecipeConflictError("Recipe operation kind is invalid")
-        if intent.state is RecipeIntentState.TARGETS_ENUMERATED:
-            return intent
-        if intent.state is not RecipeIntentState.RESERVED:
-            raise RecipeConflictError("Recipe deletion is not reserved")
-        with self._connect(self.registry_path) as connection:
-            connection.begin()
-            try:
-                recipe = connection.execute(
-                    "SELECT optimistic_revision FROM recipe WHERE recipe_id = ?",
-                    [intent.recipe_id],
-                ).fetchone()
-                if recipe is None or int(recipe[0]) != intent.expected_recipe_revision:
-                    raise RecipeConflictError("Recipe changed before deletion")
-                targets: set[tuple[str, str]] = {("RECIPE", intent.recipe_id)}
-                for row in connection.execute(
-                    """
-                    SELECT data_version_id, workspace_project_id
-                      FROM data_version WHERE recipe_id = ?
-                    """,
-                    [intent.recipe_id],
-                ).fetchall():
-                    targets.add(("DATA_VERSION", str(row[0])))
-                    targets.add(("PROJECT", str(row[1])))
-                for row in connection.execute(
-                    """
-                    SELECT storage_key FROM recipe_revision WHERE recipe_id = ?
-                    UNION ALL
-                    SELECT evidence_storage_key FROM recipe_qualification
-                     WHERE recipe_id = ?
-                    UNION ALL
-                    SELECT evidence_storage_key FROM recipe_application
-                     WHERE recipe_id = ?
-                    """,
-                    [intent.recipe_id, intent.recipe_id, intent.recipe_id],
-                ).fetchall():
-                    targets.add(("PROTECTED_KEY", str(row[0])))
-                for kind, target_id in sorted(targets):
-                    connection.execute(
-                        """
-                        INSERT OR IGNORE INTO recipe_deletion_target
-                        VALUES (?, ?, ?, NULL)
-                        """,
-                        [operation_id, kind, target_id],
-                    )
-                now = datetime.now(timezone.utc).isoformat()
-                connection.execute(
-                    """
-                    UPDATE recipe
-                       SET state = 'DELETING', optimistic_revision = ?, updated_at = ?
-                     WHERE recipe_id = ?
-                    """,
-                    [intent.expected_recipe_revision + 1, now, intent.recipe_id],
-                )
-                connection.execute(
-                    """
-                    UPDATE recipe_intent
-                       SET state = 'TARGETS_ENUMERATED', updated_at = ?
-                     WHERE operation_id = ?
-                    """,
-                    [now, operation_id],
-                )
-                connection.commit()
-            except Exception:
-                connection.rollback()
-                raise
-        return self.get_intent(operation_id)
-
-    def deletion_targets(self, operation_id: str) -> tuple[tuple[str, str], ...]:
-        """Return only the persisted exact deletion targets."""
-
-        operation_id = require_uuid(operation_id, "operation_id")
-        with self._connect(self.registry_path) as connection:
-            rows = connection.execute(
-                """
-                SELECT target_kind, target_id FROM recipe_deletion_target
-                 WHERE operation_id = ? ORDER BY target_kind, target_id
-                """,
-                [operation_id],
-            ).fetchall()
-        return tuple((str(row[0]), str(row[1])) for row in rows)
-
-    @staticmethod
-    def _detach_eligible_bootstrap_shell(
-        connection: duckdb.DuckDBPyConnection,
-        *,
-        workspace_project_id: str,
-        destination_recipe_id: str,
-    ) -> None:
-        row = connection.execute(
-            """
-            SELECT d.recipe_id, d.data_version_id,
-                   (SELECT count(*) FROM recipe_revision rr
-                     WHERE rr.recipe_id = d.recipe_id) AS revisions,
-                   (SELECT count(*) FROM data_version dd
-                     WHERE dd.recipe_id = d.recipe_id) AS versions
-              FROM data_version d
-             WHERE d.workspace_project_id = ?
-            """,
-            [workspace_project_id],
-        ).fetchone()
-        if row is None or str(row[0]) == destination_recipe_id:
-            return
-        if int(row[2]) != 0 or int(row[3]) != 1:
-            raise RecipeConflictError("Workspace already belongs to another Recipe")
-        bootstrap_recipe_id = str(row[0])
-        connection.execute(
-            "DELETE FROM data_version WHERE data_version_id = ?",
-            [str(row[1])],
-        )
-        connection.execute(
-            "DELETE FROM recipe WHERE recipe_id = ?",
-            [bootstrap_recipe_id],
-        )
-
     @staticmethod
     def _actor_detail(detail: Mapping[str, object]) -> ActorIdentity:
         actor = detail.get("actor")
@@ -1301,7 +1287,6 @@ class RecipeRepository(DuckDbRepository):
             recipe_id=str(row["recipe_id"]),
             display_name=str(row["display_name"]),
             business_purpose=str(row["business_purpose"]),
-            state=RecipeState(str(row["state"])),
             data_classification=str(row["data_classification"]),
             retention_days=int(row["retention_days"]),
             current_recipe_revision=(
@@ -1314,22 +1299,9 @@ class RecipeRepository(DuckDbRepository):
                 if row["current_data_version_id"]
                 else None
             ),
-            pending_data_version_id=(
-                str(row["pending_data_version_id"])
-                if row["pending_data_version_id"]
-                else None
-            ),
             cutover_candidate_id=(
                 str(row["cutover_candidate_id"])
                 if row["cutover_candidate_id"]
-                else None
-            ),
-            setup_hydration_state=SetupHydrationState(
-                str(row["setup_hydration_state"])
-            ),
-            setup_hydration_hash=(
-                str(row["setup_hydration_hash"])
-                if row["setup_hydration_hash"]
                 else None
             ),
             optimistic_revision=int(row["optimistic_revision"]),
@@ -1367,7 +1339,6 @@ class RecipeRepository(DuckDbRepository):
                 if row["parameter_values_hash"]
                 else None
             ),
-            intake_status=str(row["intake_status"]),
             created_at=datetime.fromisoformat(str(row["created_at"])),
             sealed_at=(
                 datetime.fromisoformat(str(row["sealed_at"]))
@@ -1384,7 +1355,6 @@ class RecipeRepository(DuckDbRepository):
             kind=RecipeIntentKind(str(row["kind"])),
             state=RecipeIntentState(str(row["state"])),
             expected_recipe_revision=int(row["expected_recipe_revision"]),
-            retry_count=int(row["retry_count"]),
             detail=json.loads(str(row["detail_json"])),
             last_error=str(row["last_error"]),
             created_at=datetime.fromisoformat(str(row["created_at"])),

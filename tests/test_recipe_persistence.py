@@ -11,11 +11,16 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
+import duckdb
+
 from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbDatabase
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.recipe_repository import RecipeRepository
-from impodo.adapters.duckdb.schema.registry import RECIPE_REGISTRY_MIGRATION_ID
+from impodo.adapters.duckdb.schema.registry import (
+    RECIPE_CLEAN_ROOT_MIGRATION_ID,
+    RECIPE_REGISTRY_MIGRATION_ID,
+)
 from impodo.adapters.protected_recipe_store import ProtectedRecipeStore
 from impodo.application.recipe_service import RecipeService
 from impodo.domain.serialization import content_hash
@@ -27,7 +32,6 @@ from impodo.recipes import (
     RecipeIdentifierConfusionError,
     RecipeIntegrityError,
     RecipeIntentState,
-    RecipeState,
 )
 from impodo.secrets import MemorySecretStore
 
@@ -82,26 +86,177 @@ class RecipePersistenceTests(unittest.TestCase):
             sort_keys=True,
         ).encode("utf-8")
 
-    def _publish_first_revision(self, recipe_id: str, expected_revision: int = 1):
+    def _publish_first_revision(self, recipe_id: str):
         recipe = self.recipe_repository.get(recipe_id)
-        project_id = self.recipe_repository.data_versions(recipe_id)[
-            0
-        ].workspace_project_id
-        project = self.projects.get(project_id)
-        if recipe.setup_hydration_state.value != "READY":
-            recipe = self.service.hydrate_legacy_project(
-                project,
-                actor=LOCAL_ACTOR,
-            )
-            expected_revision = recipe.optimistic_revision
         return self.service.publish_revision(
             recipe_id,
-            expected_recipe_revision=expected_revision,
+            expected_recipe_revision=recipe.optimistic_revision,
             envelope_bytes=self._envelope(recipe_id, 1),
             actor=LOCAL_ACTOR,
         )
 
-    def test_registry_backfill_is_bounded_and_ids_are_not_interchangeable(self) -> None:
+    def _unlinked_workspace(self, name: str):
+        return self.project_service.create_data_version_workspace(
+            actor=LOCAL_ACTOR,
+            name=name,
+            source_system="CSV export",
+            data_manager="Data Manager",
+            functional_owner="Functional Owner",
+            business_unit="Operations",
+            data_classification="INTERNAL",
+            retention_days=90,
+            support_access=False,
+        )
+
+    def test_clean_root_migration_removes_bootstrap_state_and_cutover_uniqueness(
+        self,
+    ) -> None:
+        self.temporary.cleanup()
+        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        registry_path = Path(self.temporary.name) / "registry.duckdb"
+        recipe_id = str(uuid4())
+        data_version_id = str(uuid4())
+        project_id = str(uuid4())
+        first_cutover_id = str(uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        with duckdb.connect(str(registry_path)) as connection:
+            connection.execute(
+                """
+                CREATE TABLE recipe (
+                    recipe_id VARCHAR PRIMARY KEY,
+                    display_name VARCHAR NOT NULL,
+                    business_purpose VARCHAR NOT NULL,
+                    state VARCHAR NOT NULL,
+                    data_classification VARCHAR NOT NULL,
+                    retention_days INTEGER NOT NULL,
+                    current_recipe_revision INTEGER,
+                    current_data_version_id VARCHAR,
+                    pending_data_version_id VARCHAR,
+                    cutover_candidate_id VARCHAR,
+                    setup_hydration_state VARCHAR NOT NULL,
+                    setup_hydration_hash VARCHAR,
+                    optimistic_revision INTEGER NOT NULL,
+                    created_at VARCHAR NOT NULL,
+                    updated_at VARCHAR NOT NULL
+                );
+                CREATE TABLE data_version (
+                    data_version_id VARCHAR PRIMARY KEY,
+                    recipe_id VARCHAR NOT NULL,
+                    version_number INTEGER NOT NULL,
+                    workspace_project_id VARCHAR NOT NULL UNIQUE,
+                    parent_data_version_id VARCHAR,
+                    purpose VARCHAR NOT NULL,
+                    state VARCHAR NOT NULL,
+                    pinned_recipe_revision INTEGER,
+                    label VARCHAR NOT NULL,
+                    export_as_of_date VARCHAR,
+                    parameter_values_hash VARCHAR,
+                    intake_status VARCHAR NOT NULL,
+                    created_at VARCHAR NOT NULL,
+                    sealed_at VARCHAR,
+                    UNIQUE (recipe_id, version_number)
+                );
+                CREATE TABLE cutover_candidate (
+                    cutover_candidate_id VARCHAR PRIMARY KEY,
+                    recipe_id VARCHAR NOT NULL UNIQUE,
+                    recipe_revision INTEGER NOT NULL,
+                    qualification_id VARCHAR NOT NULL,
+                    expected_recipe_revision INTEGER NOT NULL,
+                    actor_issuer VARCHAR NOT NULL,
+                    actor_subject VARCHAR NOT NULL,
+                    actor_display_name VARCHAR NOT NULL,
+                    selected_at VARCHAR NOT NULL,
+                    content_hash VARCHAR NOT NULL
+                );
+                CREATE TABLE recipe_intent (
+                    operation_id VARCHAR PRIMARY KEY,
+                    recipe_id VARCHAR NOT NULL,
+                    kind VARCHAR NOT NULL,
+                    state VARCHAR NOT NULL,
+                    expected_recipe_revision INTEGER NOT NULL,
+                    retry_count INTEGER NOT NULL,
+                    detail_json VARCHAR NOT NULL,
+                    last_error VARCHAR NOT NULL,
+                    created_at VARCHAR NOT NULL,
+                    updated_at VARCHAR NOT NULL
+                );
+                """
+            )
+            connection.execute(
+                "INSERT INTO recipe VALUES (?, 'Legacy', 'Legacy', 'DELETING', "
+                "'INTERNAL', 90, 1, ?, NULL, ?, 'READY', NULL, 4, ?, ?)",
+                [recipe_id, data_version_id, first_cutover_id, now, now],
+            )
+            connection.execute(
+                "INSERT INTO data_version VALUES (?, ?, 1, ?, NULL, 'AUTHORING', "
+                "'PENDING', 1, 'Legacy', NULL, NULL, 'LEGACY_BACKFILL', ?, NULL)",
+                [data_version_id, recipe_id, project_id, now],
+            )
+            connection.execute(
+                "INSERT INTO cutover_candidate VALUES (?, ?, 1, ?, 3, "
+                "'issuer', 'subject', 'Actor', ?, ?)",
+                [
+                    first_cutover_id,
+                    recipe_id,
+                    str(uuid4()),
+                    now,
+                    "sha256:" + "a" * 64,
+                ],
+            )
+
+        migrated = DuckDbDatabase(self.temporary.name)
+        with migrated._connect(migrated.registry_path) as connection:
+            recipe_columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info('recipe')").fetchall()
+            }
+            data_columns = {
+                str(row[1])
+                for row in connection.execute(
+                    "PRAGMA table_info('data_version')"
+                ).fetchall()
+            }
+            intent_columns = {
+                str(row[1])
+                for row in connection.execute(
+                    "PRAGMA table_info('recipe_intent')"
+                ).fetchall()
+            }
+            data_state = connection.execute(
+                "SELECT state FROM data_version WHERE data_version_id = ?",
+                [data_version_id],
+            ).fetchone()
+            connection.execute(
+                "INSERT INTO cutover_candidate VALUES (?, ?, 2, ?, 4, "
+                "'issuer', 'subject', 'Actor', ?, ?)",
+                [
+                    str(uuid4()),
+                    recipe_id,
+                    str(uuid4()),
+                    now,
+                    "sha256:" + "b" * 64,
+                ],
+            )
+            history_count = connection.execute(
+                "SELECT count(*) FROM cutover_candidate WHERE recipe_id = ?",
+                [recipe_id],
+            ).fetchone()
+            migration = connection.execute(
+                "SELECT count(*) FROM registry_schema_migration "
+                "WHERE migration_id = ?",
+                [RECIPE_CLEAN_ROOT_MIGRATION_ID],
+            ).fetchone()
+
+        self.assertNotIn("pending_data_version_id", recipe_columns)
+        self.assertNotIn("setup_hydration_state", recipe_columns)
+        self.assertNotIn("state", recipe_columns)
+        self.assertNotIn("intake_status", data_columns)
+        self.assertNotIn("retry_count", intent_columns)
+        self.assertEqual(data_state, ("SEALED",))
+        self.assertEqual(history_count, (2,))
+        self.assertEqual(migration, (1,))
+
+    def test_native_recipe_registry_is_bounded_and_ids_are_not_interchangeable(self) -> None:
         project, recipe = self._project_and_recipe()
         versions = self.recipe_repository.data_versions(recipe.recipe_id)
 
@@ -193,8 +348,7 @@ class RecipePersistenceTests(unittest.TestCase):
             self.store.exists("../outside/revisions/payload.ipr")
 
     def test_publication_recovers_after_payload_write_without_duplicate_revision(self):
-        project, recipe = self._project_and_recipe()
-        recipe = self.service.hydrate_legacy_project(project, actor=LOCAL_ACTOR)
+        _project, recipe = self._project_and_recipe()
         operation_id = str(uuid4())
 
         def crash(stage: str) -> None:
@@ -219,7 +373,7 @@ class RecipePersistenceTests(unittest.TestCase):
         self.assertEqual(recovered[0].state, RecipeIntentState.COMPLETE)
         published = self.recipe_repository.get(recipe.recipe_id)
         self.assertEqual(published.current_recipe_revision, 1)
-        self.assertEqual(published.optimistic_revision, 3)
+        self.assertEqual(published.optimistic_revision, 2)
         read_back = self.service.read_revision(
             recipe.recipe_id,
             1,
@@ -243,8 +397,7 @@ class RecipePersistenceTests(unittest.TestCase):
             )
 
     def test_publication_rejects_nonportable_runtime_envelopes(self) -> None:
-        project, recipe = self._project_and_recipe()
-        recipe = self.service.hydrate_legacy_project(project, actor=LOCAL_ACTOR)
+        _project, recipe = self._project_and_recipe()
         envelope = json.loads(self._envelope(recipe.recipe_id, 1).decode("utf-8"))
 
         for mutation in (
@@ -276,13 +429,7 @@ class RecipePersistenceTests(unittest.TestCase):
         first_project, recipe = self._project_and_recipe()
         self._publish_first_revision(recipe.recipe_id)
         recipe = self.recipe_repository.get(recipe.recipe_id)
-        second_project = self.project_service.create_project(
-            actor=LOCAL_ACTOR,
-            name="Customer rollout workspace",
-            source_system="CSV export",
-        )
-        bootstrap = self.recipe_repository.resolve_workspace(second_project.project_id)
-        self.projects.get(second_project.project_id)
+        second_project = self._unlinked_workspace("Customer rollout workspace")
         operation_id = str(uuid4())
 
         def crash(stage: str) -> None:
@@ -315,19 +462,91 @@ class RecipePersistenceTests(unittest.TestCase):
         with self.assertRaises(ProjectError):
             self.projects.assert_workspace_mutable(first_project.project_id)
         self.projects.assert_workspace_mutable(second_project.project_id)
-        with self.assertRaises(ProjectNotFoundError):
-            self.recipe_repository.resolve_workspace(bootstrap.recipe_id)
         self.assertEqual(len(self.recipe_repository.list()), 1)
+
+    def test_restart_preserves_reserved_workspace_and_discards_true_orphan(self):
+        _first_project, recipe = self._project_and_recipe()
+        self._publish_first_revision(recipe.recipe_id)
+        recipe = self.recipe_repository.get(recipe.recipe_id)
+        recoverable = self._unlinked_workspace("Reserved rollout workspace")
+        orphan = self._unlinked_workspace("Interrupted provisional workspace")
+        operation_id = str(uuid4())
+
+        def crash(stage: str) -> None:
+            if stage == "INTENT_RESERVED":
+                raise RuntimeError("simulated crash")
+
+        with self.assertRaisesRegex(RuntimeError, "simulated crash"):
+            self.service.create_data_version(
+                recipe.recipe_id,
+                expected_recipe_revision=recipe.optimistic_revision,
+                workspace_project_id=recoverable.project_id,
+                purpose=DataVersionPurpose.TEST,
+                label="Reserved rollout workspace",
+                actor=LOCAL_ACTOR,
+                operation_id=operation_id,
+                fault=crash,
+            )
+
+        restarted_projects = ProjectRepository(self.database)
+        self.assertTrue(
+            restarted_projects.project_directory(recoverable.project_id).is_dir()
+        )
+        self.assertFalse(
+            restarted_projects.project_directory(orphan.project_id).exists()
+        )
+
+        restarted_repository = RecipeRepository(self.database)
+        restarted_service = RecipeService(
+            restarted_repository,
+            self.store,
+            CapabilityAuthorizationPolicy(),
+        )
+        recovered = restarted_service.recover_incomplete(actor=LOCAL_ACTOR)
+
+        self.assertEqual(recovered[0].state, RecipeIntentState.COMPLETE)
+        versions = restarted_repository.data_versions(recipe.recipe_id)
+        self.assertEqual(versions[-1].workspace_project_id, recoverable.project_id)
+        with self.assertRaises(ProjectNotFoundError):
+            restarted_projects.get(orphan.project_id)
+
+    def test_failed_data_version_commit_is_abandoned_before_orphan_cleanup(self):
+        _first_project, recipe = self._project_and_recipe()
+        workspace = self._unlinked_workspace("Rejected rollout workspace")
+        operation_id = str(uuid4())
+
+        with (
+            patch.object(
+                self.recipe_repository,
+                "commit_data_version",
+                side_effect=RecipeConflictError("injected registry conflict"),
+            ),
+            self.assertRaisesRegex(RecipeConflictError, "registry conflict"),
+        ):
+            self.service.create_data_version(
+                recipe.recipe_id,
+                expected_recipe_revision=recipe.optimistic_revision,
+                workspace_project_id=workspace.project_id,
+                purpose=DataVersionPurpose.TEST,
+                label="Rejected rollout workspace",
+                actor=LOCAL_ACTOR,
+                operation_id=operation_id,
+            )
+
+        self.assertEqual(
+            self.recipe_repository.get_intent(operation_id).state,
+            RecipeIntentState.ABANDONED,
+        )
+        restarted_projects = ProjectRepository(self.database)
+        self.assertFalse(
+            restarted_projects.project_directory(workspace.project_id).exists()
+        )
 
     def test_active_data_version_parameter_hash_updates_optimistically(self):
         _first_project, recipe = self._project_and_recipe()
         self._publish_first_revision(recipe.recipe_id)
         recipe = self.recipe_repository.get(recipe.recipe_id)
-        workspace = self.project_service.create_project(
-            actor=LOCAL_ACTOR,
-            name="Customer parameter rehearsal",
-            source_system="CSV export",
-        )
+        workspace = self._unlinked_workspace("Customer parameter rehearsal")
         first_hash = "sha256:" + "1" * 64
         second_hash = "sha256:" + "2" * 64
         self.service.create_data_version(
@@ -460,41 +679,86 @@ class RecipePersistenceTests(unittest.TestCase):
         )
         self.assertEqual(summary.cutover_recipe_revision, 1)
 
-    def test_deletion_tombstone_persists_only_exact_targets(self) -> None:
-        project, recipe = self._project_and_recipe()
-        publication = self._publish_first_revision(recipe.recipe_id)
         recipe = self.recipe_repository.get(recipe.recipe_id)
-        with self.assertRaises(ProjectError):
-            self.projects.assert_standalone_project_deletion_allowed(project.project_id)
-        operation_id = str(uuid4())
+        second_application_id = str(uuid4())
+        second_application_hash = "sha256:" + "f" * 64
+        self.service.record_application_projection(
+            actor=LOCAL_ACTOR,
+            application_id=second_application_id,
+            recipe_id=recipe.recipe_id,
+            recipe_revision=2,
+            data_version_id=data_version.data_version_id,
+            workspace_project_id=project.project_id,
+            source_selection_hash="sha256:" + "3" * 64,
+            parameter_values_hash="sha256:" + "4" * 64,
+            target_binding_hash=target_binding_hash,
+            credential_generation="test-read-generation-4",
+            binding_hash="sha256:" + "5" * 64,
+            issue_hash="sha256:" + "6" * 64,
+            mapping_id=str(uuid4()),
+            mapping_content_hash="sha256:" + "7" * 64,
+            status="APPLIED",
+            evidence_storage_key="protected/application-evidence-v2",
+            evidence_hash=second_application_hash,
+            created_at=datetime.now(timezone.utc),
+        )
+        second_evidence = {
+            **evidence,
+            "application_evidence_hash": second_application_hash,
+            "application_id": second_application_id,
+            "recipe_revision": 2,
+        }
+        second_qualification = self.service.publish_qualification(
+            recipe.recipe_id,
+            expected_recipe_revision=recipe.optimistic_revision,
+            evidence=second_evidence,
+            actor=LOCAL_ACTOR,
+        )
+        recipe = self.recipe_repository.get(recipe.recipe_id)
+        self.service.select_cutover_candidate(
+            recipe.recipe_id,
+            expected_recipe_revision=recipe.optimistic_revision,
+            recipe_revision=2,
+            qualification_id=str(second_qualification.detail["qualification_id"]),
+            qualification_evidence_hash=str(
+                second_qualification.detail["evidence_hash"]
+            ),
+            actor=LOCAL_ACTOR,
+        )
+        current = self.service.cutover_candidate(recipe.recipe_id, actor=LOCAL_ACTOR)
+        self.assertIsNotNone(current)
+        self.assertEqual(current.recipe_revision, 2)
+        with self.recipe_repository._connect(
+            self.recipe_repository.registry_path
+        ) as connection:
+            history_count = connection.execute(
+                "SELECT count(*) FROM cutover_candidate WHERE recipe_id = ?",
+                [recipe.recipe_id],
+            ).fetchone()
+        self.assertEqual(history_count, (2,))
 
-        def crash(stage: str) -> None:
-            if stage == "INTENT_RESERVED":
-                raise RuntimeError("simulated crash")
+    def test_draft_deletion_is_recipe_owned_and_published_recipe_is_protected(self) -> None:
+        project, recipe = self._project_and_recipe()
+        deleted_project_id = self.service.delete_draft(
+            recipe.recipe_id,
+            expected_recipe_revision=recipe.optimistic_revision,
+            expected_workspace_revision=project.revision,
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(deleted_project_id, project.project_id)
+        with self.assertRaises(ProjectNotFoundError):
+            self.projects.get(project.project_id)
 
-        with self.assertRaisesRegex(RuntimeError, "simulated crash"):
-            self.service.begin_deletion(
-                recipe.recipe_id,
-                expected_recipe_revision=recipe.optimistic_revision,
+        _published_project, published = self._project_and_recipe("Published")
+        self._publish_first_revision(published.recipe_id)
+        published = self.recipe_repository.get(published.recipe_id)
+        with self.assertRaisesRegex(RecipeConflictError, "unpublished"):
+            self.service.delete_draft(
+                published.recipe_id,
+                expected_recipe_revision=published.optimistic_revision,
+                expected_workspace_revision=1,
                 actor=LOCAL_ACTOR,
-                operation_id=operation_id,
-                fault=crash,
             )
-        recovered = self.service.recover_incomplete(actor=LOCAL_ACTOR)
-        deletion = next(item for item in recovered if item.operation_id == operation_id)
-        self.assertEqual(deletion.state, RecipeIntentState.TARGETS_ENUMERATED)
-        self.assertEqual(
-            self.recipe_repository.get(recipe.recipe_id).state,
-            RecipeState.DELETING,
-        )
-        targets = self.recipe_repository.deletion_targets(operation_id)
-        self.assertIn(("RECIPE", recipe.recipe_id), targets)
-        self.assertIn(("PROJECT", project.project_id), targets)
-        self.assertIn(
-            ("PROTECTED_KEY", str(publication.detail["storage_key"])),
-            targets,
-        )
-        self.assertEqual(targets, self.recipe_repository.deletion_targets(operation_id))
 
 
 if __name__ == "__main__":

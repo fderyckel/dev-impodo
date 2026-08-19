@@ -493,7 +493,12 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
             status=ProjectStatus.REGISTERED,
             registered_at=now,
         )
-        self.projects.create(self.project, actor=LOCAL_ACTOR)
+        self.projects.create(
+            self.project,
+            recipe_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+        )
         self.selection, self.catalog = _source_evidence(
             project_id=self.project.project_id
         )

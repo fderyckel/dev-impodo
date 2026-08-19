@@ -51,25 +51,42 @@ def build_projects_router(context: WebContext) -> APIRouter:
     router = APIRouter()
 
     @router.get("/recipes", response_class=HTMLResponse)
-    @router.get("/projects", response_class=HTMLResponse)
-    async def project_list(request: Request):
+    async def recipe_list(request: Request):
         require_session(request)
         return _render(
             request,
-            "project_list.html",
+            "recipe_list.html",
             recipes=context.recipes.list(actor=context.actor),
         )
 
-    @router.post("/projects/{project_id}/delete")
-    async def delete_project(request: Request, project_id: str):
+    @router.post("/recipes/{recipe_id}/delete")
+    async def delete_recipe(request: Request, recipe_id: str):
         form = await request.form()
-        _secure_form(request, form, {"csrf_token", "revision"})
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "recipe_revision", "workspace_revision"},
+        )
         try:
-            expected_revision = _revision(form)
-            project = context.projects.deletion_target(
-                project_id,
+            expected_recipe_revision = int(_text(form, "recipe_revision"))
+            expected_workspace_revision = int(_text(form, "workspace_revision"))
+            context.authorization.require(
+                context.actor,
+                Capability.RECIPE_DELETE,
+            )
+            recipe = context.recipes.get(recipe_id, actor=context.actor)
+            versions = context.recipes.data_versions(recipe_id, actor=context.actor)
+            current = next(
+                item
+                for item in versions
+                if item.data_version_id == recipe.current_data_version_id
+            )
+            project = context.queries.get(current.workspace_project_id)
+            context.recipes.validate_draft_deletion(
+                recipe_id,
+                expected_recipe_revision=expected_recipe_revision,
+                expected_workspace_revision=expected_workspace_revision,
                 actor=context.actor,
-                expected_revision=expected_revision,
             )
             if (
                 context.preparation_jobs is not None
@@ -79,21 +96,16 @@ def build_projects_router(context: WebContext) -> APIRouter:
                     "Preparation is still running. Stop it before deleting "
                     "this project."
                 )
-            context.authorization.require(
-                context.actor,
-                Capability.PROJECT_DELETE,
-                project_id=project.project_id,
-            )
             context.local_stack.forget_project(project.project_id)
             context.remote_connections.clear(project.project_id)
-            context.odoo_provenance.delete_project_key(
+            context.odoo_provenance.delete_recipe_workspace_key(
                 project.project_id,
                 actor=context.actor,
             )
             removal_receipts = delete_target_credentials(
                 context.secret_store,
                 project,
-                reason=TargetCredentialRemovalReason.PROJECT_DELETED,
+                reason=TargetCredentialRemovalReason.RECIPE_DELETED,
             )
             audit_removed_target_credentials(
                 context.projects,
@@ -101,44 +113,50 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 removal_receipts,
                 actor=context.actor,
             )
-            deleted = await run_in_threadpool(
-                context.projects.delete_project,
-                project.project_id,
+            await run_in_threadpool(
+                context.recipes.delete_draft,
+                recipe_id,
                 actor=context.actor,
-                expected_revision=expected_revision,
+                expected_recipe_revision=expected_recipe_revision,
+                expected_workspace_revision=expected_workspace_revision,
             )
             if context.preparation_jobs is not None:
                 context.preparation_jobs.delete_project_history(project.project_id)
         except AuthorizationError as error:
             raise HTTPException(
                 status_code=403,
-                detail="Not authorized to delete this project",
+                detail="Not authorized to delete this Recipe",
             ) from error
-        except (LocalStackError, SecretStoreError, ProjectError) as error:
+        except (
+            LocalStackError,
+            SecretStoreError,
+            ProjectError,
+            RecipeError,
+            StopIteration,
+            ValueError,
+        ) as error:
             return _render(
                 request,
-                "project_list.html",
+                "recipe_list.html",
                 recipes=context.recipes.list(actor=context.actor),
                 error=str(error),
                 status_code=422,
             )
-        _flash(request, f'Deleted project "{deleted.name}".')
-        return RedirectResponse("/projects", status_code=303)
+        _flash(request, f'Deleted Recipe "{recipe.display_name}".')
+        return RedirectResponse("/recipes", status_code=303)
 
     @router.get("/recipes/new", response_class=HTMLResponse)
-    @router.get("/projects/new", response_class=HTMLResponse)
-    async def new_project_form(request: Request):
+    async def new_recipe_form(request: Request):
         require_session(request)
         return _render(
             request,
-            "project_new.html",
+            "recipe_new.html",
             source_systems=SOURCE_SYSTEMS,
             values={},
         )
 
     @router.post("/recipes/new")
-    @router.post("/projects/new")
-    async def new_project(request: Request):
+    async def new_recipe(request: Request):
         """Create the minimal draft and enter its governed setup sequence."""
 
         form = await request.form()
@@ -158,18 +176,13 @@ def build_projects_router(context: WebContext) -> APIRouter:
         except (ProjectError, RecipeError) as error:
             return _render(
                 request,
-                "project_new.html",
+                "recipe_new.html",
                 source_systems=SOURCE_SYSTEMS,
                 values=values,
                 error=str(error),
                 status_code=422,
             )
-        destination = (
-            f"/recipes/{recipe.recipe_id}"
-            if request.url.path == "/recipes/new"
-            else f"/projects/{project.project_id}/details"
-        )
-        return RedirectResponse(destination, status_code=303)
+        return RedirectResponse(f"/recipes/{recipe.recipe_id}", status_code=303)
 
     @router.get("/recipes/{recipe_id}", response_class=HTMLResponse)
     async def recipe_overview(request: Request, recipe_id: str):
@@ -576,7 +589,6 @@ def build_projects_router(context: WebContext) -> APIRouter:
     async def open_project(request: Request, project_id: str):
         require_session(request)
         project = context.queries.get(project_id)
-        context.recipes.hydrate_legacy_project(project, actor=context.actor)
         destination = (
             "overview" if project.status is ProjectStatus.REGISTERED else "details"
         )
@@ -589,7 +601,6 @@ def build_projects_router(context: WebContext) -> APIRouter:
     async def project_overview(request: Request, project_id: str):
         require_session(request)
         project = context.queries.get(project_id)
-        context.recipes.hydrate_legacy_project(project, actor=context.actor)
         if project.status is not ProjectStatus.REGISTERED:
             return RedirectResponse(
                 f"/projects/{project.project_id}/details",
@@ -641,7 +652,11 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 export_date=_text(form, "export_date"),
                 description=_text(form, "description"),
             )
-        except ProjectError as error:
+            context.recipe_authoring.synchronize_setup(
+                project,
+                actor=context.actor,
+            )
+        except (ProjectError, RecipeError) as error:
             return _project_error(
                 request,
                 context,
@@ -705,7 +720,11 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 retention_days=int(_text(form, "retention_days")),
                 support_access="support_access" in form,
             )
-        except (ProjectError, ValueError) as error:
+            context.recipe_authoring.synchronize_setup(
+                project,
+                actor=context.actor,
+            )
+        except (ProjectError, RecipeError, ValueError) as error:
             return _project_error(
                 request,
                 context,

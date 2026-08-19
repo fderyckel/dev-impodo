@@ -48,8 +48,6 @@ from impodo.recipes import (
     DataVersionPurpose,
     DataVersionState,
     Recipe,
-    RecipeState,
-    SetupHydrationState,
 )
 
 
@@ -218,15 +216,11 @@ class RecipeQualificationTests(unittest.TestCase):
             recipe_id=self.recipe_id,
             display_name="Customer migration",
             business_purpose="Move customers",
-            state=RecipeState.ACTIVE,
             data_classification="INTERNAL",
             retention_days=90,
             current_recipe_revision=3,
             current_data_version_id=self.data_version_id,
-            pending_data_version_id=None,
             cutover_candidate_id=None,
-            setup_hydration_state=SetupHydrationState.READY,
-            setup_hydration_hash=_hash("3"),
             optimistic_revision=7,
             created_at=now,
             updated_at=now,
@@ -243,7 +237,6 @@ class RecipeQualificationTests(unittest.TestCase):
             label="Recipe v3 rehearsal",
             export_as_of_date=None,
             parameter_values_hash=_hash("4"),
-            intake_status="READY",
             created_at=now,
             sealed_at=None,
         )

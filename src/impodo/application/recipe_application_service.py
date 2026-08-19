@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 import re
@@ -68,15 +68,12 @@ from ..domain.structural import (
     UnionAllRule,
     UnionBranch,
 )
-from ..domain.serialization import canonical_json, content_hash
+from ..domain.serialization import content_hash
 from ..models import target_identity_hash
 from ..projects import (
-    ExportStatus,
     MigrationProject,
     OdooConnectionMode,
     ProjectService,
-    ProjectStatus,
-    SourceMode,
 )
 from ..quality import (
     QualityOutcomePolicy,
@@ -88,7 +85,6 @@ from ..quality import (
 from ..recipes import DataVersion, DataVersionPurpose, RecipeConflictError
 from ..value_rules import ScalarTransformPolicy, ScalarValidationPolicy, TextTransformStep
 from ..workspace_contracts import OdooSchemaCatalog, SchemaOrigin, SourceSelection
-from ..workspace_errors import WorkspaceError
 from .categorical_coverage_service import CategoricalCoverageService
 from .mapping_workspace_service import MappingWorkspaceService
 from .recipe_service import RecipeService
@@ -269,26 +265,10 @@ class RecipeApplicationService:
             actor=actor.identity,
             confirmed_at=now,
         )
-        workspace = self.projects.create_project(
+        workspace = self.projects.create_data_version_workspace(
             actor=actor,
             name=clean_label,
             source_system=origin.source_system,
-            source_mode=SourceMode.FILE,
-        )
-        workspace = self.projects.update_details(
-            workspace.project_id,
-            actor=actor,
-            expected_revision=workspace.revision,
-            name=clean_label,
-            source_system=origin.source_system,
-            export_status=ExportStatus.PLANNED.value,
-            export_date="",
-            description=f"Test application of {recipe.display_name}",
-        )
-        workspace = self.projects.update_governance(
-            workspace.project_id,
-            actor=actor,
-            expected_revision=workspace.revision,
             data_manager=origin.data_manager,
             functional_owner=origin.functional_owner,
             business_unit=origin.business_unit,
@@ -297,27 +277,31 @@ class RecipeApplicationService:
             support_access=origin.support_access,
         )
         export_date = self._export_date(normalized)
-        self.recipes.create_data_version(
-            recipe_id,
-            expected_recipe_revision=expected_recipe_revision,
-            workspace_project_id=workspace.project_id,
-            purpose=DataVersionPurpose.TEST,
-            label=clean_label,
-            actor=actor,
-            export_as_of_date=export_date,
-            parameter_values_hash=values.content_hash,
-            data_version_id=data_version_id,
-        )
-        self.applications.save_parameter_values(
-            workspace.project_id,
-            values,
-            actor=actor,
-        )
-        self.applications.save_control_values(
-            workspace.project_id,
-            controls,
-            actor=actor,
-        )
+        try:
+            self.applications.save_parameter_values(
+                workspace.project_id,
+                values,
+                actor=actor,
+            )
+            self.applications.save_control_values(
+                workspace.project_id,
+                controls,
+                actor=actor,
+            )
+            self.recipes.create_data_version(
+                recipe_id,
+                expected_recipe_revision=expected_recipe_revision,
+                workspace_project_id=workspace.project_id,
+                purpose=DataVersionPurpose.TEST,
+                label=clean_label,
+                actor=actor,
+                export_as_of_date=export_date,
+                parameter_values_hash=values.content_hash,
+                data_version_id=data_version_id,
+            )
+        except Exception:
+            self.projects.discard_unlinked_workspace(workspace.project_id)
+            raise
         created = next(
             item
             for item in self.recipes.data_versions(recipe_id, actor=actor)

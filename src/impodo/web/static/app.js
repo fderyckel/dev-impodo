@@ -108,43 +108,43 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  const projectDeleteDialog = document.querySelector(
-    "[data-project-delete-dialog]"
+  const recipeDeleteDialog = document.querySelector(
+    "[data-recipe-delete-dialog]"
   );
-  const projectDeleteTitle = projectDeleteDialog?.querySelector(
-    "#project-delete-title"
+  const recipeDeleteTitle = recipeDeleteDialog?.querySelector(
+    "#recipe-delete-title"
   );
-  const projectDeleteConfirm = projectDeleteDialog?.querySelector(
-    "[data-project-delete-confirm]"
+  const recipeDeleteConfirm = recipeDeleteDialog?.querySelector(
+    "[data-recipe-delete-confirm]"
   );
-  let pendingProjectDeleteForm = null;
+  let pendingRecipeDeleteForm = null;
 
   for (const trigger of document.querySelectorAll(
-    "[data-project-delete-trigger]"
+    "[data-recipe-delete-trigger]"
   )) {
     trigger.addEventListener("click", () => {
-      const form = trigger.closest("[data-project-delete-form]");
-      if (!form || !projectDeleteDialog) {
+      const form = trigger.closest("[data-recipe-delete-form]");
+      if (!form || !recipeDeleteDialog) {
         return;
       }
-      pendingProjectDeleteForm = form;
-      if (projectDeleteTitle) {
-        const projectName = form.dataset.projectName || "this project";
-        projectDeleteTitle.textContent = `Delete “${projectName}”?`;
+      pendingRecipeDeleteForm = form;
+      if (recipeDeleteTitle) {
+        const recipeName = form.dataset.recipeName || "this Recipe";
+        recipeDeleteTitle.textContent = `Delete “${recipeName}”?`;
       }
-      projectDeleteDialog.showModal();
+      recipeDeleteDialog.showModal();
     });
   }
 
-  projectDeleteConfirm?.addEventListener("click", () => {
-    const form = pendingProjectDeleteForm;
-    pendingProjectDeleteForm = null;
-    projectDeleteDialog?.close();
+  recipeDeleteConfirm?.addEventListener("click", () => {
+    const form = pendingRecipeDeleteForm;
+    pendingRecipeDeleteForm = null;
+    recipeDeleteDialog?.close();
     form?.requestSubmit();
   });
 
-  projectDeleteDialog?.addEventListener("close", () => {
-    pendingProjectDeleteForm = null;
+  recipeDeleteDialog?.addEventListener("close", () => {
+    pendingRecipeDeleteForm = null;
   });
 
   const sourceFileRemoveDialog = document.querySelector(

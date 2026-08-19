@@ -34,7 +34,7 @@ class TargetCredentialRemovalReason(StrEnum):
     """Governed reasons that remove both role-qualified target credentials."""
 
     TARGET_CHANGED = "TARGET_CHANGED"
-    PROJECT_DELETED = "PROJECT_DELETED"
+    RECIPE_DELETED = "RECIPE_DELETED"
 
 
 TARGET_CREDENTIAL_CONTRACT_VERSION = 2

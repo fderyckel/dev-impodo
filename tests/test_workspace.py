@@ -107,7 +107,12 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             status=ProjectStatus.REGISTERED,
             registered_at=now,
         )
-        self.project_repository.create(self.project, actor=LOCAL_ACTOR)
+        self.project_repository.create(
+            self.project,
+            recipe_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+        )
         self.project = replace(
             self.project,
             source_files=(self.source,),

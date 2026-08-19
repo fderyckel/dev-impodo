@@ -1514,7 +1514,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
         with patch(
             "impodo.projects.uuid4",
-            return_value=_benchmark_uuid("project"),
+            side_effect=(
+                _benchmark_uuid("project"),
+                _benchmark_uuid("recipe"),
+                _benchmark_uuid("data-version"),
+            ),
         ):
             project = self.context.projects.create_project(
                 actor=self.context.actor,
@@ -1829,7 +1833,11 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         benchmark_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
         with patch(
             "impodo.projects.uuid4",
-            return_value=_benchmark_uuid("project"),
+            side_effect=(
+                _benchmark_uuid("project"),
+                _benchmark_uuid("recipe"),
+                _benchmark_uuid("data-version"),
+            ),
         ):
             project = self.context.projects.create_project(
                 actor=self.context.actor,

@@ -21,7 +21,6 @@ from impodo.adapters.duckdb.recipe_repository import RecipeRepository
 from impodo.application.recipe_application_service import RecipeApplicationService
 from impodo.domain.recipe_applications import (
     RecipeApplicationDraft,
-    RecipeApplicationIssueLevel,
     RecipeApplicationState,
     RecipeControlValues,
     RecipeParameterValues,
@@ -31,7 +30,6 @@ from impodo.domain.recipe_applications import (
     TargetProbeStatus,
 )
 from impodo.domain.mapping.validation.evidence import MappingValidationIssue
-from impodo.domain.serialization import content_hash
 from impodo.models import target_identity_hash
 from impodo.projects import (
     MigrationProject,
@@ -236,8 +234,6 @@ def _service_fixture(
         actor=LOCAL_ACTOR,
     )
     envelope = json.loads(authoring_facade.envelope)
-    original_selection = authoring.sources.selection
-    original_dataset = original_selection.datasets[0]
     columns = (
         SourceDatasetColumn(1, "Customer code", "current:code", "string"),
         SourceDatasetColumn(

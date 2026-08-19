@@ -78,7 +78,7 @@
     </section>
 
     <div class="preparation-progress-actions" data-preparation-active {% if not active %}hidden{% endif %}>
-      <a class="button secondary" href="/projects">Work on another project</a>
+      <a class="button secondary" href="/recipes">Work on another Recipe</a>
       <form method="post" action="/projects/{{ job.project_id }}/preparation/{{ job.job_id }}/cancel">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button class="button secondary" type="submit" {% if job.cancel_requested %}disabled{% endif %} data-preparation-cancel>

@@ -446,15 +446,12 @@ class RecipePhaseR0ContractTests(unittest.TestCase):
                 "DATA_VERSION_CREATION",
                 "QUALIFICATION_PUBLICATION",
                 "CUTOVER_SELECTION",
-                "RECIPE_DELETION",
             },
         )
-        self.assertEqual(intents["RECIPE_DELETION"]["state"], "TARGETS_ENUMERATED")
-        self.assertEqual(len(intents["RECIPE_DELETION"]["targets"]), 5)
         for intent in intents.values():
             self.assertIn("recipe_id", intent)
             self.assertNotIn("series_id", intent)
-            self.assertEqual(intent["retry_count"], 0)
+            self.assertNotIn("retry_count", intent)
 
         scenarios = {
             item["scenario"]: item

@@ -95,7 +95,12 @@ class OdooCapturePublicationTests(unittest.TestCase):
         self.secrets = MemorySecretStore()
         self.now = datetime.now(timezone.utc)
         self.project = _project(self.now)
-        self.projects.create(self.project, actor=LOCAL_ACTOR)
+        self.projects.create(
+            self.project,
+            recipe_id=str(uuid4()),
+            data_version_id=str(uuid4()),
+            actor=LOCAL_ACTOR,
+        )
         self.schema = _schema(self.project.project_id, self.now)
         self.schemas.save_odoo_schema_catalog(
             self.project.project_id,

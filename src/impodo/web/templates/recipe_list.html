@@ -42,21 +42,22 @@
             <span class="project-updated">{{ recipe.updated_at.strftime("%d %b %Y, %H:%M") }}</span>
             <span class="project-action-spacer" aria-hidden="true"></span>
           </a>
-          {% if recipe.deletable_as_bootstrap and recipe.current_workspace_project_id and recipe.current_workspace_revision is not none %}<form
-            class="project-delete-form"
+          {% if recipe.deletable and recipe.current_workspace_project_id and recipe.current_workspace_revision is not none %}<form
+            class="recipe-delete-form"
             method="post"
-            action="/projects/{{ recipe.current_workspace_project_id }}/delete"
-            data-project-delete-form
-            data-project-name="{{ recipe.display_name }}"
+            action="/recipes/{{ recipe.recipe_id }}/delete"
+            data-recipe-delete-form
+            data-recipe-name="{{ recipe.display_name }}"
           >
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="revision" value="{{ recipe.current_workspace_revision }}">
+            <input type="hidden" name="recipe_revision" value="{{ recipe.optimistic_revision }}">
+            <input type="hidden" name="workspace_revision" value="{{ recipe.current_workspace_revision }}">
             <button
-              class="project-delete-button"
+              class="recipe-delete-button"
               type="button"
               aria-label="Delete {{ recipe.display_name }}"
               title="Delete Recipe draft"
-              data-project-delete-trigger
+              data-recipe-delete-trigger
             >
               <svg class="ui-icon" aria-hidden="true" focusable="false">
                 <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#trash3"></use>
@@ -68,28 +69,28 @@
     </section>
 
     <dialog
-      class="project-delete-dialog"
-      aria-labelledby="project-delete-title"
-      data-project-delete-dialog
+      class="recipe-delete-dialog"
+      aria-labelledby="recipe-delete-title"
+      data-recipe-delete-dialog
     >
       <div class="dialog-heading">
         <div>
           <p class="eyebrow">Permanent deletion</p>
-          <h2 id="project-delete-title">Delete Recipe draft?</h2>
+          <h2 id="recipe-delete-title">Delete Recipe draft?</h2>
         </div>
         <form method="dialog">
           <button class="dialog-close" type="submit" aria-label="Close dialog">×</button>
         </form>
       </div>
       <p>
-        This deletes the project, uploaded files, mappings, reports, and audit
-        history for this Recipe draft. This cannot be undone.
+        This deletes the Recipe draft, its contained workspace, uploaded files,
+        mappings, reports, and audit history. This cannot be undone.
       </p>
       <div class="dialog-actions">
         <form method="dialog">
           <button class="button secondary" type="submit">Cancel</button>
         </form>
-        <button class="button danger" type="button" data-project-delete-confirm>
+        <button class="button danger" type="button" data-recipe-delete-confirm>
           Delete Recipe draft
         </button>
       </div>
