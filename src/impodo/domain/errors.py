@@ -11,3 +11,9 @@ from ..workspace_errors import WorkspaceError
 
 class ReadinessError(WorkspaceError):
     """Raised when current evidence cannot be prepared or compared safely."""
+
+
+class NormalizationReviewPolicyError(ReadinessError):
+    """Expose an unsupported prepared-change policy as a recoverable failure."""
+
+    failure_code = "NORMALIZATION_REVIEW_POLICY_UNSUPPORTED"

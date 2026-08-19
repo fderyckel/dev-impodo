@@ -89,6 +89,7 @@
 
     <details class="technical-details form-card">
       <summary>Support details</summary>
+      <p data-preparation-failure-code {% if not job.failure_code %}hidden{% endif %}>Failure <code>{{ job.failure_code }}</code></p>
       <p>Attempt {{ job.attempt }} · Job <code>{{ job.job_id }}</code></p>
     </details>
   </div>

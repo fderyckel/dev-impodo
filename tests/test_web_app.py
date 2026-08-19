@@ -6074,6 +6074,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             failed.headers["location"],
         )
         self.assertEqual(completed_job["status"], "FAILED")
+        self.assertTrue(completed_job["failure_code"])
         self.assertIsNone(context.preflight.current_staging(project_id))
         self.assertIsNone(context.quality.current_summary(project_id))
         self.assertIsNone(
@@ -6084,6 +6085,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         recovery = self.client.get(failed.headers["location"])
         self.assertEqual(recovery.status_code, 200)
         self.assertIn("Stored source selection is invalid", recovery.text)
+        self.assertIn("data-preparation-failure-code", recovery.text)
+        self.assertIn(str(completed_job["failure_code"]), recovery.text)
         retried = self.client.post(
             f"{failed.headers['location']}/retry",
             data={"csrf_token": self.csrf},

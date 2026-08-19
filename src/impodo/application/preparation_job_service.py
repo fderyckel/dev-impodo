@@ -331,7 +331,19 @@ def _run_preparation_worker(
         if _resolution_review_is_waiting(locals().get("context"), project_id):
             events.put(("review_required",))
         else:
-            events.put(("failed", type(error).__name__, str(error)[:1000]))
+            events.put(
+                (
+                    "failed",
+                    str(
+                        getattr(
+                            error,
+                            "failure_code",
+                            type(error).__name__,
+                        )
+                    )[:200],
+                    str(error)[:1000],
+                )
+            )
     except Exception as error:
         events.put(
             (

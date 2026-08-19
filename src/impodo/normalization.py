@@ -12,6 +12,7 @@ from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
 import json
+from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 from .governance import (
@@ -21,7 +22,11 @@ from .governance import (
     DryRun,
     DryRunSummary,
 )
-from .domain.mapping.contracts import DatasetMapping
+from .domain.mapping.contracts import (
+    DatasetMapping,
+    ScalarFieldMapping,
+    ScalarValueSource,
+)
 from .domain.serialization import CanonicalJsonObjectHasher
 from .models import canonical_json_bytes
 from .projects import DataClassification, MigrationProject
@@ -37,13 +42,31 @@ from .staging_contracts import CanonicalStagingRun
 
 
 NORMALIZATION_CONTRACT_VERSION = 2
-NORMALIZATION_EVALUATOR_VERSION = 2
-NORMALIZATION_POLICY_VERSION = 1
+NORMALIZATION_EVALUATOR_VERSION = 3
+SUPPORTED_NORMALIZATION_EVALUATOR_VERSIONS = frozenset({2, 3})
+NORMALIZATION_POLICY_VERSION = 2
 NORMALIZATION_EXAMPLE_LIMIT = 5
 
 
 class NormalizationError(ValueError):
     """Raised when prepared-value review evidence is unsafe or stale."""
+
+
+class NormalizationPolicyError(NormalizationError):
+    """Raised when a prepared effect has no structurally supported policy."""
+
+    code = "NORMALIZATION_REVIEW_POLICY_UNSUPPORTED"
+
+    def __init__(self, dataset: str, target_field: str) -> None:
+        self.dataset = dataset
+        self.target_field = target_field
+        super().__init__(
+            "Impodo could not organize the prepared changes for "
+            f"{_human_label(target_field)} in {_human_label(dataset)} because "
+            "the confirmed field match does not define a supported review "
+            "policy. No source file or Odoo record was changed. Review this "
+            "field match before trying again."
+        )
 
 
 class NormalizationOutcome(StrEnum):
@@ -62,6 +85,70 @@ class NormalizationGroupKind(StrEnum):
     FINDING = "FINDING"
 
 
+class NormalizationPolicyAction(StrEnum):
+    """Stable semantic action used for review copy and rule identity."""
+
+    IDENTITY = "IDENTITY"
+    VALUE_MATCH = "VALUE_MATCH"
+    REFERENCE_LOOKUP = "REFERENCE_LOOKUP"
+    FALLBACK = "FALLBACK"
+    CONSTANT = "CONSTANT"
+    FORMULA = "FORMULA"
+    TEXT_CHANGE = "TEXT_CHANGE"
+    ORDERED_TEXT = "ORDERED_TEXT"
+    CASE = "CASE"
+    ROUNDING = "ROUNDING"
+    EMPTY_TO_NULL = "EMPTY_TO_NULL"
+    WHITESPACE = "WHITESPACE"
+    PARSE = "PARSE"
+    RELATIONSHIP = "RELATIONSHIP"
+
+
+@dataclass(frozen=True, slots=True)
+class NormalizationFieldPolicy:
+    """Compiled review policy for one mapped target field."""
+
+    dataset: str
+    target_field: str
+    outcome: NormalizationOutcome
+    action: NormalizationPolicyAction
+    change_kinds: tuple[str, ...]
+    identity_impact: bool
+
+    def to_portable_dict(self) -> dict[str, Any]:
+        """Return stable semantic input for normalization rule identity."""
+
+        return {
+            "dataset": self.dataset,
+            "target_field": self.target_field,
+            "outcome": self.outcome.value,
+            "action": self.action.value,
+            "change_kinds": list(self.change_kinds),
+            "identity_impact": self.identity_impact,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledNormalizationReviewPolicy:
+    """O(1) policy lookup compiled from one exact mapping definition."""
+
+    fields: Mapping[tuple[str, str], NormalizationFieldPolicy]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "fields", MappingProxyType(dict(self.fields)))
+
+    def resolve(self, candidate: "NormalizationCandidate") -> NormalizationFieldPolicy:
+        """Resolve one effect without interpreting display-oriented wording."""
+
+        policy = self.fields.get((candidate.dataset, candidate.target_field))
+        if policy is None:
+            raise NormalizationPolicyError(
+                candidate.dataset,
+                candidate.target_field,
+            )
+        return policy
+
+
 @dataclass(frozen=True, slots=True)
 class NormalizationCandidate:
     """One display-oriented before/after effect from canonical evaluation."""
@@ -75,6 +162,170 @@ class NormalizationCandidate:
     rules: str
     outcome: str
     message: str = ""
+
+
+_DECISION_CHANGE_KINDS = frozenset(
+    {
+        "constant",
+        "fallback",
+        "value_match",
+        "reference_lookup",
+        "formula",
+        "text_change",
+        "ordered_text",
+        "case",
+        "empty_to_null",
+        "rounding",
+        "identity_preparation",
+        "relationship",
+    }
+)
+
+
+def compile_normalization_review_policy(
+    mappings: Mapping[str, DatasetMapping],
+) -> CompiledNormalizationReviewPolicy:
+    """Compile mapping semantics into one shared fail-closed review policy."""
+
+    policies: dict[tuple[str, str], NormalizationFieldPolicy] = {}
+    for dataset, mapping in sorted(mappings.items()):
+        identity_fields = {
+            target_field
+            for component in (*mapping.target_identity, *mapping.target_scope)
+            for target_field in component.target_fields
+        }
+        for component in (*mapping.target_identity, *mapping.target_scope):
+            for target_field in component.target_fields:
+                _add_normalization_field_policy(
+                    policies,
+                    NormalizationFieldPolicy(
+                        dataset=dataset,
+                        target_field=target_field,
+                        outcome=NormalizationOutcome.DECISION_REQUIRED,
+                        action=NormalizationPolicyAction.IDENTITY,
+                        change_kinds=("identity_preparation",),
+                        identity_impact=True,
+                    ),
+                )
+        for field in mapping.fields:
+            policy = _scalar_normalization_field_policy(
+                dataset,
+                field,
+                identity_impact=field.target_field in identity_fields,
+            )
+            if policy is not None:
+                _add_normalization_field_policy(policies, policy)
+        for relationship in mapping.relationships:
+            if not relationship.resolver.value_mappings:
+                continue
+            _add_normalization_field_policy(
+                policies,
+                NormalizationFieldPolicy(
+                    dataset=dataset,
+                    target_field=relationship.target_field,
+                    outcome=NormalizationOutcome.DECISION_REQUIRED,
+                    action=NormalizationPolicyAction.VALUE_MATCH,
+                    change_kinds=("relationship", "value_match"),
+                    identity_impact=True,
+                ),
+            )
+    return CompiledNormalizationReviewPolicy(policies)
+
+
+def _add_normalization_field_policy(
+    policies: dict[tuple[str, str], NormalizationFieldPolicy],
+    policy: NormalizationFieldPolicy,
+) -> None:
+    key = (policy.dataset, policy.target_field)
+    if key in policies:
+        raise NormalizationError(
+            "Prepared review policy contains more than one provider for "
+            f"{_human_label(policy.target_field)} in "
+            f"{_human_label(policy.dataset)}."
+        )
+    policies[key] = policy
+
+
+def _scalar_normalization_field_policy(
+    dataset: str,
+    field: ScalarFieldMapping,
+    *,
+    identity_impact: bool,
+) -> NormalizationFieldPolicy | None:
+    if field.value_source is ScalarValueSource.ODOO_DEFAULT:
+        return None
+    change_kinds: list[str] = []
+    if field.value_source is ScalarValueSource.CONSTANT:
+        change_kinds.append("constant")
+    elif field.value_source is ScalarValueSource.SOURCE_WITH_FALLBACK:
+        change_kinds.append("fallback")
+    if field.value_mappings:
+        change_kinds.append("value_match")
+    if field.reference_lookup is not None:
+        change_kinds.append("reference_lookup")
+    transform = field.transform
+    if transform.formula:
+        change_kinds.append("formula")
+    if transform.trim:
+        change_kinds.append("trim")
+    if transform.collapse_whitespace:
+        change_kinds.append("collapse_whitespace")
+    if transform.configured_text_steps:
+        change_kinds.append(
+            "text_change"
+            if len(transform.configured_text_steps) == 1
+            else "ordered_text"
+        )
+    if transform.case_mode != "preserve":
+        change_kinds.append("case")
+    if transform.empty_as_null:
+        change_kinds.append("empty_to_null")
+    if field.value_type != "string":
+        change_kinds.append("parse")
+    if transform.decimal_places is not None:
+        change_kinds.append("rounding")
+    if not change_kinds:
+        return None
+    outcome = (
+        NormalizationOutcome.DECISION_REQUIRED
+        if identity_impact
+        or any(item in _DECISION_CHANGE_KINDS for item in change_kinds)
+        else NormalizationOutcome.AUTOMATIC
+    )
+    return NormalizationFieldPolicy(
+        dataset=dataset,
+        target_field=field.target_field,
+        outcome=outcome,
+        action=_normalization_policy_action(change_kinds),
+        change_kinds=tuple(change_kinds),
+        identity_impact=identity_impact,
+    )
+
+
+def _normalization_policy_action(
+    change_kinds: Iterable[str],
+) -> NormalizationPolicyAction:
+    kinds = frozenset(change_kinds)
+    for kind, action in (
+        ("value_match", NormalizationPolicyAction.VALUE_MATCH),
+        ("reference_lookup", NormalizationPolicyAction.REFERENCE_LOOKUP),
+        ("fallback", NormalizationPolicyAction.FALLBACK),
+        ("constant", NormalizationPolicyAction.CONSTANT),
+        ("formula", NormalizationPolicyAction.FORMULA),
+        ("text_change", NormalizationPolicyAction.TEXT_CHANGE),
+        ("ordered_text", NormalizationPolicyAction.ORDERED_TEXT),
+        ("case", NormalizationPolicyAction.CASE),
+        ("rounding", NormalizationPolicyAction.ROUNDING),
+        ("empty_to_null", NormalizationPolicyAction.EMPTY_TO_NULL),
+        ("trim", NormalizationPolicyAction.WHITESPACE),
+        ("collapse_whitespace", NormalizationPolicyAction.WHITESPACE),
+        ("parse", NormalizationPolicyAction.PARSE),
+        ("relationship", NormalizationPolicyAction.RELATIONSHIP),
+        ("identity_preparation", NormalizationPolicyAction.IDENTITY),
+    ):
+        if kind in kinds:
+            return action
+    raise NormalizationError("Prepared review policy has no supported action")
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,7 +553,8 @@ class NormalizationEvaluation:
     def __post_init__(self) -> None:
         if (
             self.contract_version != NORMALIZATION_CONTRACT_VERSION
-            or self.evaluator_version != NORMALIZATION_EVALUATOR_VERSION
+            or self.evaluator_version
+            not in SUPPORTED_NORMALIZATION_EVALUATOR_VERSIONS
         ):
             raise ValueError("Normalization evidence version is unsupported")
         if self.effective_dataset_hash is None:
@@ -453,7 +705,8 @@ class StoredNormalizationEvaluation:
     def __post_init__(self) -> None:
         if (
             self.contract_version != NORMALIZATION_CONTRACT_VERSION
-            or self.evaluator_version != NORMALIZATION_EVALUATOR_VERSION
+            or self.evaluator_version
+            not in SUPPORTED_NORMALIZATION_EVALUATOR_VERSIONS
         ):
             raise ValueError("Normalization evidence version is unsupported")
         if not self.project_id or self.effect_count < 0 or self.changed_record_count < 0:
@@ -614,6 +867,7 @@ def evaluate_normalization(
     effect_ids: set[str] = set()
     group_metadata: dict[str, dict[str, Any]] = {}
     restricted = project.data_classification is DataClassification.RESTRICTED
+    review_policy = compile_normalization_review_policy(mappings)
 
     for candidate in candidates:
         if candidate.outcome == "invalid":
@@ -630,26 +884,14 @@ def evaluate_normalization(
             raise NormalizationError(
                 "Prepared changes no longer match the resolved business records"
             )
-        mapping = mappings.get(candidate.dataset)
-        if mapping is None:
-            raise NormalizationError("Prepared changes use an unknown table")
-        identity_fields = {
-            field
-            for component in (*mapping.target_identity, *mapping.target_scope)
-            for field in component.target_fields
-        }
-        identity_fields.update(item.target_field for item in mapping.relationships)
-        outcome = _review_outcome(
-            candidate,
-            identity_impact=candidate.target_field in identity_fields,
-        )
+        field_policy = review_policy.resolve(candidate)
+        outcome = field_policy.outcome
         rule_id = _hash(
             {
                 "mapping_hash": staging.mapping_hash,
                 "dataset": candidate.dataset,
                 "target_field": candidate.target_field,
-                "rules": candidate.rules,
-                "outcome": outcome.value,
+                "review_policy": field_policy.to_portable_dict(),
             }
         )
         group_id = _hash(
@@ -683,7 +925,7 @@ def evaluate_normalization(
         if effect.effect_id not in effect_ids:
             effect_rows.append(effect)
             effect_ids.add(effect.effect_id)
-        name, explanation = _change_language(candidate.rules, outcome)
+        name, explanation = normalization_change_language(field_policy)
         group_metadata.setdefault(
             group_id,
             {
@@ -835,66 +1077,69 @@ def start_dry_run(
     ).complete(DryRunSummary(corrections=corrections))
 
 
-def _review_outcome(
-    candidate: NormalizationCandidate,
-    *,
-    identity_impact: bool,
-) -> NormalizationOutcome:
-    if identity_impact:
-        return NormalizationOutcome.DECISION_REQUIRED
-    rules = candidate.rules.casefold()
-    required_markers = (
-        "constant",
-        "fallback",
-        "match ",
-        "formula",
-        "find and replace",
-        "case:",
-        "empty to null",
-        "round to",
-        "reviewed value match",
-    )
-    if any(marker in rules for marker in required_markers):
-        return NormalizationOutcome.DECISION_REQUIRED
-    allowed_markers = ("source", "trim", "collapse spaces", "parse ")
-    if all(
-        any(part.casefold().startswith(marker) for marker in allowed_markers)
-        for part in (item.strip() for item in candidate.rules.split("+"))
-    ):
-        return NormalizationOutcome.AUTOMATIC
-    raise NormalizationError(
-        "A prepared change has no safe review policy. Update the field match."
-    )
-
-
-def _change_language(
-    rules: str,
-    outcome: NormalizationOutcome,
+def normalization_change_language(
+    policy: NormalizationFieldPolicy,
 ) -> tuple[str, str]:
-    lowered = rules.casefold()
-    if "match " in lowered or "reviewed value match" in lowered:
-        return "Use your reviewed value matches", "Impodo replaced source choices with the business values you confirmed."
-    if "fallback" in lowered:
-        return "Fill values using your fallback", "Impodo used the fallback you confirmed where the source value was empty."
-    if "constant" in lowered:
-        return "Use the value you supplied", "Impodo applied the same confirmed value to the affected records."
-    if "formula" in lowered:
-        return "Apply your prepared calculation", "Impodo calculated these values using the field rule you confirmed."
-    if "find and replace" in lowered:
-        return "Replace source text", "Impodo applied the replacement you confirmed."
-    if "case:" in lowered:
-        return "Standardize letter case", "Impodo changed capitalization using the rule you confirmed."
-    if "round to" in lowered:
-        return "Round prepared numbers", "Impodo rounded these values to the precision you confirmed."
-    if "empty to null" in lowered:
-        return "Treat empty values as blank", "Impodo converted empty source values into prepared blank values."
-    if "trim" in lowered or "collapse spaces" in lowered:
-        return "Remove extra spaces", "Impodo removed leading, trailing, or repeated spaces."
-    if "parse " in lowered:
-        return "Prepare consistent value types", "Impodo converted source text into the confirmed number, date, or true/false format."
-    if outcome is NormalizationOutcome.AUTOMATIC:
-        return "Apply your confirmed preparation rule", "Impodo applied a low-risk rule already confirmed in Field matching."
-    return "Review this prepared change", "Impodo changed the prepared value using a rule you confirmed."
+    """Describe a review group from stable semantics rather than display text."""
+
+    return {
+        NormalizationPolicyAction.IDENTITY: (
+            "Review changes to record matching",
+            "Impodo prepared a different value for a field used to match records.",
+        ),
+        NormalizationPolicyAction.VALUE_MATCH: (
+            "Use your reviewed value matches",
+            "Impodo replaced source choices with the business values you confirmed.",
+        ),
+        NormalizationPolicyAction.REFERENCE_LOOKUP: (
+            "Use your approved reference data",
+            "Impodo replaced source values using the reference data you confirmed.",
+        ),
+        NormalizationPolicyAction.FALLBACK: (
+            "Fill values using your fallback",
+            "Impodo used the fallback you confirmed where the source value was empty.",
+        ),
+        NormalizationPolicyAction.CONSTANT: (
+            "Use the value you supplied",
+            "Impodo applied the same confirmed value to the affected records.",
+        ),
+        NormalizationPolicyAction.FORMULA: (
+            "Apply your prepared calculation",
+            "Impodo calculated these values using the field rule you confirmed.",
+        ),
+        NormalizationPolicyAction.TEXT_CHANGE: (
+            "Replace source text",
+            "Impodo applied the replacement you confirmed.",
+        ),
+        NormalizationPolicyAction.ORDERED_TEXT: (
+            "Apply ordered text changes",
+            "Impodo applied the ordered text cleanup steps you confirmed.",
+        ),
+        NormalizationPolicyAction.CASE: (
+            "Standardize letter case",
+            "Impodo changed capitalization using the rule you confirmed.",
+        ),
+        NormalizationPolicyAction.ROUNDING: (
+            "Round prepared numbers",
+            "Impodo rounded these values to the precision you confirmed.",
+        ),
+        NormalizationPolicyAction.EMPTY_TO_NULL: (
+            "Treat empty values as blank",
+            "Impodo converted empty source values into prepared blank values.",
+        ),
+        NormalizationPolicyAction.WHITESPACE: (
+            "Remove extra spaces",
+            "Impodo removed leading, trailing, or repeated spaces.",
+        ),
+        NormalizationPolicyAction.PARSE: (
+            "Prepare consistent value types",
+            "Impodo converted source text into the confirmed number, date, or true/false format.",
+        ),
+        NormalizationPolicyAction.RELATIONSHIP: (
+            "Review this linked value change",
+            "Impodo changed a linked value using the relationship rule you confirmed.",
+        ),
+    }[policy.action]
 
 
 def _policy_manifest(mappings: Mapping[str, DatasetMapping]) -> list[dict[str, Any]]:

@@ -195,6 +195,7 @@ def _job_payload(job: PreparationJob) -> dict[str, object]:
         "total_rows": job.total_rows,
         "progress_percent": job.progress_percent,
         "cancel_requested": job.cancel_requested,
+        "failure_code": job.failure_code,
         "failure_message": job.failure_message,
         "redirect_url": redirect_url,
     }

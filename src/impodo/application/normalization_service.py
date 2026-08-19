@@ -14,6 +14,7 @@ from ..normalization import (
     NormalizationCandidate,
     NormalizationError,
     NormalizationEvaluation,
+    NormalizationPolicyError,
     NormalizationReviewGroup,
     NormalizationRunSummary,
     StoredNormalizationEvaluation,
@@ -24,7 +25,7 @@ from ..quality import QualityRun, QualityRunSummary, StoredQualityRun
 from ..staging import StagingRunSummary
 from ..staging_contracts import CanonicalStagingRun
 from ..workspace_contracts import SourceSelection
-from ..domain.errors import ReadinessError
+from ..domain.errors import NormalizationReviewPolicyError, ReadinessError
 from .readiness_ports import NormalizationRepository
 from .bounded_normalization import (
     BoundedNormalizationUnsupported,
@@ -262,6 +263,8 @@ class NormalizationService:
                     published_quality_content_hash=quality.content_hash,
                     effective=effective,
                 )
+        except NormalizationPolicyError as error:
+            raise NormalizationReviewPolicyError(str(error)) from error
         except NormalizationError as error:
             raise ReadinessError(str(error)) from error
         return self.repository.publish_normalization_run(

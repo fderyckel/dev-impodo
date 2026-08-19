@@ -18,13 +18,13 @@ from ..normalization import (
     NormalizationOutcome,
     NormalizationReviewGroup,
     StoredNormalizationEvaluation,
-    _change_language,
     _hash,
     _human_label,
     _policy_manifest,
     _protected_display,
-    _review_outcome,
     canonical_eligible_dataset_hash,
+    compile_normalization_review_policy,
+    normalization_change_language,
 )
 from ..projects import DataClassification, MigrationProject
 from ..quality import (
@@ -51,18 +51,9 @@ class _BoundedNormalizationEffects:
     ) -> None:
         self._project = project
         self._mapping_hash = mapping_hash
-        self._mappings = mappings
         self._eligible_row_ids = eligible_row_ids
         self._restricted = project.data_classification is DataClassification.RESTRICTED
-        self._identity_fields = {
-            dataset: {
-                field
-                for component in (*mapping.target_identity, *mapping.target_scope)
-                for field in component.target_fields
-            }
-            | {item.target_field for item in mapping.relationships}
-            for dataset, mapping in mappings.items()
-        }
+        self._review_policy = compile_normalization_review_policy(mappings)
 
     def _effect(
         self,
@@ -73,9 +64,6 @@ class _BoundedNormalizationEffects:
     ) -> tuple[NormalizationEffect, dict[str, object]] | None:
         if impact.outcome == "invalid":
             return None
-        mapping = self._mappings.get(impact.dataset)
-        if mapping is None:
-            raise BoundedNormalizationUnsupported
         candidate = NormalizationCandidate(
             dataset=impact.dataset,
             source_row=impact.source_row,
@@ -87,20 +75,14 @@ class _BoundedNormalizationEffects:
             outcome=impact.outcome,
             message=impact.message,
         )
-        outcome = _review_outcome(
-            candidate,
-            identity_impact=(
-                candidate.target_field
-                in self._identity_fields.get(candidate.dataset, set())
-            ),
-        )
+        field_policy = self._review_policy.resolve(candidate)
+        outcome = field_policy.outcome
         rule_id = _hash(
             {
                 "mapping_hash": self._mapping_hash,
                 "dataset": candidate.dataset,
                 "target_field": candidate.target_field,
-                "rules": candidate.rules,
-                "outcome": outcome.value,
+                "review_policy": field_policy.to_portable_dict(),
             }
         )
         group_id = _hash(
@@ -151,7 +133,7 @@ class _BoundedNormalizationEffects:
                 )
             ),
         )
-        name, explanation = _change_language(candidate.rules, outcome)
+        name, explanation = normalization_change_language(field_policy)
         return effect, {
             "rule_id": rule_id,
             "kind": NormalizationGroupKind.CHANGE,

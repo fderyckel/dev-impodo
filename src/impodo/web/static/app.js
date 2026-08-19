@@ -3280,6 +3280,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const cancelButton = preparationJob.querySelector("[data-preparation-cancel]");
     const failed = preparationJob.querySelector("[data-preparation-failed]");
     const failure = preparationJob.querySelector("[data-preparation-failure]");
+    const failureCode = preparationJob.querySelector("[data-preparation-failure-code]");
     const cancelled = preparationJob.querySelector("[data-preparation-cancelled]");
     const complete = preparationJob.querySelector("[data-preparation-complete]");
     const continueLink = preparationJob.querySelector("[data-preparation-continue]");
@@ -3316,6 +3317,11 @@ document.addEventListener("DOMContentLoaded", () => {
       if (job.status === "FAILED") {
         if (failed) failed.hidden = false;
         if (failure) failure.textContent = job.failure_message;
+        if (failureCode) {
+          failureCode.hidden = !job.failure_code;
+          const code = failureCode.querySelector("code");
+          if (code) code.textContent = job.failure_code;
+        }
       } else if (job.status === "CANCELLED") {
         if (cancelled) cancelled.hidden = false;
       } else if (
