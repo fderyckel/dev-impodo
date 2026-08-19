@@ -189,6 +189,7 @@ class WorkspaceResolution:
     data_version_id: str
     data_version_number: int
     workspace_project_id: str
+    data_version_purpose: DataVersionPurpose
     data_version_state: DataVersionState
 
 

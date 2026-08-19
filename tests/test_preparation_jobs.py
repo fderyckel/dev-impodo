@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+import duckdb
+
 from impodo.access import LOCAL_ACTOR
 from impodo.application.preparation_job_registry import (
     PreparationJobNotFoundError,
@@ -15,6 +17,7 @@ from impodo.application.preparation_job_registry import (
 )
 from impodo.application.preparation_job_service import PreparationCancelled
 from impodo.application.preparation_job_service import PreparationJobManager
+from impodo.application.preparation_job_service import _run_preparation_worker
 from impodo.application.preparation_service import PreparationService
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.preparation_jobs import PreparationJobStatus, PreparationPhase
@@ -227,6 +230,31 @@ class PreparationJobSchedulingTests(unittest.TestCase):
                 manager._workers.pop(first.job_id)
                 manager._schedule_locked()
             self.assertEqual(manager.started, [first.job_id, second.job_id])
+
+
+class PreparationWorkerFailureTests(unittest.TestCase):
+    def test_local_storage_io_failure_has_safe_actionable_message(self) -> None:
+        events = MagicMock()
+        cancel = MagicMock()
+
+        with patch(
+            "impodo.web.app.create_local_app",
+            side_effect=duckdb.IOException("IO Error: No space left on device"),
+        ):
+            _run_preparation_worker(
+                "project-root",
+                "project-id",
+                LOCAL_ACTOR,
+                events,
+                cancel,
+            )
+
+        self.assertEqual(events.put.call_args_list[0].args[0], ("started",))
+        failure = events.put.call_args_list[1].args[0]
+        self.assertEqual(failure[0], "failed")
+        self.assertEqual(failure[1], "LOCAL_PROJECT_STORAGE_IO_FAILED")
+        self.assertIn("No Odoo records were changed", failure[2])
+        self.assertIn("free space", failure[2])
 
 
 if __name__ == "__main__":

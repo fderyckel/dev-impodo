@@ -22,7 +22,7 @@ from ...domain.source_snapshot import (
 from ...projects import ProjectNotFoundError, ProjectStatus, SourceMode
 from ...workspace_contracts import SourceSelection
 from ...workspace_errors import WorkspaceError
-from .database import DuckDbDatabase
+from .database import DuckDbProjectDatabase
 from .repository import DuckDbRepository
 
 
@@ -31,7 +31,7 @@ class OdooProvenanceRepository(DuckDbRepository):
 
     def __init__(
         self,
-        database: DuckDbDatabase,
+        database: DuckDbProjectDatabase,
         artifacts: ArtifactStore,
         *,
         history_quota_bytes: int | None = None,

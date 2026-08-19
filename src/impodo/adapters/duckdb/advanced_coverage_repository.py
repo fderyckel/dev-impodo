@@ -32,7 +32,7 @@ from ...domain.serialization import canonical_json
 from ...workspace_errors import WorkspaceError
 from ...workspace_contracts import OdooSchemaCatalog, SourceSelection
 from .constants import RESOLUTION_ROW_BATCH_SIZE
-from .database import DuckDbDatabase
+from .database import DuckDbProjectDatabase
 from .repository import DuckDbRepository
 
 
@@ -54,7 +54,7 @@ class ResolutionRunSummary:
 class AdvancedCoverageRepository(DuckDbRepository):
     """Store advanced input revisions and immutable reviewed effective data."""
 
-    def __init__(self, database: DuckDbDatabase) -> None:
+    def __init__(self, database: DuckDbProjectDatabase) -> None:
         super().__init__(database)
 
     def save_coverage_scope(

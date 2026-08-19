@@ -71,6 +71,9 @@ def build_mapping_router(context: WebContext) -> APIRouter:
     @router.get("/projects/{project_id}/mapping", response_class=HTMLResponse)
     async def project_mapping(request: Request, project_id: str):
         require_session(request)
+        active_url = _active_preparation_url(context, project_id)
+        if active_url:
+            return RedirectResponse(active_url, status_code=303)
         return _render_mapping(request, context, project_id)
 
     @router.post("/projects/{project_id}/mapping/value-choices")
@@ -81,6 +84,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Return bounded source and Odoo choices for the mapping dialog."""
 
         require_session(request)
+        _require_mapping_idle(context, project_id)
         form = await request.form()
         _secure_form(
             request,
@@ -221,6 +225,9 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Render one bounded page from prepared transformation evidence."""
 
         require_session(request)
+        active_url = _active_preparation_url(context, project_id)
+        if active_url:
+            return RedirectResponse(active_url, status_code=303)
         try:
             evidence = _transformation_impact_evidence(context, project_id)
         except WorkspaceError as error:
@@ -333,6 +340,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Prepare one hash-bound local snapshot without contacting Odoo."""
 
         require_session(request)
+        _require_mapping_idle(context, project_id)
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         try:
@@ -391,6 +399,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Download matching persisted impact rows without recomputing them."""
 
         require_session(request)
+        _require_mapping_idle(context, project_id)
         form = await request.form()
         _secure_form(
             request,
@@ -522,6 +531,21 @@ def build_mapping_router(context: WebContext) -> APIRouter:
 
         require_session(request)
         json_request = _is_json_request(request)
+        if json_request:
+            require_csrf(request, request.headers.get("x-csrf-token", ""))
+        active_url = _active_preparation_url(context, project_id)
+        if active_url:
+            message = (
+                "Preparation is using this project's saved data. Wait for it "
+                "to finish before changing field matches."
+            )
+            if json_request:
+                return JSONResponse(
+                    {"detail": message, "redirect_url": active_url},
+                    status_code=409,
+                )
+            _flash(request, message)
+            return RedirectResponse(active_url, status_code=303)
         selection = context.queries.get_mapping_source_selection(project_id)
         if selection is None:
             raise HTTPException(status_code=422, detail="Source selection missing")
@@ -543,8 +567,6 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             raise HTTPException(status_code=422, detail="Odoo schema missing")
         try:
             form = await _mapping_request_form(request)
-            if json_request:
-                require_csrf(request, request.headers.get("x-csrf-token", ""))
             allowed = _mapping_allowed_fields(form, selection, schema)
             _secure_form(request, form, allowed)
             action = _text(form, "action")
@@ -779,6 +801,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Acknowledge one zero-match rule for the exact impact snapshot."""
 
         require_session(request)
+        _require_mapping_idle(context, project_id)
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "rule_fingerprint"})
         try:
@@ -797,3 +820,22 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         )
 
     return router
+
+
+def _active_preparation_url(context: WebContext, project_id: str) -> str:
+    manager = context.preparation_jobs
+    active = manager.active(project_id) if manager is not None else None
+    if active is None:
+        return ""
+    return f"/projects/{project_id}/preparation/{active.job_id}"
+
+
+def _require_mapping_idle(context: WebContext, project_id: str) -> None:
+    if _active_preparation_url(context, project_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Preparation is using this project's saved data. Wait for it "
+                "to finish before reviewing or changing field matches."
+            ),
+        )

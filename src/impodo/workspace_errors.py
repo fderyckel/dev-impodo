@@ -11,3 +11,9 @@ from .projects import ProjectError
 
 class WorkspaceError(ProjectError):
     """Raised for expected stale, conflicting, or incomplete workspace state."""
+
+
+class WorkspaceDatabaseBusyError(WorkspaceError):
+    """Raised when another Impodo process temporarily owns the project store."""
+
+    failure_code = "WORKSPACE_DATABASE_BUSY"

@@ -165,6 +165,7 @@ def create_local_app(
     local_odoo_reader: LocalOdooMetadataReader | None = None,
     preparation_jobs_enabled: bool = True,
     odoo_capture_jobs_enabled: bool = True,
+    duckdb_lock_wait_timeout_seconds: float = 0.0,
 ) -> FastAPI:
     """Construct the loopback FastAPI application for migration Stages A–K.
 
@@ -179,7 +180,10 @@ def create_local_app(
     function opens no project and contacts no Odoo target while composing.
     """
 
-    database = DuckDbDatabase(project_root)
+    database = DuckDbDatabase(
+        project_root,
+        lock_wait_timeout_seconds=duckdb_lock_wait_timeout_seconds,
+    )
     resolved_artifacts = artifact_store or LocalArtifactStore(project_root)
     project_repository = ProjectRepository(database)
     recipe_repository = RecipeRepository(database)

@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Protocol
 import duckdb
 
 from ...access import Actor
-from .database import DuckDbDatabase
+from ...projects import MigrationProject
+from .database import DuckDbProjectDatabase
 from .unit_of_work import DuckDbUnitOfWork
+
+
+class ProjectAggregateReader(Protocol):
+    """Load project policy and source-file context from one workspace."""
+
+    def get(self, project_id: str) -> MigrationProject: ...
 
 
 class DuckDbRepository:
@@ -19,7 +27,7 @@ class DuckDbRepository:
     setup.
     """
 
-    def __init__(self, database: DuckDbDatabase) -> None:
+    def __init__(self, database: DuckDbProjectDatabase) -> None:
         self._database = database
 
     @property
@@ -32,7 +40,12 @@ class DuckDbRepository:
     def registry_path(self) -> Path:
         """Return the path of the lightweight cross-project registry database."""
 
-        return self._database.registry_path
+        try:
+            return self._database.registry_path
+        except AttributeError as error:
+            raise RuntimeError(
+                "The project-scoped database cannot access the Recipe registry"
+            ) from error
 
     @property
     def _transformation_impact_lock(self):
@@ -144,4 +157,4 @@ class DuckDbRepository:
 
     @staticmethod
     def _project_revision(connection: duckdb.DuckDBPyConnection) -> int:
-        return DuckDbDatabase._project_revision(connection)
+        return DuckDbProjectDatabase._project_revision(connection)

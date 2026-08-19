@@ -46,9 +46,8 @@ from ...quality import (
 from ...staging_contracts import CanonicalRow
 from ...workspace_errors import WorkspaceError
 from ...domain.serialization import CanonicalJsonObjectHasher
-from .database import DuckDbDatabase
-from .project_repository import ProjectRepository
-from .repository import DuckDbRepository
+from .database import DuckDbProjectDatabase
+from .repository import DuckDbRepository, ProjectAggregateReader
 
 
 
@@ -92,8 +91,8 @@ class QualityRepository(DuckDbRepository):
 
     def __init__(
         self,
-        database: DuckDbDatabase,
-        projects: ProjectRepository,
+        database: DuckDbProjectDatabase,
+        projects: ProjectAggregateReader,
     ) -> None:
         super().__init__(database)
         self._projects = projects

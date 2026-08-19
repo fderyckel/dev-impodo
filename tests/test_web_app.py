@@ -6154,6 +6154,35 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(control.unit, "EUR")
         self.assertEqual(control.tolerance, "0.01")
 
+    def test_active_preparation_blocks_mapping_autosave_before_database_read(
+        self,
+    ) -> None:
+        project_id, _dataset, _business_key = self._mapping_ready_project(
+            scalar_field_count=1,
+        )
+        context = self.app.state.context
+        manager = context.preparation_jobs
+        assert manager is not None
+        active = SimpleNamespace(job_id=str(uuid4()))
+
+        with patch.object(manager, "active", return_value=active):
+            mapping_page = self.client.get(
+                f"/projects/{project_id}/mapping",
+                follow_redirects=False,
+            )
+            autosave = self.client.post(
+                f"/projects/{project_id}/mapping/save",
+                json={"entries": []},
+                headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+            )
+
+        progress_url = f"/projects/{project_id}/preparation/{active.job_id}"
+        self.assertEqual(mapping_page.status_code, 303)
+        self.assertEqual(mapping_page.headers["location"], progress_url)
+        self.assertEqual(autosave.status_code, 409)
+        self.assertEqual(autosave.json()["redirect_url"], progress_url)
+        self.assertIn("Wait for it to finish", autosave.json()["detail"])
+
     def test_data_manager_can_save_a_guided_business_data_check(self) -> None:
         project_id, dataset, business_key = self._mapping_ready_project(
             scalar_field_count=2,

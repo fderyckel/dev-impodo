@@ -34,7 +34,7 @@ from ...workspace_contracts import (
     OdooSchemaCatalog,
 )
 from ...workspace_errors import WorkspaceError
-from .database import DuckDbDatabase
+from .database import DuckDbProjectDatabase
 from .derived_entity_repository import DerivedEntityRepository
 from .repository import DuckDbRepository
 
@@ -49,7 +49,7 @@ class SourceRepository(DuckDbRepository):
 
     def __init__(
         self,
-        database: DuckDbDatabase,
+        database: DuckDbProjectDatabase,
         derived_entities: DerivedEntityRepository,
     ) -> None:
         super().__init__(database)

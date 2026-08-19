@@ -6,6 +6,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from .recipes import (
+    DataVersionPurpose,
+    DataVersionState,
+    WorkspaceResolution,
+    require_uuid,
+)
+
 
 class PreparationJobStatus(StrEnum):
     """Lifecycle states visible to the browser."""
@@ -55,12 +62,50 @@ PHASE_LABELS: dict[PreparationPhase, str] = {
 
 
 @dataclass(frozen=True, slots=True)
+class PreparationWorkspace:
+    """Registry-authorized Recipe/DataVersion identity captured before spawn."""
+
+    recipe_id: str
+    data_version_id: str
+    data_version_number: int
+    data_version_purpose: DataVersionPurpose
+
+    def __post_init__(self) -> None:
+        require_uuid(self.recipe_id, "recipe_id")
+        require_uuid(self.data_version_id, "data_version_id")
+        if self.data_version_number < 1:
+            raise ValueError("Data version number is invalid")
+        object.__setattr__(
+            self,
+            "data_version_purpose",
+            DataVersionPurpose(self.data_version_purpose),
+        )
+
+    @classmethod
+    def from_resolution(
+        cls,
+        resolution: WorkspaceResolution,
+    ) -> "PreparationWorkspace":
+        """Capture only an active workspace after registry authorization."""
+
+        if resolution.data_version_state is not DataVersionState.ACTIVE:
+            raise ValueError("Only the active data version can be prepared")
+        return cls(
+            recipe_id=resolution.recipe_id,
+            data_version_id=resolution.data_version_id,
+            data_version_number=resolution.data_version_number,
+            data_version_purpose=resolution.data_version_purpose,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PreparationJob:
     """One preparation attempt and its latest in-memory progress snapshot."""
 
     job_id: str
     project_id: str
     project_name: str
+    workspace: PreparationWorkspace
     status: PreparationJobStatus
     phase: PreparationPhase
     message: str

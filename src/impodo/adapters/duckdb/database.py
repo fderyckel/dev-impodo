@@ -28,24 +28,31 @@ from .unit_of_work import (
 )
 
 
-class DuckDbDatabase(
+class DuckDbProjectDatabase(
     ProjectSchemaMixin, EvidenceInvalidationMixin, AuditMixin
 ):
-    """Shared DuckDB connection, schema, and transaction boundary.
+    """Project-scoped DuckDB connection, schema, and transaction boundary.
 
-    The root contains one registry plus a UUID-named directory/database per
-    project. DuckDB external access and extension loading are disabled by the
-    connection factory. Project access requires the exact current schema.
+    The root contains UUID-named project directories and databases. DuckDB
+    external access and extension loading are disabled by the connection
+    factory. Project access requires the exact current schema. This boundary
+    deliberately knows nothing about the cross-project Recipe registry, so a
+    spawned worker can operate on one project without contending for
+    ``registry.duckdb``.
     """
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        lock_wait_timeout_seconds: float = 0.0,
+    ) -> None:
         self.root = Path(root).resolve()
-        self.connection_factory = DuckDbConnectionFactory()
+        self.connection_factory = DuckDbConnectionFactory(
+            lock_wait_timeout_seconds=lock_wait_timeout_seconds
+        )
         self._transformation_impact_lock = RLock()
         self.root.mkdir(parents=True, exist_ok=True)
-        self.registry_path = self.root / "registry.duckdb"
-        with self._connect(self.registry_path) as connection:
-            ensure_registry_schema(connection)
 
     def project_directory(self, project_id: str) -> Path:
         """Return the contained UUID directory for a validated project ID."""
@@ -170,3 +177,21 @@ class DuckDbDatabase(
     def _connect(self, path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
         with self.connection_factory.connect(path) as connection:
             yield connection
+
+
+class DuckDbDatabase(DuckDbProjectDatabase):
+    """Full local-app database boundary including the Recipe registry."""
+
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        lock_wait_timeout_seconds: float = 0.0,
+    ) -> None:
+        super().__init__(
+            root,
+            lock_wait_timeout_seconds=lock_wait_timeout_seconds,
+        )
+        self.registry_path = self.root / "registry.duckdb"
+        with self._connect(self.registry_path) as connection:
+            ensure_registry_schema(connection)

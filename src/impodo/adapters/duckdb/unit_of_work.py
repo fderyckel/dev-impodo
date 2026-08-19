@@ -10,9 +10,12 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
+import time
 from typing import Callable, Iterator
 
 import duckdb
+
+from ...workspace_errors import WorkspaceDatabaseBusyError
 
 
 DUCKDB_CONFIG = {
@@ -25,9 +28,34 @@ DUCKDB_CONFIG = {
     "threads": "2",
 }
 
+_LOCK_CONTENTION_MARKERS = (
+    "being used by another process",
+    "could not set lock on file",
+    "conflicting lock is held",
+)
+_DATABASE_BUSY_MESSAGE = (
+    "Another Impodo task is still using this project's saved data. "
+    "No Odoo records were changed and your previous prepared evidence remains "
+    "available. Wait a moment, close any other Impodo tabs editing this project, "
+    "then try again."
+)
+
 
 class DuckDbConnectionFactory:
     """Open consistently hardened short-lived DuckDB connections."""
+
+    def __init__(
+        self,
+        *,
+        lock_wait_timeout_seconds: float = 0.0,
+        lock_retry_interval_seconds: float = 0.05,
+    ) -> None:
+        if lock_wait_timeout_seconds < 0:
+            raise ValueError("lock_wait_timeout_seconds cannot be negative")
+        if lock_retry_interval_seconds <= 0:
+            raise ValueError("lock_retry_interval_seconds must be positive")
+        self.lock_wait_timeout_seconds = lock_wait_timeout_seconds
+        self.lock_retry_interval_seconds = lock_retry_interval_seconds
 
     @contextmanager
     def connect(
@@ -52,11 +80,37 @@ class DuckDbConnectionFactory:
             ).casefold()
         if enable_external_access is not None:
             config["enable_external_access"] = str(enable_external_access).casefold()
-        connection = duckdb.connect(str(path), config=config)
+        connection = self._connect_with_lock_wait(path, config)
         try:
             yield connection
         finally:
             connection.close()
+
+    def _connect_with_lock_wait(
+        self,
+        path: Path,
+        config: dict[str, str],
+    ) -> duckdb.DuckDBPyConnection:
+        """Wait only for a transient cross-process DuckDB file lock."""
+
+        deadline = time.monotonic() + self.lock_wait_timeout_seconds
+        while True:
+            try:
+                return duckdb.connect(str(path), config=config)
+            except duckdb.IOException as error:
+                if not _is_lock_contention(error):
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise WorkspaceDatabaseBusyError(
+                        _DATABASE_BUSY_MESSAGE
+                    ) from error
+                time.sleep(min(self.lock_retry_interval_seconds, remaining))
+
+
+def _is_lock_contention(error: duckdb.IOException) -> bool:
+    message = str(error).casefold()
+    return any(marker in message for marker in _LOCK_CONTENTION_MARKERS)
 
 
 class DuckDbUnitOfWork(AbstractContextManager["DuckDbUnitOfWork"]):

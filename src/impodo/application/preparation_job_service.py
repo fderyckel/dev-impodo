@@ -16,7 +16,12 @@ from .preparation_job_registry import (
 )
 from ..connectors import ConnectorError
 from ..domain.errors import ReadinessError
-from ..preparation_jobs import PreparationJob, PreparationJobStatus, PreparationPhase
+from ..preparation_jobs import (
+    PreparationJob,
+    PreparationJobStatus,
+    PreparationPhase,
+    PreparationWorkspace,
+)
 from ..projects import ProjectError
 from ..secrets import SecretStoreError
 from ..workspace_errors import WorkspaceError
@@ -63,6 +68,7 @@ class PreparationJobManager:
         total_rows: int,
         *,
         actor: Actor,
+        workspace: PreparationWorkspace,
     ) -> PreparationJob:
         """Register one attempt and start it without holding the HTTP request."""
 
@@ -71,6 +77,7 @@ class PreparationJobManager:
             project_name,
             total_rows,
             actor.identity,
+            workspace,
         )
         if created:
             with self._lock:
@@ -86,6 +93,7 @@ class PreparationJobManager:
         total_rows: int,
         *,
         actor: Actor,
+        workspace: PreparationWorkspace,
     ) -> PreparationJob:
         """Create a fresh attempt after a failed or cancelled job."""
 
@@ -102,6 +110,7 @@ class PreparationJobManager:
             project_name,
             total_rows,
             actor=actor,
+            workspace=workspace,
         )
 
     def get(self, project_id: str, job_id: str) -> PreparationJob:
@@ -180,6 +189,7 @@ class PreparationJobManager:
             args=(
                 str(self.root),
                 job.project_id,
+                job.workspace,
                 actor,
                 events,
                 cancel,
@@ -272,6 +282,7 @@ class PreparationJobManager:
 def _run_preparation_worker(
     root: str,
     project_id: str,
+    workspace: PreparationWorkspace,
     actor: Actor,
     events: Any,
     cancel: Any,
@@ -280,17 +291,11 @@ def _run_preparation_worker(
 
     events.put(("started",))
     try:
-        # Import lazily so multiprocessing can import this module without a web
-        # composition cycle. The child does not create another job manager.
-        from ..web.app import create_local_app
+        # Import lazily so multiprocessing imports only the project-scoped
+        # worker composition. The child never opens the Recipe registry.
+        from ..preparation_worker import create_preparation_worker
 
-        app = create_local_app(
-            root,
-            actor=actor,
-            preparation_jobs_enabled=False,
-            odoo_capture_jobs_enabled=False,
-        )
-        context = app.state.context
+        preparation = create_preparation_worker(root, workspace=workspace)
 
         def progress(
             phase: PreparationPhase,
@@ -312,7 +317,7 @@ def _run_preparation_worker(
             if cancel.is_set():
                 raise PreparationCancelled("Preparation cancelled")
 
-        normalization = context.preparation.prepare(
+        normalization = preparation.prepare(
             project_id,
             actor=actor,
             progress=progress,
@@ -328,7 +333,7 @@ def _run_preparation_worker(
         SecretStoreError,
         WorkspaceError,
     ) as error:
-        if _resolution_review_is_waiting(locals().get("context"), project_id):
+        if _resolution_review_is_waiting(locals().get("preparation"), project_id):
             events.put(("review_required",))
         else:
             events.put(
@@ -355,11 +360,11 @@ def _run_preparation_worker(
         )
 
 
-def _resolution_review_is_waiting(context: Any, project_id: str) -> bool:
-    if context is None:
+def _resolution_review_is_waiting(preparation: Any, project_id: str) -> bool:
+    if preparation is None or preparation.resolution is None:
         return False
     try:
-        review = context.resolution.current_review(project_id)
+        review = preparation.resolution.current_review(project_id)
     except Exception:
         return False
     return bool(

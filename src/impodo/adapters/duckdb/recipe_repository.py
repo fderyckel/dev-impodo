@@ -534,7 +534,7 @@ class RecipeRepository(DuckDbRepository):
             row = connection.execute(
                 """
                 SELECT d.recipe_id, d.data_version_id, d.version_number,
-                       d.workspace_project_id, d.state
+                       d.workspace_project_id, d.purpose, d.state
                   FROM data_version d
                   JOIN recipe r ON r.recipe_id = d.recipe_id
                  WHERE d.workspace_project_id = ?
@@ -560,7 +560,8 @@ class RecipeRepository(DuckDbRepository):
             data_version_id=str(row[1]),
             data_version_number=int(row[2]),
             workspace_project_id=str(row[3]),
-            data_version_state=DataVersionState(str(row[4])),
+            data_version_purpose=DataVersionPurpose(str(row[4])),
+            data_version_state=DataVersionState(str(row[5])),
         )
 
     def reserve_intent(

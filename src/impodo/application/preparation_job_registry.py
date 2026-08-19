@@ -13,6 +13,7 @@ from ..preparation_jobs import (
     PreparationJob,
     PreparationJobStatus,
     PreparationPhase,
+    PreparationWorkspace,
     preparation_progress_percent,
 )
 
@@ -38,6 +39,7 @@ class PreparationJobRegistry:
         project_name: str,
         total_rows: int,
         requested_by: ActorIdentity,
+        workspace: PreparationWorkspace,
     ) -> tuple[PreparationJob, bool]:
         """Create one attempt or return the project's already-active attempt."""
 
@@ -58,6 +60,7 @@ class PreparationJobRegistry:
                 job_id=str(uuid4()),
                 project_id=project_id,
                 project_name=project_name.strip()[:300] or "Data preparation project",
+                workspace=workspace,
                 status=PreparationJobStatus.QUEUED,
                 phase=PreparationPhase.QUEUED,
                 message=PHASE_LABELS[PreparationPhase.QUEUED],
