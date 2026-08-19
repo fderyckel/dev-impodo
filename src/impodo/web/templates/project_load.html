@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Load into Odoo &middot; {{ project.name }} &middot; Impodo{% endblock %}
 {% block content %}
+  {% set target_environment = 'Production' if recipe_context.data_version_purpose == 'PRODUCTION' else 'Test' if recipe_context.data_version_purpose == 'TEST' else 'Target' %}
   <nav class="load-stepper" aria-label="Load into Odoo progress">
     <ol>
       <li class="load-step {% if load_step == 'review' %}current{% else %}complete{% endif %}">
@@ -86,7 +87,7 @@
         <div>
           <p class="eyebrow">Odoo database</p>
           <h2 id="load-scope-title">{{ preview.snapshot.target_database }}</h2>
-          <p>{{ project.odoo_connection_mode.value|title }} test &middot; Odoo {{ preview.snapshot.target_odoo_version }}</p>
+          <p>{{ project.odoo_connection_mode.value|title }} {{ target_environment }} &middot; Odoo {{ preview.snapshot.target_odoo_version }}</p>
         </div>
         <span class="status review">Explicit action only</span>
       </div>
@@ -165,7 +166,7 @@
       <div>
         <p class="eyebrow">Odoo database</p>
         <h2 id="confirm-target-title">{{ preview.snapshot.target_database }}</h2>
-        <p>{{ project.odoo_connection_mode.value|title }} test &middot; Odoo {{ preview.snapshot.target_odoo_version }}</p>
+        <p>{{ project.odoo_connection_mode.value|title }} {{ target_environment }} &middot; Odoo {{ preview.snapshot.target_odoo_version }}</p>
       </div>
       <p class="load-target-total">
         <strong>{{ preview.snapshot.write_count }}</strong>

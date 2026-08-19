@@ -32,6 +32,7 @@ stages:
       - src/impodo/web/templates/project_overview.html
       - src/impodo/web/templates/recipe_overview.html
       - src/impodo/web/templates/recipe_test_start.html
+      - src/impodo/web/templates/recipe_production_start.html
       - src/impodo/web/templates/recipe_application.html
       - src/impodo/web/templates/recipe_qualification.html
     code_references:
@@ -41,6 +42,7 @@ stages:
       - src/impodo/application/recipe_authoring_service.py::RecipeAuthoringService.publish_current
       - src/impodo/application/recipe_application_service.py::RecipeApplicationService
       - src/impodo/application/recipe_application_service.py::RecipeApplicationService.start_test_data_version
+      - src/impodo/application/recipe_application_service.py::RecipeApplicationService.start_production_data_version
       - src/impodo/application/recipe_qualification_service.py::RecipeQualificationService
       - src/impodo/application/recipe_qualification_service.py::RecipeQualificationService.qualify
       - src/impodo/web/presenters/navigation.py::build_project_navigation

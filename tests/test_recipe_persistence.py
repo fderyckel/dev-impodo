@@ -441,7 +441,7 @@ class RecipePersistenceTests(unittest.TestCase):
                 recipe.recipe_id,
                 expected_recipe_revision=recipe.optimistic_revision,
                 workspace_project_id=second_project.project_id,
-                purpose=DataVersionPurpose.PRODUCTION,
+                purpose=DataVersionPurpose.TEST,
                 label="Rollout export",
                 actor=LOCAL_ACTOR,
                 operation_id=operation_id,
@@ -512,6 +512,8 @@ class RecipePersistenceTests(unittest.TestCase):
 
     def test_failed_data_version_commit_is_abandoned_before_orphan_cleanup(self):
         _first_project, recipe = self._project_and_recipe()
+        self._publish_first_revision(recipe.recipe_id)
+        recipe = self.recipe_repository.get(recipe.recipe_id)
         workspace = self._unlinked_workspace("Rejected rollout workspace")
         operation_id = str(uuid4())
 
@@ -575,6 +577,22 @@ class RecipePersistenceTests(unittest.TestCase):
                 data_version.data_version_id,
                 expected_hash=first_hash,
                 parameter_values_hash="sha256:" + "3" * 64,
+                actor=LOCAL_ACTOR,
+            )
+
+    def test_production_data_version_requires_selected_qualification(self) -> None:
+        _project, recipe = self._project_and_recipe()
+        self._publish_first_revision(recipe.recipe_id)
+        recipe = self.recipe_repository.get(recipe.recipe_id)
+        workspace = self._unlinked_workspace("Unqualified Production export")
+
+        with self.assertRaisesRegex(RecipeConflictError, "Select a qualified"):
+            self.service.create_data_version(
+                recipe.recipe_id,
+                expected_recipe_revision=recipe.optimistic_revision,
+                workspace_project_id=workspace.project_id,
+                purpose=DataVersionPurpose.PRODUCTION,
+                label="Unqualified Production export",
                 actor=LOCAL_ACTOR,
             )
 
@@ -678,6 +696,22 @@ class RecipePersistenceTests(unittest.TestCase):
             len(self.service.qualifications(recipe.recipe_id, actor=LOCAL_ACTOR)), 1
         )
         self.assertEqual(summary.cutover_recipe_revision, 1)
+
+        production_workspace = self._unlinked_workspace(
+            "Latest Customer Production export"
+        )
+        current_recipe = self.recipe_repository.get(recipe.recipe_id)
+        self.service.create_data_version(
+            recipe.recipe_id,
+            expected_recipe_revision=current_recipe.optimistic_revision,
+            workspace_project_id=production_workspace.project_id,
+            purpose=DataVersionPurpose.PRODUCTION,
+            label="Latest Customer Production export",
+            actor=LOCAL_ACTOR,
+        )
+        production_version = self.recipe_repository.data_versions(recipe.recipe_id)[-1]
+        self.assertEqual(production_version.purpose, DataVersionPurpose.PRODUCTION)
+        self.assertEqual(production_version.pinned_recipe_revision, 1)
 
         recipe = self.recipe_repository.get(recipe.recipe_id)
         second_application_id = str(uuid4())

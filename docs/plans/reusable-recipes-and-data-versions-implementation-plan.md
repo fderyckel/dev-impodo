@@ -5,9 +5,9 @@
 **Status:** Active implementation plan from 2026-08-19 and the only current
 product-delivery priority.
 
-Phases R0 through R4 and the R4.5 clean-root consolidation completed on
-2026-08-19. Phase R5 is the current implementation phase. The active contracts
-are in the
+Phases R0 through R5, including the R4.5 clean-root consolidation, completed on
+2026-08-19. Phase R6 is the next implementation phase. The active contracts are
+in the
 [Recipe-first Phase R0 contract](reusable-recipes-phase-r0-contracts.md).
 
 Product ownership replaced and removed the earlier project-series proposal with
@@ -1085,7 +1085,7 @@ regression suite.
 
 ### Phase R5 - Run qualified Recipe with latest Production data
 
-**Status:** Current priority.
+**Status:** Completed on 2026-08-19.
 
 - Add **Run with latest data** from the selected cutover candidate.
 - Create a clean Production DataVersion/workspace and collect the latest source,
@@ -1101,7 +1101,17 @@ regression suite.
 different compatible Production server and different API key, while no Test
 credential/evidence satisfies Production readiness.
 
+**Evidence:** the
+[Phase R5 implementation report](../reports/reusable-recipes-phase-r5-production-application-2026-08-19.md),
+focused Recipe application, persistence, authoring, and browser tests, and the
+existing preparation, quality, comparison, execution, credential, and
+reconciliation regression suites cover exact candidate pinning, clean
+Production workspaces, independent Production TargetBindings and read keys,
+fresh downstream evidence, and separately probed write authority.
+
 ### Phase R6 - Credential rotation and remote failure qualification
+
+**Status:** Next phase.
 
 - Rotate the same Production server's API key before comparison, between
   comparison and load, and during recovery.

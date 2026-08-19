@@ -21,6 +21,7 @@ from ..domain.serialization import canonical_json, content_hash, portable
 from ..projects import MigrationProject, ProjectService, SourceMode
 from ..quality import QualityRuleSet, QualityRuleSource
 from ..recipes import (
+    DataVersionPurpose,
     Recipe,
     RecipeConflictError,
     RecipeDraft,
@@ -183,6 +184,18 @@ class RecipeAuthoringService:
                 "Create or resume a data version before publishing.",
             )
             return self._blocked(recipe, "", "", (issue,))
+        if current.purpose is not DataVersionPurpose.AUTHORING:
+            issue = RecipeDraftIssue(
+                "CURRENT_DATA_VERSION_NOT_AUTHORING",
+                "The current data version applies published Recipe meaning.",
+                "Open its application flow instead of publishing it as new meaning.",
+            )
+            return self._blocked(
+                recipe,
+                current.data_version_id,
+                current.workspace_project_id,
+                (issue,),
+            )
         self.authorization.require(
             actor,
             Capability.PROJECT_VIEW,
@@ -237,6 +250,10 @@ class RecipeAuthoringService:
         )
         if current is None:
             raise RecipeConflictError("Create a data version before publishing")
+        if current.purpose is not DataVersionPurpose.AUTHORING:
+            raise RecipeConflictError(
+                "Only an Authoring data version can publish reusable Recipe meaning"
+            )
         self.authorization.require(
             actor,
             Capability.PROJECT_VIEW,

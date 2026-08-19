@@ -344,7 +344,24 @@ class RecipeService:
         """Adopt a clean workspace as the next active DataVersion."""
 
         self.authorization.require(actor, Capability.DATA_VERSION_CREATE)
-        self.repository.get(recipe_id)
+        recipe = self.repository.get(recipe_id)
+        parsed_purpose = DataVersionPurpose(purpose)
+        pinned_recipe_revision: int | None = None
+        cutover_candidate_id: str | None = None
+        if parsed_purpose is DataVersionPurpose.TEST:
+            if recipe.current_recipe_revision is None:
+                raise RecipeConflictError(
+                    "Publish a Recipe revision before creating a Test data version"
+                )
+            pinned_recipe_revision = recipe.current_recipe_revision
+        elif parsed_purpose is DataVersionPurpose.PRODUCTION:
+            candidate = self.repository.cutover_candidate(recipe_id)
+            if candidate is None:
+                raise RecipeConflictError(
+                    "Select a qualified Recipe revision before starting Production"
+                )
+            pinned_recipe_revision = candidate.recipe_revision
+            cutover_candidate_id = candidate.cutover_candidate_id
         if parameter_values_hash is not None:
             require_hash(parameter_values_hash, "parameter_values_hash")
         clean_label = label.strip()
@@ -359,7 +376,9 @@ class RecipeService:
             ),
             "label": clean_label,
             "parameter_values_hash": parameter_values_hash,
-            "purpose": DataVersionPurpose(purpose).value,
+            "pinned_recipe_revision": pinned_recipe_revision,
+            "purpose": parsed_purpose.value,
+            "cutover_candidate_id": cutover_candidate_id,
             "workspace_project_id": workspace_project_id,
         }
         intent = self.repository.reserve_intent(

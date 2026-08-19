@@ -5,7 +5,7 @@
     <div>
       <p class="eyebrow">Recipe overview</p>
       <h1>{{ recipe.display_name }}</h1>
-      <p>Reusable migration meaning and its authoring data versions.</p>
+      <p>Reusable migration meaning and its authoring, Test, and Production data versions.</p>
     </div>
     <span class="status {% if recipe.current_recipe_revision %}registered{% else %}draft{% endif %}">
       {% if recipe.current_recipe_revision %}Recipe v{{ recipe.current_recipe_revision }}{% else %}Authoring{% endif %}
@@ -16,22 +16,43 @@
     <section class="next-action-card current" aria-labelledby="recipe-setup-title">
       <div>
         <p class="eyebrow">Data version {{ current_data_version.version_number if current_data_version else 1 }}</p>
-        <h2 id="recipe-setup-title">{% if current_data_version and current_data_version.purpose.value == 'TEST' %}Complete Test data setup{% else %}Complete Recipe setup{% endif %}</h2>
-        <p>{% if current_data_version and current_data_version.purpose.value == 'TEST' %}Add representative replacement files and configure the separate remote Test Odoo server.{% else %}Set the source, governance and Odoo destination for representative authoring data.{% endif %}</p>
+        <h2 id="recipe-setup-title">{% if current_data_version and current_data_version.purpose.value == 'TEST' %}Complete Test data setup{% elif current_data_version and current_data_version.purpose.value == 'PRODUCTION' %}Complete Production data setup{% else %}Complete Recipe setup{% endif %}</h2>
+        <p>{% if current_data_version and current_data_version.purpose.value == 'TEST' %}Add representative replacement files and configure the separate remote Test Odoo server.{% elif current_data_version and current_data_version.purpose.value == 'PRODUCTION' %}Add the complete latest source package and configure the current remote Production Odoo server with fresh read access.{% else %}Set the source, governance and Odoo destination for representative authoring data.{% endif %}</p>
       </div>
-      <a class="button primary" href="/projects/{{ project.project_id }}/{% if current_data_version and current_data_version.purpose.value == 'TEST' %}files{% else %}details{% endif %}">Continue setup</a>
+      <a class="button primary" href="/projects/{{ project.project_id }}/{% if current_data_version and current_data_version.purpose.value in ['TEST', 'PRODUCTION'] %}files{% else %}details{% endif %}">Continue setup</a>
     </section>
-  {% elif current_data_version and current_data_version.purpose.value == 'TEST' %}
-    {% if qualification_review.state.value == 'SELECTED' %}
+  {% elif current_data_version and current_data_version.purpose.value == 'PRODUCTION' %}
+    <section class="next-action-card {% if application_draft and application_draft.state.value == 'APPLIED' %}ready{% else %}current{% endif %}" aria-labelledby="recipe-production-title">
+      <div>
+        <p class="eyebrow">Production data version {{ current_data_version.version_number }} · Recipe v{{ current_data_version.pinned_recipe_revision }}</p>
+        {% if application_draft and application_draft.state.value == 'APPLIED' %}
+          <h2 id="recipe-production-title">Continue Production readiness</h2>
+          <p>The exact rollout Recipe is applied. Continue the fresh matching confirmation, preparation, quality, comparison, approval, load, and reconciliation stages.</p>
+        {% elif application_draft and application_draft.state.value == 'BLOCKED' %}
+          <h2 id="recipe-production-title">Review current Production drift</h2>
+          <p>The selected Recipe remains unchanged. Resolve only the current source, target, reference, parameter, control, or credential differences.</p>
+        {% else %}
+          <h2 id="recipe-production-title">Apply the selected Recipe to Production data</h2>
+          <p>Validate the fresh Production binding and apply Recipe v{{ current_data_version.pinned_recipe_revision }} to this latest source package.</p>
+        {% endif %}
+      </div>
+      {% if application_draft and application_draft.state.value == 'APPLIED' %}
+        <a class="button primary" href="/projects/{{ project.project_id }}/overview">Continue rollout</a>
+      {% else %}
+        <a class="button primary" href="/recipes/{{ recipe.recipe_id }}/application">Review application</a>
+      {% endif %}
+    </section>
+  {% elif cutover_candidate %}
     <section class="next-action-card ready" aria-labelledby="recipe-selected-title">
       <div>
-        <p class="eyebrow">Test data version {{ current_data_version.version_number }}</p>
-        <h2 id="recipe-selected-title">Recipe v{{ recipe.current_recipe_revision }} is ready for rollout preparation</h2>
-        <p>The exact qualified Test result is pinned as the rollout candidate. Production access is still separate and has not been granted.</p>
+        <p class="eyebrow">Rollout candidate · Recipe v{{ cutover_candidate.recipe_revision }}</p>
+        <h2 id="recipe-selected-title">Run with latest data</h2>
+        <p>Create a clean Production data version from this exact qualified revision. Production server settings, evidence, credentials, approvals, and write authority will all be established separately.</p>
       </div>
-      <a class="button secondary" href="/recipes/{{ recipe.recipe_id }}/qualification">View qualification</a>
+      <a class="button primary" href="/recipes/{{ recipe.recipe_id }}/production">Run with latest data</a>
     </section>
-    {% elif qualification_review.state.value == 'QUALIFIED' %}
+  {% elif current_data_version and current_data_version.purpose.value == 'TEST' %}
+    {% if qualification_review.state.value == 'QUALIFIED' %}
     <section class="next-action-card ready" aria-labelledby="recipe-qualified-title">
       <div>
         <p class="eyebrow">Test qualified</p>

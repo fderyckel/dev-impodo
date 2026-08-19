@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Apply {{ recipe.display_name }} · Impodo{% endblock %}
 {% block content %}
+  {% set environment = application_review.data_version.purpose.value|title %}
   <div class="page-heading project-overview-heading">
     <div>
-      <p class="eyebrow">Recipe v{{ application_review.recipe_revision }} · Test data version {{ application_review.data_version.version_number }}</p>
+      <p class="eyebrow">Recipe v{{ application_review.recipe_revision }} · {{ environment }} data version {{ application_review.data_version.version_number }}</p>
       <h1>Apply Recipe</h1>
-      <p>Only differences between the reusable rules, current source package and current Test Odoo target are shown.</p>
+      <p>Only differences between the reusable rules, current source package and current {{ environment }} Odoo target are shown.</p>
     </div>
     <span class="status {% if application_review.can_apply %}registered{% else %}draft{% endif %}">
       {% if application_review.can_apply %}Ready{% else %}{{ blocker_count }} to review{% endif %}
@@ -98,7 +99,7 @@
 
   <div class="actions">
     <a class="button secondary" href="/recipes/{{ recipe.recipe_id }}">Back to Recipe</a>
-    <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Review Test Odoo data</a>
+    <a class="button secondary" href="/projects/{{ project.project_id }}/schema">Review {{ environment }} Odoo data</a>
     <form method="post" action="/recipes/{{ recipe.recipe_id }}/apply">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button class="button primary" type="submit" {% if not application_review.can_apply %}disabled{% endif %}>Apply Recipe to current data</button>

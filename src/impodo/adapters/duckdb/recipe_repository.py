@@ -800,16 +800,57 @@ class RecipeRepository(DuckDbRepository):
                 recipe_row = connection.execute(
                     """
                     SELECT current_recipe_revision, current_data_version_id,
-                           optimistic_revision
+                           cutover_candidate_id, optimistic_revision
                       FROM recipe WHERE recipe_id = ?
                     """,
                     [intent.recipe_id],
                 ).fetchone()
                 if recipe_row is None:
                     raise RecipeNotFoundError("Active Recipe not found")
-                if int(recipe_row[2]) != intent.expected_recipe_revision:
+                if int(recipe_row[3]) != intent.expected_recipe_revision:
                     raise RecipeConflictError(
                         "Recipe changed before DataVersion creation"
+                    )
+                pinned_recipe_revision = (
+                    int(detail["pinned_recipe_revision"])
+                    if detail.get("pinned_recipe_revision") is not None
+                    else None
+                )
+                if purpose is DataVersionPurpose.TEST:
+                    if (
+                        recipe_row[0] is None
+                        or pinned_recipe_revision != int(recipe_row[0])
+                    ):
+                        raise RecipeConflictError(
+                            "Test data version no longer pins the current Recipe revision"
+                        )
+                elif purpose is DataVersionPurpose.PRODUCTION:
+                    candidate_id = require_uuid(
+                        str(detail.get("cutover_candidate_id")),
+                        "cutover_candidate_id",
+                    )
+                    if not recipe_row[2] or candidate_id != str(recipe_row[2]):
+                        raise RecipeConflictError(
+                            "The selected rollout candidate changed before Production started"
+                        )
+                    candidate = connection.execute(
+                        """
+                        SELECT recipe_revision
+                          FROM cutover_candidate
+                         WHERE cutover_candidate_id = ? AND recipe_id = ?
+                        """,
+                        [candidate_id, intent.recipe_id],
+                    ).fetchone()
+                    if (
+                        candidate is None
+                        or pinned_recipe_revision != int(candidate[0])
+                    ):
+                        raise RecipeConflictError(
+                            "Production no longer pins the selected qualified Recipe revision"
+                        )
+                elif pinned_recipe_revision is not None:
+                    raise RecipeConflictError(
+                        "An authoring data version cannot pin a published Recipe revision"
                     )
                 project_exists = connection.execute(
                     """
@@ -861,7 +902,7 @@ class RecipeRepository(DuckDbRepository):
                         workspace_project_id,
                         parent_id,
                         purpose.value,
-                        (int(recipe_row[0]) if recipe_row[0] is not None else None),
+                        pinned_recipe_revision,
                         str(detail["label"]),
                         detail.get("export_as_of_date"),
                         detail.get("parameter_values_hash"),

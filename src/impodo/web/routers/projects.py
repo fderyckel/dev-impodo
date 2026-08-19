@@ -25,7 +25,7 @@ from ...projects import (
     SourceMode,
     registration_problems,
 )
-from ...recipes import RecipeError
+from ...recipes import DataVersionPurpose, RecipeError
 from ...domain.recipe_applications import RecipeApplicationError
 from ...domain.recipe_qualifications import RecipeQualificationError
 from ...secrets import SecretStoreError
@@ -208,6 +208,20 @@ def build_projects_router(context: WebContext) -> APIRouter:
             context,
             recipe_id,
         )
+        cutover_candidate = context.recipes.cutover_candidate(
+            recipe_id,
+            actor=context.actor,
+        )
+        application_draft = (
+            context.recipe_applications.current_draft(
+                project.project_id,
+                actor=context.actor,
+            )
+            if project is not None
+            and current_data_version is not None
+            and current_data_version.purpose is DataVersionPurpose.PRODUCTION
+            else None
+        )
         return _render(
             request,
             "recipe_overview.html",
@@ -218,6 +232,8 @@ def build_projects_router(context: WebContext) -> APIRouter:
             project=project,
             current_data_version=current_data_version,
             qualification_review=qualification_review,
+            cutover_candidate=cutover_candidate,
+            application_draft=application_draft,
             recovery_href=(
                 _recipe_recovery_href(project, draft.issues[0].code)
                 if project is not None and draft.issues
@@ -246,7 +262,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
             },
         )
         try:
-            credential_generation, storage_class = _recipe_test_credential(
+            credential_generation, storage_class = _recipe_read_credential(
                 context,
                 recipe_id,
             )
@@ -409,6 +425,133 @@ def build_projects_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
+    @router.get("/recipes/{recipe_id}/production", response_class=HTMLResponse)
+    async def start_recipe_production_form(request: Request, recipe_id: str):
+        require_session(request)
+        recipe = context.recipes.get(recipe_id, actor=context.actor)
+        candidate = context.recipes.cutover_candidate(
+            recipe_id,
+            actor=context.actor,
+        )
+        if candidate is None:
+            return RedirectResponse(f"/recipes/{recipe_id}", status_code=303)
+        envelope = context.recipes.read_revision(
+            recipe_id,
+            candidate.recipe_revision,
+            actor=context.actor,
+        )
+        definition = dict(envelope["recipe"])
+        return _render(
+            request,
+            "recipe_production_start.html",
+            recipe=recipe,
+            cutover_candidate=candidate,
+            parameters=tuple(
+                dict(definition["parameter_definitions"]).get("parameters", ())
+            ),
+            controls=tuple(
+                dict(definition["control_definitions"]).get("controls", ())
+            ),
+            values={},
+        )
+
+    @router.post("/recipes/{recipe_id}/production")
+    async def start_recipe_production(request: Request, recipe_id: str):
+        form = await request.form()
+        candidate = context.recipes.cutover_candidate(
+            recipe_id,
+            actor=context.actor,
+        )
+        if candidate is None:
+            return RedirectResponse(f"/recipes/{recipe_id}", status_code=303)
+        envelope = context.recipes.read_revision(
+            recipe_id,
+            candidate.recipe_revision,
+            actor=context.actor,
+        )
+        definition = dict(envelope["recipe"])
+        parameters = tuple(
+            dict(definition["parameter_definitions"]).get("parameters", ())
+        )
+        controls = tuple(
+            dict(definition["control_definitions"]).get("controls", ())
+        )
+        parameter_fields = {
+            f"parameter__{item['logical_parameter_id']}" for item in parameters
+        }
+        control_fields = {
+            f"control__{item['logical_control_id']}" for item in controls
+        }
+        _secure_form(
+            request,
+            form,
+            {
+                "csrf_token",
+                "expected_recipe_revision",
+                "expected_cutover_candidate_id",
+                "label",
+                *parameter_fields,
+                *control_fields,
+            },
+        )
+        values = _form_values(form)
+        supplied_parameters = {
+            str(item["logical_parameter_id"]): _text(
+                form,
+                f"parameter__{item['logical_parameter_id']}",
+            )
+            for item in parameters
+        }
+        supplied_controls = {
+            str(item["logical_control_id"]): _text(
+                form,
+                f"control__{item['logical_control_id']}",
+            )
+            for item in controls
+        }
+        try:
+            _data_version, project = (
+                context.recipe_applications.start_production_data_version(
+                    recipe_id,
+                    expected_recipe_revision=int(
+                        _text(form, "expected_recipe_revision")
+                    ),
+                    expected_cutover_candidate_id=_text(
+                        form,
+                        "expected_cutover_candidate_id",
+                    ),
+                    label=_text(form, "label"),
+                    parameter_values=supplied_parameters,
+                    control_values=supplied_controls,
+                    actor=context.actor,
+                )
+            )
+        except (
+            RecipeError,
+            RecipeApplicationError,
+            ProjectError,
+            ValueError,
+        ) as error:
+            return _render(
+                request,
+                "recipe_production_start.html",
+                recipe=context.recipes.get(recipe_id, actor=context.actor),
+                cutover_candidate=candidate,
+                parameters=parameters,
+                controls=controls,
+                values=values,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            "Production data version created. Add the complete latest source package.",
+        )
+        return RedirectResponse(
+            f"/projects/{project.project_id}/files",
+            status_code=303,
+        )
+
     @router.get("/recipes/{recipe_id}/application", response_class=HTMLResponse)
     async def recipe_application_review(request: Request, recipe_id: str):
         require_session(request)
@@ -487,8 +630,9 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 TargetCredentialRole.READ,
             )
             if credential is None:
+                environment = review.data_version.purpose.value.title()
                 raise RecipeApplicationError(
-                    "Enter and probe the read-only Test Odoo API key first"
+                    f"Enter and probe the read-only {environment} Odoo API key first"
                 )
             evidence = context.recipe_applications.apply(
                 recipe_id,
@@ -883,7 +1027,7 @@ def _recipe_application_review(context: WebContext, recipe_id: str):
     )
 
 
-def _recipe_test_credential(
+def _recipe_read_credential(
     context: WebContext,
     recipe_id: str,
 ) -> tuple[str, str]:
@@ -919,7 +1063,7 @@ def _recipe_test_credential(
 
 def _recipe_qualification_review(context: WebContext, recipe_id: str):
     try:
-        generation, storage_class = _recipe_test_credential(context, recipe_id)
+        generation, storage_class = _recipe_read_credential(context, recipe_id)
     except SecretStoreError:
         generation, storage_class = "", "SESSION"
     return context.recipe_qualifications.review(

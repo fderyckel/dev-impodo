@@ -177,6 +177,8 @@ class DataVersion:
         object.__setattr__(self, "state", DataVersionState(self.state))
         if self.version_number < 1:
             raise RecipeError("Data version number is invalid")
+        if self.pinned_recipe_revision is not None and self.pinned_recipe_revision < 1:
+            raise RecipeError("Pinned Recipe revision is invalid")
         if self.parameter_values_hash is not None:
             _hash(self.parameter_values_hash, "parameter_values_hash")
 

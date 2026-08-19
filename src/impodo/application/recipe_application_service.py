@@ -1,4 +1,4 @@
-"""Apply one immutable Recipe revision to fresh source and Test Odoo evidence."""
+"""Apply one immutable Recipe revision to fresh Test or Production evidence."""
 
 from __future__ import annotations
 
@@ -223,22 +223,87 @@ class RecipeApplicationService:
     ) -> tuple[DataVersion, MigrationProject]:
         """Provision a clean Test workspace without copying target evidence."""
 
+        return self._start_data_version(
+            recipe_id,
+            expected_recipe_revision=expected_recipe_revision,
+            label=label,
+            parameter_values=parameter_values,
+            control_values={},
+            purpose=DataVersionPurpose.TEST,
+            expected_cutover_candidate_id=None,
+            actor=actor,
+        )
+
+    def start_production_data_version(
+        self,
+        recipe_id: str,
+        *,
+        expected_recipe_revision: int,
+        expected_cutover_candidate_id: str,
+        label: str,
+        parameter_values: Mapping[str, str],
+        control_values: Mapping[str, str],
+        actor: Actor,
+    ) -> tuple[DataVersion, MigrationProject]:
+        """Provision a clean Production workspace from the selected candidate."""
+
+        return self._start_data_version(
+            recipe_id,
+            expected_recipe_revision=expected_recipe_revision,
+            label=label,
+            parameter_values=parameter_values,
+            control_values=control_values,
+            purpose=DataVersionPurpose.PRODUCTION,
+            expected_cutover_candidate_id=expected_cutover_candidate_id,
+            actor=actor,
+        )
+
+    def _start_data_version(
+        self,
+        recipe_id: str,
+        *,
+        expected_recipe_revision: int,
+        label: str,
+        parameter_values: Mapping[str, str],
+        control_values: Mapping[str, str],
+        purpose: DataVersionPurpose,
+        expected_cutover_candidate_id: str | None,
+        actor: Actor,
+    ) -> tuple[DataVersion, MigrationProject]:
+        """Create an evidence-empty application workspace for one exact revision."""
+
         self.authorization.require(actor, Capability.RECIPE_APPLY)
         self.authorization.require(actor, Capability.DATA_VERSION_CREATE)
         recipe = self.recipes.get(recipe_id, actor=actor)
         if recipe.optimistic_revision != expected_recipe_revision:
-            raise RecipeConflictError("Recipe changed; reload before starting the test")
+            raise RecipeConflictError("Recipe changed; reload before starting this run")
         if recipe.current_recipe_revision is None or recipe.current_data_version_id is None:
-            raise RecipeConflictError("Publish a Recipe revision before testing it")
+            raise RecipeConflictError("Publish a Recipe revision before applying it")
+        if purpose is DataVersionPurpose.PRODUCTION:
+            candidate = self.recipes.cutover_candidate(recipe_id, actor=actor)
+            if (
+                candidate is None
+                or candidate.cutover_candidate_id != expected_cutover_candidate_id
+            ):
+                raise RecipeConflictError(
+                    "The selected rollout candidate changed; reload before starting Production"
+                )
+            recipe_revision = candidate.recipe_revision
+        else:
+            recipe_revision = recipe.current_recipe_revision
         envelope = self.recipes.read_revision(
             recipe_id,
-            recipe.current_recipe_revision,
+            recipe_revision,
             actor=actor,
         )
         definition = dict(envelope["recipe"])
         normalized = self._parameter_values(
             tuple(dict(definition["parameter_definitions"]).get("parameters", ())),
             parameter_values,
+        )
+        normalized_controls = self._control_values(
+            tuple(dict(definition["control_definitions"]).get("controls", ())),
+            control_values,
         )
         current_version = next(
             item
@@ -248,20 +313,20 @@ class RecipeApplicationService:
         origin = self.project_reader.get(current_version.workspace_project_id)
         clean_label = label.strip()
         if not clean_label or len(clean_label) > 200:
-            raise RecipeApplicationError("Test data label is invalid")
+            raise RecipeApplicationError(f"{purpose.value.title()} data label is invalid")
         data_version_id = str(uuid4())
         now = datetime.now(timezone.utc)
         values = RecipeParameterValues(
             data_version_id=data_version_id,
             values=normalized,
             source="DATA_MANAGER",
-            reason="Test application of a published Recipe revision",
+            reason=f"{purpose.value.title()} application of Recipe v{recipe_revision}",
             actor=actor.identity,
             confirmed_at=now,
         )
         controls = RecipeControlValues(
             data_version_id=data_version_id,
-            values={},
+            values=normalized_controls,
             actor=actor.identity,
             confirmed_at=now,
         )
@@ -292,7 +357,7 @@ class RecipeApplicationService:
                 recipe_id,
                 expected_recipe_revision=expected_recipe_revision,
                 workspace_project_id=workspace.project_id,
-                purpose=DataVersionPurpose.TEST,
+                purpose=purpose,
                 label=clean_label,
                 actor=actor,
                 export_as_of_date=export_date,
@@ -332,7 +397,10 @@ class RecipeApplicationService:
                 parameter_values,
             ),
             source="DATA_MANAGER",
-            reason="Confirmed for current Recipe test application",
+            reason=(
+                f"Confirmed for current {data_version.purpose.value.title()} "
+                "Recipe application"
+            ),
             actor=actor.identity,
             confirmed_at=now,
         )
@@ -348,7 +416,7 @@ class RecipeApplicationService:
         current_parameters = self.applications.get_parameter_values(project.project_id)
         if current_parameters is None:
             raise RecipeApplicationError(
-                "Current Recipe parameter evidence is missing; start a new Test data version"
+                "Current Recipe parameter evidence is missing; start a new data version"
             )
         if current_parameters.content_hash != parameters.content_hash:
             self.recipes.update_data_version_parameter_values_hash(
@@ -502,7 +570,7 @@ class RecipeApplicationService:
         target_binding = review.target_binding
         if target_binding is None:
             raise RecipeApplicationError(
-                "Accept a current remote Test TargetBinding before applying this Recipe"
+                "Accept a current remote TargetBinding before applying this Recipe"
             )
         self.applications.save_target_binding(
             review.project.project_id,
@@ -701,11 +769,28 @@ class RecipeApplicationService:
             for item in self.recipes.data_versions(recipe_id, actor=actor)
             if item.data_version_id == recipe.current_data_version_id
         )
-        if data_version.purpose is not DataVersionPurpose.TEST:
-            raise RecipeConflictError("Start a Test data version before applying the Recipe")
         revision = data_version.pinned_recipe_revision
         if revision is None:
-            raise RecipeConflictError("The Test data version has no pinned Recipe revision")
+            raise RecipeConflictError("The data version has no pinned Recipe revision")
+        if data_version.purpose is DataVersionPurpose.TEST:
+            if revision != recipe.current_recipe_revision:
+                raise RecipeConflictError(
+                    "Start a Test data version for the current Recipe revision"
+                )
+        elif data_version.purpose is DataVersionPurpose.PRODUCTION:
+            candidate = self.recipes.cutover_candidate(recipe_id, actor=actor)
+            if (
+                candidate is None
+                or recipe.cutover_candidate_id != candidate.cutover_candidate_id
+                or revision != candidate.recipe_revision
+            ):
+                raise RecipeConflictError(
+                    "Start Production again from the selected rollout candidate"
+                )
+        else:
+            raise RecipeConflictError(
+                "Start a Test or Production data version before applying the Recipe"
+            )
         project = self.project_reader.get(data_version.workspace_project_id)
         envelope = self.recipes.read_revision(recipe_id, revision, actor=actor)
         return recipe, data_version, project, dict(envelope["recipe"]), str(envelope["semantic_hash"])
@@ -778,7 +863,7 @@ class RecipeApplicationService:
             issues.append(self._block("RECIPE_PARAMETER_VALUES_MISSING", "Current Recipe parameter values are missing.", "Enter the values required for this data version."))
         else:
             if data_version.parameter_values_hash != parameters.content_hash:
-                issues.append(self._block("RECIPE_PARAMETER_VALUES_STALE", "Current Recipe parameter values are not pinned to this data version.", "Save the current parameter values again or start a new Test data version."))
+                issues.append(self._block("RECIPE_PARAMETER_VALUES_STALE", "Current Recipe parameter values are not pinned to this data version.", "Save the current parameter values again or start a new data version."))
             supplied = set(parameters.values)
             for item in parameter_defs:
                 logical_id = str(item["logical_parameter_id"])
@@ -931,20 +1016,26 @@ class RecipeApplicationService:
         return assessment_hash, issues
 
     def _target_binding(self, project, data_version, schema, assessment_hash, *, credential_generation, credential_storage_class, actor):
+        environment = (
+            TargetEnvironment.PRODUCTION
+            if data_version.purpose is DataVersionPurpose.PRODUCTION
+            else TargetEnvironment.TEST
+        )
+        environment_label = environment.value.title()
         if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
-            return None, self._block("RECIPE_TEST_TARGET_NOT_REMOTE", "Recipe testing requires a current remote Test Odoo server.", "Configure the Test data version with Remote Odoo.")
+            return None, self._block("RECIPE_TARGET_NOT_REMOTE", f"Recipe application requires a current remote {environment_label} Odoo server.", f"Configure the {environment_label} data version with Remote Odoo.")
         if schema.origin is not SchemaOrigin.LIVE_API:
-            return None, self._block("RECIPE_TARGET_PROBE_MISSING", "The Test target has no accepted live schema probe.", "Check the remote connection and capture Odoo data again.")
+            return None, self._block("RECIPE_TARGET_PROBE_MISSING", f"The {environment_label} target has no accepted live schema probe.", "Check the remote connection and capture Odoo data again.")
         if not credential_generation or schema.read_credential_binding_hash != credential_generation:
             return None, self._block("TARGET_BINDING_STALE", "The current read credential generation does not match captured Odoo evidence.", "Re-probe the credential and refresh Odoo data.")
         connection_hash = target_identity_hash(connection_mode="REMOTE", base_url=project.odoo_base_url, database=project.odoo_database)
         if schema.connection_target_hash != connection_hash:
-            return None, self._block("RECIPE_TARGET_IDENTITY_CHANGED", "Captured Odoo evidence belongs to another server or database.", "Refresh Odoo data for this exact Test target.")
+            return None, self._block("RECIPE_TARGET_IDENTITY_CHANGED", "Captured Odoo evidence belongs to another server or database.", f"Refresh Odoo data for this exact {environment_label} target.")
         bundle = self.references.get_reference_bundle(project.project_id)
         reference_hashes = tuple(item.content_hash for item in bundle.datasets) if bundle else ()
         existing = self.applications.get_target_binding(project.project_id)
         comparable = {
-            "environment": TargetEnvironment.TEST,
+            "environment": environment,
             "endpoint": project.odoo_base_url,
             "database": project.odoo_database,
             "connection_target_hash": connection_hash,

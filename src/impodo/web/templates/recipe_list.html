@@ -37,7 +37,7 @@
               </div>
             </div>
             <span class="status {% if recipe.current_recipe_revision %}registered{% else %}draft{% endif %}">
-              {% if recipe.current_recipe_revision %}Recipe v{{ recipe.current_recipe_revision }}{% else %}Continue authoring{% endif %}
+              {% if recipe.cutover_recipe_revision %}Rollout candidate v{{ recipe.cutover_recipe_revision }}{% elif recipe.current_recipe_revision %}Recipe v{{ recipe.current_recipe_revision }}{% else %}Continue authoring{% endif %}
             </span>
             <span class="project-updated">{{ recipe.updated_at.strftime("%d %b %Y, %H:%M") }}</span>
             <span class="project-action-spacer" aria-hidden="true"></span>

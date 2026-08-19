@@ -81,6 +81,30 @@ published, return to the Recipe overview and select **Test on Odoo**.
 Applying the Recipe does not authorize a load. Preparation, final comparison,
 explicit write credentials, loading, and read-back remain separate steps.
 
+## Run the selected Recipe with latest Production data
+
+After the Test load is reconciled, qualify that exact Recipe revision and
+select it for rollout. The Recipe overview then offers **Run with latest data**.
+
+1. Confirm the latest-data label, declared parameter values, and current
+   business-control totals. Impodo pins the selected revision even if a newer,
+   untested Recipe revision exists.
+2. Add and freeze the complete latest source package in the clean Production
+   data version.
+3. Enter the current Production Odoo endpoint and database, then supply and
+   probe its read-only API key. No Test server setting, key, schema, reference,
+   or approval is copied.
+4. Apply the selected Recipe and review only current source, target, reference,
+   parameter, control, or credential differences.
+5. Continue through the familiar matching confirmation, preparation, quality,
+   comparison, and approval stages using fresh Production evidence.
+6. At load confirmation, establish the separate current Production write key.
+   Confirm the exact snapshot, execute it, and complete Odoo read-back and
+   reconciliation.
+
+Test qualification proves the reusable rules. It does not approve the latest
+Production data, authorize the Production server, or grant write access.
+
 For file data versions, an incorrect source file can still be replaced before the
 first table selection is frozen. The file is never edited in place.
 

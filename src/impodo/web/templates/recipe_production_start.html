@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Run {{ recipe.display_name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Recipe v{{ cutover_candidate.recipe_revision }} · Production application</p>
+      <h1>Run with latest data</h1>
+      <p>Create a clean Production data version from the exact qualified rollout candidate.</p>
+    </div>
+  </div>
+
+  <section class="form-card">
+    <h2>Latest Production data</h2>
+    <p>Recipe v{{ cutover_candidate.recipe_revision }} is pinned. The latest source package, Production server, schema evidence, reference data, approvals, and credentials will all be fresh.</p>
+    <form method="post" action="/recipes/{{ recipe.recipe_id }}/production">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="expected_recipe_revision" value="{{ recipe.optimistic_revision }}">
+      <input type="hidden" name="expected_cutover_candidate_id" value="{{ cutover_candidate.cutover_candidate_id }}">
+      <label>
+        Data version label
+        <input name="label" maxlength="200" required
+          placeholder="For example: Customer rollout export - 25 August"
+          value="{{ values.get('label', '') }}">
+      </label>
+      {% if parameters or controls %}
+        <fieldset>
+          <legend>Values for this Production data version</legend>
+          {% for parameter in parameters %}
+            <label>
+              {{ parameter.label }}
+              <input
+                name="parameter__{{ parameter.logical_parameter_id }}"
+                type="{{ 'date' if parameter.type == 'date' else 'text' }}"
+                {% if parameter.required %}required{% endif %}
+                value="{{ values.get('parameter__' ~ parameter.logical_parameter_id, '') }}">
+              <small>This value belongs to the latest Production data, not to the reusable Recipe.</small>
+            </label>
+          {% endfor %}
+          {% for control in controls %}
+            <label>
+              Expected {{ control.name }}{% if control.unit %} ({{ control.unit }}){% endif %}
+              <input
+                name="control__{{ control.logical_control_id }}"
+                inputmode="decimal"
+                {% if not control.invariant_expectation %}required{% endif %}
+                value="{{ values.get('control__' ~ control.logical_control_id, control.invariant_expected_total or '') }}"
+                {% if control.invariant_expectation %}readonly{% endif %}>
+              <small>Confirm the control total for this latest source package.</small>
+            </label>
+          {% endfor %}
+        </fieldset>
+      {% endif %}
+      <aside class="notice">
+        <strong>Production access starts empty.</strong>
+        <p>You will configure the Production endpoint and database, then enter and probe a fresh read-only API key. Test settings, credentials, evidence, and write authority are never copied.</p>
+      </aside>
+      <div class="actions">
+        <a class="button secondary" href="/recipes/{{ recipe.recipe_id }}">Cancel</a>
+        <button class="button primary" type="submit">Create Production data version</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

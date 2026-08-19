@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -34,6 +35,7 @@ from impodo.recipes import (
     DataVersionPurpose,
     DataVersionState,
     Recipe,
+    RecipeConflictError,
     RecipeDraftState,
 )
 from impodo.secrets import MemorySecretStore
@@ -324,6 +326,26 @@ def _file_binding(marker: str):
 
 
 class RecipeAuthoringTests(unittest.TestCase):
+    def test_application_data_version_cannot_publish_new_recipe_meaning(self):
+        service, facade, recipe = _authoring_fixture("8")
+        facade.recipe = replace(recipe, current_recipe_revision=1)
+        facade.data_version = replace(
+            facade.data_version,
+            purpose=DataVersionPurpose.PRODUCTION,
+            pinned_recipe_revision=1,
+        )
+
+        draft = service.draft(recipe.recipe_id, actor=LOCAL_ACTOR)
+
+        self.assertEqual(draft.state, RecipeDraftState.BLOCKED)
+        self.assertEqual(draft.issues[0].code, "CURRENT_DATA_VERSION_NOT_AUTHORING")
+        with self.assertRaisesRegex(RecipeConflictError, "Only an Authoring"):
+            service.publish_current(
+                recipe.recipe_id,
+                expected_recipe_revision=recipe.optimistic_revision,
+                actor=LOCAL_ACTOR,
+            )
+
     def test_physical_workspace_identity_does_not_change_recipe_semantics(self):
         first, first_facade, first_recipe = _authoring_fixture("1")
         second, second_facade, second_recipe = _authoring_fixture("2")

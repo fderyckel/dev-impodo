@@ -58,10 +58,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class _RecipeFacade:
-    def __init__(self, recipe, data_version, envelope) -> None:
+    def __init__(self, recipe, data_version, envelope, candidate=None) -> None:
         self.recipe = recipe
         self.data_version = data_version
         self.envelope = envelope
+        self.candidate = candidate
         self.projection = None
 
     def get(self, recipe_id, *, actor):
@@ -79,6 +80,11 @@ class _RecipeFacade:
         assert recipe_id == self.recipe.recipe_id
         assert version == 1
         return self.envelope
+
+    def cutover_candidate(self, recipe_id, *, actor):
+        del actor
+        assert recipe_id == self.recipe.recipe_id
+        return self.candidate
 
     def record_application_projection(self, **kwargs):
         self.projection = kwargs
@@ -226,6 +232,8 @@ def _service_fixture(
     renamed_name=False,
     readonly_name=False,
     categorical_issues=(),
+    purpose=DataVersionPurpose.TEST,
+    current_recipe_revision=1,
 ):
     authoring, authoring_facade, recipe = _authoring_fixture("6")
     authoring.publish_current(
@@ -276,8 +284,16 @@ def _service_fixture(
         source_mode=SourceMode.FILE,
         status=ProjectStatus.REGISTERED,
         odoo_connection_mode=OdooConnectionMode.REMOTE,
-        odoo_base_url="https://test-odoo.example.invalid",
-        odoo_database="customer_test",
+        odoo_base_url=(
+            "https://production-odoo.example.invalid"
+            if purpose is DataVersionPurpose.PRODUCTION
+            else "https://test-odoo.example.invalid"
+        ),
+        odoo_database=(
+            "customer_production"
+            if purpose is DataVersionPurpose.PRODUCTION
+            else "customer_test"
+        ),
         intended_models=("res.partner",),
     )
     target_hash = target_identity_hash(
@@ -299,11 +315,23 @@ def _service_fixture(
     )
     data_version = replace(
         authoring_facade.data_version,
-        purpose=DataVersionPurpose.TEST,
+        purpose=purpose,
         pinned_recipe_revision=1,
     )
-    recipe = replace(recipe, current_recipe_revision=1)
-    recipes = _RecipeFacade(recipe, data_version, envelope)
+    candidate = None
+    if purpose is DataVersionPurpose.PRODUCTION:
+        candidate = SimpleNamespace(
+            cutover_candidate_id=str(uuid4()),
+            recipe_revision=1,
+        )
+    recipe = replace(
+        recipe,
+        current_recipe_revision=current_recipe_revision,
+        cutover_candidate_id=(
+            candidate.cutover_candidate_id if candidate is not None else None
+        ),
+    )
+    recipes = _RecipeFacade(recipe, data_version, envelope, candidate)
     sources = SimpleNamespace(
         get_source_selection=lambda project_id: selection,
         get_mapping_source_selection=lambda project_id: selection,
@@ -411,6 +439,23 @@ class RecipeApplicationTests(unittest.TestCase):
         self.assertIn("RECIPE_TARGET_FIELD_READONLY", codes)
         self.assertIn("TARGET_BINDING_STALE", codes)
         self.assertEqual(recipes.recipe.current_recipe_revision, 1)
+
+    def test_production_uses_exact_selected_revision_and_production_binding(self):
+        service, recipes, _applications, _mapping, _store, schema = _service_fixture(
+            purpose=DataVersionPurpose.PRODUCTION,
+            current_recipe_revision=2,
+        )
+
+        review = service.review(
+            recipes.recipe.recipe_id,
+            credential_generation=schema.read_credential_binding_hash,
+            credential_storage_class="SESSION",
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertTrue(review.can_apply)
+        self.assertEqual(review.recipe_revision, 1)
+        self.assertEqual(review.target_binding.environment, TargetEnvironment.PRODUCTION)
 
     def test_edited_parameters_remain_pinned_to_the_test_data_version(self):
         service, recipes, applications, _mapping, _store, _schema = _service_fixture()
