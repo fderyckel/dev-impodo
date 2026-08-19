@@ -9,6 +9,8 @@ from queue import Empty
 from threading import RLock, Thread
 from typing import Any
 
+import duckdb
+
 from ..access import Actor
 from .preparation_job_registry import (
     PreparationJobRegistry,
@@ -349,6 +351,17 @@ def _run_preparation_worker(
                     str(error)[:1000],
                 )
             )
+    except duckdb.IOException:
+        events.put(
+            (
+                "failed",
+                "LOCAL_PROJECT_STORAGE_IO_FAILED",
+                "Impodo could not read or save this project's local files. "
+                "No Odoo records were changed and your previous prepared "
+                "evidence remains available. Check that the local drive is "
+                "available and has free space, then try again.",
+            )
+        )
     except Exception as error:
         events.put(
             (

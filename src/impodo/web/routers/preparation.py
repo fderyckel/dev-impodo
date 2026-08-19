@@ -12,10 +12,12 @@ from ...application.preparation_job_registry import (
     PreparationJobStateError,
 )
 from ...preparation_jobs import PreparationJob, PreparationJobStatus
+from ...preparation_jobs import PreparationWorkspace
 from ...workspace_errors import WorkspaceError
 from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash, _render
+from ..presenters.navigation import build_preparation_job_navigation
 from ..security import require_session
 
 
@@ -27,7 +29,6 @@ def build_preparation_router(context: WebContext) -> APIRouter:
     @router.get("/projects/{project_id}/prepare", response_class=HTMLResponse)
     async def prepare_project_data(request: Request, project_id: str):
         require_session(request)
-        project = context.queries.get(project_id)
         active = (
             context.preparation_jobs.active(project_id)
             if context.preparation_jobs is not None
@@ -38,6 +39,15 @@ def build_preparation_router(context: WebContext) -> APIRouter:
                 _progress_url(project_id, active.job_id),
                 status_code=303,
             )
+        try:
+            _preparation_workspace(context, project_id)
+        except WorkspaceError as error:
+            request.session["summary_error"] = str(error)
+            return RedirectResponse(
+                f"/projects/{project_id}/summary",
+                status_code=303,
+            )
+        project = context.queries.get(project_id)
         resolution = context.resolution.current_summary(project_id)
         if resolution is not None and resolution.status != "FROZEN":
             return RedirectResponse(
@@ -73,7 +83,14 @@ def build_preparation_router(context: WebContext) -> APIRouter:
     async def check_project_data(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
-        job = enqueue_preparation(context, project_id)
+        try:
+            job = enqueue_preparation(context, project_id)
+        except WorkspaceError as error:
+            request.session["summary_error"] = str(error)
+            return RedirectResponse(
+                f"/projects/{project_id}/summary",
+                status_code=303,
+            )
         request.session.pop("summary_error", None)
         _flash(request, "Preparation started. You can follow each step here.")
         return RedirectResponse(_progress_url(project_id, job.job_id), status_code=303)
@@ -107,6 +124,7 @@ def build_preparation_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         try:
+            workspace = _preparation_workspace(context, project_id)
             project = context.queries.get(project_id)
             job = _manager(context).retry(
                 project_id,
@@ -114,10 +132,11 @@ def build_preparation_router(context: WebContext) -> APIRouter:
                 project.name,
                 _preparation_row_count(context, project_id),
                 actor=context.actor,
+                workspace=workspace,
             )
         except PreparationJobNotFoundError as error:
             raise HTTPException(status_code=404, detail="Preparation job not found") from error
-        except PreparationJobStateError as error:
+        except (PreparationJobStateError, WorkspaceError) as error:
             current = _get_job(context, project_id, job_id)
             return _render_progress(
                 request,
@@ -134,6 +153,7 @@ def build_preparation_router(context: WebContext) -> APIRouter:
 def enqueue_preparation(context: WebContext, project_id: str) -> PreparationJob:
     """Capture lightweight display/scale metadata before starting the process."""
 
+    workspace = _preparation_workspace(context, project_id)
     project = context.queries.get(project_id)
     total_rows = _preparation_row_count(context, project_id)
     return _manager(context).enqueue(
@@ -141,7 +161,30 @@ def enqueue_preparation(context: WebContext, project_id: str) -> PreparationJob:
         project.name,
         total_rows,
         actor=context.actor,
+        workspace=workspace,
     )
+
+
+def _preparation_workspace(
+    context: WebContext,
+    project_id: str,
+) -> PreparationWorkspace:
+    """Resolve the active Recipe/DataVersion before starting another process."""
+
+    resolution = context.recipes.resolve_workspace(
+        project_id,
+        actor=context.actor,
+    )
+    try:
+        return PreparationWorkspace.from_resolution(resolution)
+    except ValueError as error:
+        purpose = resolution.data_version_purpose.value.title()
+        raise WorkspaceError(
+            f"This is saved history for {purpose} data version "
+            f"{resolution.data_version_number}, so it cannot be prepared again. "
+            "No Odoo records were changed. Open the Recipe overview and continue "
+            "from its current active data version."
+        ) from error
 
 
 def _preparation_row_count(context: WebContext, project_id: str) -> int:
@@ -172,6 +215,13 @@ def _render_progress(
         request,
         "project_preparation_progress.html",
         project=project,
+        project_navigation=build_preparation_job_navigation(job),
+        recipe_context={
+            "recipe_id": job.workspace.recipe_id,
+            "data_version_id": job.workspace.data_version_id,
+            "data_version_number": job.workspace.data_version_number,
+            "data_version_purpose": job.workspace.data_version_purpose.value,
+        },
         job=job,
         job_payload=_job_payload(job),
         failure_message=job.failure_message,

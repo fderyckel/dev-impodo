@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 
 from ...domain.errors import ReadinessError
 from ...domain.reconciliation import ReconciliationRunStatus
+from ...preparation_jobs import PreparationJob
 from ...projects import MigrationProject, ProjectStatus, SourceMode
 from ...workspace_errors import WorkspaceError
 from ..context import WebContext
@@ -886,6 +887,8 @@ def _navigation(
             stages[-1],
         ),
     )
+
+
     active_stages = tuple(
         replace(
             stage,
@@ -916,6 +919,78 @@ def _navigation(
         viewed_stage_id=viewed_stage_id,
         viewed_page_label=viewed_page_label,
         stages=active_stages,
+    )
+
+
+def build_preparation_job_navigation(job: PreparationJob) -> ProjectNavigation:
+    """Build Stage-4 navigation entirely from the in-memory job snapshot."""
+
+    project_id = job.project_id
+    progress_url = f"/projects/{project_id}/preparation/{job.job_id}"
+    stages = (
+        WorkflowStage(
+            stage_id="source",
+            number=1,
+            label="Source data",
+            href=f"/projects/{project_id}/sources",
+            status="complete",
+            status_label="Complete",
+        ),
+        WorkflowStage(
+            stage_id="odoo",
+            number=2,
+            label="Odoo data",
+            href=f"/projects/{project_id}/schema",
+            status="complete",
+            status_label="Complete",
+        ),
+        WorkflowStage(
+            stage_id="match",
+            number=3,
+            label="Match data",
+            href=f"/projects/{project_id}/mapping",
+            status="complete",
+            status_label="Complete",
+        ),
+        WorkflowStage(
+            stage_id="prepare",
+            number=4,
+            label="Prepare data",
+            href=f"/projects/{project_id}/prepare",
+            status="current",
+            status_label=("In progress" if job.active else "Saved attempt"),
+            pages=(
+                WorkflowPage(
+                    page_id="prepare",
+                    label="Start preparation",
+                    href=f"/projects/{project_id}/prepare",
+                ),
+                WorkflowPage(
+                    page_id="preparation-progress",
+                    label="Preparation progress",
+                    href=progress_url,
+                    status="current",
+                    status_label=("In progress" if job.active else "Saved attempt"),
+                    current=True,
+                ),
+            ),
+            active=True,
+        ),
+        *_locked_stages(project_id, after="prepare"),
+    )
+    return ProjectNavigation(
+        project_id=project_id,
+        project_name=job.project_name,
+        registered=True,
+        setup_active=False,
+        setup_href=f"/projects/{project_id}/details",
+        overview_href=f"/projects/{project_id}/overview",
+        overview_active=False,
+        current_stage_id="prepare",
+        current_stage_label="Prepare data",
+        viewed_stage_id="prepare",
+        viewed_page_label="Preparation progress",
+        stages=stages,
     )
 
 

@@ -8,7 +8,7 @@ import duckdb
 
 from ...access import Actor
 from ...projects import MigrationProject
-from .database import DuckDbProjectDatabase
+from .database import DuckDbDatabase, DuckDbProjectDatabase
 from .unit_of_work import DuckDbUnitOfWork
 
 
@@ -35,17 +35,6 @@ class DuckDbRepository:
         """Return the secured root shared by database and artifact adapters."""
 
         return self._database.root
-
-    @property
-    def registry_path(self) -> Path:
-        """Return the path of the lightweight cross-project registry database."""
-
-        try:
-            return self._database.registry_path
-        except AttributeError as error:
-            raise RuntimeError(
-                "The project-scoped database cannot access the Recipe registry"
-            ) from error
 
     @property
     def _transformation_impact_lock(self):
@@ -158,3 +147,17 @@ class DuckDbRepository:
     @staticmethod
     def _project_revision(connection: duckdb.DuckDBPyConnection) -> int:
         return DuckDbProjectDatabase._project_revision(connection)
+
+
+class DuckDbRegistryRepository(DuckDbRepository):
+    """Repository boundary that explicitly opts into the shared registry."""
+
+    def __init__(self, database: DuckDbDatabase) -> None:
+        super().__init__(database)
+        self._registry_database = database
+
+    @property
+    def registry_path(self) -> Path:
+        """Return the cross-project Recipe registry path."""
+
+        return self._registry_database.registry_path

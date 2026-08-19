@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from html import unescape
 from io import BytesIO
 import json
+import multiprocessing
 from pathlib import Path
 import re
 import tempfile
@@ -15,6 +17,7 @@ from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
+import duckdb
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from openpyxl.worksheet.table import Table
@@ -79,6 +82,8 @@ from impodo.models import (
 from impodo.models import canonical_json_text
 from impodo.odoo_readback import ReadbackRecord
 from impodo.projects import OdooConnectionMode, ProjectStatus, SourceMode
+from impodo.preparation_jobs import PreparationJobStatus, PreparationWorkspace
+from impodo.recipes import DataVersionState
 from impodo.quality import (
     QualityOutcomePolicy,
     QualityOwnerRole,
@@ -113,6 +118,58 @@ POST_HEADERS = {
     "Origin": "http://testserver",
     "Sec-Fetch-Site": "same-origin",
 }
+
+
+def _hold_duckdb_files(
+    paths: tuple[str, ...],
+    ready,
+    release,
+    status,
+) -> None:
+    """Own real cross-process DuckDB locks until the test releases them."""
+
+    connections = []
+    try:
+        connections = [duckdb.connect(path) for path in paths]
+        status.put(("ready", ""))
+        ready.set()
+        release.wait(60)
+    except Exception as error:
+        status.put(("error", f"{type(error).__name__}: {error}"))
+        ready.set()
+    finally:
+        for connection in reversed(connections):
+            connection.close()
+
+
+@contextmanager
+def _spawned_duckdb_locks(*paths: Path):
+    """Hold database files from another process using DuckDB's real locks."""
+
+    process_context = multiprocessing.get_context("spawn")
+    ready = process_context.Event()
+    release = process_context.Event()
+    status = process_context.Queue()
+    process = process_context.Process(
+        target=_hold_duckdb_files,
+        args=(tuple(str(path) for path in paths), ready, release, status),
+        name="impodo-test-duckdb-lock-holder",
+    )
+    process.start()
+    try:
+        if not ready.wait(10):
+            raise AssertionError("DuckDB lock holder did not start")
+        state, message = status.get(timeout=2)
+        if state != "ready":
+            raise AssertionError(f"DuckDB lock holder failed: {message}")
+        yield
+    finally:
+        release.set()
+        process.join(timeout=10)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=5)
+        status.close()
 
 
 def _wait_for_preparation(
@@ -6183,6 +6240,44 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(autosave.json()["redirect_url"], progress_url)
         self.assertIn("Wait for it to finish", autosave.json()["detail"])
 
+    def test_sealed_data_version_explains_why_preparation_cannot_restart(
+        self,
+    ) -> None:
+        project_id, _dataset, _business_key = self._mapping_ready_project(
+            scalar_field_count=1,
+        )
+        context = self.app.state.context
+        resolution = context.recipes.resolve_workspace(
+            project_id,
+            actor=context.actor,
+        )
+
+        with patch.object(
+            context.recipes,
+            "resolve_workspace",
+            return_value=replace(
+                resolution,
+                data_version_state=DataVersionState.SEALED,
+            ),
+        ):
+            response = self.client.post(
+                f"/projects/{project_id}/summary/check",
+                data={"csrf_token": self.csrf},
+                headers=POST_HEADERS,
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(
+            response.headers["location"],
+            f"/projects/{project_id}/summary",
+        )
+        self.assertIsNone(context.preparation_jobs.active(project_id))
+        summary = self.client.get(response.headers["location"])
+        self.assertIn("saved history for Authoring data version 1", summary.text)
+        self.assertIn("No Odoo records were changed", summary.text)
+        self.assertIn("Open the Recipe overview", summary.text)
+
     def test_data_manager_can_save_a_guided_business_data_check(self) -> None:
         project_id, dataset, business_key = self._mapping_ready_project(
             scalar_field_count=2,
@@ -6578,6 +6673,65 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "Matching fields and Within fields must be different.",
             schema_script.text,
         )
+
+    def test_preparation_worker_and_progress_page_do_not_open_locked_databases(
+        self,
+    ) -> None:
+        project_id, _dataset, _business_key = self._mapping_ready_project(
+            scalar_field_count=1,
+        )
+        context = self.app.state.context
+        project = context.queries.get(project_id)
+        selection = context.queries.get_source_selection(project_id)
+        assert selection is not None
+        workspace = PreparationWorkspace.from_resolution(
+            context.recipes.resolve_workspace(
+                project_id,
+                actor=context.actor,
+            )
+        )
+        manager = context.preparation_jobs
+        assert manager is not None
+        root = Path(self.temporary.name)
+        registry_path = root / "registry.duckdb"
+        project_path = root / project_id / "project.duckdb"
+
+        with _spawned_duckdb_locks(registry_path):
+            job = manager.enqueue(
+                project_id,
+                project.name,
+                sum(item.row_count for item in selection.datasets),
+                actor=context.actor,
+                workspace=workspace,
+            )
+            progress_url = (
+                f"/projects/{project_id}/preparation/{job.job_id}"
+            )
+            completed = _wait_for_preparation(
+                self.client,
+                progress_url,
+                timeout=30,
+            )
+
+        self.assertEqual(completed["status"], PreparationJobStatus.FAILED.value)
+        self.assertEqual(completed["failure_code"], "ReadinessError", completed)
+        self.assertIn("Submit the mapping", str(completed["failure_message"]))
+        worker_deadline = time.monotonic() + 2.0
+        while manager.worker_alive(job.job_id) and time.monotonic() < worker_deadline:
+            time.sleep(0.01)
+        self.assertFalse(manager.worker_alive(job.job_id))
+
+        with _spawned_duckdb_locks(registry_path, project_path):
+            progress_page = self.client.get(progress_url)
+
+        self.assertEqual(progress_page.status_code, 200, progress_page.text)
+        self.assertIn("Stage 4 of 6", progress_page.text)
+        self.assertIn("Preparation progress", progress_page.text)
+        self.assertIn(
+            f'href="/recipes/{workspace.recipe_id}"',
+            progress_page.text,
+        )
+        self.assertIn('aria-current="page"', progress_page.text)
 
     def _mapping_ready_project(
         self,

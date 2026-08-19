@@ -34,10 +34,10 @@ from ...recipes import (
     require_uuid,
 )
 from .database import DuckDbDatabase
-from .repository import DuckDbRepository
+from .repository import DuckDbRegistryRepository
 
 
-class RecipeRepository(DuckDbRepository):
+class RecipeRepository(DuckDbRegistryRepository):
     """Own Recipe registry rows without scanning contained project databases."""
 
     def __init__(self, database: DuckDbDatabase) -> None:

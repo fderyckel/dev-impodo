@@ -30,14 +30,14 @@ from ...projects import (
 )
 from ...recipes import require_hash, require_uuid
 from .database import DuckDbDatabase
-from .repository import DuckDbRepository
+from .repository import DuckDbRegistryRepository
 from .serialization import (
     _project_from_rows,
     _project_values,
 )
 
 
-class ProjectRepository(DuckDbRepository):
+class ProjectRepository(DuckDbRegistryRepository):
     """Own durable project state and project-level invalidation transactions."""
 
     def __init__(self, database: DuckDbDatabase) -> None:

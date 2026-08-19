@@ -20,10 +20,24 @@ from impodo.application.preparation_job_service import PreparationJobManager
 from impodo.application.preparation_job_service import _run_preparation_worker
 from impodo.application.preparation_service import PreparationService
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.preparation_jobs import PreparationJobStatus, PreparationPhase
+from impodo.preparation_jobs import (
+    PreparationJobStatus,
+    PreparationPhase,
+    PreparationWorkspace,
+)
+from impodo.recipes import DataVersionPurpose
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _workspace() -> PreparationWorkspace:
+    return PreparationWorkspace(
+        recipe_id=str(uuid4()),
+        data_version_id=str(uuid4()),
+        data_version_number=1,
+        data_version_purpose=DataVersionPurpose.AUTHORING,
+    )
 
 
 class PreparationJobRegistryTests(unittest.TestCase):
@@ -37,12 +51,14 @@ class PreparationJobRegistryTests(unittest.TestCase):
             "Large products",
             100_000,
             LOCAL_ACTOR.identity,
+            _workspace(),
         )
         repeated, repeated_created = self.registry.enqueue(
             self.project_id,
             "Large products",
             100_000,
             LOCAL_ACTOR.identity,
+            _workspace(),
         )
 
         self.assertTrue(created)
@@ -69,6 +85,7 @@ class PreparationJobRegistryTests(unittest.TestCase):
             "Large products",
             100_000,
             LOCAL_ACTOR.identity,
+            _workspace(),
         )
         self.assertTrue(retry_created)
         self.assertEqual(retry.attempt, 2)
@@ -80,6 +97,7 @@ class PreparationJobRegistryTests(unittest.TestCase):
             "Large BOM",
             100_000,
             LOCAL_ACTOR.identity,
+            _workspace(),
         )
         self.registry.mark_running(queued.job_id)
         self.registry.mark_failed(
@@ -213,12 +231,14 @@ class PreparationJobSchedulingTests(unittest.TestCase):
                 "Products",
                 100_000,
                 actor=LOCAL_ACTOR,
+                workspace=_workspace(),
             )
             second = manager.enqueue(
                 str(uuid4()),
                 "BOM",
                 100_000,
                 actor=LOCAL_ACTOR,
+                workspace=_workspace(),
             )
 
             self.assertEqual(manager.started, [first.job_id])
@@ -238,12 +258,13 @@ class PreparationWorkerFailureTests(unittest.TestCase):
         cancel = MagicMock()
 
         with patch(
-            "impodo.web.app.create_local_app",
+            "impodo.preparation_worker.create_preparation_worker",
             side_effect=duckdb.IOException("IO Error: No space left on device"),
         ):
             _run_preparation_worker(
                 "project-root",
                 "project-id",
+                _workspace(),
                 LOCAL_ACTOR,
                 events,
                 cancel,

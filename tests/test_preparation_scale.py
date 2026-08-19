@@ -96,7 +96,7 @@ from impodo.quality import (
     default_quality_ruleset,
     evaluate_quality,
 )
-from impodo.preparation_jobs import PreparationJobStatus
+from impodo.preparation_jobs import PreparationJobStatus, PreparationWorkspace
 from impodo.value_rules import ScalarTransformPolicy
 from impodo.web.app import create_local_app
 from impodo.workspace_contracts import MappingWorkingDraft
@@ -1247,6 +1247,12 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         assert selection is not None
         manager = self.context.preparation_jobs
         assert manager is not None
+        workspace = PreparationWorkspace.from_resolution(
+            self.context.recipes.resolve_workspace(
+                project_id,
+                actor=self.context.actor,
+            )
+        )
         parent_process = psutil.Process()
         parent_rss_before_jobs = parent_process.memory_info().rss
 
@@ -1256,6 +1262,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 project.name,
                 sum(item.row_count for item in selection.datasets),
                 actor=self.context.actor,
+                workspace=workspace,
             )
             started = perf_counter()
             peak_worker_bytes = 0
