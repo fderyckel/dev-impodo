@@ -17,6 +17,12 @@ from ..domain.mapping.contracts import (
     MappingTargetMode,
 )
 from ..domain.schema.governance import BusinessKeyStatus, SchemaGovernance
+from ..domain.recipe_parameters import (
+    RecipeParameterDefinition,
+    RecipeParameterDefinitionError,
+    RecipeParameterDefinitions,
+    RecipeParameterType,
+)
 from ..domain.serialization import canonical_json, content_hash, portable
 from ..projects import MigrationProject, ProjectService, SourceMode
 from ..quality import QualityRuleSet, QualityRuleSource
@@ -90,6 +96,21 @@ class RecipeAuthoringReferenceRepository(Protocol):
     def get_reference_bundle(self, project_id: str) -> ReferenceBundle | None: ...
 
 
+class RecipeAuthoringParameterRepository(Protocol):
+    def get_parameter_definitions(
+        self,
+        project_id: str,
+    ) -> RecipeParameterDefinitions: ...
+
+    def save_parameter_definitions(
+        self,
+        project_id: str,
+        definitions: RecipeParameterDefinitions,
+        *,
+        actor: Actor,
+    ) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class CompiledRecipeDefinition:
     """Portable semantic payload plus exact non-semantic authoring bindings."""
@@ -122,6 +143,7 @@ class RecipeAuthoringService:
         preparation: RecipeAuthoringPreparationRepository,
         references: RecipeAuthoringReferenceRepository,
         authorization: AuthorizationPolicy,
+        parameters: RecipeAuthoringParameterRepository | None = None,
     ) -> None:
         self.recipes = recipes
         self.projects = projects
@@ -132,6 +154,7 @@ class RecipeAuthoringService:
         self.preparation = preparation
         self.references = references
         self.authorization = authorization
+        self.parameters = parameters
 
     def create(
         self,
@@ -163,6 +186,110 @@ class RecipeAuthoringService:
         """Synchronize editable authoring setup into the Recipe root."""
 
         return self.recipes.synchronize_unpublished_setup(project, actor=actor)
+
+    def parameter_definitions(
+        self,
+        recipe_id: str,
+        *,
+        actor: Actor,
+    ) -> tuple[RecipeParameterDefinition, ...]:
+        """Return custom declarations for the current Authoring DataVersion."""
+
+        project_id = self._authoring_workspace(recipe_id, actor=actor)
+        if self.parameters is None:
+            return ()
+        return self.parameters.get_parameter_definitions(project_id).definitions
+
+    def save_parameter_definition(
+        self,
+        recipe_id: str,
+        *,
+        name: str,
+        label: str,
+        value_type: str | RecipeParameterType,
+        required: bool,
+        actor: Actor,
+    ) -> RecipeParameterDefinitions:
+        """Add or replace one reusable application parameter declaration."""
+
+        self.authorization.require(actor, Capability.RECIPE_PUBLISH)
+        if self.parameters is None:
+            raise RecipeConflictError(
+                "Recipe parameter authoring is not available in this workspace"
+            )
+        project_id = self._authoring_workspace(recipe_id, actor=actor)
+        definition = RecipeParameterDefinition(
+            name=name,
+            label=label,
+            value_type=RecipeParameterType(value_type),
+            required=required,
+        )
+        current = self.parameters.get_parameter_definitions(project_id)
+        updated = RecipeParameterDefinitions(
+            definitions=tuple(
+                item for item in current.definitions if item.name != definition.name
+            )
+            + (definition,)
+        )
+        self.parameters.save_parameter_definitions(
+            project_id,
+            updated,
+            actor=actor,
+        )
+        return updated
+
+    def remove_parameter_definition(
+        self,
+        recipe_id: str,
+        *,
+        name: str,
+        actor: Actor,
+    ) -> RecipeParameterDefinitions:
+        """Remove one custom declaration from the unpublished Recipe meaning."""
+
+        self.authorization.require(actor, Capability.RECIPE_PUBLISH)
+        if self.parameters is None:
+            raise RecipeConflictError(
+                "Recipe parameter authoring is not available in this workspace"
+            )
+        project_id = self._authoring_workspace(recipe_id, actor=actor)
+        current = self.parameters.get_parameter_definitions(project_id)
+        updated = RecipeParameterDefinitions(
+            definitions=tuple(item for item in current.definitions if item.name != name)
+        )
+        if updated == current:
+            raise RecipeConflictError("Recipe parameter no longer exists")
+        self.parameters.save_parameter_definitions(
+            project_id,
+            updated,
+            actor=actor,
+        )
+        return updated
+
+    def _authoring_workspace(self, recipe_id: str, *, actor: Actor) -> str:
+        recipe = self.recipes.get(recipe_id, actor=actor)
+        current = next(
+            (
+                item
+                for item in self.recipes.data_versions(recipe_id, actor=actor)
+                if item.data_version_id == recipe.current_data_version_id
+            ),
+            None,
+        )
+        if current is None or current.purpose is not DataVersionPurpose.AUTHORING:
+            raise RecipeConflictError(
+                "Application parameters can only be changed in an Authoring data version"
+            )
+        if current.state.value != "ACTIVE":
+            raise RecipeConflictError(
+                "Published Recipe parameter definitions cannot be changed"
+            )
+        self.authorization.require(
+            actor,
+            Capability.PROJECT_VIEW,
+            project_id=current.workspace_project_id,
+        )
+        return current.workspace_project_id
 
     def draft(self, recipe_id: str, *, actor: Actor) -> RecipeDraft:
         """Return publication readiness without creating mutable Recipe state."""
@@ -262,9 +389,7 @@ class RecipeAuthoringService:
         compiled, issues = self._compile(current.workspace_project_id)
         if compiled is None:
             first = issues[0]
-            raise RecipeConflictError(
-                f"{first.message} {first.recovery_action}"
-            )
+            raise RecipeConflictError(f"{first.message} {first.recovery_action}")
         next_version = (recipe.current_recipe_revision or 0) + 1
         compiled_at = datetime.now(timezone.utc).isoformat()
         envelope: dict[str, object] = {
@@ -398,6 +523,11 @@ class RecipeAuthoringService:
                 ),
             )
         try:
+            parameter_definitions = (
+                self.parameters.get_parameter_definitions(project_id)
+                if self.parameters is not None
+                else RecipeParameterDefinitions()
+            )
             compiled = self._definition(
                 selection=selection,
                 base_selection=base_selection,
@@ -407,9 +537,14 @@ class RecipeAuthoringService:
                 ruleset=ruleset,
                 preparation=self.preparation.get_derived_entity_plan(project_id),
                 references=self.references.get_reference_bundle(project_id),
+                parameter_definitions=parameter_definitions,
             )
             self._validate_portability(compiled)
-        except (RecipeConflictError, RecipeIntegrityError) as error:
+        except (
+            RecipeConflictError,
+            RecipeIntegrityError,
+            RecipeParameterDefinitionError,
+        ) as error:
             return None, (
                 self._issue(
                     "NONPORTABLE_AUTHORING",
@@ -431,9 +566,7 @@ class RecipeAuthoringService:
             "provenance": {},
         }
         envelope["payload_hash"] = content_hash(envelope)
-        RecipeService._validated_envelope(
-            canonical_json(envelope).encode("utf-8")
-        )
+        RecipeService._validated_envelope(canonical_json(envelope).encode("utf-8"))
 
     def _definition(
         self,
@@ -446,6 +579,7 @@ class RecipeAuthoringService:
         ruleset: QualityRuleSet,
         preparation: DerivedEntityPlan | None,
         references: ReferenceBundle | None,
+        parameter_definitions: RecipeParameterDefinitions,
     ) -> CompiledRecipeDefinition:
         combined_by_id = {
             item.dataset_id: item
@@ -532,7 +666,10 @@ class RecipeAuthoringService:
             },
             "source_shape": source_shape,
             "parameter_definitions": {
-                "parameters": self._parameter_definitions(base_selection)
+                "parameters": self._parameter_definitions(
+                    base_selection,
+                    parameter_definitions,
+                )
             },
             "source_preparation": self._preparation(
                 preparation,
@@ -578,9 +715,7 @@ class RecipeAuthoringService:
         dict[str, str],
         dict[tuple[str, str], str],
     ]:
-        datasets = tuple(
-            sorted(source_datasets, key=lambda item: item.name.casefold())
-        )
+        datasets = tuple(sorted(source_datasets, key=lambda item: item.name.casefold()))
         dataset_ids: dict[str, str] = {}
         logical_ids: set[str] = set()
         columns: dict[tuple[str, str], str] = {}
@@ -1139,12 +1274,16 @@ class RecipeAuthoringService:
         for key, raw in list(value.items()):
             if not isinstance(raw, str):
                 continue
-            if key in {
-                "source_column_key",
-                "parent_key_column_key",
-                "child_key_column_key",
-                "scope_column_key",
-            } and local_dataset is not None:
+            if (
+                key
+                in {
+                    "source_column_key",
+                    "parent_key_column_key",
+                    "child_key_column_key",
+                    "scope_column_key",
+                }
+                and local_dataset is not None
+            ):
                 value[key] = self._column(local_dataset, raw, columns)
             elif key == "output_column_key" and output_dataset_id is not None:
                 value[key] = self._column(output_dataset_id, raw, columns)
@@ -1164,19 +1303,21 @@ class RecipeAuthoringService:
             )
 
     @staticmethod
-    def _parameter_definitions(selection):
-        if not any(item.origin.value == "FILE" for item in selection.datasets):
-            return []
-        return [
-            {
-                "allowed_use_sites": ["controls", "provenance"],
-                "constraints": {"not_after_application_date": True},
-                "label": "Export as-of date",
-                "logical_parameter_id": "parameter:export_as_of_date",
-                "required": True,
-                "type": "date",
-            }
-        ]
+    def _parameter_definitions(selection, custom):
+        definitions = []
+        if any(item.origin.value == "FILE" for item in selection.datasets):
+            definitions.append(
+                {
+                    "allowed_use_sites": ["controls", "provenance"],
+                    "constraints": {"not_after_application_date": True},
+                    "label": "Export as-of date",
+                    "logical_parameter_id": "parameter:export_as_of_date",
+                    "required": True,
+                    "type": "date",
+                }
+            )
+        definitions.extend(item.to_recipe_dict() for item in custom.definitions)
+        return definitions
 
     @staticmethod
     def _controls(mappings, dataset_ids):

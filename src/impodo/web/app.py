@@ -71,6 +71,7 @@ from ..adapters.duckdb.execution_repository import ExecutionRepository
 from ..adapters.duckdb.reconciliation_repository import ReconciliationRepository
 from ..adapters.duckdb.project_repository import ProjectRepository
 from ..adapters.duckdb.recipe_repository import RecipeRepository
+from ..adapters.duckdb.recipe_authoring_repository import RecipeAuthoringRepository
 from ..adapters.duckdb.recipe_application_repository import (
     RecipeApplicationRepository,
 )
@@ -182,6 +183,7 @@ def create_local_app(
     resolved_artifacts = artifact_store or LocalArtifactStore(project_root)
     project_repository = ProjectRepository(database)
     recipe_repository = RecipeRepository(database)
+    recipe_authoring_repository = RecipeAuthoringRepository(database)
     recipe_application_repository = RecipeApplicationRepository(database)
     derived_entity_repository = DerivedEntityRepository(database)
     source_repository = SourceRepository(database, derived_entity_repository)
@@ -247,6 +249,7 @@ def create_local_app(
         derived_entity_repository,
         advanced_coverage_repository,
         resolved_authorization,
+        recipe_authoring_repository,
     )
     categorical_coverage = CategoricalCoverageService(
         source_repository,
@@ -320,6 +323,7 @@ def create_local_app(
         schema_repository,
         odoo_provenance_service,
     )
+
     def current_read_credential_binding(project: MigrationProject) -> str:
         if project.odoo_connection_mode is OdooConnectionMode.LOCAL:
             return local_read_credential_binding_hash(project)

@@ -187,59 +187,56 @@ def build_projects_router(context: WebContext) -> APIRouter:
     @router.get("/recipes/{recipe_id}", response_class=HTMLResponse)
     async def recipe_overview(request: Request, recipe_id: str):
         require_session(request)
-        recipe = context.recipes.get(recipe_id, actor=context.actor)
-        versions = context.recipes.data_versions(recipe_id, actor=context.actor)
-        revisions = context.recipes.revisions(recipe_id, actor=context.actor)
-        draft = context.recipe_authoring.draft(recipe_id, actor=context.actor)
-        project = (
-            context.queries.get(draft.workspace_project_id)
-            if draft.workspace_project_id
-            else None
+        return _render_recipe_overview(request, context, recipe_id)
+
+    @router.post("/recipes/{recipe_id}/parameters")
+    async def save_recipe_parameter(request: Request, recipe_id: str):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "name", "label", "value_type", "required"},
         )
-        current_data_version = next(
-            (
-                item
-                for item in versions
-                if item.data_version_id == recipe.current_data_version_id
-            ),
-            None,
-        )
-        qualification_review = _recipe_qualification_review(
-            context,
-            recipe_id,
-        )
-        cutover_candidate = context.recipes.cutover_candidate(
-            recipe_id,
-            actor=context.actor,
-        )
-        application_draft = (
-            context.recipe_applications.current_draft(
-                project.project_id,
+        try:
+            context.recipe_authoring.save_parameter_definition(
+                recipe_id,
+                name=_text(form, "name"),
+                label=_text(form, "label"),
+                value_type=_text(form, "value_type"),
+                required=_text(form, "required") == "yes",
                 actor=context.actor,
             )
-            if project is not None
-            and current_data_version is not None
-            and current_data_version.purpose is DataVersionPurpose.PRODUCTION
-            else None
-        )
-        return _render(
-            request,
-            "recipe_overview.html",
-            recipe=recipe,
-            data_versions=versions,
-            recipe_revisions=revisions,
-            recipe_draft=draft,
-            project=project,
-            current_data_version=current_data_version,
-            qualification_review=qualification_review,
-            cutover_candidate=cutover_candidate,
-            application_draft=application_draft,
-            recovery_href=(
-                _recipe_recovery_href(project, draft.issues[0].code)
-                if project is not None and draft.issues
-                else None
-            ),
-        )
+        except (RecipeError, ValueError) as error:
+            return _render_recipe_overview(
+                request,
+                context,
+                recipe_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, "Recipe application input saved.")
+        return RedirectResponse(f"/recipes/{recipe_id}", status_code=303)
+
+    @router.post("/recipes/{recipe_id}/parameters/remove")
+    async def remove_recipe_parameter(request: Request, recipe_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "name"})
+        try:
+            context.recipe_authoring.remove_parameter_definition(
+                recipe_id,
+                name=_text(form, "name"),
+                actor=context.actor,
+            )
+        except (RecipeError, ValueError) as error:
+            return _render_recipe_overview(
+                request,
+                context,
+                recipe_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, "Recipe application input removed.")
+        return RedirectResponse(f"/recipes/{recipe_id}", status_code=303)
 
     @router.get("/recipes/{recipe_id}/qualification", response_class=HTMLResponse)
     async def recipe_qualification(request: Request, recipe_id: str):
@@ -449,9 +446,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
             parameters=tuple(
                 dict(definition["parameter_definitions"]).get("parameters", ())
             ),
-            controls=tuple(
-                dict(definition["control_definitions"]).get("controls", ())
-            ),
+            controls=tuple(dict(definition["control_definitions"]).get("controls", ())),
             values={},
         )
 
@@ -473,15 +468,11 @@ def build_projects_router(context: WebContext) -> APIRouter:
         parameters = tuple(
             dict(definition["parameter_definitions"]).get("parameters", ())
         )
-        controls = tuple(
-            dict(definition["control_definitions"]).get("controls", ())
-        )
+        controls = tuple(dict(definition["control_definitions"]).get("controls", ()))
         parameter_fields = {
             f"parameter__{item['logical_parameter_id']}" for item in parameters
         }
-        control_fields = {
-            f"control__{item['logical_control_id']}" for item in controls
-        }
+        control_fields = {f"control__{item['logical_control_id']}" for item in controls}
         _secure_form(
             request,
             form,
@@ -688,37 +679,10 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 actor=context.actor,
             )
         except (RecipeError, ValueError) as error:
-            recipe = context.recipes.get(recipe_id, actor=context.actor)
-            versions = context.recipes.data_versions(
-                recipe_id,
-                actor=context.actor,
-            )
-            revisions = context.recipes.revisions(
-                recipe_id,
-                actor=context.actor,
-            )
-            draft = context.recipe_authoring.draft(
-                recipe_id,
-                actor=context.actor,
-            )
-            project = (
-                context.queries.get(draft.workspace_project_id)
-                if draft.workspace_project_id
-                else None
-            )
-            return _render(
+            return _render_recipe_overview(
                 request,
-                "recipe_overview.html",
-                recipe=recipe,
-                data_versions=versions,
-                recipe_revisions=revisions,
-                recipe_draft=draft,
-                project=project,
-                recovery_href=(
-                    _recipe_recovery_href(project, draft.issues[0].code)
-                    if project is not None and draft.issues
-                    else None
-                ),
+                context,
+                recipe_id,
                 error=str(error),
                 status_code=422,
             )
@@ -994,6 +958,85 @@ def build_projects_router(context: WebContext) -> APIRouter:
         )
 
     return router
+
+
+def _render_recipe_overview(
+    request: Request,
+    context: WebContext,
+    recipe_id: str,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+):
+    """Render the Recipe root with consistent lifecycle and authoring context."""
+
+    recipe = context.recipes.get(recipe_id, actor=context.actor)
+    versions = context.recipes.data_versions(recipe_id, actor=context.actor)
+    revisions = context.recipes.revisions(recipe_id, actor=context.actor)
+    draft = context.recipe_authoring.draft(recipe_id, actor=context.actor)
+    project = (
+        context.queries.get(draft.workspace_project_id)
+        if draft.workspace_project_id
+        else None
+    )
+    current_data_version = next(
+        (
+            item
+            for item in versions
+            if item.data_version_id == recipe.current_data_version_id
+        ),
+        None,
+    )
+    parameter_authoring_enabled = bool(
+        current_data_version is not None
+        and current_data_version.purpose is DataVersionPurpose.AUTHORING
+        and current_data_version.state.value == "ACTIVE"
+    )
+    recipe_parameters = (
+        context.recipe_authoring.parameter_definitions(
+            recipe_id,
+            actor=context.actor,
+        )
+        if parameter_authoring_enabled
+        else ()
+    )
+    qualification_review = _recipe_qualification_review(context, recipe_id)
+    cutover_candidate = context.recipes.cutover_candidate(
+        recipe_id,
+        actor=context.actor,
+    )
+    application_draft = (
+        context.recipe_applications.current_draft(
+            project.project_id,
+            actor=context.actor,
+        )
+        if project is not None
+        and current_data_version is not None
+        and current_data_version.purpose is DataVersionPurpose.PRODUCTION
+        else None
+    )
+    return _render(
+        request,
+        "recipe_overview.html",
+        recipe=recipe,
+        data_versions=versions,
+        recipe_revisions=revisions,
+        recipe_draft=draft,
+        project=project,
+        current_data_version=current_data_version,
+        qualification_review=qualification_review,
+        cutover_candidate=cutover_candidate,
+        application_draft=application_draft,
+        parameter_authoring_enabled=parameter_authoring_enabled,
+        recipe_parameters=recipe_parameters,
+        recovery_href=(
+            _recipe_recovery_href(project, draft.issues[0].code)
+            if project is not None and draft.issues
+            else None
+        ),
+        error=error,
+        status_code=status_code,
+    )
 
 
 def _recipe_application_review(context: WebContext, recipe_id: str):

@@ -132,6 +132,87 @@
     </div>
   {% endif %}
 
+  {% if parameter_authoring_enabled and project and project.status.value == "REGISTERED" %}
+    <section class="form-card" aria-labelledby="recipe-inputs-title">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Reusable application context</p>
+          <h2 id="recipe-inputs-title">Inputs for each data version</h2>
+          <p>Declare context that can change between Test and rollout without creating a new Recipe revision. File Recipes already ask for the export as-of date.</p>
+        </div>
+      </div>
+
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Input</th>
+              <th scope="col">Type</th>
+              <th scope="col">Required</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Export as-of date</strong><br><small>Built in for replacement files</small></td>
+              <td>Date</td>
+              <td>Yes</td>
+              <td></td>
+            </tr>
+            {% for parameter in recipe_parameters %}
+              <tr>
+                <td><strong>{{ parameter.label }}</strong><br><small>{{ parameter.name }}</small></td>
+                <td>{{ parameter.value_type.value|title }}</td>
+                <td>{% if parameter.required %}Yes{% else %}No{% endif %}</td>
+                <td>
+                  <form method="post" action="/recipes/{{ recipe.recipe_id }}/parameters/remove">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="name" value="{{ parameter.name }}">
+                    <button class="button danger compact" type="submit" aria-label="Remove {{ parameter.label }}">Remove</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <form method="post" action="/recipes/{{ recipe.recipe_id }}/parameters">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-grid compact-grid">
+          <label>
+            Input name
+            <input name="name" required maxlength="80" pattern="[a-z][a-z0-9_]*" placeholder="warehouse">
+            <small>Stable lowercase name, for example warehouse.</small>
+          </label>
+          <label>
+            Label
+            <input name="label" required maxlength="120" placeholder="Warehouse">
+          </label>
+          <label>
+            Value type
+            <select name="value_type">
+              <option value="string">Text</option>
+              <option value="date">Date</option>
+              <option value="integer">Whole number</option>
+              <option value="decimal">Number</option>
+            </select>
+          </label>
+          <label>
+            Required for each data version
+            <select name="required">
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </label>
+        </div>
+        <div class="actions">
+          <button class="button secondary" type="submit">Add application input</button>
+        </div>
+      </form>
+    </section>
+  {% endif %}
+
   <section class="overview-stage-list" aria-labelledby="recipe-lineage-title">
     <div class="section-heading">
       <div>

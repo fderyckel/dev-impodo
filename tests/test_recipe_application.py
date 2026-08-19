@@ -234,8 +234,18 @@ def _service_fixture(
     categorical_issues=(),
     purpose=DataVersionPurpose.TEST,
     current_recipe_revision=1,
+    recipe_parameters=(),
 ):
     authoring, authoring_facade, recipe = _authoring_fixture("6")
+    for parameter in recipe_parameters:
+        authoring.save_parameter_definition(
+            recipe.recipe_id,
+            name=parameter[0],
+            label=parameter[1],
+            value_type=parameter[2],
+            required=parameter[3],
+            actor=LOCAL_ACTOR,
+        )
     authoring.publish_current(
         recipe.recipe_id,
         expected_recipe_revision=recipe.optimistic_revision,
@@ -396,9 +406,15 @@ class RecipeApplicationTests(unittest.TestCase):
         )
 
         self.assertTrue(review.can_apply)
-        self.assertEqual(review.source_bindings["dataset:customers"], "current-customers")
-        self.assertEqual(review.source_bindings["column:customers.name"], "current:name")
-        self.assertIn("RECIPE_SOURCE_COLUMN_UNUSED", {item.code for item in review.issues})
+        self.assertEqual(
+            review.source_bindings["dataset:customers"], "current-customers"
+        )
+        self.assertEqual(
+            review.source_bindings["column:customers.name"], "current:name"
+        )
+        self.assertIn(
+            "RECIPE_SOURCE_COLUMN_UNUSED", {item.code for item in review.issues}
+        )
         self.assertIsNotNone(review.target_binding)
         self.assertNotIn("secret", review.target_binding.to_json().casefold())
 
@@ -413,7 +429,9 @@ class RecipeApplicationTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
         self.assertFalse(blocked.can_apply)
-        self.assertIn("RECIPE_SOURCE_COLUMN_MISSING", {item.code for item in blocked.issues})
+        self.assertIn(
+            "RECIPE_SOURCE_COLUMN_MISSING", {item.code for item in blocked.issues}
+        )
 
         ready = service.review(
             service.recipes.recipe.recipe_id,
@@ -455,7 +473,9 @@ class RecipeApplicationTests(unittest.TestCase):
 
         self.assertTrue(review.can_apply)
         self.assertEqual(review.recipe_revision, 1)
-        self.assertEqual(review.target_binding.environment, TargetEnvironment.PRODUCTION)
+        self.assertEqual(
+            review.target_binding.environment, TargetEnvironment.PRODUCTION
+        )
 
     def test_edited_parameters_remain_pinned_to_the_test_data_version(self):
         service, recipes, applications, _mapping, _store, _schema = _service_fixture()
@@ -472,6 +492,53 @@ class RecipeApplicationTests(unittest.TestCase):
             recipes.data_version.parameter_values_hash,
             applications.parameters.content_hash,
         )
+
+    def test_new_warehouse_value_changes_data_version_not_recipe_revision(self):
+        service, recipes, applications, _mapping, _store, _schema = _service_fixture(
+            recipe_parameters=(("warehouse", "Warehouse", "string", True),)
+        )
+        semantic_hash = service.recipes.envelope["semantic_hash"]
+
+        service.save_inputs(
+            recipes.recipe.recipe_id,
+            parameter_values={
+                "parameter:export_as_of_date": "2026-08-19",
+                "parameter:warehouse": "WH-LUX",
+            },
+            control_values={},
+            overrides={},
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(recipes.recipe.current_recipe_revision, 1)
+        self.assertEqual(service.recipes.envelope["semantic_hash"], semantic_hash)
+        self.assertEqual(
+            applications.parameters.values["parameter:warehouse"],
+            "WH-LUX",
+        )
+
+    def test_undeclared_stock_parameter_is_rejected_by_current_revision(self):
+        service, recipes, _applications, _mapping, _store, _schema = _service_fixture(
+            recipe_parameters=(("warehouse", "Warehouse", "string", True),)
+        )
+
+        with self.assertRaisesRegex(
+            RecipeApplicationError,
+            "parameter:warehouse_zone is not declared",
+        ):
+            service.save_inputs(
+                recipes.recipe.recipe_id,
+                parameter_values={
+                    "parameter:export_as_of_date": "2026-08-19",
+                    "parameter:warehouse": "WH-LUX",
+                    "parameter:warehouse_zone": "ZONE-A",
+                },
+                control_values={},
+                overrides={},
+                actor=LOCAL_ACTOR,
+            )
+
+        self.assertEqual(recipes.recipe.current_recipe_revision, 1)
 
     def test_uncovered_current_choices_remain_visible_after_blocked_apply(self):
         categorical_issue = MappingValidationIssue(
@@ -518,13 +585,17 @@ class RecipeApplicationTests(unittest.TestCase):
 
         self.assertEqual(evidence.status, RecipeApplicationState.APPLIED)
         self.assertIsNotNone(mapping.draft)
-        self.assertEqual(mapping.draft.definition.datasets[0].dataset_id, "current-customers")
+        self.assertEqual(
+            mapping.draft.definition.datasets[0].dataset_id, "current-customers"
+        )
         self.assertEqual(
             mapping.draft.definition.datasets[0].fields[0].source_column_key,
             "current:name",
         )
         self.assertIsNotNone(store.payload)
-        self.assertEqual(recipes.projection["mapping_content_hash"], mapping.draft.content_hash)
+        self.assertEqual(
+            recipes.projection["mapping_content_hash"], mapping.draft.content_hash
+        )
         self.assertEqual(applications.draft.state, RecipeApplicationState.APPLIED)
         self.assertEqual(
             applications.quality_seed["mapping_content_hash"],
@@ -613,9 +684,15 @@ class RecipeApplicationTests(unittest.TestCase):
                 probed_at=now,
                 captured_by=LOCAL_ACTOR.identity,
             )
-            repository.save_parameter_values(project.project_id, parameters, actor=LOCAL_ACTOR)
-            repository.save_control_values(project.project_id, controls, actor=LOCAL_ACTOR)
-            repository.save_target_binding(project.project_id, binding, actor=LOCAL_ACTOR)
+            repository.save_parameter_values(
+                project.project_id, parameters, actor=LOCAL_ACTOR
+            )
+            repository.save_control_values(
+                project.project_id, controls, actor=LOCAL_ACTOR
+            )
+            repository.save_target_binding(
+                project.project_id, binding, actor=LOCAL_ACTOR
+            )
             quality_rule = manager_quality_rule(
                 project_id=project.project_id,
                 dataset="Customers",
@@ -658,8 +735,12 @@ class RecipeApplicationTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             )
 
-            self.assertEqual(repository.get_parameter_values(project.project_id), parameters)
-            self.assertEqual(repository.get_control_values(project.project_id), controls)
+            self.assertEqual(
+                repository.get_parameter_values(project.project_id), parameters
+            )
+            self.assertEqual(
+                repository.get_control_values(project.project_id), controls
+            )
             self.assertEqual(repository.get_target_binding(project.project_id), binding)
             self.assertEqual(repository.get_draft(project.project_id), draft)
             self.assertEqual(

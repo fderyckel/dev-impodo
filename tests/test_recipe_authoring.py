@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from uuid import uuid4
 
+import duckdb
 from fastapi.testclient import TestClient
 
 from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
@@ -27,6 +28,11 @@ from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
     SchemaGovernance,
+)
+from impodo.domain.recipe_parameters import (
+    RecipeParameterDefinition,
+    RecipeParameterDefinitions,
+    RecipeParameterType,
 )
 from impodo.projects import ProjectStatus
 from impodo.quality import default_quality_ruleset
@@ -96,6 +102,10 @@ class _Evidence:
         schema,
         governance,
         ruleset,
+        parameter_definitions=RecipeParameterDefinitions(),
+        base_selection=None,
+        preparation=None,
+        reference_bundle=None,
     ) -> None:
         self.selection = selection
         self.revision = revision
@@ -103,6 +113,10 @@ class _Evidence:
         self.schema = schema
         self.governance = governance
         self.ruleset = ruleset
+        self.parameter_definitions = parameter_definitions
+        self.base_selection = base_selection or selection
+        self.preparation = preparation
+        self.reference_bundle = reference_bundle
 
     def get_mapping_source_selection(self, project_id):
         del project_id
@@ -110,7 +124,7 @@ class _Evidence:
 
     def get_source_selection(self, project_id):
         del project_id
-        return self.selection
+        return self.base_selection
 
     def get_mapping_revision(self, project_id, version=None):
         del project_id, version
@@ -134,11 +148,19 @@ class _Evidence:
 
     def get_derived_entity_plan(self, project_id):
         del project_id
-        return None
+        return self.preparation
 
     def get_reference_bundle(self, project_id):
         del project_id
-        return None
+        return self.reference_bundle
+
+    def get_parameter_definitions(self, project_id):
+        del project_id
+        return self.parameter_definitions
+
+    def save_parameter_definitions(self, project_id, definitions, *, actor):
+        del project_id, actor
+        self.parameter_definitions = definitions
 
 
 def _authoring_fixture(marker: str, *, name_required: bool = True):
@@ -240,9 +262,7 @@ def _authoring_fixture(marker: str, *, name_required: bool = True):
                     SchemaField(
                         "ref", "Reference", "char", False, False, None, None, ()
                     ),
-                    SchemaField(
-                        "name", "Name", "char", True, False, None, None, ()
-                    ),
+                    SchemaField("name", "Name", "char", True, False, None, None, ()),
                 ),
             ),
         ),
@@ -307,6 +327,7 @@ def _authoring_fixture(marker: str, *, name_required: bool = True):
         evidence,
         evidence,
         CapabilityAuthorizationPolicy(),
+        evidence,
     )
     return service, facade, recipe
 
@@ -326,6 +347,67 @@ def _file_binding(marker: str):
 
 
 class RecipeAuthoringTests(unittest.TestCase):
+    def test_custom_parameter_declaration_is_reusable_recipe_meaning(self):
+        service, facade, recipe = _authoring_fixture("7")
+        before = service.draft(recipe.recipe_id, actor=LOCAL_ACTOR)
+
+        saved = service.save_parameter_definition(
+            recipe.recipe_id,
+            name="warehouse",
+            label="Warehouse",
+            value_type=RecipeParameterType.STRING,
+            required=True,
+            actor=LOCAL_ACTOR,
+        )
+        after = service.draft(recipe.recipe_id, actor=LOCAL_ACTOR)
+
+        self.assertNotEqual(before.semantic_hash, after.semantic_hash)
+        self.assertEqual(
+            saved.definitions[0].logical_parameter_id, "parameter:warehouse"
+        )
+        service.publish_current(
+            recipe.recipe_id,
+            expected_recipe_revision=recipe.optimistic_revision,
+            actor=LOCAL_ACTOR,
+        )
+        envelope = json.loads(facade.envelope)
+        parameters = envelope["recipe"]["parameter_definitions"]["parameters"]
+        self.assertEqual(
+            [item["logical_parameter_id"] for item in parameters],
+            ["parameter:export_as_of_date", "parameter:warehouse"],
+        )
+        self.assertEqual(parameters[1]["allowed_use_sites"], ["controls", "provenance"])
+
+    def test_parameter_definitions_are_sorted_hash_checked_and_removable(self):
+        definitions = RecipeParameterDefinitions(
+            definitions=(
+                RecipeParameterDefinition("warehouse", "Warehouse", "string"),
+                RecipeParameterDefinition("company", "Company", "integer"),
+            )
+        )
+        restored = RecipeParameterDefinitions.from_json(definitions.to_json())
+
+        self.assertEqual(
+            [item.name for item in restored.definitions],
+            ["company", "warehouse"],
+        )
+
+        service, _facade, recipe = _authoring_fixture("6")
+        service.save_parameter_definition(
+            recipe.recipe_id,
+            name="warehouse",
+            label="Warehouse",
+            value_type="string",
+            required=True,
+            actor=LOCAL_ACTOR,
+        )
+        result = service.remove_parameter_definition(
+            recipe.recipe_id,
+            name="warehouse",
+            actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(result.definitions, ())
+
     def test_application_data_version_cannot_publish_new_recipe_meaning(self):
         service, facade, recipe = _authoring_fixture("8")
         facade.recipe = replace(recipe, current_recipe_revision=1)
@@ -425,6 +507,94 @@ class RecipeAuthoringTests(unittest.TestCase):
                     recipes[0].current_workspace_project_id
                 )
                 self.assertEqual(project.status, ProjectStatus.DRAFT)
+
+    def test_parameter_definitions_persist_in_the_authoring_workspace(self):
+        (ROOT / ".tmp").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as temporary:
+            app = create_local_app(
+                temporary,
+                launch_token="launch-secret",
+                session_secret="session-secret",
+                secret_store=MemorySecretStore(),
+            )
+            recipe, _project = app.state.context.recipe_authoring.create(
+                name="Opening stock",
+                source_system="CSV export",
+                source_mode="FILE",
+                actor=LOCAL_ACTOR,
+            )
+            app.state.context.recipe_authoring.save_parameter_definition(
+                recipe.recipe_id,
+                name="warehouse",
+                label="Warehouse",
+                value_type="string",
+                required=True,
+                actor=LOCAL_ACTOR,
+            )
+
+            reopened = create_local_app(
+                temporary,
+                launch_token="other-launch-secret",
+                session_secret="other-session-secret",
+                secret_store=MemorySecretStore(),
+            )
+            definitions = reopened.state.context.recipe_authoring.parameter_definitions(
+                recipe.recipe_id,
+                actor=LOCAL_ACTOR,
+            )
+
+            self.assertEqual(len(definitions), 1)
+            self.assertEqual(definitions[0].logical_parameter_id, "parameter:warehouse")
+
+    def test_recipe_parameter_editor_is_accessible_and_uses_existing_page_style(self):
+        (ROOT / ".tmp").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as temporary:
+            app = create_local_app(
+                temporary,
+                launch_token="launch-secret",
+                session_secret="session-secret",
+                secret_store=MemorySecretStore(),
+            )
+            recipe, project = app.state.context.recipe_authoring.create(
+                name="Opening stock",
+                source_system="CSV export",
+                source_mode="FILE",
+                actor=LOCAL_ACTOR,
+            )
+            with duckdb.connect(
+                str(Path(temporary) / project.project_id / "project.duckdb")
+            ) as connection:
+                connection.execute(
+                    "UPDATE project SET status = 'REGISTERED' WHERE project_id = ?",
+                    [project.project_id],
+                )
+
+            with TestClient(app) as client:
+                client.get("/launch?token=launch-secret")
+                overview = client.get(f"/recipes/{recipe.recipe_id}")
+                self.assertEqual(overview.status_code, 200)
+                self.assertIn("Inputs for each data version", overview.text)
+                self.assertIn('aria-labelledby="recipe-inputs-title"', overview.text)
+                csrf = re.search(
+                    r'name="csrf_token" value="([^"]+)"',
+                    overview.text,
+                ).group(1)
+                saved = client.post(
+                    f"/recipes/{recipe.recipe_id}/parameters",
+                    data={
+                        "csrf_token": csrf,
+                        "name": "warehouse",
+                        "label": "Warehouse",
+                        "value_type": "string",
+                        "required": "yes",
+                    },
+                    headers=POST_HEADERS,
+                    follow_redirects=False,
+                )
+                self.assertEqual(saved.status_code, 303)
+                updated = client.get(saved.headers["location"])
+                self.assertIn("Warehouse", updated.text)
+                self.assertIn("warehouse", updated.text)
 
 
 if __name__ == "__main__":

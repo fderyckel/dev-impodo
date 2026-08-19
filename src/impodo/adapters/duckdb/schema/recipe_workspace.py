@@ -19,6 +19,10 @@ RECIPE_QUALITY_SEED_MIGRATION_ID = "2026-08-19-recipe-quality-seed-v1"
 RECIPE_QUALITY_SEED_MIGRATION_CHECKSUM = (
     "sha256:2f464c02d55821843147e55eae2a85732d83e992bdb61d53caa50a899b17ee93"
 )
+RECIPE_PARAMETER_DEFINITIONS_MIGRATION_ID = "2026-08-19-recipe-parameter-definitions-v1"
+RECIPE_PARAMETER_DEFINITIONS_MIGRATION_CHECKSUM = (
+    "sha256:b9581f54a1b83a029feaad449046ae65dd4d2e41557db5d8060e5b44bc38c234"
+)
 
 
 def ensure_recipe_workspace_schema(
@@ -89,6 +93,47 @@ def ensure_recipe_workspace_schema(
     )
     _ensure_recipe_application_schema(connection)
     _ensure_recipe_quality_seed_schema(connection)
+    _ensure_recipe_parameter_definitions_schema(connection)
+
+
+def _ensure_recipe_parameter_definitions_schema(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Store authoring declarations separately from per-DataVersion values."""
+
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS recipe_parameter_definitions (
+            singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            content_hash VARCHAR NOT NULL,
+            definitions_json VARCHAR NOT NULL
+        );
+        """
+    )
+    existing = connection.execute(
+        """
+        SELECT checksum
+          FROM project_schema_migration
+         WHERE migration_id = ?
+        """,
+        [RECIPE_PARAMETER_DEFINITIONS_MIGRATION_ID],
+    ).fetchone()
+    if (
+        existing is not None
+        and str(existing[0]) != RECIPE_PARAMETER_DEFINITIONS_MIGRATION_CHECKSUM
+    ):
+        raise RuntimeError("Recipe parameter-definition migration checksum changed")
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO project_schema_migration
+        VALUES (?, ?, ?)
+        """,
+        [
+            RECIPE_PARAMETER_DEFINITIONS_MIGRATION_ID,
+            RECIPE_PARAMETER_DEFINITIONS_MIGRATION_CHECKSUM,
+            datetime.now(timezone.utc).isoformat(),
+        ],
+    )
 
 
 def _ensure_recipe_quality_seed_schema(
