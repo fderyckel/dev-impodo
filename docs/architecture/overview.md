@@ -62,14 +62,17 @@ The browser implements:
 - an exact execution snapshot, explicit disposable local or remote loading,
   a durable write journal, and post-write reconciliation.
 
-The runtime also has the Recipe-first persistence foundation. Every existing
+The runtime has the Recipe-first authoring foundation. Every existing
 project is represented by one registry-only Recipe and DataVersion shell;
 opening that workspace hydrates an allowlisted Recipe setup projection and
 writes exact local linkage. Published Recipe and qualification payloads use an
 application-encrypted protected store, while bounded registry projections hold
-lineage and recovery state. Create Recipe and Recipe-oriented browser history
-remain Phase R2 work, so current project URLs continue through explicit
-Recipe/DataVersion resolution.
+lineage and recovery state. **New Recipe** provisions Recipe plus authoring
+DataVersion 1. The Recipe overview projects publication readiness from exact
+current workspace evidence, publishes portable immutable revisions, and shows
+Recipe/DataVersion history. Current project URLs remain compatible through
+explicit Recipe/DataVersion resolution, and matching retains its established
+editor.
 
 The repository also contains a profile-driven preflight engine and CLI. It is
 a separate entry path that retains strict CSV and declared-sheet XLSX loading

@@ -25,6 +25,7 @@ from ...projects import (
     SourceMode,
     registration_problems,
 )
+from ...recipes import RecipeError
 from ...secrets import SecretStoreError
 from ..security import require_session
 from fastapi import APIRouter
@@ -45,13 +46,14 @@ def build_projects_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
 
+    @router.get("/recipes", response_class=HTMLResponse)
     @router.get("/projects", response_class=HTMLResponse)
     async def project_list(request: Request):
         require_session(request)
         return _render(
             request,
             "project_list.html",
-            projects=context.queries.list(),
+            recipes=context.recipes.list(actor=context.actor),
         )
 
     @router.post("/projects/{project_id}/delete")
@@ -70,7 +72,8 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 and context.preparation_jobs.active(project.project_id) is not None
             ):
                 raise ProjectConflictError(
-                    "Preparation is still running. Stop it before deleting this project."
+                    "Preparation is still running. Stop it before deleting "
+                    "this project."
                 )
             context.authorization.require(
                 context.actor,
@@ -111,13 +114,14 @@ def build_projects_router(context: WebContext) -> APIRouter:
             return _render(
                 request,
                 "project_list.html",
-                projects=context.queries.list(),
+                recipes=context.recipes.list(actor=context.actor),
                 error=str(error),
                 status_code=422,
             )
         _flash(request, f'Deleted project "{deleted.name}".')
         return RedirectResponse("/projects", status_code=303)
 
+    @router.get("/recipes/new", response_class=HTMLResponse)
     @router.get("/projects/new", response_class=HTMLResponse)
     async def new_project_form(request: Request):
         require_session(request)
@@ -128,6 +132,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
             values={},
         )
 
+    @router.post("/recipes/new")
     @router.post("/projects/new")
     async def new_project(request: Request):
         """Create the minimal draft and enter its governed setup sequence."""
@@ -140,13 +145,13 @@ def build_projects_router(context: WebContext) -> APIRouter:
         )
         values = _form_values(form)
         try:
-            project = context.projects.create_project(
+            recipe, project = context.recipe_authoring.create(
                 actor=context.actor,
                 name=values.get("name", ""),
                 source_system=values.get("source_system", ""),
                 source_mode=values.get("source_mode", SourceMode.FILE.value),
             )
-        except ProjectError as error:
+        except (ProjectError, RecipeError) as error:
             return _render(
                 request,
                 "project_new.html",
@@ -155,10 +160,97 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 error=str(error),
                 status_code=422,
             )
-        return RedirectResponse(
-            f"/projects/{project.project_id}/details",
-            status_code=303,
+        destination = (
+            f"/recipes/{recipe.recipe_id}"
+            if request.url.path == "/recipes/new"
+            else f"/projects/{project.project_id}/details"
         )
+        return RedirectResponse(destination, status_code=303)
+
+    @router.get("/recipes/{recipe_id}", response_class=HTMLResponse)
+    async def recipe_overview(request: Request, recipe_id: str):
+        require_session(request)
+        recipe = context.recipes.get(recipe_id, actor=context.actor)
+        versions = context.recipes.data_versions(recipe_id, actor=context.actor)
+        revisions = context.recipes.revisions(recipe_id, actor=context.actor)
+        draft = context.recipe_authoring.draft(recipe_id, actor=context.actor)
+        project = (
+            context.queries.get(draft.workspace_project_id)
+            if draft.workspace_project_id
+            else None
+        )
+        return _render(
+            request,
+            "recipe_overview.html",
+            recipe=recipe,
+            data_versions=versions,
+            recipe_revisions=revisions,
+            recipe_draft=draft,
+            project=project,
+            recovery_href=(
+                _recipe_recovery_href(project, draft.issues[0].code)
+                if project is not None and draft.issues
+                else None
+            ),
+        )
+
+    @router.post("/recipes/{recipe_id}/publish")
+    async def publish_recipe(request: Request, recipe_id: str):
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", "expected_recipe_revision"},
+        )
+        try:
+            context.recipe_authoring.publish_current(
+                recipe_id,
+                expected_recipe_revision=int(
+                    _text(form, "expected_recipe_revision")
+                ),
+                actor=context.actor,
+            )
+        except (RecipeError, ValueError) as error:
+            recipe = context.recipes.get(recipe_id, actor=context.actor)
+            versions = context.recipes.data_versions(
+                recipe_id,
+                actor=context.actor,
+            )
+            revisions = context.recipes.revisions(
+                recipe_id,
+                actor=context.actor,
+            )
+            draft = context.recipe_authoring.draft(
+                recipe_id,
+                actor=context.actor,
+            )
+            project = (
+                context.queries.get(draft.workspace_project_id)
+                if draft.workspace_project_id
+                else None
+            )
+            return _render(
+                request,
+                "recipe_overview.html",
+                recipe=recipe,
+                data_versions=versions,
+                recipe_revisions=revisions,
+                recipe_draft=draft,
+                project=project,
+                recovery_href=(
+                    _recipe_recovery_href(project, draft.issues[0].code)
+                    if project is not None and draft.issues
+                    else None
+                ),
+                error=str(error),
+                status_code=422,
+            )
+        updated = context.recipes.get(recipe_id, actor=context.actor)
+        _flash(
+            request,
+            f"Published Recipe v{updated.current_recipe_revision}.",
+        )
+        return RedirectResponse(f"/recipes/{recipe_id}", status_code=303)
 
     @router.get("/projects/{project_id}")
     async def open_project(request: Request, project_id: str):
@@ -423,3 +515,18 @@ def build_projects_router(context: WebContext) -> APIRouter:
         )
 
     return router
+
+
+def _recipe_recovery_href(project, issue_code: str) -> str:
+    """Map one publication issue to its existing authoring surface."""
+
+    project_id = project.project_id
+    if project.status is not ProjectStatus.REGISTERED:
+        return f"/projects/{project_id}/details"
+    if issue_code == "SOURCE_NOT_FROZEN":
+        return f"/projects/{project_id}/datasets"
+    if issue_code == "TARGET_GOVERNANCE_STALE":
+        return f"/projects/{project_id}/schema"
+    if issue_code == "QUALITY_RULES_NOT_READY":
+        return f"/projects/{project_id}/prepare"
+    return f"/projects/{project_id}/mapping"

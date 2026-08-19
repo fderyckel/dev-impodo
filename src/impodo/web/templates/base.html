@@ -28,7 +28,7 @@
           <span class="visually-hidden">Open navigation</span>
         </button>
         <div class="brand-lockup">
-          <a class="brand" href="/projects">IMPODO</a>
+          <a class="brand" href="/recipes">IMPODO</a>
           <span class="brand-tagline">Prepare clean data for Odoo</span>
         </div>
       </div>
@@ -57,17 +57,17 @@
         <nav class="sidebar-nav" aria-label="Impodo workflow">
           <a
             class="sidebar-link{% if not navigation %} active{% endif %}"
-            href="/projects"
-            title="All projects"
+            href="/recipes"
+            title="All Recipes"
             {% if not navigation %}aria-current="page"{% endif %}
           >
             {{ app_icon("folder") }}
-            <span class="nav-label">All projects</span>
+            <span class="nav-label">All Recipes</span>
           </a>
 
           {% if navigation %}
             <div class="sidebar-project-context">
-              <span class="sidebar-project-label">Current project</span>
+              <span class="sidebar-project-label">Current Recipe</span>
               <strong title="{{ navigation.project_name }}">{{ navigation.project_name }}</strong>
             </div>
 
@@ -76,11 +76,11 @@
                 class="sidebar-link workflow-stage-link active"
                 href="{{ navigation.setup_href }}"
                 aria-current="step"
-                title="Set up project"
+                title="Set up authoring data version"
               >
                 {{ app_icon("sliders") }}
                 <span class="nav-label">
-                  <strong>Set up project</strong>
+                  <strong>Set up data version</strong>
                   <small>Current</small>
                 </span>
               </a>
@@ -89,7 +89,7 @@
                 class="sidebar-link{% if navigation.overview_active %} active{% endif %}"
                 href="{{ navigation.overview_href }}"
                 {% if navigation.overview_active %}aria-current="page"{% endif %}
-                title="Project overview"
+                title="Data version overview"
               >
                 {{ app_icon("speedometer2") }}
                 <span class="nav-label">Overview</span>
@@ -155,11 +155,11 @@
           {% else %}
             <a
               class="sidebar-link"
-              href="/projects/new"
-              title="Create project"
+              href="/recipes/new"
+              title="Create Recipe"
             >
               {{ app_icon("plus-circle") }}
-              <span class="nav-label">Create project</span>
+              <span class="nav-label">Create Recipe</span>
             </a>
           {% endif %}
         </nav>
@@ -175,9 +175,15 @@
         <div class="page-shell">
           {% if navigation and navigation.registered %}
             <nav class="project-breadcrumb" aria-label="Current location">
-              <a href="/projects">Projects</a>
+              <a href="/recipes">Recipes</a>
               <span aria-hidden="true">/</span>
-              <a href="{{ navigation.overview_href }}">{{ navigation.project_name }}</a>
+              {% if recipe_context is defined %}
+                <a href="/recipes/{{ recipe_context.recipe_id }}">{{ navigation.project_name }}</a>
+                <span aria-hidden="true">/</span>
+                <a href="{{ navigation.overview_href }}">Data version {{ recipe_context.data_version_number }}</a>
+              {% else %}
+                <a href="{{ navigation.overview_href }}">{{ navigation.project_name }}</a>
+              {% endif %}
               {% if navigation.viewed_stage %}
                 <span aria-hidden="true">/</span>
                 <span>{{ navigation.viewed_stage.label }}</span>
@@ -190,7 +196,7 @@
             {% if navigation.viewed_stage and navigation.current_stage and navigation.viewed_stage_id != navigation.current_stage_id %}
               <div class="workflow-location-notice" role="status">
                 You are viewing {{ navigation.viewed_stage.label }}.
-                Current project work: <a href="{{ navigation.current_stage.href }}">Stage {{ navigation.current_stage.number }} · {{ navigation.current_stage.label }}</a>.
+                Current data-version work: <a href="{{ navigation.current_stage.href }}">Stage {{ navigation.current_stage.number }} · {{ navigation.current_stage.label }}</a>.
               </div>
             {% endif %}
           {% endif %}

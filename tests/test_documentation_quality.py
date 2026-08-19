@@ -29,7 +29,7 @@ class DocumentationQualityTests(unittest.TestCase):
         second = render_report(ROOT)
 
         self.assertEqual(first, second)
-        self.assertIn("| Project setup | yes | yes |", first)
+        self.assertIn("| Recipe and data-version setup | yes | yes |", first)
         self.assertIn("| Load into Odoo | yes | yes |", first)
         self.assertEqual(first.count("| yes | yes |"), 7)
 

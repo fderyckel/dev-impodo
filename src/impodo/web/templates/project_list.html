@@ -1,68 +1,68 @@
 {% extends "base.html" %}
-{% block title %}Projects · Impodo{% endblock %}
+{% block title %}Recipes · Impodo{% endblock %}
 {% block body_class %}projects-home{% endblock %}
 {% block content %}
   <section class="projects-hero">
     <div>
       <p class="eyebrow">Your work</p>
-      <h1>Projects</h1>
-      <p>Prepare, check and review data before it moves to Odoo.</p>
+      <h1>Recipes</h1>
+      <p>Build reusable migration rules, test them and prepare rollout data.</p>
     </div>
-    <a class="button primary new-project-button" href="/projects/new">
+    <a class="button primary new-project-button" href="/recipes/new">
       <svg class="ui-icon" aria-hidden="true" focusable="false">
         <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#plus-lg"></use>
       </svg>
-      New project
+      New Recipe
     </a>
   </section>
 
-  {% if projects %}
-    <section class="project-list" aria-label="Migration projects">
+  {% if recipes %}
+    <section class="project-list" aria-label="Migration Recipes">
       <div class="project-list-heading" aria-hidden="true">
-        <span>Project name</span>
+        <span>Recipe name</span>
         <span>Status</span>
         <span>Last updated</span>
         <span>Actions</span>
       </div>
-      {% for project in projects %}
+      {% for recipe in recipes %}
         <div class="project-row-shell">
-          <a class="project-row" href="/projects/{{ project.project_id }}">
+          <a class="project-row" href="/recipes/{{ recipe.recipe_id }}">
             <div class="project-name">
               <svg class="ui-icon" aria-hidden="true" focusable="false">
                 <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#folder"></use>
               </svg>
               <div>
-                <strong>{{ project.name }}</strong>
-                <span>Data preparation project</span>
+                <strong>{{ recipe.display_name }}</strong>
+                <span>{{ recipe.data_version_count }} data version{% if recipe.data_version_count != 1 %}s{% endif %}</span>
               </div>
             </div>
-            <span class="status {{ project.status.value|lower }}">
-              {% if project.status.value == "REGISTERED" %}Ready for source check{% else %}Continue setup{% endif %}
+            <span class="status {% if recipe.current_recipe_revision %}registered{% else %}draft{% endif %}">
+              {% if recipe.current_recipe_revision %}Recipe v{{ recipe.current_recipe_revision }}{% else %}Continue authoring{% endif %}
             </span>
-            <span class="project-updated">{{ project.updated_at.strftime("%d %b %Y, %H:%M") }}</span>
+            <span class="project-updated">{{ recipe.updated_at.strftime("%d %b %Y, %H:%M") }}</span>
             <span class="project-action-spacer" aria-hidden="true"></span>
           </a>
-          <form
+          {% if recipe.deletable_as_bootstrap and recipe.current_workspace_project_id and recipe.current_workspace_revision is not none %}<form
             class="project-delete-form"
             method="post"
-            action="/projects/{{ project.project_id }}/delete"
+            action="/projects/{{ recipe.current_workspace_project_id }}/delete"
             data-project-delete-form
-            data-project-name="{{ project.name }}"
+            data-project-name="{{ recipe.display_name }}"
           >
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="revision" value="{{ project.revision }}">
+            <input type="hidden" name="revision" value="{{ recipe.current_workspace_revision }}">
             <button
               class="project-delete-button"
               type="button"
-              aria-label="Delete {{ project.name }}"
-              title="Delete project"
+              aria-label="Delete {{ recipe.display_name }}"
+              title="Delete Recipe draft"
               data-project-delete-trigger
             >
               <svg class="ui-icon" aria-hidden="true" focusable="false">
                 <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#trash3"></use>
               </svg>
             </button>
-          </form>
+          </form>{% endif %}
         </div>
       {% endfor %}
     </section>
@@ -75,7 +75,7 @@
       <div class="dialog-heading">
         <div>
           <p class="eyebrow">Permanent deletion</p>
-          <h2 id="project-delete-title">Delete project?</h2>
+          <h2 id="project-delete-title">Delete Recipe draft?</h2>
         </div>
         <form method="dialog">
           <button class="dialog-close" type="submit" aria-label="Close dialog">×</button>
@@ -83,22 +83,22 @@
       </div>
       <p>
         This deletes the project, uploaded files, mappings, reports, and audit
-        history. This cannot be undone.
+        history for this Recipe draft. This cannot be undone.
       </p>
       <div class="dialog-actions">
         <form method="dialog">
           <button class="button secondary" type="submit">Cancel</button>
         </form>
         <button class="button danger" type="button" data-project-delete-confirm>
-          Delete project
+          Delete Recipe draft
         </button>
       </div>
     </dialog>
   {% else %}
     <section class="empty-state">
-      <h2>No projects yet</h2>
-      <p>Start with the source data and the Odoo destination you are preparing.</p>
-      <a class="button primary" href="/projects/new">Create the first project</a>
+      <h2>No Recipes yet</h2>
+      <p>Start with a reusable migration purpose and representative source data.</p>
+      <a class="button primary" href="/recipes/new">Create the first Recipe</a>
     </section>
   {% endif %}
 {% endblock %}

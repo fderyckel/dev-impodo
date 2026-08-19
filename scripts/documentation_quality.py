@@ -563,9 +563,11 @@ def validate_repository(
             issues.append(DocumentationIssue(str(manifest_path), f"router must have one owner: {path} -> {owners!r}"))
 
     template_owners = _owned_paths(stages, "templates")
+    template_root = repo_root / "src/impodo/web/templates"
     actual_templates = {
         path.relative_to(repo_root).as_posix()
-        for path in (repo_root / "src/impodo/web/templates").glob("project_*.html")
+        for pattern in ("project_*.html", "recipe_*.html")
+        for path in template_root.glob(pattern)
     }
     for path in sorted(actual_templates | set(template_owners)):
         owners = template_owners.get(path, ())

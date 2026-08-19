@@ -23,6 +23,7 @@ from impodo.projects import ProjectError, ProjectNotFoundError, ProjectService
 from impodo.recipes import (
     DataVersionPurpose,
     DataVersionState,
+    RecipeConflictError,
     RecipeIdentifierConfusionError,
     RecipeIntegrityError,
     RecipeIntentState,
@@ -233,6 +234,13 @@ class RecipePersistenceTests(unittest.TestCase):
                 [recipe.recipe_id],
             ).fetchone()
         self.assertEqual(revisions, (1,))
+        with self.assertRaisesRegex(RecipeConflictError, "already"):
+            self.service.publish_revision(
+                recipe.recipe_id,
+                expected_recipe_revision=published.optimistic_revision,
+                envelope_bytes=self._envelope(recipe.recipe_id, 2),
+                actor=LOCAL_ACTOR,
+            )
 
     def test_publication_rejects_nonportable_runtime_envelopes(self) -> None:
         project, recipe = self._project_and_recipe()

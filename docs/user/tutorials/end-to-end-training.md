@@ -104,7 +104,7 @@ started from PowerShell with:
 Impodo opens a local 127.0.0.1 address with a short-lived sign-in token. Do not
 bookmark or share that address.
 
-Select **New project** and enter:
+Select **New Recipe** and enter:
 
 - Project name: **Odoo 19 training migration**
 - Source system: **Northstar ERP (fictional)**
@@ -118,7 +118,7 @@ Select **New project** and enter:
 Add all related files before selecting **Register project**. Registration
 freezes the file list; it does not yet freeze the individual tables.
 
-![Current project overview showing all six data-manager stages in one fictional migration.](../../images/user/03-project-overview.png)
+![Current data-version overview showing all six data-manager stages in one fictional migration.](../../images/user/03-project-overview.png)
 
 The six stages are the data manager's main route:
 

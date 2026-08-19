@@ -3,10 +3,10 @@
 This documentation is for the data manager preparing and reviewing an Odoo 19
 migration in the Impodo browser.
 
-![Current Impodo project overview with all six migration stages.](../images/user/03-project-overview.png)
+![Current Impodo data-version overview with all six migration stages.](../images/user/03-project-overview.png)
 
-Start with [Create and register a project](getting-started.md), then follow the
-six stages shown in the project sidebar:
+Start with [Create a Recipe and register its authoring data version](getting-started.md),
+then follow the six stages shown in the workspace sidebar:
 
 1. [Source data](workflow/01-source-data.md)
 2. [Odoo data](workflow/02-odoo-data.md)

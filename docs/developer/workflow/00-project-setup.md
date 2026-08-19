@@ -4,26 +4,29 @@ stage: setup
 status: current
 ---
 
-# Project setup
+# Recipe and data-version setup
 
 ## Responsibility
 
-Project setup establishes the governed migration boundary before workflow
-evidence is created. It owns draft metadata, source mode, source-file intake,
-target configuration, governance, registration, deletion, and the project
-overview.
+Recipe setup provisions the aggregate root plus authoring DataVersion 1.
+The contained project setup then establishes the evidence and credential
+workspace before workflow evidence is created. It owns draft metadata, source
+mode, source-file intake, target configuration, governance, registration,
+bootstrap deletion, and the data-version overview.
 
 It does not inspect business rows, capture an Odoo schema, or authorize an
 Odoo read or write merely because connection details are stored.
 
 ## Entry conditions
 
-The local browser session must be authenticated. New projects begin in
-`DRAFT`, with revision-checked edits performed by an identified actor.
+The local browser session must be authenticated. **New Recipe** creates the
+Recipe and a project workspace in `DRAFT`, with revision-checked edits
+performed by an identified actor.
 
 ## Implementation flow
 
-`projects.py` routes the setup wizard through `ProjectService`. File content is
+`projects.py` routes Recipe creation through `RecipeAuthoringService` and the
+setup wizard through `ProjectService`. File content is
 accepted through the bounded intake service and stored under generated
 identifiers. `target.py` handles Local or Remote Odoo configuration and local
 stack readiness without expanding the later connector capabilities.
@@ -37,7 +40,8 @@ then delegates stage status to `build_project_navigation`.
 
 | Role | Code |
 | --- | --- |
-| Project lifecycle | [`ProjectService`](../../../src/impodo/projects.py) |
+| Recipe creation and publication | [`RecipeAuthoringService`](../../../src/impodo/application/recipe_authoring_service.py) |
+| Contained project lifecycle | [`ProjectService`](../../../src/impodo/projects.py) |
 | Registration command | `ProjectService.register` in [`projects.py`](../../../src/impodo/projects.py) |
 | Browser routes | [`projects.py`](../../../src/impodo/web/routers/projects.py) |
 | Target routes | [`target.py`](../../../src/impodo/web/routers/target.py) |
@@ -45,15 +49,17 @@ then delegates stage status to `build_project_navigation`.
 
 ## Evidence and state
 
-The durable aggregate is `MigrationProject`. Registration binds its source
-mode, business ownership, governance, target identity, source-file catalogue,
-and revision. Audit entries retain the actor and transition. Credentials stay
-outside the project aggregate and do not become portable evidence.
+The durable aggregate root is `Recipe`; `DataVersion` owns one contained
+`MigrationProject`. Registration binds the workspace source mode, business
+ownership, governance, target identity, source-file catalogue, and revision.
+RecipeDraft projects current evidence without copying it. Publication compiles
+portable meaning only after the current mapping, governance, quality, and
+source evidence pass eligibility. Credentials stay outside Recipe semantics.
 
 ## Completion and navigation
 
-An unregistered project keeps all six workflow stages locked. A registered
-project obtains an overview and enters either the file-source path or the
+An unregistered workspace keeps all six workflow stages locked. A registered
+DataVersion obtains an overview and enters either the file-source path or the
 Odoo-source path. Navigation is a bounded read projection and must not mutate
 state or contact Odoo.
 
@@ -75,6 +81,7 @@ per-stage or per-dataset repository reads in a loop.
 
 - [`tests/test_projects.py`](../../../tests/test_projects.py)
 - [`tests/test_project_security.py`](../../../tests/test_project_security.py)
+- [`tests/test_recipe_authoring.py`](../../../tests/test_recipe_authoring.py)
 - [`tests/test_web_app.py`](../../../tests/test_web_app.py)
 
 Verify optimistic revisions, registration readiness, contained file paths,
@@ -82,6 +89,6 @@ audit behavior, route security, both source modes, and locked-stage rendering.
 
 ## Related documentation
 
-- [User guide: Project setup](../../user/getting-started.md)
+- [User guide: Recipe setup](../../user/getting-started.md)
 - [Project lifecycle contract](../contracts/project-lifecycle.md)
 - [Architecture overview](../../architecture/overview.md)

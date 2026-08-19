@@ -31,6 +31,17 @@ def _render(
             template_name,
             current_path=request.url.path,
         )
+    if project is not None and "recipe_context" not in context:
+        application = request.app.state.context
+        resolution = application.recipes.resolve_workspace(
+            project.project_id,
+            actor=application.actor,
+        )
+        context["recipe_context"] = {
+            "data_version_id": resolution.data_version_id,
+            "data_version_number": resolution.data_version_number,
+            "recipe_id": resolution.recipe_id,
+        }
     values = {
         "csrf_token": request.session.get("csrf_token", ""),
         "flash": request.session.pop("flash", None),

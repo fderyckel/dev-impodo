@@ -44,6 +44,7 @@ from ..application.preflight_service import PreflightService
 from ..application.execution_service import ExecutionService
 from ..application.reconciliation_service import ReconciliationService
 from ..application.recipe_service import RecipeService
+from ..application.recipe_authoring_service import RecipeAuthoringService
 from ..application.preparation_service import PreparationService
 from ..application.preparation_job_service import PreparationJobManager
 from ..application.quality_service import QualityService
@@ -86,6 +87,7 @@ from ..projects import (
     ProjectService,
     SourceMode,
 )
+from ..recipes import RecipeNotFoundError
 from ..secrets import CredentialVault, SecretStore
 from .context import (
     BrowserReadinessReader,
@@ -218,6 +220,17 @@ def create_local_app(
         resolved_artifacts,
     )
     projects = ProjectService(project_repository, resolved_authorization)
+    recipe_authoring = RecipeAuthoringService(
+        recipes,
+        projects,
+        source_repository,
+        mapping_repository,
+        schema_repository,
+        quality_repository,
+        derived_entity_repository,
+        advanced_coverage_repository,
+        resolved_authorization,
+    )
     quality = QualityService(
         mapping_repository,
         source_repository,
@@ -293,6 +306,7 @@ def create_local_app(
         ),
         projects=projects,
         recipes=recipes,
+        recipe_authoring=recipe_authoring,
         intake=SourceIntakeService(projects, resolved_artifacts),
         inspections=SourceInspectionService(
             project_repository,
@@ -422,6 +436,10 @@ def create_local_app(
     async def project_not_found(_request: Request, _error: ProjectNotFoundError):
         return HTMLResponse("Project not found", status_code=404)
 
+    @app.exception_handler(RecipeNotFoundError)
+    async def recipe_not_found(_request: Request, _error: RecipeNotFoundError):
+        return HTMLResponse("Recipe not found", status_code=404)
+
     @app.exception_handler(ProjectCompatibilityError)
     async def project_incompatible(
         request: Request,
@@ -430,7 +448,7 @@ def create_local_app(
         return _render(
             request,
             "project_list.html",
-            projects=context.queries.list(),
+            recipes=context.recipes.list(actor=context.actor),
             error=str(error),
             status_code=409,
         )

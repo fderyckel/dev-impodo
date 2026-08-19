@@ -16,7 +16,7 @@ Odoo target.
 
 ## Connect
 
-1. In **Project setup**, choose **Local Odoo**.
+1. In the Recipe's authoring data-version setup, choose **Local Odoo**.
 2. Select **Help me connect to local Odoo**.
 3. Choose the exact `odoo.conf` for the intended workspace.
 4. Review the detected Odoo, PostgreSQL, log, port, and database details.

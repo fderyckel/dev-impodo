@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}New project · Impodo{% endblock %}
+{% block title %}New Recipe · Impodo{% endblock %}
 {% block content %}
   <section class="form-card narrow">
-    <p class="eyebrow">Project setup · Start</p>
-    <h1>Start a data preparation project</h1>
-    <p>This creates a local draft. You can finish it over several sessions.</p>
-    <form method="post" action="/projects/new">
+    <p class="eyebrow">Recipe setup · Start</p>
+    <h1>Create a migration Recipe</h1>
+    <p>This creates Recipe authoring data version 1. You can finish it over several sessions.</p>
+    <form method="post" action="/recipes/new">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>
-        Project name
+        Recipe name
         <input name="name" maxlength="200" required value="{{ values.get('name', '') }}">
-        <small>Use a business-friendly name that distinguishes this migration.</small>
+        <small>Use the reusable business purpose, such as Customer migration.</small>
       </label>
       <label>
         Source system
@@ -43,8 +43,8 @@
         </div>
       </fieldset>
       <div class="actions">
-        <a class="button secondary" href="/projects">Cancel</a>
-        <button class="button primary" type="submit">Start project</button>
+        <a class="button secondary" href="/recipes">Cancel</a>
+        <button class="button primary" type="submit">Create Recipe</button>
       </div>
     </form>
   </section>

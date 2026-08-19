@@ -24,6 +24,7 @@ from ..recipes import (
     RecipeIntent,
     RecipeIntentKind,
     RecipeIntentState,
+    RecipeRevision,
     RecipeSummary,
     SetupHydrationState,
     WorkspaceResolution,
@@ -130,6 +131,17 @@ class RecipeService:
             raise RecipeIntegrityError("Stored Recipe semantic identity changed")
         return envelope
 
+    def revisions(
+        self,
+        recipe_id: str,
+        *,
+        actor: Actor,
+    ) -> tuple[RecipeRevision, ...]:
+        """Return bounded immutable lineage without decrypting Recipe content."""
+
+        self.authorization.require(actor, Capability.RECIPE_VIEW)
+        return self.repository.revisions(recipe_id)
+
     def resolve_workspace(
         self,
         workspace_project_id: str,
@@ -191,6 +203,14 @@ class RecipeService:
             raise RecipeIntegrityError("Recipe provenance revision is invalid")
         payload_hash = str(envelope["payload_hash"])
         semantic_hash = str(envelope["semantic_hash"])
+        existing_version = self.repository.revision_version_by_semantic_hash(
+            recipe_id,
+            semantic_hash,
+        )
+        if existing_version is not None:
+            raise RecipeConflictError(
+                f"These reusable rules already exist as Recipe v{existing_version}"
+            )
         storage_key = self.store.storage_key(
             recipe_id,
             kind="revisions",

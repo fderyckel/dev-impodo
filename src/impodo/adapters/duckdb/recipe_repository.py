@@ -19,6 +19,7 @@ from ...recipes import (
     RecipeIntent,
     RecipeIntentKind,
     RecipeIntentState,
+    RecipeRevision,
     RecipeNotFoundError,
     RecipeState,
     RecipeSummary,
@@ -45,6 +46,8 @@ class RecipeRepository(DuckDbRepository):
                 """
                 SELECT r.recipe_id, r.display_name, r.state,
                        r.current_recipe_revision, r.current_data_version_id,
+                       current_data.workspace_project_id,
+                       project.revision,
                        (SELECT count(*) FROM data_version d
                          WHERE d.recipe_id = r.recipe_id) AS data_version_count,
                        (SELECT q.status FROM recipe_qualification q
@@ -53,8 +56,25 @@ class RecipeRepository(DuckDbRepository):
                          LIMIT 1) AS qualification_status,
                        (SELECT c.recipe_revision FROM cutover_candidate c
                          WHERE c.recipe_id = r.recipe_id) AS cutover_revision,
+                       (
+                           r.current_recipe_revision IS NULL
+                           AND (SELECT count(*) FROM data_version d
+                                 WHERE d.recipe_id = r.recipe_id) = 1
+                           AND NOT EXISTS (
+                               SELECT 1 FROM recipe_qualification q
+                                WHERE q.recipe_id = r.recipe_id
+                           )
+                           AND NOT EXISTS (
+                               SELECT 1 FROM cutover_candidate c
+                                WHERE c.recipe_id = r.recipe_id
+                           )
+                       ) AS deletable_as_bootstrap,
                        r.optimistic_revision, r.updated_at
                   FROM recipe r
+             LEFT JOIN data_version current_data
+                    ON current_data.data_version_id = r.current_data_version_id
+             LEFT JOIN project_registry project
+                    ON project.project_id = current_data.workspace_project_id
                  ORDER BY r.updated_at DESC, r.recipe_id
                 """
             ).fetchall()
@@ -65,11 +85,16 @@ class RecipeRepository(DuckDbRepository):
                 state=RecipeState(str(row[2])),
                 current_recipe_revision=(int(row[3]) if row[3] is not None else None),
                 current_data_version_id=(str(row[4]) if row[4] else None),
-                data_version_count=int(row[5]),
-                qualification_status=(str(row[6]) if row[6] else None),
-                cutover_recipe_revision=(int(row[7]) if row[7] is not None else None),
-                optimistic_revision=int(row[8]),
-                updated_at=datetime.fromisoformat(str(row[9])),
+                current_workspace_project_id=(str(row[5]) if row[5] else None),
+                current_workspace_revision=(
+                    int(row[6]) if row[6] is not None else None
+                ),
+                data_version_count=int(row[7]),
+                deletable_as_bootstrap=bool(row[10]),
+                qualification_status=(str(row[8]) if row[8] else None),
+                cutover_recipe_revision=(int(row[9]) if row[9] is not None else None),
+                optimistic_revision=int(row[11]),
+                updated_at=datetime.fromisoformat(str(row[12])),
             )
             for row in rows
         )
@@ -144,6 +169,61 @@ class RecipeRepository(DuckDbRepository):
             "storage_key": str(row[2]),
             "version": version,
         }
+
+    def revisions(self, recipe_id: str) -> tuple[RecipeRevision, ...]:
+        """Return immutable revision lineage without reading protected payloads."""
+
+        recipe_id = require_uuid(recipe_id, "recipe_id")
+        with self._connect(self.registry_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT version, parent_version, semantic_hash, payload_hash,
+                       storage_key, artifact_hash, size_bytes,
+                       contract_versions_json, provenance_json,
+                       actor_issuer, actor_subject, actor_display_name,
+                       published_at
+                  FROM recipe_revision
+                 WHERE recipe_id = ?
+                 ORDER BY version
+                """,
+                [recipe_id],
+            ).fetchall()
+        return tuple(
+            RecipeRevision(
+                recipe_id=recipe_id,
+                version=int(row[0]),
+                parent_version=(int(row[1]) if row[1] is not None else None),
+                semantic_hash=str(row[2]),
+                payload_hash=str(row[3]),
+                storage_key=str(row[4]),
+                artifact_hash=str(row[5]),
+                size_bytes=int(row[6]),
+                contract_versions=json.loads(str(row[7])),
+                provenance=json.loads(str(row[8])),
+                published_by=ActorIdentity(str(row[9]), str(row[10]), str(row[11])),
+                published_at=datetime.fromisoformat(str(row[12])),
+            )
+            for row in rows
+        )
+
+    def revision_version_by_semantic_hash(
+        self,
+        recipe_id: str,
+        semantic_hash: str,
+    ) -> int | None:
+        """Return an existing immutable version with the same reusable meaning."""
+
+        recipe_id = require_uuid(recipe_id, "recipe_id")
+        require_hash(semantic_hash, "semantic_hash")
+        with self._connect(self.registry_path) as connection:
+            row = connection.execute(
+                """
+                SELECT version FROM recipe_revision
+                 WHERE recipe_id = ? AND semantic_hash = ?
+                """,
+                [recipe_id, semantic_hash],
+            ).fetchone()
+        return int(row[0]) if row is not None else None
 
     def resolve_workspace(self, workspace_project_id: str) -> WorkspaceResolution:
         """Resolve only a workspace project ID and reject namespace confusion."""

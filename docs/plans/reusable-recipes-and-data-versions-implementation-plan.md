@@ -5,7 +5,7 @@
 **Status:** Active implementation plan from 2026-08-19 and the only current
 product-delivery priority.
 
-Phases R0 and R1 completed on 2026-08-19. Phase R2 is the current
+Phases R0, R1, and R2 completed on 2026-08-19. Phase R3 is the current
 implementation phase. The frozen active contracts are in the
 [Recipe-first Phase R0 contract](reusable-recipes-phase-r0-contracts.md).
 
@@ -984,7 +984,7 @@ cutover selection, and deletion target enumeration.
 
 ### Phase R2 - Create, author, and publish a Customer Recipe
 
-**Status:** Current priority.
+**Status:** Completed on 2026-08-19.
 
 - Make **Create Recipe** provision Recipe plus DataVersion 1 workspace.
 - Implement RecipeDraft as a projection over exact current authoring evidence.
@@ -998,7 +998,17 @@ cutover selection, and deletion target enumeration.
 file/project IDs produces the same Recipe semantic hash; every semantic change
 produces a new immutable revision.
 
+**Evidence:** the
+[Phase R2 implementation report](../reports/reusable-recipes-phase-r2-authoring-2026-08-19.md)
+and focused
+[`test_recipe_authoring`](../../tests/test_recipe_authoring.py) suite cover
+Recipe-native creation, project-route compatibility, readiness projection,
+portable compilation, exact envelope validation, identity-independent hashes,
+semantic-change hashes, publication, and revision history.
+
 ### Phase R3 - Bind remote Test Odoo and apply same-ish data
+
+**Status:** Current priority.
 
 - Implement TargetBinding creation from current non-secret target settings,
   credential generation, probe, principal, permission, context, schema, and

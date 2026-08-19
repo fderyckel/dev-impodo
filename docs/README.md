@@ -16,7 +16,8 @@ or **MAY** rule, the normative rule wins.
 
 ## Workflow terminology
 
-**Project setup** happens before the six registered-project stages:
+**Recipe setup** creates the Recipe and authoring DataVersion workspace before
+the six registered data-version stages:
 
 1. **Source data**
 2. **Odoo data**
@@ -55,7 +56,7 @@ voice rules.
 ## Process models
 
 - [Current Impodo BPMN models](bpmn/README.md) — BPMN 2.0 overview and detailed
-  diagrams for Project setup and all six implemented browser responsibilities,
+  diagrams for Recipe/data-version setup and all six implemented browser responsibilities,
   including the current file-source, Odoo-source, and disposable-target
   boundaries.
 
@@ -86,6 +87,9 @@ voice rules.
   — completed Recipe/DataVersion registry lineage, protected payload storage,
   workspace linkage and sealing, compatibility resolution, and deterministic
   intent-recovery evidence.
+- [Recipe-first Phase R2 implementation report](reports/reusable-recipes-phase-r2-authoring-2026-08-19.md)
+  — completed Recipe-native creation, current-evidence draft projection,
+  portable compilation, immutable publication, and revision-history evidence.
 
 ## Guides, runbooks, and quality
 

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}{{ recipe.display_name }} · Recipe · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading project-overview-heading">
+    <div>
+      <p class="eyebrow">Recipe overview</p>
+      <h1>{{ recipe.display_name }}</h1>
+      <p>Reusable migration meaning and its authoring data versions.</p>
+    </div>
+    <span class="status {% if recipe.current_recipe_revision %}registered{% else %}draft{% endif %}">
+      {% if recipe.current_recipe_revision %}Recipe v{{ recipe.current_recipe_revision }}{% else %}Authoring{% endif %}
+    </span>
+  </div>
+
+  {% if project and project.status.value != "REGISTERED" %}
+    <section class="next-action-card current" aria-labelledby="recipe-setup-title">
+      <div>
+        <p class="eyebrow">Data version 1</p>
+        <h2 id="recipe-setup-title">Complete Recipe setup</h2>
+        <p>Set the source, governance and Odoo destination for representative authoring data.</p>
+      </div>
+      <a class="button primary" href="/projects/{{ project.project_id }}/details">Continue setup</a>
+    </section>
+  {% elif recipe_draft.can_publish %}
+    <section class="next-action-card ready" aria-labelledby="recipe-publish-title">
+      <div>
+        <p class="eyebrow">Ready to publish</p>
+        <h2 id="recipe-publish-title">Publish Recipe v{{ recipe_draft.next_recipe_revision }}</h2>
+        <p>The current submitted matching, target requirements and data checks compile into reusable meaning.</p>
+      </div>
+      <form method="post" action="/recipes/{{ recipe.recipe_id }}/publish">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="expected_recipe_revision" value="{{ recipe_draft.expected_recipe_revision }}">
+        <button class="button primary" type="submit">Publish Recipe v{{ recipe_draft.next_recipe_revision }}</button>
+      </form>
+    </section>
+  {% else %}
+    <section class="next-action-card attention" aria-labelledby="recipe-blocked-title">
+      <div>
+        <p class="eyebrow">Authoring status</p>
+        <h2 id="recipe-blocked-title">Recipe is not ready to publish</h2>
+        {% if recipe_draft.issues %}
+          <p>{{ recipe_draft.issues[0].message }} {{ recipe_draft.issues[0].recovery_action }}</p>
+        {% else %}
+          <p>Continue the current authoring data version.</p>
+        {% endif %}
+      </div>
+      {% if recovery_href %}<a class="button primary" href="{{ recovery_href }}">Continue authoring</a>{% endif %}
+    </section>
+  {% endif %}
+
+  {% if project and project.status.value == "REGISTERED" %}
+    <div class="actions">
+      <a class="button secondary" href="/projects/{{ project.project_id }}/overview">Open current data version</a>
+      <a class="button secondary" href="/projects/{{ project.project_id }}/mapping">Open matching</a>
+    </div>
+  {% endif %}
+
+  <section class="overview-stage-list" aria-labelledby="recipe-lineage-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Lineage</p>
+        <h2 id="recipe-lineage-title">Data versions</h2>
+      </div>
+    </div>
+    <ol class="overview-stages">
+      {% for version in data_versions %}
+        <li class="overview-stage {% if version.state.value == 'ACTIVE' %}current{% else %}complete{% endif %}">
+          <div class="overview-stage-number" aria-hidden="true">{{ version.version_number }}</div>
+          <div class="overview-stage-copy">
+            <h3>{{ version.label }}</h3>
+            <p>{{ version.purpose.value|title }} · {{ version.state.value|title }}</p>
+          </div>
+          <a class="button secondary small" href="/projects/{{ version.workspace_project_id }}">Open</a>
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  {% if recipe_revisions %}
+    <section class="overview-stage-list" aria-labelledby="recipe-revisions-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Reusable meaning</p>
+          <h2 id="recipe-revisions-title">Published revisions</h2>
+        </div>
+      </div>
+      <ol class="overview-stages">
+        {% for revision in recipe_revisions|reverse %}
+          <li class="overview-stage complete">
+            <div class="overview-stage-number" aria-hidden="true">{{ revision.version }}</div>
+            <div class="overview-stage-copy">
+              <h3>Recipe v{{ revision.version }}</h3>
+              <p>Published {{ revision.published_at.strftime("%d %b %Y, %H:%M") }} by {{ revision.published_by.display_name }}</p>
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    </section>
+  {% endif %}
+{% endblock %}

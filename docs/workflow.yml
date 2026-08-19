@@ -14,7 +14,7 @@ shared:
 stages:
   - id: setup
     order: 0
-    label: Project setup
+    label: Recipe and data-version setup
     navigation: false
     user_doc: docs/user/getting-started.md
     developer_doc: docs/developer/workflow/00-project-setup.md
@@ -30,14 +30,18 @@ stages:
       - src/impodo/web/templates/project_review.html
       - src/impodo/web/templates/project_target.html
       - src/impodo/web/templates/project_overview.html
+      - src/impodo/web/templates/recipe_overview.html
     code_references:
       - src/impodo/projects.py::ProjectService
       - src/impodo/projects.py::ProjectService.register
+      - src/impodo/application/recipe_authoring_service.py::RecipeAuthoringService
+      - src/impodo/application/recipe_authoring_service.py::RecipeAuthoringService.publish_current
       - src/impodo/web/presenters/navigation.py::build_project_navigation
     tests:
       - tests/test_projects.py
       - tests/test_project_security.py
       - tests/test_web_app.py
+      - tests/test_recipe_authoring.py
     contracts:
       - docs/developer/contracts/project-lifecycle.md
 

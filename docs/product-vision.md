@@ -575,8 +575,9 @@ flowchart TB
     Reconcile --> Store
 ```
 
-The current repository implements the bounded browser path from Stage A
-through Stage K: project registration; governed CSV/XLSX intake; target-schema
+The current repository implements the Recipe root, authoring DataVersion
+workspace, portable immutable Recipe publication, and the bounded browser path
+from Stage A through Stage K: data-version registration; governed CSV/XLSX intake; target-schema
 governance; mapping and derived-dataset authoring; exact choice matching;
 durable canonical staging; quality, quarantine, and normalization review;
 read-only target comparison; automatic execution-snapshot freezing; explicit

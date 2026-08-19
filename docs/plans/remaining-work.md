@@ -17,16 +17,18 @@ read-back path. Mapping contract v11, validation-bound categorical coverage,
 split reusable control definitions/DataVersion expectations, legacy upgrade
 review, and the shared application-layer source scan are implemented.
 
-Recipe Phases R0 and R1 are also complete: the active Recipe-first aggregate,
+Recipe Phases R0 through R2 are complete: the active Recipe-first aggregate,
 DataVersion, TargetBinding, qualification, cutover, credential-rotation,
 intent, recovery, and bound contracts are frozen with deterministic fixtures
 and executable tests. The Recipe root, independent Recipe/DataVersion lineage,
 protected persistence, migration ledgers, recovery intents, workspace seals,
 and compatibility resolution for current project routes are implemented.
-Phase R2 — Create Recipe, authoring projection, and immutable Customer Recipe
-publication — is the current implementation phase. Matching remains the
-existing workspace experience unless Recipe-specific context requires a small
-change.
+Recipe-native creation, a nonduplicating RecipeDraft readiness projection,
+portable compilation, immutable publication, and Recipe/DataVersion history
+are implemented. Phase R3 — bind a current remote Test Odoo target and apply
+same-ish data with focused drift — is the current implementation phase.
+Matching remains the existing workspace experience unless Recipe-specific
+context requires a small change.
 
 The current preparation limits remain:
 
@@ -56,13 +58,13 @@ The required outcome is:
 > different compatible Production Odoo server using current independently
 > supplied API credentials.
 
-The Recipe work owns the following sequence. Steps 1 and 2 completed on
-2026-08-19; step 3 is current:
+The Recipe work owns the following sequence. Steps 1 through 3 completed on
+2026-08-19; step 4 is current:
 
 1. rebase the frozen architecture around Recipe as aggregate root — completed;
 2. add Recipe/DataVersion lineage, protected storage, and recovery — completed;
-3. create, author, and publish a composite Customer Recipe — current;
-4. bind current remote Test Odoo server and credential evidence;
+3. create, author, and publish a composite Customer Recipe — completed;
+4. bind current remote Test Odoo server and credential evidence — current;
 5. apply same-ish data and review only drift;
 6. execute, reconcile, qualify, and select a cutover candidate;
 7. run that exact revision with the latest data on a different Production Odoo

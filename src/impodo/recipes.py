@@ -82,6 +82,42 @@ class RecipeIntentState(StrEnum):
     FAILED_RETRYABLE = "FAILED_RETRYABLE"
 
 
+class RecipeDraftState(StrEnum):
+    READY = "READY"
+    BLOCKED = "BLOCKED"
+
+
+@dataclass(frozen=True, slots=True)
+class RecipeDraftIssue:
+    """Explain one publication blocker and its single recovery action."""
+
+    code: str
+    message: str
+    recovery_action: str
+
+
+@dataclass(frozen=True, slots=True)
+class RecipeDraft:
+    """Project current authoring evidence without duplicating mutable drafts."""
+
+    recipe_id: str
+    data_version_id: str
+    workspace_project_id: str
+    state: RecipeDraftState
+    expected_recipe_revision: int
+    next_recipe_revision: int
+    semantic_hash: str | None
+    source_selection_hash: str | None
+    mapping_content_hash: str | None
+    schema_hash: str | None
+    quality_ruleset_hash: str | None
+    issues: tuple[RecipeDraftIssue, ...]
+
+    @property
+    def can_publish(self) -> bool:
+        return self.state is RecipeDraftState.READY and not self.issues
+
+
 @dataclass(frozen=True, slots=True)
 class Recipe:
     recipe_id: str
@@ -130,7 +166,10 @@ class RecipeSummary:
     state: RecipeState
     current_recipe_revision: int | None
     current_data_version_id: str | None
+    current_workspace_project_id: str | None
+    current_workspace_revision: int | None
     data_version_count: int
+    deletable_as_bootstrap: bool
     qualification_status: str | None
     cutover_recipe_revision: int | None
     optimistic_revision: int

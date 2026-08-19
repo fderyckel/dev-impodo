@@ -2629,7 +2629,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             registered.headers["location"],
             f"/projects/{project_id}/overview",
         )
-        self.assertIn("Project overview", summary.text)
+        self.assertIn("Data version overview", summary.text)
         self.assertIn("Ready for source check", summary.text)
         self.assertIn("Check source data", summary.text)
         self.assertIn(
@@ -2787,7 +2787,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Separate combined information", derived_page.text)
         self.assertIn("Stage 1 of 6 · Optional source organization", derived_page.text)
         self.assertIn("You are viewing Source data", derived_page.text)
-        self.assertIn("Current project work:", derived_page.text)
+        self.assertIn("Current data-version work:", derived_page.text)
         self.assertIn("Stage 2 · Odoo data", derived_page.text)
         self.assertIn(
             "Saved rules are repeated consistently for every row",
