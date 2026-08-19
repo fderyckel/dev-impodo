@@ -20,7 +20,7 @@ from ...application.execution_service import (
 from ...connectors import ConnectorError
 from ...odoo_writer import OdooWriteError
 from ...odoo_readback import OdooReadbackError
-from ...models import OdooWriteIdentity
+from ...models import OdooReadIdentity, OdooWriteIdentity
 from ...projects import MigrationProject, OdooConnectionMode, ProjectError
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
@@ -63,6 +63,35 @@ async def _probe_remote_write_identity(
             "The write credential does not use the reviewed Odoo context"
         )
     return identity
+
+
+async def _probe_current_read_identity(
+    context: WebContext,
+    project: MigrationProject,
+    preview: ExecutionPreview,
+) -> tuple[OdooReadIdentity | None, str]:
+    """Re-probe the exact comparison credential before any remote write."""
+
+    if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+        return None, ""
+    credential = get_target_credential(
+        context.secret_store,
+        project,
+        TargetCredentialRole.READ,
+    )
+    if credential is None:
+        raise SecretStoreError(
+            "Enter the current Odoo read key, refresh the schema, and compare again"
+        )
+    if not preview.snapshot.readable_models:
+        raise WorkspaceError("Refresh the remote Odoo schema and compare again")
+    identity = await run_in_threadpool(
+        context.read_identity_probe,
+        project,
+        credential.secret,
+        preview.snapshot.readable_models,
+    )
+    return identity, credential.binding_hash
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,6 +326,15 @@ def build_execution_router(context: WebContext) -> APIRouter:
             preview = context.execution.current_preview(project_id)
             if preview is None:
                 raise WorkspaceError("Compare the prepared data with Odoo first")
+            if preview.scope_error:
+                raise WorkspaceError(preview.scope_error)
+            read_identity, read_credential_binding_hash = (
+                await _probe_current_read_identity(
+                    context,
+                    project,
+                    preview,
+                )
+            )
             submitted_key = _text(form, "write_api_key") or _text(
                 form,
                 "api_key",
@@ -355,6 +393,8 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 executor=executor,
                 actor=context.actor,
                 batch_rows=batch_rows,
+                read_identity=read_identity,
+                read_credential_binding_hash=read_credential_binding_hash,
                 write_identity=write_identity,
                 write_credential_binding_hash=(
                     write_credential.binding_hash if write_identity is not None else ""
@@ -394,6 +434,11 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 reader=reader,
                 actor=context.actor,
                 write_identity=readback_identity,
+                write_credential_binding_hash=(
+                    write_credential.binding_hash
+                    if readback_identity is not None
+                    else ""
+                ),
             )
         except (
             ConnectorError,
@@ -465,19 +510,6 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 preview,
                 api_key,
             )
-            reader = context.readback_reader_factory(
-                project,
-                api_key,
-                preview.api_scope,
-            )
-            report = await run_in_threadpool(
-                context.reconciliation.reconcile,
-                project_id,
-                expected_execution_run_id=_text(form, "execution_run_id"),
-                reader=reader,
-                actor=context.actor,
-                write_identity=write_identity,
-            )
             if submitted_key:
                 write_credential = store_target_credential(
                     context.secret_store,
@@ -493,6 +525,24 @@ def build_execution_router(context: WebContext) -> APIRouter:
                     write_credential,
                     actor=context.actor,
                 )
+            reader = context.readback_reader_factory(
+                project,
+                api_key,
+                preview.api_scope,
+            )
+            report = await run_in_threadpool(
+                context.reconciliation.reconcile,
+                project_id,
+                expected_execution_run_id=_text(form, "execution_run_id"),
+                reader=reader,
+                actor=context.actor,
+                write_identity=write_identity,
+                write_credential_binding_hash=(
+                    write_credential.binding_hash
+                    if write_identity is not None
+                    else ""
+                ),
+            )
         except (
             AuthorizationError,
             ConnectorError,

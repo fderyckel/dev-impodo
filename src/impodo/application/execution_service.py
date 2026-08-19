@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
 import re
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 from uuid import uuid4
 
 from ..access import Actor, AuthorizationPolicy, Capability
@@ -26,6 +26,7 @@ from ..domain.execution_snapshot import (
 from ..models import (
     BusinessReference,
     LogicalReference,
+    OdooReadIdentity,
     OdooWriteIdentity,
     canonical_json_text,
     portable_value,
@@ -43,6 +44,7 @@ from .preflight_service import PreflightService
 
 DEFAULT_CREATE_BATCH_ROWS = 10
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
+ReadCredentialBindingProvider = Callable[[MigrationProject], str]
 
 
 class ExecutionProjectRepository(Protocol):
@@ -94,6 +96,7 @@ class ExecutionPreview:
     api_scope: OdooApiScope
     deferred_create_count: int
     scope_error: str = ""
+    credential_refresh_required: bool = False
 
     @property
     def can_load(self) -> bool:
@@ -116,21 +119,37 @@ class ExecutionService:
         journal: ExecutionJournalRepository,
         authorization: AuthorizationPolicy,
         *,
+        require_remote_read_identity: bool = False,
         require_remote_write_identity: bool = False,
+        current_read_credential_binding: (
+            ReadCredentialBindingProvider | None
+        ) = None,
     ) -> None:
         self.projects = projects
         self.preflight = preflight
         self.journal = journal
         self.authorization = authorization
+        self.require_remote_read_identity = require_remote_read_identity
         self.require_remote_write_identity = require_remote_write_identity
+        self.current_read_credential_binding = current_read_credential_binding
 
     def current_preview(self, project_id: str) -> ExecutionPreview | None:
         snapshot = self.preflight.current_execution_snapshot(project_id)
         if snapshot is None:
             return None
         project = self.projects.get(project_id)
+        current_read_credential_binding = (
+            self.current_read_credential_binding(project)
+            if self.current_read_credential_binding is not None
+            else None
+        )
         current = self.journal.get_current_run(project_id, snapshot.semantic_hash)
         api_scope = execution_api_scope(snapshot)
+        credential_error = _read_credential_snapshot_error(
+            project,
+            snapshot,
+            current_read_credential_binding=current_read_credential_binding,
+        )
         return ExecutionPreview(
             snapshot=snapshot,
             datasets=tuple(
@@ -162,7 +181,14 @@ class ExecutionService:
                 snapshot,
                 create_batch_rows=DEFAULT_CREATE_BATCH_ROWS,
             ),
-            scope_error=_execution_snapshot_error(project, snapshot),
+            scope_error=(
+                credential_error
+                or _execution_snapshot_error(
+                    project,
+                    snapshot,
+                )
+            ),
+            credential_refresh_required=bool(credential_error),
         )
 
     def execute(
@@ -173,6 +199,8 @@ class ExecutionService:
         executor: OdooWriteExecutor,
         actor: Actor,
         batch_rows: int | str = DEFAULT_CREATE_BATCH_ROWS,
+        read_identity: OdooReadIdentity | None = None,
+        read_credential_binding_hash: str = "",
         write_identity: OdooWriteIdentity | None = None,
         write_credential_binding_hash: str = "",
     ) -> ExecutionRun:
@@ -193,6 +221,8 @@ class ExecutionService:
         snapshot = preview.snapshot
         if snapshot.semantic_hash != expected_snapshot_hash:
             raise WorkspaceError("The load preview changed. Review it again.")
+        if preview.scope_error:
+            raise WorkspaceError(preview.scope_error)
         self._validate_execution_scope(project, preview, executor)
         _validate_write_identity(
             preview,
@@ -200,6 +230,15 @@ class ExecutionService:
             write_credential_binding_hash,
             required=(
                 self.require_remote_write_identity
+                and project.odoo_connection_mode is OdooConnectionMode.REMOTE
+            ),
+        )
+        _validate_read_identity(
+            preview,
+            read_identity,
+            read_credential_binding_hash,
+            required=(
+                self.require_remote_read_identity
                 and project.odoo_connection_mode is OdooConnectionMode.REMOTE
             ),
         )
@@ -1097,6 +1136,49 @@ def _validate_write_identity(
         raise WorkspaceError("Execution write-identity evidence is invalid")
 
 
+def _validate_read_identity(
+    preview: ExecutionPreview,
+    identity: OdooReadIdentity | None,
+    credential_binding_hash: str,
+    *,
+    required: bool,
+) -> None:
+    """Re-probe the comparison principal before any remote write is journalled."""
+
+    snapshot = preview.snapshot
+    if identity is None:
+        if required:
+            raise WorkspaceError(
+                "Re-probe the current Odoo read key before loading"
+            )
+        if credential_binding_hash:
+            raise WorkspaceError("The read credential has no principal evidence")
+        return
+    expected = (
+        snapshot.read_credential_binding_hash,
+        snapshot.read_principal_hash,
+        snapshot.read_permission_hash,
+        snapshot.read_context_hash,
+    )
+    actual = (
+        credential_binding_hash,
+        identity.principal_hash,
+        identity.permission_hash,
+        identity.context_hash,
+    )
+    if not all(_SHA256.fullmatch(value) for value in (*expected, *actual)):
+        raise WorkspaceError("Execution read-identity evidence is incomplete")
+    if (
+        actual != expected
+        or identity.target_hash != snapshot.target_hash
+        or identity.readable_models != snapshot.readable_models
+    ):
+        raise WorkspaceError(
+            "The Odoo read key, principal, permissions, or context changed; "
+            "refresh the schema and compare again"
+        )
+
+
 def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:
     """Derive the exact native API capability from one frozen preview."""
 
@@ -1362,6 +1444,36 @@ def _execution_snapshot_error(
                     f"{row.dataset}.{intent.field} is not expressed by a reviewed "
                     "business key"
                 )
+    return ""
+
+
+def _read_credential_snapshot_error(
+    project: MigrationProject,
+    snapshot: ExecutionSnapshot,
+    *,
+    current_read_credential_binding: str | None,
+) -> str:
+    """Explain only credential-dependent refresh failures for focused UI recovery."""
+
+    if (
+        project.odoo_connection_mode is not OdooConnectionMode.REMOTE
+        or current_read_credential_binding is None
+    ):
+        return ""
+    evidence = (
+        snapshot.read_credential_binding_hash,
+        snapshot.read_principal_hash,
+        snapshot.read_permission_hash,
+        snapshot.read_context_hash,
+    )
+    if not all(_SHA256.fullmatch(value) for value in evidence):
+        return "Refresh the remote Odoo schema and compare again"
+    if not current_read_credential_binding:
+        return (
+            "Enter the current Odoo read key, refresh the schema, and compare again"
+        )
+    if current_read_credential_binding != snapshot.read_credential_binding_hash:
+        return "The Odoo read key changed; refresh the schema and compare again"
     return ""
 
 

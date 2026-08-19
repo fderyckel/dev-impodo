@@ -5,8 +5,8 @@
 **Status:** Active implementation plan from 2026-08-19 and the only current
 product-delivery priority.
 
-Phases R0 through R5, including the R4.5 clean-root consolidation, completed on
-2026-08-19. Phase R6 is the next implementation phase. The active contracts are
+Phases R0 through R6, including the R4.5 clean-root consolidation, completed on
+2026-08-19. Phase R7 is the next implementation phase. The active contracts are
 in the
 [Recipe-first Phase R0 contract](reusable-recipes-phase-r0-contracts.md).
 
@@ -1111,7 +1111,7 @@ fresh downstream evidence, and separately probed write authority.
 
 ### Phase R6 - Credential rotation and remote failure qualification
 
-**Status:** Next phase.
+**Status:** Completed on 2026-08-19.
 
 - Rotate the same Production server's API key before comparison, between
   comparison and load, and during recovery.
@@ -1123,6 +1123,14 @@ fresh downstream evidence, and separately probed write authority.
 
 **Gate:** no operation proceeds with stale credential-dependent evidence, no
 secret leaks, and unknown writes are never retried blindly.
+
+**Evidence:** the
+[Phase R6 implementation report](../reports/reusable-recipes-phase-r6-credential-rotation-2026-08-19.md),
+focused credential-generation, execution-snapshot, remote read, write,
+reconciliation, connector, and browser tests, and the complete regression suite
+cover exact read-generation invalidation, load-time identity re-probe, safe
+write-key rotation during recovery, failure classification, redaction, and
+unknown-write reconciliation.
 
 ### Phase R7 - Expand representative Recipe shapes
 

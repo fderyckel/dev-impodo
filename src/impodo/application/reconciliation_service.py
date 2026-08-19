@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+import re
 from typing import Any, Mapping, Protocol
 from uuid import uuid4
 
@@ -38,6 +39,9 @@ from ..odoo_readback import (
 from ..workspace_errors import WorkspaceError
 from .execution_service import _identity_domain, _portable_key, execution_api_scope
 from .preflight_service import PreflightService
+
+
+_SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 class ReconciliationExecutionRepository(Protocol):
@@ -89,6 +93,7 @@ class ReconciliationService:
         reader: OdooReadbackReader,
         actor: Actor,
         write_identity: OdooWriteIdentity | None = None,
+        write_credential_binding_hash: str = "",
     ) -> ReconciliationRun:
         self.authorization.require(
             actor,
@@ -99,7 +104,11 @@ class ReconciliationService:
         current = self.execution.get_current_run(project_id)
         if run is None or current is None or current.run_id != expected_execution_run_id:
             raise WorkspaceError("The saved load outcome is no longer current")
-        _require_matching_write_identity(run, write_identity)
+        _require_matching_write_identity(
+            run,
+            write_identity,
+            write_credential_binding_hash,
+        )
         existing = self.results.get_current(project_id, run.run_id)
         if existing is not None:
             return existing
@@ -121,7 +130,14 @@ class ReconciliationService:
             raise WorkspaceError(
                 "Verification is not bound to this reviewed load preview"
             )
-        report = self._read_back(run, snapshot, reader, actor)
+        report = self._read_back(
+            run,
+            snapshot,
+            reader,
+            actor,
+            write_identity=write_identity,
+            write_credential_binding_hash=write_credential_binding_hash,
+        )
         # Exercise the portable contract before it reaches durable storage.
         report = ReconciliationRun.from_json(report.to_json())
         self.results.publish(project_id, report, actor=actor)
@@ -132,6 +148,9 @@ class ReconciliationService:
         snapshot: ExecutionSnapshot,
         reader: OdooReadbackReader,
         actor: Actor,
+        *,
+        write_identity: OdooWriteIdentity | None,
+        write_credential_binding_hash: str,
     ) -> ReconciliationRun:
         rows = {
             row.row_id: row
@@ -237,6 +256,24 @@ class ReconciliationService:
             verified_by=actor.identity.display_name,
             unchanged_count=int(snapshot.counts.get("UNCHANGED", 0)),
             rows=outcome_rows,
+            verification_credential_binding_hash=(
+                write_credential_binding_hash
+            ),
+            verification_principal_hash=(
+                write_identity.principal_hash
+                if write_identity is not None
+                else ""
+            ),
+            verification_permission_hash=(
+                write_identity.permission_hash
+                if write_identity is not None
+                else ""
+            ),
+            verification_context_hash=(
+                write_identity.context_hash
+                if write_identity is not None
+                else ""
+            ),
         )
 
     @staticmethod
@@ -707,6 +744,7 @@ class ReconciliationService:
 def _require_matching_write_identity(
     run: ExecutionRun,
     identity: OdooWriteIdentity | None,
+    credential_binding_hash: str,
 ) -> None:
     """Reject read-back under a changed execution principal or context."""
 
@@ -729,6 +767,10 @@ def _require_matching_write_identity(
     if actual != expected or identity.target_hash != run.target_hash:
         raise WorkspaceError(
             "The write principal, permission, or context changed after execution"
+        )
+    if not _SHA256.fullmatch(credential_binding_hash):
+        raise WorkspaceError(
+            "The verification principal has no credential-generation binding"
         )
 
 

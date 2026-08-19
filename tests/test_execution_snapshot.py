@@ -75,6 +75,40 @@ def _execution_fixture():
 
 
 class ExecutionSnapshotTests(unittest.TestCase):
+    def test_snapshot_binds_remote_read_generation_and_probe_evidence(self) -> None:
+        frozen, result = _execution_fixture()
+        frozen.captured_schema = SimpleNamespace(
+            read_credential_binding_hash="sha256:" + "7" * 64,
+            read_principal_hash="sha256:" + "8" * 64,
+            read_permission_hash="sha256:" + "9" * 64,
+            read_context_hash="sha256:" + "a" * 64,
+            models=(
+                SimpleNamespace(name="product.template"),
+                SimpleNamespace(name="res.partner"),
+            ),
+        )
+
+        snapshot = build_execution_snapshot(
+            preflight_run_id=str(uuid4()),
+            frozen=frozen,
+            result=result,
+        )
+        restored = ExecutionSnapshot.from_json(snapshot.to_json())
+
+        self.assertEqual(restored.contract_version, 3)
+        self.assertEqual(
+            restored.read_credential_binding_hash,
+            frozen.captured_schema.read_credential_binding_hash,
+        )
+        self.assertEqual(
+            restored.read_permission_hash,
+            frozen.captured_schema.read_permission_hash,
+        )
+        self.assertEqual(
+            restored.readable_models,
+            ("product.template", "res.partner"),
+        )
+
     def test_snapshot_accounts_for_every_decision_and_only_writes_ready_rows(
         self,
     ) -> None:

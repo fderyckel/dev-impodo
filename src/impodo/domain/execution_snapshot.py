@@ -31,7 +31,8 @@ from ..models import (
 from ..profile import DatasetSpec, IdentityComponent, ResolveSpec
 
 
-EXECUTION_SNAPSHOT_VERSION = 2
+EXECUTION_SNAPSHOT_VERSION = 3
+_SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +151,11 @@ class ExecutionSnapshot:
     counts: Mapping[str, int]
     rows: tuple[ExecutionRow, ...]
     root_hash: str
+    read_credential_binding_hash: str = ""
+    read_principal_hash: str = ""
+    read_permission_hash: str = ""
+    read_context_hash: str = ""
+    readable_models: tuple[str, ...] = ()
     contract_version: int = EXECUTION_SNAPSHOT_VERSION
 
     @property
@@ -195,6 +201,13 @@ class ExecutionSnapshot:
                 "module_versions": dict(
                     sorted(self.target_module_versions.items())
                 ),
+                "read_credential_binding_hash": (
+                    self.read_credential_binding_hash
+                ),
+                "read_principal_hash": self.read_principal_hash,
+                "read_permission_hash": self.read_permission_hash,
+                "read_context_hash": self.read_context_hash,
+                "readable_models": list(self.readable_models),
             },
             "datasets": [
                 {
@@ -291,7 +304,17 @@ class ExecutionSnapshot:
             },
             rows=rows,
             root_hash=str(payload["root_hash"]),
+            read_credential_binding_hash=str(
+                target["read_credential_binding_hash"]
+            ),
+            read_principal_hash=str(target["read_principal_hash"]),
+            read_permission_hash=str(target["read_permission_hash"]),
+            read_context_hash=str(target["read_context_hash"]),
+            readable_models=tuple(
+                str(item) for item in target["readable_models"]
+            ),
         )
+        _validate_read_evidence(snapshot)
         _validate_rows(rows, snapshot.counts)
         expected_root = _root_hash(rows)
         if snapshot.root_hash != expected_root:
@@ -361,6 +384,7 @@ def build_execution_snapshot(
         )
         for sequence, dataset in enumerate(frozen.plan.datasets)
     )
+    schema = getattr(frozen, "captured_schema", None)
     snapshot = ExecutionSnapshot(
         project_id=frozen.project_id,
         preflight_run_id=preflight_run_id,
@@ -391,10 +415,47 @@ def build_execution_snapshot(
         counts=counts,
         rows=row_tuple,
         root_hash=_root_hash(row_tuple),
+        read_credential_binding_hash=(
+            schema.read_credential_binding_hash if schema is not None else ""
+        ),
+        read_principal_hash=(
+            schema.read_principal_hash if schema is not None else ""
+        ),
+        read_permission_hash=(
+            schema.read_permission_hash if schema is not None else ""
+        ),
+        read_context_hash=(
+            schema.read_context_hash if schema is not None else ""
+        ),
+        readable_models=(
+            tuple(sorted(model.name for model in schema.models))
+            if schema is not None
+            else ()
+        ),
     )
     _validate_rows(row_tuple, counts)
+    _validate_read_evidence(snapshot)
     snapshot.portable_dict()
     return snapshot
+
+
+def _validate_read_evidence(snapshot: ExecutionSnapshot) -> None:
+    """Reject malformed safe bindings without requiring local principal probes."""
+
+    hashes = (
+        snapshot.read_credential_binding_hash,
+        snapshot.read_principal_hash,
+        snapshot.read_permission_hash,
+        snapshot.read_context_hash,
+    )
+    if any(value and not _SHA256.fullmatch(value) for value in hashes):
+        raise ValueError("Execution snapshot read-identity evidence is invalid")
+    if any(hashes[1:]) and not all(hashes):
+        raise ValueError("Execution snapshot read-identity evidence is incomplete")
+    if len(set(snapshot.readable_models)) != len(snapshot.readable_models):
+        raise ValueError("Execution snapshot readable-model evidence is invalid")
+    if any(hashes[1:]) and not snapshot.readable_models:
+        raise ValueError("Execution snapshot readable-model evidence is incomplete")
 
 
 def _target_resolution_index(

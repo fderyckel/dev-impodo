@@ -20,7 +20,12 @@ from impodo.domain.execution_snapshot import (
     ExecutionSnapshot,
     FieldIntent,
 )
-from impodo.models import BusinessReference, LogicalReference, OdooWriteIdentity
+from impodo.models import (
+    BusinessReference,
+    LogicalReference,
+    OdooReadIdentity,
+    OdooWriteIdentity,
+)
 from impodo.odoo_writer import (
     Json2WriteExecutor,
     OdooWriteOutcomeUnknown,
@@ -450,6 +455,96 @@ class ExecutionServiceTests(unittest.TestCase):
                 expected_snapshot_hash="sha256:" + "9" * 64,
                 executor=executor,
                 actor=LOCAL_ACTOR,
+            )
+
+        self.assertIsNone(journal.run)
+        self.assertEqual(executor.creates, [])
+        self.assertEqual(executor.updates, [])
+
+    def test_rotated_read_generation_invalidates_remote_load_preview(self):
+        snapshot = replace(
+            _snapshot(),
+            read_credential_binding_hash="sha256:" + "1" * 64,
+            read_principal_hash="sha256:" + "2" * 64,
+            read_permission_hash="sha256:" + "3" * 64,
+            read_context_hash="sha256:" + "4" * 64,
+            readable_models=(
+                "product.category",
+                "product.template",
+                "res.partner",
+            ),
+        )
+        service, _journal = self._service(
+            snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        service.current_read_credential_binding = (
+            lambda _project: "sha256:" + "9" * 64
+        )
+
+        preview = service.current_preview(snapshot.project_id)
+
+        assert preview is not None
+        self.assertFalse(preview.can_load)
+        self.assertTrue(preview.credential_refresh_required)
+        self.assertIn("read key changed", preview.scope_error)
+
+    def test_remote_load_reprobes_read_acl_before_journalling(self):
+        snapshot = replace(
+            _snapshot(),
+            read_credential_binding_hash="sha256:" + "1" * 64,
+            read_principal_hash="sha256:" + "2" * 64,
+            read_permission_hash="sha256:" + "3" * 64,
+            read_context_hash="sha256:" + "4" * 64,
+            readable_models=(
+                "product.category",
+                "product.template",
+                "res.partner",
+            ),
+        )
+        service, journal = self._service(
+            snapshot,
+            mode=OdooConnectionMode.REMOTE,
+        )
+        service.require_remote_read_identity = True
+        service.require_remote_write_identity = True
+        service.current_read_credential_binding = (
+            lambda _project: snapshot.read_credential_binding_hash
+        )
+        scope = execution_api_scope(snapshot)
+        write_identity = OdooWriteIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash="sha256:" + "5" * 64,
+            permission_hash="sha256:" + "6" * 64,
+            context_hash=snapshot.read_context_hash,
+            readable_models=tuple(item.model for item in scope.models),
+            writable_models=tuple(
+                item.model for item in scope.models if item.write_fields
+            ),
+            observed_at="2026-08-19T00:00:00Z",
+        )
+        changed_read_identity = OdooReadIdentity(
+            target_hash=snapshot.target_hash,
+            principal_hash=snapshot.read_principal_hash,
+            permission_hash="sha256:" + "9" * 64,
+            context_hash=snapshot.read_context_hash,
+            readable_models=snapshot.readable_models,
+            observed_at="2026-08-19T00:00:00Z",
+        )
+        executor = _Executor(scope.semantic_hash)
+
+        with self.assertRaisesRegex(WorkspaceError, "permissions.*changed"):
+            service.execute(
+                snapshot.project_id,
+                expected_snapshot_hash=snapshot.semantic_hash,
+                executor=executor,
+                actor=LOCAL_ACTOR,
+                read_identity=changed_read_identity,
+                read_credential_binding_hash=(
+                    snapshot.read_credential_binding_hash
+                ),
+                write_identity=write_identity,
+                write_credential_binding_hash="sha256:" + "7" * 64,
             )
 
         self.assertIsNone(journal.run)
@@ -1841,18 +1936,27 @@ class Json2WriteExecutorTests(unittest.TestCase):
                 {
                     "ids": False,
                     "messages": [
-                        {"type": "error", "message": "A required field is missing"}
+                        {
+                            "type": "error",
+                            "message": (
+                                "A required field contains production-secret"
+                            ),
+                        }
                     ],
                     "nextrow": 0,
                 },
             ),
         )
-        with self.assertRaisesRegex(OdooWriteRejected, "required field"):
+        with self.assertRaisesRegex(
+            OdooWriteRejected,
+            "rejected one or more imported rows",
+        ) as caught:
             rejected.load_create_rows(
                 "res.partner",
                 ({"name": "Contact"},),
                 ("impodo_test.contact_1",),
             )
+        self.assertNotIn("production-secret", str(caught.exception))
 
         invalid = Json2WriteExecutor(
             self.executor.config,

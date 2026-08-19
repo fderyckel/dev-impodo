@@ -7,11 +7,13 @@ from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
 import json
+import re
 
 from ..models import canonical_json_bytes
 
 
-RECONCILIATION_CONTRACT_VERSION = 1
+RECONCILIATION_CONTRACT_VERSION = 2
+_SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 class ReconciliationRunStatus(StrEnum):
@@ -98,6 +100,10 @@ class ReconciliationRun:
     verified_by: str
     unchanged_count: int
     rows: tuple[ReconciliationRow, ...]
+    verification_credential_binding_hash: str = ""
+    verification_principal_hash: str = ""
+    verification_permission_hash: str = ""
+    verification_context_hash: str = ""
     contract_version: int = RECONCILIATION_CONTRACT_VERSION
 
     @property
@@ -151,6 +157,12 @@ class ReconciliationRun:
             "verified_at": self.verified_at.isoformat(),
             "verified_by": self.verified_by,
             "unchanged_count": self.unchanged_count,
+            "verification_credential_binding_hash": (
+                self.verification_credential_binding_hash
+            ),
+            "verification_principal_hash": self.verification_principal_hash,
+            "verification_permission_hash": self.verification_permission_hash,
+            "verification_context_hash": self.verification_context_hash,
             "rows": [item.portable_dict() for item in self.rows],
         }
         if include_hash:
@@ -176,6 +188,18 @@ class ReconciliationRun:
             verified_at=datetime.fromisoformat(str(payload["verified_at"])),
             verified_by=str(payload["verified_by"]),
             unchanged_count=int(payload["unchanged_count"]),
+            verification_credential_binding_hash=str(
+                payload["verification_credential_binding_hash"]
+            ),
+            verification_principal_hash=str(
+                payload["verification_principal_hash"]
+            ),
+            verification_permission_hash=str(
+                payload["verification_permission_hash"]
+            ),
+            verification_context_hash=str(
+                payload["verification_context_hash"]
+            ),
             rows=tuple(
                 ReconciliationRow.from_dict(dict(item))
                 for item in payload.get("rows", ())
@@ -211,3 +235,13 @@ def _validate_run(run: ReconciliationRun) -> None:
     )
     if run.status is not expected:
         raise ValueError("Reconciliation run status is invalid")
+    verification_hashes = (
+        run.verification_credential_binding_hash,
+        run.verification_principal_hash,
+        run.verification_permission_hash,
+        run.verification_context_hash,
+    )
+    if any(verification_hashes) and not all(
+        _SHA256.fullmatch(value) for value in verification_hashes
+    ):
+        raise ValueError("Reconciliation credential evidence is invalid")

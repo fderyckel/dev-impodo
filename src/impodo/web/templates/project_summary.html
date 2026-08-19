@@ -270,7 +270,11 @@
             </form>
           {% endif %}
         {% elif load_preview and load_preview.scope_error %}
-          <a class="button primary" href="/projects/{{ project.project_id }}/load">Review load availability</a>
+          {% if load_preview.credential_refresh_required %}
+            <a class="button primary" href="/projects/{{ project.project_id }}/schema">Refresh Odoo data</a>
+          {% else %}
+            <a class="button primary" href="/projects/{{ project.project_id }}/load">Review load availability</a>
+          {% endif %}
           {% if review_workbook_ready %}
             <a class="button secondary" href="/projects/{{ project.project_id }}/summary/workbook">Download review workbook</a>
           {% endif %}

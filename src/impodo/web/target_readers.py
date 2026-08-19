@@ -355,32 +355,38 @@ def _read_readiness_snapshots(
         )
     if project.odoo_connection_mode is None:
         raise WorkspaceError("Configure the Odoo target before checking data")
-    probe_models = tuple(
-        sorted(
-            {
-                *(request.model for request in metadata_requests),
-                *(request.model for request in record_requests),
-            }
-        )
-    )
-    identity = context.read_identity_probe(
-        project,
-        credential.secret,
-        probe_models,
-    )
     schema = context.queries.get_odoo_schema_catalog(project.project_id)
     if schema is None or not schema.read_principal_hash:
         raise WorkspaceError(
             "Recapture the Odoo schema with verified read-principal evidence "
             "before checking data"
         )
+    requested_models = {
+        *(request.model for request in metadata_requests),
+        *(request.model for request in record_requests),
+    }
+    probe_models = tuple(sorted(model.name for model in schema.models))
+    if not requested_models.issubset(probe_models):
+        raise WorkspaceError(
+            "The comparison needs Odoo models outside the captured schema; "
+            "refresh the schema before checking data"
+        )
+    identity = context.read_identity_probe(
+        project,
+        credential.secret,
+        probe_models,
+    )
     if (
-        identity.principal_hash != schema.read_principal_hash
+        credential.binding_hash != schema.read_credential_binding_hash
+        or identity.target_hash != schema.connection_target_hash
+        or identity.principal_hash != schema.read_principal_hash
+        or identity.permission_hash != schema.read_permission_hash
         or identity.context_hash != schema.read_context_hash
+        or identity.readable_models != probe_models
     ):
         raise WorkspaceError(
-            "The Odoo read principal or context changed; recapture the schema "
-            "before checking data"
+            "The Odoo read key, principal, permissions, or context changed; "
+            "refresh the schema before checking data"
         )
     if context.readiness_reader is not None:
         return context.readiness_reader(
@@ -427,7 +433,8 @@ def _read_pinned_odoo_snapshots(
         probe_models,
     )
     if (
-        identity.target_hash != schema.connection_target_hash
+        credential.binding_hash != schema.read_credential_binding_hash
+        or identity.target_hash != schema.connection_target_hash
         or identity.principal_hash != schema.read_principal_hash
         or identity.permission_hash != schema.read_permission_hash
         or identity.context_hash != schema.read_context_hash

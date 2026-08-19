@@ -256,6 +256,63 @@ class ReconciliationServiceTests(unittest.TestCase):
         self.assertEqual(reader.reads, [])
         self.assertIsNone(results.report)
 
+    def test_recovery_accepts_rotated_key_with_exact_write_identity(self):
+        snapshot = _snapshot()
+        run = replace(
+            _run(snapshot),
+            write_credential_binding_hash="sha256:" + "2" * 64,
+            write_principal_hash="sha256:" + "3" * 64,
+            write_permission_hash="sha256:" + "4" * 64,
+            write_context_hash="sha256:" + "5" * 64,
+        )
+        service, _results = self._service(snapshot, run)
+        identity = OdooWriteIdentity(
+            target_hash=run.target_hash,
+            principal_hash=run.write_principal_hash,
+            permission_hash=run.write_permission_hash,
+            context_hash=run.write_context_hash,
+            readable_models=tuple(
+                item.model for item in execution_api_scope(snapshot).models
+            ),
+            writable_models=tuple(
+                item.model
+                for item in execution_api_scope(snapshot).models
+                if item.write_fields
+            ),
+            observed_at="2026-08-19T00:00:00Z",
+        )
+        rotated_binding = "sha256:" + "9" * 64
+
+        report = service.reconcile(
+            snapshot.project_id,
+            expected_execution_run_id=run.run_id,
+            reader=_Reader(execution_api_scope(snapshot).semantic_hash),
+            actor=LOCAL_ACTOR,
+            write_identity=identity,
+            write_credential_binding_hash=rotated_binding,
+        )
+
+        self.assertEqual(
+            report.verification_credential_binding_hash,
+            rotated_binding,
+        )
+        self.assertNotEqual(
+            report.verification_credential_binding_hash,
+            run.write_credential_binding_hash,
+        )
+        self.assertEqual(
+            (
+                report.verification_principal_hash,
+                report.verification_permission_hash,
+                report.verification_context_hash,
+            ),
+            (
+                run.write_principal_hash,
+                run.write_permission_hash,
+                run.write_context_hash,
+            ),
+        )
+
     def test_partially_applied_cycle_is_read_by_exact_created_id(self):
         snapshot = _remote_cycle_snapshot()
         run = _run(

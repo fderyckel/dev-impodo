@@ -145,10 +145,14 @@
       <section class="next-action-card blocked" aria-labelledby="load-blocked-title">
         <div>
           <p class="eyebrow">Load unavailable</p>
-          <h2 id="load-blocked-title">Return to the final review</h2>
+          <h2 id="load-blocked-title">{% if preview.credential_refresh_required %}Refresh the Odoo data{% else %}Return to the final review{% endif %}</h2>
           <p>{{ preview.scope_error or 'Resolve every row needing attention, or compare again if this review is no longer current.' }}</p>
         </div>
-        <a class="button primary" href="/projects/{{ project.project_id }}/summary">Back to final review</a>
+        {% if preview.credential_refresh_required %}
+          <a class="button primary" href="/projects/{{ project.project_id }}/schema">Refresh Odoo data</a>
+        {% else %}
+          <a class="button primary" href="/projects/{{ project.project_id }}/summary">Back to final review</a>
+        {% endif %}
       </section>
     {% endif %}
 

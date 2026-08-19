@@ -87,13 +87,15 @@ from ..adapters.duckdb.transformation_impact_repository import (
 )
 from ..adapters.protected_recipe_store import ProtectedRecipeStore
 from ..projects import (
+    MigrationProject,
+    OdooConnectionMode,
     ProjectCompatibilityError,
     ProjectNotFoundError,
     ProjectService,
     SourceMode,
 )
 from ..recipes import RecipeNotFoundError
-from ..secrets import CredentialVault, SecretStore
+from ..secrets import CredentialVault, SecretStore, SecretStoreError
 from .context import (
     BrowserReadinessReader,
     ConnectionTester,
@@ -113,6 +115,11 @@ from .target_readers import (
     _probe_read_identity,
     _test_connection,
     _source_capture_reader,
+)
+from .target_credentials import (
+    TargetCredentialRole,
+    get_target_credential,
+    local_read_credential_binding_hash,
 )
 from .target_writers import _probe_write_identity, _readback_reader, _write_executor
 from .routers.derived_entities import build_derived_entities_router
@@ -313,12 +320,29 @@ def create_local_app(
         schema_repository,
         odoo_provenance_service,
     )
+    def current_read_credential_binding(project: MigrationProject) -> str:
+        if project.odoo_connection_mode is OdooConnectionMode.LOCAL:
+            return local_read_credential_binding_hash(project)
+        if project.odoo_connection_mode is not OdooConnectionMode.REMOTE:
+            return ""
+        try:
+            credential = get_target_credential(
+                resolved_secret_store,
+                project,
+                TargetCredentialRole.READ,
+            )
+        except SecretStoreError:
+            return ""
+        return credential.binding_hash if credential is not None else ""
+
     execution = ExecutionService(
         project_repository,
         preflight,
         execution_repository,
         resolved_authorization,
+        require_remote_read_identity=True,
         require_remote_write_identity=True,
+        current_read_credential_binding=current_read_credential_binding,
     )
     reconciliation = ReconciliationService(
         preflight,

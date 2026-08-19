@@ -373,14 +373,7 @@ class Json2WriteExecutor:
         raise OdooWriteRejected(f"Odoo rejected the load request (HTTP {status})")
 
 
-def _safe_import_error(messages: object) -> str:
-    """Project one bounded Odoo import error without exposing response internals."""
+def _safe_import_error(_messages: object) -> str:
+    """Return a fixed error because import details can contain secrets or data."""
 
-    if isinstance(messages, list):
-        for message in messages:
-            if not isinstance(message, Mapping) or message.get("type") != "error":
-                continue
-            detail = str(message.get("message", "")).strip()
-            if detail:
-                return f"Odoo rejected the import: {detail[:500]}"
     return "Odoo rejected one or more imported rows"
