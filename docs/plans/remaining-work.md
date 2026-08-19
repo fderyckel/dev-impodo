@@ -47,14 +47,15 @@ The current preparation limits remain:
 
 This roadmap decision does not raise, remove, or reinterpret those limits.
 
-## Sole product priority — implement Recipe test-to-production reuse
+## Completed product priority — Recipe test-to-production reuse
 
 **Priority decision, 2026-08-19:** Product ownership made the
 [Recipe-first test-to-production implementation
 plan](reusable-recipes-and-data-versions-implementation-plan.md) the only
-current product-delivery focus. All competing feature, scale, certification,
-gateway, hosted, and general production-hardening tracks are deferred until the
-Recipe definition of done passes.
+product-delivery focus. That definition of done passed on 2026-08-19. Competing
+feature, scale, certification, gateway, hosted, and general
+production-hardening tracks remain deferred until product ownership explicitly
+selects one below.
 
 The required outcome is:
 
@@ -95,7 +96,8 @@ anchors remain discoverable. They are not current implementation priorities.
 
 ## 1. Qualify related and mixed preparation at 100,000 rows
 
-**Status:** Deferred until the Recipe definition of done passes.
+**Status:** Deferred; the Recipe prerequisite passed, but explicit product
+reopening is still required.
 
 The existing
 [high-volume transformation architecture implementation
@@ -111,7 +113,8 @@ acceptance path; it does not reopen the general 100,000-row objective.
 
 ## 2. Add optional clean-package certification
 
-**Status:** Deferred until the Recipe definition of done passes.
+**Status:** Deferred; the Recipe prerequisite passed, but explicit product
+reopening is still required.
 
 Formal organization-specific certification remains a conditional future track.
 The active Recipe plan implements exact Test qualification and Production
@@ -135,7 +138,8 @@ continues to govern existing opt-in acceptance behavior.
 
 ## 4. Complete guarded Odoo-source updates
 
-**Status:** Deferred until the Recipe definition of done passes.
+**Status:** Deferred; the Recipe prerequisite passed, but explicit product
+reopening is still required.
 
 The [Odoo source import and round-trip update implementation
 plan](odoo-source-import-plan.md) retains its completed capture and comparison
