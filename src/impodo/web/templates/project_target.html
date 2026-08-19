@@ -4,9 +4,13 @@
   {% set step = "target" %}
   {% include "_steps.html" %}
   <section class="form-card">
-    <p class="eyebrow">Project setup · Connect Odoo</p>
-    <h1>Where is your Odoo?</h1>
-    <p>Impodo uses a read-only connection to learn which Odoo records and fields are available. Nothing can be changed in Odoo.</p>
+    {% set is_recipe_test = recipe_context and recipe_context.data_version_purpose == 'TEST' %}
+    <p class="eyebrow">{% if is_recipe_test %}Recipe rehearsal · Test target{% else %}Project setup · Connect Odoo{% endif %}</p>
+    <h1>{% if is_recipe_test %}Connect the Test Odoo server{% else %}Where is your Odoo?{% endif %}</h1>
+    <p>
+      Impodo uses a read-only connection to learn which Odoo records and fields are available. Nothing can be changed in Odoo.
+      {% if is_recipe_test %}These server settings and credentials belong only to this Test data version; they are never copied into the Recipe.{% endif %}
+    </p>
     <form
       method="post"
       action="/projects/{{ project.project_id }}/target"

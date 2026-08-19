@@ -45,6 +45,7 @@ from ..application.execution_service import ExecutionService
 from ..application.reconciliation_service import ReconciliationService
 from ..application.recipe_service import RecipeService
 from ..application.recipe_authoring_service import RecipeAuthoringService
+from ..application.recipe_application_service import RecipeApplicationService
 from ..application.preparation_service import PreparationService
 from ..application.preparation_job_service import PreparationJobManager
 from ..application.quality_service import QualityService
@@ -69,6 +70,9 @@ from ..adapters.duckdb.execution_repository import ExecutionRepository
 from ..adapters.duckdb.reconciliation_repository import ReconciliationRepository
 from ..adapters.duckdb.project_repository import ProjectRepository
 from ..adapters.duckdb.recipe_repository import RecipeRepository
+from ..adapters.duckdb.recipe_application_repository import (
+    RecipeApplicationRepository,
+)
 from ..adapters.duckdb.quality_repository import QualityRepository
 from ..adapters.duckdb.schema_repository import SchemaRepository
 from ..adapters.duckdb.source_repository import SourceRepository
@@ -170,6 +174,7 @@ def create_local_app(
     resolved_artifacts = artifact_store or LocalArtifactStore(project_root)
     project_repository = ProjectRepository(database)
     recipe_repository = RecipeRepository(database)
+    recipe_application_repository = RecipeApplicationRepository(database)
     derived_entity_repository = DerivedEntityRepository(database)
     source_repository = SourceRepository(database, derived_entity_repository)
     schema_repository = SchemaRepository(database)
@@ -191,9 +196,13 @@ def create_local_app(
     transformation_impact_repository = TransformationImpactRepository(database)
     resolved_authorization = authorization or CapabilityAuthorizationPolicy()
     resolved_secret_store = secret_store or CredentialVault()
+    protected_recipe_store = ProtectedRecipeStore(
+        project_root,
+        resolved_secret_store,
+    )
     recipes = RecipeService(
         recipe_repository,
-        ProtectedRecipeStore(project_root, resolved_secret_store),
+        protected_recipe_store,
         resolved_authorization,
     )
     odoo_provenance_repository = OdooProvenanceRepository(
@@ -231,10 +240,44 @@ def create_local_app(
         advanced_coverage_repository,
         resolved_authorization,
     )
+    categorical_coverage = CategoricalCoverageService(
+        source_repository,
+        resolved_artifacts,
+    )
+    schema_workspace = SchemaWorkspaceService(
+        project_repository,
+        source_repository,
+        schema_repository,
+        resolved_authorization,
+    )
+    mapping_workspace = MappingWorkspaceService(
+        source_repository,
+        schema_repository,
+        mapping_repository,
+        resolved_authorization,
+        categorical_coverage=categorical_coverage,
+        transformation_impacts=transformation_impact_repository,
+    )
+    recipe_applications = RecipeApplicationService(
+        recipes=recipes,
+        projects=projects,
+        project_reader=project_repository,
+        sources=source_repository,
+        schemas=schema_repository,
+        schema_workspace=schema_workspace,
+        references=advanced_coverage_repository,
+        preparation=derived_entity_repository,
+        applications=recipe_application_repository,
+        mappings=mapping_workspace,
+        categorical=categorical_coverage,
+        store=protected_recipe_store,
+        authorization=resolved_authorization,
+    )
     quality = QualityService(
         mapping_repository,
         source_repository,
         quality_repository,
+        recipe_quality=recipe_application_repository,
     )
     normalization = NormalizationService(
         normalization_repository,
@@ -290,10 +333,6 @@ def create_local_app(
         if odoo_capture_jobs_enabled
         else None
     )
-    categorical_coverage = CategoricalCoverageService(
-        source_repository,
-        resolved_artifacts,
-    )
     context = WebContext(
         queries=BrowserQueryService(
             project_repository,
@@ -307,6 +346,7 @@ def create_local_app(
         projects=projects,
         recipes=recipes,
         recipe_authoring=recipe_authoring,
+        recipe_applications=recipe_applications,
         intake=SourceIntakeService(projects, resolved_artifacts),
         inspections=SourceInspectionService(
             project_repository,
@@ -326,20 +366,8 @@ def create_local_app(
             derived_entity_repository,
             resolved_authorization,
         ),
-        schema_workspace=SchemaWorkspaceService(
-            project_repository,
-            source_repository,
-            schema_repository,
-            resolved_authorization,
-        ),
-        mapping_workspace=MappingWorkspaceService(
-            source_repository,
-            schema_repository,
-            mapping_repository,
-            resolved_authorization,
-            categorical_coverage=categorical_coverage,
-            transformation_impacts=transformation_impact_repository,
-        ),
+        schema_workspace=schema_workspace,
+        mapping_workspace=mapping_workspace,
         categorical_coverage=categorical_coverage,
         preparation=preparation,
         preparation_jobs=preparation_jobs,

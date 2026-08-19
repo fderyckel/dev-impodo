@@ -90,6 +90,9 @@ voice rules.
 - [Recipe-first Phase R2 implementation report](reports/reusable-recipes-phase-r2-authoring-2026-08-19.md)
   — completed Recipe-native creation, current-evidence draft projection,
   portable compilation, immutable publication, and revision-history evidence.
+- [Recipe-first Phase R3 implementation report](reports/reusable-recipes-phase-r3-test-application-2026-08-19.md)
+  — completed remote Test TargetBinding, same-ish source application, focused
+  drift, fresh mapping/preparation/quality seeds, and protected evidence.
 
 ## Guides, runbooks, and quality
 

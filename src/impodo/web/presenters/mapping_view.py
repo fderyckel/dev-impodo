@@ -387,6 +387,10 @@ def _render_mapping(
             active_dataset_index,
             context.queries.get_current_quality_ruleset(project_id),
         )
+    recipe_application = context.recipe_applications.current_draft(
+        project_id,
+        actor=context.actor,
+    )
     return _render(
         request,
         "project_mapping.html",
@@ -416,6 +420,7 @@ def _render_mapping(
         rule_impact_snapshot=rule_impact_snapshot,
         rule_review_ready=rule_review_ready,
         quality_view=quality_view,
+        recipe_application=recipe_application,
         error=error,
         status_code=status_code,
     )

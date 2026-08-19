@@ -18,6 +18,14 @@
     {% endif %}
   </div>
 
+  {% if recipe_application and recipe_application.state.value == 'APPLIED' %}
+    <div class="notice success">
+      <strong>Recipe v{{ recipe_application.recipe_revision }} is loaded.</strong>
+      Its reusable rules were compiled into this fresh working draft. Review the
+      current field matches here before checking and confirming them.
+    </div>
+  {% endif %}
+
   {% if schema and schema.origin.value == 'LOCAL_MANUAL' %}
     <div class="notice warning">
       These Odoo details have not yet been checked against Odoo. You can save your work, but you must refresh from Odoo before confirming it.

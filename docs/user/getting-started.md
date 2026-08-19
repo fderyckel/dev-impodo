@@ -56,6 +56,31 @@ Registration saves an auditable contained workspace boundary. It does not edit
 a source file, publish reusable Recipe meaning, read business records from
 Odoo, or write to Odoo.
 
+## Test a published Recipe with replacement data
+
+After the authoring workspace is complete and its Recipe revision is
+published, return to the Recipe overview and select **Test on Odoo**.
+
+1. Create a fresh Test data version and enter its declared values, such as the
+   current export date.
+2. Add and freeze the representative replacement files through the normal
+   Source data step.
+3. Connect the remote Test Odoo server and supply its current read-only API
+   key. Test server settings and credentials are not copied from authoring and
+   never become part of the Recipe.
+4. Capture Odoo data, then return to the Recipe overview and select
+   **Apply Recipe**.
+5. Review only the current differences. A renamed used column needs an exact
+   replacement choice; new unused columns need no action. Missing target
+   fields, uncovered choices, or a changed credential block this Test
+   application without changing the published Recipe.
+6. Select **Apply Recipe to current data** when the focused review is ready.
+   Impodo opens the familiar Match data screen with a fresh Recipe-built draft
+   for final review and confirmation.
+
+Applying the Recipe does not authorize a load. Preparation, final comparison,
+explicit write credentials, loading, and read-back remain separate steps.
+
 For file data versions, an incorrect source file can still be replaced before the
 first table selection is frozen. The file is never edited in place.
 

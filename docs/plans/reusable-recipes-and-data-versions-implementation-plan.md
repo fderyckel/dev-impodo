@@ -5,7 +5,7 @@
 **Status:** Active implementation plan from 2026-08-19 and the only current
 product-delivery priority.
 
-Phases R0, R1, and R2 completed on 2026-08-19. Phase R3 is the current
+Phases R0 through R3 completed on 2026-08-19. Phase R4 is the current
 implementation phase. The frozen active contracts are in the
 [Recipe-first Phase R0 contract](reusable-recipes-phase-r0-contracts.md).
 
@@ -1008,7 +1008,7 @@ semantic-change hashes, publication, and revision history.
 
 ### Phase R3 - Bind remote Test Odoo and apply same-ish data
 
-**Status:** Current priority.
+**Status:** Completed on 2026-08-19.
 
 - Implement TargetBinding creation from current non-secret target settings,
   credential generation, probe, principal, permission, context, schema, and
@@ -1024,7 +1024,18 @@ semantic-change hashes, publication, and revision history.
 `German`, `LUX`, structural, target, parameter, or credential drift, and creates
 a fresh exact MappingDefinition without copying old evidence.
 
+**Evidence:** the
+[Phase R3 implementation report](../reports/reusable-recipes-phase-r3-test-application-2026-08-19.md)
+and focused
+[`test_recipe_application`](../../tests/test_recipe_application.py) suite cover
+fresh Test DataVersions, exact TargetBindings, same-ish source binding,
+structural preparation, categorical blockers, target and credential drift,
+mapping-bound quality seeds, fresh MappingWorkingDraft creation, and protected
+application evidence.
+
 ### Phase R4 - Fine-tune and qualify on Test Odoo
+
+**Status:** Current priority.
 
 - Run preparation, quality, comparison, execution, read-back, and reconciliation
   against the Test TargetBinding.

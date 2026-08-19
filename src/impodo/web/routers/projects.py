@@ -26,6 +26,7 @@ from ...projects import (
     registration_problems,
 )
 from ...recipes import RecipeError
+from ...domain.recipe_applications import RecipeApplicationError
 from ...secrets import SecretStoreError
 from ..security import require_session
 from fastapi import APIRouter
@@ -35,9 +36,11 @@ from ..forms import _form_values, _revision, _secure_form, _text
 from ..presenters.common import _flash, _project_error, _render
 from ..presenters.mapping_forms import _draft_or_redirect
 from ..target_credentials import (
+    TargetCredentialRole,
     TargetCredentialRemovalReason,
     audit_removed_target_credentials,
     delete_target_credentials,
+    get_target_credential,
 )
 
 
@@ -179,6 +182,14 @@ def build_projects_router(context: WebContext) -> APIRouter:
             if draft.workspace_project_id
             else None
         )
+        current_data_version = next(
+            (
+                item
+                for item in versions
+                if item.data_version_id == recipe.current_data_version_id
+            ),
+            None,
+        )
         return _render(
             request,
             "recipe_overview.html",
@@ -187,11 +198,212 @@ def build_projects_router(context: WebContext) -> APIRouter:
             recipe_revisions=revisions,
             recipe_draft=draft,
             project=project,
+            current_data_version=current_data_version,
             recovery_href=(
                 _recipe_recovery_href(project, draft.issues[0].code)
                 if project is not None and draft.issues
                 else None
             ),
+        )
+
+    @router.get("/recipes/{recipe_id}/test", response_class=HTMLResponse)
+    async def start_recipe_test_form(request: Request, recipe_id: str):
+        require_session(request)
+        recipe = context.recipes.get(recipe_id, actor=context.actor)
+        if recipe.current_recipe_revision is None:
+            return RedirectResponse(f"/recipes/{recipe_id}", status_code=303)
+        envelope = context.recipes.read_revision(
+            recipe_id,
+            recipe.current_recipe_revision,
+            actor=context.actor,
+        )
+        parameters = tuple(
+            dict(envelope["recipe"]["parameter_definitions"]).get(
+                "parameters",
+                (),
+            )
+        )
+        return _render(
+            request,
+            "recipe_test_start.html",
+            recipe=recipe,
+            parameters=parameters,
+            values={},
+        )
+
+    @router.post("/recipes/{recipe_id}/test")
+    async def start_recipe_test(request: Request, recipe_id: str):
+        form = await request.form()
+        recipe = context.recipes.get(recipe_id, actor=context.actor)
+        if recipe.current_recipe_revision is None:
+            return RedirectResponse(f"/recipes/{recipe_id}", status_code=303)
+        envelope = context.recipes.read_revision(
+            recipe_id,
+            recipe.current_recipe_revision,
+            actor=context.actor,
+        )
+        parameters = tuple(
+            dict(envelope["recipe"]["parameter_definitions"]).get(
+                "parameters",
+                (),
+            )
+        )
+        parameter_fields = {
+            f"parameter__{item['logical_parameter_id']}" for item in parameters
+        }
+        _secure_form(
+            request,
+            form,
+            {
+                "csrf_token",
+                "expected_recipe_revision",
+                "label",
+                *parameter_fields,
+            },
+        )
+        values = _form_values(form)
+        supplied = {
+            str(item["logical_parameter_id"]): _text(
+                form,
+                f"parameter__{item['logical_parameter_id']}",
+            )
+            for item in parameters
+        }
+        try:
+            _data_version, project = context.recipe_applications.start_test_data_version(
+                recipe_id,
+                expected_recipe_revision=int(
+                    _text(form, "expected_recipe_revision")
+                ),
+                label=_text(form, "label"),
+                parameter_values=supplied,
+                actor=context.actor,
+            )
+        except (RecipeError, RecipeApplicationError, ProjectError, ValueError) as error:
+            return _render(
+                request,
+                "recipe_test_start.html",
+                recipe=context.recipes.get(recipe_id, actor=context.actor),
+                parameters=parameters,
+                values=values,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, "Test data version created. Add the representative replacement files.")
+        return RedirectResponse(
+            f"/projects/{project.project_id}/files",
+            status_code=303,
+        )
+
+    @router.get("/recipes/{recipe_id}/application", response_class=HTMLResponse)
+    async def recipe_application_review(request: Request, recipe_id: str):
+        require_session(request)
+        return _render_recipe_application(request, context, recipe_id)
+
+    @router.post("/recipes/{recipe_id}/application/inputs")
+    async def save_recipe_application_inputs(request: Request, recipe_id: str):
+        form = await request.form()
+        review = _recipe_application_review(context, recipe_id)
+        parameter_fields = {
+            f"parameter__{item['logical_parameter_id']}"
+            for item in review.parameter_definitions
+        }
+        control_fields = {
+            f"control__{item['logical_control_id']}"
+            for item in review.control_definitions
+        }
+        override_fields = {
+            f"override__{logical_id}" for logical_id in review.source_candidates
+        }
+        _secure_form(
+            request,
+            form,
+            {"csrf_token", *parameter_fields, *control_fields, *override_fields},
+        )
+        parameters = {
+            str(item["logical_parameter_id"]): _text(
+                form,
+                f"parameter__{item['logical_parameter_id']}",
+            )
+            for item in review.parameter_definitions
+        }
+        controls = {
+            str(item["logical_control_id"]): _text(
+                form,
+                f"control__{item['logical_control_id']}",
+            )
+            for item in review.control_definitions
+        }
+        overrides = {
+            logical_id: _text(form, f"override__{logical_id}")
+            for logical_id in review.source_candidates
+            if _text(form, f"override__{logical_id}")
+        }
+        try:
+            context.recipe_applications.save_inputs(
+                recipe_id,
+                parameter_values=parameters,
+                control_values=controls,
+                overrides=overrides,
+                actor=context.actor,
+            )
+        except (RecipeError, RecipeApplicationError, ProjectError, ValueError) as error:
+            return _render_recipe_application(
+                request,
+                context,
+                recipe_id,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(request, "Current data-version inputs saved.")
+        return RedirectResponse(
+            f"/recipes/{recipe_id}/application",
+            status_code=303,
+        )
+
+    @router.post("/recipes/{recipe_id}/apply")
+    async def apply_recipe(request: Request, recipe_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        try:
+            review = _recipe_application_review(context, recipe_id)
+            credential = get_target_credential(
+                context.secret_store,
+                review.project,
+                TargetCredentialRole.READ,
+            )
+            if credential is None:
+                raise RecipeApplicationError(
+                    "Enter and probe the read-only Test Odoo API key first"
+                )
+            evidence = context.recipe_applications.apply(
+                recipe_id,
+                credential_generation=credential.binding_hash,
+                credential_storage_class=(
+                    "OPERATING_SYSTEM_VAULT" if credential.persistent else "SESSION"
+                ),
+                actor=context.actor,
+            )
+        except (RecipeError, RecipeApplicationError, ProjectError, SecretStoreError, ValueError) as error:
+            return _render_recipe_application(
+                request,
+                context,
+                recipe_id,
+                error=str(error),
+                status_code=422,
+            )
+        if evidence.status.value == "BLOCKED":
+            return _render_recipe_application(
+                request,
+                context,
+                recipe_id,
+                error="Review the focused drift items before applying this Recipe.",
+                status_code=422,
+            )
+        _flash(request, "Recipe applied. Review the fresh field matches before submitting them.")
+        return RedirectResponse(
+            f"/projects/{evidence.workspace_project_id}/mapping",
+            status_code=303,
         )
 
     @router.post("/recipes/{recipe_id}/publish")
@@ -515,6 +727,60 @@ def build_projects_router(context: WebContext) -> APIRouter:
         )
 
     return router
+
+
+def _recipe_application_review(context: WebContext, recipe_id: str):
+    """Build one review using only safe credential-generation metadata."""
+
+    recipe = context.recipes.get(recipe_id, actor=context.actor)
+    versions = context.recipes.data_versions(recipe_id, actor=context.actor)
+    current = next(
+        item
+        for item in versions
+        if item.data_version_id == recipe.current_data_version_id
+    )
+    project = context.queries.get(current.workspace_project_id)
+    try:
+        credential = get_target_credential(
+            context.secret_store,
+            project,
+            TargetCredentialRole.READ,
+        )
+    except SecretStoreError:
+        credential = None
+    return context.recipe_applications.review(
+        recipe_id,
+        credential_generation=(credential.binding_hash if credential else ""),
+        credential_storage_class=(
+            "OPERATING_SYSTEM_VAULT"
+            if credential is not None and credential.persistent
+            else "SESSION"
+        ),
+        actor=context.actor,
+    )
+
+
+def _render_recipe_application(
+    request: Request,
+    context: WebContext,
+    recipe_id: str,
+    *,
+    error: str | None = None,
+    status_code: int = 200,
+):
+    review = _recipe_application_review(context, recipe_id)
+    recipe = context.recipes.get(recipe_id, actor=context.actor)
+    return _render(
+        request,
+        "recipe_application.html",
+        recipe=recipe,
+        project=review.project,
+        application_review=review,
+        blocker_count=sum(item.blocks for item in review.issues),
+        information_count=sum(not item.blocks for item in review.issues),
+        error=error,
+        status_code=status_code,
+    )
 
 
 def _recipe_recovery_href(project, issue_code: str) -> str:

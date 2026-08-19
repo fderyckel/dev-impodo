@@ -327,6 +327,46 @@ class RecipePersistenceTests(unittest.TestCase):
             self.recipe_repository.resolve_workspace(bootstrap.recipe_id)
         self.assertEqual(len(self.recipe_repository.list()), 1)
 
+    def test_active_data_version_parameter_hash_updates_optimistically(self):
+        _first_project, recipe = self._project_and_recipe()
+        self._publish_first_revision(recipe.recipe_id)
+        recipe = self.recipe_repository.get(recipe.recipe_id)
+        workspace = self.project_service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Customer parameter rehearsal",
+            source_system="CSV export",
+        )
+        first_hash = "sha256:" + "1" * 64
+        second_hash = "sha256:" + "2" * 64
+        self.service.create_data_version(
+            recipe.recipe_id,
+            expected_recipe_revision=recipe.optimistic_revision,
+            workspace_project_id=workspace.project_id,
+            purpose=DataVersionPurpose.TEST,
+            label="Customer parameter rehearsal",
+            parameter_values_hash=first_hash,
+            actor=LOCAL_ACTOR,
+        )
+        data_version = self.recipe_repository.data_versions(recipe.recipe_id)[-1]
+
+        updated = self.service.update_data_version_parameter_values_hash(
+            recipe.recipe_id,
+            data_version.data_version_id,
+            expected_hash=first_hash,
+            parameter_values_hash=second_hash,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(updated.parameter_values_hash, second_hash)
+        with self.assertRaises(RecipeConflictError):
+            self.service.update_data_version_parameter_values_hash(
+                recipe.recipe_id,
+                data_version.data_version_id,
+                expected_hash=first_hash,
+                parameter_values_hash="sha256:" + "3" * 64,
+                actor=LOCAL_ACTOR,
+            )
+
     def test_exact_application_qualification_and_cutover_are_separate(self) -> None:
         project, recipe = self._project_and_recipe()
         self._publish_first_revision(recipe.recipe_id)

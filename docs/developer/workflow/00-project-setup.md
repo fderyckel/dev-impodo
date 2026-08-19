@@ -31,6 +31,15 @@ accepted through the bounded intake service and stored under generated
 identifiers. `target.py` handles Local or Remote Odoo configuration and local
 stack readiness without expanding the later connector capabilities.
 
+For a published revision, the same router delegates Test DataVersion creation,
+focused compatibility review, and application to `RecipeApplicationService`.
+That service creates a clean file workspace, stores fresh parameter/control
+inputs locally, binds only non-secret live target and credential-generation
+evidence, rebuilds supported source preparation and governance, scans current
+categorical domains, and saves a normal `MappingWorkingDraft`. It stages
+manager-authored quality rules for that exact mapping hash; `QualityService`
+regenerates automatic rules after the mapping is confirmed.
+
 Registration validates the complete setup, advances the project to
 `REGISTERED`, increments its optimistic revision, writes canonical
 registration evidence, and records an actor-bound audit event. The overview
@@ -41,6 +50,8 @@ then delegates stage status to `build_project_navigation`.
 | Role | Code |
 | --- | --- |
 | Recipe creation and publication | [`RecipeAuthoringService`](../../../src/impodo/application/recipe_authoring_service.py) |
+| Recipe Test application | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
+| Application contracts | [`recipe_applications.py`](../../../src/impodo/domain/recipe_applications.py) |
 | Contained project lifecycle | [`ProjectService`](../../../src/impodo/projects.py) |
 | Registration command | `ProjectService.register` in [`projects.py`](../../../src/impodo/projects.py) |
 | Browser routes | [`projects.py`](../../../src/impodo/web/routers/projects.py) |
@@ -82,6 +93,7 @@ per-stage or per-dataset repository reads in a loop.
 - [`tests/test_projects.py`](../../../tests/test_projects.py)
 - [`tests/test_project_security.py`](../../../tests/test_project_security.py)
 - [`tests/test_recipe_authoring.py`](../../../tests/test_recipe_authoring.py)
+- [`tests/test_recipe_application.py`](../../../tests/test_recipe_application.py)
 - [`tests/test_web_app.py`](../../../tests/test_web_app.py)
 
 Verify optimistic revisions, registration readiness, contained file paths,

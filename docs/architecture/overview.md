@@ -71,8 +71,11 @@ lineage and recovery state. **New Recipe** provisions Recipe plus authoring
 DataVersion 1. The Recipe overview projects publication readiness from exact
 current workspace evidence, publishes portable immutable revisions, and shows
 Recipe/DataVersion history. Current project URLs remain compatible through
-explicit Recipe/DataVersion resolution, and matching retains its established
-editor.
+explicit Recipe/DataVersion resolution. A published revision can now provision
+a clean Test DataVersion, bind current replacement source and non-secret remote
+Test target evidence, show focused drift, rebuild reusable preparation and
+governance, and compile a fresh mapping draft. Matching retains its established
+editor, with only surrounding Recipe-application status.
 
 The repository also contains a profile-driven preflight engine and CLI. It is
 a separate entry path that retains strict CSV and declared-sheet XLSX loading
@@ -118,8 +121,8 @@ governed business keys invalidates downstream mapping evidence.
 | Layer | Responsibilities | Main modules |
 | --- | --- | --- |
 | Browser | Local route composition, workflow routers, presenters, templates, sessions, CSRF, and security headers | `web/app.py`, `web/routers/`, `web/presenters/` |
-| Application | Recipe lineage and recovery, project commands, intake, source capture/publication, schema governance, mapping, preparation, quality, normalization, preflight, execution, and reconciliation orchestration | `application/recipe_service.py`, `projects.py`, `intake.py`, `application/source_workspace_service.py`, `application/odoo_source_capture_service.py`, `application/odoo_capture_publication_service.py`, `application/schema_workspace_service.py`, `application/mapping_workspace_service.py`, `application/preparation_service.py`, `application/quality_service.py`, `application/normalization_service.py`, `application/preflight_service.py`, `application/execution_service.py`, `application/reconciliation_service.py` |
-| Domain | Authorization, Recipe/DataVersion identities, project lifecycle, source bindings and snapshots, mapping meaning, staging evaluation, execution snapshots, reconciliation, approvals, and deterministic values | `access.py`, `recipes.py`, `projects.py`, `domain/source_binding.py`, `domain/source_snapshot.py`, `domain/odoo_capture.py`, `domain/mapping/`, `domain/compiler/`, `domain/staging/`, `domain/execution.py`, `domain/reconciliation.py`, `approvals.py`, `models.py` |
+| Application | Recipe lineage, authoring, Test application and recovery, project commands, intake, source capture/publication, schema governance, mapping, preparation, quality, normalization, preflight, execution, and reconciliation orchestration | `application/recipe_service.py`, `application/recipe_authoring_service.py`, `application/recipe_application_service.py`, `projects.py`, `intake.py`, `application/source_workspace_service.py`, `application/odoo_source_capture_service.py`, `application/odoo_capture_publication_service.py`, `application/schema_workspace_service.py`, `application/mapping_workspace_service.py`, `application/preparation_service.py`, `application/quality_service.py`, `application/normalization_service.py`, `application/preflight_service.py`, `application/execution_service.py`, `application/reconciliation_service.py` |
+| Domain | Authorization, Recipe/DataVersion and application identities, exact TargetBindings, project lifecycle, source bindings and snapshots, mapping meaning, staging evaluation, execution snapshots, reconciliation, approvals, and deterministic values | `access.py`, `recipes.py`, `domain/recipe_applications.py`, `projects.py`, `domain/source_binding.py`, `domain/source_snapshot.py`, `domain/odoo_capture.py`, `domain/mapping/`, `domain/compiler/`, `domain/staging/`, `domain/execution.py`, `domain/reconciliation.py`, `approvals.py`, `models.py` |
 | Local adapters | Focused DuckDB repositories, protected Recipe and Odoo payloads, artifacts, credentials, jobs, and resource-bounded workers | `adapters/duckdb/`, `adapters/protected_recipe_store.py`, `adapters/protected_odoo_provenance.py`, `artifacts.py`, `secrets.py`, `jobs.py`, `source_worker.py`, `application/preparation_job_service.py` |
 | Odoo boundary | Remote JSON-2 identity and data reads, bounded source capture, fixed local metadata reads, schema-bound writes, post-write read-back, and local-stack readiness | `connectors.py`, `adapters/odoo_source_capture.py`, `local_odoo_reader.py`, `odoo_writer.py`, `odoo_readback.py`, `local_stack.py` |
 | Preflight | Compiled semantics, frozen-row adaptation, bounded read planning, comparison, and reporting | `domain/compiler/`, `domain/preflight/`, `planner.py`, `metadata.py`, `catalog.py`, `engine.py`, `reporting.py` |

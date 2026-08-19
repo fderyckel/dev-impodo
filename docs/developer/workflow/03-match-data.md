@@ -35,6 +35,14 @@ providers, conversions, identities, relationships, write scope, and coverage.
 `TransformationImpactService` evaluates the checked rules against frozen source
 values without changing source evidence.
 
+For a published Recipe Test application,
+`RecipeApplicationService.apply` first checks exact current source, target,
+parameter, control, reference, credential-generation, and categorical
+evidence. A compatible application saves an ordinary fresh
+`MappingWorkingDraft`; it does not bypass this screen's validation, impact,
+acknowledgement, or submission flow. The presenter adds only a status banner
+identifying the Recipe-built draft.
+
 ## Contract invariants
 
 Each dataset declares one permitted target model and `upsert`, `create`,
@@ -86,6 +94,7 @@ and final-review responsibilities, not mapping-preview claims.
 | Mapping contracts | [`contracts.py`](../../../src/impodo/domain/mapping/contracts.py) |
 | Semantic validator | [`validator.py`](../../../src/impodo/domain/mapping/validation/validator.py) |
 | Rule-impact service | [`TransformationImpactService`](../../../src/impodo/application/transformation_impact_service.py) |
+| Recipe draft compilation | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Browser routes | [`mapping.py`](../../../src/impodo/web/routers/mapping.py) |
 
 ## Evidence and state
@@ -131,6 +140,7 @@ look plausible.
 - [`tests/test_mapping_validation.py`](../../../tests/test_mapping_validation.py)
 - [`tests/test_mapping_impact_presenter.py`](../../../tests/test_mapping_impact_presenter.py)
 - [`tests/test_web_app.py`](../../../tests/test_web_app.py)
+- [`tests/test_recipe_application.py`](../../../tests/test_recipe_application.py)
 
 Verify draft recovery, stale versions, semantic validation, relation modes,
 ordered transformations, zero-match acknowledgement, hash binding, and exact

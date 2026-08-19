@@ -323,6 +323,26 @@ class RecipeService:
             new_state=RecipeIntentState.COMPLETE,
         )
 
+    def update_data_version_parameter_values_hash(
+        self,
+        recipe_id: str,
+        data_version_id: str,
+        *,
+        expected_hash: str,
+        parameter_values_hash: str,
+        actor: Actor,
+    ) -> DataVersion:
+        """Pin edited Test inputs to the same exact DataVersion lineage."""
+
+        self.authorization.require(actor, Capability.RECIPE_APPLY)
+        self.authorization.require(actor, Capability.DATA_VERSION_CREATE)
+        return self.repository.update_data_version_parameter_values_hash(
+            recipe_id,
+            data_version_id,
+            expected_hash=expected_hash,
+            parameter_values_hash=parameter_values_hash,
+        )
+
     def publish_qualification(
         self,
         recipe_id: str,

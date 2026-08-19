@@ -22,7 +22,10 @@ from impodo.application.bounded_quality import (
     BoundedQualityUnsupported,
     build_bounded_quality_run,
 )
-from impodo.application.quality_service import QualityService
+from impodo.application.quality_service import (
+    QualityConfigurationContext,
+    QualityService,
+)
 from impodo.domain.errors import ReadinessError
 from impodo.domain.compiler import compile_profile_document
 from impodo.planner import plan_record_requests
@@ -138,6 +141,58 @@ class QualityEvaluationTests(unittest.TestCase):
             )
 
         repository.publish_quality_run.assert_not_called()
+
+    def test_recipe_business_rule_seed_survives_first_fresh_ruleset(self) -> None:
+        seed = manager_quality_rule(
+            project_id=self.project.project_id,
+            dataset="contacts",
+            family=QualityRuleFamily.EQUALITY,
+            name="Names agree",
+            input_fields=("name", "display_name"),
+            outcome=QualityOutcomePolicy.WARNING,
+        )
+        quality_repository = MagicMock()
+        quality_repository.get_current_quality_ruleset.return_value = None
+        quality_repository.publish_quality_ruleset.side_effect = (
+            lambda _project_id, ruleset, *, actor: ruleset
+        )
+        seed_repository = MagicMock()
+        seed_repository.get_quality_seed.return_value = (seed,)
+        service = QualityService(
+            MagicMock(),
+            MagicMock(),
+            quality_repository,
+            recipe_quality=seed_repository,
+        )
+        definition = SimpleNamespace(
+            content_hash=MAPPING_HASH,
+            schema_hash=SCHEMA_HASH,
+        )
+        context = QualityConfigurationContext(
+            project_id=self.project.project_id,
+            revision=SimpleNamespace(definition=definition),
+            selection=SimpleNamespace(
+                datasets=(
+                    SimpleNamespace(name="contacts"),
+                    SimpleNamespace(name="addresses"),
+                )
+            ),
+            dataset_id="dataset:addresses",
+            dataset_name="addresses",
+            allowed_fields=frozenset({"city", "country"}),
+        )
+
+        ruleset = service.save_manager_rules(
+            context,
+            (),
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertIn(seed, ruleset.manager_rules)
+        seed_repository.get_quality_seed.assert_called_once_with(
+            self.project.project_id,
+            MAPPING_HASH,
+        )
 
     def test_collision_quarantines_complete_group_and_reconciles_sources(self) -> None:
         rows = (

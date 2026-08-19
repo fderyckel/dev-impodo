@@ -134,6 +134,49 @@ class RecipeRepository(DuckDbRepository):
             for row in rows
         )
 
+    def update_data_version_parameter_values_hash(
+        self,
+        recipe_id: str,
+        data_version_id: str,
+        *,
+        expected_hash: str,
+        parameter_values_hash: str,
+    ) -> DataVersion:
+        """Move one active DataVersion to newly confirmed parameter evidence."""
+
+        recipe_id = require_uuid(recipe_id, "recipe_id")
+        data_version_id = require_uuid(data_version_id, "data_version_id")
+        require_hash(expected_hash, "expected_hash")
+        require_hash(parameter_values_hash, "parameter_values_hash")
+        with self._connect(self.registry_path) as connection:
+            row = connection.execute(
+                """
+                UPDATE data_version
+                   SET parameter_values_hash = ?
+                 WHERE recipe_id = ? AND data_version_id = ?
+                   AND state = 'ACTIVE' AND parameter_values_hash = ?
+                   AND EXISTS (
+                       SELECT 1 FROM recipe r
+                        WHERE r.recipe_id = data_version.recipe_id
+                          AND r.current_data_version_id = data_version.data_version_id
+                          AND r.state = 'ACTIVE'
+                   )
+                 RETURNING *
+                """,
+                [
+                    parameter_values_hash,
+                    recipe_id,
+                    data_version_id,
+                    expected_hash,
+                ],
+            ).fetchone()
+            columns = [item[0] for item in connection.description]
+        if row is None:
+            raise RecipeConflictError(
+                "Recipe parameter values changed; reload before saving them"
+            )
+        return self._data_version(dict(zip(columns, row, strict=True)))
+
     def revision_record(
         self,
         recipe_id: str,

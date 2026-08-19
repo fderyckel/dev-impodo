@@ -15,11 +15,29 @@
   {% if project and project.status.value != "REGISTERED" %}
     <section class="next-action-card current" aria-labelledby="recipe-setup-title">
       <div>
-        <p class="eyebrow">Data version 1</p>
-        <h2 id="recipe-setup-title">Complete Recipe setup</h2>
-        <p>Set the source, governance and Odoo destination for representative authoring data.</p>
+        <p class="eyebrow">Data version {{ current_data_version.version_number if current_data_version else 1 }}</p>
+        <h2 id="recipe-setup-title">{% if current_data_version and current_data_version.purpose.value == 'TEST' %}Complete Test data setup{% else %}Complete Recipe setup{% endif %}</h2>
+        <p>{% if current_data_version and current_data_version.purpose.value == 'TEST' %}Add representative replacement files and configure the separate remote Test Odoo server.{% else %}Set the source, governance and Odoo destination for representative authoring data.{% endif %}</p>
       </div>
-      <a class="button primary" href="/projects/{{ project.project_id }}/details">Continue setup</a>
+      <a class="button primary" href="/projects/{{ project.project_id }}/{% if current_data_version and current_data_version.purpose.value == 'TEST' %}files{% else %}details{% endif %}">Continue setup</a>
+    </section>
+  {% elif current_data_version and current_data_version.purpose.value == 'TEST' %}
+    <section class="next-action-card current" aria-labelledby="recipe-apply-title">
+      <div>
+        <p class="eyebrow">Test data version {{ current_data_version.version_number }}</p>
+        <h2 id="recipe-apply-title">Apply Recipe v{{ current_data_version.pinned_recipe_revision }}</h2>
+        <p>Review only source, target, parameter, control and credential drift before creating fresh field matches.</p>
+      </div>
+      <a class="button primary" href="/recipes/{{ recipe.recipe_id }}/application">Review application</a>
+    </section>
+  {% elif recipe.current_recipe_revision %}
+    <section class="next-action-card ready" aria-labelledby="recipe-test-title">
+      <div>
+        <p class="eyebrow">Published Recipe v{{ recipe.current_recipe_revision }}</p>
+        <h2 id="recipe-test-title">Test on Odoo</h2>
+        <p>Use representative replacement data and a separately configured remote Test server and API key.</p>
+      </div>
+      <a class="button primary" href="/recipes/{{ recipe.recipe_id }}/test">Create Test data version</a>
     </section>
   {% elif recipe_draft.can_publish %}
     <section class="next-action-card ready" aria-labelledby="recipe-publish-title">

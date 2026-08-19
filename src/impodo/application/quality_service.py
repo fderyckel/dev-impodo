@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from typing import Protocol
 
 from ..access import Actor
 from ..domain.mapping.artifacts import MappingRevision
@@ -37,6 +38,16 @@ from .bounded_quality import (
 )
 
 
+class RecipeQualitySeedRepository(Protocol):
+    """Read reusable business checks staged for one exact mapping draft."""
+
+    def get_quality_seed(
+        self,
+        project_id: str,
+        mapping_content_hash: str,
+    ) -> tuple[QualityRule, ...]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class QualityConfigurationContext:
     """Validated mapping/source scope for editing one dataset's manager rules."""
@@ -57,10 +68,13 @@ class QualityService:
         mappings: QualityMappingRepository,
         sources: QualitySourceRepository,
         quality: QualityRepository,
+        *,
+        recipe_quality: RecipeQualitySeedRepository | None = None,
     ) -> None:
         self.mappings = mappings
         self.sources = sources
         self.quality = quality
+        self.recipe_quality = recipe_quality
 
     def current_ruleset(self, project_id: str) -> QualityRuleSet | None:
         """Return the currently published Stage-F rule contract."""
@@ -164,6 +178,15 @@ class QualityService:
                 for item in current.manager_rules
                 if item.dataset != context.dataset_name
             )
+        elif self.recipe_quality is not None:
+            combined.extend(
+                item
+                for item in self.recipe_quality.get_quality_seed(
+                    context.project_id,
+                    context.revision.definition.content_hash,
+                )
+                if item.dataset != context.dataset_name
+            )
         ruleset = default_quality_ruleset(
             project_id=context.project_id,
             mapping_hash=context.revision.definition.content_hash,
@@ -229,6 +252,14 @@ class QualityService:
                 datasets=(item.name for item in selection.datasets),
                 version=(ruleset.version + 1 if ruleset is not None else 1),
                 parent_version=(ruleset.version if ruleset is not None else None),
+                manager_rules=(
+                    self.recipe_quality.get_quality_seed(
+                        project.project_id,
+                        revision.definition.content_hash,
+                    )
+                    if self.recipe_quality is not None
+                    else ()
+                ),
             )
             ruleset = self.quality.publish_quality_ruleset(
                 project.project_id,

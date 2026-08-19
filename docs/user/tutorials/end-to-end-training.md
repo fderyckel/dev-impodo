@@ -132,6 +132,14 @@ The six stages are the data manager's main route:
 Use the next action shown on the overview. Avoid jumping ahead through sidebar
 links when an earlier stage still needs attention.
 
+For the first authoring data version, complete these stages and publish the
+Recipe from its overview. To rehearse the published rules later, select
+**Test on Odoo**, create a clean Test data version, and repeat only the source
+and Odoo evidence capture with representative replacement data and the current
+Test API key. **Apply Recipe** then shows structural, value-choice, target, or
+credential differences and opens the same Match data screen with a fresh
+mapping draft. The original API key and prior target evidence are never reused.
+
 ## 2. Check and confirm the source files
 
 Open **Source data** and select **Check source files**. Impodo verifies the

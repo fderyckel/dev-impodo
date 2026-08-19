@@ -37,9 +37,18 @@ def _render(
             project.project_id,
             actor=application.actor,
         )
+        data_version = next(
+            item
+            for item in application.recipes.data_versions(
+                resolution.recipe_id,
+                actor=application.actor,
+            )
+            if item.data_version_id == resolution.data_version_id
+        )
         context["recipe_context"] = {
             "data_version_id": resolution.data_version_id,
             "data_version_number": resolution.data_version_number,
+            "data_version_purpose": data_version.purpose.value,
             "recipe_id": resolution.recipe_id,
         }
     values = {

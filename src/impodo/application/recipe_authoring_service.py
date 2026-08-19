@@ -667,8 +667,10 @@ class RecipeAuthoringService:
                         "on_ambiguous": relation.on_ambiguous,
                         "on_missing": relation.on_missing,
                         "operation": relation.operation,
+                        "null_policy": relation.null_policy,
                         "required": relation.required,
                         "required_on_create": relation.required_on_create,
+                        "separator": relation.separator,
                         "source_column_ids": [
                             self._column(dataset.dataset_id, key, columns)
                             for key in relation.source_column_keys
@@ -683,8 +685,30 @@ class RecipeAuthoringService:
                         "target_key_fields": [
                             item.target_field for item in resolver.key_mappings
                         ],
+                        "target_key_mappings": [
+                            {
+                                "source_column_id": self._column(
+                                    dataset.dataset_id,
+                                    item.source_column_key,
+                                    columns,
+                                ),
+                                "target_field": item.target_field,
+                            }
+                            for item in resolver.key_mappings
+                        ],
                         "target_scope_fields": [
                             item.target_field for item in resolver.scope_mappings
+                        ],
+                        "target_scope_mappings": [
+                            {
+                                "source_column_id": self._column(
+                                    dataset.dataset_id,
+                                    item.source_column_key,
+                                    columns,
+                                ),
+                                "target_field": item.target_field,
+                            }
+                            for item in resolver.scope_mappings
                         ],
                         "validate_only": relation.validate_only,
                         "value_matches": [
@@ -707,6 +731,10 @@ class RecipeAuthoringService:
                     "mode": dataset.mode.value.upper(),
                     "on_existing": dataset.on_existing,
                     "relationships": relationships,
+                    "source_identity_column_ids": [
+                        self._column(dataset.dataset_id, key, columns)
+                        for key in dataset.source_identity_column_keys
+                    ],
                     "scope": [
                         self._identity(item, dataset.dataset_id, columns, dataset_ids)
                         for item in dataset.target_scope
@@ -741,8 +769,30 @@ class RecipeAuthoringService:
                     "target_key_fields": [
                         value.target_field for value in resolver.key_mappings
                     ],
+                    "target_key_mappings": [
+                        {
+                            "source_column_id": self._column(
+                                dataset_id,
+                                value.source_column_key,
+                                columns,
+                            ),
+                            "target_field": value.target_field,
+                        }
+                        for value in resolver.key_mappings
+                    ],
                     "target_scope_fields": [
                         value.target_field for value in resolver.scope_mappings
+                    ],
+                    "target_scope_mappings": [
+                        {
+                            "source_column_id": self._column(
+                                dataset_id,
+                                value.source_column_key,
+                                columns,
+                            ),
+                            "target_field": value.target_field,
+                        }
+                        for value in resolver.scope_mappings
                     ],
                     "value_matches": [
                         portable(asdict(value)) for value in resolver.value_mappings
