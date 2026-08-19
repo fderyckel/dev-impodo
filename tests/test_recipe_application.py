@@ -21,6 +21,7 @@ from impodo.adapters.duckdb.recipe_repository import RecipeRepository
 from impodo.application.recipe_application_service import RecipeApplicationService
 from impodo.domain.recipe_applications import (
     RecipeApplicationDraft,
+    RecipeApplicationError,
     RecipeApplicationState,
     RecipeControlValues,
     RecipeParameterValues,

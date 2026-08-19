@@ -50,6 +50,23 @@ The data-version overview opens, the setup is registered, and Impodo shows the
 first available workflow action. Registration does not publish the Recipe or
 load data into Odoo.
 
+## Declare inputs that change with each data version
+
+After the authoring workspace is registered, the Recipe overview shows
+**Inputs for each data version**. File Recipes always include the required
+export as-of date. Add other reusable context before publishing, for example a
+required text input named `warehouse` with the label **Warehouse**.
+
+The declaration belongs to the Recipe revision; the value does not. A Test
+data version can therefore use `WH-TEST` and the rollout data version can use
+`WH-LUX` without changing the qualified Recipe. Adding a new input, changing
+its type, or removing it changes reusable meaning and must be published and
+tested as a new Recipe revision. A value for an input that the selected
+revision did not declare is rejected.
+
+Application inputs are typed context and control/provenance evidence. They do
+not silently replace a matched source value or grant Odoo write authority.
+
 ## What changes and what does not
 
 Registration saves an auditable contained workspace boundary. It does not edit
@@ -62,7 +79,7 @@ After the authoring workspace is complete and its Recipe revision is
 published, return to the Recipe overview and select **Test on Odoo**.
 
 1. Create a fresh Test data version and enter its declared values, such as the
-   current export date.
+   current export date and warehouse.
 2. Add and freeze the representative replacement files through the normal
    Source data step.
 3. Connect the remote Test Odoo server and supply its current read-only API

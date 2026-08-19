@@ -31,6 +31,15 @@ accepted through the bounded intake service and stored under generated
 identifiers. `target.py` handles Local or Remote Odoo configuration and local
 stack readiness without expanding the later connector capabilities.
 
+Registered Authoring workspaces may also store explicit custom parameter
+declarations through `RecipeAuthoringService`. The project-local,
+content-hashed declaration set is separate from every Test or Production value
+set. Publication converts stable names such as `warehouse` to logical IDs such
+as `parameter:warehouse`; file Recipes also receive the built-in export as-of
+date. Declarations support string, date, integer, and decimal values and are
+limited to controls/provenance use sites. Application rejects values whose
+logical IDs are absent from the selected immutable revision.
+
 For a published revision, the same router delegates Test and Production
 DataVersion creation, focused compatibility review, and application to
 `RecipeApplicationService`. Test creation pins the current revision. Production
@@ -67,6 +76,8 @@ then delegates stage status to `build_project_navigation`.
 | Role | Code |
 | --- | --- |
 | Recipe creation and publication | [`RecipeAuthoringService`](../../../src/impodo/application/recipe_authoring_service.py) |
+| Authoring parameter contracts | [`recipe_parameters.py`](../../../src/impodo/domain/recipe_parameters.py) |
+| Authoring parameter persistence | [`RecipeAuthoringRepository`](../../../src/impodo/adapters/duckdb/recipe_authoring_repository.py) |
 | Recipe Test and Production application | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Recipe Test qualification | [`RecipeQualificationService`](../../../src/impodo/application/recipe_qualification_service.py) |
 | Application contracts | [`recipe_applications.py`](../../../src/impodo/domain/recipe_applications.py) |
@@ -81,10 +92,12 @@ then delegates stage status to `build_project_navigation`.
 The durable aggregate root is `Recipe`; `DataVersion` owns one contained
 `MigrationProject`. Registration binds the workspace source mode, business
 ownership, governance, target identity, source-file catalogue, and revision.
-RecipeDraft projects current Authoring evidence without copying it. Publication compiles
-portable meaning only after the current mapping, governance, quality, and
-source evidence pass eligibility. Test and Production DataVersions cannot
-publish new Recipe meaning. Credentials stay outside Recipe semantics.
+RecipeDraft projects current Authoring evidence without copying it. Publication
+compiles portable meaning only after the current mapping, governance, quality,
+source, and parameter-declaration evidence pass eligibility. Parameter
+declarations are Recipe meaning; confirmed parameter and control values are
+DataVersion evidence. Test and Production DataVersions cannot publish new
+Recipe meaning. Credentials stay outside Recipe semantics.
 
 ## Completion and navigation
 
@@ -116,6 +129,7 @@ per-stage or per-dataset repository reads in a loop.
 - [`tests/test_recipe_application.py`](../../../tests/test_recipe_application.py)
 - [`tests/test_recipe_qualification.py`](../../../tests/test_recipe_qualification.py)
 - [`tests/test_recipe_qualification_web.py`](../../../tests/test_recipe_qualification_web.py)
+- [`tests/test_recipe_representative_shapes.py`](../../../tests/test_recipe_representative_shapes.py)
 - [`tests/test_web_app.py`](../../../tests/test_web_app.py)
 
 Verify optimistic revisions, registration readiness, contained file paths,

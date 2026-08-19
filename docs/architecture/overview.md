@@ -75,7 +75,12 @@ explicit Recipe/DataVersion resolution. A published revision can now provision
 a clean Test DataVersion, bind current replacement source and non-secret remote
 Test target evidence, show focused drift, rebuild reusable preparation and
 governance, and compile a fresh mapping draft. Matching retains its established
-editor, with only surrounding Recipe-application status.
+editor, with only surrounding Recipe-application status. A qualified revision
+can create a clean Production DataVersion against a different target and fresh
+credentials. Authoring can declare typed per-DataVersion context such as a
+warehouse; Product, related Product/BOM, and warehouse-parameterized stock
+shapes use the same publication and application contracts rather than separate
+execution paths.
 
 The repository also contains a profile-driven preflight engine and CLI. It is
 a separate entry path that retains strict CSV and declared-sheet XLSX loading

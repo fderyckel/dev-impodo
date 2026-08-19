@@ -2,12 +2,11 @@
 
 ## Status and authority
 
-**Status:** Active implementation plan from 2026-08-19 and the only current
-product-delivery priority.
+**Status:** Completed on 2026-08-19. Product ownership must explicitly select
+the next roadmap track.
 
-Phases R0 through R6, including the R4.5 clean-root consolidation, completed on
-2026-08-19. Phase R7 is the next implementation phase. The active contracts are
-in the
+Phases R0 through R7, including the R4.5 clean-root consolidation, completed on
+2026-08-19. The active contracts are in the
 [Recipe-first Phase R0 contract](reusable-recipes-phase-r0-contracts.md).
 
 Product ownership replaced and removed the earlier project-series proposal with
@@ -1134,6 +1133,8 @@ unknown-write reconciliation.
 
 ### Phase R7 - Expand representative Recipe shapes
 
+**Status:** Completed on 2026-08-19.
+
 - Qualify Products.
 - Qualify Product plus BOM with related/derived dependencies inside current
   supported limits.
@@ -1145,6 +1146,16 @@ unknown-write reconciliation.
 **Gate:** the Recipe abstraction supports one scalar/reference-heavy, one
 related/derived, and one parameterized transactional snapshot without adding a
 parallel execution path or weakening evidence semantics.
+
+**Evidence:** the
+[Phase R7 implementation report](../reports/reusable-recipes-phase-r7-representative-shapes-2026-08-19.md),
+focused authoring, application, representative-shape, preparation-capability,
+readiness, security, and browser tests, a rendered in-app browser interaction,
+and the complete regression suite cover Product target references, Product/BOM
+parent-child preparation and incoming dependencies, warehouse/as-of
+declarations, fresh quantity controls, undeclared-value rejection, existing
+route limits, CSRF/authorization boundaries, accessible labels, and UI
+continuity.
 
 ## 16. Acceptance scenarios
 

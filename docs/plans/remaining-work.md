@@ -17,7 +17,7 @@ read-back path. Mapping contract v11, validation-bound categorical coverage,
 split reusable control definitions/DataVersion expectations, legacy upgrade
 review, and the shared application-layer source scan are implemented.
 
-Recipe Phases R0 through R4 are complete: the active Recipe-first aggregate,
+Recipe Phases R0 through R7 are complete: the active Recipe-first aggregate,
 DataVersion, TargetBinding, qualification, cutover, credential-rotation,
 intent, recovery, and bound contracts are frozen with deterministic fixtures
 and executable tests. The Recipe root, independent Recipe/DataVersion lineage,
@@ -30,9 +30,10 @@ credential generations, same-ish source binding, focused drift review, fresh
 preparation/governance/mapping materialization, mapping-bound quality seeds,
 and protected application evidence are implemented. Exact current Test
 preparation, quality, comparison, execution, read-back, reconciliation,
-protected qualification, later-revision invalidation, and explicit rollout
-candidate selection are implemented. Phase R5 — apply the selected revision to
-latest data and a separate Production target — is current.
+protected qualification, later-revision invalidation, explicit rollout
+candidate selection, clean Production application, credential-rotation
+invalidation, and Product, Product/BOM, and parameterized-stock qualification
+are implemented.
 Matching remains the existing workspace experience unless Recipe-specific
 context requires a small change.
 
@@ -64,8 +65,8 @@ The required outcome is:
 > different compatible Production Odoo server using current independently
 > supplied API credentials.
 
-The Recipe work owns the following sequence. Steps 1 through 6 completed on
-2026-08-19; step 7 is current:
+The Recipe work owned the following sequence. Steps 1 through 9 completed on
+2026-08-19:
 
 1. rebase the frozen architecture around Recipe as aggregate root — completed;
 2. add Recipe/DataVersion lineage, protected storage, and recovery — completed;
@@ -74,10 +75,14 @@ The Recipe work owns the following sequence. Steps 1 through 6 completed on
 5. apply same-ish data and review only drift — completed;
 6. execute, reconcile, qualify, and select a cutover candidate — completed;
 7. run that exact revision with the latest data on a different Production Odoo
-   server and different API keys — current;
-8. prove credential rotation and remote failure invalidation; and
+   server and different API keys — completed;
+8. prove credential rotation and remote failure invalidation — completed; and
 9. qualify Customers, Product/BOM, and parameterized stock-level Recipe shapes
-   within their currently supported limits.
+   within their currently supported limits — completed.
+
+No deferred product track is current automatically. Product ownership must now
+name the next priority and its accepted prerequisites before implementation
+resumes outside maintenance, security, and regression work.
 
 Maintenance, security fixes, data-loss prevention, dependency compatibility,
 and regressions blocking this Recipe path remain in scope. They do not reopen a

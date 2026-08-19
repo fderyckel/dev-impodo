@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from impodo.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
 from impodo.application.recipe_authoring_service import RecipeAuthoringService
+from impodo.application.recipe_application_service import RecipeApplicationService
 from impodo.derived_entities import DerivedEntityPlan, RelatedDatasetRule
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
 from impodo.domain.mapping.contracts import (
@@ -26,6 +27,7 @@ from impodo.domain.recipe_parameters import (
     RecipeParameterDefinition,
     RecipeParameterDefinitions,
 )
+from impodo.domain.recipe_applications import RecipeControlValues
 from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
@@ -669,6 +671,29 @@ class RepresentativeRecipeShapeTests(unittest.TestCase):
         self.assertEqual(control["calculation"], "SUM")
         self.assertFalse(control["invariant_expectation"])
         self.assertNotIn("invariant_expected_total", control)
+        first_values = RecipeApplicationService._control_values(
+            (control,),
+            {control["logical_control_id"]: "1250.50"},
+        )
+        second_values = RecipeApplicationService._control_values(
+            (control,),
+            {control["logical_control_id"]: "900"},
+        )
+        first = RecipeControlValues(
+            data_version_id=str(uuid4()),
+            values=first_values,
+            actor=LOCAL_ACTOR.identity,
+            confirmed_at=datetime.now(timezone.utc),
+        )
+        second = RecipeControlValues(
+            data_version_id=str(uuid4()),
+            values=second_values,
+            actor=LOCAL_ACTOR.identity,
+            confirmed_at=datetime.now(timezone.utc),
+        )
+        self.assertEqual(first_values[control["logical_control_id"]], "1250.50")
+        self.assertEqual(second_values[control["logical_control_id"]], "900")
+        self.assertNotEqual(first.content_hash, second.content_hash)
 
 
 if __name__ == "__main__":
