@@ -80,6 +80,7 @@ class SchemaRepository(DuckDbRepository):
             detail=f"{len(catalog.models)} persistent model(s)",
             actor=actor,
         )
+
     def save_odoo_schema_catalog(
         self,
         project_id: str,
@@ -114,6 +115,7 @@ class SchemaRepository(DuckDbRepository):
                 "schema_governance_current",
             ),
         )
+
     def rebind_odoo_schema_access(
         self,
         project_id: str,
@@ -157,6 +159,11 @@ class SchemaRepository(DuckDbRepository):
                     and catalog.odoo_version == current.odoo_version
                     and catalog.origin is current.origin
                     and catalog.models == current.models
+                    and catalog.read_principal_hash
+                    == current.read_principal_hash
+                    and catalog.read_permission_hash
+                    == current.read_permission_hash
+                    and catalog.read_context_hash == current.read_context_hash
                 )
                 if not unchanged_semantics:
                     raise WorkspaceError(
@@ -184,6 +191,7 @@ class SchemaRepository(DuckDbRepository):
             except Exception:
                 connection.rollback()
                 raise
+
     def get_schema_governance(
         self,
         project_id: str,

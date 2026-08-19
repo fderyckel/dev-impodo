@@ -5,6 +5,8 @@ import json
 import unittest
 from unittest.mock import patch
 
+from keyring.errors import KeyringError
+
 from impodo.projects import MigrationProject, OdooConnectionMode
 from impodo.secrets import (
     CredentialVault,
@@ -17,8 +19,10 @@ from impodo.secrets import (
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     TargetCredentialRemovalReason,
+    delete_target_credential,
     delete_target_credentials,
     get_target_credential,
+    get_target_credential_status,
     local_read_credential_binding_hash,
     store_target_credential,
     target_read_credential_id,
@@ -114,6 +118,45 @@ class TargetCredentialTests(unittest.TestCase):
         self.assertFalse(first.replaced)
         self.assertTrue(second.replaced)
 
+    def test_safe_status_distinguishes_session_and_persistent_storage(self) -> None:
+        self.assertEqual(
+            get_target_credential_status(
+                self.store,
+                self.project,
+                TargetCredentialRole.READ,
+            ).availability.value,
+            "MISSING",
+        )
+        store_target_credential(
+            self.store,
+            self.project,
+            TargetCredentialRole.READ,
+            "session-secret",
+            persistent=False,
+        )
+        session = get_target_credential_status(
+            self.store,
+            self.project,
+            TargetCredentialRole.READ,
+        )
+        self.assertEqual(session.availability.value, "SESSION")
+        self.assertNotIn("session-secret", repr(session))
+
+        store_target_credential(
+            self.store,
+            self.project,
+            TargetCredentialRole.READ,
+            "persistent-secret",
+            persistent=True,
+        )
+        persistent = get_target_credential_status(
+            self.store,
+            self.project,
+            TargetCredentialRole.READ,
+        )
+        self.assertEqual(persistent.availability.value, "PERSISTENT")
+        self.assertNotIn("persistent-secret", repr(persistent))
+
     def test_target_change_does_not_reuse_a_stored_role(self) -> None:
         store_target_credential(
             self.store,
@@ -191,6 +234,39 @@ class TargetCredentialTests(unittest.TestCase):
             )
         )
 
+    def test_user_can_forget_read_key_without_deleting_write_key(self) -> None:
+        for role in TargetCredentialRole:
+            store_target_credential(
+                self.store,
+                self.project,
+                role,
+                f"{role.value.lower()}-secret",
+                persistent=False,
+            )
+
+        receipt = delete_target_credential(
+            self.store,
+            self.project,
+            TargetCredentialRole.READ,
+            reason=TargetCredentialRemovalReason.USER_REQUESTED,
+        )
+
+        self.assertIsNotNone(receipt)
+        self.assertIsNone(
+            get_target_credential(
+                self.store,
+                self.project,
+                TargetCredentialRole.READ,
+            )
+        )
+        self.assertIsNotNone(
+            get_target_credential(
+                self.store,
+                self.project,
+                TargetCredentialRole.WRITE,
+            )
+        )
+
     def test_local_no_key_binding_is_stable_and_target_bound(self) -> None:
         local = replace(
             self.project,
@@ -243,6 +319,112 @@ class TargetCredentialTests(unittest.TestCase):
             PROTECTED_EVIDENCE_SERVICE_NAME,
             protected_id,
         )
+
+    def test_failed_persistent_write_does_not_leave_a_session_secret(self) -> None:
+        vault = CredentialVault()
+        read_id = target_read_credential_id(self.project)
+
+        with patch("impodo.secrets.keyring") as keyring:
+            keyring.set_password.side_effect = KeyringError("unavailable")
+            keyring.get_password.return_value = None
+            with self.assertRaisesRegex(SecretStoreError, "Could not save"):
+                vault.set(read_id, "must-not-remain", persistent=True)
+
+            self.assertIsNone(vault.get(read_id))
+
+    def test_session_key_is_missing_from_a_fresh_vault_process(self) -> None:
+        with patch("impodo.secrets.keyring") as keyring:
+            keyring.get_password.return_value = None
+            current = CredentialVault()
+            store_target_credential(
+                current,
+                self.project,
+                TargetCredentialRole.READ,
+                "session-only",
+                persistent=False,
+            )
+
+            fresh = CredentialVault()
+            status = get_target_credential_status(
+                fresh,
+                self.project,
+                TargetCredentialRole.READ,
+            )
+
+        self.assertEqual(status.availability.value, "MISSING")
+
+    def test_persistent_key_is_available_to_a_fresh_vault_process(self) -> None:
+        stored: dict[tuple[str, str], str] = {}
+
+        def set_password(service, credential_id, secret):
+            stored[(service, credential_id)] = secret
+
+        def get_password(service, credential_id):
+            return stored.get((service, credential_id))
+
+        with patch("impodo.secrets.keyring") as keyring:
+            keyring.set_password.side_effect = set_password
+            keyring.get_password.side_effect = get_password
+            current = CredentialVault()
+            store_target_credential(
+                current,
+                self.project,
+                TargetCredentialRole.READ,
+                "persistent-read-key",
+                persistent=True,
+            )
+
+            fresh = CredentialVault()
+            credential = get_target_credential(
+                fresh,
+                self.project,
+                TargetCredentialRole.READ,
+            )
+
+        self.assertIsNotNone(credential)
+        self.assertEqual(credential.secret, "persistent-read-key")
+        self.assertTrue(credential.persistent)
+
+    def test_replacing_persistent_key_with_session_removes_saved_copy(self) -> None:
+        stored: dict[tuple[str, str], str] = {}
+
+        def set_password(service, credential_id, secret):
+            stored[(service, credential_id)] = secret
+
+        def get_password(service, credential_id):
+            return stored.get((service, credential_id))
+
+        def delete_password(service, credential_id):
+            stored.pop((service, credential_id), None)
+
+        with patch("impodo.secrets.keyring") as keyring:
+            keyring.set_password.side_effect = set_password
+            keyring.get_password.side_effect = get_password
+            keyring.delete_password.side_effect = delete_password
+            current = CredentialVault()
+            store_target_credential(
+                current,
+                self.project,
+                TargetCredentialRole.READ,
+                "persistent-read-key",
+                persistent=True,
+            )
+            store_target_credential(
+                current,
+                self.project,
+                TargetCredentialRole.READ,
+                "session-replacement",
+                persistent=False,
+            )
+
+            fresh = CredentialVault()
+            status = get_target_credential_status(
+                fresh,
+                self.project,
+                TargetCredentialRole.READ,
+            )
+
+        self.assertEqual(status.availability.value, "MISSING")
 
 
 if __name__ == "__main__":

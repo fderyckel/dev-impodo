@@ -155,6 +155,34 @@ class WorkspaceLifecycleTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def _capture_authenticated_schema(self):
+        self.schemas.discover_models(
+            self.project.project_id,
+            _model_catalog_snapshot(),
+            read_credential_binding_hash=READ_CREDENTIAL_BINDING_HASH,
+            read_identity=_read_identity(("ir.model",)),
+            actor=LOCAL_ACTOR,
+        )
+        self.sources.confirm_source(
+            self.project.project_id,
+            self.source.file_id,
+            selected_table_keys=("csv",),
+            warnings_acknowledged=False,
+            actor=LOCAL_ACTOR,
+        )
+        self.sources.freeze_selection(
+            self.project.project_id,
+            dataset_names={(self.source.file_id, "csv"): "customers"},
+            actor=LOCAL_ACTOR,
+        )
+        return self.schemas.capture(
+            self.project.project_id,
+            _metadata_snapshot(),
+            read_credential_binding_hash="sha256:" + "8" * 64,
+            read_identity=_read_identity(("res.partner",)),
+            actor=LOCAL_ACTOR,
+        )
+
     def test_model_discovery_filters_nonpersistent_models_and_is_persisted(
         self,
     ) -> None:
@@ -239,6 +267,113 @@ class WorkspaceLifecycleTests(unittest.TestCase):
 
         self.assertEqual(schema.read_principal_hash, "sha256:" + "1" * 64)
         self.assertEqual(schema.read_context_hash, "sha256:" + "4" * 64)
+
+    def test_equivalent_schema_access_rebind_preserves_governance(self) -> None:
+        schema = self._capture_authenticated_schema()
+        governance = self.schemas.govern(
+            self.project.project_id,
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="partner-name",
+                    model="res.partner",
+                    key_fields=("name",),
+                    description="Unique contact name",
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+            actor=LOCAL_ACTOR,
+        )
+
+        rebound = self.schemas.rebind_current_access(
+            self.project.project_id,
+            _metadata_snapshot(),
+            read_credential_binding_hash="sha256:" + "7" * 64,
+            read_identity=_read_identity(("res.partner",)),
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(rebound.content_hash, schema.content_hash)
+        self.assertEqual(
+            rebound.read_credential_binding_hash,
+            "sha256:" + "7" * 64,
+        )
+        self.assertEqual(
+            self.schema_repository.get_schema_governance(
+                self.project.project_id
+            ),
+            governance,
+        )
+        database_path = (
+            self.schema_repository.project_directory(self.project.project_id)
+            / "project.duckdb"
+        )
+        with self.schema_repository._connect(database_path) as connection:
+            event = connection.execute(
+                """
+                SELECT event_type
+                  FROM audit_event
+                 ORDER BY event_id DESC
+                 LIMIT 1
+                """
+            ).fetchone()
+        self.assertEqual(event, ("ODOO_SCHEMA_ACCESS_REBOUND",))
+
+    def test_schema_access_rebind_blocks_field_drift_without_invalidation(
+        self,
+    ) -> None:
+        schema = self._capture_authenticated_schema()
+        governance = self.schemas.govern(
+            self.project.project_id,
+            business_keys=(
+                BusinessKeyDefinition(
+                    key_id="partner-name",
+                    model="res.partner",
+                    key_fields=("name",),
+                    description="Unique contact name",
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+            actor=LOCAL_ACTOR,
+        )
+        snapshot = _metadata_snapshot()
+        partner = snapshot.models["res.partner"]
+        changed = replace(
+            snapshot,
+            models={
+                "res.partner": replace(
+                    partner,
+                    fields={
+                        **partner.fields,
+                        "name": replace(
+                            partner.fields["name"],
+                            label="Legal name",
+                        ),
+                    },
+                )
+            },
+        )
+
+        with self.assertRaisesRegex(WorkspaceError, "available Odoo fields"):
+            self.schemas.rebind_current_access(
+                self.project.project_id,
+                changed,
+                read_credential_binding_hash="sha256:" + "7" * 64,
+                read_identity=_read_identity(("res.partner",)),
+                actor=LOCAL_ACTOR,
+            )
+
+        self.assertEqual(
+            self.schema_repository.get_odoo_schema_catalog(
+                self.project.project_id
+            ),
+            schema,
+        )
+        self.assertEqual(
+            self.schema_repository.get_schema_governance(
+                self.project.project_id
+            ),
+            governance,
+        )
 
     def test_schema_capture_rejects_a_changed_authenticated_principal(self) -> None:
         self.schemas.discover_models(

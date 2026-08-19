@@ -77,6 +77,16 @@ class CredentialVault:
                 raise SecretStoreError(
                     "Could not save the API key in Windows Credential Manager"
                 ) from error
+        else:
+            try:
+                service_name = _service_name(credential_id)
+                if keyring.get_password(service_name, credential_id) is not None:
+                    keyring.delete_password(service_name, credential_id)
+            except KeyringError as error:
+                raise SecretStoreError(
+                    "Could not remove the earlier API key from Windows "
+                    "Credential Manager"
+                ) from error
         self._session[credential_id] = clean_secret
 
     def delete(self, credential_id: str) -> None:

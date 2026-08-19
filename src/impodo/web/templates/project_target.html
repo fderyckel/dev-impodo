@@ -13,6 +13,26 @@
       Impodo uses a read-only connection to learn which Odoo records and fields are available. Nothing can be changed in Odoo.
       {% if is_recipe_test %}These server settings and credentials belong only to this Test data version; they are never copied into the Recipe.{% elif is_recipe_production %}Enter the current Production endpoint, database, and read-only API key. Test access is never reused, and the later write key is established separately at load confirmation.{% endif %}
     </p>
+    <section
+      id="read-credential-status"
+      class="credential-status-card status-{{ 'ready' if read_credential_status.available else 'review' }}"
+      data-api-key-entry
+      data-show-local="{{ 'true' if project.source_mode.value == 'ODOO' else 'false' }}"
+      {% if not project.odoo_connection_mode or project.odoo_connection_mode.value == "LOCAL" and project.source_mode.value != "ODOO" %}hidden{% endif %}
+      aria-labelledby="read-credential-status-title"
+    >
+      <div>
+        <p class="eyebrow">Read-only key</p>
+        <h2 id="read-credential-status-title">{{ read_credential_status.label }}</h2>
+        <p>{{ read_credential_status.guidance }}</p>
+      </div>
+      {% if read_credential_status.available %}
+        <form method="post" action="/projects/{{ project.project_id }}/target/read-credential/delete">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button secondary" type="submit">Forget this key</button>
+        </form>
+      {% endif %}
+    </section>
     <form
       method="post"
       action="/projects/{{ project.project_id }}/target"
@@ -67,16 +87,33 @@
         </label>
         <label data-api-key-entry data-show-local="{{ 'true' if project.source_mode.value == 'ODOO' else 'false' }}"
           {% if project.odoo_connection_mode and project.odoo_connection_mode.value == "LOCAL" and project.source_mode.value != "ODOO" %}hidden{% endif %}>
-          Read-only Odoo API key from your administrator
+          {% if read_credential_status.available %}Replace the read-only Odoo API key{% else %}Read-only Odoo API key from your administrator{% endif %}
           <input type="password" name="read_api_key" autocomplete="off">
           <small>{% if project.source_mode.value == 'ODOO' %}Required to freeze Odoo source records through the governed JSON-2 reader.{% else %}Used only for target checks, metadata, and preflight reads.{% endif %} It is never used to load data and is not placed in the project data.</small>
         </label>
       </div>
-      <label class="checkbox" data-api-key-entry data-show-local="{{ 'true' if project.source_mode.value == 'ODOO' else 'false' }}"
+      <fieldset class="credential-storage-choice" data-api-key-entry data-show-local="{{ 'true' if project.source_mode.value == 'ODOO' else 'false' }}"
         {% if project.odoo_connection_mode and project.odoo_connection_mode.value == "LOCAL" and project.source_mode.value != "ODOO" %}hidden{% endif %}>
-        <input type="checkbox" name="remember_read_api_key">
-        Remember this read-only key securely on this computer.
-      </label>
+        <legend>How long should Impodo keep a newly entered key?</legend>
+        <div class="mode-grid compact">
+          <label class="mode-card">
+            <input type="radio" name="read_api_key_storage" value="vault"
+              {% if read_credential_status.availability.value != 'SESSION' %}checked{% endif %}>
+            <span>
+              <strong>Keep it on this computer</strong>
+              <small>Save securely in Windows Credential Manager for future Impodo sessions.</small>
+            </span>
+          </label>
+          <label class="mode-card">
+            <input type="radio" name="read_api_key_storage" value="session"
+              {% if read_credential_status.availability.value == 'SESSION' %}checked{% endif %}>
+            <span>
+              <strong>Until Impodo closes</strong>
+              <small>Forget the key when this Impodo process ends.</small>
+            </span>
+          </label>
+        </div>
+      </fieldset>
 
       <fieldset>
         <legend>Odoo areas included (optional)</legend>

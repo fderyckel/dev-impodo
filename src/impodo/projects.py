@@ -702,7 +702,11 @@ class ProjectService:
         normalized_storage = storage_class.strip().upper()
         if normalized_role not in {"READ", "WRITE"}:
             raise ProjectError("Credential removal role is invalid")
-        if normalized_reason not in {"TARGET_CHANGED", "RECIPE_DELETED"}:
+        if normalized_reason not in {
+            "TARGET_CHANGED",
+            "RECIPE_DELETED",
+            "USER_REQUESTED",
+        }:
             raise ProjectError("Credential removal reason is invalid")
         if normalized_storage not in {
             "SESSION",

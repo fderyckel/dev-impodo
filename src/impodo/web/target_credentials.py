@@ -31,7 +31,7 @@ class TargetCredentialRole(StrEnum):
 
 
 class TargetCredentialRemovalReason(StrEnum):
-    """Governed reasons that remove both role-qualified target credentials."""
+    """Governed reasons for removing role-qualified target credentials."""
 
     TARGET_CHANGED = "TARGET_CHANGED"
     RECIPE_DELETED = "RECIPE_DELETED"
@@ -283,59 +283,94 @@ def delete_target_credentials(
 
     removed_at = datetime.now(timezone.utc)
     receipts: list[TargetCredentialRemovalReceipt] = []
-    target_hash = _target_hash(project)
     for role in TargetCredentialRole:
-        credential_id = _target_credential_id(project, role)
-        encoded = store.get(credential_id)
-        if encoded is None:
-            continue
-        binding_hash: str | None = None
-        storage_class = "UNKNOWN"
-        try:
-            payload = json.loads(encoded)
-            binding_id = str(UUID(str(payload["binding_id"])))
-            if (
-                set(payload)
-                == {
-                    "binding_id",
-                    "contract_version",
-                    "role",
-                    "secret",
-                    "storage_class",
-                    "target_hash",
-                }
-                and payload["contract_version"]
-                == TARGET_CREDENTIAL_CONTRACT_VERSION
-                and payload["role"] == role.value
-                and payload["target_hash"] == target_hash
-                and payload["storage_class"]
-                in {"SESSION", "OPERATING_SYSTEM_VAULT"}
-            ):
-                binding_hash = _binding_hash(role, target_hash, binding_id)
-                storage_class = str(payload["storage_class"])
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-            pass
-        store.delete(credential_id)
-        semantic = {
-            "credential_binding_hash": binding_hash,
-            "credential_role": role.value,
-            "connection_target_hash": target_hash,
-            "reason": reason.value,
-            "removed_at": removed_at,
-            "storage_class": storage_class,
-        }
-        receipts.append(
-            TargetCredentialRemovalReceipt(
-                role=role,
-                reason=reason,
-                connection_target_hash=target_hash,
-                credential_binding_hash=binding_hash,
-                storage_class=storage_class,
-                removed_at=removed_at,
-                receipt_hash=content_hash(semantic),
-            )
+        receipt = _delete_target_credential(
+            store,
+            project,
+            role,
+            reason=reason,
+            removed_at=removed_at,
         )
+        if receipt is not None:
+            receipts.append(receipt)
     return tuple(receipts)
+
+
+def delete_target_credential(
+    store: SecretStore,
+    project: MigrationProject,
+    role: TargetCredentialRole,
+    *,
+    reason: TargetCredentialRemovalReason,
+) -> TargetCredentialRemovalReceipt | None:
+    """Delete one role only and return non-secret removal evidence."""
+
+    return _delete_target_credential(
+        store,
+        project,
+        role,
+        reason=reason,
+        removed_at=datetime.now(timezone.utc),
+    )
+
+
+def _delete_target_credential(
+    store: SecretStore,
+    project: MigrationProject,
+    role: TargetCredentialRole,
+    *,
+    reason: TargetCredentialRemovalReason,
+    removed_at: datetime,
+) -> TargetCredentialRemovalReceipt | None:
+    credential_id = _target_credential_id(project, role)
+    encoded = store.get(credential_id)
+    if encoded is None:
+        return None
+    binding_hash: str | None = None
+    storage_class = "UNKNOWN"
+    target_hash = _target_hash(project)
+    try:
+        payload = json.loads(encoded)
+        binding_id = str(UUID(str(payload["binding_id"])))
+        if (
+            set(payload)
+            == {
+                "binding_id",
+                "contract_version",
+                "role",
+                "secret",
+                "storage_class",
+                "target_hash",
+            }
+            and payload["contract_version"]
+            == TARGET_CREDENTIAL_CONTRACT_VERSION
+            and payload["role"] == role.value
+            and payload["target_hash"] == target_hash
+            and payload["storage_class"]
+            in {"SESSION", "OPERATING_SYSTEM_VAULT"}
+        ):
+            binding_hash = _binding_hash(role, target_hash, binding_id)
+            storage_class = str(payload["storage_class"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        pass
+    store.delete(credential_id)
+    semantic = {
+        "credential_binding_hash": binding_hash,
+        "credential_role": role.value,
+        "connection_target_hash": target_hash,
+        "reason": reason.value,
+        "removed_at": removed_at,
+        "storage_class": storage_class,
+    }
+    return TargetCredentialRemovalReceipt(
+        role=role,
+        reason=reason,
+        connection_target_hash=target_hash,
+        credential_binding_hash=binding_hash,
+        storage_class=storage_class,
+        removed_at=removed_at,
+        receipt_hash=content_hash(semantic),
+    )
 
 
 def audit_removed_target_credentials(

@@ -926,6 +926,28 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.assertEqual(blocked.status_code, 403)
         self.assertEqual(self.start_calls, 0)
 
+    def test_registered_overview_keeps_recipe_return_link_visible(self) -> None:
+        self._register_local_project()
+        context = self.app.state.context
+        recipe_id = context.recipes.resolve_workspace(
+            self.project_id,
+            actor=context.actor,
+        ).recipe_id
+
+        overview = self.client.get(f"/projects/{self.project_id}/overview")
+
+        self.assertEqual(overview.status_code, 200)
+        self.assertIn(
+            '<span class="nav-label">Data version overview</span>',
+            overview.text,
+        )
+        self.assertIn('class="sidebar-current-recipe-link"', overview.text)
+        self.assertIn(f'href="/recipes/{recipe_id}"', overview.text)
+        self.assertIn(
+            'aria-label="Open Recipe overview: Local readiness"',
+            overview.text,
+        )
+
     def _select_and_start_stack(self) -> None:
         selected = self.client.post(
             f"/projects/{self.project_id}/local-stack/select-config",
@@ -1106,6 +1128,89 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         return context.queries.get(project_id)
 
+    def _registered_remote_schema_project(self):
+        context = self.app.state.context
+        created = context.projects.create_project(
+            actor=context.actor,
+            name="Remote summary recovery",
+            source_system="Odoo",
+        )
+        now = datetime.now(timezone.utc)
+        project = replace(
+            created,
+            source_mode=SourceMode.ODOO,
+            odoo_connection_mode=OdooConnectionMode.REMOTE,
+            odoo_base_url="https://remote.example.test",
+            odoo_database="production",
+            intended_models=("res.partner",),
+            status=ProjectStatus.REGISTERED,
+            revision=created.revision + 1,
+            updated_at=now,
+            registered_at=now,
+        )
+        context.projects.repository.save(
+            project,
+            expected_revision=created.revision,
+            event_type="TEST_PROJECT_REGISTERED",
+            event_detail="",
+            actor=context.actor,
+        )
+        snapshot = _browser_schema(project)
+        model = snapshot.models["res.partner"]
+        schema = OdooSchemaCatalog(
+            project_id=project.project_id,
+            policy_hash=ODOO_SOURCE_POLICY_HASH,
+            captured_at=now,
+            captured_by=context.actor.identity.display_name,
+            connection_mode=project.odoo_connection_mode.value,
+            database=project.odoo_database,
+            odoo_version=snapshot.fingerprint.odoo_version,
+            models=(
+                SchemaModel(
+                    model.model,
+                    model.description or model.model,
+                    tuple(
+                        SchemaField(
+                            name=field.name,
+                            label=field.label or field.name,
+                            type=field.type,
+                            required=field.required,
+                            readonly=field.readonly,
+                            relation=field.relation,
+                            relation_field=field.relation_field,
+                            selection=field.selection,
+                            stored=field.stored,
+                            computed=field.computed,
+                            has_inverse=field.has_inverse,
+                            related=field.related,
+                            translated=field.translated,
+                            company_dependent=field.company_dependent,
+                            searchable=field.searchable,
+                            sortable=field.sortable,
+                            exportable=field.exportable,
+                            digits=field.digits,
+                            currency_field=field.currency_field,
+                        )
+                        for _, field in sorted(model.fields.items())
+                    ),
+                    model.unique_constraints,
+                ),
+            ),
+            content_hash="sha256:" + "5" * 64,
+            origin=SchemaOrigin.LIVE_API,
+            read_credential_binding_hash="sha256:" + "6" * 64,
+            read_principal_hash="sha256:" + "1" * 64,
+            read_permission_hash="sha256:" + "3" * 64,
+            read_context_hash="sha256:" + "4" * 64,
+            connection_target_hash=snapshot.fingerprint.target_hash,
+        )
+        context.schema_workspace.schemas.save_odoo_schema_catalog(
+            project.project_id,
+            schema,
+            actor=context.actor,
+        )
+        return project, schema
+
     def test_new_project_governance_defaults_data_sensitivity_to_internal(
         self,
     ) -> None:
@@ -1158,6 +1263,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         project_id = _created_workspace_id(self.app, created)
+        recipe_id = created.headers["location"].split("/")[2]
 
         details_page = self.client.get(f"/projects/{project_id}/details")
         self.assertIn("Complete this step to continue", details_page.text)
@@ -1168,6 +1274,15 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertIn('class="setup-step attention current"', details_page.text)
         self.assertIn('class="setup-step locked"', details_page.text)
+        self.assertIn('class="sidebar-current-recipe-link"', details_page.text)
+        self.assertIn(
+            f'href="/recipes/{recipe_id}"',
+            details_page.text,
+        )
+        self.assertIn(
+            'aria-label="Open Recipe overview: Products migration"',
+            details_page.text,
+        )
         self.assertNotIn(
             f'href="/projects/{project_id}/governance"',
             details_page.text,
@@ -1516,7 +1631,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
         project = self._complete_setup_before_target(project_id)
         target_form = self.client.get(f"/projects/{project_id}/target")
         self.assertIn('name="read_api_key"', target_form.text)
-        self.assertIn('name="remember_read_api_key"', target_form.text)
+        self.assertIn('name="read_api_key_storage"', target_form.text)
+        self.assertIn('value="vault"', target_form.text)
+        self.assertIn("Not available", target_form.text)
         self.assertNotIn('name="write_api_key"', target_form.text)
 
         tested = self.client.post(
@@ -1549,6 +1666,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
             result.text,
         )
         self.assertIn("Checked during this Impodo session.", result.text)
+        self.assertIn("Available this session", result.text)
+        self.assertIn("Impodo will forget this key when Impodo closes.", result.text)
+        self.assertIn("Forget this key", result.text)
         self.assertIn(">Check again</button>", result.text)
         self.assertRegex(result.text, r"data-local-stack-entry\s+hidden")
         self.assertNotIn("remote-secret-key", result.text)
@@ -1576,6 +1696,19 @@ class ProjectSetupWizardTests(unittest.TestCase):
         refreshed = self.client.get(f"/projects/{project_id}/target")
         self.assertIn("The Odoo connection is ready.", refreshed.text)
         self.assertEqual(len(self.connection_calls), 1)
+
+        forgotten = self.client.post(
+            f"/projects/{project_id}/target/read-credential/delete",
+            data={"csrf_token": self.csrf},
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(forgotten.status_code, 303)
+        forgotten_page = self.client.get(forgotten.headers["location"])
+        self.assertIn("The read-only Odoo key was forgotten.", forgotten_page.text)
+        self.assertIn("Not available", forgotten_page.text)
+        self.assertNotIn("The Odoo connection is ready.", forgotten_page.text)
+        self.assertEqual(self.secrets.values, {})
 
         changed = self.client.post(
             f"/projects/{project_id}/target",
@@ -1605,6 +1738,75 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('window.location.hash === "#remote-connection-status"', script.text)
         styles = self.client.get("/static/app.css")
         self.assertIn("[data-local-stack-entry][hidden]", styles.text)
+
+    def test_summary_reconnects_missing_remote_key_without_losing_schema(
+        self,
+    ) -> None:
+        context = self.app.state.context
+        project, schema = self._registered_remote_schema_project()
+
+        def compare_with_reader(_project_id, *, reader, actor):
+            self.assertEqual(actor, context.actor)
+            return reader((), ())
+
+        with patch.object(
+            context.preflight,
+            "compare",
+            side_effect=compare_with_reader,
+        ):
+            blocked = self.client.post(
+                f"/projects/{project.project_id}/summary/compare",
+                data={"csrf_token": self.csrf},
+                headers=POST_HEADERS,
+            )
+
+        self.assertEqual(blocked.status_code, 422)
+        self.assertIn("Reconnect to Odoo", blocked.text)
+        self.assertIn('name="read_api_key"', blocked.text)
+        self.assertIn('name="read_api_key_storage"', blocked.text)
+        self.assertIn("Reconnect and continue comparison", blocked.text)
+        self.assertIn("Nothing was changed in Odoo", blocked.text)
+        self.assertNotIn("We could not complete that action", blocked.text)
+        self.assertEqual(self.schema_calls, [])
+        self.assertEqual(self.read_identity_calls, [])
+
+        with patch.object(context.preflight, "compare") as compare:
+            reconnected = self.client.post(
+                f"/projects/{project.project_id}/summary/compare",
+                data={
+                    "csrf_token": self.csrf,
+                    "read_api_key": "replacement-read-key",
+                    "read_api_key_storage": "session",
+                },
+                headers=POST_HEADERS,
+                follow_redirects=False,
+            )
+
+        self.assertEqual(reconnected.status_code, 303, reconnected.text)
+        compare.assert_called_once()
+        self.assertEqual(
+            self.schema_calls,
+            [(project.project_id, "replacement-read-key")],
+        )
+        self.assertEqual(
+            self.read_identity_calls,
+            [
+                (
+                    project.project_id,
+                    "replacement-read-key",
+                    ("res.partner",),
+                )
+            ],
+        )
+        rebound = context.queries.get_odoo_schema_catalog(project.project_id)
+        self.assertEqual(rebound.content_hash, schema.content_hash)
+        self.assertNotEqual(
+            rebound.read_credential_binding_hash,
+            schema.read_credential_binding_hash,
+        )
+        page = self.client.get(reconnected.headers["location"])
+        self.assertNotIn("replacement-read-key", page.text)
+        self.assertNotIn('id="reconnect-odoo"', page.text)
 
     def test_remote_connection_failure_shows_safe_red_checks(self) -> None:
         def rejected_connection(_project, _api_key):

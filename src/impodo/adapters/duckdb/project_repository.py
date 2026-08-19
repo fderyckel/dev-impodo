@@ -278,7 +278,7 @@ class ProjectRepository(DuckDbRepository):
         removed_at: datetime,
         actor: Actor,
     ) -> None:
-        """Retain a non-secret vault-removal receipt after project deletion."""
+        """Retain a non-secret vault-removal receipt outside project storage."""
 
         with self._connect(self.registry_path) as connection:
             connection.execute(

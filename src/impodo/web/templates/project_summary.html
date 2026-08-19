@@ -45,6 +45,10 @@
     {% endif %}
   </div>
 
+  {% if remote_read_recovery_visible %}
+    {% include "_remote_read_recovery.html" %}
+  {% endif %}
+
   {% if resolution and resolution.status == 'REVIEW_REQUIRED' %}
     <section class="next-action-card review" aria-labelledby="resolution-next-title">
       <div>
@@ -73,6 +77,8 @@
               <button class="button primary" type="button" data-open-local-stack>Reconnect local Odoo</button>
               <small class="muted">Required for this Impodo session before comparing data.</small>
             </div>
+          {% elif remote_read_recovery_needed %}
+            <a class="button primary" href="#reconnect-odoo">Reconnect to Odoo</a>
           {% else %}
             <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -293,6 +299,8 @@
         {% if odoo_source and readiness.blocked_count %}
         {% elif local_odoo_recovery_needed %}
           <button class="button secondary" type="button" data-open-local-stack>Reconnect local Odoo</button>
+        {% elif remote_read_recovery_needed %}
+          <a class="button secondary" href="#reconnect-odoo">Reconnect to Odoo</a>
         {% else %}
           <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -557,6 +565,8 @@
           {% endif %}
           {% if local_odoo_recovery_needed %}
             <button class="button secondary" type="button" data-open-local-stack>Reconnect local Odoo</button>
+          {% elif remote_read_recovery_needed %}
+            <a class="button secondary" href="#reconnect-odoo">Reconnect to Odoo</a>
           {% else %}
             <form method="post" action="/projects/{{ project.project_id }}/summary/compare" data-preflight-compare>
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

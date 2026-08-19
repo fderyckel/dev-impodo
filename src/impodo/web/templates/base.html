@@ -68,7 +68,18 @@
           {% if navigation %}
             <div class="sidebar-project-context">
               <span class="sidebar-project-label">Current Recipe</span>
-              <strong title="{{ navigation.project_name }}">{{ navigation.project_name }}</strong>
+              {% if recipe_context is defined %}
+                <a
+                  class="sidebar-current-recipe-link"
+                  href="/recipes/{{ recipe_context.recipe_id }}"
+                  aria-label="Open Recipe overview: {{ navigation.project_name }}"
+                  {% if request.url.path == '/recipes/' ~ recipe_context.recipe_id %}aria-current="page"{% endif %}
+                >
+                  <strong title="{{ navigation.project_name }}">{{ navigation.project_name }}</strong>
+                </a>
+              {% else %}
+                <strong title="{{ navigation.project_name }}">{{ navigation.project_name }}</strong>
+              {% endif %}
             </div>
 
             {% if not navigation.registered %}
@@ -92,7 +103,7 @@
                 title="Data version overview"
               >
                 {{ app_icon("speedometer2") }}
-                <span class="nav-label">Overview</span>
+                <span class="nav-label">Data version overview</span>
               </a>
             {% endif %}
 

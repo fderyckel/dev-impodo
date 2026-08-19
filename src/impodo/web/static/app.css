@@ -256,6 +256,24 @@ body.sidebar-collapsed .app-shell {
   white-space: nowrap;
 }
 
+.sidebar-current-recipe-link {
+  display: block;
+  border-radius: 3px;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgb(51 51 51 / 32%);
+  text-underline-offset: .18em;
+}
+
+.sidebar-current-recipe-link:hover {
+  text-decoration-color: currentColor;
+}
+
+.sidebar-current-recipe-link:focus-visible {
+  outline: 3px solid rgb(194 32 38 / 28%);
+  outline-offset: 3px;
+}
+
 .sidebar-workflow,
 .sidebar-subnav,
 .overview-stages {
@@ -2820,6 +2838,85 @@ label.model-choice input {
   border-left-color: #4d7c5b;
 }
 
+.credential-status-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1rem 0;
+  border: 1px solid var(--line);
+  border-left: 4px solid #c08018;
+  border-radius: 4px;
+  background: var(--impodo-surface);
+  padding: 1rem;
+}
+
+.credential-status-card.status-ready {
+  border-left-color: #25704a;
+}
+
+.credential-status-card h2,
+.credential-status-card p {
+  margin: 0 0 .35rem;
+}
+
+.credential-status-card form {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.mode-grid.compact {
+  margin-top: .5rem;
+}
+
+.credential-storage-choice {
+  margin-top: 1rem;
+}
+
+.credential-storage-choice.compact {
+  margin: 0;
+}
+
+.radio-line {
+  display: flex;
+  align-items: flex-start;
+  gap: .65rem;
+  margin-top: .6rem;
+}
+
+.radio-line input {
+  flex: 0 0 auto;
+  margin-top: .25rem;
+}
+
+.radio-line span,
+.radio-line small {
+  display: block;
+}
+
+.remote-read-recovery {
+  align-items: flex-start;
+  scroll-margin-top: 1rem;
+}
+
+.remote-read-recovery > div,
+.remote-read-recovery-form {
+  flex: 1 1 0;
+}
+
+.remote-read-recovery-form {
+  max-width: 32rem;
+}
+
+.remote-read-recovery-form .button {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.replacement-key-entry {
+  margin-top: 0;
+}
+
 .remote-connection-panel {
   margin: 1.25rem 0;
   border: 1px solid var(--line);
@@ -3514,6 +3611,16 @@ a.impact-card:focus-visible,
     align-items: stretch;
     flex-direction: column;
     gap: 1rem;
+  }
+
+  .credential-status-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .credential-status-card form,
+  .credential-status-card .button {
+    width: 100%;
   }
 
   .rule-inline-fields {

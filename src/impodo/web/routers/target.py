@@ -34,6 +34,7 @@ from ..target_credentials import (
     TargetCredentialRemovalReason,
     audit_removed_target_credentials,
     audit_stored_target_credential,
+    delete_target_credential,
     delete_target_credentials,
     get_target_credential,
     store_target_credential,
@@ -64,6 +65,19 @@ def _local_stack_return_location(project_id: str, return_to: str) -> str:
             "#compare-with-odoo"
         )
     return f"/projects/{project_id}/target?local_stack=1"
+
+
+def _target_read_key_persistence(form) -> bool:
+    """Prefer the explicit retention choice while accepting older forms."""
+
+    storage = _text(form, "read_api_key_storage")
+    if storage == "vault":
+        return True
+    if storage == "session":
+        return False
+    if storage:
+        raise SecretStoreError("Choose a valid read-only key storage option.")
+    return "remember_read_api_key" in form or "remember_api_key" in form
 
 
 def _render_local_stack_error(
@@ -333,6 +347,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                 "odoo_database",
                 "intended_applications",
                 "read_api_key",
+                "read_api_key_storage",
                 "remember_read_api_key",
                 "api_key",
                 "remember_api_key",
@@ -398,10 +413,7 @@ def build_target_router(context: WebContext) -> APIRouter:
                     project,
                     TargetCredentialRole.READ,
                     submitted_key,
-                    persistent=(
-                        "remember_read_api_key" in form
-                        or "remember_api_key" in form
-                    ),
+                    persistent=_target_read_key_persistence(form),
                 )
                 audit_stored_target_credential(
                     context.projects,
@@ -510,6 +522,45 @@ def build_target_router(context: WebContext) -> APIRouter:
             )
         return RedirectResponse(
             f"/projects/{project.project_id}/review",
+            status_code=303,
+        )
+
+    @router.post("/projects/{project_id}/target/read-credential/delete")
+    async def forget_target_read_credential(request: Request, project_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token"})
+        project = _draft_or_redirect(context, project_id)
+        if isinstance(project, RedirectResponse):
+            return project
+        try:
+            receipt = delete_target_credential(
+                context.secret_store,
+                project,
+                TargetCredentialRole.READ,
+                reason=TargetCredentialRemovalReason.USER_REQUESTED,
+            )
+            if receipt is not None:
+                audit_removed_target_credentials(
+                    context.projects,
+                    project,
+                    (receipt,),
+                    actor=context.actor,
+                )
+            context.remote_connections.clear(project_id)
+        except SecretStoreError as error:
+            return _render_target(
+                request,
+                context,
+                project,
+                error=str(error),
+                status_code=422,
+            )
+        _flash(
+            request,
+            "The read-only Odoo key was forgotten. Nothing was changed in Odoo.",
+        )
+        return RedirectResponse(
+            f"/projects/{project_id}/target#read-credential-status",
             status_code=303,
         )
 
