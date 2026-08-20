@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import duckdb
 
 from ....projects import ProjectCompatibilityError
@@ -606,6 +608,7 @@ class ProjectSchemaMixin:
         create_prepared_snapshot_schema(connection)
         create_derived_value_artifact_schema(connection)
         ensure_recipe_workspace_schema(connection)
+        self._remember_prepared_project_schema(connection)
 
     def _ensure_project_database_schema(
         self,
@@ -631,4 +634,36 @@ class ProjectSchemaMixin:
                 "This project uses a different Impodo data contract and cannot "
                 "be opened by this build."
             )
-        ensure_recipe_workspace_schema(connection)
+        schema_key = self._project_schema_file_key(connection)
+        with self._project_schema_migration_lock:
+            if schema_key in self._prepared_project_schema_files:
+                return
+            ensure_recipe_workspace_schema(connection)
+            self._prepared_project_schema_files.add(schema_key)
+
+    def _remember_prepared_project_schema(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+    ) -> None:
+        """Remember a project database initialized by this application process."""
+
+        schema_key = self._project_schema_file_key(connection)
+        with self._project_schema_migration_lock:
+            self._prepared_project_schema_files.add(schema_key)
+
+    @staticmethod
+    def _project_schema_file_key(
+        connection: duckdb.DuckDBPyConnection,
+    ) -> tuple[str, int, int]:
+        """Identify one database file without invalidating the cache on writes."""
+
+        rows = connection.execute("PRAGMA database_list").fetchall()
+        database_file = next(
+            (str(row[2]) for row in rows if row[2]),
+            None,
+        )
+        if database_file is None:
+            return (f"connection:{id(connection)}", 0, 0)
+        path = Path(database_file).resolve()
+        stat = path.stat()
+        return (str(path), int(stat.st_dev), int(stat.st_ino))

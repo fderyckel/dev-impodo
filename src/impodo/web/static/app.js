@@ -2884,6 +2884,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initializeScalarRow(row);
   }
 
+  const fieldCatalogSearchDelayMs = 350;
   for (const catalog of document.querySelectorAll(
     "[data-scalar-field-catalog]"
   )) {
@@ -2992,18 +2993,28 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       return url;
     };
+    const catalogRequestUrl = (stateUrl) => {
+      const endpoint = catalog.dataset.scalarSearchUrl;
+      if (!endpoint) {
+        return stateUrl;
+      }
+      const requestUrl = new URL(endpoint, window.location.href);
+      requestUrl.search = stateUrl.search;
+      return requestUrl;
+    };
     const loadScalarCatalog = async (requestedUrl = null) => {
       window.clearTimeout(fieldSearchTimer);
       fieldSearchController?.abort();
       const activeController = new AbortController();
       fieldSearchController = activeController;
-      const url = catalogSearchUrl(requestedUrl);
+      const stateUrl = catalogSearchUrl(requestedUrl);
+      const requestUrl = catalogRequestUrl(stateUrl);
       catalog.setAttribute("aria-busy", "true");
       if (count) {
         count.textContent = "Searching Odoo fields\u2026";
       }
       try {
-        const response = await fetch(url, {
+        const response = await fetch(requestUrl, {
           headers: { Accept: "text/html" },
           signal: activeController.signal,
         });
@@ -3051,14 +3062,14 @@ document.addEventListener("DOMContentLoaded", () => {
         window.history.replaceState(
           {},
           "",
-          `${url.pathname}${url.search}${url.hash}`
+          `${stateUrl.pathname}${stateUrl.search}${stateUrl.hash}`
         );
         if (mappingForm) {
           const saveUrl = new URL(
             mappingForm.getAttribute("action") || window.location.pathname,
             window.location.href
           );
-          saveUrl.search = url.search;
+          saveUrl.search = stateUrl.search;
           mappingForm.setAttribute(
             "action",
             `${saveUrl.pathname}${saveUrl.search}`
@@ -3086,7 +3097,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (count) {
         count.textContent = "Searching Odoo fields\u2026";
       }
-      fieldSearchTimer = window.setTimeout(() => loadScalarCatalog(), 200);
+      fieldSearchTimer = window.setTimeout(
+        () => loadScalarCatalog(),
+        fieldCatalogSearchDelayMs
+      );
     };
     search?.addEventListener("input", scheduleScalarCatalogSearch);
     search?.addEventListener("keydown", (event) => {
@@ -3146,18 +3160,29 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       return url;
     };
+    const relationRequestUrl = (stateUrl) => {
+      const endpoint = catalog.dataset.relationSearchUrl;
+      if (!endpoint) {
+        return stateUrl;
+      }
+      const requestUrl = new URL(endpoint, window.location.href);
+      requestUrl.search = stateUrl.search;
+      requestUrl.searchParams.set("catalog", "relation");
+      return requestUrl;
+    };
     const loadRelationCatalog = async (requestedUrl = null) => {
       window.clearTimeout(relationSearchTimer);
       relationSearchController?.abort();
       const activeController = new AbortController();
       relationSearchController = activeController;
-      const url = relationCatalogUrl(requestedUrl);
+      const stateUrl = relationCatalogUrl(requestedUrl);
+      const requestUrl = relationRequestUrl(stateUrl);
       catalog.setAttribute("aria-busy", "true");
       if (count) {
         count.textContent = "Searching linked Odoo fields\u2026";
       }
       try {
-        const response = await fetch(url, {
+        const response = await fetch(requestUrl, {
           headers: { Accept: "text/html" },
           signal: activeController.signal,
         });
@@ -3209,14 +3234,14 @@ document.addEventListener("DOMContentLoaded", () => {
         window.history.replaceState(
           {},
           "",
-          `${url.pathname}${url.search}${url.hash}`
+          `${stateUrl.pathname}${stateUrl.search}${stateUrl.hash}`
         );
         if (mappingForm) {
           const saveUrl = new URL(
             mappingForm.getAttribute("action") || window.location.pathname,
             window.location.href
           );
-          saveUrl.search = url.search;
+          saveUrl.search = stateUrl.search;
           mappingForm.setAttribute(
             "action",
             `${saveUrl.pathname}${saveUrl.search}`
@@ -3245,7 +3270,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       relationSearchTimer = window.setTimeout(
         () => loadRelationCatalog(),
-        200
+        fieldCatalogSearchDelayMs
       );
     };
     search?.addEventListener("input", scheduleRelationCatalogSearch);

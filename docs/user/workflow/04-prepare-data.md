@@ -8,8 +8,8 @@ status: current
 
 ## Goal
 
-Apply the confirmed mapping to every frozen row, check data quality, and
-resolve findings before comparing anything with Odoo.
+Apply the confirmed mapping to every frozen row in the current data version,
+check data quality, and resolve findings before comparing anything with Odoo.
 
 ## Before you start
 
@@ -28,7 +28,19 @@ source, schema, key, or transformation decision is still changing.
    decisions when they are present.
 7. Approve the resolved prepared data only when no required decision remains.
 
-![Current prepared-data review with reconciled totals and the next comparison action.](../../images/user/15-prepared-data-review.png)
+![Current prepared-data review inside a fictional Recipe data version.](../../images/user/15-prepared-data-review.png)
+
+## How Recipes reuse this work
+
+A Recipe reuses confirmed preparation rules, not a prepared snapshot. Every
+authoring, Test, and Production data version runs preparation again from its
+own frozen source and current mapping confirmation. Parameter values and
+control totals also belong to that data version and are checked again.
+
+This fresh run is mandatory even when the replacement files look identical.
+Preparation, quality findings, duplicate decisions, normalization approval,
+and content hashes from an earlier data version are historical evidence and
+cannot qualify the current one.
 
 ## What to check
 
@@ -42,19 +54,15 @@ source, schema, key, or transformation decision is still changing.
 ## What Complete means
 
 Impodo has a frozen, fully accounted prepared result for the current source,
-schema, and mapping evidence. **Final review** becomes available for file
-projects. For captured Odoo records, the prepared result is complete but Final
-review remains locked until the protected three-way comparison is available.
+schema, and mapping evidence. **Final review** becomes available for the
+current file data version.
 
 ## What changes and what does not
 
-Preparation publishes local canonical evidence. It does not call Odoo and
-does not change the frozen source. Merge and normalization decisions affect
-the prepared result, not the original evidence.
-
-For captured Odoo records, Impodo verifies the encrypted origin sidecar once,
-then reads only the frozen local snapshot. Protected record IDs remain outside
-the portable prepared rows and reports.
+Preparation publishes local canonical evidence. It does not call Odoo, change
+the frozen source, modify the Recipe revision, or copy prepared rows between
+data versions. Merge and normalization decisions affect the prepared result,
+not the original evidence.
 
 ## Needs attention
 
@@ -65,8 +73,9 @@ may be retried only after its recorded outcome is understood.
 ## What makes this work stale
 
 Any change to source evidence, Odoo schema, business keys, mapping revision,
-or required resolution invalidates the prepared result. Run preparation again
-instead of modifying stored artifacts.
+Recipe application, parameters, controls, or required resolution invalidates
+the prepared result. Run preparation again instead of modifying stored
+artifacts.
 
 ## Next stage
 

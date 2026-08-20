@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
+from time import perf_counter
 
 from fastapi import Request
+from fastapi.responses import HTMLResponse
 
 from ...derived_entities import (
     DerivedEntityRule,
     derived_dataset_links,
     derived_mapping_samples,
+    mapping_source_selection,
+    preview_derived_entities,
     related_dataset_links,
 )
 from ...domain.schema.governance import BusinessKeyStatus
@@ -74,8 +78,22 @@ def _render_mapping(
             "The mapping request exceeded a safety limit or could not be read. "
             "No mapping change was saved; the last working draft is loaded."
         )
-    selection = context.queries.get_mapping_source_selection(project_id)
+    physical_selection = context.queries.get_source_selection(project_id)
     preparation_plan = context.queries.get_derived_entity_plan(project_id)
+    source_catalogs = (
+        context.queries.get_source_catalogs(project_id)
+        if physical_selection is not None
+        else ()
+    )
+    selection = (
+        mapping_source_selection(
+            physical_selection,
+            preparation_plan,
+            source_catalogs,
+        )
+        if physical_selection is not None
+        else None
+    )
     schema = context.queries.get_odoo_schema_catalog(project_id)
     governance = context.queries.get_schema_governance(project_id)
     revision = context.queries.get_mapping_revision(project_id)
@@ -102,24 +120,13 @@ def _render_mapping(
             for item in selection.datasets
         )
     )
-    expected_schema_hash = None
-    if governance is not None:
-        expected_schema_hash = governance.content_hash
-    elif schema is not None:
-        expected_schema_hash = schema.content_hash
-    working_draft_is_current = bool(
-        working_draft is not None
-        and selection is not None
-        and expected_schema_hash is not None
-        and working_draft.definition.source_selection_hash
-        == selection.content_hash
-        and working_draft.definition.schema_hash == expected_schema_hash
+    working_draft_is_current, active_definition = _active_mapping_state(
+        selection,
+        schema,
+        governance,
+        revision,
+        working_draft,
     )
-    active_definition = None
-    if working_draft_is_current and working_draft is not None:
-        active_definition = working_draft.definition
-    elif revision is not None:
-        active_definition = revision.definition
     has_unvalidated_changes = bool(
         working_draft_is_current
         and working_draft is not None
@@ -137,11 +144,6 @@ def _render_mapping(
     )
     validation = None if has_unvalidated_changes else stored_validation
     submission = None if has_unvalidated_changes else stored_submission
-    source_catalogs = (
-        context.queries.get_source_catalogs(project_id)
-        if selection is not None
-        else ()
-    )
     dataset_count = len(selection.datasets) if selection is not None else 0
     active_dataset_index = min(
         _positive_query_int(
@@ -167,19 +169,11 @@ def _render_mapping(
     relation_query = request.query_params.get("relation_query", "").strip()[:128]
     field_query = request.query_params.get("field_query", "").strip()[:128]
     mapped_only = request.query_params.get("mapped_only") == "1"
-    lookup_links = derived_dataset_links(preparation_plan)
-    lookup_samples: dict[str, dict[str, tuple[str | None, ...]]] = {}
-    if preparation_plan is not None:
-        lookup_rules = tuple(
-            rule
-            for rule in preparation_plan.rules
-            if isinstance(rule, DerivedEntityRule)
-        )
-        for link, rule in zip(lookup_links, lookup_rules, strict=True):
-            lookup_samples[link.derived_dataset_id] = derived_mapping_samples(
-                link,
-                context.derived_entities.preview(project_id, rule),
-            )
+    lookup_links, lookup_samples = _lookup_mapping_materials(
+        physical_selection,
+        preparation_plan,
+        source_catalogs,
+    )
     dataset_views = (
         _mapping_dataset_views(
             selection,
@@ -206,90 +200,7 @@ def _render_mapping(
         if selection and schema
         else ()
     )
-    for view in dataset_views:
-        view["edit_url"] = _mapping_return_url(
-            request,
-            project_id,
-            mapping_dataset=view["index"],
-            scalar_page=1,
-            relation_page=1,
-            save_error=None,
-        )
-        if view["active"]:
-            view["scalar_page_size_options"] = tuple(
-                {
-                    "size": size,
-                    "url": _mapping_return_url(
-                        request,
-                        project_id,
-                        scalar_page=1,
-                        scalar_page_size=(
-                            None
-                            if size == DEFAULT_MAPPING_FIELDS_PER_PAGE
-                            else size
-                        ),
-                        save_error=None,
-                    ),
-                }
-                for size in MAPPING_FIELD_PAGE_SIZES
-            )
-            view["relation_page_size_options"] = tuple(
-                {
-                    "size": size,
-                    "url": _mapping_return_url(
-                        request,
-                        project_id,
-                        relation_page=1,
-                        relation_page_size=(
-                            None
-                            if size == DEFAULT_MAPPING_FIELDS_PER_PAGE
-                            else size
-                        ),
-                        save_error=None,
-                    ),
-                }
-                for size in MAPPING_FIELD_PAGE_SIZES
-            )
-            view["scalar_previous_url"] = (
-                _mapping_return_url(
-                    request,
-                    project_id,
-                    scalar_page=int(view["scalar_page"]) - 1,
-                    save_error=None,
-                )
-                if int(view["scalar_page"]) > 1
-                else None
-            )
-            view["scalar_next_url"] = (
-                _mapping_return_url(
-                    request,
-                    project_id,
-                    scalar_page=int(view["scalar_page"]) + 1,
-                    save_error=None,
-                )
-                if int(view["scalar_page"]) < int(view["scalar_page_count"])
-                else None
-            )
-            view["relation_previous_url"] = (
-                _mapping_return_url(
-                    request,
-                    project_id,
-                    relation_page=int(view["relation_page"]) - 1,
-                    save_error=None,
-                )
-                if int(view["relation_page"]) > 1
-                else None
-            )
-            view["relation_next_url"] = (
-                _mapping_return_url(
-                    request,
-                    project_id,
-                    relation_page=int(view["relation_page"]) + 1,
-                    save_error=None,
-                )
-                if int(view["relation_page"]) < int(view["relation_page_count"])
-                else None
-            )
+    _add_mapping_dataset_urls(request, project_id, dataset_views)
     readonly_field_recovery = _readonly_field_recovery(
         validation,
         selection,
@@ -340,7 +251,6 @@ def _render_mapping(
         and not has_unvalidated_changes
         and selection is not None
     ):
-        physical_selection = context.queries.get_source_selection(project_id)
         if physical_selection is not None:
             identity = _transformation_impact_identity(
                 revision,
@@ -394,6 +304,7 @@ def _render_mapping(
     return _render(
         request,
         "project_mapping.html",
+        project_id=project_id,
         project=context.queries.get(project_id),
         selection=selection,
         schema=schema,
@@ -424,6 +335,293 @@ def _render_mapping(
         error=error,
         status_code=status_code,
     )
+
+
+def _render_mapping_field_catalog(
+    request: Request,
+    context: WebContext,
+    project_id: str,
+) -> HTMLResponse:
+    """Render only one active field catalogue from saved local evidence."""
+
+    started = perf_counter()
+    catalog_kind = (
+        "relation"
+        if request.query_params.get("catalog") == "relation"
+        else "scalar"
+    )
+    physical_selection = context.queries.get_source_selection(project_id)
+    preparation_plan = context.queries.get_derived_entity_plan(project_id)
+    source_catalogs = (
+        context.queries.get_source_catalogs(project_id)
+        if physical_selection is not None
+        else ()
+    )
+    selection = (
+        mapping_source_selection(
+            physical_selection,
+            preparation_plan,
+            source_catalogs,
+        )
+        if physical_selection is not None
+        else None
+    )
+    schema = context.queries.get_odoo_schema_catalog(project_id)
+    governance = context.queries.get_schema_governance(project_id)
+    revision = context.queries.get_mapping_revision(project_id)
+    working_draft = context.queries.get_mapping_working_draft(project_id)
+    _working_draft_is_current, active_definition = _active_mapping_state(
+        selection,
+        schema,
+        governance,
+        revision,
+        working_draft,
+    )
+    if selection is None or schema is None or not selection.datasets:
+        return HTMLResponse(
+            "The saved Odoo field catalogue is not available.",
+            status_code=409,
+        )
+
+    dataset_count = len(selection.datasets)
+    active_dataset_index = min(
+        _positive_query_int(
+            request.query_params.get("mapping_dataset"),
+            default=0,
+        ),
+        dataset_count - 1,
+    )
+    lookup_links, lookup_samples = _lookup_mapping_materials(
+        physical_selection,
+        preparation_plan,
+        source_catalogs,
+    )
+    dataset_views = _mapping_dataset_views(
+        selection,
+        schema,
+        governance,
+        active_definition.datasets if active_definition else (),
+        source_catalogs,
+        {
+            index: request.query_params.get(f"target_model_{index}", "")
+            for index, _item in enumerate(selection.datasets)
+        },
+        related_dataset_links(preparation_plan),
+        lookup_links,
+        lookup_samples,
+        active_dataset_index=active_dataset_index,
+        scalar_page=(
+            _positive_query_int(
+                request.query_params.get("scalar_page"),
+                default=1,
+            )
+            if catalog_kind == "scalar"
+            else 1
+        ),
+        scalar_page_size=_mapping_field_page_size(
+            request.query_params.get("scalar_page_size")
+        ),
+        relation_page=(
+            _positive_query_int(
+                request.query_params.get("relation_page"),
+                default=1,
+            )
+            if catalog_kind == "relation"
+            else 1
+        ),
+        relation_page_size=_mapping_field_page_size(
+            request.query_params.get("relation_page_size")
+        ),
+        relation_query=(
+            request.query_params.get("relation_query", "").strip()[:128]
+            if catalog_kind == "relation"
+            else ""
+        ),
+        field_query=request.query_params.get("field_query", "").strip()[:128],
+        mapped_only=request.query_params.get("mapped_only") == "1",
+    )
+    _add_mapping_dataset_urls(request, project_id, dataset_views)
+    active_view = next(
+        (view for view in dataset_views if view["active"]),
+        None,
+    )
+    if active_view is None:
+        return HTMLResponse(
+            "The requested Odoo field catalogue is not available.",
+            status_code=409,
+        )
+
+    projection_ms = (perf_counter() - started) * 1000
+    render_started = perf_counter()
+    template = request.app.state.templates.env.get_template(
+        "project_mapping.html"
+    )
+    block_name = f"{catalog_kind}_field_catalog"
+    block = template.blocks.get(block_name)
+    if block is None:
+        raise RuntimeError(f"Mapping {catalog_kind}-field template block is missing")
+    template_context = template.new_context(
+        {
+            "request": request,
+            "project_id": project_id,
+            "dataset_index": active_view["index"],
+            "view": active_view,
+        }
+    )
+    html = "".join(block(template_context))
+    render_ms = (perf_counter() - render_started) * 1000
+    response = HTMLResponse(html)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Server-Timing"] = (
+        f"projection;dur={projection_ms:.1f}, render;dur={render_ms:.1f}, "
+        f"total;dur={(perf_counter() - started) * 1000:.1f}"
+    )
+    return response
+
+
+def _active_mapping_state(
+    selection,
+    schema,
+    governance,
+    revision,
+    working_draft,
+):
+    expected_schema_hash = None
+    if governance is not None:
+        expected_schema_hash = governance.content_hash
+    elif schema is not None:
+        expected_schema_hash = schema.content_hash
+    working_draft_is_current = bool(
+        working_draft is not None
+        and selection is not None
+        and expected_schema_hash is not None
+        and working_draft.definition.source_selection_hash
+        == selection.content_hash
+        and working_draft.definition.schema_hash == expected_schema_hash
+    )
+    if working_draft_is_current and working_draft is not None:
+        return True, working_draft.definition
+    if revision is not None:
+        return False, revision.definition
+    return False, None
+
+
+def _lookup_mapping_materials(
+    physical_selection,
+    preparation_plan,
+    source_catalogs,
+):
+    lookup_links = derived_dataset_links(preparation_plan)
+    lookup_samples: dict[str, dict[str, tuple[str | None, ...]]] = {}
+    if preparation_plan is None or physical_selection is None:
+        return lookup_links, lookup_samples
+    lookup_rules = tuple(
+        rule
+        for rule in preparation_plan.rules
+        if isinstance(rule, DerivedEntityRule)
+    )
+    for link, rule in zip(lookup_links, lookup_rules, strict=True):
+        lookup_samples[link.derived_dataset_id] = derived_mapping_samples(
+            link,
+            preview_derived_entities(
+                rule,
+                physical_selection,
+                source_catalogs,
+            ),
+        )
+    return lookup_links, lookup_samples
+
+
+def _add_mapping_dataset_urls(
+    request: Request,
+    project_id: str,
+    dataset_views,
+) -> None:
+    for view in dataset_views:
+        view["edit_url"] = _mapping_return_url(
+            request,
+            project_id,
+            mapping_dataset=view["index"],
+            scalar_page=1,
+            relation_page=1,
+            save_error=None,
+        )
+        if not view["active"]:
+            continue
+        view["scalar_page_size_options"] = tuple(
+            {
+                "size": size,
+                "url": _mapping_return_url(
+                    request,
+                    project_id,
+                    scalar_page=1,
+                    scalar_page_size=(
+                        None
+                        if size == DEFAULT_MAPPING_FIELDS_PER_PAGE
+                        else size
+                    ),
+                    save_error=None,
+                ),
+            }
+            for size in MAPPING_FIELD_PAGE_SIZES
+        )
+        view["relation_page_size_options"] = tuple(
+            {
+                "size": size,
+                "url": _mapping_return_url(
+                    request,
+                    project_id,
+                    relation_page=1,
+                    relation_page_size=(
+                        None
+                        if size == DEFAULT_MAPPING_FIELDS_PER_PAGE
+                        else size
+                    ),
+                    save_error=None,
+                ),
+            }
+            for size in MAPPING_FIELD_PAGE_SIZES
+        )
+        view["scalar_previous_url"] = (
+            _mapping_return_url(
+                request,
+                project_id,
+                scalar_page=int(view["scalar_page"]) - 1,
+                save_error=None,
+            )
+            if int(view["scalar_page"]) > 1
+            else None
+        )
+        view["scalar_next_url"] = (
+            _mapping_return_url(
+                request,
+                project_id,
+                scalar_page=int(view["scalar_page"]) + 1,
+                save_error=None,
+            )
+            if int(view["scalar_page"]) < int(view["scalar_page_count"])
+            else None
+        )
+        view["relation_previous_url"] = (
+            _mapping_return_url(
+                request,
+                project_id,
+                relation_page=int(view["relation_page"]) - 1,
+                save_error=None,
+            )
+            if int(view["relation_page"]) > 1
+            else None
+        )
+        view["relation_next_url"] = (
+            _mapping_return_url(
+                request,
+                project_id,
+                relation_page=int(view["relation_page"]) + 1,
+                save_error=None,
+            )
+            if int(view["relation_page"]) < int(view["relation_page_count"])
+            else None
+        )
 
 
 def _readonly_field_recovery(validation, selection, schema):

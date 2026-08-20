@@ -3794,6 +3794,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("restoreSourceReviewPosition", mapping_script.text)
         self.assertIn("data-source-review-form", mapping_script.text)
         self.assertIn("scheduleScalarCatalogSearch", mapping_script.text)
+        self.assertIn("catalogRequestUrl", mapping_script.text)
+        self.assertIn("relationRequestUrl", mapping_script.text)
         self.assertIn("new AbortController()", mapping_script.text)
         self.assertIn("new DOMParser()", mapping_script.text)
         self.assertIn("window.history.replaceState", mapping_script.text)
@@ -5418,6 +5420,17 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Linked Field 0049", searched.text)
         self.assertIn("Showing 1 of 1 linked fields", searched.text)
 
+        fragment = self.client.get(
+            f"/projects/{project_id}/mapping/field-catalog"
+            "?catalog=relation&relation_query=relation_0049"
+        )
+        self.assertEqual(fragment.status_code, 200)
+        self.assertEqual(fragment.text.count("data-relation-field-row"), 1)
+        self.assertIn("Linked Field 0049", fragment.text)
+        self.assertNotIn("data-scalar-field-catalog", fragment.text)
+        self.assertNotIn("<main", fragment.text)
+        self.assertIn("projection;dur=", fragment.headers["server-timing"])
+
         searched_by_model = self.client.get(
             f"/projects/{project_id}/mapping?relation_query=res.partner"
         )
@@ -5853,6 +5866,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(searched.text.count("data-scalar-mapping-row"), 1)
         self.assertIn("field_1499", searched.text)
         self.assertNotIn("field_0000</code>", searched.text)
+
+        fragment = self.client.get(
+            f"/projects/{project_id}/mapping/field-catalog"
+            "?field_query=field_1499"
+        )
+        self.assertEqual(fragment.status_code, 200)
+        self.assertEqual(fragment.text.count("data-scalar-mapping-row"), 1)
+        self.assertIn("field_1499", fragment.text)
+        self.assertNotIn("data-relation-field-catalog", fragment.text)
+        self.assertNotIn("<main", fragment.text)
+        self.assertEqual(fragment.headers["cache-control"], "no-store")
+        self.assertIn("projection;dur=", fragment.headers["server-timing"])
 
         entries = [
             ["csrf_token", self.csrf],

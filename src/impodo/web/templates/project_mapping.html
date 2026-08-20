@@ -257,8 +257,10 @@
           {% if view.active %}
           <h3 id="scalar-fields-{{ dataset_index }}">Choose what goes into each Odoo field</h3>
           <p class="muted">Choose where each Odoo field gets its value. Start with the fields below or search for another one.</p>
+          {% block scalar_field_catalog scoped %}
           <div
             data-scalar-field-catalog
+            data-scalar-search-url="/projects/{{ project_id }}/mapping/field-catalog"
             data-scalar-catalog-total="{{ view.scalar_catalog_total }}"
             data-scalar-matching-total="{{ view.scalar_matching_total }}"
             data-scalar-mapped-total="{{ view.scalar_mapped_total }}"
@@ -719,6 +721,7 @@
               </div>
             </nav>
           </div>
+          {% endblock %}
 
           {% if not view.odoo_pinned %}
           <details class="related-records" {% if view.relation_mapped_total %}open{% endif %}>
@@ -730,8 +733,10 @@
           <p class="related-records-example">
             Example: connect the <strong>Category</strong> value in a products file to the matching category in Odoo or in another incoming dataset.
           </p>
+          {% block relation_field_catalog scoped %}
           <div
             data-relation-field-catalog
+            data-relation-search-url="/projects/{{ project_id }}/mapping/field-catalog"
             data-relation-catalog-total="{{ view.relation_catalog_total }}"
             data-relation-matching-total="{{ view.relation_matching_total }}"
             data-relation-mapped-total="{{ view.relation_mapped_total }}"
@@ -938,6 +943,7 @@
             </div>
           </nav>
           </div>
+          {% endblock %}
           </details>
           {% endif %}
 

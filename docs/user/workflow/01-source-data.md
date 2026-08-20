@@ -9,13 +9,14 @@ status: current
 ## Goal
 
 Confirm the exact records and columns that Impodo may prepare, then freeze
-them as the project's source evidence.
+them as evidence for the current Recipe data version.
 
 ## Before you start
 
-The project must be registered. For files, use the final CSV or XLSX exports
-and know which worksheets, tables, or ranges belong to the migration. For an
-Odoo source, first complete the eligible-field capture described in
+The current data version must be registered. For files, use the complete CSV
+or XLSX package for this authoring, Test, or Production run and know which
+worksheets, tables, or ranges belong to the migration. For an Odoo source,
+first complete the eligible-field capture described in
 [Odoo data](02-odoo-data.md).
 
 ## Steps in Impodo
@@ -31,8 +32,8 @@ Odoo source, first complete the eligible-field capture described in
 6. Optionally open **Prepare related datasets** when combined information must
    become separate related tables.
 
-Once table choices are frozen, the file list cannot be changed in that
-project.
+Once table choices are frozen, the file list cannot be changed in that data
+version.
 
 ### Odoo source
 
@@ -44,9 +45,21 @@ project.
 The Odoo-source route reads selected business records; it does not authorize a
 write back to Odoo.
 
-![Current source inspection for fictional CSV and XLSX files.](../../images/user/04-source-inspection.png)
+![Current source inspection inside a fictional Recipe data version.](../../images/user/04-source-inspection.png)
 
-![Current frozen table choices and the next Odoo-data action.](../../images/user/05-frozen-tables.png)
+![Current frozen table choices and the next Odoo-data action in that data version.](../../images/user/05-frozen-tables.png)
+
+## How Recipes reuse this work
+
+The exact files, rows, hashes, and frozen snapshots belong only to this data
+version. A published Recipe retains the reusable source shape and logical
+table and column bindings, not the source records.
+
+Every Test or Production data version therefore starts clean. Add and freeze
+the complete replacement package again. When you later select **Apply
+Recipe**, Impodo checks the new shape explicitly. A renamed column used by the
+Recipe needs your replacement choice; a new unused column does not silently
+change the Recipe.
 
 ## What to check
 
@@ -60,19 +73,23 @@ write back to Odoo.
 ## What Complete means
 
 Impodo shows the source stage as frozen or complete and the next stage becomes
-available. Every selected dataset is bound to immutable source evidence.
+available. Every selected dataset is bound to immutable evidence for this
+data version.
 
 ## What changes and what does not
 
 Freezing creates a governed snapshot for preparation. It does not modify the
-original file or Odoo records. Optional related-table rules create a plan;
-they do not rewrite the frozen source.
+original file or Odoo records, publish a Recipe revision, or copy evidence
+from another data version. Optional related-table rules create a plan; they do
+not rewrite the frozen source.
 
 ## Needs attention
 
 Stop when a file hash has changed, a worksheet is missing, headings are wrong,
 or the Odoo capture is broader than intended. Before table freeze, replace an
-incorrect file. After freeze, start a new project for corrected source data.
+incorrect file. Never replace frozen evidence in place. For an authoring
+mistake, create a correctly scoped Recipe; for later replacement data, start a
+fresh Test or Production data version from the Recipe overview.
 
 For combined source information, use the
 [related-table authoring guide](../guides/related-tables.md)
@@ -81,8 +98,9 @@ instead of manually altering the project database.
 ## What makes this work stale
 
 A changed source file, table choice, Odoo selection, or related-table plan
-changes the source evidence. Downstream schema, mapping, preparation, and
-review evidence must be regenerated when Impodo invalidates them.
+changes this data version's source evidence. Downstream schema, mapping,
+preparation, and review evidence must be regenerated when Impodo invalidates
+them. Earlier data-version evidence remains immutable history.
 
 ## Next stage
 

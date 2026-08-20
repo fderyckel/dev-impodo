@@ -59,7 +59,11 @@ from ..presenters.mapping_impact import (
     _transformation_impact_url,
     _transformation_rule_impact_views,
 )
-from ..presenters.mapping_view import _render_mapping, _safe_spreadsheet_text
+from ..presenters.mapping_view import (
+    _render_mapping,
+    _render_mapping_field_catalog,
+    _safe_spreadsheet_text,
+)
 from ..target_readers import _relationship_value_choices, _source_value_choices
 
 
@@ -75,6 +79,25 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         if active_url:
             return RedirectResponse(active_url, status_code=303)
         return _render_mapping(request, context, project_id)
+
+    @router.get(
+        "/projects/{project_id}/mapping/field-catalog",
+        response_class=HTMLResponse,
+    )
+    async def project_mapping_field_catalog(
+        request: Request,
+        project_id: str,
+    ):
+        """Return only the saved scalar-field catalogue for browser search."""
+
+        require_session(request)
+        _require_mapping_idle(context, project_id)
+        return await run_in_threadpool(
+            _render_mapping_field_catalog,
+            request,
+            context,
+            project_id,
+        )
 
     @router.post("/projects/{project_id}/mapping/value-choices")
     async def project_mapping_value_choices(

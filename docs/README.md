@@ -102,8 +102,8 @@ setup, CLI, release, and acceptance procedures live under
 
 - [End-to-end local-browser tutorial](user/tutorials/end-to-end-training.md)
   — one complete fictional migration across the current browser workflow.
-- [Accepted Windows installation](user/installation/windows.md) — the
-  data-manager route for installing an approved internal release bundle.
+- [Windows installation](user/installation/windows.md) — step-by-step GitHub
+  evaluation and accepted internal release routes.
 - [Local Odoo guide](user/guides/local-odoo.md) — local target readiness,
   ownership-aware start and stop behavior, and troubleshooting.
 - [Local Odoo technical runbook](developer/runbooks/local-odoo.md) — process

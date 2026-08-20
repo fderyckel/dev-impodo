@@ -52,6 +52,8 @@ class DuckDbProjectDatabase(
             lock_wait_timeout_seconds=lock_wait_timeout_seconds
         )
         self._transformation_impact_lock = RLock()
+        self._project_schema_migration_lock = RLock()
+        self._prepared_project_schema_files: set[tuple[str, int, int]] = set()
         self.root.mkdir(parents=True, exist_ok=True)
 
     def project_directory(self, project_id: str) -> Path:

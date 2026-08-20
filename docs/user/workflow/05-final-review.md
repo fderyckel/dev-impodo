@@ -8,8 +8,9 @@ status: current
 
 ## Goal
 
-Compare every eligible prepared row with current Odoo evidence and decide
-whether the proposed outcome is safe to take to the load stage.
+Compare every eligible prepared row in the current Recipe data version with
+fresh Odoo evidence and decide whether the proposed outcome is safe to take to
+the load stage.
 
 ## Before you start
 
@@ -20,31 +21,33 @@ Use a reachable Odoo 19 target with the approved read access.
 
 1. Open **Final review**.
 2. Select **Compare with Odoo**.
-3. Review totals for **Create**, **Update**, **Unchanged**, **Needs review**, and
-   **Blocked**.
+3. Review totals for **New in Odoo**, **Different from Odoo**, **Already
+   matches**, **Needs attention**, and **Set aside**.
 4. Inspect field-level differences and relationship resolutions.
 5. Resolve every ambiguous or blocked row upstream, then prepare and compare
    again.
 6. Download the workbook or technical evidence package when required for the
    rehearsal record.
 
-For a project that started from captured Odoo records, the review is simpler:
-
-1. Select **Review checked records**.
-2. Read the result: **Ready to update**, **Already matches**, or
-   **Needs refresh**.
-3. If a refresh is needed, select **Refresh Odoo records** and repeat the
-   preparation. This is the only safe recovery action.
-
-Odoo-source review is update-only. It never proposes new records, offers no
-business-key fallback, and does not enable loading yet.
-
-![Current final comparison with saved rows and per-table Odoo outcomes.](../../images/user/16-final-comparison.png)
+![Current final comparison with saved rows and per-table Odoo outcomes in one data version.](../../images/user/16-final-comparison.png)
 
 For local Odoo, **Reconnect local Odoo** may appear after Impodo restarts.
 Choose the matching setup, then select **Continue comparison** when ready.
 
 ![Current local-Odoo reconnect dialog shown before comparison.](../../images/user/16b-local-odoo-reconnect.png)
+
+## How Recipes reuse this work
+
+Comparison evidence is never reusable. A Test data version compares its
+representative data with the current Test server. A Production data version
+uses the exact selected, qualified Recipe revision but still compares the
+latest source with fresh Production schema, reference data, credentials, and
+target records.
+
+A successful Test comparison is only one qualification input. The Test load
+and read-back must also finish before the Recipe overview can qualify that
+exact revision. Test qualification does not approve later Production data or
+grant Production write access.
 
 ## What to check
 
@@ -61,13 +64,13 @@ a hard stop until the identity or target evidence is corrected.
 ## What Complete means
 
 The current report is **Ready** with no ambiguous or blocked rows and remains
-bound to the exact prepared and target evidence. For file-source projects, the
-load stage can become available. For Odoo-source projects, load remains locked
-until the guarded-update phase is implemented.
+bound to the exact prepared and target evidence. The load stage can become
+available for the current file data version.
 
 ## What changes and what does not
 
-Comparison reads Odoo and stores review evidence. It does not write to Odoo.
+Comparison reads Odoo and stores review evidence for this data version. It
+does not write to Odoo, qualify the Recipe, or authorize Production execution.
 Downloading a workbook or package does not authorize execution.
 
 ## Needs attention
@@ -79,14 +82,14 @@ retrying.
 
 ## What makes this work stale
 
-Source, schema, business-key, mapping, prepared-data, target-evidence, or
-dependency-order changes require a fresh comparison. Never load from an older
-report after one of those changes.
+Source, schema, business-key, mapping, Recipe application, parameter, control,
+prepared-data, target-evidence, or dependency-order changes require a fresh
+comparison. Never load from an older data version's report.
 
 ## Next stage
 
-Continue to [Load into Odoo](06-load-into-odoo.md) only for an explicitly
-approved disposable target and the exact current review.
+Continue to [Load into Odoo](06-load-into-odoo.md) only for the explicitly
+approved Test or Production target and the exact current review.
 
 ## Related documentation
 

@@ -21,7 +21,7 @@ categories, and bills of materials, use the
 
 ## Installation and focused guides
 
-- [Install an accepted Impodo release on Windows](installation/windows.md)
+- [Install Impodo on Windows](installation/windows.md)
 - [Connect to Odoo on this computer](guides/local-odoo.md)
 - [Prepare related tables](guides/related-tables.md)
 

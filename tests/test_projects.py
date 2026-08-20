@@ -18,6 +18,9 @@ from impodo.artifacts import LocalArtifactStore
 from impodo.intake import SourceIntakeError, SourceIntakeService
 from impodo.adapters.duckdb.database import DuckDbDatabase
 from impodo.adapters.duckdb.project_repository import ProjectRepository
+from impodo.adapters.duckdb.schema.recipe_workspace import (
+    ensure_recipe_workspace_schema,
+)
 from impodo.adapters.duckdb.schema_repository import SchemaRepository
 from impodo.adapters.duckdb.transformation_impact_repository import (
     TransformationImpactRepository,
@@ -149,6 +152,23 @@ class ProjectLifecycleTests(unittest.TestCase):
                 retention_days=90,
                 support_access=False,
             )
+
+    def test_additive_project_schema_is_checked_once_per_database(self) -> None:
+        project = self.service.create_project(
+            actor=LOCAL_ACTOR,
+            name="Schema cache",
+            source_system="CSV",
+        )
+        self.database._prepared_project_schema_files.clear()
+
+        with patch(
+            "impodo.adapters.duckdb.schema.project.ensure_recipe_workspace_schema",
+            wraps=ensure_recipe_workspace_schema,
+        ) as ensure_schema:
+            self.repository.get(project.project_id)
+            self.repository.get(project.project_id)
+
+        self.assertEqual(ensure_schema.call_count, 1)
 
     def test_credential_lifecycle_audit_contains_only_safe_binding_evidence(self):
         project = self.service.create_project(

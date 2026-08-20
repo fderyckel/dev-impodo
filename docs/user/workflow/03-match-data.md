@@ -9,7 +9,8 @@ status: current
 ## Goal
 
 Describe how every approved source table becomes an Odoo record, including
-identity, values, transformations, and relationships.
+identity, values, transformations, and relationships. In authoring, this is
+the reusable meaning that can be published as a Recipe revision.
 
 ## Before you start
 
@@ -35,6 +36,18 @@ record identity automatically.
 9. Review transformation effects, including rules that changed no values.
 10. Select **Confirm field matches** for the exact checked revision.
 
+### When a published Recipe is applied
+
+For a Test or Production data version, first complete the fresh source and
+Odoo-data steps, then return to the Recipe overview and select **Apply Recipe**.
+Impodo checks current source, target, parameters, control totals, credentials,
+relationships, and categorical values before building a fresh mapping draft.
+
+Review that draft on this screen and confirm it through the normal checks. A
+renamed used column, a new selection value, or a new many2one value needs an
+explicit decision. Applying a Recipe never copies an earlier approval and
+never guesses a categorical or linked-record match.
+
 ### When the source is captured from Odoo
 
 The originating Odoo record type is fixed and Impodo prepares updates only; it
@@ -47,11 +60,9 @@ is off by default. A field can be approved only when its original value was
 captured and Odoo metadata identifies it as a safe stored, writable scalar.
 Confirming these choices still does not contact or change Odoo.
 
-![Current source and Odoo identity choices for one fictional customer table.](../../images/user/10-mapping-identity.png)
+![Current source and Odoo identity choices inside a fictional Recipe data version.](../../images/user/10-mapping-identity.png)
 
 ![Current field-value and cleanup controls for a fictional Contact mapping.](../../images/user/11-mapping-fields.png)
-
-![Current linked-record mapping controls for existing Odoo lists.](../../images/user/12-mapping-relations.png)
 
 ![Current read-only report showing the effects of confirmed cleanup rules.](../../images/user/13-rule-effects.png)
 
@@ -67,13 +78,15 @@ Confirming these choices still does not contact or change Odoo.
 
 ## What Complete means
 
-The exact checked mapping revision is confirmed and the stage shows
-**Complete**. A saved draft alone is not complete.
+The exact checked mapping revision is confirmed for this data version and the
+stage shows **Complete**. A saved or Recipe-built draft alone is not complete.
+In authoring, publication from the Recipe overview is a later, separate action.
 
 ## What changes and what does not
 
-Saving or confirming a mapping stores instructions and review evidence. It
-does not edit frozen source data and does not write to Odoo.
+Saving or confirming a mapping stores instructions and review evidence in the
+current data version. It does not edit frozen source data, publish a Recipe by
+itself, authorize a load, or write to Odoo.
 
 ## Needs attention
 
@@ -91,9 +104,10 @@ matches** again.
 ## What makes this work stale
 
 Changes to source evidence, Odoo fields, business keys, mapping choices, field
-approvals, or
-transformation rules require a new mapping check and confirmation. A previously
-prepared or compared result must not be reused after such a change.
+approvals, or transformation rules require a new mapping check and
+confirmation. A previously prepared or compared result must not be reused
+after such a change. Changing reusable meaning requires a new Recipe revision
+and a new Test qualification before rollout.
 
 ## Next stage
 
