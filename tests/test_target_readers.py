@@ -2,15 +2,26 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
-from impodo.models import OdooReadIdentity, target_identity_hash
+from impodo.connectors import MetadataSnapshot, RecordSnapshot
+from impodo.models import (
+    FieldMetadata,
+    ModelMetadata,
+    OdooReadIdentity,
+    TargetFingerprint,
+    target_identity_hash,
+)
 from impodo.projects import MigrationProject, OdooConnectionMode
 from impodo.secrets import MemorySecretStore
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     store_target_credential,
 )
-from impodo.web.target_readers import _read_readiness_snapshots
+from impodo.web.target_readers import (
+    _read_readiness_snapshots,
+    _read_supporting_lookup_snapshots,
+)
 from impodo.workspace_errors import WorkspaceError
 
 
@@ -106,6 +117,71 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
             _read_readiness_snapshots(context, self.project, (), ())
 
         self.assertEqual(self.reader_calls, 0)
+
+    def test_remote_supporting_lookup_reads_inferred_model_outside_schema(
+        self,
+    ) -> None:
+        context = self._context(permission_hash="sha256:" + "8" * 64)
+        context.readiness_reader = None
+        fingerprint = TargetFingerprint(
+            target_hash=self.target_hash,
+            connection_mode="REMOTE",
+            database="production",
+            odoo_version="19.0",
+            snapshot_timestamp="2026-08-21T00:00:00Z",
+        )
+
+        class FakeConnector:
+            def __init__(self):
+                self.metadata_requests = ()
+                self.record_requests = ()
+
+            def get_model_metadata(self, requests):
+                self.metadata_requests = tuple(requests)
+                return MetadataSnapshot(
+                    fingerprint=fingerprint,
+                    models={
+                        "res.country": ModelMetadata(
+                            model="res.country",
+                            description="Country",
+                            fields={
+                                "code": FieldMetadata("code", "char"),
+                                "name": FieldMetadata("name", "char"),
+                            },
+                        )
+                    },
+                )
+
+            def get_records(self, requests):
+                self.record_requests = tuple(requests)
+                return RecordSnapshot(
+                    fingerprint=fingerprint,
+                    records={"res.country": ()},
+                    requested_fields={"res.country": ("code", "name")},
+                )
+
+        connector = FakeConnector()
+        with patch(
+            "impodo.web.target_readers.Json2ReadConnector",
+            return_value=connector,
+        ):
+            _metadata, _records, access = _read_supporting_lookup_snapshots(
+                context,
+                self.project,
+                self.schema,
+                relation_model="res.country",
+                requested_fields=("code", "name"),
+            )
+
+        self.assertEqual(
+            self.probe_calls,
+            [("first-secret", ("res.country",))],
+        )
+        self.assertEqual(connector.metadata_requests[0].model, "res.country")
+        self.assertEqual(connector.metadata_requests[0].fields, ("code", "name"))
+        self.assertEqual(connector.record_requests[0].model, "res.country")
+        self.assertEqual(connector.record_requests[0].limit, 2001)
+        self.assertEqual(access[2], "sha256:" + "8" * 64)
 
 
 if __name__ == "__main__":

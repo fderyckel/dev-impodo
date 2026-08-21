@@ -79,9 +79,6 @@ each Odoo model.
 Have these decisions ready:
 
 - the final CSV or XLSX exports;
-- the source export date and source-system name;
-- the data manager and functional owner;
-- the classification, purpose, and retention period;
 - the Local or Remote Odoo URL and database;
 - the Odoo record types included in the migration;
 - one stable business key for each record type;
@@ -104,19 +101,15 @@ started from PowerShell with:
 Impodo opens a local 127.0.0.1 address with a short-lived sign-in token. Do not
 bookmark or share that address.
 
-Select **New Recipe** and enter:
+Select **New project** and enter:
 
 - Project name: **Odoo 19 training migration**
-- Source system: **Northstar ERP (fictional)**
-- Export status: **Files received**
-- Export date: the date of the governed export
-- Data manager: **Alex Morgan**
-- Functional owner: **Jamie Laurent**
-- Classification: **Confidential**
-- Retention: **30 days** for this rehearsal
+- Source: **Use files**
 
-Add all related files before selecting **Register project**. Registration
-freezes the file list; it does not yet freeze the individual tables.
+Add all related files, then select **Use these files and continue**. Impodo does
+not ask for the Odoo destination yet; connect it when the workflow reaches
+**Odoo data**. The files are registered, but the individual tables are not yet
+frozen.
 
 ![Current data-version overview showing all six data-manager stages in one fictional migration.](../../images/user/03-project-overview.png)
 

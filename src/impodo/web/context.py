@@ -40,6 +40,7 @@ from ..application.quality_service import QualityService
 from ..application.resolution_service import ResolutionService
 from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
+from ..application.supporting_lookup_service import SupportingLookupService
 from ..application.transformation_impact_service import TransformationImpactService
 from ..artifacts import ArtifactStore
 from ..connectors import (
@@ -122,6 +123,7 @@ class WebContext:
     derived_entities: DerivedEntityWorkspaceService
     schema_workspace: SchemaWorkspaceService
     mapping_workspace: MappingWorkspaceService
+    supporting_lookups: SupportingLookupService
     categorical_coverage: CategoricalCoverageService
     preparation: PreparationService
     preparation_jobs: PreparationJobManager | None

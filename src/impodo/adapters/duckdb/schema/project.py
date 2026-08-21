@@ -16,6 +16,7 @@ from .preparation_session import create_preparation_session_schema
 from .prepared_snapshot import create_prepared_snapshot_schema
 from .reconciliation import create_reconciliation_schema
 from .recipe_workspace import ensure_recipe_workspace_schema
+from .supporting_lookup import ensure_supporting_lookup_schema
 from .source_snapshot import create_source_snapshot_schema
 
 
@@ -608,6 +609,7 @@ class ProjectSchemaMixin:
         create_prepared_snapshot_schema(connection)
         create_derived_value_artifact_schema(connection)
         ensure_recipe_workspace_schema(connection)
+        ensure_supporting_lookup_schema(connection)
         self._remember_prepared_project_schema(connection)
 
     def _ensure_project_database_schema(
@@ -637,11 +639,13 @@ class ProjectSchemaMixin:
         schema_key = self._project_schema_file_key(connection)
         if schema_key is None:
             ensure_recipe_workspace_schema(connection)
+            ensure_supporting_lookup_schema(connection)
             return
         with self._project_schema_migration_lock:
             if schema_key in self._prepared_project_schema_files:
                 return
             ensure_recipe_workspace_schema(connection)
+            ensure_supporting_lookup_schema(connection)
             self._prepared_project_schema_files.add(schema_key)
 
     def _remember_prepared_project_schema(

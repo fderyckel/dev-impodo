@@ -120,6 +120,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 "target_model",
                 "target_field",
                 "business_key_id",
+                "refresh",
             },
         )
         try:
@@ -173,6 +174,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             if model is None or field is None:
                 raise WorkspaceError("Choose one current Odoo field")
             ambiguous_values: tuple[str, ...] = ()
+            target_checked_at: str | None = None
+            target_choices_reused = False
             if kind == "scalar":
                 if field.type != "selection":
                     raise WorkspaceError(
@@ -215,19 +218,28 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         "Choose how the related Odoo record is identified first"
                     )
                 project = context.queries.get(project_id)
-                target_choices, ambiguous_values = await run_in_threadpool(
+                (
+                    target_choices,
+                    ambiguous_values,
+                    checked_at,
+                    target_choices_reused,
+                ) = await run_in_threadpool(
                     _relationship_value_choices,
                     context,
                     project,
                     schema,
                     field,
                     key,
+                    refresh=_text(form, "refresh") == "1",
                 )
+                target_checked_at = checked_at.isoformat()
             return JSONResponse(
                 {
                     "source_choices": source_choices,
                     "target_choices": target_choices,
                     "ambiguous_values": ambiguous_values,
+                    "target_checked_at": target_checked_at,
+                    "target_choices_reused": target_choices_reused,
                 }
             )
         except (

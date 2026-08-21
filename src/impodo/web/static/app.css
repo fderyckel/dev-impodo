@@ -2345,6 +2345,22 @@ label.model-choice input {
   padding: .42rem .72rem;
 }
 
+.value-match-freshness {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: .75rem;
+}
+
+.value-match-freshness[hidden] {
+  display: none;
+}
+
+.value-match-freshness small {
+  color: var(--muted);
+}
+
 .value-match-table-wrap {
   max-height: min(54vh, 560px);
   margin-top: 1rem;

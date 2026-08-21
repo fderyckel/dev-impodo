@@ -70,6 +70,7 @@ from impodo.domain.odoo_source_capture import (
 )
 from impodo.domain.odoo_comparison import OdooComparisonOutcome
 from impodo.application.preflight_service import MANIFEST_NAME
+from impodo.application.odoo_connection_service import OdooConnectionTestService
 from impodo.models import (
     FieldMetadata,
     ModelMetadata,
@@ -534,27 +535,6 @@ class LocalStackBrowserTests(unittest.TestCase):
         self.project_id = _created_workspace_id(self.app, created)
         context = self.app.state.context
         project = context.queries.get(self.project_id)
-        project = context.projects.update_details(
-            self.project_id,
-            actor=context.actor,
-            expected_revision=project.revision,
-            name=project.name,
-            source_system=project.source_system,
-            export_status="RECEIVED",
-            export_date=date.today().isoformat(),
-            description="Local readiness checks",
-        )
-        project = context.projects.update_governance(
-            self.project_id,
-            actor=context.actor,
-            expected_revision=project.revision,
-            data_manager="Data Manager",
-            functional_owner="Product Owner",
-            business_unit="Example Business Unit",
-            data_classification="INTERNAL",
-            retention_days=90,
-            support_access=False,
-        )
         context.intake.accept(
             self.project_id,
             actor=context.actor,
@@ -562,7 +542,12 @@ class LocalStackBrowserTests(unittest.TestCase):
             display_name="local-readiness.csv",
             stream=BytesIO(b"code,name\nP001,Example\n"),
         )
-        self.project_revision = context.queries.get(self.project_id).revision
+        registered = context.projects.register(
+            self.project_id,
+            actor=context.actor,
+            expected_revision=context.queries.get(self.project_id).revision,
+        )
+        self.project_revision = registered.revision
 
     def tearDown(self) -> None:
         self.client.close()
@@ -843,7 +828,8 @@ class LocalStackBrowserTests(unittest.TestCase):
             headers=POST_HEADERS,
             follow_redirects=False,
         )
-        self.assertEqual(saved.status_code, 303)
+        self.assertEqual(saved.status_code, 422)
+        self.assertIn("Check the Odoo connection before continuing", saved.text)
 
         blocked = self.client.post(
             f"/projects/{self.project_id}/local-stack/select-config",
@@ -1180,6 +1166,24 @@ class ProjectSetupWizardTests(unittest.TestCase):
             project_id,
             actor=context.actor,
             expected_revision=context.queries.get(project_id).revision,
+        )
+
+    def _replace_connection_probes(
+        self,
+        *,
+        fingerprint_probe=None,
+        identity_probe=None,
+    ) -> None:
+        """Keep the shared connection service aligned with replaced test seams."""
+
+        context = self.app.state.context
+        if fingerprint_probe is not None:
+            context.connection_tester = fingerprint_probe
+        if identity_probe is not None:
+            context.read_identity_probe = identity_probe
+        context.odoo_connection_tests = OdooConnectionTestService(
+            context.connection_tester,
+            context.read_identity_probe,
         )
 
     def _registered_remote_schema_project(self):
@@ -1771,7 +1775,9 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "raw remote response and secret must not be displayed"
             )
 
-        self.app.state.context.connection_tester = rejected_connection
+        self._replace_connection_probes(
+            fingerprint_probe=rejected_connection,
+        )
         created = self._post(
             "/recipes/new",
             {
@@ -1818,7 +1824,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "internal group and model details must not be rendered"
             )
 
-        self.app.state.context.read_identity_probe = denied_identity
+        self._replace_connection_probes(identity_probe=denied_identity)
         created = self._post(
             "/recipes/new",
             {
@@ -1849,7 +1855,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         result = self.client.get(tested.headers["location"])
         self.assertIn("ODOO_READ_ACCESS_MISSING", result.text)
         self.assertIn(
-            "The authenticated principal lacks required model read access.",
+            "The authenticated principal lacks the required read access.",
             result.text,
         )
         self.assertNotIn("never-render-this-key", result.text)
@@ -1892,7 +1898,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         for index, (tester, message, support_code) in enumerate(cases, start=1):
             with self.subTest(support_code=support_code):
-                self.app.state.context.connection_tester = tester
+                self._replace_connection_probes(fingerprint_probe=tester)
                 created = self._post(
                     "/recipes/new",
                     {
@@ -1949,7 +1955,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "intended_applications": "Contacts",
                 "api_key": "disposable-api-key",
                 "remember_api_key": "1",
-                "action": "save",
+                "action": "test",
             },
         )
         self.assertEqual(targeted.status_code, 303)
@@ -5005,7 +5011,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 headers=POST_HEADERS,
             )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(len(calls), 1)
         self.assertEqual(len(calls[0][1]), 1)
         self.assertEqual(
@@ -5093,7 +5099,28 @@ class ProjectSetupWizardTests(unittest.TestCase):
 
         def readiness_reader(project, metadata_requests, record_requests):
             calls.append((metadata_requests, record_requests))
-            metadata = _browser_schema(project)
+            available = _browser_schema(project)
+            metadata = replace(
+                available,
+                models={
+                    "res.country": ModelMetadata(
+                        model="res.country",
+                        description="Country",
+                        fields={
+                            "code": FieldMetadata(
+                                name="code",
+                                type="char",
+                                label="Country Code",
+                            ),
+                            "name": FieldMetadata(
+                                name="name",
+                                type="char",
+                                label="Country Name",
+                            ),
+                        },
+                    )
+                },
+            )
             return metadata, RecordSnapshot(
                 fingerprint=metadata.fingerprint,
                 records={
@@ -5135,21 +5162,32 @@ class ProjectSetupWizardTests(unittest.TestCase):
             "impodo.web.routers.mapping._source_value_choices",
             return_value=({"value": "FRA", "count": 3},),
         ):
+            request_data = {
+                "csrf_token": self.csrf,
+                "kind": "relationship",
+                "dataset_id": dataset.dataset_id,
+                "source_column_key": source_country.stable_key,
+                "target_model": "res.partner",
+                "target_field": "relation_0000",
+                "business_key_id": "odoo-standard:res.country:code",
+            }
             choices = self.client.post(
                 f"/projects/{project_id}/mapping/value-choices",
-                data={
-                    "csrf_token": self.csrf,
-                    "kind": "relationship",
-                    "dataset_id": dataset.dataset_id,
-                    "source_column_key": source_country.stable_key,
-                    "target_model": "res.partner",
-                    "target_field": "relation_0000",
-                    "business_key_id": "odoo-standard:res.country:code",
-                },
+                data=request_data,
+                headers=POST_HEADERS,
+            )
+            reused = self.client.post(
+                f"/projects/{project_id}/mapping/value-choices",
+                data=request_data,
+                headers=POST_HEADERS,
+            )
+            refreshed = self.client.post(
+                f"/projects/{project_id}/mapping/value-choices",
+                data={**request_data, "refresh": "1"},
                 headers=POST_HEADERS,
             )
 
-        self.assertEqual(choices.status_code, 200)
+        self.assertEqual(choices.status_code, 200, choices.text)
         self.assertEqual(
             choices.json()["target_choices"],
             [
@@ -5157,9 +5195,18 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 {"value": "FR", "label": "France (FR)"},
             ],
         )
-        self.assertEqual(len(calls), 1)
+        self.assertFalse(choices.json()["target_choices_reused"])
+        self.assertTrue(choices.json()["target_checked_at"])
+        self.assertEqual(reused.status_code, 200)
+        self.assertTrue(reused.json()["target_choices_reused"])
+        self.assertEqual(refreshed.status_code, 200)
+        self.assertFalse(refreshed.json()["target_choices_reused"])
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][0][0].model, "res.country")
+        self.assertEqual(calls[0][0][0].fields, ("code", "name"))
         self.assertEqual(calls[0][1][0].model, "res.country")
         self.assertEqual(calls[0][1][0].fields, ("code", "name"))
+        self.assertEqual(calls[0][1][0].limit, 2001)
         self.assertNotIn("odoo_id", choices.text)
 
         saved = self.client.post(

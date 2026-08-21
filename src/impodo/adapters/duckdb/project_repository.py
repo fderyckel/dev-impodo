@@ -396,6 +396,7 @@ class ProjectRepository(DuckDbRegistryRepository):
                     connection.execute("DELETE FROM odoo_capture_manifest_current")
                     connection.execute("DELETE FROM schema_governance_current")
                     connection.execute("DELETE FROM mapping_current")
+                    connection.execute("DELETE FROM supporting_lookup_current")
                     self._invalidate_canonical_staging(
                         connection,
                         reason="PROJECT_TARGET_CHANGED",

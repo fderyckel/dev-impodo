@@ -86,6 +86,33 @@ class Json2ConnectorTests(unittest.TestCase):
             )
         )
 
+    def test_record_limit_bounds_pagination(self) -> None:
+        calls = []
+
+        def transport(url, _headers, body, _timeout, _method):
+            if url.endswith("/web/version"):
+                return 200, {"version": "19.0"}
+            payload = json.loads(body)
+            calls.append(payload)
+            return 200, [
+                {"id": payload["offset"] + index + 1, "code": "X"}
+                for index in range(payload["limit"])
+            ]
+
+        connector = Json2ReadConnector(
+            self.config(page_size=2),
+            transport=transport,
+        )
+        snapshot = connector.get_records(
+            (RecordRequest("x.model", ("code",), limit=3),)
+        )
+
+        self.assertEqual(len(snapshot.records["x.model"]), 3)
+        self.assertEqual(
+            [(item["offset"], item["limit"]) for item in calls],
+            [(0, 2), (2, 1)],
+        )
+
     def test_read_identity_probe_is_closed_stable_and_secret_independent(
         self,
     ) -> None:

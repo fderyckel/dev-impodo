@@ -1261,6 +1261,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const valueMatchTableWrap = valueMatchDialog?.querySelector(
       "[data-value-match-table-wrap]"
     );
+    const valueMatchFreshness = valueMatchDialog?.querySelector(
+      "[data-value-match-freshness]"
+    );
+    const valueMatchFreshnessText = valueMatchDialog?.querySelector(
+      "[data-value-match-freshness-text]"
+    );
+    const refreshValueMatch = valueMatchDialog?.querySelector(
+      "[data-refresh-value-match]"
+    );
     const valueMatchRows = valueMatchDialog?.querySelector(
       "[data-value-match-rows]"
     );
@@ -1302,6 +1311,16 @@ document.addEventListener("DOMContentLoaded", () => {
       if (useValueMatches) {
         useValueMatches.disabled = true;
       }
+      if (activeValueMatch?.kind === "relationship" && valueMatchFreshness) {
+        valueMatchFreshness.hidden = false;
+        if (valueMatchFreshnessText) {
+          valueMatchFreshnessText.textContent =
+            "Impodo could not update the saved Odoo values.";
+        }
+        if (refreshValueMatch) {
+          refreshValueMatch.textContent = "Try again";
+        }
+      }
     };
 
     const resetValueMatchDialog = () => {
@@ -1321,6 +1340,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (useValueMatches) {
         useValueMatches.disabled = true;
       }
+      if (valueMatchFreshness) {
+        valueMatchFreshness.hidden = true;
+      }
+      if (valueMatchFreshnessText) {
+        valueMatchFreshnessText.textContent = "";
+      }
+      if (refreshValueMatch) {
+        refreshValueMatch.textContent = "Refresh Odoo values";
+      }
     };
 
     const renderValueMatchRows = (payload) => {
@@ -1336,7 +1364,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const targetValues = new Set(
         targetChoices.map((choice) => String(choice.value))
       );
-      const existing = parseValueMatches(activeValueMatch.storage);
+      const existing =
+        activeValueMatch.pendingMatches ||
+        parseValueMatches(activeValueMatch.storage);
       let suggested = 0;
       let ambiguousCount = 0;
 
@@ -1481,13 +1511,48 @@ document.addEventListener("DOMContentLoaded", () => {
         useValueMatches.disabled = sourceChoices.length === 0;
       }
       activeValueMatch.sourceCount = sourceChoices.length;
+      if (
+        activeValueMatch.kind === "relationship" &&
+        payload.target_checked_at &&
+        valueMatchFreshness
+      ) {
+        const checkedAt = new Date(payload.target_checked_at);
+        const checkedLabel = Number.isNaN(checkedAt.getTime())
+          ? "recently"
+          : new Intl.DateTimeFormat(undefined, {
+              dateStyle: "medium",
+              timeStyle: "short",
+            }).format(checkedAt);
+        valueMatchFreshness.hidden = false;
+        if (valueMatchFreshnessText) {
+          valueMatchFreshnessText.textContent = payload.target_choices_reused
+            ? `Using saved Odoo values checked ${checkedLabel}.`
+            : `Odoo values checked and saved ${checkedLabel}.`;
+        }
+        if (refreshValueMatch) {
+          refreshValueMatch.textContent = "Refresh Odoo values";
+        }
+      }
       updateValueMatchProgress();
     };
 
-    const openValueMatch = async (trigger) => {
+    const openValueMatch = async (trigger, { refresh = false } = {}) => {
       if (!valueMatchDialog) {
         return;
       }
+      const pendingMatches =
+        refresh && activeValueMatch && valueMatchRows
+          ? new Map(
+              Array.from(
+                valueMatchRows.querySelectorAll("select[data-source-value]")
+              )
+                .filter((select) => select.value)
+                .map((select) => [
+                  select.dataset.sourceValue || "",
+                  select.value,
+                ])
+            )
+          : null;
       resetValueMatchDialog();
       valueMatchRequest?.abort();
       const kind = trigger.dataset.valueMatchKind || "";
@@ -1553,6 +1618,8 @@ document.addEventListener("DOMContentLoaded", () => {
         trigger,
         storage,
         sourceCount: 0,
+        kind,
+        pendingMatches,
       };
       const csrfToken =
         mappingForm.querySelector('input[name="csrf_token"]')?.value || "";
@@ -1564,6 +1631,7 @@ document.addEventListener("DOMContentLoaded", () => {
       body.set("target_model", trigger.dataset.targetModel || "");
       body.set("target_field", trigger.dataset.targetField || "");
       body.set("business_key_id", businessKeyId);
+      body.set("refresh", refresh ? "1" : "0");
       const activeRequest = new AbortController();
       valueMatchRequest = activeRequest;
       try {
@@ -1611,6 +1679,14 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       void openValueMatch(trigger);
+    });
+
+    refreshValueMatch?.addEventListener("click", () => {
+      const trigger = activeValueMatch?.trigger;
+      if (!trigger) {
+        return;
+      }
+      void openValueMatch(trigger, { refresh: true });
     });
 
     useValueMatches?.addEventListener("click", () => {

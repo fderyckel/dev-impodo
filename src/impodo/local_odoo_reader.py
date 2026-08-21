@@ -301,6 +301,7 @@ class LocalOdooMetadataReader:
             if (
                 _MODEL_NAME.fullmatch(request.model) is None
                 or any(_FIELD_NAME.fullmatch(field) is None for field in request.fields)
+                or (request.limit is not None and request.limit <= 0)
             ):
                 raise LocalOdooReaderError(
                     "The local readiness record request is invalid."
@@ -705,6 +706,7 @@ def _preflight_script(
             "model": item.model,
             "fields": list(item.fields),
             "domain": _json_value(item.domain),
+            "limit": item.limit,
         }
         for item in record_requests
     ]
@@ -734,15 +736,23 @@ for request in record_requests:
     offset = 0
     rows = []
     while True:
+        remaining = (
+            request["limit"] - len(rows)
+            if request["limit"] is not None
+            else 500
+        )
+        if remaining <= 0:
+            break
+        page_limit = min(500, remaining)
         page = model.search_read(
             request["domain"],
             ["id", *request["fields"]],
             offset=offset,
-            limit=500,
+            limit=page_limit,
             order="id asc",
         )
         rows.extend(page)
-        if len(page) < 500:
+        if len(page) < page_limit:
             break
         offset += len(page)
     captured_records.setdefault(request["model"], []).extend(rows)

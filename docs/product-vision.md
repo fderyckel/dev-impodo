@@ -95,16 +95,18 @@ The legacy labels “Phase A” and “Phase B” are retired and must not be us
 
 ### Stage A — Register a migration project
 
-A migration project identifies:
+A local migration project starts with only:
 
-- source system and source export date;
-- exact Odoo target;
-- responsible data manager and functional owner;
-- source files;
-- optional migration application scope for reviewer context;
-- data-retention classification;
-- current mapping version;
-- current run and approval status.
+- a project name;
+- one source mode: files or records already in Odoo;
+- the selected source files, or the exact read-only Odoo source connection.
+
+For file migrations, the Odoo destination is bound later when the manager
+reaches Odoo data. Export as-of date is a Test or Production DataVersion input,
+not an initial project-creation field. The current Odoo-source workflow uses
+one database as both the capture source and eventual pinned update target;
+cross-Odoo migration requires separate source and destination bindings and is
+not yet offered.
 
 All subsequent artifacts are bound to that project and run.
 

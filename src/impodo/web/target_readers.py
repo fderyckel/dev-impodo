@@ -9,6 +9,8 @@ boundary and are never passed into the preflight domain or report.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from starlette.concurrency import run_in_threadpool
 
 from ..adapters.odoo_source_capture import Json2OdooSourceCapture
@@ -28,7 +30,15 @@ from ..domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from ..projects import MigrationProject, OdooConnectionMode, ProjectError, SourceMode
 from ..reference_keys import standard_reference_key
 from ..secrets import SecretStoreError
-from ..workspace_contracts import OdooModelCatalog, SchemaField, SchemaOrigin
+from ..supporting_lookups import (
+    SupportingLookupChoice,
+)
+from ..workspace_contracts import (
+    OdooModelCatalog,
+    OdooSchemaCatalog,
+    SchemaField,
+    SchemaOrigin,
+)
 from ..workspace_errors import WorkspaceError
 from .constants import (
     VALUE_MATCH_MAX_TARGET_CHOICES,
@@ -481,11 +491,18 @@ def _source_value_choices(
 def _relationship_value_choices(
     context: WebContext,
     project: MigrationProject,
-    schema,
+    schema: OdooSchemaCatalog,
     field: SchemaField,
     key: BusinessKeyDefinition,
-) -> tuple[tuple[dict[str, str], ...], tuple[str, ...]]:
-    """Read existing Odoo choices once and expose only portable key values."""
+    *,
+    refresh: bool = False,
+) -> tuple[
+    tuple[dict[str, str], ...],
+    tuple[str, ...],
+    datetime,
+    bool,
+]:
+    """Fetch or reuse bounded Many2one choices as portable project evidence."""
 
     if schema.origin is not SchemaOrigin.LIVE_API:
         raise WorkspaceError(
@@ -529,17 +546,6 @@ def _relationship_value_choices(
         else ("name" if "name" in available_fields else key_field)
     )
     requested_fields = tuple(dict.fromkeys((key_field, display_field)))
-    _metadata, snapshot = _read_readiness_snapshots(
-        context,
-        project,
-        (),
-        (
-            RecordRequest(
-                model=field.relation,
-                fields=requested_fields,
-            ),
-        ),
-    )
     expected_target_hash = target_identity_hash(
         connection_mode=(
             project.odoo_connection_mode.value
@@ -549,9 +555,57 @@ def _relationship_value_choices(
         base_url=project.odoo_base_url,
         database=project.odoo_database,
     )
-    if snapshot.fingerprint.target_hash != expected_target_hash:
+    if not refresh:
+        current = context.supporting_lookups.current(
+            project.project_id,
+            relation_model=field.relation,
+            key_fields=key.key_fields,
+            scope_fields=key.scope_fields,
+            display_field=display_field,
+            target_hash=expected_target_hash,
+            read_credential_binding_hash=schema.read_credential_binding_hash,
+            read_principal_hash=schema.read_principal_hash,
+            read_context_hash=schema.read_context_hash,
+            actor=context.actor,
+        )
+        if current is not None:
+            return (
+                tuple(
+                    {"value": item.value, "label": item.label}
+                    for item in current.choices
+                ),
+                current.ambiguous_values,
+                current.captured_at,
+                True,
+            )
+
+    metadata, record_snapshot, access = _read_supporting_lookup_snapshots(
+        context,
+        project,
+        schema,
+        relation_model=field.relation,
+        requested_fields=requested_fields,
+    )
+    if (
+        metadata.fingerprint != record_snapshot.fingerprint
+        or not metadata.complete
+        or not record_snapshot.complete
+    ):
+        raise WorkspaceError("Odoo returned incomplete linked-record choices")
+    if record_snapshot.fingerprint.target_hash != expected_target_hash:
         raise WorkspaceError("Odoo choices came from a different target")
-    records = snapshot.records.get(field.relation, ())
+    related_metadata = metadata.models.get(field.relation)
+    if related_metadata is None:
+        raise WorkspaceError("Odoo did not return the linked record fields")
+    returned_fields = related_metadata.fields
+    if any(name not in returned_fields for name in requested_fields):
+        raise WorkspaceError("Odoo did not return every linked record field")
+    if returned_fields[key_field].type not in {"char", "text", "selection"}:
+        raise WorkspaceError(
+            "Quick matching currently supports text-based Odoo keys"
+        )
+
+    records = record_snapshot.records.get(field.relation, ())
     if len(records) > VALUE_MATCH_MAX_TARGET_CHOICES:
         raise WorkspaceError(
             "This Odoo model has too many records for quick matching"
@@ -577,7 +631,155 @@ def _relationship_value_choices(
         if display_field != key_field and label != value:
             label = f"{label} ({value})"
         choices.append({"value": value, "label": label})
-    return (
-        tuple(sorted(choices, key=lambda item: item["label"].casefold())),
-        ambiguous,
+    captured_at = _snapshot_datetime(record_snapshot.fingerprint.snapshot_timestamp)
+    stored = context.supporting_lookups.capture(
+        project.project_id,
+        relation_model=field.relation,
+        key_fields=key.key_fields,
+        scope_fields=key.scope_fields,
+        display_field=display_field,
+        target_hash=expected_target_hash,
+        read_credential_binding_hash=access[0],
+        read_principal_hash=access[1],
+        read_permission_hash=access[2],
+        read_context_hash=access[3],
+        captured_at=captured_at,
+        choices=tuple(
+            SupportingLookupChoice(value=item["value"], label=item["label"])
+            for item in choices
+        ),
+        ambiguous_values=ambiguous,
+        actor=context.actor,
     )
+    return (
+        tuple(
+            {"value": item.value, "label": item.label}
+            for item in stored.choices
+        ),
+        stored.ambiguous_values,
+        stored.captured_at,
+        False,
+    )
+
+
+def _read_supporting_lookup_snapshots(
+    context: WebContext,
+    project: MigrationProject,
+    schema: OdooSchemaCatalog,
+    *,
+    relation_model: str,
+    requested_fields: tuple[str, ...],
+) -> tuple[
+    MetadataSnapshot,
+    RecordSnapshot,
+    tuple[str, str, str, str],
+]:
+    """Read one inferred related model without widening the primary schema."""
+
+    metadata_requests = (
+        MetadataRequest(model=relation_model, fields=requested_fields),
+    )
+    record_requests = (
+        RecordRequest(
+            model=relation_model,
+            fields=requested_fields,
+            limit=VALUE_MATCH_MAX_TARGET_CHOICES + 1,
+        ),
+    )
+    if context.readiness_reader is not None:
+        metadata, records = context.readiness_reader(
+            project,
+            metadata_requests,
+            record_requests,
+        )
+        return (
+            metadata,
+            records,
+            (
+                schema.read_credential_binding_hash,
+                schema.read_principal_hash,
+                schema.read_permission_hash,
+                schema.read_context_hash,
+            ),
+        )
+
+    if project.odoo_connection_mode is OdooConnectionMode.LOCAL:
+        local_profile = _selected_local_profile(context, project)
+        if local_profile is None:
+            raise LocalOdooRecoveryRequired(
+                "Choose and validate the matching local odoo.conf before "
+                "loading Odoo choices."
+            )
+        metadata, records = context.local_odoo_reader.get_preflight_snapshots(
+            project,
+            local_profile,
+            metadata_requests,
+            record_requests,
+            related_models=(relation_model,),
+        )
+        return (
+            metadata,
+            records,
+            (
+                schema.read_credential_binding_hash,
+                schema.read_principal_hash,
+                schema.read_permission_hash,
+                schema.read_context_hash,
+            ),
+        )
+
+    credential = get_target_credential(
+        context.secret_store,
+        project,
+        TargetCredentialRole.READ,
+    )
+    if credential is None:
+        raise SecretStoreError(
+            "Enter the Odoo read API key for this remote target before "
+            "loading Odoo choices."
+        )
+    if credential.binding_hash != schema.read_credential_binding_hash:
+        raise WorkspaceError(
+            "The Odoo read key changed; refresh the Odoo fields before "
+            "loading choices"
+        )
+    identity = context.read_identity_probe(
+        project,
+        credential.secret,
+        (relation_model,),
+    )
+    if (
+        identity.target_hash != schema.connection_target_hash
+        or identity.principal_hash != schema.read_principal_hash
+        or identity.context_hash != schema.read_context_hash
+        or identity.readable_models != (relation_model,)
+    ):
+        raise WorkspaceError(
+            "The Odoo target, reader, access context, or linked-model access "
+            "changed; refresh the Odoo fields before loading choices"
+        )
+    connector = Json2ReadConnector(
+        _target_json2_config(project, credential.secret)
+    )
+    return (
+        connector.get_model_metadata(metadata_requests),
+        connector.get_records(record_requests),
+        (
+            credential.binding_hash,
+            identity.principal_hash,
+            identity.permission_hash,
+            identity.context_hash,
+        ),
+    )
+
+
+def _snapshot_datetime(value: str) -> datetime:
+    """Normalize connector timestamps for durable UI freshness evidence."""
+
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now(timezone.utc)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)

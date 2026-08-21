@@ -71,6 +71,7 @@ class RecordRequest:
     model: str
     fields: tuple[str, ...]
     domain: tuple[Any, ...] = ()
+    limit: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,6 +420,10 @@ class SnapshotConnector:
         records: dict[str, tuple[TargetRecord, ...]] = {}
         requested_fields: dict[str, tuple[str, ...]] = {}
         for request in requests:
+            if request.limit is not None and request.limit <= 0:
+                raise ConnectorConfigurationError(
+                    "record request limit must be positive"
+                )
             requested_fields[request.model] = tuple(request.fields)
             model_records = []
             for item in available.get(request.model, {}).get("records", ()):
@@ -434,6 +439,8 @@ class SnapshotConnector:
                         values=values,
                     )
                 )
+                if request.limit is not None and len(model_records) >= request.limit:
+                    break
             records[request.model] = tuple(
                 sorted(model_records, key=lambda record: record.odoo_id)
             )
@@ -1085,8 +1092,16 @@ class Json2ReadConnector:
         fields_by_model: dict[str, tuple[str, ...]] = {}
         for request in sorted(
             requests,
-            key=lambda item: (item.model, canonical_json_bytes(portable_value(item.domain))),
+            key=lambda item: (
+                item.model,
+                canonical_json_bytes(portable_value(item.domain)),
+                item.limit if item.limit is not None else -1,
+            ),
         ):
+            if request.limit is not None and request.limit <= 0:
+                raise ConnectorConfigurationError(
+                    "record request limit must be positive"
+                )
             fields = tuple(dict.fromkeys(("id", *request.fields)))
             projected_fields = tuple(
                 field for field in fields if field != "id"
@@ -1101,6 +1116,14 @@ class Json2ReadConnector:
             offset = 0
             collected: list[TargetRecord] = []
             while True:
+                remaining = (
+                    request.limit - len(collected)
+                    if request.limit is not None
+                    else self._config.page_size
+                )
+                if remaining <= 0:
+                    break
+                page_limit = min(self._config.page_size, remaining)
                 response = self._post_read_method(
                     request.model,
                     "search_read",
@@ -1108,7 +1131,7 @@ class Json2ReadConnector:
                         "domain": list(request.domain),
                         "fields": list(fields),
                         "offset": offset,
-                        "limit": self._config.page_size,
+                        "limit": page_limit,
                         "order": "id asc",
                         "context": dict(self._config.context),
                     },
@@ -1133,7 +1156,7 @@ class Json2ReadConnector:
                             },
                         )
                     )
-                if len(response) < self._config.page_size:
+                if len(response) < page_limit:
                     break
                 offset += len(response)
             unique = {record.odoo_id: record for record in collected}

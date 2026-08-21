@@ -16,10 +16,7 @@ publication. Odoo-origin data can be prepared and compared offline as pinned
 updates against that same database, but Odoo-origin writes and cross-database
 transfer are not available. A `PRODUCTION` DataVersion is implemented as a
 fresh application of one qualified Recipe revision; it does not by itself
-authorize a production cutover. Production-executor acceptance, clean-package
-certification, a separate functional mapping-approval lifecycle, and hosted
-operation remain later capabilities described in the
-[product vision](../product-vision.md).
+authorize a production cutover.
 
 ## System context
 

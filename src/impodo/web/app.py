@@ -53,6 +53,7 @@ from ..application.quality_service import QualityService
 from ..application.resolution_service import ResolutionService
 from ..application.schema_workspace_service import SchemaWorkspaceService
 from ..application.source_workspace_service import SourceWorkspaceService
+from ..application.supporting_lookup_service import SupportingLookupService
 from ..application.transformation_impact_service import TransformationImpactService
 from ..artifacts import ArtifactStore, LocalArtifactStore
 from ..derived_entities import DerivedEntityWorkspaceService
@@ -81,6 +82,9 @@ from ..adapters.duckdb.recipe_application_repository import (
 from ..adapters.duckdb.quality_repository import QualityRepository
 from ..adapters.duckdb.schema_repository import SchemaRepository
 from ..adapters.duckdb.source_repository import SourceRepository
+from ..adapters.duckdb.supporting_lookup_repository import (
+    SupportingLookupRepository,
+)
 from ..adapters.duckdb.staging_repository import StagingRepository
 from ..adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
@@ -197,6 +201,7 @@ def create_local_app(
     source_repository = SourceRepository(database, derived_entity_repository)
     schema_repository = SchemaRepository(database)
     mapping_repository = MappingRepository(database)
+    supporting_lookup_repository = SupportingLookupRepository(database)
     mapping_field_catalog_repository = MappingFieldCatalogRepository(database)
     staging_repository = StagingRepository(database, resolved_artifacts)
     preparation_session_repository = PreparationSessionRepository(
@@ -422,6 +427,10 @@ def create_local_app(
         ),
         schema_workspace=schema_workspace,
         mapping_workspace=mapping_workspace,
+        supporting_lookups=SupportingLookupService(
+            supporting_lookup_repository,
+            resolved_authorization,
+        ),
         categorical_coverage=categorical_coverage,
         preparation=preparation,
         preparation_jobs=preparation_jobs,

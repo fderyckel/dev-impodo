@@ -8,25 +8,25 @@ status: current
 
 ## Goal
 
-Create one reusable migration Recipe and register the people, representative
-source, target, purpose, and retention information for authoring data version
-1.
+Create a local migration project with a clear name and one source: files or
+records already in Odoo.
 
 ## Before you start
 
-Have the source owner, data manager, functional owner, source system, export
-date, classification, retention period, and intended Odoo 19 target ready. For
-a file project, collect the related CSV or XLSX files for the same migration.
+For a file project, collect the related CSV or XLSX files. For an Odoo-source
+project, have the exact Odoo 19 address, database name, and read-only API key.
 
 ## Steps in Impodo
 
-1. Open Impodo and select **New Recipe**.
-2. Choose whether the source is files or existing Odoo records.
-3. Enter the Recipe's authoring data-version and governance details.
-4. Configure the Local or Remote Odoo target.
-5. For a file source, add the related CSV or XLSX files.
-6. Review the complete setup.
-7. Select **Register project** to finish the contained authoring workspace.
+1. Open Impodo and select **New project**.
+2. Enter the project name and choose whether the source is files or existing
+   Odoo records.
+3. For a file source, add one or more related CSV or XLSX files and select
+   **Use these files and continue**. The Odoo destination is requested later,
+   when you reach **Odoo data**.
+4. For an Odoo source, enter the exact source connection and run the read-only
+   check. Impodo currently prepares updates for records in that same database;
+   moving records between two Odoo databases is not available yet.
 
 ![Current new-project screen with file and Odoo source choices.](../images/user/02-create-project.png)
 
@@ -38,11 +38,10 @@ order. Do not create one Recipe per Odoo record type.
 ## What to check
 
 - The source mode matches the real origin of the data.
-- The target URL and database identify the intended Odoo 19 environment.
-- The data manager and functional owner are real responsibilities, not generic
-  placeholders.
-- Classification, purpose, and retention match the data being handled.
 - File-source projects contain the intended exports.
+- An Odoo-source connection identifies the database that already contains the
+  records.
+- A file project's destination is connected only when **Odoo data** begins.
 
 ## What Complete means
 
@@ -54,8 +53,10 @@ load data into Odoo.
 
 After the authoring workspace is registered, the Recipe overview shows
 **Inputs for each data version**. File Recipes always include the required
-export as-of date. Add other reusable context before publishing, for example a
-required text input named `warehouse` with the label **Warehouse**.
+export as-of date. It is not requested during initial project creation; enter
+the current value when creating each Test or Production data version. Add other
+reusable context before publishing, for example a required text input named
+`warehouse` with the label **Warehouse**.
 
 The declaration belongs to the Recipe revision; the value does not. A Test
 data version can therefore use `WH-TEST` and the rollout data version can use
@@ -127,10 +128,10 @@ first table selection is frozen. The file is never edited in place.
 
 ## Needs attention
 
-Return to the relevant setup page when Impodo reports missing ownership,
-governance, source, or target information. If the Recipe was created for the
-wrong source mode or business purpose, create a correctly scoped Recipe
-instead of trying to reinterpret its evidence.
+Return to the source-files or Odoo-connection page when Impodo reports missing
+source or connection information. If the project was created with the wrong
+source mode, create a correctly scoped project instead of reinterpreting its
+evidence.
 
 ## What makes this work stale
 

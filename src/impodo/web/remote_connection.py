@@ -309,7 +309,7 @@ class RemoteConnectionStatusService:
                 (unknown, "Waiting for the Odoo version check."),
                 (
                     failed,
-                    "The authenticated principal lacks required model read access.",
+                    "The authenticated principal lacks the required read access.",
                 ),
                 "ODOO_READ_ACCESS_MISSING",
             )
