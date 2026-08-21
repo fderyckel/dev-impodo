@@ -172,6 +172,7 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 "csrf_token",
                 "creation_request_id",
                 "name",
+                "source_system",
                 "source_mode",
             },
         )

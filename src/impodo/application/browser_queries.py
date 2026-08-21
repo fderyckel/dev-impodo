@@ -35,6 +35,10 @@ from ..workspace_contracts import (
     SourceConfiguration,
     SourceSelection,
 )
+from .mapping_field_catalog_query import (
+    MappingFieldCatalogQueryRepository,
+    MappingFieldCatalogSnapshot,
+)
 
 
 class ProjectQueryRepository(Protocol):
@@ -164,6 +168,7 @@ class BrowserQueryService:
         derived_entities: DerivedEntityQueryRepository,
         schemas: SchemaQueryRepository,
         mappings: MappingQueryRepository,
+        mapping_field_catalogs: MappingFieldCatalogQueryRepository,
         quality: QualityQueryRepository,
         transformation_impacts: TransformationImpactQueryRepository,
     ) -> None:
@@ -172,6 +177,7 @@ class BrowserQueryService:
         self._derived_entities = derived_entities
         self._schemas = schemas
         self._mappings = mappings
+        self._mapping_field_catalogs = mapping_field_catalogs
         self._quality = quality
         self._transformation_impacts = transformation_impacts
 
@@ -241,6 +247,14 @@ class BrowserQueryService:
         self, project_id: str, version: int | None = None
     ) -> MappingRevision | None:
         return self._mappings.get_mapping_revision(project_id, version)
+
+    def get_mapping_field_catalog_snapshot(
+        self,
+        project_id: str,
+    ) -> MappingFieldCatalogSnapshot:
+        return self._mapping_field_catalogs.get_mapping_field_catalog_snapshot(
+            project_id
+        )
 
     def get_mapping_validation(
         self, project_id: str, version: int

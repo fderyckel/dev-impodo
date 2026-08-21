@@ -74,6 +74,7 @@ from impodo.models import (
     FieldMetadata,
     ModelMetadata,
     OdooReadIdentity,
+    OdooWriteIdentity,
     ProtectedOdooReadContext,
     TargetFingerprint,
     TargetRecord,
@@ -1164,31 +1165,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def _complete_setup_before_target(self, project_id: str):
-        """Prepare earlier setup steps for tests scoped to target behaviour."""
+        """Reach the deferred Odoo destination step for a file project."""
 
         context = self.app.state.context
         project = context.queries.get(project_id)
-        project = context.projects.update_details(
-            project_id,
-            actor=context.actor,
-            expected_revision=project.revision,
-            name=project.name,
-            source_system=project.source_system,
-            export_status="RECEIVED",
-            export_date=date.today().isoformat(),
-            description="Target behaviour test",
-        )
-        project = context.projects.update_governance(
-            project_id,
-            actor=context.actor,
-            expected_revision=project.revision,
-            data_manager="Data Manager",
-            functional_owner="Product Owner",
-            business_unit="Example Business Unit",
-            data_classification="INTERNAL",
-            retention_days=90,
-            support_access=False,
-        )
         context.intake.accept(
             project_id,
             actor=context.actor,
@@ -1196,7 +1176,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
             display_name="target-test.csv",
             stream=BytesIO(b"code,name\nP001,Example\n"),
         )
-        return context.queries.get(project_id)
+        return context.projects.register(
+            project_id,
+            actor=context.actor,
+            expected_revision=context.queries.get(project_id).revision,
+        )
 
     def _registered_remote_schema_project(self):
         context = self.app.state.context
@@ -1281,45 +1265,44 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         return project, schema
 
-    def test_new_project_governance_defaults_data_sensitivity_to_internal(
-        self,
-    ) -> None:
+    def test_new_project_asks_only_for_name_and_source_mode(self) -> None:
+        new_page = self.client.get("/recipes/new")
+        self.assertIn("Project name", new_page.text)
+        self.assertIn("Use files", new_page.text)
+        self.assertIn("Use data already in Odoo", new_page.text)
+        self.assertNotIn('name="source_system"', new_page.text)
+        self.assertNotIn('name="export_date"', new_page.text)
+        self.assertNotIn("Data manager", new_page.text)
+        self.assertNotIn("Odoo web address", new_page.text)
+
         created = self._post(
             "/recipes/new",
             {
                 "csrf_token": self.csrf,
                 "name": "Customer migration",
-                "source_system": "Dynamics AX 2012",
             },
         )
         project_id = _created_workspace_id(self.app, created)
+        self.assertEqual(
+            created.headers["location"],
+            f"/projects/{project_id}/files",
+        )
+        project = self.app.state.context.queries.get(project_id)
+        self.assertEqual(project.source_system, "Uploaded files")
+        self.assertIsNone(project.export_date)
+        self.assertEqual(project.data_manager, "")
+        self.assertEqual(project.functional_owner, "")
+        self.assertEqual(project.odoo_base_url, "")
 
-        blocked = self.client.get(
+        legacy_governance = self.client.get(
             f"/projects/{project_id}/governance",
             follow_redirects=False,
         )
-        self.assertEqual(blocked.status_code, 303)
+        self.assertEqual(legacy_governance.status_code, 303)
         self.assertEqual(
-            blocked.headers["location"],
-            f"/projects/{project_id}/details?blocked=1#setup-blockers",
+            legacy_governance.headers["location"],
+            f"/projects/{project_id}/files",
         )
-        details = self._post(
-            f"/projects/{project_id}/details",
-            {
-                "csrf_token": self.csrf,
-                "revision": "1",
-                "name": "Customer migration",
-                "source_system": "Dynamics AX 2012",
-                "export_status": "RECEIVED",
-                "export_date": date.today().isoformat(),
-                "description": "",
-            },
-        )
-        page = self.client.get(details.headers["location"])
-
-        self.assertEqual(page.status_code, 200)
-        self.assertIn('value="INTERNAL" selected', page.text)
-        self.assertNotIn('value="CONFIDENTIAL" selected', page.text)
 
     def test_setup_shows_each_blocker_before_the_user_can_move_forward(
         self,
@@ -1335,41 +1318,32 @@ class ProjectSetupWizardTests(unittest.TestCase):
         project_id = _created_workspace_id(self.app, created)
         recipe_id = _created_recipe_id(self.app, created)
 
-        details_page = self.client.get(f"/projects/{project_id}/details")
-        self.assertIn("Complete this step to continue", details_page.text)
-        self.assertIn("Confirm that the source files are final.", details_page.text)
-        self.assertIn(
-            "Enter when the source files were produced.",
-            details_page.text,
-        )
-        self.assertIn('class="setup-step attention current"', details_page.text)
-        self.assertIn('class="setup-step locked"', details_page.text)
-        self.assertIn('class="sidebar-current-recipe-link"', details_page.text)
+        files_page = self.client.get(f"/projects/{project_id}/files")
+        self.assertIn("Add the files for this project", files_page.text)
+        self.assertIn("Add at least one source file.", files_page.text)
+        self.assertIn('class="setup-step attention current"', files_page.text)
+        self.assertNotIn('class="setup-step locked"', files_page.text)
+        self.assertIn('class="sidebar-current-recipe-link"', files_page.text)
         self.assertIn(
             f'href="/recipes/{recipe_id}"',
-            details_page.text,
+            files_page.text,
         )
         self.assertIn(
             'aria-label="Open Recipe overview: Products migration"',
-            details_page.text,
+            files_page.text,
         )
-        self.assertNotIn(
-            f'href="/projects/{project_id}/governance"',
-            details_page.text,
-        )
+        self.assertNotIn("Governance", files_page.text)
+        self.assertNotIn("Export date", files_page.text)
+        self.assertNotIn("Odoo destination", files_page.text)
 
         registration_fallback = self._post(
             f"/projects/{project_id}/register",
             {"csrf_token": self.csrf, "revision": "1"},
         )
         self.assertEqual(registration_fallback.status_code, 422)
-        self.assertIn("Finish setup before confirming", registration_fallback.text)
-        self.assertIn(">Open Project</a>", registration_fallback.text)
-        self.assertIn(">Open Source files</a>", registration_fallback.text)
-        self.assertNotIn(
-            "Source export must be marked as received",
-            registration_fallback.text,
-        )
+        self.assertIn("At least one source file is required", registration_fallback.text)
+        self.assertNotIn("Source export", registration_fallback.text)
+        self.assertNotIn("Responsible data manager", registration_fallback.text)
 
         blocked_target = self.client.get(
             f"/projects/{project_id}/target",
@@ -1378,84 +1352,12 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(blocked_target.status_code, 303)
         self.assertEqual(
             blocked_target.headers["location"],
-            f"/projects/{project_id}/details?blocked=1#setup-blockers",
-        )
-        returned = self.client.get(blocked_target.headers["location"])
-        self.assertIn('data-auto-focus="true"', returned.text)
-
-        incomplete = self._post(
-            f"/projects/{project_id}/details",
-            {
-                "csrf_token": self.csrf,
-                "revision": "1",
-                "name": "Products migration",
-                "source_system": "Dynamics AX 2012",
-                "export_status": "PLANNED",
-                "export_date": "",
-                "description": "Waiting for final files",
-                "action": "continue",
-            },
-        )
-        self.assertEqual(incomplete.status_code, 422)
-        self.assertIn("Complete this step to continue", incomplete.text)
-        self.assertNotIn("We could not complete that action", incomplete.text)
-
-        details = self._post(
-            f"/projects/{project_id}/details",
-            {
-                "csrf_token": self.csrf,
-                "revision": "2",
-                "name": "Products migration",
-                "source_system": "Dynamics AX 2012",
-                "export_status": "RECEIVED",
-                "export_date": date.today().isoformat(),
-                "description": "Final files received",
-                "action": "continue",
-            },
-        )
-        self.assertEqual(
-            details.headers["location"],
-            f"/projects/{project_id}/governance",
-        )
-        governance = self._post(
-            details.headers["location"],
-            {
-                "csrf_token": self.csrf,
-                "revision": "3",
-                "data_manager": "Data Manager",
-                "functional_owner": "Product Owner",
-                "business_unit": "Example Business Unit",
-                "data_classification": "INTERNAL",
-                "retention_days": "90",
-            },
-        )
-        self.assertEqual(
-            governance.headers["location"],
             f"/projects/{project_id}/files",
-        )
-
-        files_page = self.client.get(governance.headers["location"])
-        self.assertIn("Add at least one source file.", files_page.text)
-        self.assertIn(
-            'class="button primary" type="submit">Add file</button>',
-            files_page.text,
-        )
-        self.assertNotIn(
-            f'href="/projects/{project_id}/target">Continue</a>',
-            files_page.text,
-        )
-        blocked_target = self.client.get(
-            f"/projects/{project_id}/target",
-            follow_redirects=False,
-        )
-        self.assertEqual(
-            blocked_target.headers["location"],
-            f"/projects/{project_id}/files?blocked=1#setup-blockers",
         )
 
         uploaded = self.client.post(
             f"/projects/{project_id}/files",
-            data={"csrf_token": self.csrf, "revision": "4"},
+            data={"csrf_token": self.csrf, "revision": "1"},
             files={
                 "source_file": (
                     "products.csv",
@@ -1469,14 +1371,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertEqual(uploaded.status_code, 303)
         ready_files_page = self.client.get(uploaded.headers["location"])
         self.assertNotIn("Complete this step to continue", ready_files_page.text)
-        self.assertIn(
-            f'href="/projects/{project_id}/target">Continue</a>',
-            ready_files_page.text,
-        )
+        self.assertIn("Use these files and continue", ready_files_page.text)
+        self.assertNotIn("Odoo web address", ready_files_page.text)
 
-    def test_incomplete_setup_can_be_saved_without_unlocking_later_steps(
-        self,
-    ) -> None:
+    def test_incomplete_file_project_can_be_left_and_resumed(self) -> None:
         created = self._post(
             "/recipes/new",
             {
@@ -1486,37 +1384,26 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         project_id = _created_workspace_id(self.app, created)
+        recipe_id = _created_recipe_id(self.app, created)
 
-        saved = self._post(
-            f"/projects/{project_id}/details",
-            {
-                "csrf_token": self.csrf,
-                "revision": "1",
-                "name": "Waiting for files",
-                "source_system": "Dynamics AX 2012",
-                "export_status": "PLANNED",
-                "export_date": "",
-                "description": "Resume when the final files arrive",
-                "action": "save_exit",
-            },
+        recipe_list = self.client.get("/recipes")
+        self.assertIn("Waiting for files", recipe_list.text)
+        recipe_page = self.client.get(f"/recipes/{recipe_id}")
+        self.assertIn("Add source files", recipe_page.text)
+        self.assertIn(
+            f'href="/projects/{project_id}/files"',
+            recipe_page.text,
         )
-        self.assertEqual(saved.status_code, 303)
-        self.assertEqual(saved.headers["location"], "/recipes")
-        recipe_list = self.client.get(saved.headers["location"])
-        self.assertIn("Draft saved.", recipe_list.text)
 
         project = self.app.state.context.queries.get(project_id)
-        self.assertEqual(
-            project.description,
-            "Resume when the final files arrive",
-        )
-        blocked = self.client.get(
-            f"/projects/{project_id}/governance",
+        self.assertEqual(project.status, ProjectStatus.DRAFT)
+        resumed = self.client.get(
+            f"/projects/{project_id}",
             follow_redirects=False,
         )
         self.assertEqual(
-            blocked.headers["location"],
-            f"/projects/{project_id}/details?blocked=1#setup-blockers",
+            resumed.headers["location"],
+            f"/projects/{project_id}/files",
         )
 
     def test_source_files_can_change_only_before_table_choices_are_saved(
@@ -1732,7 +1619,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn("Read-only access to edu-ucaps succeeded.", result.text)
         self.assertIn("Supported Odoo version 19.0.", result.text)
         self.assertIn(
-            "The read-only Odoo principal and model access were verified.",
+            "The authenticated read-only Odoo principal was identified.",
             result.text,
         )
         self.assertIn("Checked during this Impodo session.", result.text)
@@ -1744,7 +1631,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertNotIn("remote-secret-key", result.text)
         self.assertEqual(
             self.read_identity_calls,
-            [(project_id, "remote-secret-key", ("res.partner",))],
+            [(project_id, "remote-secret-key", ("res.users",))],
         )
         project = self.app.state.context.projects.repository.get(project_id)
         self.assertEqual(
@@ -1793,8 +1680,8 @@ class ProjectSetupWizardTests(unittest.TestCase):
             headers=POST_HEADERS,
             follow_redirects=False,
         )
-        self.assertEqual(changed.status_code, 303)
-        changed_target = self.client.get(f"/projects/{project_id}/target")
+        self.assertEqual(changed.status_code, 422)
+        changed_target = changed
         self.assertIn("connection-state-unknown", changed_target.text)
         self.assertIn(
             "The Odoo connection has not been checked.",
@@ -2641,52 +2528,65 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "source_mode": "ODOO",
             },
         )
+        self.assertEqual(created.status_code, 303)
         project_id = _created_workspace_id(self.app, created)
-        details_page = self.client.get(f"/projects/{project_id}/details")
-        self.assertIn("Source: data already in Odoo", details_page.text)
-        self.assertNotIn("Have you received the final files?", details_page.text)
-
-        details = self._post(
-            f"/projects/{project_id}/details",
-            {
-                "csrf_token": self.csrf,
-                "revision": "1",
-                "name": "Odoo product cleanup",
-                "source_system": "Odoo 19",
-                "description": "Round-trip selected products",
-            },
-        )
         self.assertEqual(
-            details.headers["location"],
-            f"/projects/{project_id}/governance",
-        )
-        governance = self._post(
-            f"/projects/{project_id}/governance",
-            {
-                "csrf_token": self.csrf,
-                "revision": "2",
-                "data_manager": "Data Manager",
-                "functional_owner": "Product Owner",
-                "business_unit": "Example Business Unit",
-                "data_classification": "CONFIDENTIAL",
-                "retention_days": "90",
-            },
-        )
-        self.assertEqual(
-            governance.headers["location"],
+            created.headers["location"],
             f"/projects/{project_id}/target",
         )
-        target_page = self.client.get(governance.headers["location"])
+        details_page = self.client.get(
+            f"/projects/{project_id}/details",
+            follow_redirects=False,
+        )
+        self.assertEqual(
+            details_page.headers["location"],
+            f"/projects/{project_id}/target",
+        )
+        target_page = self.client.get(created.headers["location"])
+        self.assertIn("Connect the Odoo source", target_page.text)
         self.assertIn(
-            "Required to freeze Odoo source records through the governed JSON-2 reader",
+            "Moving records between two Odoo databases is not available yet.",
             target_page.text,
         )
+        self.assertIn("It does not discover models or fields", target_page.text)
         files = self.client.get(
             f"/projects/{project_id}/files",
             follow_redirects=False,
         )
         self.assertEqual(files.status_code, 303)
         self.assertEqual(files.headers["location"], f"/projects/{project_id}/target")
+
+        unchecked = self._post(
+            f"/projects/{project_id}/target",
+            {
+                "csrf_token": self.csrf,
+                "revision": "1",
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://odoo.example.test",
+                "odoo_database": "odoo_review",
+                "read_api_key": "read-secret",
+                "action": "save",
+            },
+        )
+        self.assertEqual(unchecked.status_code, 422)
+        self.assertIn("Check the Odoo connection before continuing", unchecked.text)
+
+        checked = self._post(
+            f"/projects/{project_id}/target",
+            {
+                "csrf_token": self.csrf,
+                "revision": "2",
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://odoo.example.test",
+                "odoo_database": "odoo_review",
+                "action": "test",
+            },
+        )
+        self.assertEqual(checked.status_code, 303)
+        self.assertEqual(
+            self.read_identity_calls,
+            [(project_id, "read-secret", ("res.users",))],
+        )
 
         target = self._post(
             f"/projects/{project_id}/target",
@@ -2696,37 +2596,17 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "odoo_connection_mode": "REMOTE",
                 "odoo_base_url": "https://odoo.example.test",
                 "odoo_database": "odoo_review",
-                "intended_applications": "Inventory",
-                "read_api_key": "read-secret",
                 "action": "save",
             },
         )
         self.assertEqual(
             target.headers["location"],
-            f"/projects/{project_id}/review",
-        )
-        review = self.client.get(target.headers["location"])
-        self.assertNotIn("Complete these items", review.text)
-        self.assertIn("Existing Odoo records", review.text)
-        self.assertIn("Confirm project and continue", review.text)
-
-        registered = self._post(
-            f"/projects/{project_id}/register",
-            {"csrf_token": self.csrf, "revision": "4"},
-        )
-        self.assertEqual(registered.status_code, 303)
-        overview = self.client.get(registered.headers["location"])
-        self.assertIn("Odoo source data", overview.text)
-        self.assertIn(
-            f'href="/projects/{project_id}/schema"',
-            overview.text,
-        )
-        self.assertNotIn(
-            f'href="/projects/{project_id}/sources"',
-            overview.text,
+            f"/projects/{project_id}/schema",
         )
         project = self.app.state.context.projects.repository.get(project_id)
+        self.assertEqual(project.status, ProjectStatus.REGISTERED)
         self.assertEqual(project.source_mode, SourceMode.ODOO)
+        self.assertEqual(project.source_system, "Odoo")
         self.assertEqual(project.source_files, ())
         self.assertIsNone(project.export_date)
 
@@ -3112,110 +2992,48 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         self.assertEqual(created.status_code, 303)
         project_id = _created_workspace_id(self.app, created)
-
-        details = self._post(
-            f"/projects/{project_id}/details",
-            {
-                "csrf_token": self.csrf,
-                "revision": "1",
-                "name": "Customer migration",
-                "source_system": "Dynamics AX 2012",
-                "export_status": "RECEIVED",
-                "export_date": date.today().isoformat(),
-                "description": "Project setup browser acceptance",
-            },
+        self.assertEqual(
+            created.headers["location"],
+            f"/projects/{project_id}/files",
         )
-        self.assertEqual(details.headers["location"], f"/projects/{project_id}/governance")
-
-        governance = self._post(
-            f"/projects/{project_id}/governance",
-            {
-                "csrf_token": self.csrf,
-                "revision": "2",
-                "data_manager": "Data Manager",
-                "functional_owner": "Functional Owner",
-                "business_unit": "Example Business Unit",
-                "data_classification": "CONFIDENTIAL",
-                "retention_days": "90",
-            },
-        )
-        self.assertEqual(governance.status_code, 303)
 
         uploaded = self.client.post(
             f"/projects/{project_id}/files",
-            data={"csrf_token": self.csrf, "revision": "3"},
-            files={
-                "source_file": (
+            data={"csrf_token": self.csrf, "revision": "1"},
+            files=[
+                (
+                    "source_file",
+                    (
                     "customers.csv",
                     b"code,name\nC001,Example\n",
                     "text/csv",
-                )
-            },
+                    ),
+                ),
+                (
+                    "source_file",
+                    (
+                    "products.xlsx",
+                    _workbook_bytes(),
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet",
+                    ),
+                ),
+            ],
             headers=POST_HEADERS,
             follow_redirects=False,
         )
         self.assertEqual(uploaded.status_code, 303)
 
-        workbook_uploaded = self.client.post(
-            f"/projects/{project_id}/files",
-            data={"csrf_token": self.csrf, "revision": "4"},
-            files={
-                "source_file": (
-                    "products.xlsx",
-                    _workbook_bytes(),
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet",
-                )
-            },
-            headers=POST_HEADERS,
-            follow_redirects=False,
-        )
-        self.assertEqual(workbook_uploaded.status_code, 303)
-
-        target = self.client.post(
-            f"/projects/{project_id}/target",
-            data={
-                "csrf_token": self.csrf,
-                "revision": "5",
-                "odoo_connection_mode": "LOCAL",
-                "odoo_base_url": "http://127.0.0.1:8069",
-                "odoo_database": "odoo19_local",
-                "api_key": "super-secret-token",
-                "intended_applications": "Contacts",
-                "action": "test",
-            },
-            headers=POST_HEADERS,
-            follow_redirects=False,
-        )
-        self.assertEqual(target.status_code, 303)
-        self.assertEqual(
-            self.connection_calls,
-            [
-                (
-                    project_id,
-                    "super-secret-token",
-                    OdooConnectionMode.LOCAL,
-                )
-            ],
-        )
-        target_page = self.client.get(target.headers["location"])
-        self.assertIn("The Odoo connection is ready", target_page.text)
-        self.assertNotIn("super-secret-token", target_page.text)
-
-        review = self.client.get(f"/projects/{project_id}/review")
-        self.assertEqual(review.status_code, 200)
-        self.assertNotIn("Complete these items", review.text)
-
         registered = self._post(
             f"/projects/{project_id}/register",
-            {"csrf_token": self.csrf, "revision": "6"},
+            {"csrf_token": self.csrf, "revision": "3"},
         )
         self.assertEqual(registered.status_code, 303)
-        summary = self.client.get(registered.headers["location"])
         self.assertEqual(
             registered.headers["location"],
-            f"/projects/{project_id}/overview",
+            f"/projects/{project_id}/sources",
         )
+        summary = self.client.get(f"/projects/{project_id}/overview")
         self.assertIn("Data version overview", summary.text)
         self.assertIn("Ready for source check", summary.text)
         self.assertIn("Check source data", summary.text)
@@ -3235,27 +3053,20 @@ class ProjectSetupWizardTests(unittest.TestCase):
         )
         project = self.app.state.context.projects.repository.get(project_id)
         self.assertEqual(project.status, ProjectStatus.REGISTERED)
-        self.assertEqual(
-            project.odoo_connection_mode,
-            OdooConnectionMode.LOCAL,
-        )
+        self.assertIsNone(project.odoo_connection_mode)
+        self.assertIsNone(project.export_date)
+        self.assertEqual(project.data_manager, "")
         self.assertEqual(project.mapping_version, None)
-        self.assertNotIn(
-            b"super-secret-token",
-            (
-                self.app.state.context.projects.repository.project_directory(project_id)
-                / "project.duckdb"
-            ).read_bytes(),
-        )
         manifest = (
             self.app.state.context.projects.repository.project_directory(project_id)
             / "audit"
             / f"project-registration-r{project.revision}.json"
         )
         self.assertTrue(manifest.is_file())
-        self.assertNotIn("super-secret-token", manifest.read_text())
+        self.assertIn('"odoo_connection_mode":null', manifest.read_text())
+        self.assertIn('"export_date":null', manifest.read_text())
 
-        source_discovery = self.client.get(f"/projects/{project_id}/sources")
+        source_discovery = self.client.get(registered.headers["location"])
         self.assertEqual(source_discovery.status_code, 200)
         self.assertIn("Stage 1 of 6 · Source data", source_discovery.text)
         self.assertIn('aria-current="step"', source_discovery.text)
@@ -3368,6 +3179,67 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('id="tables-ready"', saved_datasets.text)
         self.assertIn("Tables ready for the next step", saved_datasets.text)
         self.assertIn("Choose Odoo data", saved_datasets.text)
+
+        odoo_data = self.client.get(
+            f"/projects/{project_id}/schema",
+            follow_redirects=False,
+        )
+        self.assertEqual(odoo_data.status_code, 303)
+        self.assertEqual(
+            odoo_data.headers["location"],
+            f"/projects/{project_id}/target",
+        )
+        target_page = self.client.get(odoo_data.headers["location"])
+        self.assertIn("Connect the Odoo destination", target_page.text)
+        self.assertIn("It does not discover models or fields", target_page.text)
+
+        project = self.app.state.context.queries.get(project_id)
+        tested_target = self.client.post(
+            f"/projects/{project_id}/target",
+            data={
+                "csrf_token": self.csrf,
+                "revision": str(project.revision),
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://odoo.example.test",
+                "odoo_database": "odoo19_target",
+                "read_api_key": "super-secret-token",
+                "action": "test",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(tested_target.status_code, 303)
+        self.assertEqual(
+            self.connection_calls,
+            [(project_id, "super-secret-token", OdooConnectionMode.REMOTE)],
+        )
+        project = self.app.state.context.queries.get(project_id)
+        saved_target = self._post(
+            f"/projects/{project_id}/target",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(project.revision),
+                "odoo_connection_mode": "REMOTE",
+                "odoo_base_url": "https://odoo.example.test",
+                "odoo_database": "odoo19_target",
+                "action": "save",
+            },
+        )
+        self.assertEqual(
+            saved_target.headers["location"],
+            f"/projects/{project_id}/schema",
+        )
+        project = self.app.state.context.queries.get(project_id)
+        self.assertEqual(project.status, ProjectStatus.REGISTERED)
+        self.assertEqual(project.odoo_connection_mode, OdooConnectionMode.REMOTE)
+        self.assertNotIn(
+            b"super-secret-token",
+            (
+                self.app.state.context.projects.repository.project_directory(project_id)
+                / "project.duckdb"
+            ).read_bytes(),
+        )
+
         derived_page = self.client.get(
             f"/projects/{project_id}/derived-entities"
         )
@@ -3606,14 +3478,11 @@ class ProjectSetupWizardTests(unittest.TestCase):
         self.assertIn('aria-current="step"', model_page.text)
         self.assertIn('aria-current="page"', model_page.text)
         self.assertIn("Choose the Odoo data you need", model_page.text)
-        self.assertIn(
-            "Odoo areas included: <strong>Contacts</strong>",
-            model_page.text,
-        )
+        self.assertNotIn("Odoo areas included:", model_page.text)
         self.assertIn("Contact", model_page.text)
         self.assertIn("res.partner", model_page.text)
         self.assertIn(
-            "Show all available data",
+            "No Odoo area was selected, so all available business records are shown.",
             model_page.text,
         )
         self.assertIn(
@@ -4549,6 +4418,10 @@ class ProjectSetupWizardTests(unittest.TestCase):
                     self.records[(model, identifier)] = dict(row)
                 return identifiers
 
+            def load_create_rows(self, model, values, external_ids):
+                del external_ids
+                return self.create_rows(model, values)
+
             def update_row(self, model, record_id, values):
                 self.updated.append((model, record_id, dict(values)))
                 self.records.setdefault((model, record_id), {}).update(values)
@@ -4610,8 +4483,22 @@ class ProjectSetupWizardTests(unittest.TestCase):
             readback_factory_keys.append(api_key)
             return FakeReadbackReader(fake_writer)
 
+        def write_identity_probe(_project, _api_key, scope):
+            return OdooWriteIdentity(
+                target_hash=load_preview.snapshot.target_hash,
+                principal_hash="sha256:" + "5" * 64,
+                permission_hash="sha256:" + "6" * 64,
+                context_hash=load_preview.snapshot.read_context_hash,
+                readable_models=tuple(item.model for item in scope.models),
+                writable_models=tuple(
+                    item.model for item in scope.models if item.write_fields
+                ),
+                observed_at="2026-08-21T00:00:00Z",
+            )
+
         self.app.state.context.write_executor_factory = write_factory
         self.app.state.context.readback_reader_factory = readback_factory
+        self.app.state.context.write_identity_probe = write_identity_probe
         missing_write_key = self.client.post(
             f"/projects/{project_id}/load",
             data={

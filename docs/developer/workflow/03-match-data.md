@@ -35,13 +35,18 @@ providers, conversions, identities, relationships, write scope, and coverage.
 `TransformationImpactService` evaluates the checked rules against frozen source
 values without changing source evidence.
 
-For a published Recipe Test application,
+For a published Recipe Test or Production application,
 `RecipeApplicationService.apply` first checks exact current source, target,
 parameter, control, reference, credential-generation, and categorical
 evidence. A compatible application saves an ordinary fresh
 `MappingWorkingDraft`; it does not bypass this screen's validation, impact,
 acknowledgement, or submission flow. The presenter adds only a status banner
 identifying the Recipe-built draft.
+
+Test applies the current published revision. Production applies the exact
+qualified cutover-candidate revision, which may intentionally be older than
+the Recipe's current revision. Neither application can publish new Recipe
+meaning from its contained workspace.
 
 ## Contract invariants
 

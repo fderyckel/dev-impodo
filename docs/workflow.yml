@@ -45,6 +45,7 @@ stages:
       - src/impodo/application/recipe_application_service.py::RecipeApplicationService.start_production_data_version
       - src/impodo/application/recipe_qualification_service.py::RecipeQualificationService
       - src/impodo/application/recipe_qualification_service.py::RecipeQualificationService.qualify
+      - src/impodo/application/odoo_connection_service.py::OdooConnectionTestService
       - src/impodo/web/presenters/navigation.py::build_project_navigation
     tests:
       - tests/test_projects.py
@@ -54,7 +55,9 @@ stages:
       - tests/test_recipe_application.py
       - tests/test_recipe_qualification.py
       - tests/test_recipe_qualification_web.py
+      - tests/test_odoo_connection_service.py
     contracts:
+      - docs/developer/contracts/recipe-lifecycle.md
       - docs/developer/contracts/project-lifecycle.md
 
   - id: source

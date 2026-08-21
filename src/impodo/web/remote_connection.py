@@ -1,4 +1,4 @@
-"""Present target-bound, non-secret Remote Odoo connection status.
+"""Present purpose-bound, non-secret Odoo connection status.
 
 The connection check is operational session state, not durable migration
 evidence.  Results remain in memory for the lifetime of the local Impodo
@@ -136,7 +136,7 @@ class RemoteConnectionStatus:
 
 
 class RemoteConnectionStatusService:
-    """Keep bounded, target-bound Remote Odoo status in process memory."""
+    """Keep bounded, identity-bound Odoo check status in process memory."""
 
     def __init__(self) -> None:
         self._statuses: dict[tuple[str, OdooConnectionPurpose], RemoteConnectionStatus] = {}
@@ -186,7 +186,12 @@ class RemoteConnectionStatusService:
         target_matches = (
             fingerprint.target_hash == expected_hash
             and identity.target_hash == expected_hash
-            and fingerprint.connection_mode.strip().upper() == "REMOTE"
+            and fingerprint.connection_mode.strip().upper()
+            == (
+                project.odoo_connection_mode.value
+                if project.odoo_connection_mode is not None
+                else ""
+            )
             and fingerprint.database == project.odoo_database
         )
         if not target_matches:

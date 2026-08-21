@@ -350,13 +350,12 @@ def _render_mapping_field_catalog(
         if request.query_params.get("catalog") == "relation"
         else "scalar"
     )
-    physical_selection = context.queries.get_source_selection(project_id)
-    preparation_plan = context.queries.get_derived_entity_plan(project_id)
-    source_catalogs = (
-        context.queries.get_source_catalogs(project_id)
-        if physical_selection is not None
-        else ()
-    )
+    workspace_read_started = perf_counter()
+    snapshot = context.queries.get_mapping_field_catalog_snapshot(project_id)
+    workspace_read_ms = (perf_counter() - workspace_read_started) * 1000
+    physical_selection = snapshot.physical_selection
+    preparation_plan = snapshot.preparation_plan
+    source_catalogs = snapshot.source_catalogs
     selection = (
         mapping_source_selection(
             physical_selection,
@@ -366,10 +365,10 @@ def _render_mapping_field_catalog(
         if physical_selection is not None
         else None
     )
-    schema = context.queries.get_odoo_schema_catalog(project_id)
-    governance = context.queries.get_schema_governance(project_id)
-    revision = context.queries.get_mapping_revision(project_id)
-    working_draft = context.queries.get_mapping_working_draft(project_id)
+    schema = snapshot.schema
+    governance = snapshot.governance
+    revision = snapshot.revision
+    working_draft = snapshot.working_draft
     _working_draft_is_current, active_definition = _active_mapping_state(
         selection,
         schema,
@@ -452,6 +451,7 @@ def _render_mapping_field_catalog(
         )
 
     projection_ms = (perf_counter() - started) * 1000
+    view_build_ms = max(0.0, projection_ms - workspace_read_ms)
     render_started = perf_counter()
     template = request.app.state.templates.env.get_template(
         "project_mapping.html"
@@ -473,6 +473,8 @@ def _render_mapping_field_catalog(
     response = HTMLResponse(html)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Server-Timing"] = (
+        f"workspace_read;dur={workspace_read_ms:.1f}, "
+        f"view_build;dur={view_build_ms:.1f}, "
         f"projection;dur={projection_ms:.1f}, render;dur={render_ms:.1f}, "
         f"total;dur={(perf_counter() - started) * 1000:.1f}"
     )

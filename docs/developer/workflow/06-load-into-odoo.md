@@ -57,6 +57,13 @@ the journal has no unknown outcome and reconciliation verifies the expected
 target state. Navigation reports **Verify outcome** or **Needs attention** when
 the write result is not yet proven.
 
+For a Test Recipe application, successful reconciliation returns to the Recipe
+qualification flow. Qualification publishes separate immutable evidence only
+after the data manager confirms the exact expected totals; selecting that
+qualification as the rollout candidate is another explicit action. A
+Production DataVersion creates its own run and reconciliation evidence and does
+not reuse the Test journal.
+
 ## Invalidation and recovery
 
 Fail closed when any snapshot or scope hash differs. On
@@ -81,6 +88,10 @@ Read-back reconciliation must batch by model and requested field scope. Keep
 write and read interfaces separate so a nominally read-only component cannot
 invoke a write method.
 
+The `PRODUCTION` DataVersion purpose does not bypass the current
+disposable-target acceptance boundary. Recipe lineage is not Odoo write
+authorization.
+
 ## Verification
 
 - [`tests/test_execution_service.py`](../../../tests/test_execution_service.py)
@@ -100,3 +111,4 @@ Odoo 19 target.
 - [Security and infrastructure](../../architecture/security-and-infrastructure.md)
 - [Acceptance and test strategy](../../testing/acceptance.md)
 - [Remote Odoo 19 acceptance](../runbooks/remote-odoo-acceptance.md)
+- [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)

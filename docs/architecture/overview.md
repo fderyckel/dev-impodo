@@ -12,8 +12,11 @@ running a bounded Odoo 19 migration workflow. The supported `FILE` path covers
 CSV/XLSX intake, mapping, preparation, review, read-only comparison, an
 explicit disposable local or remote load, journaling, and reconciliation. The
 browser also implements bounded `ODOO` source capture and immutable snapshot
-publication, but preparation does not yet accept an Odoo-origin source binding,
-so that round-trip path is not end to end. Production loading, clean-package
+publication. Odoo-origin data can be prepared and compared offline as pinned
+updates against that same database, but Odoo-origin writes and cross-database
+transfer are not available. A `PRODUCTION` DataVersion is implemented as a
+fresh application of one qualified Recipe revision; it does not by itself
+authorize a production cutover. Production-executor acceptance, clean-package
 certification, a separate functional mapping-approval lifecycle, and hosted
 operation remain later capabilities described in the
 [product vision](../product-vision.md).
@@ -24,9 +27,11 @@ operation remain later capabilities described in the
 flowchart LR
     User["Data manager"] --> Browser["Managed browser"]
     Browser --> Web["Impodo / FastAPI<br/>127.0.0.1 only"]
-    Web --> Services["Project and workspace services"]
-    Services --> Store["Per-project DuckDB"]
-    Services --> Files["Governed project files"]
+    Web --> Recipe["Recipe lifecycle services"]
+    Recipe --> Registry["Recipe/DataVersion registry<br/>and protected payloads"]
+    Recipe --> Services["Contained workspace services"]
+    Services --> Store["Per-DataVersion DuckDB"]
+    Services --> Files["Governed workspace files"]
     Services --> Worker["Isolated inspection and<br/>preparation workers"]
     Services --> Capture["Bounded Odoo<br/>source capture"]
     Services --> Readers["Closed Odoo read<br/>and identity adapters"]
@@ -46,7 +51,8 @@ DuckDB and the filesystem are local adapters behind those rules.
 
 The browser implements:
 
-- project registration with `FILE` or `ODOO` source mode;
+- operator-project creation as Recipe plus Authoring DataVersion 1, with a
+  contained `FILE` or `ODOO` workspace;
 - profile-free CSV/XLSX inspection, bounded previews, and immutable dataset
   freezing;
 - bounded Odoo record selection, capture, protected provenance, and immutable
@@ -62,25 +68,35 @@ The browser implements:
 - an exact execution snapshot, explicit disposable local or remote loading,
   a durable write journal, and post-write reconciliation.
 
-The runtime has the Recipe-first authoring foundation. Every existing
-project is represented by one registry-only Recipe and DataVersion shell;
-opening that workspace hydrates an allowlisted Recipe setup projection and
-writes exact local linkage. Published Recipe and qualification payloads use an
+The Recipe-first lifecycle is implemented. The browser deliberately labels the
+operator-facing aggregate a **project**, while the domain and persistence name
+that reusable aggregate `Recipe`. **New project** provisions a Recipe,
+authoring DataVersion 1, and one contained `MigrationProject` workspace. These
+three identities are distinct. Older standalone workspaces are represented by
+one registry Recipe/DataVersion shell; opening one hydrates only an allowlisted
+setup projection and writes exact local linkage.
+
+The Recipe overview derives publication readiness from exact current workspace
+evidence, publishes portable immutable Recipe revisions, and shows
+Recipe/DataVersion history. Published Recipe and qualification payloads use an
 application-encrypted protected store, while bounded registry projections hold
-lineage and recovery state. **New Recipe** provisions Recipe plus authoring
-DataVersion 1. The Recipe overview projects publication readiness from exact
-current workspace evidence, publishes portable immutable revisions, and shows
-Recipe/DataVersion history. Current project URLs remain compatible through
-explicit Recipe/DataVersion resolution. A published revision can now provision
-a clean Test DataVersion, bind current replacement source and non-secret remote
-Test target evidence, show focused drift, rebuild reusable preparation and
-governance, and compile a fresh mapping draft. Matching retains its established
-editor, with only surrounding Recipe-application status. A qualified revision
-can create a clean Production DataVersion against a different target and fresh
-credentials. Authoring can declare typed per-DataVersion context such as a
+lineage and recovery state. Existing `/projects/{workspace_project_id}` URLs
+remain internal workspace routes resolved through the active Recipe and
+DataVersion.
+
+A published revision can provision a clean Test DataVersion, bind current
+replacement source and non-secret remote Test target evidence, show focused
+drift, rebuild reusable preparation and governance, and compile a fresh mapping
+draft. Matching retains its established editor; Recipe application does not add
+a parallel engine. After successful Test preparation, comparison, execution,
+read-back, and reconciliation, explicit qualification can select that exact
+revision as the cutover candidate. **Run with latest data** then creates a
+clean Production DataVersion pinned to the selected qualified revision, even
+when a newer unqualified revision exists. It receives fresh source, target,
+parameter, control, credential, approval, execution, and reconciliation
+evidence. Authoring can declare typed per-DataVersion context such as a
 warehouse; Product, related Product/BOM, and warehouse-parameterized stock
-shapes use the same publication and application contracts rather than separate
-execution paths.
+shapes use the same contracts rather than separate execution paths.
 
 The repository also contains a profile-driven preflight engine and CLI. It is
 a separate entry path that retains strict CSV and declared-sheet XLSX loading
@@ -91,14 +107,37 @@ The supported `FILE` browser path is one executable bounded migration pipeline.
 A submitted mapping alone is still only governed evidence: preparation,
 normalization approval, a fresh comparison, an exact execution snapshot, and
 one explicit **Load into Odoo** confirmation remain mandatory. Captured `ODOO`
-sources currently stop before preparation because that service still requires
-a file-source binding. Neither path is a production-cutover authorization.
+sources use protected provenance for offline preparation and same-database
+comparison, but current policy publishes no loadable execution snapshot for
+them. Neither path is a production-cutover authorization.
+
+## Recipe and data-version lifecycle
+
+```text
+operator Project
+`-- Recipe
+    |-- immutable Recipe revision(s)
+    |-- Authoring DataVersion -> contained MigrationProject workspace
+    |-- Test DataVersion      -> fresh workspace + Test application evidence
+    `-- Production DataVersion -> fresh workspace pinned to the cutover candidate
+```
+
+Reusable Recipe meaning contains logical source shapes, preparation and mapping
+rules, target requirements and business keys, reusable quality rules,
+references, parameters, and controls. It excludes source rows and physical
+identities, concrete target/database identity, credentials, numeric Odoo IDs,
+approvals, execution journals, and reconciliation results. Those belong to one
+DataVersion or its contained workspace and must be regenerated.
 
 ## Browser workflow
 
-**Project setup** records ownership, classification, retention, `FILE` or
-`ODOO` source mode, and the selected `LOCAL` or `REMOTE` Odoo target. A
-registered project then uses six browser stages:
+**New project** records only a name and `FILE` or `ODOO` source mode. In file
+mode, initial setup accepts one or more CSV/XLSX files and registers the
+workspace; the Odoo destination is configured later in **Odoo data**. In Odoo
+source mode, initial setup verifies the same Odoo database from which records
+will be captured. The former details, governance, target, and confirmation
+wizard is not the normal browser path. A registered DataVersion workspace then
+uses six browser stages:
 
 1. **Source data** inspects and freezes CSV/XLSX datasets, or selects, captures,
    and publishes a bounded Odoo-source snapshot.
@@ -126,7 +165,7 @@ governed business keys invalidates downstream mapping evidence.
 | Layer | Responsibilities | Main modules |
 | --- | --- | --- |
 | Browser | Local route composition, workflow routers, presenters, templates, sessions, CSRF, and security headers | `web/app.py`, `web/routers/`, `web/presenters/` |
-| Application | Recipe lineage, authoring, Test application and recovery, project commands, intake, source capture/publication, schema governance, mapping, preparation, quality, normalization, preflight, execution, and reconciliation orchestration | `application/recipe_service.py`, `application/recipe_authoring_service.py`, `application/recipe_application_service.py`, `projects.py`, `intake.py`, `application/source_workspace_service.py`, `application/odoo_source_capture_service.py`, `application/odoo_capture_publication_service.py`, `application/schema_workspace_service.py`, `application/mapping_workspace_service.py`, `application/preparation_service.py`, `application/quality_service.py`, `application/normalization_service.py`, `application/preflight_service.py`, `application/execution_service.py`, `application/reconciliation_service.py` |
+| Application | Recipe lineage, authoring, Test/Production application, qualification, project commands, intake, source capture/publication, schema governance, mapping, preparation, quality, normalization, preflight, execution, and reconciliation orchestration | `application/recipe_service.py`, `application/recipe_authoring_service.py`, `application/recipe_application_service.py`, `application/recipe_qualification_service.py`, `projects.py`, `intake.py`, `application/source_workspace_service.py`, `application/odoo_source_capture_service.py`, `application/odoo_capture_publication_service.py`, `application/schema_workspace_service.py`, `application/mapping_workspace_service.py`, `application/preparation_service.py`, `application/quality_service.py`, `application/normalization_service.py`, `application/preflight_service.py`, `application/execution_service.py`, `application/reconciliation_service.py` |
 | Domain | Authorization, Recipe/DataVersion and application identities, exact TargetBindings, project lifecycle, source bindings and snapshots, mapping meaning, staging evaluation, execution snapshots, reconciliation, approvals, and deterministic values | `access.py`, `recipes.py`, `domain/recipe_applications.py`, `projects.py`, `domain/source_binding.py`, `domain/source_snapshot.py`, `domain/odoo_capture.py`, `domain/mapping/`, `domain/compiler/`, `domain/staging/`, `domain/execution.py`, `domain/reconciliation.py`, `approvals.py`, `models.py` |
 | Local adapters | Focused DuckDB repositories, protected Recipe and Odoo payloads, artifacts, credentials, jobs, and resource-bounded workers | `adapters/duckdb/`, `adapters/protected_recipe_store.py`, `adapters/protected_odoo_provenance.py`, `artifacts.py`, `secrets.py`, `jobs.py`, `source_worker.py`, `application/preparation_job_service.py` |
 | Odoo boundary | Remote JSON-2 identity and data reads, bounded source capture, fixed local metadata reads, schema-bound writes, post-write read-back, and local-stack readiness | `connectors.py`, `adapters/odoo_source_capture.py`, `local_odoo_reader.py`, `odoo_writer.py`, `odoo_readback.py`, `local_stack.py` |
@@ -140,8 +179,8 @@ may be replaced without changing lifecycle or mapping semantics.
 On Windows, the normal local root is `%LOCALAPPDATA%\Impodo\projects`. A
 configured macOS root uses owner-only permissions. The root contains a small
 registry, an application-encrypted Recipe payload store, plus one directory
-and DuckDB database per project. The registry owns Recipe and DataVersion
-lineage, bounded application/qualification projections, cutover selection,
+and DuckDB database per DataVersion workspace. The registry owns Recipe and
+DataVersion lineage, bounded application/qualification projections, cutover selection,
 and restart-safe intents without scanning project databases. Project
 directories separate inbox, staging, snapshots, reports, and audit artifacts;
 canonical staging, prepared Parquet snapshots, protected target evidence,
@@ -154,6 +193,10 @@ adapter.
 
 Important evidence is immutable or versioned:
 
+- Recipe revisions retain reusable semantic and payload hashes without
+  operational workspace identity;
+- Recipe application, qualification, and cutover selection bind exact
+  revisions without copying credentials or granting write authority;
 - source files retain their original bytes and SHA-256 hash;
 - confirmed source selections and target schema captures are hash-bound;
 - mapping revisions and submissions are immutable;
@@ -181,6 +224,11 @@ policy-shaped, keyset-paginated `search_read` requests. Local metadata capture
 uses a selected `odoo.conf` and fixed scripts for the model catalogue and
 `fields_get`; it is not a generic Odoo shell. Local stack controls can stop
 only services started and retained by the current Impodo session.
+
+The shared connection check names its source-read or destination-read purpose
+and verifies only the exact Odoo 19 database plus authenticated read identity.
+It does not run model-catalogue or `fields_get` discovery; those remain explicit
+Odoo-data operations and must not be repeated as connection tests.
 
 The read adapters have no create, write, unlink, import, arbitrary model method,
 or SQL surface. The practical disposable-target path uses a separate writer
@@ -226,7 +274,8 @@ loopback assumptions must not be relaxed and reused as hosted controls. See
 ## Authoritative detail
 
 - [Security and infrastructure](security-and-infrastructure.md)
-- [Project lifecycle contract](../developer/contracts/project-lifecycle.md)
+- [Recipe lifecycle contract](../developer/contracts/recipe-lifecycle.md)
+- [Contained project lifecycle contract](../developer/contracts/project-lifecycle.md)
 - [Workflow evidence lifecycle](../developer/contracts/evidence-lifecycle.md)
 - [Canonical staging contract](../developer/contracts/canonical-staging.md)
 - [Preflight contract](../developer/contracts/preflight.md)

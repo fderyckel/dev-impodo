@@ -105,7 +105,8 @@ no independent classification logic.
 For Odoo-source projects, the portable manifest additionally excludes all
 baseline, proposed, and current business values. Those values and exact IDs are
 application-encrypted with project/run/capture binding. The persisted record
-snapshot is redacted, and no execution snapshot is published in Phase 6.
+snapshot is redacted, and current same-database pinned-update policy publishes
+no execution snapshot.
 
 ## Integration boundary
 

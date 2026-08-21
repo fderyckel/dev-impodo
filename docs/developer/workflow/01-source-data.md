@@ -9,7 +9,7 @@ status: current
 ## Responsibility
 
 Source data converts either registered files or a bounded Odoo selection into
-immutable project source evidence. It owns inspection, configuration,
+immutable DataVersion workspace evidence. It owns inspection, configuration,
 selection, freezing, Odoo-source capture, and optional related-dataset plans.
 
 It does not apply the final mapping, publish canonical staging, or perform an
@@ -82,9 +82,13 @@ complete source lineage when materialized later.
 File mode completes when a source selection exists and then unlocks Odoo data.
 Odoo mode deliberately reverses the first two responsibilities: **Odoo source
 data** captures eligible fields, then **Freeze Odoo records** publishes the
-selection. The current Odoo-source navigation keeps Match data and later stages
-locked even after capture because preparation still requires the file-source
-binding. Do not document the planned round-trip path as implemented.
+selection. It then unlocks Match data and the later offline preparation and
+same-database comparison stages. Preparation verifies protected capture
+provenance and consumes the frozen snapshot without contacting Odoo.
+
+Odoo source mode is a pinned-update workflow for the same configured database.
+It is not a cross-database Recipe application, and current policy does not
+publish a loadable execution snapshot for those updates.
 
 ## Invalidation and recovery
 
@@ -125,4 +129,3 @@ Odoo capture bounds, cancellation, lineage, and both navigation variants.
 - [Project lifecycle contract](../contracts/project-lifecycle.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
 - [Related-table authoring](../../user/guides/related-tables.md)
-- [Odoo source import and round-trip update plan](../../plans/odoo-source-import-plan.md)

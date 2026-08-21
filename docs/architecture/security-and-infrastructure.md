@@ -12,7 +12,8 @@ contain the detailed endpoint-provisioning checklist.
 | Area | Current boundary |
 | --- | --- |
 | Application | Local Python process and browser UI bound to `127.0.0.1` |
-| Project data | Owner-protected local files, immutable Parquet snapshots, and per-project DuckDB |
+| Recipe state | Bounded registry plus AES-256-GCM protected immutable Recipe and qualification payloads |
+| DataVersion data | Owner-protected local files, immutable Parquet snapshots, and one contained DuckDB workspace |
 | Source intake | Governed `.csv` and `.xlsx` only |
 | Odoo reads | Fixed local reads or closed remote Odoo 19 JSON-2 `fields_get` and `search_read` |
 | Odoo writes | Separate explicit local or remote JSON-2 load/create/update capability, bound to one reviewed preview |
@@ -30,8 +31,9 @@ Managed workstation
         | random 127.0.0.1 HTTP port
         v
   Impodo / FastAPI
-        |-- protected project root
-        |-- per-project DuckDB and immutable source/prepared snapshots
+        |-- protected application root and Recipe registry
+        |-- encrypted Recipe/qualification payloads
+        |-- per-DataVersion DuckDB and immutable source/prepared snapshots
         |-- resource-bounded source-file worker
         |-- local credential vault
         |
@@ -98,7 +100,7 @@ secret reduce but do not remove that limitation.
 Endpoint antivirus or content-disarm requirements remain an organizational
 policy decision.
 
-### Project storage
+### Recipe and DataVersion storage
 
 - Normal Windows storage is `%LOCALAPPDATA%\Impodo\projects` on a local drive.
 - Impodo creates and verifies an owner-protected DACL before opening project
@@ -106,8 +108,11 @@ policy decision.
 - On Windows, normal mode rejects Git checkouts, sync roots, network drives,
   symlinks, and junctions. Development mode is for synthetic or disposable
   data only.
-- Each project uses a separate DuckDB database behind application-owned
-  repositories; users and mappings receive no SQL console.
+- The protected root contains the bounded Recipe/DataVersion registry and
+  encrypted protected Recipe store. Recipe, DataVersion, and workspace IDs are
+  distinct and are resolved explicitly.
+- Each DataVersion workspace uses a separate DuckDB database behind
+  application-owned repositories; users and mappings receive no SQL console.
 - Native-columnar preparation publishes a mapping-bound immutable prepared
   Parquet snapshot. Its manifest binds the exact source snapshot, mapping,
   schema, transformation program, row count, physical schema, and Parquet
@@ -120,10 +125,12 @@ policy decision.
 - DuckDB external access and extension autoload are disabled, and connections
   have bounded memory and threads.
 
-Application-level encryption is implemented for protected Odoo provenance,
-not for every project artifact. Its narrow typed sidecar uses AES-256-GCM with
-a project-scoped key kept in the operating-system vault; the manifest binding
-is authenticated data, and exact ciphertext bytes are hash-verified at the
+Application-level encryption is implemented for immutable Recipe and
+qualification payloads and for protected Odoo provenance, not for every
+workspace artifact. Recipe payloads use AES-256-GCM with one Recipe-scoped key
+kept in the operating-system vault. Odoo provenance uses the same primitive
+with a project-scoped key and a narrow typed sidecar. Authenticated context
+binds each payload, and exact ciphertext bytes are hash-verified at the
 repository boundary and on read. Protected directories/files use private
 `0700`/`0600` permissions where POSIX modes apply. Authorized services enforce
 retained-history quota, expiry, invalidation, and key deletion during project
@@ -165,6 +172,9 @@ controls.
   removal reason. The receipt survives project-directory deletion.
 - Credentials are excluded from project databases, mappings, reports, browser
   storage, and logs.
+- Credentials and credential generations are DataVersion-local operational
+  evidence. Secrets never enter a Recipe revision, qualification, or cutover
+  candidate, and Test credentials are never copied to Production.
 - Authenticated redirects are refused; API keys and Odoo error bodies are
   redacted from public errors.
 
@@ -191,7 +201,7 @@ and governed key rotation and revocation.
 The writer is a separate adapter from every read connector. A load is allowed
 only when all of these are true:
 
-- the project target mode is Local or Remote and the captured target is Odoo
+- the DataVersion workspace target mode is Local or Remote and the captured target is Odoo
   19;
 - the current immutable execution snapshot matches the page the operator
   reviewed and contains no blocked or ambiguous rows;
@@ -234,6 +244,10 @@ This is a disposable-target migration capability, not authorization for a
 production cutover, arbitrary Odoo business actions, or direct database
 writes.
 
+A Recipe `PRODUCTION` DataVersion identifies fresh rollout data and the exact
+qualified revision selected for it. That lineage state does not weaken this
+writer policy and is not production write authorization.
+
 The current Odoo-source policy records native production writes as
 `PRODUCTION_WRITE_UNSUPPORTED`. JSON-2 proves the configured endpoint/database,
 not a restored or cloned database instance, and separate read/write requests
@@ -271,7 +285,9 @@ this security summary.
 
 ## Data handling
 
-- Record the project classification; default to `CONFIDENTIAL`.
+- Record the Recipe classification. The current browser bootstrap stores
+  `INTERNAL`; do not treat that technical default as customer approval for
+  confidential or restricted data.
 - Keep sources, DuckDB data, snapshots, reports, and audit evidence only in
   the protected project directory.
 - Never place project data in Git, email, unauthorized shared storage, or
@@ -316,7 +332,8 @@ Project evidence:
 - [Product vision and current delivery boundary](../product-vision.md)
 - [Architecture overview](overview.md)
 - [Python code map and execution boundary](python-code-map.md)
-- [Project lifecycle contract](../developer/contracts/project-lifecycle.md)
+- [Recipe and data-version lifecycle contract](../developer/contracts/recipe-lifecycle.md)
+- [Contained project lifecycle contract](../developer/contracts/project-lifecycle.md)
 - [Preflight contract](../developer/contracts/preflight.md)
 - [Execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md)
 - [Acceptance and test strategy](../testing/acceptance.md)

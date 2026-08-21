@@ -64,6 +64,9 @@ from ..local_stack import LocalStackService
 from ..adapters.duckdb.database import DuckDbDatabase
 from ..adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from ..adapters.duckdb.mapping_repository import MappingRepository
+from ..adapters.duckdb.mapping_field_catalog_repository import (
+    MappingFieldCatalogRepository,
+)
 from ..adapters.duckdb.normalization_repository import NormalizationRepository
 from ..adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
 from ..adapters.duckdb.preflight_repository import PreflightRepository
@@ -194,6 +197,7 @@ def create_local_app(
     source_repository = SourceRepository(database, derived_entity_repository)
     schema_repository = SchemaRepository(database)
     mapping_repository = MappingRepository(database)
+    mapping_field_catalog_repository = MappingFieldCatalogRepository(database)
     staging_repository = StagingRepository(database, resolved_artifacts)
     preparation_session_repository = PreparationSessionRepository(
         database,
@@ -388,6 +392,7 @@ def create_local_app(
             derived_entity_repository,
             schema_repository,
             mapping_repository,
+            mapping_field_catalog_repository,
             quality_repository,
             transformation_impact_repository,
         ),

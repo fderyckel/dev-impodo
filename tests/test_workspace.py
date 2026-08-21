@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.access import (
@@ -41,6 +42,9 @@ from impodo.domain.mapping.validation.evidence import (
 )
 from impodo.adapters.duckdb.database import DuckDbDatabase
 from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
+from impodo.adapters.duckdb.mapping_field_catalog_repository import (
+    MappingFieldCatalogRepository,
+)
 from impodo.adapters.duckdb.mapping_repository import MappingRepository
 from impodo.adapters.duckdb.project_repository import ProjectRepository
 from impodo.adapters.duckdb.schema_repository import SchemaRepository
@@ -58,6 +62,10 @@ from impodo.application.categorical_coverage_service import (
 )
 from impodo.application.schema_workspace_service import SchemaWorkspaceService
 from impodo.application.source_workspace_service import SourceWorkspaceService
+from impodo.derived_entities import (
+    DerivedEntityPlan,
+    RelatedDatasetRule,
+)
 from impodo.workspace_contracts import (
     SchemaField,
     SchemaModel,
@@ -75,14 +83,19 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         (ROOT / ".tmp").mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
         database = DuckDbDatabase(self.temporary.name)
+        self.database = database
         self.project_repository = ProjectRepository(database)
         derived_entity_repository = DerivedEntityRepository(database)
+        self.derived_entity_repository = derived_entity_repository
         self.source_repository = SourceRepository(
             database,
             derived_entity_repository,
         )
         self.schema_repository = SchemaRepository(database)
         self.mapping_repository = MappingRepository(database)
+        self.mapping_field_catalog_repository = MappingFieldCatalogRepository(
+            database
+        )
         now = datetime.now(timezone.utc)
         self.source = SourceFile(
             file_id=str(uuid4()),
@@ -203,6 +216,73 @@ class WorkspaceLifecycleTests(unittest.TestCase):
             self.schema_repository.get_odoo_model_catalog(self.project.project_id),
             catalog,
         )
+
+    def test_mapping_field_catalog_snapshot_uses_one_connection(self) -> None:
+        schema = self._capture_authenticated_schema()
+        selection = self.source_repository.get_source_selection(
+            self.project.project_id
+        )
+
+        with patch.object(
+            self.database.connection_factory,
+            "connect",
+            wraps=self.database.connection_factory.connect,
+        ) as connect:
+            snapshot = (
+                self.mapping_field_catalog_repository
+                .get_mapping_field_catalog_snapshot(self.project.project_id)
+            )
+
+        self.assertEqual(connect.call_count, 1)
+        self.assertEqual(snapshot.physical_selection, selection)
+        self.assertIsNone(snapshot.preparation_plan)
+        self.assertEqual(snapshot.source_catalogs, ())
+        self.assertEqual(snapshot.schema, schema)
+        self.assertIsNone(snapshot.governance)
+        self.assertIsNone(snapshot.revision)
+        self.assertIsNone(snapshot.working_draft)
+
+    def test_mapping_field_catalog_snapshot_loads_required_source_catalogs(
+        self,
+    ) -> None:
+        self._capture_authenticated_schema()
+        selection = self.source_repository.get_source_selection(
+            self.project.project_id
+        )
+        assert selection is not None
+        dataset = selection.datasets[0]
+        plan = DerivedEntityPlan(
+            plan_id=str(uuid4()),
+            version=1,
+            project_id=self.project.project_id,
+            source_selection_hash=selection.content_hash,
+            rules=(
+                RelatedDatasetRule(
+                    rule_id=str(uuid4()),
+                    source_dataset_id=dataset.dataset_id,
+                    parent_dataset_name="customer_groups",
+                    child_dataset_name="customers",
+                    parent_key_column_key=dataset.columns[1].stable_key,
+                    child_key_column_key=dataset.columns[0].stable_key,
+                ),
+            ),
+            updated_at=datetime.now(timezone.utc),
+            updated_by=LOCAL_ACTOR.identity.display_name,
+        )
+        self.derived_entity_repository.save_derived_entity_plan(
+            self.project.project_id,
+            plan,
+            expected_parent_version=None,
+            actor=LOCAL_ACTOR,
+        )
+
+        snapshot = (
+            self.mapping_field_catalog_repository
+            .get_mapping_field_catalog_snapshot(self.project.project_id)
+        )
+
+        self.assertEqual(snapshot.preparation_plan, plan)
+        self.assertEqual(snapshot.source_catalogs, (self.catalog,))
 
     def test_schema_capture_rejects_a_different_read_credential_generation(
         self,

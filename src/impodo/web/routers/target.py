@@ -177,6 +177,14 @@ def build_target_router(context: WebContext) -> APIRouter:
                 f"/projects/{project.project_id}/summary",
                 status_code=303,
             )
+        if (
+            project.status is ProjectStatus.DRAFT
+            and project.source_mode is SourceMode.FILE
+        ):
+            return RedirectResponse(
+                f"/projects/{project.project_id}/files",
+                status_code=303,
+            )
         if project.status is ProjectStatus.DRAFT:
             blocked = blocking_setup_url(project, ProjectSetupStep.TARGET)
             if blocked is not None:
@@ -376,6 +384,14 @@ def build_target_router(context: WebContext) -> APIRouter:
                 f"/projects/{current.project_id}/summary",
                 status_code=303,
             )
+        if (
+            current.status is ProjectStatus.DRAFT
+            and current.source_mode is SourceMode.FILE
+        ):
+            return RedirectResponse(
+                f"/projects/{current.project_id}/files",
+                status_code=303,
+            )
         if current.status is ProjectStatus.DRAFT:
             blocked = blocking_setup_url(current, ProjectSetupStep.TARGET)
             if blocked is not None:
@@ -383,6 +399,7 @@ def build_target_router(context: WebContext) -> APIRouter:
         purpose = _connection_purpose(current)
         local_test_requested = False
         remote_test_requested = False
+        shared_test_requested = False
         show_local_results = False
         try:
             previous_project = context.queries.get(project_id)
@@ -423,6 +440,9 @@ def build_target_router(context: WebContext) -> APIRouter:
                 action == "test"
                 and project.odoo_connection_mode is OdooConnectionMode.REMOTE
             )
+            shared_test_requested = action == "test" and (
+                remote_test_requested or project.source_mode is SourceMode.ODOO
+            )
             submitted_key = _text(form, "read_api_key") or _text(
                 form,
                 "api_key",
@@ -461,6 +481,19 @@ def build_target_router(context: WebContext) -> APIRouter:
                         context,
                         project,
                     )
+                    if project.source_mode is SourceMode.ODOO:
+                        result = await run_in_threadpool(
+                            context.odoo_connection_tests.test_read,
+                            project,
+                            read_credential.secret,
+                            purpose=purpose,
+                        )
+                        context.remote_connections.mark_checked(
+                            project,
+                            result.fingerprint,
+                            result.read_identity,
+                            purpose=purpose,
+                        )
                 else:
                     if read_credential is None:
                         if (
@@ -482,13 +515,12 @@ def build_target_router(context: WebContext) -> APIRouter:
                         read_credential.secret,
                         purpose=purpose,
                     )
-                    if remote_test_requested:
-                        context.remote_connections.mark_checked(
-                            project,
-                            result.fingerprint,
-                            result.read_identity,
-                            purpose=purpose,
-                        )
+                    context.remote_connections.mark_checked(
+                        project,
+                        result.fingerprint,
+                        result.read_identity,
+                        purpose=purpose,
+                    )
                 target_url = f"/projects/{project_id}/target"
                 if local_test_requested:
                     _flash(
@@ -515,17 +547,18 @@ def build_target_router(context: WebContext) -> APIRouter:
                     project_id,
                     detail=str(error),
                 )
-            if remote_test_requested:
+            if shared_test_requested:
                 project = context.queries.get(project_id)
                 context.remote_connections.mark_error(
                     project,
                     error,
                     purpose=purpose,
                 )
-                return RedirectResponse(
-                    f"/projects/{project_id}/target#remote-connection-status",
-                    status_code=303,
-                )
+                if remote_test_requested:
+                    return RedirectResponse(
+                        f"/projects/{project_id}/target#remote-connection-status",
+                        status_code=303,
+                    )
             return _render_target(
                 request,
                 context,
@@ -549,6 +582,8 @@ def build_target_router(context: WebContext) -> APIRouter:
             project.odoo_connection_mode is OdooConnectionMode.LOCAL
             and context.local_stack.get(project.project_id).metadata_ready
         )
+        if local_ready and project.source_mode is SourceMode.ODOO:
+            local_ready = context.remote_connections.get(project, purpose).ready
         remote_ready = (
             project.odoo_connection_mode is OdooConnectionMode.REMOTE
             and context.remote_connections.get(project, purpose).ready

@@ -8,9 +8,10 @@ status: current
 
 ## Scope
 
-This contract defines bindings and invalidation across Source data, Odoo data,
-and Match data. Stage-specific routes, services, formats, and tests belong in
-the corresponding developer workflow pages.
+This contract defines bindings and invalidation across Recipe publication and
+application plus Source data, Odoo data, and Match data. Stage-specific routes,
+services, formats, and tests belong in the corresponding developer workflow
+pages.
 
 Every dataset uses one discriminated source binding:
 
@@ -21,10 +22,25 @@ Every dataset uses one discriminated source binding:
 
 There are no placeholder files or alternate historical JSON shapes.
 
-## Current evidence chain
+## Current evidence chains
+
+The reusable lineage is:
 
 ```text
-registered project
+Recipe + current Authoring DataVersion workspace
+-> read-only RecipeDraft projection
+-> immutable portable RecipeRevision
+-> fresh Test DataVersion + TargetBinding + RecipeApplicationEvidence
+-> Test preparation, comparison, execution, read-back, and reconciliation
+-> RecipeQualification
+-> explicit CutoverCandidate
+-> fresh Production DataVersion pinned to that exact revision
+```
+
+The contained workspace chain inside each DataVersion is:
+
+```text
+registered MigrationProject workspace
 -> current source catalogue and confirmation
 -> frozen source selection and snapshots
 -> current target schema and governed business keys
@@ -33,6 +49,8 @@ registered project
 
 Each pointer selects one current immutable revision. Historical revisions
 remain available for audit but do not satisfy current-stage prerequisites.
+The two chains meet through exact Recipe, revision, DataVersion, workspace,
+application, and evidence hashes; no stage infers linkage from display names.
 
 ## Binding rules
 
@@ -57,11 +75,18 @@ affected physical dataset once across all relevant fields and embeds immutable
 participates in the submission validation hash. Relationship target existence
 and uniqueness remain declared deferred checks satisfied by fresh preparation
 evidence; mapping validation does not claim target-record coverage. Reusable
-control definitions and the current edition's expected values are separate v11
-objects, projected back to effective totals only at preparation time. The v11
-mapping contains the minimal hashable control expectation; the full actor- and
-time-bound `EditionControlExpectation` contract is reserved for edition
-persistence rather than falsely treated as current storage behavior.
+control definitions and the current DataVersion's expected values are separate
+v11 objects, projected back to effective totals only at preparation time.
+Recipe applications persist current `RecipeControlValues` and
+`RecipeParameterValues` as hash-pinned DataVersion evidence; they are not part
+of reusable Recipe semantic identity.
+
+A Recipe revision contains logical source, preparation, mapping, target,
+quality, reference, parameter-definition, and control-definition meaning. It
+does not contain physical source IDs or rows, a concrete target, credentials,
+approvals, comparison output, execution journals, or reconciliation results.
+Application of that revision creates fresh workspace evidence and a normal
+mapping draft; it never copies a prior workspace database.
 
 Portable evidence uses business keys and stable technical names. Numeric Odoo
 record IDs may appear only in protected target-specific evidence and never as
@@ -71,6 +96,10 @@ portable source or relationship identities.
 
 | Change | Current evidence invalidated |
 | --- | --- |
+| Publish a new Recipe revision | The new revision is untested; prior qualification remains history and is not transferred |
+| Start a successor DataVersion | The predecessor workspace is sealed; the new workspace begins without operational evidence |
+| Change current DataVersion parameters or controls | Current application review/evidence and dependent workspace evidence |
+| Change source/target structure or credential generation during application | Current application or TargetBinding; the immutable Recipe revision remains unchanged |
 | Reinspect or reconfirm a file | Frozen source selection, snapshots, derived plans, mapping, and downstream evidence |
 | Freeze a new source selection | Derived plans, mapping, and downstream evidence |
 | Change an Odoo capture plan | Prior current Odoo snapshot, mapping, and downstream evidence |
@@ -98,6 +127,7 @@ call, metadata lookup, or database query is permitted inside a source-row loop.
 
 ## Related documentation
 
+- [Recipe and data-version lifecycle](recipe-lifecycle.md)
 - [Source data](../workflow/01-source-data.md)
 - [Odoo data](../workflow/02-odoo-data.md)
 - [Match data](../workflow/03-match-data.md)

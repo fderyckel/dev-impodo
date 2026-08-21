@@ -4,15 +4,16 @@ kind: contract
 status: current
 ---
 
-# Project lifecycle contract
+# Contained project lifecycle contract
 
 ## Scope
 
-One migration project is the contained evidence, credential, authorization,
-and filesystem workspace for one Recipe DataVersion. Its setup selects exactly
-one source mode: governed files (`FILE`) or existing records in the configured
-Odoo database (`ODOO`). A project is not created per Odoo model and is no
-longer the reusable operator-facing aggregate root.
+One `MigrationProject` is the contained evidence, credential, authorization,
+and filesystem workspace for one DataVersion in a Recipe. Its setup selects
+exactly one source mode: governed files (`FILE`) or existing records in one
+configured Odoo database (`ODOO`). It is not created per Odoo model and is not
+the operator-facing aggregate root. The browser label **project** refers to the
+owning Recipe; use **workspace** when this contract means `MigrationProject`.
 
 The browser is the normal authoring interface. Stored manifests, hashes, audit
 events, and DuckDB records are machine evidence and must not be edited directly.
@@ -27,22 +28,27 @@ DRAFT --register--> REGISTERED
 
 `CLOSED` is reserved in the domain model but has no browser transition.
 
-Registration requires project ownership, governance, source mode, and exact
-target configuration. `FILE` mode additionally requires an export date and at
-least one governed CSV or XLSX file. `ODOO` mode rejects file attachment and
-does not require an export date.
+Registration requires the workspace name, its stable source-system label, and
+one exact source mode. `FILE` mode additionally requires at least one governed
+CSV or XLSX file; it does not require export date, ownership fields, governance
+fields, or an Odoo destination. `ODOO` mode rejects file attachment and
+requires the source connection mode, normalized endpoint, and database. The
+normal browser also requires a successful purpose-specific read check before it
+registers the Odoo-source workspace.
 
-Registration freezes the business and target setup, increments the optimistic
-revision, publishes canonical registration evidence, and records an actor-bound
-audit event. Later stages create their own versioned evidence; they never reopen
-the registered aggregate.
+Registration fixes the source mode, increments the optimistic revision,
+publishes canonical registration evidence, and records an actor-bound audit
+event. Later stages create their own versioned evidence. A registered file
+workspace may still receive or replace its Odoo destination in the Odoo-data
+stage; that governed change invalidates target-derived evidence rather than
+reopening source setup.
 
 ## Source boundary
 
 Draft file content is size-bounded, validated in an isolated worker, stored
 under generated identifiers, and SHA-256 hashed. It is never edited in place.
 
-A registered file project may add or remove an incorrect source file only
+A registered file workspace may add or remove an incorrect source file only
 before the first source-table selection is frozen. Removal is revision checked,
 deletes only that file's catalogue, confirmation, and contained bytes, and
 records an audit event. After source freeze, file changes fail closed.
@@ -52,19 +58,25 @@ field, and record selection remains a separately authorized workflow.
 
 ## Target and credential boundary
 
-Target identity binds connection mode, normalized endpoint, and database:
+Target identity binds connection mode, normalized endpoint, and database. For
+file sources it is configured after source freeze in the Odoo-data stage. For
+Odoo sources the same identity is established during initial source setup and
+remains both capture origin and pinned-comparison target:
 
 - `LOCAL` permits HTTP only on literal loopback targets;
 - `REMOTE` requires HTTPS and rejects loopback targets.
 
 Changing mode, endpoint, or database changes the target identity and
-invalidates target-derived evidence.
+invalidates target-derived schema, mapping, comparison, and execution evidence.
+It never changes reusable Recipe meaning by itself.
 
-An Odoo API key is not project data. Read and write credentials use separate
-role-specific fields and vault entries and never fall back to one another.
-Changing the target removes both roles for the old target; deleting the project
-removes both roles. Stored evidence may retain only non-secret generation,
-principal, permission, and context bindings.
+An Odoo API key is neither Recipe meaning nor workspace data. Read and write
+credentials use separate role-specific fields and vault entries and never fall
+back to one another.
+Changing the target removes both roles for the old target; deleting the owning
+Recipe or a permitted standalone workspace removes both roles. Stored evidence
+may retain only non-secret generation, principal, permission, and context
+bindings.
 
 Registration and connection configuration do not grant Odoo read or write
 capability. Each connector operation requires its own narrow capability and
@@ -83,26 +95,27 @@ evidence.
 ## Persistence boundary
 
 The local composition stores Recipe/DataVersion lineage in the registry, one
-application-encrypted protected Recipe store, plus one protected project
+application-encrypted protected Recipe store, plus one protected workspace
 directory and DuckDB database per DataVersion workspace. Domain and
 application code access artifacts through ports; filesystem paths are not
 domain contract values. Hosted deployments must supply their own identity,
 database, storage, secret, and job adapters.
 
-Every registry project has one exact Recipe/DataVersion linkage. Existing
-projects receive that shell without opening their contained database during
+Every workspace registry row has one exact Recipe/DataVersion linkage. Legacy
+workspaces receive that shell without opening their contained database during
 registry list/backfill; opening the workspace hydrates only the approved setup
 allowlist and writes the exact local linkage marker. Sealed DataVersion
-workspaces reject project mutation. Standalone project deletion is permitted
+workspaces reject mutation. Standalone workspace deletion is permitted
 only for an unpublished one-DataVersion bootstrap shell; otherwise deletion
 must begin at the Recipe boundary and persist an exact target enumeration.
 
-Projects outside the exact supported base database contract are not opened.
+Workspace databases outside the exact supported base contract are not opened.
 Checksum-pinned additive Recipe linkage migrations are the only current
 in-place schema migration mechanism.
 
 ## Related documentation
 
-- [Project setup implementation](../workflow/00-project-setup.md)
+- [Recipe and data-version lifecycle](recipe-lifecycle.md)
+- [Recipe and data-version setup](../workflow/00-project-setup.md)
 - [Source data implementation](../workflow/01-source-data.md)
 - [Security and infrastructure](../../architecture/security-and-infrastructure.md)

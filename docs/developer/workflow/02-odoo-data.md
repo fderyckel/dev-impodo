@@ -8,23 +8,30 @@ status: current
 
 ## Responsibility
 
-Odoo data captures the selected Odoo 19 model and field metadata. In file mode,
+Odoo data configures the Odoo destination when a file DataVersion does not yet
+have one, then captures selected Odoo 19 model and field metadata. In file mode,
 it also governs the business keys used by mapping and comparison. It owns
-metadata provenance and the confirmed target-schema boundary.
+connection-purpose separation, metadata provenance, and the confirmed
+target-schema boundary.
 
 It does not read an unrestricted business-record export and does not expose a
 generic RPC escape hatch.
 
 ## Entry conditions
 
-The project target is configured. File mode also requires frozen source data.
-Odoo source mode reaches this responsibility before source records are frozen
-because eligible fields define what may be captured.
+File mode requires frozen source data. If its destination is not configured,
+the schema route redirects to the shared connection page and returns after a
+successful read-only check. Odoo source mode already has its source connection
+and reaches schema capture before source records are frozen because eligible
+fields define what may be captured.
 
 ## Implementation flow
 
-`schema.py` refreshes the permitted model catalogue, saves the selected scope,
-captures field details, and, for file mode, submits key governance.
+`target.py` and `OdooConnectionTestService` identify the exact database and
+verify either source-read or destination-read purpose without discovering
+models or fields. `schema.py` then refreshes the permitted model catalogue,
+saves the selected scope, captures field details, and, for file mode, submits
+key governance.
 `SchemaWorkspaceService` coordinates the model catalogue, schema catalogue,
 source selection, and mapping invalidation ports.
 
@@ -55,6 +62,7 @@ and matching use these portable keys rather than remembered numeric Odoo IDs.
 | Role | Code |
 | --- | --- |
 | Schema orchestration | [`SchemaWorkspaceService`](../../../src/impodo/application/schema_workspace_service.py) |
+| Purpose-specific connection check | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
 | Schema governance | [`governance.py`](../../../src/impodo/domain/schema/governance.py) |
 | Browser routes | [`schema.py`](../../../src/impodo/web/routers/schema.py) |
 | Local reader | [`local_odoo_reader.py`](../../../src/impodo/local_odoo_reader.py) |
@@ -75,6 +83,12 @@ File mode completes only when both the schema catalogue and schema governance
 exist, then unlocks Match data. Odoo source mode completes its first
 responsibility when the eligible schema exists, then unlocks the bounded
 capture and freeze responsibility.
+
+For a Test or Production Recipe application, the captured file-mode target is
+fresh DataVersion evidence. `RecipeApplicationService` subsequently assesses
+only the selected Recipe revision's required Odoo semantics and persists a
+non-secret `TargetBinding`; the server and credentials never become Recipe
+meaning.
 
 ## Invalidation and recovery
 
@@ -98,6 +112,7 @@ scope.
 
 - [`tests/test_workspace.py`](../../../tests/test_workspace.py)
 - [`tests/test_local_odoo_reader.py`](../../../tests/test_local_odoo_reader.py)
+- [`tests/test_odoo_connection_service.py`](../../../tests/test_odoo_connection_service.py)
 - [`tests/test_web_app.py`](../../../tests/test_web_app.py)
 
 Verify inherited fields, selection normalization, business-key revisioning,

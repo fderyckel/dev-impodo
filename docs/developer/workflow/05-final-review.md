@@ -76,8 +76,14 @@ and concurrent intended-field changes.
 
 Final review is complete only when the current report status is `READY`.
 Ambiguous or blocked rows keep the stage in **Needs attention**. File-source
-load requires a ready report. Odoo-source load remains unavailable in Phase 6
-even when every checked row is safe.
+load requires a ready report. Odoo-source load remains unavailable under the
+current same-database pinned-update policy even when every checked row is safe.
+
+For a Test Recipe application, a ready report is necessary but not sufficient
+for qualification. The exact Test load, read-back, reconciliation, and expected
+outcome confirmation must also complete. Production DataVersions do not inherit
+the Test report or qualification; they compare again against current Production
+evidence.
 
 ## Invalidation and recovery
 
@@ -117,3 +123,4 @@ write capabilities.
 - [Preflight contract](../contracts/preflight.md)
 - [Quality and quarantine contract](../contracts/quality-and-quarantine.md)
 - [Architecture decisions](../../decisions/README.md)
+- [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)

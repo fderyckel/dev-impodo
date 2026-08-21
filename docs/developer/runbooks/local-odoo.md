@@ -23,13 +23,19 @@ details. No configuration path is persisted in project evidence.
 
 ## Connect to an existing local stack
 
-1. In Project setup, choose **Local Odoo**.
+For a file-source project, finish file selection and open **Odoo data**. For an
+Odoo-source project, the connection page is the initial source setup and the
+same database remains the pinned comparison target.
+
+1. On the Odoo connection page, choose **Local Odoo**.
 2. Select **Help me connect to local Odoo**.
 3. Choose the exact `odoo.conf` used by the intended workspace.
 4. Review the detected PostgreSQL, Python, `odoo-bin`, log, HTTP, and database
    details.
 5. Select **Check again** after correcting an external problem.
-6. When the stack is ready, select **Save and test connection**.
+6. When the stack is ready, select **Save and test connection**. The connection
+   check identifies the exact Odoo 19 database; it does not discover models or
+   fields.
 7. Select **Load Odoo record types** to create the model snapshot. Use
    **Refresh Odoo record types** only when that stored snapshot needs updating.
 

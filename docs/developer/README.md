@@ -6,8 +6,14 @@ boundaries, and read-versus-write capabilities explicit.
 
 ## Workflow implementation
 
-Read [Project setup](workflow/00-project-setup.md), then follow the implemented
-browser stages:
+The browser calls the reusable business object a **project**; the domain calls
+that aggregate `Recipe`. Each `DataVersion` owns one internal
+`MigrationProject` workspace. Read the
+[Recipe lifecycle contract](contracts/recipe-lifecycle.md) before changing
+identity, persistence, application, or qualification behavior.
+
+Then read [Recipe and data-version setup](workflow/00-project-setup.md) and
+follow the implemented workspace stages:
 
 1. [Source data](workflow/01-source-data.md)
 2. [Odoo data](workflow/02-odoo-data.md)
@@ -25,7 +31,8 @@ map is [`docs/workflow.yml`](../workflow.yml).
 Contracts contain only cross-stage required behavior. Workflow pages own the
 routes, services, implementation status, performance risks, and focused tests.
 
-- [Project lifecycle](contracts/project-lifecycle.md)
+- [Recipe and data-version lifecycle](contracts/recipe-lifecycle.md)
+- [Contained project lifecycle](contracts/project-lifecycle.md)
 - [Workflow evidence lifecycle](contracts/evidence-lifecycle.md)
 - [Canonical staging](contracts/canonical-staging.md)
 - [Preflight](contracts/preflight.md)
