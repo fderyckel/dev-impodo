@@ -181,7 +181,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
         self.assertEqual(connector.metadata_requests[0].fields, ("code", "name"))
         self.assertEqual(connector.record_requests[0].model, "res.country")
         self.assertEqual(connector.record_requests[0].limit, 2001)
-        self.assertEqual(access[2], "sha256:" + "8" * 64)
+        self.assertEqual(access.permission_hash, "sha256:" + "8" * 64)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ boundary and are never passed into the preflight domain or report.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from starlette.concurrency import run_in_threadpool
@@ -53,6 +54,16 @@ from .target_credentials import (
 
 class LocalOdooRecoveryRequired(WorkspaceError):
     """Raised when a live local Odoo read needs a matching session profile."""
+
+
+@dataclass(frozen=True, slots=True)
+class _SupportingLookupAccess:
+    """Non-secret provenance attached to one supporting lookup capture."""
+
+    credential_binding_hash: str
+    principal_hash: str
+    permission_hash: str
+    context_hash: str
 
 
 def _target_json2_config(
@@ -639,10 +650,10 @@ def _relationship_value_choices(
         scope_fields=key.scope_fields,
         display_field=display_field,
         target_hash=expected_target_hash,
-        read_credential_binding_hash=access[0],
-        read_principal_hash=access[1],
-        read_permission_hash=access[2],
-        read_context_hash=access[3],
+        read_credential_binding_hash=access.credential_binding_hash,
+        read_principal_hash=access.principal_hash,
+        read_permission_hash=access.permission_hash,
+        read_context_hash=access.context_hash,
         captured_at=captured_at,
         choices=tuple(
             SupportingLookupChoice(value=item["value"], label=item["label"])
@@ -672,7 +683,7 @@ def _read_supporting_lookup_snapshots(
 ) -> tuple[
     MetadataSnapshot,
     RecordSnapshot,
-    tuple[str, str, str, str],
+    _SupportingLookupAccess,
 ]:
     """Read one inferred related model without widening the primary schema."""
 
@@ -695,11 +706,11 @@ def _read_supporting_lookup_snapshots(
         return (
             metadata,
             records,
-            (
-                schema.read_credential_binding_hash,
-                schema.read_principal_hash,
-                schema.read_permission_hash,
-                schema.read_context_hash,
+            _SupportingLookupAccess(
+                credential_binding_hash=schema.read_credential_binding_hash,
+                principal_hash=schema.read_principal_hash,
+                permission_hash=schema.read_permission_hash,
+                context_hash=schema.read_context_hash,
             ),
         )
 
@@ -720,11 +731,11 @@ def _read_supporting_lookup_snapshots(
         return (
             metadata,
             records,
-            (
-                schema.read_credential_binding_hash,
-                schema.read_principal_hash,
-                schema.read_permission_hash,
-                schema.read_context_hash,
+            _SupportingLookupAccess(
+                credential_binding_hash=schema.read_credential_binding_hash,
+                principal_hash=schema.read_principal_hash,
+                permission_hash=schema.read_permission_hash,
+                context_hash=schema.read_context_hash,
             ),
         )
 
@@ -764,11 +775,11 @@ def _read_supporting_lookup_snapshots(
     return (
         connector.get_model_metadata(metadata_requests),
         connector.get_records(record_requests),
-        (
-            credential.binding_hash,
-            identity.principal_hash,
-            identity.permission_hash,
-            identity.context_hash,
+        _SupportingLookupAccess(
+            credential_binding_hash=credential.binding_hash,
+            principal_hash=identity.principal_hash,
+            permission_hash=identity.permission_hash,
+            context_hash=identity.context_hash,
         ),
     )
 

@@ -439,7 +439,10 @@ class SnapshotConnector:
                         values=values,
                     )
                 )
-                if request.limit is not None and len(model_records) >= request.limit:
+                if (
+                    request.limit is not None
+                    and len(model_records) >= request.limit
+                ):
                     break
             records[request.model] = tuple(
                 sorted(model_records, key=lambda record: record.odoo_id)

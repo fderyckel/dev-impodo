@@ -5158,6 +5158,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
             'value="odoo-standard:res.country:code" selected',
             page.text,
         )
+        self.assertIn("data-refresh-value-match", page.text)
+        mapping_script = self.client.get("/static/app.js")
+        self.assertIn("Using saved Odoo values checked", mapping_script.text)
+        self.assertIn(
+            'body.set("refresh", refresh ? "1" : "0")',
+            mapping_script.text,
+        )
         with patch(
             "impodo.web.routers.mapping._source_value_choices",
             return_value=({"value": "FRA", "count": 3},),
@@ -5590,6 +5597,13 @@ class ProjectSetupWizardTests(unittest.TestCase):
             'name="target_field_disposition_0"', decision_page.text
         )
         self.assertIn("Saved changes have not been checked yet", decision_page.text)
+        self.assertIn("Keep working from the last check", decision_page.text)
+        self.assertIn(
+            "large_contacts: Field 0000 needs attention",
+            decision_page.text,
+        )
+        self.assertIn("Decision saved.", decision_page.text)
+        self.assertIn("Check matches to verify it.", decision_page.text)
 
         mapping_data = {
             "csrf_token": self.csrf,
@@ -5657,6 +5671,85 @@ class ProjectSetupWizardTests(unittest.TestCase):
         submitted_page = self.client.get(submitted.headers["location"])
         self.assertIn("Matches confirmed", submitted_page.text)
         self.assertIn("Prepare data", submitted_page.text)
+
+    def test_required_field_decisions_keep_other_checked_items_available(
+        self,
+    ) -> None:
+        project_id, dataset, business_key = self._mapping_ready_project(
+            scalar_field_count=2,
+            required_scalar_indexes=(0, 1),
+        )
+        source_identity, _source_value = dataset.columns
+        context = self.app.state.context
+        _revision, validation = context.mapping_workspace.check_definition(
+            project_id,
+            datasets=(
+                DatasetMapping(
+                    dataset_id=dataset.dataset_id,
+                    target_model="res.partner",
+                    mode=MappingTargetMode.UPSERT,
+                    source_identity_column_keys=(source_identity.stable_key,),
+                    target_identity=(
+                        IdentityComponentMapping(
+                            source_column_keys=(source_identity.stable_key,),
+                            target_fields=business_key.key_fields,
+                        ),
+                    ),
+                ),
+            ),
+            expected_parent_version=None,
+            expected_working_draft_version=None,
+            actor=context.actor,
+        )
+        self.assertEqual(validation.status, MappingValidationStatus.INVALID)
+
+        first_decision = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            data={
+                "csrf_token": self.csrf,
+                "action": "set_disposition:0:field_0000:odoo_default",
+                "expected_working_draft_version": "1",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(first_decision.status_code, 303)
+        first_page = self.client.get(first_decision.headers["location"])
+        self.assertIn("Keep working from the last check", first_page.text)
+        self.assertIn("Field 0000 needs attention", first_page.text)
+        self.assertIn("Decision saved.", first_page.text)
+        self.assertIn("Check matches to verify it.", first_page.text)
+        self.assertIn("Field 0001 needs attention", first_page.text)
+        self.assertIn(
+            'value="set_disposition:0:field_0001:odoo_default"',
+            first_page.text,
+        )
+
+        second_decision = self.client.post(
+            f"/projects/{project_id}/mapping/save",
+            data={
+                "csrf_token": self.csrf,
+                "action": "set_disposition:0:field_0001:odoo_default",
+                "expected_working_draft_version": "2",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+
+        self.assertEqual(second_decision.status_code, 303)
+        working = context.mapping_workspace.mappings.get_mapping_working_draft(
+            project_id
+        )
+        self.assertEqual(
+            [
+                item.target_field
+                for item in (
+                    working.definition.datasets[0].target_field_dispositions
+                )
+            ],
+            ["field_0000", "field_0001"],
+        )
 
     def test_required_managed_relationship_can_be_left_to_odoo(self) -> None:
         project_id, dataset, business_key = self._mapping_ready_project(

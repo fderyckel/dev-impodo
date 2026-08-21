@@ -7,6 +7,7 @@ import unittest
 import yaml
 
 from scripts.documentation_quality import (
+    load_manifest,
     render_report,
     resolve_code_reference,
     validate_repository,
@@ -32,6 +33,19 @@ class DocumentationQualityTests(unittest.TestCase):
         self.assertIn("| Recipe and data-version setup | yes | yes |", first)
         self.assertIn("| Load into Odoo | yes | yes |", first)
         self.assertEqual(first.count("| yes | yes |"), 7)
+
+    def test_workflow_registers_plain_language_standard_and_skill(self) -> None:
+        manifest = load_manifest(ROOT)
+        shared = manifest["shared"]
+
+        self.assertEqual(
+            shared["writing_standard"],
+            "docs/style-guide.md#plain-semantic-language",
+        )
+        self.assertIn(
+            ".agents/skills/impodo-documentation/SKILL.md",
+            shared["skills"],
+        )
 
     def test_code_reference_resolves_exact_symbols(self) -> None:
         self.assertTrue(

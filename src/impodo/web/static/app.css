@@ -1433,6 +1433,34 @@ label.checkbox input {
   margin: .3rem 0;
 }
 
+.mapping-previous-check {
+  margin-top: .8rem;
+  border-top: 1px solid rgb(89 61 15 / 18%);
+  padding-top: .8rem;
+}
+
+.mapping-previous-check > p {
+  margin: .3rem 0 .8rem;
+}
+
+.mapping-previous-check > ul {
+  display: grid;
+  gap: .8rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mapping-previous-check > ul > li {
+  border-top: 1px solid rgb(89 61 15 / 18%);
+  padding-top: .8rem;
+}
+
+.mapping-previous-check > ul > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
 .file-list {
   border-top: 1px solid var(--line);
 }

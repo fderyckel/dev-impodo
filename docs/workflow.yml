@@ -3,6 +3,9 @@ schema_version: 1
 # This registry defines documentation ownership for the implemented browser
 # workflow. Contracts and code remain authoritative for behavior.
 shared:
+  writing_standard: docs/style-guide.md#plain-semantic-language
+  skills:
+    - .agents/skills/impodo-documentation/SKILL.md
   router_modules:
     - src/impodo/web/routers/lifecycle.py
   documents:

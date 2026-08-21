@@ -220,6 +220,20 @@ def _render_mapping(
         if item["issue"].severity == "error"
         and item["issue"].code != "MAPPING_TARGET_FIELD_READONLY"
     )
+    previous_check_issue_views = _mapping_issue_views(
+        request,
+        project_id,
+        stored_validation if has_unvalidated_changes else None,
+        selection,
+        schema,
+        active_definition,
+    )
+    previous_check_blocking_issue_views = tuple(
+        item
+        for item in previous_check_issue_views
+        if item["issue"].severity == "error"
+        and item["issue"].code != "MAPPING_TARGET_FIELD_READONLY"
+    )
     warning_issues = tuple(
         {
             **item,
@@ -280,6 +294,9 @@ def _render_mapping(
         has_unvalidated_changes=has_unvalidated_changes,
         rule_review_ready=rule_review_ready,
         blocking_issue_views=blocking_issue_views,
+        previous_check_blocking_issue_views=(
+            previous_check_blocking_issue_views
+        ),
         readonly_field_recovery=readonly_field_recovery,
     )
     quality_view = None
@@ -710,6 +727,12 @@ def _mapping_issue_views(
         for dataset in (definition.datasets if definition is not None else ())
         for item in dataset.target_field_dispositions
     }
+    value_providers = {
+        (dataset.dataset_id, item.target_field)
+        for dataset in (definition.datasets if definition is not None else ())
+        for item in (*dataset.fields, *dataset.relationships)
+    }
+    provided_target_fields = dispositions | value_providers
     views = []
     for issue in validation.issues:
         located = datasets.get(issue.dataset_id or "")
@@ -776,11 +799,11 @@ def _mapping_issue_views(
                         or field.related is True
                     )
                 ),
-                "has_disposition": (
+                "has_value_provider": (
                     issue.dataset_id,
                     issue.target_field,
                 )
-                in dispositions,
+                in provided_target_fields,
             }
         )
     return tuple(views)
@@ -796,6 +819,7 @@ def _mapping_next_step(
     has_unvalidated_changes,
     rule_review_ready,
     blocking_issue_views,
+    previous_check_blocking_issue_views,
     readonly_field_recovery,
 ):
     """Return one visible next action and every reason it is unavailable."""
@@ -807,6 +831,7 @@ def _mapping_next_step(
             "kind": "link",
             "href": f"/projects/{project_id}/prepare",
             "blockers": (),
+            "previous_check_items": (),
         }
     blockers = []
     if has_unvalidated_changes:
@@ -818,7 +843,9 @@ def _mapping_next_step(
                 "action": "draft",
             }
         )
+        previous_check_items = previous_check_blocking_issue_views
     else:
+        previous_check_items = ()
         if schema is not None and schema.origin.value == "LOCAL_MANUAL":
             blockers.append(
                 {
@@ -896,6 +923,7 @@ def _mapping_next_step(
         "kind": "submit",
         "action": "submit",
         "blockers": tuple(blockers),
+        "previous_check_items": tuple(previous_check_items),
     }
 
 

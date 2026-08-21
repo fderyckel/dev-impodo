@@ -2,21 +2,29 @@
 
 ## Purpose
 
-This document is the current structural overview of Impodo. It explains the
-main components, data flow, and boundaries without repeating the detailed
-[developer contracts](../developer/README.md#normative-contracts) or
-[architecture decisions](../decisions/README.md).
+This document explains Impodo's current structure, data flow, and system
+boundaries. The linked [developer contracts](../developer/README.md#normative-contracts)
+define the detailed rules, while the
+[architecture decisions](../decisions/README.md) explain why the system uses
+those boundaries.
 
-Impodo is currently a local browser application for governing source data and
-running a bounded Odoo 19 migration workflow. The supported `FILE` path covers
-CSV/XLSX intake, mapping, preparation, review, read-only comparison, an
-explicit disposable local or remote load, journaling, and reconciliation. The
-browser also implements bounded `ODOO` source capture and immutable snapshot
-publication. Odoo-origin data can be prepared and compared offline as pinned
-updates against that same database, but Odoo-origin writes and cross-database
-transfer are not available. A `PRODUCTION` DataVersion is implemented as a
-fresh application of one qualified Recipe revision; it does not by itself
-authorize a production cutover.
+Impodo currently runs as a local browser application. It helps a data manager
+govern source data and perform a bounded migration to Odoo 19.
+
+For uploaded files, the supported `FILE` workflow accepts CSV and XLSX data,
+maps and prepares it, compares it with Odoo without writing, and creates an
+exact execution snapshot. After an explicit confirmation, Impodo can load that
+snapshot into a permitted disposable local or remote Odoo target. It records
+every write and reconciles the resulting Odoo records.
+
+For existing Odoo records, the `ODOO` workflow captures a bounded selection and
+publishes it as an immutable snapshot. Impodo can prepare that snapshot offline
+and compare proposed updates with the same Odoo database. It cannot currently
+write Odoo-origin changes or transfer them to another database.
+
+A `PRODUCTION` DataVersion applies one qualified Recipe revision to fresh data
+and target evidence. The `PRODUCTION` label records lifecycle intent; it does
+not authorize a production cutover or relax the disposable-target policy.
 
 ## System context
 
@@ -35,248 +43,337 @@ flowchart LR
     Services --> Writer["Schema-bound<br/>Odoo writer"]
     Services --> Readback["Closed post-write<br/>read-back adapter"]
     Capture --> Odoo["Authorised Odoo 19 target"]
-    Readers --> Odoo["Authorised Odoo 19 target"]
+    Readers --> Odoo
     Writer --> Odoo
     Readback --> Odoo
 ```
 
-The browser is server-rendered. FastAPI coordinates application services; it
-does not contain the core Recipe, project, mapping, or validation rules.
-DuckDB and the filesystem are local adapters behind those rules.
+The browser renders pages on the server. FastAPI receives browser requests and
+coordinates application services. It does not own the Recipe, workspace,
+mapping, or validation rules. Domain and application code own those rules, and
+local adapters connect them to DuckDB and the filesystem.
 
 ## Current capability boundary
 
-The browser implements:
+The browser currently provides these capabilities:
 
-- operator-project creation as Recipe plus Authoring DataVersion 1, with a
-  contained `FILE` or `ODOO` workspace;
-- profile-free CSV/XLSX inspection, bounded previews, and immutable dataset
-  freezing;
-- bounded Odoo record selection, capture, protected provenance, and immutable
-  Parquet snapshot publication;
-- read-only Odoo model, field, identity, and permission capture;
-- governed business keys, scalar mappings, transformations, and relations;
-- bounded derived-entity authoring previews;
-- immutable mapping revisions, semantic validation, and submission evidence;
-- durable canonical staging, quality/quarantine evidence, normalization review,
-  and prepared snapshots;
-- read-only Odoo comparison with `CREATE`, `UPDATE`, `UNCHANGED`, `AMBIGUOUS`,
-  and `BLOCKED` classifications;
-- an exact execution snapshot, explicit disposable local or remote loading,
-  a durable write journal, and post-write reconciliation.
+- When a data manager creates a project, Impodo creates a reusable `Recipe`
+  and its first editable `DataVersion`. That DataVersion owns an isolated
+  workspace configured for either uploaded files (`FILE`) or records captured
+  from Odoo (`ODOO`).
+- For uploaded CSV and XLSX files, Impodo inspects the files without requiring
+  a profile, limits the preview size, and freezes accepted datasets as
+  immutable evidence.
+- For an Odoo source, Impodo limits record selection and capture, protects the
+  record provenance, and publishes an immutable Parquet snapshot.
+- Impodo captures Odoo model, field, identity, and permission information
+  through read-only operations.
+- A data manager can define governed business keys, scalar mappings,
+  transformations, and relationships. The data manager can also define and
+  preview bounded derived-entity rules.
+- Impodo versions each mapping, validates its meaning, and records the exact
+  submitted revision as evidence.
+- During preparation, Impodo builds durable canonical staging, evaluates
+  quality rules, quarantines unsuitable rows, presents normalization changes
+  for review, and publishes prepared snapshots.
+- During final review, Impodo compares prepared rows with Odoo and classifies
+  each row as `CREATE`, `UPDATE`, `UNCHANGED`, `AMBIGUOUS`, or `BLOCKED`.
+- For a permitted file-source load, Impodo freezes the exact execution
+  snapshot, requires explicit confirmation, records every write attempt, and
+  reconciles the committed results.
 
-The Recipe-first lifecycle is implemented. The browser deliberately labels the
-operator-facing aggregate a **project**, while the domain and persistence name
-that reusable aggregate `Recipe`. **New project** provisions a Recipe,
-authoring DataVersion 1, and one contained `MigrationProject` workspace. These
-three identities are distinct. Older standalone workspaces are represented by
-one registry Recipe/DataVersion shell; opening one hydrates only an allowlisted
-setup projection and writes exact local linkage.
+### How projects, Recipes, DataVersions, and workspaces relate
 
-The Recipe overview derives publication readiness from exact current workspace
-evidence, publishes portable immutable Recipe revisions, and shows
-Recipe/DataVersion history. Published Recipe and qualification payloads use an
-application-encrypted protected store, while bounded registry projections hold
-lineage and recovery state. Existing `/projects/{workspace_project_id}` URLs
-remain internal workspace routes resolved through the active Recipe and
-DataVersion.
+The browser uses **project** as the business name for one reusable migration
+effort. In the domain and persistent registry, that reusable aggregate is a
+`Recipe`.
 
-A published revision can provision a clean Test DataVersion, bind current
-replacement source and non-secret remote Test target evidence, show focused
-drift, rebuild reusable preparation and governance, and compile a fresh mapping
-draft. Matching retains its established editor; Recipe application does not add
-a parallel engine. After successful Test preparation, comparison, execution,
-read-back, and reconciliation, explicit qualification can select that exact
-revision as the cutover candidate. **Run with latest data** then creates a
-clean Production DataVersion pinned to the selected qualified revision, even
-when a newer unqualified revision exists. It receives fresh source, target,
-parameter, control, credential, approval, execution, and reconciliation
-evidence. Authoring can declare typed per-DataVersion context such as a
-warehouse; Product, related Product/BOM, and warehouse-parameterized stock
-shapes use the same contracts rather than separate execution paths.
+Choosing **New project** creates three distinct objects in one recoverable
+operation:
 
-The repository also contains a profile-driven preflight engine and CLI. It is
-a separate entry path that retains strict CSV and declared-sheet XLSX loading
-while sharing compiled planning, comparison, and reporting semantics with the
-browser path.
+1. The `Recipe` owns the reusable migration identity and revision history.
+2. Authoring `DataVersion` 1 provides the first editable data package and
+   lifecycle context.
+3. A contained `MigrationProject` workspace stores that DataVersion's source,
+   target, mapping, credentials, evidence, and audit state.
 
-The supported `FILE` browser path is one executable bounded migration pipeline.
-A submitted mapping alone is still only governed evidence: preparation,
-normalization approval, a fresh comparison, an exact execution snapshot, and
-one explicit **Load into Odoo** confirmation remain mandatory. Captured `ODOO`
-sources use protected provenance for offline preparation and same-database
-comparison, but current policy publishes no loadable execution snapshot for
-them. Neither path is a production-cutover authorization.
+Each object has its own identifier. A workspace identifier must not be used as
+a Recipe or DataVersion identifier. For older standalone workspaces, Impodo
+creates a minimal Recipe and DataVersion registry shell. Opening such a
+workspace loads only an allowlisted setup projection and records the exact
+local linkage.
+
+The Recipe overview checks the current Authoring workspace evidence to decide
+whether the Recipe is ready to publish. Publishing creates an immutable,
+portable Recipe revision and preserves its semantic and payload hashes. The
+protected Recipe store encrypts published Recipe and qualification payloads.
+The registry stores only bounded lineage and recovery projections, and the
+overview displays the Recipe and DataVersion history.
+
+Existing `/projects/{workspace_project_id}` URLs remain internal workspace
+routes. Impodo resolves each route through the active Recipe and DataVersion.
+
+### How a Recipe moves from Authoring to Test and Production
+
+A published Recipe revision can create a clean Test DataVersion and workspace.
+The data manager supplies replacement source data and current, non-secret Test
+target evidence. Impodo then checks relevant drift, rebuilds supported
+preparation and governance, and creates a normal mapping draft in the existing
+Match data editor. Recipe application does not introduce a second mapping or
+execution engine.
+
+After preparation, comparison, execution, read-back, and reconciliation
+succeed in Test, the data manager can qualify that exact Recipe revision. A
+separate action selects the resulting qualification as the cutover candidate.
+
+Choosing **Run with latest data** creates a clean Production DataVersion. It
+pins the selected qualified revision, even if the Recipe has a newer
+unqualified revision. The Production DataVersion must establish fresh source,
+target, parameter, control, credential, approval, execution, and
+reconciliation evidence.
+
+An Authoring DataVersion can also declare typed context that changes between
+data versions, such as a warehouse. Product, related Product/BOM, and
+warehouse-parameterized stock shapes use the same Recipe contracts and
+execution path.
+
+### Other entry points and execution limits
+
+The repository also provides a profile-driven preflight engine and command-line
+interface. This separate entry point strictly loads CSV files and declared XLSX
+sheets. It shares the browser workflow's compiled planning, comparison, and
+reporting semantics.
+
+The `FILE` browser workflow is the supported executable migration path. A
+submitted mapping does not authorize a load. The data manager must still
+complete preparation, approve normalization changes, run a fresh comparison,
+freeze an exact execution snapshot, and explicitly confirm **Load into Odoo**.
+
+The `ODOO` source workflow uses protected provenance so Impodo can prepare its
+snapshot offline and compare it with the same database. Current policy does not
+publish a loadable execution snapshot for an Odoo source. Neither source mode
+authorizes a production cutover by itself.
 
 ## Recipe and data-version lifecycle
 
 ```text
-operator Project
-`-- Recipe
+Project shown in the browser
+`-- Recipe: reusable migration identity and revision history
     |-- immutable Recipe revision(s)
-    |-- Authoring DataVersion -> contained MigrationProject workspace
-    |-- Test DataVersion      -> fresh workspace + Test application evidence
-    `-- Production DataVersion -> fresh workspace pinned to the cutover candidate
+    |-- Authoring DataVersion: editable workspace for the next revision
+    |-- Test DataVersion: fresh workspace with Test application evidence
+    `-- Production DataVersion: fresh workspace pinned to the cutover candidate
 ```
 
-Reusable Recipe meaning contains logical source shapes, preparation and mapping
-rules, target requirements and business keys, reusable quality rules,
-references, parameters, and controls. It excludes source rows and physical
-identities, concrete target/database identity, credentials, numeric Odoo IDs,
-approvals, execution journals, and reconciliation results. Those belong to one
-DataVersion or its contained workspace and must be regenerated.
+A Recipe revision contains meaning that should remain reusable across data
+versions. This meaning includes logical source shapes, preparation and mapping
+rules, target requirements, business keys, reusable quality rules, references,
+parameter definitions, and control definitions.
+
+A Recipe revision does not contain source rows, physical source identities, a
+specific target or database, credentials, numeric Odoo record IDs, approvals,
+execution journals, or reconciliation results. Those facts belong to one
+DataVersion or its contained workspace, so Impodo must create them again for
+each Test or Production application.
 
 ## Browser workflow
 
-**New project** records only a name and `FILE` or `ODOO` source mode. In file
-mode, initial setup accepts one or more CSV/XLSX files and registers the
-workspace; the Odoo destination is configured later in **Odoo data**. In Odoo
-source mode, initial setup verifies the same Odoo database from which records
-will be captured. The former details, governance, target, and confirmation
-wizard is not the normal browser path. A registered DataVersion workspace then
-uses six browser stages:
+Choosing **New project** initially records only the project name and either the
+`FILE` or `ODOO` source mode.
 
-1. **Source data** inspects and freezes CSV/XLSX datasets, or selects, captures,
-   and publishes a bounded Odoo-source snapshot.
-2. **Odoo data** discovers allowed record types and captures an effective,
-   identity-bound Odoo schema through closed read and probe surfaces.
+For `FILE` mode, the data manager uploads one or more CSV or XLSX files and
+registers the workspace. The data manager configures the Odoo destination later
+in **Odoo data**. For `ODOO` mode, initial setup verifies the same Odoo database
+from which Impodo will capture records. The earlier details, governance,
+target, and confirmation wizard is no longer the normal browser path.
+
+A registered file-source workspace then moves through six stages:
+
+1. **Source data** inspects uploaded files and freezes the selected datasets.
+2. **Odoo data** discovers permitted record types and captures an effective,
+   identity-bound Odoo schema through closed read and probe operations.
 3. **Match data** records business keys, field providers, transformations,
    relationships, and derived-entity rules. Validation and submission bind the
-   exact mapping revision to current evidence hashes.
+   exact mapping revision to the current evidence hashes.
 4. **Prepare data** evaluates every supported frozen row, publishes canonical
    staging and prepared snapshots, and requires quality and normalization
-   review. It accepts file-origin selections and supported immutable Odoo-origin
-   captures; Odoo-origin preparation verifies the protected source provenance
-   and remains offline after capture.
+   review.
 5. **Final review** reads Odoo in deterministic batches, classifies every row,
    and freezes the exact execution snapshot when the comparison is ready.
-6. **Load into Odoo** requires an explicit confirmation, executes only the
-   frozen schema-bound intentions, journals every attempt, and reads committed
-   results back for reconciliation.
+6. **Load into Odoo** requires explicit confirmation, executes only the frozen
+   schema-bound intentions, records every attempt, and reads committed results
+   back for reconciliation.
 
-Changing source evidence, frozen datasets, target identity, schema, or
-governed business keys invalidates downstream mapping evidence.
+For an Odoo source, the browser presents the first two responsibilities as
+**Odoo source data** and **Freeze Odoo records**. Impodo selects, captures, and
+publishes a bounded Odoo snapshot before it prepares the data. Preparation
+verifies the protected source provenance and performs no further source reads.
+The workflow can continue through same-database comparison, but it cannot
+create a loadable execution snapshot.
+
+If the data manager changes source evidence, frozen datasets, target identity,
+the captured schema, or governed business keys, Impodo invalidates the
+dependent mapping and downstream evidence. Historical evidence remains
+immutable, and regeneration starts at the earliest affected stage.
 
 ## Component layers
 
-| Layer | Responsibilities | Main modules |
+| Layer | What the layer does | Main modules |
 | --- | --- | --- |
-| Browser | Local route composition, workflow routers, presenters, templates, sessions, CSRF, and security headers | `web/app.py`, `web/routers/`, `web/presenters/` |
-| Application | Recipe lineage, authoring, Test/Production application, qualification, project commands, intake, source capture/publication, schema governance, mapping, preparation, quality, normalization, preflight, execution, and reconciliation orchestration | `application/recipe_service.py`, `application/recipe_authoring_service.py`, `application/recipe_application_service.py`, `application/recipe_qualification_service.py`, `projects.py`, `intake.py`, `application/source_workspace_service.py`, `application/odoo_source_capture_service.py`, `application/odoo_capture_publication_service.py`, `application/schema_workspace_service.py`, `application/mapping_workspace_service.py`, `application/preparation_service.py`, `application/quality_service.py`, `application/normalization_service.py`, `application/preflight_service.py`, `application/execution_service.py`, `application/reconciliation_service.py` |
-| Domain | Authorization, Recipe/DataVersion and application identities, exact TargetBindings, project lifecycle, source bindings and snapshots, mapping meaning, staging evaluation, execution snapshots, reconciliation, approvals, and deterministic values | `access.py`, `recipes.py`, `domain/recipe_applications.py`, `projects.py`, `domain/source_binding.py`, `domain/source_snapshot.py`, `domain/odoo_capture.py`, `domain/mapping/`, `domain/compiler/`, `domain/staging/`, `domain/execution.py`, `domain/reconciliation.py`, `approvals.py`, `models.py` |
-| Local adapters | Focused DuckDB repositories, protected Recipe and Odoo payloads, artifacts, credentials, jobs, and resource-bounded workers | `adapters/duckdb/`, `adapters/protected_recipe_store.py`, `adapters/protected_odoo_provenance.py`, `artifacts.py`, `secrets.py`, `jobs.py`, `source_worker.py`, `application/preparation_job_service.py` |
-| Odoo boundary | Remote JSON-2 identity and data reads, bounded source capture, fixed local metadata reads, schema-bound writes, post-write read-back, and local-stack readiness | `connectors.py`, `adapters/odoo_source_capture.py`, `local_odoo_reader.py`, `odoo_writer.py`, `odoo_readback.py`, `local_stack.py` |
-| Preflight | Compiled semantics, frozen-row adaptation, bounded read planning, comparison, and reporting | `domain/compiler/`, `domain/preflight/`, `planner.py`, `metadata.py`, `catalog.py`, `engine.py`, `reporting.py` |
+| Browser | The browser layer composes local routes, renders pages, manages sessions and CSRF protection, and applies browser security headers. | `web/app.py`, `web/routers/`, `web/presenters/` |
+| Application | Application services coordinate Recipe lineage, Authoring, Test and Production application, qualification, workspace commands, intake, Odoo capture, schema governance, mapping, preparation, quality, comparison, execution, and reconciliation. | `application/recipe_service.py`, `application/recipe_authoring_service.py`, `application/recipe_application_service.py`, `application/recipe_qualification_service.py`, `projects.py`, `intake.py`, `application/source_workspace_service.py`, `application/odoo_source_capture_service.py`, `application/odoo_capture_publication_service.py`, `application/schema_workspace_service.py`, `application/mapping_workspace_service.py`, `application/preparation_service.py`, `application/quality_service.py`, `application/normalization_service.py`, `application/preflight_service.py`, `application/execution_service.py`, `application/reconciliation_service.py` |
+| Domain | Domain modules enforce authorization, lifecycle transitions, identities, target bindings, mapping meaning, staging evaluation, execution snapshots, reconciliation, approvals, and deterministic values. | `access.py`, `recipes.py`, `domain/recipe_applications.py`, `projects.py`, `domain/source_binding.py`, `domain/source_snapshot.py`, `domain/odoo_capture.py`, `domain/mapping/`, `domain/compiler/`, `domain/staging/`, `domain/execution.py`, `domain/reconciliation.py`, `approvals.py`, `models.py` |
+| Local adapters | Local adapters store workspace data and protected payloads, manage artifacts and credentials, run jobs, and enforce resource bounds around worker processes. | `adapters/duckdb/`, `adapters/protected_recipe_store.py`, `adapters/protected_odoo_provenance.py`, `artifacts.py`, `secrets.py`, `jobs.py`, `source_worker.py`, `application/preparation_job_service.py` |
+| Odoo boundary | Closed Odoo adapters read remote identity and data, capture bounded source records, read fixed local metadata, perform schema-bound writes, read committed results back, and check local-stack readiness. | `connectors.py`, `adapters/odoo_source_capture.py`, `local_odoo_reader.py`, `odoo_writer.py`, `odoo_readback.py`, `local_stack.py` |
+| Preflight | Preflight modules compile migration meaning, adapt frozen rows, plan bounded target reads, compare proposed rows with Odoo, and produce reports. | `domain/compiler/`, `domain/preflight/`, `planner.py`, `metadata.py`, `catalog.py`, `engine.py`, `reporting.py` |
 
-Domain and application modules do not depend on FastAPI templates. Adapters
-may be replaced without changing lifecycle or mapping semantics.
+Domain and application modules do not depend on FastAPI templates. Because
+adapters sit behind domain ports, another composition can replace them without
+changing the lifecycle or mapping rules.
 
 ## Persistence and evidence
 
-On Windows, the normal local root is `%LOCALAPPDATA%\Impodo\projects`. A
-configured macOS root uses owner-only permissions. The root contains a small
-registry, an application-encrypted Recipe payload store, plus one directory
-and DuckDB database per DataVersion workspace. The registry owns Recipe and
-DataVersion lineage, bounded application/qualification projections, cutover selection,
-and restart-safe intents without scanning project databases. Project
-directories separate inbox, staging, snapshots, reports, and audit artifacts;
-canonical staging, prepared Parquet snapshots, protected target evidence,
-execution journals, and reconciliation results are implemented within those
-boundaries. The current build accepts one exact base project-database
-generation and version, then applies only checksum-pinned additive Recipe
-workspace migrations through a local ledger. A project from another base
-generation or version is rejected rather than read through a compatibility
-adapter.
+On Windows, Impodo normally stores local project data under
+`%LOCALAPPDATA%\Impodo\projects`. A configured macOS root uses owner-only
+permissions.
 
-Important evidence is immutable or versioned:
+The local root contains a small Recipe and DataVersion registry, an
+application-encrypted protected Recipe store, and one protected directory with
+a DuckDB database for each DataVersion workspace. The registry records lineage,
+bounded application and qualification projections, cutover selection, and
+restart-safe intents. It does not need to scan every workspace database to
+provide this information.
 
-- Recipe revisions retain reusable semantic and payload hashes without
-  operational workspace identity;
+Each workspace directory separates inbox, staging, snapshot, report, and audit
+artifacts. Within those boundaries, Impodo stores canonical staging, prepared
+Parquet snapshots, protected target evidence, execution journals, and
+reconciliation results.
+
+Impodo opens only the exact supported base project-database generation and
+version. It applies later Recipe workspace changes only through checksum-pinned
+additive migrations recorded in a local ledger. If a project database uses a
+different base generation or version, Impodo rejects it instead of guessing
+how to interpret it through a compatibility adapter.
+
+Important evidence remains immutable or versioned:
+
+- Each Recipe revision stores reusable semantic and payload hashes without
+  storing the operational workspace identity as reusable meaning.
 - Recipe application, qualification, and cutover selection bind exact
-  revisions without copying credentials or granting write authority;
-- source files retain their original bytes and SHA-256 hash;
-- confirmed source selections and target schema captures are hash-bound;
-- mapping revisions and submissions are immutable;
-- canonical staging and prepared snapshots bind the compiled mapping and exact
-  source selection;
-- Odoo-source publications bind the capture plan, read identity, protected
-  provenance, data hash, and current source snapshot;
-- execution snapshots, write journals, and reconciliation runs remain separate
-  hash-bound evidence;
-- audit events retain stable actor identities;
-- target-derived evidence names its connection-target, schema-scope,
-  principal/context, and policy hashes explicitly;
-- portable outputs use business keys rather than numeric Odoo IDs.
+  revisions. They neither copy credentials nor grant write authority.
+- Each accepted source file retains its original bytes and SHA-256 hash.
+- Source confirmation and target schema capture bind their exact evidence
+  through hashes.
+- Every mapping revision and mapping submission remains immutable.
+- Canonical staging and prepared snapshots bind the compiled mapping to the
+  exact source selection.
+- Each Odoo-source publication binds its capture plan, read identity,
+  protected provenance, data hash, and current source snapshot.
+- Execution snapshots, write journals, and reconciliation runs remain
+  separate, hash-bound evidence.
+- Audit events retain stable actor identities.
+- Target-derived evidence explicitly identifies the connection target, schema
+  scope, principal and context, and policy hashes.
+- Portable outputs identify Odoo records through business keys rather than
+  numeric Odoo IDs.
 
-Numeric Odoo IDs are permitted only inside target-specific snapshots and
-internal lookup indexes. They must not become portable source, mapping,
-decision, manifest, or workbook identifiers.
+Numeric Odoo IDs may appear only in target-specific snapshots and internal
+lookup indexes. Impodo must not use them as portable source, mapping, decision,
+manifest, or workbook identifiers.
 
 ## Odoo boundary
 
-Remote reads use Odoo 19 JSON-2 through closed version, `context_get`,
-`has_access`, `fields_get`, and `search_read` operations. Callers cannot select
-an arbitrary model method or raw request context. Odoo-source capture adds only
-policy-shaped, keyset-paginated `search_read` requests. Local metadata capture
-uses a selected `odoo.conf` and fixed scripts for the model catalogue and
-`fields_get`; it is not a generic Odoo shell. Local stack controls can stop
-only services started and retained by the current Impodo session.
+Remote readers use the Odoo 19 JSON-2 API. They expose only closed operations
+for version checks, `context_get`, `has_access`, `fields_get`, and
+`search_read`. A caller cannot choose an arbitrary model method or raw request
+context. Odoo-source capture adds only policy-shaped, keyset-paginated
+`search_read` requests.
 
-The shared connection check names its source-read or destination-read purpose
-and verifies only the exact Odoo 19 database plus authenticated read identity.
-It does not run model-catalogue or `fields_get` discovery; those remain explicit
-Odoo-data operations and must not be repeated as connection tests.
+For local metadata capture, Impodo reads a selected `odoo.conf` and runs fixed
+scripts for the model catalogue and `fields_get`. It does not expose a generic
+Odoo shell. Local stack controls can stop only the services that the current
+Impodo session started and retained.
 
-The read adapters have no create, write, unlink, import, arbitrary model method,
-or SQL surface. The practical disposable-target path uses a separate writer
-limited to exact lookups, remote External-ID `load` batches, bounded local
-list-form creates, and single-record writes. Its model and field capability is
-derived from one captured-schema-bound preview, so standard, extension, and
-custom schema surfaces do not require a global product allowlist. Its frozen
-snapshot, authorization, and journal are independent of the readers. A second
-closed adapter performs exact-ID and governed-key `search_read` after the
-write; the hash-bound result and concise fallout are persisted separately.
+A connection check has one declared purpose: source read or destination read.
+It verifies the exact Odoo 19 database and authenticated read identity. It does
+not discover the model catalogue or call `fields_get`; the explicit Odoo-data
+stage owns those operations.
+
+Read adapters cannot create, write, unlink, import, call arbitrary model
+methods, or execute SQL. When the data manager confirms a permitted
+disposable-target load, Impodo uses a separate writer. That writer can perform
+exact lookups, send bounded remote External-ID `load` batches, create bounded
+local record lists, and update one record at a time.
+
+The writer derives its permitted models and fields from the captured schema
+that was bound to the final preview. This lets it support standard, extension,
+and custom schema fields without maintaining a global product allowlist. The
+writer has its own frozen snapshot, authorization, and journal; it does not
+inherit them from a read adapter.
+
+After a write, a second closed adapter reads back only the affected records by
+exact ID or governed business key. Impodo stores the hash-bound read-back result
+and concise fallout separately from the write journal.
 
 ## Performance invariants
 
-Odoo access must remain batched:
+All Odoo access must remain bounded and batched:
 
-- request fields and records per model, not per source row or field;
-- paginate target reads deterministically;
-- build and reuse business-key and relation indexes;
-- cache dependency resolution rather than rescanning datasets;
-- split very large key domains into deterministic bounded requests.
+- Readers request fields and records in batches per model. They do not issue a
+  new request for each source row or field.
+- Readers paginate target records in a deterministic order.
+- Comparison and relationship logic build business-key and relation indexes
+  once and reuse them.
+- Dependency resolution uses cached results instead of rescanning datasets.
+- Very large key domains are split into deterministic, bounded requests.
 
-No Odoo reader should call `fields_get`, `search_read`, `browse`, or another
-ORM/RPC method inside a row loop. Odoo-source reads use fixed-size deterministic
-pages. Remote creates use bounded External-ID `load` batches; local creates use
-bounded list-form batches. The practical writer updates one uniquely re-matched
-record per call because Odoo write failures must remain attributable to one
-proposed row.
+No Odoo reader may call `fields_get`, `search_read`, `browse`, or another
+ORM or RPC method from inside a source-row loop. Odoo-source capture reads
+fixed-size deterministic pages.
+
+Remote creates use bounded External-ID `load` batches, and local creates use
+bounded list-form batches. The practical writer intentionally updates one
+uniquely re-matched record per call so that Impodo can attribute an Odoo write
+failure to one proposed row.
 
 ## Deployment boundary
 
-The current composition root is local and single-user: loopback FastAPI,
-local DuckDB, local artifacts, and a local credential vault. Inspection and
-preparation use spawned worker processes; preparation progress is supervised by
-the browser process. Odoo capture uses one bounded background thread. These job
-control records are session-local rather than durable distributed-worker state.
+The current composition runs locally for one data manager. FastAPI listens on
+the loopback interface, while DuckDB, artifacts, and credentials remain local.
+Spawned worker processes inspect and prepare data, and the browser process
+supervises preparation progress. One bounded background thread performs Odoo
+capture. Job-control records remain in the current session; they are not
+durable distributed-worker state.
 
-A future hosted deployment uses a separate composition root with corporate
-identity, project-scoped authorization, PostgreSQL, shared artifact storage,
-durable workers, managed secrets, and a trusted TLS reverse proxy. Local
-loopback assumptions must not be relaxed and reused as hosted controls. See
-[ADR-008](../decisions/README.md).
+A future hosted deployment requires a different composition root. It must
+provide corporate identity, project-scoped authorization, PostgreSQL, shared
+artifact storage, durable workers, managed secrets, and a trusted TLS reverse
+proxy. The hosted design must not reuse local loopback assumptions as hosted
+security controls. [ADR-008](../decisions/README.md) records this boundary.
 
 ## Authoritative detail
 
-- [Security and infrastructure](security-and-infrastructure.md)
-- [Recipe lifecycle contract](../developer/contracts/recipe-lifecycle.md)
-- [Contained project lifecycle contract](../developer/contracts/project-lifecycle.md)
-- [Workflow evidence lifecycle](../developer/contracts/evidence-lifecycle.md)
-- [Canonical staging contract](../developer/contracts/canonical-staging.md)
-- [Preflight contract](../developer/contracts/preflight.md)
-- [Normalization governance contract](../developer/contracts/normalization.md)
-- [Quality and quarantine contract](../developer/contracts/quality-and-quarantine.md)
-- [Execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md)
-- [Acceptance and test strategy](../testing/acceptance.md)
+Use these documents when you need the exact contract for a specific boundary:
+
+- [Security and infrastructure](security-and-infrastructure.md) explains the
+  implemented security controls and deployment assumptions.
+- The [Recipe lifecycle contract](../developer/contracts/recipe-lifecycle.md)
+  defines Recipe revisions, DataVersions, application, qualification, and
+  cutover selection.
+- The [contained project lifecycle contract](../developer/contracts/project-lifecycle.md)
+  defines the workspace lifecycle, source mode, target identity, credentials,
+  and authorization boundaries.
+- The [workflow evidence lifecycle](../developer/contracts/evidence-lifecycle.md)
+  defines evidence bindings and invalidation across workflow stages.
+- The [canonical staging contract](../developer/contracts/canonical-staging.md)
+  defines how Impodo evaluates and stores canonical rows.
+- The [preflight contract](../developer/contracts/preflight.md) defines the
+  comparison and readiness rules.
+- The [normalization governance contract](../developer/contracts/normalization.md)
+  defines how Impodo presents and records normalization decisions.
+- The [quality and quarantine contract](../developer/contracts/quality-and-quarantine.md)
+  defines how Impodo evaluates quality rules and separates unsuitable rows.
+- The [execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md)
+  defines write authorization, journaling, unknown outcomes, and read-back.
+- The [acceptance and test strategy](../testing/acceptance.md) defines the
+  evidence required to claim supported behavior.

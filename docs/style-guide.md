@@ -26,6 +26,52 @@ Use one authority for each kind of statement:
 If an example conflicts with a contract, the contract wins. If documentation
 and code differ, verify the current behavior before changing either one.
 
+## Plain semantic language
+
+Apply these rules to user, developer, architecture, contract, decision, plan,
+and report documentation:
+
+- Write complete sentences in plain, direct English.
+- Describe behavior as **actor -> action -> result**. Name what triggers the
+  behavior, what Impodo does, and what changes as a result.
+- Prefer concrete verbs such as **creates**, **stores**, **belongs to**, and
+  **uses** over abstract phrases such as **creation as**, **provisioning of**,
+  or **application through**.
+- When several domain objects appear together, explain their relationship:
+  which object creates or contains another, why each object exists, and which
+  choice the operator makes.
+- Keep exact domain terms and identifiers such as `Recipe`, `DataVersion`,
+  `FILE`, and `ODOO`, but introduce them inside an understandable sentence.
+- Use one main idea per sentence. Bullets should normally be complete
+  sentences.
+- Avoid noun stacks, `X plus Y` shorthand, slash shorthand, sentence
+  fragments, and compressed architecture language that makes the reader infer
+  causality, ownership, or lifecycle.
+
+Technical precision comes from explicit relationships, not compressed
+terminology. State the understandable meaning first, then add implementation
+details, exact symbols, evidence boundaries, or exceptions in later sentences.
+
+For example, do not write:
+
+> operator-project creation as Recipe plus Authoring DataVersion 1, with a
+> contained `FILE` or `ODOO` workspace.
+
+Write:
+
+> Creating an operator project creates a reusable Recipe and its first editable
+> DataVersion. That DataVersion has its own isolated workspace for either
+> uploaded files (`FILE`) or records captured from Odoo (`ODOO`).
+
+Before accepting prose, confirm that a reader unfamiliar with the
+implementation can answer:
+
+1. What triggers this behavior?
+2. What does Impodo do?
+3. What objects are created or changed?
+4. How do those objects relate to one another?
+5. Why does the distinction matter?
+
 ## User documentation voice
 
 - Address the reader as **you**.

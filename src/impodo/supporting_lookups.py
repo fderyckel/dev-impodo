@@ -103,6 +103,10 @@ class SupportingLookupSnapshot:
     ) -> "SupportingLookupSnapshot":
         """Build and hash one normalized snapshot."""
 
+        normalized_project_id = project_id.strip()
+        normalized_actor = captured_by.strip()
+        if not normalized_project_id or not normalized_actor:
+            raise ValueError("Supporting lookup project and actor are required")
         lookup_key = supporting_lookup_key(
             relation_model=relation_model,
             key_fields=key_fields,
@@ -112,7 +116,9 @@ class SupportingLookupSnapshot:
         normalized_choices = tuple(
             sorted(choices, key=lambda item: (item.label.casefold(), item.value))
         )
-        if len({item.value for item in normalized_choices}) != len(normalized_choices):
+        if len({item.value for item in normalized_choices}) != len(
+            normalized_choices
+        ):
             raise ValueError("Supporting lookup choice values must be unique")
         normalized_ambiguous = tuple(
             sorted(
@@ -122,7 +128,7 @@ class SupportingLookupSnapshot:
         )
         semantic = {
             "contract": "supporting-lookup-snapshot-v1",
-            "project_id": project_id,
+            "project_id": normalized_project_id,
             "lookup_key": lookup_key,
             "relation_model": relation_model,
             "key_fields": key_fields,
@@ -141,7 +147,7 @@ class SupportingLookupSnapshot:
         }
         return cls(
             snapshot_id=str(uuid4()),
-            project_id=project_id.strip(),
+            project_id=normalized_project_id,
             lookup_key=lookup_key,
             relation_model=relation_model,
             key_fields=key_fields,
@@ -153,7 +159,7 @@ class SupportingLookupSnapshot:
             read_permission_hash=read_permission_hash,
             read_context_hash=read_context_hash,
             captured_at=captured_at,
-            captured_by=captured_by.strip(),
+            captured_by=normalized_actor,
             choices=normalized_choices,
             ambiguous_values=normalized_ambiguous,
             content_hash=content_hash(semantic),

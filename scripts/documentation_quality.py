@@ -545,6 +545,39 @@ def validate_repository(
     router_owners = dict(_owned_paths(stages, "router_modules"))
     shared = manifest.get("shared", {})
     if isinstance(shared, dict):
+        writing_standard = shared.get("writing_standard")
+        if not isinstance(writing_standard, str) or not writing_standard:
+            issues.append(
+                DocumentationIssue(
+                    str(manifest_path),
+                    "shared writing_standard must reference the documentation style guide",
+                )
+            )
+        else:
+            relative, _separator, anchor = writing_standard.partition("#")
+            standard_path = repo_root / relative
+            if not standard_path.is_file():
+                issues.append(
+                    DocumentationIssue(
+                        str(manifest_path),
+                        f"missing shared writing standard {writing_standard!r}",
+                    )
+                )
+            elif not anchor or anchor not in _heading_anchors(standard_path):
+                issues.append(
+                    DocumentationIssue(
+                        str(manifest_path),
+                        f"shared writing standard has no matching heading {writing_standard!r}",
+                    )
+                )
+        for path in shared.get("skills", []):
+            if not (repo_root / str(path)).is_file():
+                issues.append(
+                    DocumentationIssue(
+                        str(manifest_path),
+                        f"missing shared documentation skill {path!r}",
+                    )
+                )
         for path in shared.get("router_modules", []):
             router_owners.setdefault(str(path), ("shared",))
         for path in shared.get("documents", []):

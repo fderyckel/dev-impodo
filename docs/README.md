@@ -34,7 +34,9 @@ browser navigation labels.
 The machine-readable [workflow registry](workflow.yml) owns documentation,
 route, template, code-symbol, contract, and focused-test coverage for each
 stage. The [documentation style guide](style-guide.md) defines the audience and
-voice rules.
+voice rules. The project-local
+[Impodo documentation skill](../.agents/skills/impodo-documentation/SKILL.md)
+applies those rules when documentation is created or rewritten.
 
 ## Architecture
 
