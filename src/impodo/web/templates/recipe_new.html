@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}New Recipe · Impodo{% endblock %}
+{% block title %}New project · Impodo{% endblock %}
 {% block content %}
   <section class="form-card narrow">
-    <p class="eyebrow">Recipe setup · Start</p>
-    <h1>Create a migration Recipe</h1>
-    <p>This creates Recipe authoring data version 1. You can finish it over several sessions.</p>
+    <p class="eyebrow">New project</p>
+    <h1>What are you working on?</h1>
+    <p>Name the project and choose where Impodo should read the source data.</p>
     <form method="post" action="/recipes/new" data-single-submit>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input
@@ -13,18 +13,9 @@
         value="{{ values.get('creation_request_id', '') }}"
       >
       <label>
-        Recipe name
+        Project name
         <input name="name" maxlength="200" required value="{{ values.get('name', '') }}">
-        <small>Use the reusable business purpose, such as Customer migration.</small>
-      </label>
-      <label>
-        Source system
-        <select name="source_system" required>
-          <option value="">Choose a source</option>
-          {% for source in source_systems %}
-            <option value="{{ source }}" {% if values.get('source_system') == source %}selected{% endif %}>{{ source }}</option>
-          {% endfor %}
-        </select>
+        <small>For example: Customer migration.</small>
       </label>
       <fieldset>
         <legend>Where should Impodo read the source data?</legend>
@@ -34,7 +25,7 @@
               {% if values.get('source_mode', 'FILE') == 'FILE' %}checked{% endif %}>
             <span>
               <strong>Use files</strong>
-              <small>Upload governed CSV or XLSX exports.</small>
+              <small>Add CSV or XLSX files, then review their tables.</small>
             </span>
           </label>
           <label class="mode-card">
@@ -42,7 +33,7 @@
               {% if values.get('source_mode') == 'ODOO' %}checked{% endif %}>
             <span>
               <strong>Use data already in Odoo</strong>
-              <small>Connect read-only and choose existing Odoo records after setup.</small>
+              <small>Prepare records from this same database. Moving records to another Odoo database is not supported yet.</small>
             </span>
           </label>
         </div>
@@ -52,8 +43,8 @@
         <button
           class="button primary"
           type="submit"
-          data-submitting-label="Creating Recipe..."
-        >Create Recipe</button>
+          data-submitting-label="Creating project..."
+        >Continue</button>
       </div>
     </form>
   </section>

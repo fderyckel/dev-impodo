@@ -157,7 +157,6 @@ def build_projects_router(context: WebContext) -> APIRouter:
         return _render(
             request,
             "recipe_new.html",
-            source_systems=SOURCE_SYSTEMS,
             values={"creation_request_id": str(uuid4())},
         )
 
@@ -173,16 +172,15 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 "csrf_token",
                 "creation_request_id",
                 "name",
-                "source_system",
                 "source_mode",
             },
         )
         values = _form_values(form)
         try:
-            recipe, project = context.recipe_authoring.create(
+            _recipe, project = context.recipe_authoring.create(
                 actor=context.actor,
                 name=values.get("name", ""),
-                source_system=values.get("source_system", ""),
+                source_system="",
                 source_mode=values.get("source_mode", SourceMode.FILE.value),
                 creation_request_id=values.get("creation_request_id", ""),
             )
@@ -190,12 +188,15 @@ def build_projects_router(context: WebContext) -> APIRouter:
             return _render(
                 request,
                 "recipe_new.html",
-                source_systems=SOURCE_SYSTEMS,
                 values=values,
                 error=str(error),
                 status_code=422,
             )
-        return RedirectResponse(f"/recipes/{recipe.recipe_id}", status_code=303)
+        setup_page = "files" if project.source_mode is SourceMode.FILE else "target"
+        return RedirectResponse(
+            f"/projects/{project.project_id}/{setup_page}",
+            status_code=303,
+        )
 
     @router.get("/recipes/{recipe_id}", response_class=HTMLResponse)
     async def recipe_overview(request: Request, recipe_id: str):
@@ -711,7 +712,9 @@ def build_projects_router(context: WebContext) -> APIRouter:
         require_session(request)
         project = context.queries.get(project_id)
         destination = (
-            "overview" if project.status is ProjectStatus.REGISTERED else "details"
+            "overview"
+            if project.status is ProjectStatus.REGISTERED
+            else ("files" if project.source_mode is SourceMode.FILE else "target")
         )
         return RedirectResponse(
             f"/projects/{project.project_id}/{destination}",
@@ -723,8 +726,11 @@ def build_projects_router(context: WebContext) -> APIRouter:
         require_session(request)
         project = context.queries.get(project_id)
         if project.status is not ProjectStatus.REGISTERED:
+            setup_page = (
+                "files" if project.source_mode is SourceMode.FILE else "target"
+            )
             return RedirectResponse(
-                f"/projects/{project.project_id}/details",
+                f"/projects/{project.project_id}/{setup_page}",
                 status_code=303,
             )
         return _render(
@@ -739,11 +745,10 @@ def build_projects_router(context: WebContext) -> APIRouter:
         project = _draft_or_redirect(context, project_id)
         if isinstance(project, RedirectResponse):
             return project
-        return _render(
-            request,
-            "project_details.html",
-            project=project,
-            source_systems=SOURCE_SYSTEMS,
+        setup_page = "files" if project.source_mode is SourceMode.FILE else "target"
+        return RedirectResponse(
+            f"/projects/{project.project_id}/{setup_page}",
+            status_code=303,
         )
 
     @router.post("/projects/{project_id}/details")
@@ -813,25 +818,10 @@ def build_projects_router(context: WebContext) -> APIRouter:
         project = _draft_or_redirect(context, project_id)
         if isinstance(project, RedirectResponse):
             return project
-        blocked = _blocked_setup_redirect(
-            project,
-            ProjectSetupStep.GOVERNANCE,
-        )
-        if blocked is not None:
-            return blocked
-        governance_was_saved = context.queries.has_project_audit_event(
-            project_id,
-            "PROJECT_GOVERNANCE_UPDATED",
-        )
-        return _render(
-            request,
-            "project_governance.html",
-            project=project,
-            data_classification_for_form=(
-                project.data_classification.value
-                if governance_was_saved
-                else DataClassification.INTERNAL.value
-            ),
+        setup_page = "files" if project.source_mode is SourceMode.FILE else "target"
+        return RedirectResponse(
+            f"/projects/{project.project_id}/{setup_page}",
+            status_code=303,
         )
 
     @router.post("/projects/{project_id}/governance")
@@ -943,8 +933,12 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 f"/projects/{project.project_id}/target",
                 status_code=303,
             )
-        upload = form.get("source_file")
-        if not isinstance(upload, UploadFile) or not upload.filename:
+        uploads = tuple(
+            item
+            for item in form.getlist("source_file")
+            if isinstance(item, UploadFile) and item.filename
+        )
+        if not uploads:
             return _project_error(
                 request,
                 context,
@@ -952,16 +946,26 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 "project_files.html",
                 SourceIntakeError("Choose a CSV or XLSX file"),
             )
+        added = 0
+        expected_revision = _revision(form)
         try:
-            await run_in_threadpool(
-                context.intake.accept,
-                project_id,
-                actor=context.actor,
-                expected_revision=_revision(form),
-                display_name=upload.filename,
-                stream=upload.file,
-            )
+            for upload in uploads:
+                await run_in_threadpool(
+                    context.intake.accept,
+                    project_id,
+                    actor=context.actor,
+                    expected_revision=expected_revision,
+                    display_name=upload.filename,
+                    stream=upload.file,
+                )
+                added += 1
+                expected_revision += 1
         except ProjectError as error:
+            if added:
+                error = SourceIntakeError(
+                    f"Added {added} file{'s' if added != 1 else ''}. "
+                    f"The next file could not be added: {error}"
+                )
             return _project_error(
                 request,
                 context,
@@ -970,7 +974,8 @@ def build_projects_router(context: WebContext) -> APIRouter:
                 error,
             )
         finally:
-            await upload.close()
+            for upload in uploads:
+                await upload.close()
         return RedirectResponse(
             f"/projects/{project_id}/files",
             status_code=303,
@@ -982,17 +987,10 @@ def build_projects_router(context: WebContext) -> APIRouter:
         project = _draft_or_redirect(context, project_id)
         if isinstance(project, RedirectResponse):
             return project
-        blocked = _blocked_setup_redirect(
-            project,
-            ProjectSetupStep.REVIEW,
-        )
-        if blocked is not None:
-            return blocked
-        return _render(
-            request,
-            "project_review.html",
-            project=project,
-            problems=registration_problems(project),
+        setup_page = "files" if project.source_mode is SourceMode.FILE else "target"
+        return RedirectResponse(
+            f"/projects/{project.project_id}/{setup_page}",
+            status_code=303,
         )
 
     @router.post("/projects/{project_id}/register")
@@ -1009,25 +1007,35 @@ def build_projects_router(context: WebContext) -> APIRouter:
             )
         except ProjectRegistrationError as error:
             project = context.queries.get(project_id)
-            return _render(
+            template = (
+                "project_files.html"
+                if project.source_mode is SourceMode.FILE
+                else "project_review.html"
+            )
+            return _project_error(
                 request,
-                "project_review.html",
-                project=project,
+                context,
+                project_id,
+                template,
+                error,
                 problems=error.problems,
-                error="The project is not ready to register",
-                status_code=422,
             )
         except ProjectError as error:
             return _project_error(
                 request,
                 context,
                 project_id,
-                "project_review.html",
+                (
+                    "project_files.html"
+                    if context.queries.get(project_id).source_mode is SourceMode.FILE
+                    else "project_review.html"
+                ),
                 error,
                 problems=registration_problems(context.queries.get(project_id)),
             )
+        destination = "sources" if project.source_mode is SourceMode.FILE else "schema"
         return RedirectResponse(
-            f"/projects/{project.project_id}/overview",
+            f"/projects/{project.project_id}/{destination}",
             status_code=303,
         )
 

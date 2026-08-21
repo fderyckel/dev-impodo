@@ -1,25 +1,25 @@
 {% extends "base.html" %}
-{% block title %}Recipes · Impodo{% endblock %}
+{% block title %}Projects · Impodo{% endblock %}
 {% block body_class %}projects-home{% endblock %}
 {% block content %}
   <section class="projects-hero">
     <div>
       <p class="eyebrow">Your work</p>
-      <h1>Recipes</h1>
-      <p>Build reusable migration rules, test them and prepare rollout data.</p>
+      <h1>Projects</h1>
+      <p>Prepare source data, connect Odoo and build reusable migration rules.</p>
     </div>
     <a class="button primary new-project-button" href="/recipes/new">
       <svg class="ui-icon" aria-hidden="true" focusable="false">
         <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#plus-lg"></use>
       </svg>
-      New Recipe
+      New project
     </a>
   </section>
 
   {% if recipes %}
-    <section class="project-list" aria-label="Migration Recipes">
+    <section class="project-list" aria-label="Migration projects">
       <div class="project-list-heading" aria-hidden="true">
-        <span>Recipe name</span>
+        <span>Project name</span>
         <span>Status</span>
         <span>Last updated</span>
         <span>Actions</span>
@@ -97,9 +97,9 @@
     </dialog>
   {% else %}
     <section class="empty-state">
-      <h2>No Recipes yet</h2>
-      <p>Start with a reusable migration purpose and representative source data.</p>
-      <a class="button primary" href="/recipes/new">Create the first Recipe</a>
+      <h2>No projects yet</h2>
+      <p>Start with a project name and the data you want to prepare.</p>
+      <a class="button primary" href="/recipes/new">Create the first project</a>
     </section>
   {% endif %}
 {% endblock %}

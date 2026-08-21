@@ -1,16 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Odoo target · Impodo{% endblock %}
+{% block title %}{% if project.source_mode.value == 'ODOO' %}Odoo source{% else %}Odoo destination{% endif %} · Impodo{% endblock %}
 {% block content %}
   {% set step = "target" %}
-  {% include "_steps.html" %}
+  {% set is_odoo_source = project.source_mode.value == 'ODOO' %}
+  {% if project.status.value == 'DRAFT' %}{% include "_steps.html" %}{% endif %}
   <section class="form-card">
     {% set is_recipe_test = recipe_context and recipe_context.data_version_purpose == 'TEST' %}
     {% set is_recipe_production = recipe_context and recipe_context.data_version_purpose == 'PRODUCTION' %}
-    <p class="eyebrow">{% if is_recipe_test %}Recipe rehearsal · Test target{% elif is_recipe_production %}Recipe rollout · Production target{% else %}Project setup · Connect Odoo{% endif %}</p>
-    <h1>{% if is_recipe_test %}Connect the Test Odoo server{% elif is_recipe_production %}Connect the Production Odoo server{% else %}Where is your Odoo?{% endif %}</h1>
+    <p class="eyebrow">{% if is_recipe_test %}Recipe rehearsal · Test destination{% elif is_recipe_production %}Recipe rollout · Production destination{% elif is_odoo_source %}Project source{% else %}Odoo data{% endif %}</p>
+    <h1>{% if is_recipe_test %}Connect the Test Odoo server{% elif is_recipe_production %}Connect the Production Odoo server{% elif is_odoo_source %}Connect the Odoo source{% else %}Connect the Odoo destination{% endif %}</h1>
     {% include "_setup_blockers.html" %}
     <p>
-      Impodo uses a read-only connection to learn which Odoo records and fields are available. Nothing can be changed in Odoo.
+      This check confirms the address, database, Odoo 19 version, and read-only access. It does not discover models or fields, and nothing can be changed in Odoo.
+      {% if is_odoo_source %}Impodo currently prepares updates for records in this same Odoo database. Moving records between two Odoo databases is not available yet.{% else %}Model and field discovery starts on the next screen and is reused instead of repeated unnecessarily.{% endif %}
       {% if is_recipe_test %}These server settings and credentials belong only to this Test data version; they are never copied into the Recipe.{% elif is_recipe_production %}Enter the current Production endpoint, database, and read-only API key. Test access is never reused, and the later write key is established separately at load confirmation.{% endif %}
     </p>
     <section
@@ -89,7 +91,7 @@
           {% if project.odoo_connection_mode and project.odoo_connection_mode.value == "LOCAL" and project.source_mode.value != "ODOO" %}hidden{% endif %}>
           {% if read_credential_status.available %}Replace the read-only Odoo API key{% else %}Read-only Odoo API key from your administrator{% endif %}
           <input type="password" name="read_api_key" autocomplete="off">
-          <small>{% if project.source_mode.value == 'ODOO' %}Required to freeze Odoo source records through the governed JSON-2 reader.{% else %}Used only for target checks, metadata, and preflight reads.{% endif %} It is never used to load data and is not placed in the project data.</small>
+          <small>{% if is_odoo_source %}Required to read and freeze the selected Odoo source records.{% else %}Used only for destination checks, metadata, and preflight reads.{% endif %} It is never used to load data and is not placed in the project data.</small>
         </label>
       </div>
       <fieldset class="credential-storage-choice" data-api-key-entry data-show-local="{{ 'true' if project.source_mode.value == 'ODOO' else 'false' }}"
@@ -115,20 +117,6 @@
         </div>
       </fieldset>
 
-      <fieldset>
-        <legend>Odoo areas included (optional)</legend>
-        <p class="muted">
-          Choose the business areas involved so the next screen can show the most relevant Odoo data first.
-        </p>
-        <div class="choice-grid">
-          {% for application in applications %}
-            <label class="checkbox">
-              <input type="checkbox" name="intended_applications" value="{{ application }}" {% if application in project.intended_applications %}checked{% endif %}>
-              {{ application }}
-            </label>
-          {% endfor %}
-        </div>
-      </fieldset>
       <section
         id="remote-connection-status"
         class="remote-connection-panel connection-state-{{ remote_connection.state }}"
@@ -144,7 +132,7 @@
         <div class="remote-connection-heading">
           <div>
             <p class="eyebrow">Read-only check</p>
-            <h2 id="remote-connection-title">Remote Odoo connection</h2>
+            <h2 id="remote-connection-title">{% if is_odoo_source %}Remote Odoo source{% else %}Remote Odoo destination{% endif %}</h2>
           </div>
           <strong class="connection-state-label" data-connection-state-label>
             {{ remote_connection.state_label }}
@@ -184,7 +172,7 @@
         {% endif %}
       </section>
       <div class="actions">
-        <a class="button secondary" href="/projects/{{ project.project_id }}/{% if project.source_mode.value == 'FILE' %}files{% else %}governance{% endif %}">Back</a>
+        <a class="button secondary" href="{% if is_odoo_source %}/recipes{% else %}/projects/{{ project.project_id }}/sources{% endif %}">Back</a>
         <button
           class="button secondary"
           type="submit"
@@ -192,7 +180,7 @@
           value="test"
           data-test-connection-button
         >{% if project.odoo_connection_mode and project.odoo_connection_mode.value == "REMOTE" %}{{ remote_connection.button_label }}{% else %}Check connection{% endif %}</button>
-        <button class="button primary" type="submit" name="action" value="save">Save and continue</button>
+        <button class="button primary" type="submit" name="action" value="save">{% if is_odoo_source %}Use this Odoo and continue{% else %}Use this destination and continue{% endif %}</button>
       </div>
     </form>
 

@@ -1,25 +1,26 @@
 """Target browser routes."""
 
 from __future__ import annotations
-from fastapi import Request
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
+
+from ...application.odoo_connection_service import OdooConnectionPurpose
 from ...connectors import ConnectorError
 from ...local_stack import LocalStackError, LocalStackStatus, ReadinessLevel
 from ...projects import (
     OdooConnectionMode,
     ProjectError,
     ProjectSetupStep,
+    ProjectStatus,
+    SourceMode,
     project_setup_requirements_for_step,
 )
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
-from ..security import require_session
-from fastapi import APIRouter
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash
-from ..presenters.mapping_forms import _draft_or_redirect
 from ..presenters.setup import blocking_setup_url
 from ..presenters.summary import (
     _render_summary,
@@ -28,6 +29,7 @@ from ..presenters.summary import (
     _require_local_stack_start,
     _require_local_stack_stop,
 )
+from ..security import require_session
 from ..target_readers import _selected_local_profile
 from ..target_credentials import (
     TargetCredentialRole,
@@ -49,6 +51,16 @@ _LOCAL_STACK_RETURN_VALUES = {
     _LOCAL_STACK_RETURN_TARGET,
     _LOCAL_STACK_RETURN_SUMMARY_COMPARE,
 }
+
+
+def _connection_purpose(project) -> OdooConnectionPurpose:
+    """Return the read purpose represented by the shared connection page."""
+
+    return (
+        OdooConnectionPurpose.SOURCE_READ
+        if project.source_mode is SourceMode.ODOO
+        else OdooConnectionPurpose.TARGET_READ
+    )
 
 
 def _local_stack_return_to(form) -> str:
@@ -159,12 +171,16 @@ def build_target_router(context: WebContext) -> APIRouter:
     @router.get("/projects/{project_id}/target", response_class=HTMLResponse)
     async def project_target_form(request: Request, project_id: str):
         require_session(request)
-        project = _draft_or_redirect(context, project_id)
-        if isinstance(project, RedirectResponse):
-            return project
-        blocked = blocking_setup_url(project, ProjectSetupStep.TARGET)
-        if blocked is not None:
-            return RedirectResponse(blocked, status_code=303)
+        project = context.queries.get(project_id)
+        if project.status is ProjectStatus.CLOSED:
+            return RedirectResponse(
+                f"/projects/{project.project_id}/summary",
+                status_code=303,
+            )
+        if project.status is ProjectStatus.DRAFT:
+            blocked = blocking_setup_url(project, ProjectSetupStep.TARGET)
+            if blocked is not None:
+                return RedirectResponse(blocked, status_code=303)
         return _render_target(
             request,
             context,
@@ -354,12 +370,17 @@ def build_target_router(context: WebContext) -> APIRouter:
                 "action",
             },
         )
-        current = _draft_or_redirect(context, project_id)
-        if isinstance(current, RedirectResponse):
-            return current
-        blocked = blocking_setup_url(current, ProjectSetupStep.TARGET)
-        if blocked is not None:
-            return RedirectResponse(blocked, status_code=303)
+        current = context.queries.get(project_id)
+        if current.status is ProjectStatus.CLOSED:
+            return RedirectResponse(
+                f"/projects/{current.project_id}/summary",
+                status_code=303,
+            )
+        if current.status is ProjectStatus.DRAFT:
+            blocked = blocking_setup_url(current, ProjectSetupStep.TARGET)
+            if blocked is not None:
+                return RedirectResponse(blocked, status_code=303)
+        purpose = _connection_purpose(current)
         local_test_requested = False
         remote_test_requested = False
         show_local_results = False
@@ -431,6 +452,10 @@ def build_target_router(context: WebContext) -> APIRouter:
             if action == "test":
                 local_profile = _selected_local_profile(context, project)
                 if local_profile is not None:
+                    if project.source_mode is SourceMode.ODOO and read_credential is None:
+                        raise SecretStoreError(
+                            "Enter a read-only Odoo API key before checking an Odoo source."
+                        )
                     show_local_results = True
                     await _validate_selected_local_connection(
                         context,
@@ -451,22 +476,18 @@ def build_target_router(context: WebContext) -> APIRouter:
                             "Enter an Odoo API key for this exact remote target "
                             "to test"
                         )
-                    fingerprint = await run_in_threadpool(
-                        context.connection_tester,
+                    result = await run_in_threadpool(
+                        context.odoo_connection_tests.test_read,
                         project,
                         read_credential.secret,
+                        purpose=purpose,
                     )
                     if remote_test_requested:
-                        identity = await run_in_threadpool(
-                            context.read_identity_probe,
-                            project,
-                            read_credential.secret,
-                            ("res.partner",),
-                        )
                         context.remote_connections.mark_checked(
                             project,
-                            fingerprint,
-                            identity,
+                            result.fingerprint,
+                            result.read_identity,
+                            purpose=purpose,
                         )
                 target_url = f"/projects/{project_id}/target"
                 if local_test_requested:
@@ -496,7 +517,11 @@ def build_target_router(context: WebContext) -> APIRouter:
                 )
             if remote_test_requested:
                 project = context.queries.get(project_id)
-                context.remote_connections.mark_error(project, error)
+                context.remote_connections.mark_error(
+                    project,
+                    error,
+                    purpose=purpose,
+                )
                 return RedirectResponse(
                     f"/projects/{project_id}/target#remote-connection-status",
                     status_code=303,
@@ -520,8 +545,47 @@ def build_target_router(context: WebContext) -> APIRouter:
                 setup_attention_requested=True,
                 status_code=422,
             )
+        local_ready = (
+            project.odoo_connection_mode is OdooConnectionMode.LOCAL
+            and context.local_stack.get(project.project_id).metadata_ready
+        )
+        remote_ready = (
+            project.odoo_connection_mode is OdooConnectionMode.REMOTE
+            and context.remote_connections.get(project, purpose).ready
+        )
+        if not (local_ready or remote_ready):
+            return _render_target(
+                request,
+                context,
+                project,
+                error="Check the Odoo connection before continuing. Nothing was changed in Odoo.",
+                status_code=422,
+            )
+        if project.source_mode is SourceMode.ODOO and read_credential is None:
+            return _render_target(
+                request,
+                context,
+                project,
+                error="Enter a read-only Odoo API key before continuing.",
+                status_code=422,
+            )
+        if project.status is ProjectStatus.DRAFT:
+            try:
+                project = context.projects.register(
+                    project.project_id,
+                    actor=context.actor,
+                    expected_revision=project.revision,
+                )
+            except ProjectError as error:
+                return _render_target(
+                    request,
+                    context,
+                    project,
+                    error=str(error),
+                    status_code=422,
+                )
         return RedirectResponse(
-            f"/projects/{project.project_id}/review",
+            f"/projects/{project.project_id}/schema",
             status_code=303,
         )
 
@@ -529,9 +593,12 @@ def build_target_router(context: WebContext) -> APIRouter:
     async def forget_target_read_credential(request: Request, project_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
-        project = _draft_or_redirect(context, project_id)
-        if isinstance(project, RedirectResponse):
-            return project
+        project = context.queries.get(project_id)
+        if project.status is ProjectStatus.CLOSED:
+            return RedirectResponse(
+                f"/projects/{project.project_id}/summary",
+                status_code=303,
+            )
         try:
             receipt = delete_target_credential(
                 context.secret_store,

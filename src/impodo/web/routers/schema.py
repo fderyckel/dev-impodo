@@ -116,6 +116,16 @@ def build_schema_router(context: WebContext) -> APIRouter:
     @router.get("/projects/{project_id}/schema", response_class=HTMLResponse)
     async def project_schema(request: Request, project_id: str):
         require_session(request)
+        project = context.queries.get(project_id)
+        if (
+            project.odoo_connection_mode is None
+            or not project.odoo_base_url
+            or not project.odoo_database
+        ):
+            return RedirectResponse(
+                f"/projects/{project.project_id}/target",
+                status_code=303,
+            )
         return _render_schema(request, context, project_id)
 
     @router.post("/projects/{project_id}/schema/local-config")

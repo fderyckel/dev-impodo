@@ -146,16 +146,21 @@ def build_project_navigation(
             viewed_page_label = "Check changes"
     if current_project.status is not ProjectStatus.REGISTERED:
         stages = _locked_stages(current_project.project_id)
+        setup_page = (
+            "files"
+            if current_project.source_mode is SourceMode.FILE
+            else "target"
+        )
         return ProjectNavigation(
             project_id=current_project.project_id,
             project_name=current_project.name,
             registered=False,
             setup_active=True,
-            setup_href=f"/projects/{current_project.project_id}/details",
+            setup_href=f"/projects/{current_project.project_id}/{setup_page}",
             overview_href=None,
             overview_active=False,
             current_stage_id="setup",
-            current_stage_label="Set up project",
+            current_stage_label="Add source data",
             viewed_stage_id="",
             viewed_page_label=viewed_page_label,
             stages=stages,

@@ -95,6 +95,7 @@ from ..projects import (
     ProjectService,
     SourceMode,
 )
+from ..application.odoo_connection_service import OdooConnectionTestService
 from ..recipes import RecipeNotFoundError
 from ..secrets import CredentialVault, SecretStore, SecretStoreError
 from .context import (
@@ -378,6 +379,8 @@ def create_local_app(
         if odoo_capture_jobs_enabled
         else None
     )
+    resolved_connection_tester = connection_tester or _test_connection
+    resolved_read_identity_probe = read_identity_probe or _probe_read_identity
     context = WebContext(
         queries=BrowserQueryService(
             project_repository,
@@ -441,8 +444,8 @@ def create_local_app(
         jobs=job_dispatcher or InlineJobDispatcher(),
         secret_store=resolved_secret_store,
         launch_token=launch_token or secrets.token_urlsafe(32),
-        connection_tester=connection_tester or _test_connection,
-        read_identity_probe=read_identity_probe or _probe_read_identity,
+        connection_tester=resolved_connection_tester,
+        read_identity_probe=resolved_read_identity_probe,
         write_identity_probe=write_identity_probe or _probe_write_identity,
         schema_reader=schema_reader or _read_schema,
         model_catalog_reader=model_catalog_reader or _read_model_catalog,
@@ -452,6 +455,10 @@ def create_local_app(
         readback_reader_factory=readback_reader_factory or _readback_reader,
         local_stack=local_stack_service or LocalStackService(),
         local_odoo_reader=local_odoo_reader or LocalOdooMetadataReader(),
+        odoo_connection_tests=OdooConnectionTestService(
+            resolved_connection_tester,
+            resolved_read_identity_probe,
+        ),
         remote_connections=RemoteConnectionStatusService(),
     )
 

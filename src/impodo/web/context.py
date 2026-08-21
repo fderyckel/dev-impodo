@@ -61,6 +61,7 @@ from ..odoo_writer import OdooWriteExecutor
 from ..odoo_readback import OdooReadbackReader
 from ..odoo_scope import OdooApiScope
 from ..projects import MigrationProject, ProjectService
+from ..application.odoo_connection_service import OdooConnectionTestService
 from ..secrets import SecretStore
 from .remote_connection import RemoteConnectionStatusService
 
@@ -151,4 +152,5 @@ class WebContext:
     readback_reader_factory: OdooReadbackReaderFactory
     local_stack: LocalStackService
     local_odoo_reader: LocalOdooMetadataReader
+    odoo_connection_tests: OdooConnectionTestService
     remote_connections: RemoteConnectionStatusService

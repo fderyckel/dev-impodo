@@ -635,6 +635,9 @@ class ProjectSchemaMixin:
                 "be opened by this build."
             )
         schema_key = self._project_schema_file_key(connection)
+        if schema_key is None:
+            ensure_recipe_workspace_schema(connection)
+            return
         with self._project_schema_migration_lock:
             if schema_key in self._prepared_project_schema_files:
                 return
@@ -648,13 +651,15 @@ class ProjectSchemaMixin:
         """Remember a project database initialized by this application process."""
 
         schema_key = self._project_schema_file_key(connection)
+        if schema_key is None:
+            return
         with self._project_schema_migration_lock:
             self._prepared_project_schema_files.add(schema_key)
 
     @staticmethod
     def _project_schema_file_key(
         connection: duckdb.DuckDBPyConnection,
-    ) -> tuple[str, int, int]:
+    ) -> tuple[str, int, int] | None:
         """Identify one database file without invalidating the cache on writes."""
 
         rows = connection.execute("PRAGMA database_list").fetchall()
@@ -663,7 +668,7 @@ class ProjectSchemaMixin:
             None,
         )
         if database_file is None:
-            return (f"connection:{id(connection)}", 0, 0)
+            return None
         path = Path(database_file).resolve()
         stat = path.stat()
         return (str(path), int(stat.st_dev), int(stat.st_ino))

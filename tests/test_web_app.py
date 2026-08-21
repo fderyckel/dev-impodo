@@ -208,7 +208,10 @@ def _wait_for_odoo_capture(
 
 
 def _created_workspace_id(app, response) -> str:
-    recipe_id = response.headers["location"].split("/")[2]
+    parts = response.headers["location"].split("/")
+    if len(parts) > 2 and parts[1] == "projects":
+        return parts[2]
+    recipe_id = parts[2]
     recipe = app.state.context.recipes.get(
         recipe_id,
         actor=app.state.context.actor,
@@ -222,6 +225,16 @@ def _created_workspace_id(app, response) -> str:
         for item in versions
         if item.data_version_id == recipe.current_data_version_id
     )
+
+
+def _created_recipe_id(app, response) -> str:
+    """Resolve the Recipe whether creation redirects to Recipe or project setup."""
+
+    project_id = _created_workspace_id(app, response)
+    return app.state.context.recipes.resolve_workspace(
+        project_id,
+        actor=app.state.context.actor,
+    ).recipe_id
 
 
 class LocalBrowserSecurityTests(unittest.TestCase):
@@ -1320,7 +1333,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
             },
         )
         project_id = _created_workspace_id(self.app, created)
-        recipe_id = created.headers["location"].split("/")[2]
+        recipe_id = _created_recipe_id(self.app, created)
 
         details_page = self.client.get(f"/projects/{project_id}/details")
         self.assertIn("Complete this step to continue", details_page.text)
@@ -2035,7 +2048,7 @@ class ProjectSetupWizardTests(unittest.TestCase):
                 "source_system": "Other",
             },
         )
-        recipe_id = created.headers["location"].split("/")[2]
+        recipe_id = _created_recipe_id(self.app, created)
         project_id = _created_workspace_id(self.app, created)
         project = self._complete_setup_before_target(project_id)
         targeted = self._post(

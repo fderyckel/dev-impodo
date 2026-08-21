@@ -46,11 +46,8 @@ class ProjectSetupView:
 
 
 _STEP_LABELS = {
-    ProjectSetupStep.DETAILS: "Project",
-    ProjectSetupStep.GOVERNANCE: "People",
     ProjectSetupStep.FILES: "Source files",
     ProjectSetupStep.TARGET: "Connect Odoo",
-    ProjectSetupStep.REVIEW: "Confirm",
 }
 
 _TEMPLATE_STEPS = {
@@ -67,11 +64,11 @@ def project_setup_step_order(
 ) -> tuple[ProjectSetupStep, ...]:
     """Return the setup sequence for the draft's selected source mode."""
 
-    steps = [ProjectSetupStep.DETAILS, ProjectSetupStep.GOVERNANCE]
-    if project.source_mode is SourceMode.FILE:
-        steps.append(ProjectSetupStep.FILES)
-    steps.extend((ProjectSetupStep.TARGET, ProjectSetupStep.REVIEW))
-    return tuple(steps)
+    return (
+        (ProjectSetupStep.FILES,)
+        if project.source_mode is SourceMode.FILE
+        else (ProjectSetupStep.TARGET,)
+    )
 
 
 def build_project_setup_view(

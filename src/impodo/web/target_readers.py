@@ -85,13 +85,12 @@ def _test_connection(
     project: MigrationProject,
     api_key: str,
 ) -> TargetFingerprint:
+    """Identify the exact database without discovering models or fields."""
+
     if project.odoo_connection_mode is None:
         raise ProjectError("Choose Local Odoo or Remote Odoo")
     connector = Json2ReadConnector(_target_json2_config(project, api_key))
-    metadata = connector.get_model_metadata(
-        (MetadataRequest(model="res.partner", fields=("id",)),)
-    )
-    return metadata.fingerprint
+    return connector.get_target_fingerprint()
 
 
 def _probe_read_identity(

@@ -332,19 +332,30 @@ class ProjectService:
         *,
         actor: Actor,
         name: str,
-        source_system: str,
+        source_system: str = "",
         source_mode: str | SourceMode = SourceMode.FILE,
         creation_request_id: str | None = None,
     ) -> MigrationProject:
-        """Create and persist a minimal editable migration-project draft."""
+        """Create and persist a local-first editable migration-project draft.
+
+        The browser asks only for the project name and source mode.  The
+        retained ``source_system`` field remains available for older callers
+        and portable Recipe metadata, but receives a stable local default when
+        the operator did not supply one.
+        """
 
         self.authorization.require(actor, Capability.PROJECT_CREATE)
         clean_name = _required_text(name, "Project name")
-        clean_source = _required_text(source_system, "Source system")
         try:
             parsed_source_mode = SourceMode(source_mode)
         except ValueError as error:
             raise ProjectError("Choose files or data already in Odoo") from error
+        clean_source = source_system.strip() or (
+            "Uploaded files"
+            if parsed_source_mode is SourceMode.FILE
+            else "Odoo"
+        )
+        clean_source = _required_text(clean_source, "Source system")
         canonical_request_id = _creation_request_id(creation_request_id)
         creation_request_hash = (
             content_hash(
@@ -550,11 +561,10 @@ class ProjectService:
         evidence when the saved target identity or scope actually changes.
         """
 
-        project = self._editable(
+        project = self._target_editable(
             project_id,
             expected_revision,
             actor=actor,
-            capability=Capability.PROJECT_EDIT,
         )
         try:
             connection_mode = OdooConnectionMode(odoo_connection_mode)
@@ -580,6 +590,36 @@ class ProjectService:
             "PROJECT_TARGET_UPDATED",
             actor=actor,
         )
+
+    def _target_editable(
+        self,
+        project_id: str,
+        expected_revision: int,
+        *,
+        actor: Actor,
+    ) -> MigrationProject:
+        """Allow target setup after source registration.
+
+        File projects intentionally defer their Odoo destination until the
+        Odoo-data stage.  Concrete persistence already invalidates target-bound
+        schema, mapping, and staging evidence when the identity changes.
+        """
+
+        _canonical_project_id(project_id)
+        self.authorization.require(
+            actor,
+            Capability.PROJECT_EDIT,
+            project_id=project_id,
+        )
+        project = self.repository.get(project_id)
+        self.repository.assert_workspace_mutable(project.project_id)
+        if project.revision != expected_revision:
+            raise ProjectConflictError(
+                "The project changed in another request; reload before continuing"
+            )
+        if project.status is ProjectStatus.CLOSED:
+            raise ProjectError("Closed projects cannot be edited")
+        return project
 
     def update_schema_scope(
         self,
@@ -956,24 +996,6 @@ def project_setup_requirements(
             )
         )
     if project.source_mode is SourceMode.FILE:
-        if project.export_status is not ExportStatus.RECEIVED:
-            requirements.append(
-                ProjectSetupRequirement(
-                    code="SOURCE_EXPORT_RECEIVED_REQUIRED",
-                    step=ProjectSetupStep.DETAILS,
-                    problem="Source export must be marked as received",
-                    guidance="Confirm that the source files are final.",
-                )
-            )
-        if project.export_date is None:
-            requirements.append(
-                ProjectSetupRequirement(
-                    code="SOURCE_EXPORT_DATE_REQUIRED",
-                    step=ProjectSetupStep.DETAILS,
-                    problem="Source export date is required",
-                    guidance="Enter when the source files were produced.",
-                )
-            )
         if not project.source_files:
             requirements.append(
                 ProjectSetupRequirement(
@@ -995,25 +1017,10 @@ def project_setup_requirements(
                 ),
             )
         )
-    if not project.data_manager:
-        requirements.append(
-            ProjectSetupRequirement(
-                code="DATA_MANAGER_REQUIRED",
-                step=ProjectSetupStep.GOVERNANCE,
-                problem="Responsible data manager is required",
-                guidance="Enter who is preparing the data.",
-            )
-        )
-    if not project.functional_owner:
-        requirements.append(
-            ProjectSetupRequirement(
-                code="FUNCTIONAL_OWNER_REQUIRED",
-                step=ProjectSetupStep.GOVERNANCE,
-                problem="Functional owner is required",
-                guidance="Enter who confirms that the data is correct.",
-            )
-        )
-    if project.odoo_connection_mode is None:
+    if (
+        project.source_mode is SourceMode.ODOO
+        and project.odoo_connection_mode is None
+    ):
         requirements.append(
             ProjectSetupRequirement(
                 code="ODOO_CONNECTION_MODE_REQUIRED",
@@ -1022,7 +1029,7 @@ def project_setup_requirements(
                 guidance="Choose where Odoo is running.",
             )
         )
-    if not project.odoo_base_url:
+    if project.source_mode is SourceMode.ODOO and not project.odoo_base_url:
         requirements.append(
             ProjectSetupRequirement(
                 code="ODOO_BASE_URL_REQUIRED",
@@ -1031,7 +1038,7 @@ def project_setup_requirements(
                 guidance="Enter the Odoo web address.",
             )
         )
-    if not project.odoo_database:
+    if project.source_mode is SourceMode.ODOO and not project.odoo_database:
         requirements.append(
             ProjectSetupRequirement(
                 code="ODOO_DATABASE_REQUIRED",

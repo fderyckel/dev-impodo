@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from io import BytesIO
 import json
 from pathlib import Path
@@ -256,12 +256,13 @@ class ProjectLifecycleTests(unittest.TestCase):
             ),
         )
 
-    def test_registration_fails_closed_until_every_requirement_exists(self) -> None:
+    def test_file_project_registration_requires_only_a_source_file(self) -> None:
         project = self.service.create_project(
             actor=LOCAL_ACTOR,
             name="Products migration",
-            source_system="Dynamics AX 2012",
+            source_system="",
         )
+        self.assertEqual(project.source_system, "Uploaded files")
         with self.assertRaises(ProjectRegistrationError) as caught:
             self.service.register(
                 project.project_id,
@@ -272,11 +273,8 @@ class ProjectLifecycleTests(unittest.TestCase):
 
         requirements = project_setup_requirements(project)
         self.assertEqual(
-            [item.code for item in requirements[:2]],
-            [
-                "SOURCE_EXPORT_RECEIVED_REQUIRED",
-                "SOURCE_EXPORT_DATE_REQUIRED",
-            ],
+            [item.code for item in requirements],
+            ["SOURCE_FILE_REQUIRED"],
         )
         source_file_requirement = next(
             item for item in requirements if item.code == "SOURCE_FILE_REQUIRED"
@@ -293,29 +291,8 @@ class ProjectLifecycleTests(unittest.TestCase):
         project = self.service.create_project(
             actor=LOCAL_ACTOR,
             name="Odoo products round trip",
-            source_system="Odoo 19",
+            source_system="",
             source_mode="ODOO",
-        )
-        project = self.service.update_details(
-            project.project_id,
-            actor=LOCAL_ACTOR,
-            expected_revision=project.revision,
-            name=project.name,
-            source_system=project.source_system,
-            export_status="",
-            export_date="",
-            description="Use governed records already in Odoo",
-        )
-        project = self.service.update_governance(
-            project.project_id,
-            actor=LOCAL_ACTOR,
-            expected_revision=project.revision,
-            data_manager="Data Manager",
-            functional_owner="Product Owner",
-            business_unit="Example Business Unit",
-            data_classification="CONFIDENTIAL",
-            retention_days=90,
-            support_access=False,
         )
         project = self.service.update_target(
             project.project_id,
@@ -328,6 +305,7 @@ class ProjectLifecycleTests(unittest.TestCase):
         )
 
         self.assertEqual(project.source_mode, SourceMode.ODOO)
+        self.assertEqual(project.source_system, "Odoo")
         self.assertIsNone(project.export_date)
         self.assertEqual(project.source_files, ())
         self.assertNotIn(
@@ -710,38 +688,7 @@ class ProjectLifecycleTests(unittest.TestCase):
         project = self.service.create_project(
             actor=LOCAL_ACTOR,
             name="Products migration",
-            source_system="Dynamics AX 2012",
-        )
-        project = self.service.update_details(
-            project.project_id,
-            actor=LOCAL_ACTOR,
-            expected_revision=project.revision,
-            name=project.name,
-            source_system=project.source_system,
-            export_status="RECEIVED",
-            export_date=date.today().isoformat(),
-            description="",
-        )
-        project = self.service.update_governance(
-            project.project_id,
-            actor=LOCAL_ACTOR,
-            expected_revision=project.revision,
-            data_manager="Data Manager",
-            functional_owner="Product Owner",
-            business_unit="Example Business Unit",
-            data_classification="CONFIDENTIAL",
-            retention_days=90,
-            support_access=False,
-        )
-        project = self.service.update_target(
-            project.project_id,
-            actor=LOCAL_ACTOR,
-            expected_revision=project.revision,
-            odoo_connection_mode="REMOTE",
-            odoo_base_url="https://odoo.example.test",
-            odoo_database="odoo_review",
-            intended_applications=[],
-            intended_models=[],
+            source_system="",
         )
         project = self.service.add_source_file(
             project.project_id,
@@ -773,7 +720,8 @@ class ProjectLifecycleTests(unittest.TestCase):
         self.assertTrue(manifest.is_file())
         manifest_text = manifest.read_text()
         self.assertIn('"approval_status":"NOT_STARTED"', manifest_text)
-        self.assertIn('"odoo_connection_mode":"REMOTE"', manifest_text)
+        self.assertIn('"odoo_connection_mode":null', manifest_text)
+        self.assertIn('"export_date":null', manifest_text)
 
 
 class SourceIntakeTests(unittest.TestCase):

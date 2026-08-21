@@ -22,6 +22,7 @@ from ..connectors import (
     ConnectorTransportError,
 )
 from ..models import OdooReadIdentity, TargetFingerprint, target_identity_hash
+from ..application.odoo_connection_service import OdooConnectionPurpose
 from ..projects import MigrationProject
 from ..secrets import SecretStoreError
 
@@ -138,31 +139,46 @@ class RemoteConnectionStatusService:
     """Keep bounded, target-bound Remote Odoo status in process memory."""
 
     def __init__(self) -> None:
-        self._statuses: dict[str, RemoteConnectionStatus] = {}
+        self._statuses: dict[tuple[str, OdooConnectionPurpose], RemoteConnectionStatus] = {}
         self._lock = RLock()
 
-    def get(self, project: MigrationProject) -> RemoteConnectionStatus:
+    def get(
+        self,
+        project: MigrationProject,
+        purpose: OdooConnectionPurpose = OdooConnectionPurpose.TARGET_READ,
+    ) -> RemoteConnectionStatus:
         """Return a status only when it belongs to the project's exact target."""
 
         expected_hash = _project_target_hash(project)
+        key = (project.project_id, purpose)
         with self._lock:
-            status = self._statuses.get(project.project_id)
+            status = self._statuses.get(key)
             if status is not None and status.target_hash == expected_hash:
                 return status
-            self._statuses.pop(project.project_id, None)
+            self._statuses.pop(key, None)
         return _unchecked_status(expected_hash)
 
-    def clear(self, project_id: str) -> None:
+    def clear(
+        self,
+        project_id: str,
+        purpose: OdooConnectionPurpose | None = None,
+    ) -> None:
         """Remove an earlier result after credentials or target details change."""
 
         with self._lock:
-            self._statuses.pop(project_id, None)
+            if purpose is not None:
+                self._statuses.pop((project_id, purpose), None)
+            else:
+                for key in tuple(self._statuses):
+                    if key[0] == project_id:
+                        self._statuses.pop(key, None)
 
     def mark_checked(
         self,
         project: MigrationProject,
         fingerprint: TargetFingerprint,
         identity: OdooReadIdentity,
+        purpose: OdooConnectionPurpose = OdooConnectionPurpose.TARGET_READ,
     ) -> RemoteConnectionStatus:
         """Record one successful read, principal probe, and target/version."""
 
@@ -241,19 +257,20 @@ class RemoteConnectionStatusService:
                 ),
                 principal=(
                     RemoteConnectionLevel.READY,
-                    "The read-only Odoo principal and model access were verified.",
+                    "The authenticated read-only Odoo principal was identified.",
                 ),
                 checked_at=fingerprint.snapshot_timestamp or _now(),
                 read_principal_hash=identity.principal_hash,
             )
         with self._lock:
-            self._statuses[project.project_id] = status
+            self._statuses[(project.project_id, purpose)] = status
         return status
 
     def mark_error(
         self,
         project: MigrationProject,
         error: Exception,
+        purpose: OdooConnectionPurpose = OdooConnectionPurpose.TARGET_READ,
     ) -> RemoteConnectionStatus:
         """Record a safely classified failure without persisting raw responses."""
 
@@ -363,7 +380,7 @@ class RemoteConnectionStatusService:
             support_code=support_code,
         )
         with self._lock:
-            self._statuses[project.project_id] = status
+            self._statuses[(project.project_id, purpose)] = status
         return status
 
 

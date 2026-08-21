@@ -58,11 +58,11 @@
           <a
             class="sidebar-link{% if not navigation %} active{% endif %}"
             href="/recipes"
-            title="All Recipes"
+            title="All projects"
             {% if not navigation %}aria-current="page"{% endif %}
           >
             {{ app_icon("folder") }}
-            <span class="nav-label">All Recipes</span>
+            <span class="nav-label">All projects</span>
           </a>
 
           {% if navigation %}
@@ -186,7 +186,7 @@
         <div class="page-shell">
           {% if navigation and navigation.registered %}
             <nav class="project-breadcrumb" aria-label="Current location">
-              <a href="/recipes">Recipes</a>
+              <a href="/recipes">Projects</a>
               <span aria-hidden="true">/</span>
               {% if recipe_context is defined %}
                 <a href="/recipes/{{ recipe_context.recipe_id }}">{{ navigation.project_name }}</a>

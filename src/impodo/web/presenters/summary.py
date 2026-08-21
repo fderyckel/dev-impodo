@@ -10,6 +10,7 @@ from ...access import AuthorizationError, Capability
 from ...application.bounded_preparation import (
     supports_bounded_direct_preparation,
 )
+from ...application.odoo_connection_service import OdooConnectionPurpose
 from ...application.preparation_capability import (
     compile_preparation_capability,
 )
@@ -48,13 +49,22 @@ def _render_target(
     open_local_stack: bool = False,
     setup_attention_requested: bool = False,
 ):
+    connection_purpose = (
+        OdooConnectionPurpose.SOURCE_READ
+        if project.source_mode is SourceMode.ODOO
+        else OdooConnectionPurpose.TARGET_READ
+    )
     return _render(
         request,
         "project_target.html",
         project=project,
         applications=ODOO_APPLICATIONS,
         local_stack=context.local_stack.get(project.project_id),
-        remote_connection=context.remote_connections.get(project),
+        remote_connection=context.remote_connections.get(
+            project,
+            connection_purpose,
+        ),
+        connection_purpose=connection_purpose,
         read_credential_status=get_target_credential_status(
             context.secret_store,
             project,

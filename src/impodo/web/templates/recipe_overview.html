@@ -16,10 +16,10 @@
     <section class="next-action-card current" aria-labelledby="recipe-setup-title">
       <div>
         <p class="eyebrow">Data version {{ current_data_version.version_number if current_data_version else 1 }}</p>
-        <h2 id="recipe-setup-title">{% if current_data_version and current_data_version.purpose.value == 'TEST' %}Complete Test data setup{% elif current_data_version and current_data_version.purpose.value == 'PRODUCTION' %}Complete Production data setup{% else %}Complete Recipe setup{% endif %}</h2>
-        <p>{% if current_data_version and current_data_version.purpose.value == 'TEST' %}Add representative replacement files and configure the separate remote Test Odoo server.{% elif current_data_version and current_data_version.purpose.value == 'PRODUCTION' %}Add the complete latest source package and configure the current remote Production Odoo server with fresh read access.{% else %}Set the source, governance and Odoo destination for representative authoring data.{% endif %}</p>
+        <h2 id="recipe-setup-title">{% if current_data_version and current_data_version.purpose.value == 'TEST' %}Add Test data{% elif current_data_version and current_data_version.purpose.value == 'PRODUCTION' %}Add Production data{% elif project.source_mode.value == 'ODOO' %}Connect the Odoo source{% else %}Add source files{% endif %}</h2>
+        <p>{% if current_data_version and current_data_version.purpose.value == 'TEST' %}Add representative replacement files. Impodo will ask for the Test Odoo destination when you reach Odoo data.{% elif current_data_version and current_data_version.purpose.value == 'PRODUCTION' %}Add the complete latest source package. Impodo will ask for the Production Odoo destination when you reach Odoo data.{% elif project.source_mode.value == 'ODOO' %}Check read-only access to the Odoo database that contains the source records.{% else %}Add the files for this project. The Odoo destination comes later, when you reach Odoo data.{% endif %}</p>
       </div>
-      <a class="button primary" href="/projects/{{ project.project_id }}/{% if current_data_version and current_data_version.purpose.value in ['TEST', 'PRODUCTION'] %}files{% else %}details{% endif %}">Continue setup</a>
+      <a class="button primary" href="/projects/{{ project.project_id }}/{% if project.source_mode.value == 'ODOO' %}target{% else %}files{% endif %}">Continue</a>
     </section>
   {% elif current_data_version and current_data_version.purpose.value == 'PRODUCTION' %}
     <section class="next-action-card {% if application_draft and application_draft.state.value == 'APPLIED' %}ready{% else %}current{% endif %}" aria-labelledby="recipe-production-title">

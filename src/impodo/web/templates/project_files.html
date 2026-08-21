@@ -4,8 +4,8 @@
   {% set step = "files" %}
   {% include "_steps.html" %}
   <section class="form-card">
-    <p class="eyebrow">Project setup · Source files</p>
-    <h1>Add source files</h1>
+    <p class="eyebrow">{{ project.name }} · Source data</p>
+    <h1>Add the files for this project</h1>
     {% include "_setup_blockers.html" %}
     <p>
       CSV and modern XLSX only. Legacy <code>.xls</code> files must be opened
@@ -36,17 +36,23 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ project.revision }}">
       <label>
-        Select a file
-        <input type="file" name="source_file" accept=".csv,.xlsx" required>
+        Select files
+        <input type="file" name="source_file" accept=".csv,.xlsx" multiple required>
         <small>Maximum accepted size: 100 MB per file.</small>
       </label>
       <div class="actions">
-        <a class="button secondary" href="/projects/{{ project.project_id }}/governance">Back</a>
-        <button class="button {% if project.source_files %}secondary{% else %}primary{% endif %}" type="submit">Add file</button>
-        {% if project.source_files %}
-          <a class="button primary" href="/projects/{{ project.project_id }}/target">Continue</a>
-        {% endif %}
+        <button class="button {% if project.source_files %}secondary{% else %}primary{% endif %}" type="submit">Add files</button>
       </div>
     </form>
+    {% if project.source_files %}
+      <form method="post" action="/projects/{{ project.project_id }}/register">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" value="{{ project.revision }}">
+        <div class="actions">
+          <a class="button secondary" href="/recipes">Save and exit</a>
+          <button class="button primary" type="submit">Use these files and continue</button>
+        </div>
+      </form>
+    {% endif %}
   </section>
 {% endblock %}
