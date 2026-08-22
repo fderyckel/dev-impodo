@@ -85,6 +85,15 @@ Recipe applications persist current `RecipeControlValues` and
 `RecipeParameterValues` as hash-pinned DataVersion evidence; they are not part
 of reusable Recipe semantic identity.
 
+Mapping contract v12 binds conditional Selection providers, ordered rule and
+condition identifiers, typed comparisons, referenced source-column keys,
+captured Odoo output keys, and the otherwise decision. Categorical validation
+projects all referenced columns in the dataset's existing bounded scan and
+fails closed when a row cannot produce a current Odoo choice. Recipe
+publication replaces physical column keys with logical source-column IDs;
+application rebinds those IDs to the fresh frozen selection and revalidates
+the current Odoo choices before creating a normal mapping draft.
+
 A Recipe revision contains logical source, preparation, mapping, target,
 quality, reference, parameter-definition, and control-definition meaning. It
 does not contain physical source IDs or rows, a concrete target, credentials,
@@ -112,6 +121,7 @@ portable source or relationship identities.
 | Change governed business keys | Mapping, target comparison, and execution evidence |
 | Save or remove a related-dataset plan | Mapping and downstream prepared evidence |
 | Save a new mapping revision | Prior validation, impact review, submission, and downstream evidence |
+| Add, remove, edit, or reorder a conditional Selection rule | Prior categorical coverage, impact review, submission, preparation, comparison, and execution evidence |
 
 Invalidation retires current pointers; it does not rewrite or delete historical
 evidence. Regeneration starts at the earliest changed stage.

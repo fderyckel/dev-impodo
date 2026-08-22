@@ -52,6 +52,17 @@ preparation draft. Publication requires current, compatible source, submitted
 mapping, schema governance, quality, and any declared reference, preparation,
 parameter, or control evidence.
 
+An exact reviewed standard reference key for the current Odoo major version,
+such as `res.country.code` in Odoo 19, supplies its own narrow field contract.
+The compiler may therefore preserve that relationship meaning without adding
+the related lookup model to the primary schema scope. Any non-standard key,
+write use, version mismatch, or metadata mismatch still requires captured Odoo
+evidence and fails closed. This exception never expands Odoo write authority.
+
+Each blocked `RecipeDraft` issue names the workflow step that owns recovery.
+The web presenter maps that structured step to one existing page and action;
+it does not infer navigation by parsing the issue message or code.
+
 Reusable Recipe meaning may contain:
 
 - A Recipe revision may define logical source tables and columns.

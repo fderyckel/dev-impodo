@@ -14,9 +14,11 @@ import re
 from uuid import uuid4
 
 from .domain.serialization import canonical_json, content_hash
+from .reference_keys import REFERENCE_POLICY_HASH
 
 
 _TECHNICAL_NAME = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
+SUPPORTING_LOOKUP_CONTRACT_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +43,8 @@ def supporting_lookup_key(
     key_fields: tuple[str, ...],
     scope_fields: tuple[str, ...],
     display_field: str,
+    reference_policy_hash: str = REFERENCE_POLICY_HASH,
+    contract_version: int = SUPPORTING_LOOKUP_CONTRACT_VERSION,
 ) -> str:
     """Identify one lookup by its governed, target-independent semantics."""
 
@@ -49,15 +53,16 @@ def supporting_lookup_key(
         _validate_technical_name(field_name, "related field")
     if not key_fields:
         raise ValueError("A supporting lookup requires at least one key field")
-    return content_hash(
-        {
-            "contract": "supporting-lookup-key-v1",
-            "relation_model": relation_model,
-            "key_fields": key_fields,
-            "scope_fields": scope_fields,
-            "display_field": display_field,
-        }
-    )
+    payload = {
+        "contract": f"supporting-lookup-key-v{contract_version}",
+        "relation_model": relation_model,
+        "key_fields": key_fields,
+        "scope_fields": scope_fields,
+        "display_field": display_field,
+    }
+    if contract_version >= 2:
+        payload["reference_policy_hash"] = reference_policy_hash
+    return content_hash(payload)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +86,8 @@ class SupportingLookupSnapshot:
     choices: tuple[SupportingLookupChoice, ...]
     ambiguous_values: tuple[str, ...]
     content_hash: str
+    reference_policy_hash: str = REFERENCE_POLICY_HASH
+    contract_version: int = SUPPORTING_LOOKUP_CONTRACT_VERSION
 
     @classmethod
     def capture(
@@ -112,6 +119,7 @@ class SupportingLookupSnapshot:
             key_fields=key_fields,
             scope_fields=scope_fields,
             display_field=display_field,
+            reference_policy_hash=REFERENCE_POLICY_HASH,
         )
         normalized_choices = tuple(
             sorted(choices, key=lambda item: (item.label.casefold(), item.value))
@@ -127,7 +135,7 @@ class SupportingLookupSnapshot:
             )
         )
         semantic = {
-            "contract": "supporting-lookup-snapshot-v1",
+            "contract": "supporting-lookup-snapshot-v2",
             "project_id": normalized_project_id,
             "lookup_key": lookup_key,
             "relation_model": relation_model,
@@ -139,6 +147,7 @@ class SupportingLookupSnapshot:
             "read_principal_hash": read_principal_hash,
             "read_permission_hash": read_permission_hash,
             "read_context_hash": read_context_hash,
+            "reference_policy_hash": REFERENCE_POLICY_HASH,
             "choices": [
                 {"value": item.value, "label": item.label}
                 for item in normalized_choices
@@ -163,6 +172,8 @@ class SupportingLookupSnapshot:
             choices=normalized_choices,
             ambiguous_values=normalized_ambiguous,
             content_hash=content_hash(semantic),
+            reference_policy_hash=REFERENCE_POLICY_HASH,
+            contract_version=SUPPORTING_LOOKUP_CONTRACT_VERSION,
         )
 
     def to_json(self) -> str:
@@ -171,6 +182,7 @@ class SupportingLookupSnapshot:
         return canonical_json(
             {
                 "snapshot_id": self.snapshot_id,
+                "contract_version": self.contract_version,
                 "project_id": self.project_id,
                 "lookup_key": self.lookup_key,
                 "relation_model": self.relation_model,
@@ -182,6 +194,7 @@ class SupportingLookupSnapshot:
                 "read_principal_hash": self.read_principal_hash,
                 "read_permission_hash": self.read_permission_hash,
                 "read_context_hash": self.read_context_hash,
+                "reference_policy_hash": self.reference_policy_hash,
                 "captured_at": self.captured_at,
                 "captured_by": self.captured_by,
                 "choices": [
@@ -198,6 +211,8 @@ class SupportingLookupSnapshot:
         """Restore stored evidence and reject semantic tampering."""
 
         payload = json.loads(value)
+        contract_version = int(payload.get("contract_version", 1))
+        reference_policy_hash = str(payload.get("reference_policy_hash", ""))
         restored = cls(
             snapshot_id=str(payload["snapshot_id"]),
             project_id=str(payload["project_id"]),
@@ -226,26 +241,41 @@ class SupportingLookupSnapshot:
                 str(item) for item in payload["ambiguous_values"]
             ),
             content_hash=str(payload["content_hash"]),
+            reference_policy_hash=reference_policy_hash,
+            contract_version=contract_version,
         )
-        expected = cls.capture(
-            project_id=restored.project_id,
+        expected_lookup_key = supporting_lookup_key(
             relation_model=restored.relation_model,
             key_fields=restored.key_fields,
             scope_fields=restored.scope_fields,
             display_field=restored.display_field,
-            target_hash=restored.target_hash,
-            read_credential_binding_hash=restored.read_credential_binding_hash,
-            read_principal_hash=restored.read_principal_hash,
-            read_permission_hash=restored.read_permission_hash,
-            read_context_hash=restored.read_context_hash,
-            captured_at=restored.captured_at,
-            captured_by=restored.captured_by,
-            choices=restored.choices,
-            ambiguous_values=restored.ambiguous_values,
+            reference_policy_hash=restored.reference_policy_hash,
+            contract_version=restored.contract_version,
         )
-        if restored.lookup_key != expected.lookup_key:
+        semantic = {
+            "contract": f"supporting-lookup-snapshot-v{restored.contract_version}",
+            "project_id": restored.project_id,
+            "lookup_key": restored.lookup_key,
+            "relation_model": restored.relation_model,
+            "key_fields": restored.key_fields,
+            "scope_fields": restored.scope_fields,
+            "display_field": restored.display_field,
+            "target_hash": restored.target_hash,
+            "read_credential_binding_hash": restored.read_credential_binding_hash,
+            "read_principal_hash": restored.read_principal_hash,
+            "read_permission_hash": restored.read_permission_hash,
+            "read_context_hash": restored.read_context_hash,
+            "choices": [
+                {"value": item.value, "label": item.label}
+                for item in restored.choices
+            ],
+            "ambiguous_values": restored.ambiguous_values,
+        }
+        if restored.contract_version >= 2:
+            semantic["reference_policy_hash"] = restored.reference_policy_hash
+        if restored.lookup_key != expected_lookup_key:
             raise ValueError("Supporting lookup key is invalid")
-        if restored.content_hash != expected.content_hash:
+        if restored.content_hash != content_hash(semantic):
             raise ValueError("Supporting lookup content hash is invalid")
         return restored
 

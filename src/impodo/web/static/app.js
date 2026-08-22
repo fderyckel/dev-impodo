@@ -2824,6 +2824,237 @@ document.addEventListener("DOMContentLoaded", () => {
     builder.addEventListener("input", syncFromControl);
   };
 
+  const selectionConditionOperators = {
+    string: [
+      ["is_blank", "is blank"], ["is_not_blank", "is not blank"],
+      ["equals", "equals"], ["not_equals", "does not equal"],
+      ["equals_casefold", "equals, ignoring case"], ["contains", "contains"],
+      ["starts_with", "starts with"], ["ends_with", "ends with"],
+    ],
+    ordered: [
+      ["is_blank", "is blank"], ["is_not_blank", "is not blank"],
+      ["equals", "equals"], ["not_equals", "does not equal"],
+      ["less_than", "is less than"],
+      ["less_than_or_equal", "is at most"],
+      ["greater_than", "is greater than"],
+      ["greater_than_or_equal", "is at least"],
+    ],
+    boolean: [
+      ["is_blank", "is blank"], ["is_not_blank", "is not blank"],
+      ["is_true", "is yes / true"], ["is_false", "is no / false"],
+    ],
+  };
+
+  const newSelectionRuleId = () =>
+    globalThis.crypto?.randomUUID?.() ||
+    "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (character) =>
+      (Number(character) ^ (Math.random() * 16 >> Number(character) / 4)).toString(16)
+    );
+
+  const initializeSelectionRuleBuilder = (row, updateScalarRow) => {
+    const control = row.querySelector("[data-provider-selection-rules]");
+    const storage = row.querySelector("[data-selection-rule-storage]");
+    const list = row.querySelector("[data-selection-rule-list]");
+    const ruleTemplate = row.querySelector("[data-selection-rule-template]");
+    const conditionTemplate = row.querySelector(
+      "[data-selection-condition-template]"
+    );
+    const otherwise = row.querySelector("[data-selection-rule-otherwise]");
+    if (!control || !(storage instanceof HTMLInputElement) || !list ||
+        !ruleTemplate || !conditionTemplate || !(otherwise instanceof HTMLSelectElement)) {
+      return null;
+    }
+    let state;
+    try {
+      state = JSON.parse(storage.value || "");
+    } catch (_error) {
+      state = { rules: [], otherwise_value: null };
+    }
+    if (!Array.isArray(state.rules)) {
+      state.rules = [];
+    }
+    const sync = () => {
+      row.dataset.selectionRulesDirty = "true";
+      storage.value = JSON.stringify(state);
+      storage.dispatchEvent(new Event("input", { bubbles: true }));
+      updateScalarRow();
+    };
+    const newCondition = () => ({
+      condition_id: newSelectionRuleId(),
+      source_column_key: "",
+      operator: "equals",
+      comparison_value: "",
+      value_type: "string",
+    });
+    const newRule = () => ({
+      rule_id: newSelectionRuleId(),
+      conditions: [newCondition()],
+      target_value: ruleTemplate.content.querySelector(
+        "[data-selection-rule-target] option"
+      )?.value || "",
+      join: "all",
+    });
+    const render = () => {
+      list.replaceChildren();
+      state.rules.forEach((rule, ruleIndex) => {
+        const fragment = ruleTemplate.content.cloneNode(true);
+        const card = fragment.querySelector("[data-selection-rule]");
+        card.querySelector("[data-selection-rule-number]").textContent =
+          `Rule ${ruleIndex + 1}`;
+        const join = card.querySelector("[data-selection-rule-join]");
+        const target = card.querySelector("[data-selection-rule-target]");
+        join.value = rule.join || "all";
+        target.value = rule.target_value || target.options[0]?.value || "";
+        rule.target_value = target.value;
+        join.addEventListener("change", () => { rule.join = join.value; sync(); });
+        target.addEventListener("change", () => {
+          rule.target_value = target.value;
+          sync();
+        });
+        const conditionList = card.querySelector("[data-selection-condition-list]");
+        rule.conditions.forEach((condition, conditionIndex) => {
+          const conditionFragment = conditionTemplate.content.cloneNode(true);
+          const conditionRow = conditionFragment.querySelector(
+            "[data-selection-condition]"
+          );
+          const source = conditionRow.querySelector(
+            "[data-selection-condition-source]"
+          );
+          const type = conditionRow.querySelector(
+            "[data-selection-condition-type]"
+          );
+          const operator = conditionRow.querySelector(
+            "[data-selection-condition-operator]"
+          );
+          const valueControl = conditionRow.querySelector(
+            "[data-selection-condition-value-control]"
+          );
+          const value = conditionRow.querySelector(
+            "[data-selection-condition-value]"
+          );
+          if (condition.source_column_key) {
+            const sourceOptionsTemplate = row
+              .closest(".mapping-dataset")
+              ?.querySelector("template[data-source-column-options]");
+            const sharedOption = sourceOptionsTemplate?.content.querySelector(
+              `option[value="${CSS.escape(condition.source_column_key)}"]`
+            );
+            if (sharedOption) {
+              source.append(sharedOption.cloneNode(true));
+            }
+          }
+          source.value = condition.source_column_key || "";
+          initializeLazySourceSelect(source);
+          type.value = condition.value_type || "string";
+          value.value = condition.comparison_value ?? "";
+          const refreshOperators = () => {
+            const family = type.value === "boolean"
+              ? "boolean"
+              : (["integer", "decimal", "date", "datetime"].includes(type.value)
+                ? "ordered" : "string");
+            const choices = selectionConditionOperators[family];
+            operator.replaceChildren(...choices.map(([key, label]) => {
+              const option = document.createElement("option");
+              option.value = key;
+              option.textContent = label;
+              return option;
+            }));
+            if (choices.some(([key]) => key === condition.operator)) {
+              operator.value = condition.operator;
+            }
+            condition.operator = operator.value;
+            const unary = ["is_blank", "is_not_blank", "is_true", "is_false"]
+              .includes(operator.value);
+            valueControl.hidden = unary;
+            condition.comparison_value = unary ? null : value.value;
+          };
+          refreshOperators();
+          source.addEventListener("change", () => {
+            condition.source_column_key = source.value;
+            sync();
+          });
+          type.addEventListener("change", () => {
+            condition.value_type = type.value;
+            refreshOperators();
+            sync();
+          });
+          operator.addEventListener("change", () => {
+            condition.operator = operator.value;
+            refreshOperators();
+            sync();
+          });
+          value.addEventListener("input", () => {
+            condition.comparison_value = value.value;
+            sync();
+          });
+          conditionRow.querySelector("[data-remove-selection-condition]")
+            .addEventListener("click", () => {
+              if (rule.conditions.length === 1) {
+                return;
+              }
+              rule.conditions.splice(conditionIndex, 1);
+              render();
+              sync();
+            });
+          conditionList.append(conditionFragment);
+        });
+        card.querySelector("[data-add-selection-condition]")
+          .addEventListener("click", () => {
+            if (rule.conditions.length >= 8) {
+              return;
+            }
+            rule.conditions.push(newCondition());
+            render();
+            sync();
+          });
+        card.querySelector("[data-remove-selection-rule]")
+          .addEventListener("click", () => {
+            state.rules.splice(ruleIndex, 1);
+            render();
+            sync();
+          });
+        for (const move of card.querySelectorAll("[data-move-selection-rule]")) {
+          move.addEventListener("click", () => {
+            const targetIndex = move.dataset.moveSelectionRule === "up"
+              ? ruleIndex - 1 : ruleIndex + 1;
+            if (targetIndex < 0 || targetIndex >= state.rules.length) {
+              return;
+            }
+            [state.rules[ruleIndex], state.rules[targetIndex]] =
+              [state.rules[targetIndex], state.rules[ruleIndex]];
+            render();
+            sync();
+          });
+        }
+        list.append(fragment);
+      });
+      otherwise.value = state.otherwise_value || "";
+    };
+    row.querySelector("[data-add-selection-rule]").addEventListener("click", () => {
+      if (state.rules.length >= 20) {
+        return;
+      }
+      state.rules.push(newRule());
+      render();
+      sync();
+    });
+    otherwise.addEventListener("change", () => {
+      state.otherwise_value = otherwise.value || null;
+      sync();
+    });
+    render();
+    return {
+      setActive(active) {
+        control.hidden = !active;
+        if (active && state.rules.length === 0) {
+          state.rules.push(newRule());
+          render();
+          sync();
+        }
+      },
+    };
+  };
+
   const initializeScalarRow = (row) => {
     if (row.dataset.scalarRowInitialized === "true") {
       return;
@@ -2843,15 +3074,42 @@ document.addEventListener("DOMContentLoaded", () => {
     const canonicalType = row.querySelector("[data-canonical-type]");
     const previewRaw = row.querySelector("[data-preview-raw]");
     const previewProposed = row.querySelector("[data-preview-proposed]");
+    const savedPreviewRaw = previewRaw?.textContent || "";
+    const savedPreviewProposed = previewProposed?.textContent || "";
+    let selectionRuleBuilder;
     const updateScalarRow = () => {
       const mode = provider?.value || "";
       const usesSource = ["source", "source_with_fallback"].includes(mode);
       const usesLiteral = ["constant", "source_with_fallback"].includes(mode);
+      const usesSelectionRules = mode === "conditional_rules";
       if (sourceControl) {
         sourceControl.hidden = !usesSource;
       }
       if (literalControl) {
         literalControl.hidden = !usesLiteral;
+      }
+      selectionRuleBuilder?.setActive(mode === "conditional_rules");
+      const selectionTransformNote = row.querySelector(
+        "[data-selection-rules-transform-note]"
+      );
+      if (selectionTransformNote) {
+        selectionTransformNote.hidden = !usesSelectionRules;
+      }
+      for (const control of row.querySelectorAll(
+        ".transform-cell input, .transform-cell select, .transform-cell textarea, .transform-cell button"
+      )) {
+        control.disabled = usesSelectionRules;
+      }
+      const valueMatch = row.querySelector("[data-open-value-match]");
+      if (valueMatch) {
+        valueMatch.hidden = !usesSource;
+      }
+      const categoricalPolicy = row.querySelector("[data-categorical-policy]");
+      if (categoricalPolicy) {
+        if (usesSelectionRules) {
+          categoricalPolicy.value = "EXACT_TARGET_VALUE";
+        }
+        categoricalPolicy.disabled = usesSelectionRules;
       }
       if (literalLabel) {
         literalLabel.textContent =
@@ -2918,6 +3176,13 @@ document.addEventListener("DOMContentLoaded", () => {
         previewProposed.textContent = "Odoo runtime default";
         return;
       }
+      if (mode === "conditional_rules") {
+        previewRaw.textContent = row.dataset.selectionRulesDirty === "true"
+          ? "Uses one or more source columns" : savedPreviewRaw;
+        previewProposed.textContent = row.dataset.selectionRulesDirty === "true"
+          ? "Save progress to preview the first row" : savedPreviewProposed;
+        return;
+      }
 
       const selectedOption = source?.selectedOptions[0];
       let missing =
@@ -2948,6 +3213,7 @@ document.addEventListener("DOMContentLoaded", () => {
         previewProposed.classList.add("preview-error");
       }
     };
+    selectionRuleBuilder = initializeSelectionRuleBuilder(row, updateScalarRow);
     initializeTextStepBuilder(row, updateScalarRow);
     for (const control of row.querySelectorAll("select, input, textarea")) {
       control.addEventListener("change", updateScalarRow);

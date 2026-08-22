@@ -11,6 +11,7 @@ from ..supporting_lookups import (
     SupportingLookupSnapshot,
     supporting_lookup_key,
 )
+from ..reference_keys import REFERENCE_POLICY_HASH
 
 
 class SupportingLookupRepositoryPort(Protocol):
@@ -86,7 +87,12 @@ class SupportingLookupService:
             snapshot.read_principal_hash,
             snapshot.read_context_hash,
         )
-        return snapshot if actual == expected else None
+        return (
+            snapshot
+            if actual == expected
+            and snapshot.reference_policy_hash == REFERENCE_POLICY_HASH
+            else None
+        )
 
     def capture(
         self,

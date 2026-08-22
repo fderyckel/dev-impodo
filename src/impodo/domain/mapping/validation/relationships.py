@@ -5,8 +5,11 @@ from __future__ import annotations
 from typing import Mapping
 
 from ....reference_keys import (
-    matches_standard_reference_key,
-    standard_reference_key,
+    GovernedReferenceRequest,
+    ReferencePolicyDenial,
+    ReferenceReadPurpose,
+    authorize_governed_reference,
+    captured_reference_field_contracts,
 )
 from ..contracts import (
     CategoricalCoveragePolicy,
@@ -255,6 +258,7 @@ def _validate_relationship(
         path,
         relation.source_column_keys,
         metadata.relation,
+        metadata,
         dependencies,
         issues,
         require_governed_key=True,
@@ -276,6 +280,7 @@ def _validate_resolver(
     path: str,
     source_columns: tuple[str, ...],
     expected_model: str | None,
+    relationship_metadata,
     dependencies: dict[str, set[str]],
     issues: list[MappingValidationIssue],
     *,
@@ -356,8 +361,51 @@ def _validate_resolver(
         )
         return
     model = context.schema_models.get(resolver.model)
-    standard_key = standard_reference_key(resolver.model)
-    if model is None and standard_key is None:
+    resolver_key_fields = tuple(
+        item.target_field for item in resolver.key_mappings
+    )
+    resolver_scope_fields = tuple(
+        item.target_field for item in resolver.scope_mappings
+    )
+    try:
+        odoo_major_version = int(
+            str(context.schema_catalog.odoo_version).split(".", 1)[0]
+        )
+    except ValueError:
+        odoo_major_version = -1
+    reference_decision = authorize_governed_reference(
+        GovernedReferenceRequest(
+            parent_model=dataset.target_model,
+            relationship_field=relationship_metadata.name,
+            relationship_type=relationship_metadata.type,
+            relationship_model=relationship_metadata.relation,
+            related_model=resolver.model,
+            key_fields=resolver_key_fields,
+            scope_fields=resolver_scope_fields,
+            requested_fields=(*resolver_key_fields, *resolver_scope_fields),
+            purpose=ReferenceReadPurpose.MATCH_VALIDATION,
+            odoo_major_version=odoo_major_version,
+            governed_key=context.has_governed_key(
+                resolver.model,
+                resolver_key_fields,
+                resolver_scope_fields,
+            ),
+        ),
+        captured_fields=(
+            captured_reference_field_contracts(model.fields)
+            if model is not None
+            else None
+        ),
+    )
+    if (
+        model is None
+        and not reference_decision.accepted
+        and reference_decision.denial
+        in {
+            ReferencePolicyDenial.MODEL_NOT_REVIEWED,
+            ReferencePolicyDenial.ODOO_VERSION_MISMATCH,
+        }
+    ):
         issues.append(
             _issue(
                 "MAPPING_TARGET_MODEL_UNKNOWN",
@@ -369,9 +417,10 @@ def _validate_resolver(
         )
         return
     model_fields = set(context.fields_by_model.get(resolver.model, ()))
-    if standard_key is not None:
-        model_fields.update(standard_key.key_fields)
-        model_fields.add(standard_key.display_field)
+    if reference_decision.contract is not None:
+        model_fields.update(reference_decision.contract.key_fields)
+        model_fields.update(reference_decision.contract.scope_fields)
+        model_fields.add(reference_decision.contract.display_field)
     if not resolver.key_mappings:
         issues.append(
             _issue(
@@ -462,24 +511,7 @@ def _validate_resolver(
                     dataset=dataset,
                 )
             )
-    resolver_key_fields = tuple(
-        item.target_field for item in resolver.key_mappings
-    )
-    resolver_scope_fields = tuple(
-        item.target_field for item in resolver.scope_mappings
-    )
-    if require_governed_key and not (
-        context.has_governed_key(
-            resolver.model,
-            resolver_key_fields,
-            resolver_scope_fields,
-        )
-        or matches_standard_reference_key(
-            resolver.model,
-            resolver_key_fields,
-            resolver_scope_fields,
-        )
-    ):
+    if require_governed_key and not reference_decision.accepted:
         issues.append(
             _issue(
                 "MAPPING_BUSINESS_KEY_NOT_GOVERNED",

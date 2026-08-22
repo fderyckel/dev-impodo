@@ -349,6 +349,19 @@ def _coverage_fields(
                 in {ScalarValueSource.SOURCE, ScalarValueSource.SOURCE_WITH_FALLBACK}
                 else ()
             )
+            if (
+                scalar.value_source is ScalarValueSource.CONDITIONAL_RULES
+                and scalar.selection_rules is not None
+            ):
+                keys = tuple(
+                    sorted(
+                        {
+                            condition.source_column_key
+                            for rule in scalar.selection_rules.rules
+                            for condition in rule.conditions
+                        }
+                    )
+                )
             fields.append(
                 _CoverageField(
                     path=f"/datasets/{dataset_index}/fields/{field_index}",
@@ -402,6 +415,7 @@ def _tuple_counts(
     keys: tuple[str, ...],
     *,
     trim_values: bool,
+    include_blank: bool = False,
 ) -> Counter[tuple[str, ...]]:
     if not keys:
         return Counter()
@@ -413,7 +427,7 @@ def _tuple_counts(
             else (str(value).strip() if trim_values else str(value))
             for value in row
         )
-        if any(value.strip() for value in values):
+        if include_blank or any(value.strip() for value in values):
             counts[values] += 1
     return counts
 
@@ -432,6 +446,11 @@ def _evaluate_field(
             item.source_column_keys,
             trim_values=(
                 item.policy is not CategoricalCoveragePolicy.EXACT_TARGET_VALUE
+            ),
+            include_blank=(
+                item.scalar is not None
+                and item.scalar.value_source
+                is ScalarValueSource.CONDITIONAL_RULES
             ),
         )
         if len(raw_counts) > MAX_VALUE_MAPPINGS:
@@ -511,7 +530,13 @@ def _uncovered_values(
     uncovered: list[tuple[str, ...]] = []
     for values in sorted(raw_counts):
         try:
-            proposed = evaluate_scalar_mapping_value(item.scalar, values[0])
+            proposed = evaluate_scalar_mapping_value(
+                item.scalar,
+                values[0] if values else None,
+                source_values_by_key=dict(
+                    zip(item.source_column_keys, values, strict=True)
+                ),
+            )
         except ScalarValueError:
             uncovered.append(values)
             continue

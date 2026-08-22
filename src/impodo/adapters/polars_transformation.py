@@ -20,6 +20,7 @@ from ..domain.compiler.columnar_transformation import (
     ColumnarIdentityComponentProgram,
     ColumnarOperationKind,
     ColumnarScalarFieldProgram,
+    ColumnarSelectionConditionProgram,
     ColumnarTransformationProgram,
 )
 from ..domain.prepared_snapshot import PreparedSnapshot
@@ -680,6 +681,22 @@ def _compile_scalar(
         field.conversion_step,
     )
     error = pl.when(output_too_long).then(pl.lit("SOURCE_RULE_OUTPUT_TOO_LONG"))
+    if field.provider.operation is ColumnarOperationKind.CONDITIONAL_SELECTION:
+        invalid_conditions = [
+            _selection_condition_invalid_expression(condition)
+            for rule in field.provider.selection_rules
+            for condition in rule.conditions
+        ]
+        if invalid_conditions:
+            invalid_source = invalid_conditions[0]
+            for condition_invalid in invalid_conditions[1:]:
+                invalid_source = invalid_source | condition_invalid
+            error = error.when(invalid_source.fill_null(False)).then(
+                pl.lit("SOURCE_SELECTION_RULE_SOURCE_INVALID")
+            )
+        error = error.when(prepared_column.is_null()).then(
+            pl.lit("SOURCE_SELECTION_RULE_UNRESOLVED")
+        )
     if field.required_step is not None:
         error = error.when(prepared_column.is_null()).then(pl.lit(_ERROR_REQUIRED))
     error = error.when(parse_invalid).then(pl.lit(_ERROR_PARSE))
@@ -734,6 +751,25 @@ def _provider_expression(
             .then(_bound_string_literal(provider.literal_value))
             .otherwise(probe)
         )
+    elif provider.operation is ColumnarOperationKind.CONDITIONAL_SELECTION:
+        proposed = _bound_string_literal(provider.selection_otherwise_value)
+        for rule in reversed(provider.selection_rules):
+            conditions = [
+                _selection_condition_expression(condition)
+                for condition in rule.conditions
+            ]
+            matched_rule = conditions[0]
+            for condition in conditions[1:]:
+                matched_rule = (
+                    matched_rule & condition
+                    if rule.join == "all"
+                    else matched_rule | condition
+                )
+            proposed = (
+                pl.when(matched_rule.fill_null(False))
+                .then(pl.lit(rule.target_value))
+                .otherwise(proposed)
+            )
     else:
         raise ValueError(f"Unsupported native provider {provider.operation.value}")
     matched = pl.lit(False)
@@ -745,6 +781,99 @@ def _provider_expression(
         ]
         matched = choice.is_in(source_values)
     return proposed, matched.fill_null(False)
+
+
+def _selection_condition_expression(
+    condition: ColumnarSelectionConditionProgram,
+) -> pl.Expr:
+    raw = pl.col(source_value_column(condition.source.ordinal))
+    text = raw.cast(pl.String)
+    stripped = text.str.strip_chars()
+    blank = raw.is_null() | (stripped == "")
+    operator = condition.operator
+    if operator == "is_blank":
+        return blank
+    if operator == "is_not_blank":
+        return ~blank
+    if operator in {"is_true", "is_false"}:
+        lowered = stripped.str.to_lowercase()
+        parsed_boolean = (
+            pl.when(lowered.is_in(["true", "1", "yes", "y"]))
+            .then(pl.lit(True))
+            .when(lowered.is_in(["false", "0", "no", "n"]))
+            .then(pl.lit(False))
+            .otherwise(pl.lit(None, dtype=pl.Boolean))
+        )
+        return parsed_boolean if operator == "is_true" else ~parsed_boolean
+
+    comparison = condition.comparison_value or ""
+    if condition.value_type == "string":
+        left = text
+        right: Any = comparison
+    elif condition.value_type == "integer":
+        left = stripped.cast(pl.Int64, strict=False)
+        right = int(comparison, 10)
+    elif condition.value_type == "decimal":
+        decimal_type = pl.Decimal(38, 12)
+        left = stripped.cast(decimal_type, strict=False)
+        right = Decimal(comparison)
+    elif condition.value_type == "date":
+        left = stripped.str.to_date("%Y-%m-%d", strict=False)
+        right = datetime.strptime(comparison, "%Y-%m-%d").date()
+    elif condition.value_type == "datetime":
+        left = stripped.str.to_datetime(strict=False, time_zone="UTC")
+        right = datetime.fromisoformat(comparison.replace("Z", "+00:00"))
+        if right.tzinfo is None:
+            right = right.replace(tzinfo=timezone.utc)
+        right = right.astimezone(timezone.utc)
+    else:
+        left = stripped
+        right = comparison
+    if operator == "equals":
+        return (~blank) & (left == right)
+    if operator == "not_equals":
+        return (~blank) & (left != right)
+    if operator == "equals_casefold":
+        return (~blank) & (text.str.to_lowercase() == comparison.casefold())
+    if operator == "contains":
+        return (~blank) & text.str.contains(comparison, literal=True)
+    if operator == "starts_with":
+        return (~blank) & text.str.starts_with(comparison)
+    if operator == "ends_with":
+        return (~blank) & text.str.ends_with(comparison)
+    if operator == "less_than":
+        return (~blank) & (left < right)
+    if operator == "less_than_or_equal":
+        return (~blank) & (left <= right)
+    if operator == "greater_than":
+        return (~blank) & (left > right)
+    if operator == "greater_than_or_equal":
+        return (~blank) & (left >= right)
+    return pl.lit(False)
+
+
+def _selection_condition_invalid_expression(
+    condition: ColumnarSelectionConditionProgram,
+) -> pl.Expr:
+    if condition.operator in {"is_blank", "is_not_blank"}:
+        return pl.lit(False)
+    raw = pl.col(source_value_column(condition.source.ordinal))
+    stripped = raw.cast(pl.String).str.strip_chars()
+    nonblank = raw.is_not_null() & (stripped != "")
+    if condition.operator in {"is_true", "is_false"}:
+        return nonblank & ~stripped.str.to_lowercase().is_in(
+            ["true", "1", "yes", "y", "false", "0", "no", "n"]
+        )
+    parsed = None
+    if condition.value_type == "integer":
+        parsed = stripped.cast(pl.Int64, strict=False)
+    elif condition.value_type == "decimal":
+        parsed = stripped.cast(pl.Decimal(38, 12), strict=False)
+    elif condition.value_type == "date":
+        parsed = stripped.str.to_date("%Y-%m-%d", strict=False)
+    elif condition.value_type == "datetime":
+        parsed = stripped.str.to_datetime(strict=False, time_zone="UTC")
+    return nonblank & parsed.is_null() if parsed is not None else pl.lit(False)
 
 
 def _mapped_value_expression(
@@ -1597,6 +1726,12 @@ def _scalar_error_messages(
     if error == "SOURCE_RULE_OUTPUT_TOO_LONG":
         message = "A value rule produced more than 1000000 characters"
         return error, message, message
+    if error == "SOURCE_SELECTION_RULE_UNRESOLVED":
+        message = "No choice rule matched and no otherwise choice was set."
+        return error, message, message
+    if error == "SOURCE_SELECTION_RULE_SOURCE_INVALID":
+        message = "A source value does not match the rule's comparison type."
+        return error, message, message
     if error == "SOURCE_TEXT_LENGTH_INVALID":
         step = next(
             item
@@ -1717,7 +1852,10 @@ def _scalar_impact(
         )
         proposed_display = _display_value(proposed)
         message = ""
-        if field.provider.operation is ColumnarOperationKind.USE_CONSTANT:
+        if field.provider.operation in {
+            ColumnarOperationKind.USE_CONSTANT,
+            ColumnarOperationKind.CONDITIONAL_SELECTION,
+        }:
             outcome = "provided"
         elif layout.fallback_alias is not None and bool(
             row[indexes[layout.fallback_alias]]

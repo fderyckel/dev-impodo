@@ -147,9 +147,14 @@ stages:
       - src/impodo/application/mapping_workspace_service.py::MappingWorkspaceService.submit_current
       - src/impodo/application/recipe_application_service.py::RecipeApplicationService.apply
       - src/impodo/application/transformation_impact_service.py::TransformationImpactService
+      - src/impodo/application/categorical_coverage_service.py::CategoricalCoverageService
+      - src/impodo/domain/mapping/contracts.py::SelectionRuleSet
+      - src/impodo/domain/mapping/scalar_values.py::evaluate_scalar_mapping_value
+      - src/impodo/domain/compiler/columnar_transformation.py::compile_columnar_transformation_program
     tests:
       - tests/test_mapping_forms.py
       - tests/test_mapping_validation.py
+      - tests/test_selection_rules.py
       - tests/test_mapping_impact_presenter.py
       - tests/test_web_app.py
       - tests/test_recipe_application.py

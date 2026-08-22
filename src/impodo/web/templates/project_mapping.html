@@ -330,9 +330,10 @@
                       {% endif %}
                       <select name="scalar_value_source_{{ dataset_index }}_{{ field_index }}" data-value-source {% if disposition %}disabled{% endif %}>
                         <option value="" {% if not mapping and not recommended_source %}selected{% endif %}>Do not fill this field</option>
-                        <option value="source" {% if value_source == 'source' %}selected{% endif %}>Source value</option>
-                        <option value="constant" {% if value_source == 'constant' %}selected{% endif %}>Same value for every row</option>
-                        <option value="source_with_fallback" {% if value_source == 'source_with_fallback' %}selected{% endif %}>Source value, or backup when blank</option>
+                        <option value="source" {% if value_source == 'source' %}selected{% endif %}>{% if row.metadata.type == 'selection' %}Use or match one source column{% else %}Source value{% endif %}</option>
+                        <option value="constant" {% if value_source == 'constant' %}selected{% endif %}>{% if row.metadata.type == 'selection' %}One choice for every row{% else %}Same value for every row{% endif %}</option>
+                        {% if row.metadata.type != 'selection' or value_source == 'source_with_fallback' %}<option value="source_with_fallback" {% if value_source == 'source_with_fallback' %}selected{% endif %}>Source value, or backup when blank</option>{% endif %}
+                        {% if row.metadata.type == 'selection' %}<option value="conditional_rules" {% if value_source == 'conditional_rules' %}selected{% endif %}>Decide using rules</option>{% endif %}
                         {% if not view.odoo_pinned %}<option value="odoo_default" {% if value_source == 'odoo_default' %}selected{% endif %}>Let Odoo choose</option>{% endif %}
                       </select>
                       <div class="provider-control" data-provider-source {% if value_source not in ('source', 'source_with_fallback') %}hidden{% endif %}>
@@ -378,6 +379,79 @@
                         </label>
                       </div>
                       {% if row.metadata.type == 'selection' %}
+                        <div class="provider-control" data-provider-selection-rules {% if value_source != 'conditional_rules' %}hidden{% endif %}>
+                          <input
+                            type="hidden"
+                            name="scalar_selection_rules_{{ dataset_index }}_{{ field_index }}"
+                            value="{{ row.selection_rules_json }}"
+                            data-selection-rule-storage
+                          >
+                          <p><strong>Choose the Odoo value from source data</strong></p>
+                          <small>Rules run from top to bottom. The first matching rule wins.</small>
+                          <div data-selection-rule-list></div>
+                          <button class="button secondary compact" type="button" data-add-selection-rule>Add rule</button>
+                          <label>When no rule matches
+                            <select data-selection-rule-otherwise>
+                              <option value="">Block the row for review</option>
+                              {% for selection_key, selection_label in row.metadata.selection %}
+                                <option value="{{ selection_key }}">Use {{ selection_label }} — {{ selection_key }}</option>
+                              {% endfor %}
+                            </select>
+                          </label>
+                          <template data-selection-rule-template>
+                            <section class="mapping-rule-card" data-selection-rule>
+                              <div class="mapping-rule-heading">
+                                <strong data-selection-rule-number>Rule</strong>
+                                <span>
+                                  <button class="button secondary compact" type="button" data-move-selection-rule="up" aria-label="Move rule up">↑</button>
+                                  <button class="button secondary compact" type="button" data-move-selection-rule="down" aria-label="Move rule down">↓</button>
+                                  <button class="button secondary compact" type="button" data-remove-selection-rule>Remove</button>
+                                </span>
+                              </div>
+                              <label>Conditions must
+                                <select data-selection-rule-join>
+                                  <option value="all">all match</option>
+                                  <option value="any">at least one match</option>
+                                </select>
+                              </label>
+                              <div data-selection-condition-list></div>
+                              <button class="button secondary compact" type="button" data-add-selection-condition>Add condition</button>
+                              <label>Then use
+                                <select data-selection-rule-target>
+                                  {% for selection_key, selection_label in row.metadata.selection %}
+                                    <option value="{{ selection_key }}">{{ selection_label }} — {{ selection_key }}</option>
+                                  {% endfor %}
+                                </select>
+                              </label>
+                            </section>
+                          </template>
+                          <template data-selection-condition-template>
+                            <div class="mapping-condition-row" data-selection-condition>
+                              <label>Source column
+                                <select data-selection-condition-source data-lazy-source-column>
+                                  <option value="">Choose source column</option>
+                                </select>
+                              </label>
+                              <label>Read as
+                                <select data-selection-condition-type>
+                                  <option value="string">Text</option>
+                                  <option value="integer">Whole number</option>
+                                  <option value="decimal">Decimal number</option>
+                                  <option value="boolean">Yes or no</option>
+                                  <option value="date">Date</option>
+                                  <option value="datetime">Date and time</option>
+                                </select>
+                              </label>
+                              <label>Comparison
+                                <select data-selection-condition-operator></select>
+                              </label>
+                              <label data-selection-condition-value-control>Value
+                                <input data-selection-condition-value>
+                              </label>
+                              <button class="button secondary compact" type="button" data-remove-selection-condition>Remove condition</button>
+                            </div>
+                          </template>
+                        </div>
                         <input
                           type="hidden"
                           name="scalar_value_matches_{{ dataset_index }}_{{ field_index }}"
@@ -386,6 +460,14 @@
                         >
                         <div class="value-match-entry">
                           <small>Choice field · {{ row.selection_choice_count }} choice(s) captured from Odoo.</small>
+                          <details class="compact-disclosure">
+                            <summary>View available Odoo choices</summary>
+                            <ul>
+                              {% for selection_key, selection_label in row.metadata.selection %}
+                                <li>{{ selection_label }} — <code>{{ selection_key }}</code></li>
+                              {% endfor %}
+                            </ul>
+                          </details>
                           <button
                             class="button secondary compact"
                             type="button"
@@ -395,8 +477,9 @@
                             data-target-model="{{ view.selected_model }}"
                             data-target-field="{{ row.metadata.name }}"
                             data-target-label="{{ row.metadata.label }}"
+                            {% if value_source not in ('source', 'source_with_fallback') %}hidden{% endif %}
                             {% if not row.selection_choice_count %}disabled{% endif %}
-                          >Review source choices</button>
+                          >Match source values</button>
                           <small data-value-match-summary>
                             {% if not row.selection_choice_count %}Refresh the Odoo fields to load the available choices{% elif row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Exact Odoo codes pass; match every other populated source choice{% endif %}
                           </small>
@@ -418,6 +501,9 @@
                     <td class="transform-cell">
                       {% set transform = mapping.transform if mapping else none %}
                       {% set validation_rule = mapping.validation if mapping else none %}
+                      <div class="notice compact" data-selection-rules-transform-note hidden>
+                        Choice rules return an exact Odoo value. No additional value change is needed.
+                      </div>
                       <label class="compact-control">Value type
                       <select name="scalar_type_{{ dataset_index }}_{{ field_index }}" data-canonical-type>
                         {% set selected_type = mapping.value_type if mapping else row.canonical_type %}

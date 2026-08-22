@@ -41,6 +41,7 @@ from ..context import WebContext
 from ..forms import _form_values, _revision, _secure_form, _text
 from ..presenters.common import _flash, _project_error, _render
 from ..presenters.mapping_forms import _draft_or_redirect
+from ..presenters.recipe import build_recipe_draft_recovery_view
 from ..presenters.setup import blocking_setup_url
 from ..target_credentials import (
     TargetCredentialRole,
@@ -1053,8 +1054,6 @@ def _blocked_setup_redirect(
         if destination is not None
         else None
     )
-
-
 def _render_recipe_overview(
     request: Request,
     context: WebContext,
@@ -1110,6 +1109,11 @@ def _render_recipe_overview(
         and current_data_version.purpose is DataVersionPurpose.PRODUCTION
         else None
     )
+    recipe_recovery = (
+        build_recipe_draft_recovery_view(recipe_id, project, draft.issues[0])
+        if draft.issues
+        else None
+    )
     return _render(
         request,
         "recipe_overview.html",
@@ -1124,11 +1128,7 @@ def _render_recipe_overview(
         application_draft=application_draft,
         parameter_authoring_enabled=parameter_authoring_enabled,
         recipe_parameters=recipe_parameters,
-        recovery_href=(
-            _recipe_recovery_href(project, draft.issues[0].code)
-            if project is not None and draft.issues
-            else None
-        ),
+        recipe_recovery=recipe_recovery,
         error=error,
         status_code=status_code,
     )
@@ -1253,18 +1253,3 @@ def _render_recipe_application(
         error=error,
         status_code=status_code,
     )
-
-
-def _recipe_recovery_href(project, issue_code: str) -> str:
-    """Map one publication issue to its existing authoring surface."""
-
-    project_id = project.project_id
-    if project.status is not ProjectStatus.REGISTERED:
-        return f"/projects/{project_id}/details"
-    if issue_code == "SOURCE_NOT_FROZEN":
-        return f"/projects/{project_id}/datasets"
-    if issue_code == "TARGET_GOVERNANCE_STALE":
-        return f"/projects/{project_id}/schema"
-    if issue_code == "QUALITY_RULES_NOT_READY":
-        return f"/projects/{project_id}/prepare"
-    return f"/projects/{project_id}/mapping"

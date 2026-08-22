@@ -36,6 +36,32 @@ record identity automatically.
 9. Review transformation effects, including rules that changed no values.
 10. Select **Confirm field matches** for the exact checked revision.
 
+### Fill an Odoo choice field
+
+An Odoo choice field now shows **View available Odoo choices** even when the
+source file has no matching column. The disclosure shows the business label
+and the technical value captured from the current Odoo fields.
+
+Choose the provider that matches the business decision:
+
+- Select **One choice for every row** when every source row must receive the
+  same Odoo choice. For Company Type, select **Company** to send the technical
+  value `company`; do not create a fake Excel column.
+- Select **Use or match one source column** when one source column already
+  contains the decision. Select **Match source values** only when its populated
+  values need explicit translation to Odoo choices.
+- Select **Decide using rules** when the decision depends on one or more source
+  columns. Add the most specific rule first, choose whether all or any of its
+  conditions must match, and choose the resulting Odoo value. Then choose an
+  **When no rule matches** value or keep **Block the row for review**.
+
+Rules run from top to bottom and the first matching rule wins. **Save
+progress** to preview the first source row. **Check matches** evaluates the
+complete frozen source domain; a row that matches no rule and has no otherwise
+choice blocks confirmation. Impodo never invents a Company Type rule from a
+VAT number, company name, or another source column. The data manager owns that
+classification decision.
+
 ### When a published Recipe is applied
 
 For a Test or Production data version, first complete the fresh source and
@@ -72,6 +98,8 @@ Confirming these choices still does not contact or change Odoo.
 - File-source identity values remain stable across environments; captured
   Odoo records use protected target-bound identity instead.
 - Selection labels map to the current Odoo technical choices.
+- Ordered choice rules use the intended source columns, and every row resolves
+  to a current Odoo choice or is deliberately blocked for review.
 - Many2one, One2many, and Many2many relationships use portable keys.
 - Cleanup rules change only the intended values and run in the intended order.
 - No field is mapped merely because its name looks similar.

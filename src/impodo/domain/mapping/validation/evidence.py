@@ -17,10 +17,11 @@ from ..contracts import CategoricalCoveragePolicy, MAX_VALUE_MAPPINGS
 from ...serialization import canonical_json as _canonical_json
 from ...serialization import content_hash as _content_hash
 from ...serialization import portable as _portable
+from ....reference_keys import REFERENCE_POLICY_HASH
 
 
 MAPPING_VALIDATOR_VERSION = "10.0.0"
-MAPPING_VALIDATION_CONTRACT_VERSION = 2
+MAPPING_VALIDATION_CONTRACT_VERSION = 3
 CATEGORICAL_COVERAGE_CONTRACT_VERSION = 1
 MAX_CATEGORICAL_EVIDENCE_FIELDS = 10_000
 MAX_CATEGORICAL_SOURCE_SNAPSHOTS = 100
@@ -270,6 +271,7 @@ class MappingValidationResult:
     coverage: tuple[Mapping[str, Any], ...]
     deferred_runtime_checks: tuple[DeferredRuntimeCheck, ...]
     categorical_coverage: CategoricalCoverageEvidence | None = None
+    reference_policy_hash: str = REFERENCE_POLICY_HASH
     validator_version: str = MAPPING_VALIDATOR_VERSION
     contract_version: int = MAPPING_VALIDATION_CONTRACT_VERSION
 
@@ -301,6 +303,8 @@ class MappingValidationResult:
                 if self.categorical_coverage is not None
                 else None
             )
+        if self.contract_version >= 3:
+            payload["reference_policy_hash"] = self.reference_policy_hash
         if include_hash:
             payload["validation_hash"] = self.validation_hash
         return payload
@@ -330,6 +334,8 @@ class MappingValidationResult:
         }
         if contract_version >= 2:
             expected_fields.add("categorical_coverage")
+        if contract_version >= 3:
+            expected_fields.add("reference_policy_hash")
         if set(payload) != expected_fields:
             raise ValueError("Mapping-validation fields are invalid")
         result = cls(
@@ -354,6 +360,11 @@ class MappingValidationResult:
                 if int(payload["contract_version"]) >= 2
                 and payload.get("categorical_coverage") is not None
                 else None
+            ),
+            reference_policy_hash=(
+                str(payload["reference_policy_hash"])
+                if contract_version >= 3
+                else ""
             ),
         )
         if payload.get("validation_hash") != result.validation_hash:

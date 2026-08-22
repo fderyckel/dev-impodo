@@ -2,13 +2,17 @@
 
 ## Status and authority
 
-**Status:** Approved product direction. Implementation has not started.
+**Status:** Core implementation complete; extended evidence and browser
+qualification remain open.
 
 **Plan date:** 2026-08-21.
 
-This plan describes future Match data behavior. Current user and developer
-workflow pages remain authoritative for implemented behavior until every
-acceptance gate in this plan passes.
+The current Match data workflow now implements the three provider paths,
+mapping contract v12, shared evaluation, native compilation, categorical
+coverage, and Recipe portability. Per-rule overlap evidence, complete browser
+qualification, the maximum-shape scale run, and the current screenshot remain
+open acceptance work. The current user and developer workflow pages describe
+the behavior that is ready to use.
 
 This scoped proposal does not change the priority order in
 [Impodo remaining work](remaining-work.md). Product ownership must adopt the

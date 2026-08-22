@@ -68,6 +68,13 @@ revision did not declare is rejected.
 Application inputs are typed context and control/provenance evidence. They do
 not silently replace a matched source value or grant Odoo write authority.
 
+When the Recipe is not ready to publish, the Recipe overview explains the
+problem and shows one button for the stage that owns the correction. Use that
+button, complete the named review, and return to the Recipe overview. A
+reviewed Country, Language, or Currency code used only to find an existing
+Odoo record does not require you to add that record type to the project's
+primary Odoo data selection.
+
 ## What changes and what does not
 
 Registration saves an auditable contained workspace boundary. It does not edit

@@ -33,6 +33,11 @@ from ..domain.mapping.contracts import (
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
+    SelectionCondition,
+    SelectionConditionOperator,
+    SelectionRule,
+    SelectionRuleJoin,
+    SelectionRuleSet,
     TargetFieldDisposition,
     TargetFieldHandling,
     ValueMapping,
@@ -1490,11 +1495,50 @@ class RecipeApplicationService:
                 on_blank=str(provider["on_blank"]),
                 on_unknown=str(provider["on_unknown"]),
             )
+        selection_rules = None
+        if kind == "CONDITIONAL_RULES":
+            selection_rules = SelectionRuleSet(
+                rules=tuple(
+                    SelectionRule(
+                        rule_id=str(rule["rule_id"]),
+                        join=SelectionRuleJoin(str(rule["join"])),
+                        target_value=str(rule["target_value"]),
+                        conditions=tuple(
+                            SelectionCondition(
+                                condition_id=str(condition["condition_id"]),
+                                source_column_key=bindings[
+                                    str(condition["source_column_id"])
+                                ],
+                                operator=SelectionConditionOperator(
+                                    str(condition["operator"])
+                                ),
+                                comparison_value=(
+                                    str(condition["comparison_value"])
+                                    if condition.get("comparison_value") is not None
+                                    else None
+                                ),
+                                value_type=str(condition["value_type"]),
+                            )
+                            for condition in rule["conditions"]
+                        ),
+                    )
+                    for rule in provider.get("rules", ())
+                ),
+                otherwise_value=(
+                    str(provider["otherwise_value"])
+                    if provider.get("otherwise_value") is not None
+                    else None
+                ),
+            )
         transform = dict(item.get("transform", {}))
         validation = dict(item.get("validation", {}))
         return ScalarFieldMapping(
             target_field=str(item["target_field"]),
-            source_column_key=(source_ids[0] if source_ids else None),
+            source_column_key=(
+                source_ids[0]
+                if source_ids and kind != "CONDITIONAL_RULES"
+                else None
+            ),
             value_source=value_source,
             literal_value=(str(provider["literal_value"]) if provider.get("literal_value") is not None else None),
             transform=ScalarTransformPolicy(
@@ -1511,6 +1555,7 @@ class RecipeApplicationService:
             null_policy=str(item.get("null_policy", "distinct")),
             reference_lookup=reference,
             categorical_policy=(CategoricalCoveragePolicy(str(item["categorical_policy"])) if item.get("categorical_policy") else None),
+            selection_rules=selection_rules,
         )
 
     def _identity(self, item, bindings):

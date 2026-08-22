@@ -39,6 +39,7 @@ from ..domain.mapping.validation.evidence import (
     mapping_issue_fingerprint,
 )
 from ..domain.mapping.validation.validator import MappingSemanticValidator
+from ..reference_keys import REFERENCE_POLICY_HASH
 from ..domain.mapping.upgrade_review import (
     MappingContractUpgradeReview,
     review_mapping_contract_upgrade,
@@ -688,6 +689,7 @@ class MappingWorkspaceService:
             validation is None
             or validation.mapping_content_hash
             != revision.definition.content_hash
+            or validation.reference_policy_hash != REFERENCE_POLICY_HASH
         ):
             raise WorkspaceError(
                 "Check the current field matches before confirming them"

@@ -29,11 +29,14 @@ from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
 
-MAPPING_CONTRACT_VERSION = 11
-SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset({8, 9, 10, 11})
+MAPPING_CONTRACT_VERSION = 12
+SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset({8, 9, 10, 11, 12})
 MAX_VALUE_MAPPINGS = 1_000
 MAX_VALUE_MAPPING_LENGTH = 10_000
 MAX_CONTROL_TOTALS_PER_DATASET = 3
+MAX_SELECTION_RULES = 20
+MAX_SELECTION_RULE_CONDITIONS = 8
+MAX_SELECTION_RULE_COLUMNS = 20
 
 
 class MappingTargetMode(StrEnum):
@@ -59,7 +62,34 @@ class ScalarValueSource(StrEnum):
     SOURCE = "source"
     CONSTANT = "constant"
     SOURCE_WITH_FALLBACK = "source_with_fallback"
+    CONDITIONAL_RULES = "conditional_rules"
     ODOO_DEFAULT = "odoo_default"
+
+
+class SelectionRuleJoin(StrEnum):
+    """Combine the conditions in one ordered Selection-field rule."""
+
+    ALL = "all"
+    ANY = "any"
+
+
+class SelectionConditionOperator(StrEnum):
+    """Bounded comparisons available to a Selection-field rule."""
+
+    IS_BLANK = "is_blank"
+    IS_NOT_BLANK = "is_not_blank"
+    EQUALS = "equals"
+    NOT_EQUALS = "not_equals"
+    EQUALS_CASEFOLD = "equals_casefold"
+    CONTAINS = "contains"
+    STARTS_WITH = "starts_with"
+    ENDS_WITH = "ends_with"
+    LESS_THAN = "less_than"
+    LESS_THAN_OR_EQUAL = "less_than_or_equal"
+    GREATER_THAN = "greater_than"
+    GREATER_THAN_OR_EQUAL = "greater_than_or_equal"
+    IS_TRUE = "is_true"
+    IS_FALSE = "is_false"
 
 
 class CategoricalCoveragePolicy(StrEnum):
@@ -213,10 +243,117 @@ class IdentityComponentMapping:
 
 
 @dataclass(frozen=True, slots=True)
+class SelectionCondition:
+    """Compare one frozen source column in a bounded Selection-field rule."""
+
+    condition_id: str
+    source_column_key: str
+    operator: SelectionConditionOperator
+    comparison_value: str | None = None
+    value_type: str = "string"
+
+    def __post_init__(self) -> None:
+        try:
+            object.__setattr__(self, "condition_id", str(UUID(self.condition_id)))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise ValueError("Selection-rule condition identifier is invalid") from error
+        if not self.source_column_key or len(self.source_column_key) > 500:
+            raise ValueError("Selection-rule source column is invalid")
+        object.__setattr__(
+            self,
+            "operator",
+            SelectionConditionOperator(self.operator),
+        )
+        if self.value_type not in {
+            "string",
+            "integer",
+            "decimal",
+            "boolean",
+            "date",
+            "datetime",
+        }:
+            raise ValueError("Selection-rule comparison type is unsupported")
+        unary = {
+            SelectionConditionOperator.IS_BLANK,
+            SelectionConditionOperator.IS_NOT_BLANK,
+            SelectionConditionOperator.IS_TRUE,
+            SelectionConditionOperator.IS_FALSE,
+        }
+        if self.operator in unary:
+            if self.comparison_value is not None:
+                raise ValueError("This Selection-rule comparison takes no value")
+        elif self.comparison_value is None:
+            raise ValueError("This Selection-rule comparison requires a value")
+        elif len(self.comparison_value) > 10_000:
+            raise ValueError("Selection-rule comparison value is too long")
+
+
+@dataclass(frozen=True, slots=True)
+class SelectionRule:
+    """Return one Odoo technical choice when its ordered conditions match."""
+
+    rule_id: str
+    conditions: tuple[SelectionCondition, ...]
+    target_value: str
+    join: SelectionRuleJoin = SelectionRuleJoin.ALL
+
+    def __post_init__(self) -> None:
+        try:
+            object.__setattr__(self, "rule_id", str(UUID(self.rule_id)))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise ValueError("Selection-rule identifier is invalid") from error
+        object.__setattr__(self, "conditions", tuple(self.conditions))
+        object.__setattr__(self, "join", SelectionRuleJoin(self.join))
+        if not 1 <= len(self.conditions) <= MAX_SELECTION_RULE_CONDITIONS:
+            raise ValueError(
+                "Each Selection rule requires one to "
+                f"{MAX_SELECTION_RULE_CONDITIONS} conditions"
+            )
+        if len({item.condition_id for item in self.conditions}) != len(
+            self.conditions
+        ):
+            raise ValueError("Selection-rule condition identifiers must be unique")
+        if not self.target_value or len(self.target_value) > 10_000:
+            raise ValueError("Selection-rule Odoo choice is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class SelectionRuleSet:
+    """Evaluate ordered rules first-match-wins, then an optional otherwise."""
+
+    rules: tuple[SelectionRule, ...]
+    otherwise_value: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "rules", tuple(self.rules))
+        if not 1 <= len(self.rules) <= MAX_SELECTION_RULES:
+            raise ValueError(
+                f"Selection fields require one to {MAX_SELECTION_RULES} rules"
+            )
+        if len({item.rule_id for item in self.rules}) != len(self.rules):
+            raise ValueError("Selection-rule identifiers must be unique")
+        source_columns = {
+            condition.source_column_key
+            for rule in self.rules
+            for condition in rule.conditions
+        }
+        if len(source_columns) > MAX_SELECTION_RULE_COLUMNS:
+            raise ValueError(
+                "Selection rules can use at most "
+                f"{MAX_SELECTION_RULE_COLUMNS} source columns"
+            )
+        if self.otherwise_value is not None and (
+            not self.otherwise_value or len(self.otherwise_value) > 10_000
+        ):
+            raise ValueError("Selection-rule otherwise choice is invalid")
+
+
+@dataclass(frozen=True, slots=True)
 class ScalarFieldMapping:
     """Declare one scalar provider, transformation, validation, and comparison.
 
-    ``value_source`` chooses source, constant, fallback, or Odoo-default intent.
+    ``value_source`` chooses source, constant, fallback, conditional rules, or
+    Odoo-default intent.
     Runtime preparation uses the shared scalar evaluator; this contract carries
     only allowlisted policy and portable literal evidence.
     """
@@ -240,6 +377,7 @@ class ScalarFieldMapping:
     null_policy: str = "distinct"
     reference_lookup: ReferenceLookupMapping | None = None
     categorical_policy: CategoricalCoveragePolicy | None = None
+    selection_rules: SelectionRuleSet | None = None
 
     def __post_init__(self) -> None:
         if not self.target_field.strip() or len(self.target_field) > 200:
@@ -281,6 +419,22 @@ class ScalarFieldMapping:
                 or self.reference_lookup.on_unknown == "null"
             ):
                 raise ValueError("Required reference lookups must block missing values")
+        if self.value_source is ScalarValueSource.CONDITIONAL_RULES:
+            if self.selection_rules is None:
+                raise ValueError("Conditional Selection rules are required")
+            if (
+                self.source_column_key is not None
+                or self.literal_value is not None
+                or self.value_mappings
+                or self.reference_lookup is not None
+            ):
+                raise ValueError(
+                    "Conditional Selection rules cannot carry another value provider"
+                )
+        elif self.selection_rules is not None:
+            raise ValueError(
+                "Selection rules require the conditional-rules value provider"
+            )
 
 
 
@@ -515,6 +669,12 @@ class MappingDefinition:
                 "Mapping contract version 11 requires split control definitions "
                 "and expectations"
             )
+        if self.contract_version < 12 and any(
+            field.selection_rules is not None
+            for dataset in self.datasets
+            for field in dataset.fields
+        ):
+            raise ValueError("Conditional Selection rules require version 12")
 
     @property
     def content_hash(self) -> str:
@@ -728,6 +888,9 @@ def _dataset_mapping_to_dict(
             relationship_payload.pop("categorical_policy", None)
     else:
         payload.pop("control_totals", None)
+    if contract_version < 12:
+        for field_payload in payload.get("fields", ()):
+            field_payload.pop("selection_rules", None)
     return _portable(payload)
 
 
@@ -737,10 +900,13 @@ def _scalar_field_mapping_from_dict(
     contract_version: int,
 ) -> ScalarFieldMapping:
     if contract_version >= 11:
+        expected = _contract_fields(ScalarFieldMapping)
+        if contract_version < 12:
+            expected = expected.difference({"selection_rules"})
         _require_contract_fields(
             payload,
-            _contract_fields(ScalarFieldMapping),
-            "Scalar mapping fields do not match contract v11",
+            expected,
+            f"Scalar mapping fields do not match contract v{contract_version}",
         )
     transform_payload = payload.get("transform", {})
     if not isinstance(transform_payload, Mapping):
@@ -847,6 +1013,69 @@ def _scalar_field_mapping_from_dict(
             and payload.get("categorical_policy") is not None
             else None
         ),
+        selection_rules=(
+            _selection_rule_set_from_dict(payload["selection_rules"])
+            if contract_version >= 12
+            and payload.get("selection_rules") is not None
+            else None
+        ),
+    )
+
+
+def _selection_rule_set_from_dict(payload: Mapping[str, Any]) -> SelectionRuleSet:
+    _require_contract_fields(
+        payload,
+        _contract_fields(SelectionRuleSet),
+        "Selection rule set fields do not match contract v12",
+    )
+    rules_payload = payload.get("rules")
+    if not isinstance(rules_payload, list):
+        raise ValueError("Selection rules must be a list")
+    return SelectionRuleSet(
+        rules=tuple(_selection_rule_from_dict(item) for item in rules_payload),
+        otherwise_value=(
+            str(payload["otherwise_value"])
+            if payload.get("otherwise_value") is not None
+            else None
+        ),
+    )
+
+
+def _selection_rule_from_dict(payload: Mapping[str, Any]) -> SelectionRule:
+    _require_contract_fields(
+        payload,
+        _contract_fields(SelectionRule),
+        "Selection rule fields do not match contract v12",
+    )
+    conditions_payload = payload.get("conditions")
+    if not isinstance(conditions_payload, list):
+        raise ValueError("Selection-rule conditions must be a list")
+    return SelectionRule(
+        rule_id=str(payload.get("rule_id", "")),
+        conditions=tuple(
+            _selection_condition_from_dict(item) for item in conditions_payload
+        ),
+        target_value=str(payload.get("target_value", "")),
+        join=SelectionRuleJoin(payload.get("join", SelectionRuleJoin.ALL.value)),
+    )
+
+
+def _selection_condition_from_dict(payload: Mapping[str, Any]) -> SelectionCondition:
+    _require_contract_fields(
+        payload,
+        _contract_fields(SelectionCondition),
+        "Selection-rule condition fields do not match contract v12",
+    )
+    return SelectionCondition(
+        condition_id=str(payload.get("condition_id", "")),
+        source_column_key=str(payload.get("source_column_key", "")),
+        operator=SelectionConditionOperator(payload.get("operator", "")),
+        comparison_value=(
+            str(payload["comparison_value"])
+            if payload.get("comparison_value") is not None
+            else None
+        ),
+        value_type=str(payload.get("value_type", "string")),
     )
 
 

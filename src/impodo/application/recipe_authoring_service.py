@@ -26,18 +26,23 @@ from ..domain.recipe_parameters import (
 from ..domain.serialization import canonical_json, content_hash, portable
 from ..projects import MigrationProject, ProjectService, SourceMode
 from ..quality import QualityRuleSet, QualityRuleSource
+from ..reference_keys import StandardReferenceKey, standard_reference_key
 from ..recipes import (
     DataVersionPurpose,
     Recipe,
     RecipeConflictError,
     RecipeDraft,
     RecipeDraftIssue,
+    RecipeDraftRecoveryStep,
     RecipeDraftState,
     RecipeIntent,
     RecipeIntegrityError,
 )
 from ..workspace_contracts import OdooSchemaCatalog, SourceDataset, SourceSelection
 from .recipe_service import FaultInjector, RecipeService
+
+
+_RECIPE_MAPPING_CONTRACT_VERSIONS = frozenset({11, 12})
 
 
 class RecipeAuthoringSourceRepository(Protocol):
@@ -127,6 +132,14 @@ class CompiledRecipeDefinition:
     @property
     def semantic_hash(self) -> str:
         return content_hash(self.recipe)
+
+
+class _RecipeDraftBlocked(Exception):
+    """Carry one structured compiler blocker without parsing error text."""
+
+    def __init__(self, issue: RecipeDraftIssue) -> None:
+        super().__init__(issue.message)
+        self.issue = issue
 
 
 class RecipeAuthoringService:
@@ -311,6 +324,7 @@ class RecipeAuthoringService:
                 "CURRENT_DATA_VERSION_MISSING",
                 "This Recipe has no current data version.",
                 "Create or resume a data version before publishing.",
+                RecipeDraftRecoveryStep.RECIPE_OVERVIEW,
             )
             return self._blocked(recipe, "", "", (issue,))
         if current.purpose is not DataVersionPurpose.AUTHORING:
@@ -318,6 +332,7 @@ class RecipeAuthoringService:
                 "CURRENT_DATA_VERSION_NOT_AUTHORING",
                 "The current data version applies published Recipe meaning.",
                 "Open its application flow instead of publishing it as new meaning.",
+                RecipeDraftRecoveryStep.RECIPE_APPLICATION,
             )
             return self._blocked(
                 recipe,
@@ -439,6 +454,7 @@ class RecipeAuthoringService:
                     "SOURCE_NOT_FROZEN",
                     "The reusable source shape is not ready.",
                     "Confirm and freeze the source tables.",
+                    RecipeDraftRecoveryStep.SOURCE_DATA,
                 ),
             )
         base_selection = self.sources.get_source_selection(project_id) or selection
@@ -448,6 +464,7 @@ class RecipeAuthoringService:
                     "ODOO_SOURCE_UNSUPPORTED",
                     "Recipe publication currently supports replacement files.",
                     "Use a governed CSV or XLSX source package.",
+                    RecipeDraftRecoveryStep.NEW_PROJECT,
                 ),
             )
         revision = self.mappings.get_mapping_revision(project_id)
@@ -467,16 +484,21 @@ class RecipeAuthoringService:
                     "MAPPING_NOT_SUBMITTED",
                     "The current field matches are not published authoring evidence.",
                     "Check and submit the current matching revision.",
+                    RecipeDraftRecoveryStep.MATCH_DATA,
                 ),
             )
-        if revision.definition.contract_version != 11:
+        if (
+            revision.definition.contract_version
+            not in _RECIPE_MAPPING_CONTRACT_VERSIONS
+        ):
             return None, (
                 self._issue(
-                    "MAPPING_UPGRADE_REQUIRED",
-                    "The submitted field matches use an older contract.",
-                    "Review and submit the upgraded matching revision.",
+                    "MAPPING_CONTRACT_NOT_PORTABLE",
+                    "The submitted field matches use an unsupported contract.",
+                    "Review and submit a supported matching revision.",
+                    RecipeDraftRecoveryStep.MATCH_DATA,
                 ),
-            )
+        )
         if any(
             item.mode is MappingTargetMode.ODOO_PINNED_UPDATE
             for item in revision.definition.datasets
@@ -486,6 +508,7 @@ class RecipeAuthoringService:
                     "PINNED_UPDATE_NOT_PORTABLE",
                     "Pinned Odoo updates cannot become reusable Recipe meaning.",
                     "Use UPSERT, CREATE, or REFERENCE matching behavior.",
+                    RecipeDraftRecoveryStep.MATCH_DATA,
                 ),
             )
         schema = self.schemas.get_odoo_schema_catalog(project_id)
@@ -501,6 +524,7 @@ class RecipeAuthoringService:
                     "TARGET_GOVERNANCE_STALE",
                     "The target requirements no longer match current Odoo evidence.",
                     "Refresh Odoo data and confirm the matching keys again.",
+                    RecipeDraftRecoveryStep.ODOO_DATA,
                 ),
             )
         if revision.definition.source_selection_hash != selection.content_hash:
@@ -509,6 +533,7 @@ class RecipeAuthoringService:
                     "SOURCE_MAPPING_STALE",
                     "The field matches no longer bind the current source shape.",
                     "Review and submit matching again.",
+                    RecipeDraftRecoveryStep.MATCH_DATA,
                 ),
             )
         ruleset = self.quality.get_current_quality_ruleset(project_id)
@@ -522,6 +547,7 @@ class RecipeAuthoringService:
                     "QUALITY_RULES_NOT_READY",
                     "Reusable data checks are not ready for this matching revision.",
                     "Prepare the data once or save the current data-check rules.",
+                    RecipeDraftRecoveryStep.PREPARE_DATA,
                 ),
             )
         try:
@@ -542,6 +568,8 @@ class RecipeAuthoringService:
                 parameter_definitions=parameter_definitions,
             )
             self._validate_portability(compiled)
+        except _RecipeDraftBlocked as error:
+            return None, (error.issue,)
         except (
             RecipeConflictError,
             RecipeIntegrityError,
@@ -550,8 +578,10 @@ class RecipeAuthoringService:
             return None, (
                 self._issue(
                     "NONPORTABLE_AUTHORING",
-                    str(error),
-                    "Return to the named authoring step and replace that construct.",
+                    "The submitted authoring evidence cannot become reusable Recipe meaning.",
+                    "Review the current field matches and correct the affected rule.",
+                    RecipeDraftRecoveryStep.MATCH_DATA,
+                    support_reference=str(error),
                 ),
             )
         return compiled, ()
@@ -766,6 +796,43 @@ class RecipeAuthoringService:
                 }
                 if field.literal_value is not None:
                     provider["literal_value"] = field.literal_value
+                if field.selection_rules is not None:
+                    rule_source_keys = tuple(
+                        dict.fromkeys(
+                            condition.source_column_key
+                            for rule in field.selection_rules.rules
+                            for condition in rule.conditions
+                        )
+                    )
+                    provider["source_column_ids"] = [
+                        self._column(dataset.dataset_id, key, columns)
+                        for key in rule_source_keys
+                    ]
+                    provider["rules"] = [
+                        {
+                            "rule_id": rule.rule_id,
+                            "join": rule.join.value,
+                            "target_value": rule.target_value,
+                            "conditions": [
+                                {
+                                    "condition_id": condition.condition_id,
+                                    "source_column_id": self._column(
+                                        dataset.dataset_id,
+                                        condition.source_column_key,
+                                        columns,
+                                    ),
+                                    "operator": condition.operator.value,
+                                    "comparison_value": condition.comparison_value,
+                                    "value_type": condition.value_type,
+                                }
+                                for condition in rule.conditions
+                            ],
+                        }
+                        for rule in field.selection_rules.rules
+                    ]
+                    provider["otherwise_value"] = (
+                        field.selection_rules.otherwise_value
+                    )
                 if field.reference_lookup is not None:
                     lookup = field.reference_lookup
                     if lookup.reference_id not in reference_ids:
@@ -1071,6 +1138,31 @@ class RecipeAuthoringService:
         field_roles: dict[tuple[str, str], set[str]] = {}
         write_fields: dict[str, set[str]] = {}
         selection_codes: dict[tuple[str, str], set[str]] = {}
+        reviewed_references: dict[str, StandardReferenceKey] = {}
+        unreviewed_reference_models: set[str] = set()
+
+        def register_resolver(resolver) -> None:
+            if resolver is None or resolver.model is None:
+                return
+            for key in (*resolver.key_mappings, *resolver.scope_mappings):
+                field_roles.setdefault(
+                    (resolver.model, key.target_field), set()
+                ).add("relationship_key")
+            standard = standard_reference_key(resolver.model)
+            if standard is None:
+                return
+            is_reviewed = (
+                tuple(item.target_field for item in resolver.key_mappings)
+                == standard.key_fields
+                and tuple(item.target_field for item in resolver.scope_mappings)
+                == standard.scope_fields
+            )
+            if is_reviewed and resolver.model not in unreviewed_reference_models:
+                reviewed_references[resolver.model] = standard
+            elif not is_reviewed:
+                unreviewed_reference_models.add(resolver.model)
+                reviewed_references.pop(resolver.model, None)
+
         for mapping in mappings:
             write_fields.setdefault(mapping.target_model, set()).update(
                 mapping.approved_write_fields
@@ -1080,6 +1172,7 @@ class RecipeAuthoringService:
                     field_roles.setdefault((mapping.target_model, field), set()).add(
                         "business_key"
                     )
+                register_resolver(identity.resolver)
             for field in mapping.fields:
                 field_roles.setdefault(
                     (mapping.target_model, field.target_field), set()
@@ -1087,16 +1180,23 @@ class RecipeAuthoringService:
                 selection_codes.setdefault(
                     (mapping.target_model, field.target_field), set()
                 ).update(item.target_value for item in field.value_mappings)
+                if field.literal_value is not None:
+                    selection_codes[(mapping.target_model, field.target_field)].add(
+                        field.literal_value
+                    )
+                if field.selection_rules is not None:
+                    selection_codes[(mapping.target_model, field.target_field)].update(
+                        rule.target_value for rule in field.selection_rules.rules
+                    )
+                    if field.selection_rules.otherwise_value is not None:
+                        selection_codes[(mapping.target_model, field.target_field)].add(
+                            field.selection_rules.otherwise_value
+                        )
             for relation in mapping.relationships:
                 field_roles.setdefault(
                     (mapping.target_model, relation.target_field), set()
                 ).add("relationship")
-                resolver = relation.resolver
-                if resolver.model is not None:
-                    for key in (*resolver.key_mappings, *resolver.scope_mappings):
-                        field_roles.setdefault(
-                            (resolver.model, key.target_field), set()
-                        ).add("relationship_key")
+                register_resolver(relation.resolver)
         business_keys = []
         for key in governance.business_keys:
             if key.status is not BusinessKeyStatus.CONFIRMED:
@@ -1112,48 +1212,116 @@ class RecipeAuthoringService:
                 field_roles.setdefault((key.model, field), set()).add("business_key")
         model_payload = []
         dependencies = []
+        major_match = re.match(r"([0-9]+)", schema.odoo_version)
+        if major_match is None:
+            raise _RecipeDraftBlocked(
+                self._issue(
+                    "ODOO_VERSION_EVIDENCE_INVALID",
+                    "The current Odoo version evidence cannot be verified.",
+                    "Refresh Odoo data before publishing the Recipe.",
+                    RecipeDraftRecoveryStep.ODOO_DATA,
+                    support_reference=schema.odoo_version,
+                )
+            )
+        odoo_major_version = int(major_match.group(1))
         for model_name in sorted({item[0] for item in field_roles}):
             model = schema_models.get(model_name)
-            if model is None:
-                raise RecipeConflictError(
-                    f"Required Odoo model {model_name} is not in current evidence."
+            required_fields = {
+                field_name: field_roles[(model_name, field_name)]
+                for candidate_model, field_name in field_roles
+                if candidate_model == model_name
+            }
+            standard = reviewed_references.get(model_name)
+            reviewed_reference_only = bool(
+                standard is not None
+                and standard.odoo_major_version == odoo_major_version
+                and not write_fields.get(model_name)
+                and all(
+                    roles == {"relationship_key"}
+                    and standard.field_contract(field_name) is not None
+                    for field_name, roles in required_fields.items()
                 )
-            by_field = {item.name: item for item in model.fields}
-            fields = []
-            for _, field_name in sorted(
-                item for item in field_roles if item[0] == model_name
-            ):
-                field = by_field.get(field_name)
-                if field is None:
-                    raise RecipeConflictError(
-                        f"Required Odoo field {model_name}.{field_name} is missing."
+            )
+            if model is None and not reviewed_reference_only:
+                raise _RecipeDraftBlocked(
+                    self._issue(
+                        "ODOO_MODEL_EVIDENCE_REQUIRED",
+                        "A saved rule requires an Odoo record type that is not in current evidence.",
+                        "Review that record type in Odoo data, then confirm the field matches again.",
+                        RecipeDraftRecoveryStep.ODOO_DATA,
+                        support_reference=model_name,
                     )
-                payload = {
-                    "field_type": field.type,
-                    "name": field.name,
-                    "readonly": field.readonly,
-                    "required": field.required,
-                    "write_use": field.name in write_fields.get(model_name, set()),
-                }
-                if field.relation is not None:
-                    payload["relation_model"] = field.relation
+                )
+            by_field = {item.name: item for item in model.fields} if model else {}
+            fields = []
+            for field_name, roles in sorted(required_fields.items()):
+                field = by_field.get(field_name)
+                standard_field = (
+                    standard.field_contract(field_name)
+                    if reviewed_reference_only and standard is not None
+                    else None
+                )
+                if standard_field is not None:
+                    if model is not None and (
+                        field is None
+                        or field.type != standard_field.field_type
+                        or field.required != standard_field.required
+                        or field.readonly != standard_field.readonly
+                        or field.relation != standard_field.relation_model
+                    ):
+                        raise _RecipeDraftBlocked(
+                            self._issue(
+                                "ODOO_STANDARD_REFERENCE_CHANGED",
+                                "A reviewed Odoo reference no longer matches current evidence.",
+                                "Review the affected record type in Odoo data before publishing.",
+                                RecipeDraftRecoveryStep.ODOO_DATA,
+                                support_reference=f"{model_name}.{field_name}",
+                            )
+                        )
+                    payload = {
+                        "field_type": standard_field.field_type,
+                        "name": standard_field.name,
+                        "readonly": standard_field.readonly,
+                        "required": standard_field.required,
+                        "write_use": False,
+                    }
+                    if standard_field.relation_model is not None:
+                        payload["relation_model"] = standard_field.relation_model
+                elif field is None:
+                    raise _RecipeDraftBlocked(
+                        self._issue(
+                            "ODOO_FIELD_EVIDENCE_REQUIRED",
+                            "A saved rule requires an Odoo field that is not in current evidence.",
+                            "Refresh Odoo data, then confirm the field matches again.",
+                            RecipeDraftRecoveryStep.ODOO_DATA,
+                            support_reference=f"{model_name}.{field_name}",
+                        )
+                    )
+                else:
+                    payload = {
+                        "field_type": field.type,
+                        "name": field.name,
+                        "readonly": field.readonly,
+                        "required": field.required,
+                        "write_use": field.name
+                        in write_fields.get(model_name, set()),
+                    }
+                    if field.relation is not None:
+                        payload["relation_model"] = field.relation
                 codes = sorted(selection_codes.get((model_name, field_name), set()))
                 if codes:
                     payload["required_selection_codes"] = codes
                 fields.append(payload)
                 dependencies.append(
                     {
-                        "field": field.name,
-                        "field_type": field.type,
-                        "logical_dependency_id": f"target:{model_name}.{field.name}",
+                        "field": field_name,
+                        "field_type": payload["field_type"],
+                        "logical_dependency_id": f"target:{model_name}.{field_name}",
                         "model": model_name,
-                        "roles": sorted(field_roles[(model_name, field_name)]),
+                        "roles": sorted(roles),
                     }
                 )
             model_payload.append({"fields": fields, "model": model_name})
-        major_match = re.match(r"([0-9]+)", schema.odoo_version)
-        if major_match is None:
-            raise RecipeConflictError("The captured Odoo major version is invalid.")
         return (
             {
                 "approved_write_fields": {
@@ -1165,7 +1333,7 @@ class RecipeAuthoringService:
                     key=lambda item: (item["model"], item["ordered_fields"]),
                 ),
                 "models": model_payload,
-                "odoo_major_version": int(major_match.group(1)),
+                "odoo_major_version": odoo_major_version,
                 "required_applications": [],
             },
             {"dependencies": dependencies},
@@ -1371,8 +1539,21 @@ class RecipeAuthoringService:
         return columns[(dataset_id, value)]
 
     @staticmethod
-    def _issue(code, message, recovery_action):
-        return RecipeDraftIssue(code, message, recovery_action)
+    def _issue(
+        code,
+        message,
+        recovery_action,
+        recovery_step,
+        *,
+        support_reference="",
+    ):
+        return RecipeDraftIssue(
+            code,
+            message,
+            recovery_action,
+            recovery_step,
+            support_reference,
+        )
 
     @staticmethod
     def _blocked(recipe, data_version_id, workspace_project_id, issues):

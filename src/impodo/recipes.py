@@ -71,6 +71,19 @@ class RecipeDraftState(StrEnum):
     BLOCKED = "BLOCKED"
 
 
+class RecipeDraftRecoveryStep(StrEnum):
+    """Name the workflow surface that owns one publication recovery."""
+
+    PROJECT_SETUP = "PROJECT_SETUP"
+    SOURCE_DATA = "SOURCE_DATA"
+    ODOO_DATA = "ODOO_DATA"
+    MATCH_DATA = "MATCH_DATA"
+    PREPARE_DATA = "PREPARE_DATA"
+    RECIPE_OVERVIEW = "RECIPE_OVERVIEW"
+    RECIPE_APPLICATION = "RECIPE_APPLICATION"
+    NEW_PROJECT = "NEW_PROJECT"
+
+
 @dataclass(frozen=True, slots=True)
 class RecipeDraftIssue:
     """Explain one publication blocker and its single recovery action."""
@@ -78,6 +91,8 @@ class RecipeDraftIssue:
     code: str
     message: str
     recovery_action: str
+    recovery_step: RecipeDraftRecoveryStep
+    support_reference: str = ""
 
 
 @dataclass(frozen=True, slots=True)

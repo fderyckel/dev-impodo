@@ -53,10 +53,34 @@ meaning from its contained workspace.
 Each dataset declares one permitted target model and one operating mode:
 `upsert`, `create`, `reference`, or `odoo_pinned_update`. Each scalar target
 field has exactly one provider. The provider can use a source value, a
-constant, a source value with a fallback, or no sent value so Odoo can apply
-its default. Transformations, null behavior, comparison policy, and
+constant, a source value with a fallback, ordered conditional Selection rules,
+or no sent value so Odoo can apply its default. Transformations, null behavior, comparison policy, and
 relationship resolution use closed, versioned choices rather than arbitrary
 code.
+
+Mapping contract version 12 adds `conditional_rules` as a first-class scalar
+provider. A `SelectionRuleSet` preserves author order, applies first-match-wins
+semantics, and ends with either one captured Odoo technical choice or an
+explicit unresolved-row block. Each rule combines one to eight typed source
+conditions with `all` or `any`; the complete field is bounded to 20 rules and
+20 distinct source columns. The contract rejects a conditional provider that
+also carries a source, literal, fallback, inline value match, reference lookup,
+or hidden formula.
+
+`evaluate_scalar_mapping_value` is the shared row oracle for preview and
+preparation. `CategoricalCoverageService` projects the union of every
+referenced source column in one dataset scan. The columnar compiler emits
+`CONDITIONAL_SELECTION`, and the Polars adapter evaluates ordered branches as
+native expressions without a Python UDF. None of these paths calls Odoo or
+queries a repository inside a source-row loop.
+
+The browser renders captured Odoo choices independently from source values.
+The rule form stores strict JSON under 64 KiB, preserves stable rule and
+condition UUIDs, and reuses the dataset's one lazy source-option template
+instead of expanding every source column once per field or condition. Saving a
+rule creates a new mapping hash, so existing validation, impact, submission,
+preparation, comparison, and execution evidence no longer satisfies the
+current mapping.
 
 Mapping contract version 9 also records a required-field disposition when no
 value is sent: `odoo_default` means the target configuration must supply the
@@ -84,6 +108,12 @@ independently owned list. Dynamic value matching reads one frozen source column
 and fetches target choices in batches. It persists portable codes or business
 keys, never numeric Odoo IDs.
 
+The relationship validator and Recipe compiler share the reviewed Odoo 19
+standard-reference registry. A resolver that exactly uses a registered key may
+compile its narrow field contract without widening the primary schema scope.
+The compiler rejects mixed, unregistered, writable, version-mismatched, or
+metadata-mismatched reference use instead of guessing a contract.
+
 Since mapping contract version 8, cleanup is stored exclusively as ordered
 `text_steps`. Legacy scalar search/replacement fields are rejected rather than
 silently converted or dropped. Quick matching remains bounded to 500 source
@@ -104,6 +134,9 @@ claim those results.
 | Mapping lifecycle | [`MappingWorkspaceService`](../../../src/impodo/application/mapping_workspace_service.py) |
 | Mapping contracts | [`contracts.py`](../../../src/impodo/domain/mapping/contracts.py) |
 | Semantic validator | [`validator.py`](../../../src/impodo/domain/mapping/validation/validator.py) |
+| Shared scalar and conditional-rule evaluator | [`scalar_values.py`](../../../src/impodo/domain/mapping/scalar_values.py) |
+| Categorical source-domain scan | [`CategoricalCoverageService`](../../../src/impodo/application/categorical_coverage_service.py) |
+| Native conditional-rule compiler | [`columnar_transformation.py`](../../../src/impodo/domain/compiler/columnar_transformation.py) |
 | Rule-impact service | [`TransformationImpactService`](../../../src/impodo/application/transformation_impact_service.py) |
 | Recipe draft compilation | [`RecipeApplicationService`](../../../src/impodo/application/recipe_application_service.py) |
 | Browser routes | [`mapping.py`](../../../src/impodo/web/routers/mapping.py) |
@@ -149,6 +182,7 @@ look plausible.
 
 - [`tests/test_mapping_forms.py`](../../../tests/test_mapping_forms.py)
 - [`tests/test_mapping_validation.py`](../../../tests/test_mapping_validation.py)
+- [`tests/test_selection_rules.py`](../../../tests/test_selection_rules.py)
 - [`tests/test_mapping_impact_presenter.py`](../../../tests/test_mapping_impact_presenter.py)
 - [`tests/test_web_app.py`](../../../tests/test_web_app.py)
 - [`tests/test_recipe_application.py`](../../../tests/test_recipe_application.py)

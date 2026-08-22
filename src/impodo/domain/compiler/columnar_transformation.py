@@ -31,8 +31,8 @@ from ..mapping.descriptions import transformation_rule_summary
 from ..serialization import content_hash, portable
 
 
-COLUMNAR_PROGRAM_CONTRACT_VERSION = 3
-COLUMNAR_COMPILER_VERSION = 3
+COLUMNAR_PROGRAM_CONTRACT_VERSION = 4
+COLUMNAR_COMPILER_VERSION = 4
 
 
 def _optional_string(value: object) -> str | None:
@@ -82,6 +82,7 @@ class ColumnarOperationKind(StrEnum):
     READ_SOURCE = "read_source"
     USE_CONSTANT = "use_constant"
     SOURCE_FALLBACK = "source_fallback"
+    CONDITIONAL_SELECTION = "conditional_selection"
     OMIT_ODOO_DEFAULT = "omit_odoo_default"
     OMIT_ODOO_MANAGED = "omit_odoo_managed"
     INLINE_VALUE_MAPPING = "inline_value_mapping"
@@ -179,6 +180,7 @@ COLUMNAR_CAPABILITY_MATRIX = (
     _native(ColumnarOperationKind.READ_SOURCE),
     _native(ColumnarOperationKind.USE_CONSTANT),
     _native(ColumnarOperationKind.SOURCE_FALLBACK),
+    _native(ColumnarOperationKind.CONDITIONAL_SELECTION),
     _native(ColumnarOperationKind.OMIT_ODOO_DEFAULT),
     _native(ColumnarOperationKind.OMIT_ODOO_MANAGED),
     _native(ColumnarOperationKind.INLINE_VALUE_MAPPING),
@@ -329,6 +331,25 @@ class ColumnarExpressionStep:
 
 
 @dataclass(frozen=True, slots=True)
+class ColumnarSelectionConditionProgram:
+    """One source comparison in a native conditional Selection provider."""
+
+    source: ColumnarInputColumn
+    operator: str
+    comparison_value: str | None
+    value_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class ColumnarSelectionRuleProgram:
+    """One ordered first-match-wins branch in a Selection provider."""
+
+    conditions: tuple[ColumnarSelectionConditionProgram, ...]
+    target_value: str
+    join: str
+
+
+@dataclass(frozen=True, slots=True)
 class ColumnarValueProviderProgram:
     """Provide a scalar and preserve the evaluator's conditional branches.
 
@@ -345,6 +366,8 @@ class ColumnarValueProviderProgram:
     value_mappings: tuple[tuple[str, str], ...]
     fallback_probe_steps: tuple[ColumnarExpressionStep, ...] = ()
     value_mapping_bypasses_transforms: bool = True
+    selection_rules: tuple[ColumnarSelectionRuleProgram, ...] = ()
+    selection_otherwise_value: str | None = None
 
     def to_portable_dict(self) -> dict[str, object]:
         return cast(dict[str, object], portable(asdict(self)))
@@ -534,6 +557,31 @@ class ColumnarTransformationProgram:
         def provider(value: object) -> ColumnarValueProviderProgram:
             item = cast(Mapping[str, object], value)
             raw_source = item.get("source")
+            selection_rules = []
+            for raw_rule in cast(
+                Sequence[Mapping[str, object]],
+                item.get("selection_rules", ()),
+            ):
+                selection_rules.append(
+                    ColumnarSelectionRuleProgram(
+                        conditions=tuple(
+                            ColumnarSelectionConditionProgram(
+                                source=input_column(raw_condition["source"]),
+                                operator=str(raw_condition["operator"]),
+                                comparison_value=_optional_string(
+                                    raw_condition.get("comparison_value")
+                                ),
+                                value_type=str(raw_condition["value_type"]),
+                            )
+                            for raw_condition in cast(
+                                Sequence[Mapping[str, object]],
+                                raw_rule["conditions"],
+                            )
+                        ),
+                        target_value=str(raw_rule["target_value"]),
+                        join=str(raw_rule["join"]),
+                    )
+                )
             return ColumnarValueProviderProgram(
                 operation=ColumnarOperationKind(str(item["operation"])),
                 source=(input_column(raw_source) if raw_source is not None else None),
@@ -551,6 +599,10 @@ class ColumnarTransformationProgram:
                 ),
                 value_mapping_bypasses_transforms=bool(
                     item.get("value_mapping_bypasses_transforms", True)
+                ),
+                selection_rules=tuple(selection_rules),
+                selection_otherwise_value=_optional_string(
+                    item.get("selection_otherwise_value")
                 ),
             )
 
@@ -1166,6 +1218,7 @@ def _scalar_field_program(
         ScalarValueSource.SOURCE: ColumnarOperationKind.READ_SOURCE,
         ScalarValueSource.CONSTANT: ColumnarOperationKind.USE_CONSTANT,
         ScalarValueSource.SOURCE_WITH_FALLBACK: ColumnarOperationKind.SOURCE_FALLBACK,
+        ScalarValueSource.CONDITIONAL_RULES: ColumnarOperationKind.CONDITIONAL_SELECTION,
     }[field.value_source]
     draft.use(provider_operation, f"{path}/provider", target_field=field.target_field)
     fallback_probe = (
@@ -1187,6 +1240,30 @@ def _scalar_field_program(
             f"{path}/reference_lookup",
             target_field=field.target_field,
         )
+    selection_rule_programs = tuple(
+        ColumnarSelectionRuleProgram(
+            conditions=tuple(
+                ColumnarSelectionConditionProgram(
+                    source=_require_column(
+                        condition.source_column_key,
+                        columns,
+                        draft,
+                    ),
+                    operator=condition.operator.value,
+                    comparison_value=condition.comparison_value,
+                    value_type=condition.value_type,
+                )
+                for condition in rule.conditions
+            ),
+            target_value=rule.target_value,
+            join=rule.join.value,
+        )
+        for rule in (
+            field.selection_rules.rules
+            if field.selection_rules is not None
+            else ()
+        )
+    )
     provider = ColumnarValueProviderProgram(
         operation=provider_operation,
         source=source,
@@ -1196,6 +1273,12 @@ def _scalar_field_program(
             for item in field.value_mappings
         ),
         fallback_probe_steps=fallback_probe,
+        selection_rules=selection_rule_programs,
+        selection_otherwise_value=(
+            field.selection_rules.otherwise_value
+            if field.selection_rules is not None
+            else None
+        ),
     )
     transforms = _transform_steps(field, path, draft)
     required_step = None
@@ -1256,7 +1339,21 @@ def _scalar_field_program(
         target_field=field.target_field,
         output_ordinal=output_ordinal,
         value_type=field.value_type,
-        source_label=source.source_name if source is not None else "Constant value",
+        source_label=(
+            source.source_name
+            if source is not None
+            else (
+                " + ".join(
+                    dict.fromkeys(
+                        condition.source.source_name
+                        for rule in selection_rule_programs
+                        for condition in rule.conditions
+                    )
+                )
+                if selection_rule_programs
+                else "Constant value"
+            )
+        ),
         transformation_rules=transformation_rule_summary(field),
         provider=provider,
         transform_steps=transforms,

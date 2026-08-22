@@ -143,6 +143,7 @@ def _validate_identity_component(
         path,
         component.source_column_keys,
         metadata.relation,
+        metadata,
         dependencies,
         issues,
         require_governed_key=True,

@@ -13,6 +13,7 @@ from ....value_rules import (
     ROUNDING_MODES,
     SEARCH_MODES,
     SEGMENT_LOCATIONS,
+    ScalarTransformPolicy,
     validate_formula,
     validate_pattern,
 )
@@ -21,12 +22,14 @@ from ..contracts import (
     DatasetMapping,
     ScalarFieldMapping,
     ScalarValueSource,
+    SelectionConditionOperator,
 )
 from ..scalar_values import (
     ScalarValueError,
     _DATE_FORMATS,
     _DECIMAL_LOCALES,
     canonicalize_scalar_value,
+    _selection_typed_value,
 )
 from .common import (
     _NULL_POLICIES,
@@ -140,6 +143,15 @@ def _validate_scalar(
         field_mapping,
         metadata.type,
         path,
+        issues,
+    )
+    _validate_selection_rules(
+        dataset,
+        field_mapping,
+        metadata.type,
+        metadata.selection,
+        path,
+        columns,
         issues,
     )
     if field_mapping.value_mappings:
@@ -371,6 +383,150 @@ def _validate_scalar(
                 target_field=field_mapping.target_field,
             )
         )
+
+
+def _validate_selection_rules(
+    dataset: DatasetMapping,
+    field_mapping: ScalarFieldMapping,
+    target_type: str,
+    selection: tuple[tuple[str, str], ...],
+    path: str,
+    columns: Mapping[str, SourceColumnView],
+    issues: list[MappingValidationIssue],
+) -> None:
+    rule_set = field_mapping.selection_rules
+    if field_mapping.value_source is not ScalarValueSource.CONDITIONAL_RULES:
+        return
+    if target_type != "selection":
+        issues.append(
+            _issue(
+                "MAPPING_SELECTION_RULE_TARGET_INVALID",
+                path,
+                "Conditional choice rules can only provide an Odoo Selection field.",
+                "Choose an Odoo choice field or use another value provider.",
+                dataset=dataset,
+                target_field=field_mapping.target_field,
+            )
+        )
+        return
+    if rule_set is None:
+        return
+    if field_mapping.transform != ScalarTransformPolicy():
+        issues.append(
+            _issue(
+                "MAPPING_SELECTION_RULE_TRANSFORM_INVALID",
+                f"{path}/transform",
+                "Conditional choice rules already return an exact Odoo value.",
+                "Remove the additional field transformation.",
+                dataset=dataset,
+                target_field=field_mapping.target_field,
+            )
+        )
+    selection_keys = {str(item[0]) for item in selection}
+    target_values = [rule.target_value for rule in rule_set.rules]
+    if rule_set.otherwise_value is not None:
+        target_values.append(rule_set.otherwise_value)
+    for target_value in target_values:
+        if target_value not in selection_keys:
+            issues.append(
+                _issue(
+                    "MAPPING_SELECTION_VALUE_INVALID",
+                    f"{path}/selection_rules",
+                    f"{target_value!r} is not an available Odoo choice.",
+                    "Choose one of the captured Odoo choices.",
+                    dataset=dataset,
+                    target_field=field_mapping.target_field,
+                )
+            )
+    text_only = {
+        SelectionConditionOperator.EQUALS_CASEFOLD,
+        SelectionConditionOperator.CONTAINS,
+        SelectionConditionOperator.STARTS_WITH,
+        SelectionConditionOperator.ENDS_WITH,
+    }
+    ordered = {
+        SelectionConditionOperator.LESS_THAN,
+        SelectionConditionOperator.LESS_THAN_OR_EQUAL,
+        SelectionConditionOperator.GREATER_THAN,
+        SelectionConditionOperator.GREATER_THAN_OR_EQUAL,
+    }
+    boolean_only = {
+        SelectionConditionOperator.IS_TRUE,
+        SelectionConditionOperator.IS_FALSE,
+    }
+    for rule_index, rule in enumerate(rule_set.rules):
+        for condition_index, condition in enumerate(rule.conditions):
+            condition_path = (
+                f"{path}/selection_rules/rules/{rule_index}/conditions/"
+                f"{condition_index}"
+            )
+            _check_column(
+                dataset,
+                condition.source_column_key,
+                condition_path,
+                columns,
+                issues,
+            )
+            if condition.operator in text_only and condition.value_type != "string":
+                issues.append(
+                    _issue(
+                        "MAPPING_SELECTION_RULE_OPERATOR_INVALID",
+                        condition_path,
+                        "This comparison is only available for text values.",
+                        "Choose a text comparison or change the comparison type.",
+                        dataset=dataset,
+                        source_column=condition.source_column_key,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+            if condition.operator in ordered and condition.value_type not in {
+                "integer",
+                "decimal",
+                "date",
+                "datetime",
+            }:
+                issues.append(
+                    _issue(
+                        "MAPPING_SELECTION_RULE_OPERATOR_INVALID",
+                        condition_path,
+                        "This ordered comparison requires a number or date.",
+                        "Choose the matching comparison type.",
+                        dataset=dataset,
+                        source_column=condition.source_column_key,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+            if condition.operator in boolean_only and condition.value_type != "boolean":
+                issues.append(
+                    _issue(
+                        "MAPPING_SELECTION_RULE_OPERATOR_INVALID",
+                        condition_path,
+                        "True and false comparisons require a yes/no source value.",
+                        "Choose the yes/no comparison type.",
+                        dataset=dataset,
+                        source_column=condition.source_column_key,
+                        target_field=field_mapping.target_field,
+                    )
+                )
+            if condition.comparison_value is not None:
+                try:
+                    _selection_typed_value(
+                        condition.comparison_value,
+                        condition.value_type,
+                    )
+                except (InvalidOperation, TypeError, ValueError):
+                    issues.append(
+                        _issue(
+                            "MAPPING_SELECTION_RULE_VALUE_INVALID",
+                            condition_path,
+                            "The comparison value does not match its selected type.",
+                            "Correct the value or choose another comparison type.",
+                            dataset=dataset,
+                            source_column=condition.source_column_key,
+                            target_field=field_mapping.target_field,
+                        )
+                    )
+
 
 def _validate_categorical_policy(
     context: ValidationContext,

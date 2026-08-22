@@ -1100,6 +1100,7 @@ def _apply_scalar_mappings(
                 field,
                 scalar_input,
                 source_values_by_ordinal=source_values_by_ordinal,
+                source_values_by_key=source_values,
                 text_step_observer=(
                     (
                         lambda step_index, matched, changed, configured=rules_by_step: (
@@ -1339,7 +1340,10 @@ def _transformation_outcome(
     raw_value: object,
     proposed_value: object,
 ) -> str:
-    if field.value_source is ScalarValueSource.CONSTANT:
+    if field.value_source in {
+        ScalarValueSource.CONSTANT,
+        ScalarValueSource.CONDITIONAL_RULES,
+    }:
         return "provided"
     if (
         field.value_source is ScalarValueSource.SOURCE_WITH_FALLBACK

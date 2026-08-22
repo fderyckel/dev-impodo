@@ -65,6 +65,7 @@ class SchemaCatalogView(Protocol):
     """Minimal target-bound schema catalog used by mapping validators."""
 
     content_hash: str
+    odoo_version: str
     models: Sequence[SchemaModelView]
 
 

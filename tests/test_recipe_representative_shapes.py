@@ -22,6 +22,7 @@ from impodo.domain.mapping.contracts import (
     RelationshipResolver,
     ResolverOrigin,
     ScalarFieldMapping,
+    ValueMapping,
 )
 from impodo.domain.recipe_parameters import (
     RecipeParameterDefinition,
@@ -106,6 +107,7 @@ def _publish(
     business_keys: tuple[BusinessKeyDefinition, ...],
     preparation: DerivedEntityPlan | None = None,
     parameters: tuple[RecipeParameterDefinition, ...] = (),
+    mapping_contract_version: int | None = None,
 ) -> dict[str, object]:
     now = datetime.now(timezone.utc)
     project_id = base_selection.project_id
@@ -142,6 +144,11 @@ def _publish(
         source_selection_hash=mapping_selection.content_hash,
         schema_hash=governance.content_hash,
         datasets=mappings,
+        **(
+            {"contract_version": mapping_contract_version}
+            if mapping_contract_version is not None
+            else {}
+        ),
     )
     revision = MappingRevision(
         definition.mapping_id,
@@ -234,6 +241,126 @@ def _publish(
 
 
 class RepresentativeRecipeShapeTests(unittest.TestCase):
+    def test_reviewed_country_reference_compiles_without_primary_schema_capture(
+        self,
+    ):
+        project_id = str(uuid4())
+        customers = _dataset(
+            "Customers",
+            (("customer_code", "string"), ("country_code", "string")),
+            "7",
+        )
+        selection = SourceSelection(
+            str(uuid4()),
+            1,
+            project_id,
+            datetime.now(timezone.utc),
+            "Data manager",
+            (customers,),
+            "sha256:" + "7" * 64,
+        )
+        mapping = DatasetMapping(
+            dataset_id=customers.dataset_id,
+            target_model="res.partner",
+            source_identity_column_keys=(_column(customers, "customer_code"),),
+            target_identity=(
+                IdentityComponentMapping(
+                    (_column(customers, "customer_code"),),
+                    ("ref",),
+                ),
+            ),
+            relationships=(
+                RelationshipMapping(
+                    target_field="country_id",
+                    kind="many2one",
+                    source_column_keys=(_column(customers, "country_code"),),
+                    resolver=RelationshipResolver(
+                        origin=ResolverOrigin.TARGET_CATALOG,
+                        model="res.country",
+                        key_mappings=(
+                            ReferenceKeyMapping(
+                                _column(customers, "country_code"),
+                                "code",
+                            ),
+                        ),
+                        value_mappings=(ValueMapping("FRA", "FR"),),
+                    ),
+                ),
+            ),
+            approved_write_fields=("country_id",),
+        )
+        partner_model = SchemaModel(
+            "res.partner",
+            "Contact",
+            (
+                _field("ref"),
+                _field("country_id", "many2one", relation="res.country"),
+            ),
+        )
+        without_related_capture = _publish(
+            base_selection=selection,
+            mapping_selection=selection,
+            mappings=(mapping,),
+            models=(partner_model,),
+            business_keys=(_key("res.partner", "ref"),),
+            mapping_contract_version=11,
+        )
+        with_related_capture = _publish(
+            base_selection=selection,
+            mapping_selection=selection,
+            mappings=(mapping,),
+            models=(
+                partner_model,
+                SchemaModel(
+                    "res.country",
+                    "Country",
+                    (
+                        _field("code", required=True),
+                        _field("name", required=True),
+                    ),
+                ),
+            ),
+            business_keys=(_key("res.partner", "ref"),),
+            mapping_contract_version=11,
+        )
+
+        self.assertEqual(without_related_capture, with_related_capture)
+        target_models = {
+            item["model"]: item
+            for item in without_related_capture["odoo_target_contract"]["models"]
+        }
+        self.assertEqual(
+            target_models["res.country"]["fields"],
+            [
+                {
+                    "field_type": "char",
+                    "name": "code",
+                    "readonly": False,
+                    "required": True,
+                    "write_use": False,
+                }
+            ],
+        )
+        with self.assertRaisesRegex(
+            AssertionError,
+            "ODOO_STANDARD_REFERENCE_CHANGED",
+        ):
+            _publish(
+                base_selection=selection,
+                mapping_selection=selection,
+                mappings=(mapping,),
+                models=(
+                    partner_model,
+                    SchemaModel(
+                        "res.country",
+                        "Country",
+                        (_field("code", required=False),),
+                    ),
+                ),
+                business_keys=(_key("res.partner", "ref"),),
+                mapping_contract_version=11,
+            )
+
     def test_product_recipe_compiles_scalar_and_target_reference_meaning(self):
         project_id = str(uuid4())
         products = _dataset(

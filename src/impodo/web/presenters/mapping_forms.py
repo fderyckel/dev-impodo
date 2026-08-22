@@ -29,6 +29,11 @@ from ...domain.mapping.contracts import (
     ResolverOrigin,
     ScalarFieldMapping,
     ScalarValueSource,
+    SelectionCondition,
+    SelectionConditionOperator,
+    SelectionRule,
+    SelectionRuleJoin,
+    SelectionRuleSet,
     TargetFieldDisposition,
     TargetFieldHandling,
 )
@@ -86,6 +91,82 @@ def _text_steps_from_form(
             raise ValueError("Text cleanup steps are invalid")
         steps.append(TextTransformStep(**item))
     return tuple(steps)
+
+
+def _selection_rules_from_form(form, field_name: str) -> SelectionRuleSet:
+    """Read one strict, bounded conditional Selection provider."""
+
+    raw_value = _text(form, field_name)
+    if not raw_value or len(raw_value.encode("utf-8")) > 65_536:
+        raise ValueError("Conditional choice rules are missing or too large")
+    try:
+        payload = json.loads(raw_value)
+    except json.JSONDecodeError as error:
+        raise ValueError("Conditional choice rules could not be read") from error
+    if not isinstance(payload, dict) or set(payload) != {
+        "rules",
+        "otherwise_value",
+    }:
+        raise ValueError("Conditional choice rules are invalid")
+    if not isinstance(payload["rules"], list):
+        raise ValueError("Conditional choice rules are invalid")
+    rules = []
+    for rule_payload in payload["rules"]:
+        if not isinstance(rule_payload, dict) or set(rule_payload) != {
+            "rule_id",
+            "conditions",
+            "target_value",
+            "join",
+        }:
+            raise ValueError("Conditional choice rules are invalid")
+        if not isinstance(rule_payload["conditions"], list):
+            raise ValueError("Conditional choice conditions are invalid")
+        conditions = []
+        for condition_payload in rule_payload["conditions"]:
+            if not isinstance(condition_payload, dict) or set(condition_payload) != {
+                "condition_id",
+                "source_column_key",
+                "operator",
+                "comparison_value",
+                "value_type",
+            }:
+                raise ValueError("Conditional choice conditions are invalid")
+            if not all(
+                isinstance(condition_payload[name], str)
+                for name in {
+                    "condition_id",
+                    "source_column_key",
+                    "operator",
+                    "value_type",
+                }
+            ) or not (
+                condition_payload["comparison_value"] is None
+                or isinstance(condition_payload["comparison_value"], str)
+            ):
+                raise ValueError("Conditional choice conditions are invalid")
+            conditions.append(
+                SelectionCondition(
+                    condition_id=condition_payload["condition_id"],
+                    source_column_key=condition_payload["source_column_key"],
+                    operator=SelectionConditionOperator(
+                        condition_payload["operator"]
+                    ),
+                    comparison_value=condition_payload["comparison_value"],
+                    value_type=condition_payload["value_type"],
+                )
+            )
+        rules.append(
+            SelectionRule(
+                rule_id=str(rule_payload["rule_id"]),
+                conditions=tuple(conditions),
+                target_value=str(rule_payload["target_value"]),
+                join=SelectionRuleJoin(rule_payload["join"]),
+            )
+        )
+    otherwise = payload["otherwise_value"]
+    if otherwise is not None and not isinstance(otherwise, str):
+        raise ValueError("Conditional choice otherwise value is invalid")
+    return SelectionRuleSet(tuple(rules), otherwise)
 
 
 def _mapping_allowed_fields(form, selection, schema) -> set[str]:
@@ -153,6 +234,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"scalar_character_class_{dataset_index}_{field_index}",
                     f"scalar_pattern_{dataset_index}_{field_index}",
                     f"scalar_value_matches_{dataset_index}_{field_index}",
+                    f"scalar_selection_rules_{dataset_index}_{field_index}",
                     f"scalar_categorical_policy_{dataset_index}_{field_index}",
                     f"scalar_compare_{dataset_index}_{field_index}",
                     f"scalar_validate_only_{dataset_index}_{field_index}",
@@ -332,6 +414,14 @@ def _mapping_datasets_from_form(
                 form,
                 f"scalar_value_matches_{dataset_index}_{field_index}",
             )
+            selection_rules = (
+                _selection_rules_from_form(
+                    form,
+                    f"scalar_selection_rules_{dataset_index}_{field_index}",
+                )
+                if value_source is ScalarValueSource.CONDITIONAL_RULES
+                else None
+            )
             categorical_policy = None
             if (
                 metadata.type == "selection"
@@ -381,7 +471,7 @@ def _mapping_datasets_from_form(
                         }
                         else None
                     ),
-                    transform=ScalarTransformPolicy(
+                    transform=(ScalarTransformPolicy() if selection_rules else ScalarTransformPolicy(
                         trim=_checked(
                             form,
                             f"scalar_trim_{dataset_index}_{field_index}",
@@ -443,7 +533,7 @@ def _mapping_datasets_from_form(
                             f"scalar_formula_{dataset_index}_{field_index}",
                         ),
                         text_steps=text_steps,
-                    ),
+                    )),
                     validation=ScalarValidationPolicy(
                         exact_length=_optional_int(
                             _text(
@@ -476,7 +566,7 @@ def _mapping_datasets_from_form(
                             f"scalar_pattern_{dataset_index}_{field_index}",
                         ),
                     ),
-                    value_mappings=value_mappings,
+                    value_mappings=(value_mappings if selection_rules is None else ()),
                     categorical_policy=categorical_policy,
                     value_type=(
                         _text(
@@ -511,6 +601,7 @@ def _mapping_datasets_from_form(
                         )
                         or "distinct"
                     ),
+                    selection_rules=selection_rules,
                 )
             )
 

@@ -1219,6 +1219,11 @@ def _mapping_dataset_views(
                     if field.name in scalar_by_target
                     else ()
                 ),
+                "selection_rules_json": _selection_rules_json(
+                    scalar_by_target[field.name].selection_rules
+                    if field.name in scalar_by_target
+                    else None
+                ),
                 "matched_choice_count": len(
                     scalar_by_target[field.name].value_mappings
                     if field.name in scalar_by_target
@@ -1742,6 +1747,40 @@ def _value_mappings_json(mappings) -> str:
     )
 
 
+def _selection_rules_json(rule_set) -> str:
+    if rule_set is None:
+        return json.dumps(
+            {"rules": [], "otherwise_value": None},
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+    return json.dumps(
+        {
+            "rules": [
+                {
+                    "rule_id": rule.rule_id,
+                    "conditions": [
+                        {
+                            "condition_id": condition.condition_id,
+                            "source_column_key": condition.source_column_key,
+                            "operator": condition.operator.value,
+                            "comparison_value": condition.comparison_value,
+                            "value_type": condition.value_type,
+                        }
+                        for condition in rule.conditions
+                    ],
+                    "target_value": rule.target_value,
+                    "join": rule.join.value,
+                }
+                for rule in rule_set.rules
+            ],
+            "otherwise_value": rule_set.otherwise_value,
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+
+
 def _text_steps_json(steps) -> str:
     return json.dumps(
         [
@@ -1826,6 +1865,18 @@ def _scalar_mapping_preview(
     raw: object = None
     if mapping.value_source is ScalarValueSource.CONSTANT:
         raw = mapping.literal_value
+    elif (
+        mapping.value_source is ScalarValueSource.CONDITIONAL_RULES
+        and mapping.selection_rules is not None
+    ):
+        source_count = len(
+            {
+                condition.source_column_key
+                for rule in mapping.selection_rules.rules
+                for condition in rule.conditions
+            }
+        )
+        raw = f"{source_count} source column(s)"
     elif mapping.source_column_key:
         samples = source_samples.get(mapping.source_column_key, ())
         raw = samples[0] if samples else None
@@ -1835,6 +1886,14 @@ def _scalar_mapping_preview(
             raw,
             source_values_by_ordinal={
                 column.ordinal: (
+                    source_samples.get(column.stable_key, (None,))[0]
+                    if source_samples.get(column.stable_key)
+                    else None
+                )
+                for column in source_columns
+            },
+            source_values_by_key={
+                column.stable_key: (
                     source_samples.get(column.stable_key, (None,))[0]
                     if source_samples.get(column.stable_key)
                     else None

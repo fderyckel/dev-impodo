@@ -177,8 +177,21 @@ def browser_mapping_labels(
         for index, field in enumerate(mapping.fields):
             if field.value_source is ScalarValueSource.ODOO_DEFAULT:
                 continue
+            rule_source_key = next(
+                (
+                    condition.source_column_key
+                    for rule in (
+                        field.selection_rules.rules
+                        if field.selection_rules is not None
+                        else ()
+                    )
+                    for condition in rule.conditions
+                ),
+                "",
+            )
             field_labels[(dataset.name, synthetic_field(index))] = (
-                names.get(field.source_column_key or "") or field.target_field
+                names.get(field.source_column_key or rule_source_key)
+                or field.target_field
             )
         for relationship_index, relationship in enumerate(mapping.relationships):
             for source_index, source_column_key in enumerate(

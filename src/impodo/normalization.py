@@ -259,6 +259,8 @@ def _scalar_normalization_field_policy(
         change_kinds.append("constant")
     elif field.value_source is ScalarValueSource.SOURCE_WITH_FALLBACK:
         change_kinds.append("fallback")
+    elif field.value_source is ScalarValueSource.CONDITIONAL_RULES:
+        change_kinds.append("conditional_choice")
     if field.value_mappings:
         change_kinds.append("value_match")
     if field.reference_lookup is not None:

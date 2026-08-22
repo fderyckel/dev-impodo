@@ -469,6 +469,13 @@ effective source selection and governed schema. Submission requires a valid
 live-schema revision plus acknowledgement of every current warning; it confirms
 mapping evidence but is not normalization, package, or execution approval.
 
+For an Odoo Selection field, mapping contract v12 can store an ordered
+`SelectionRuleSet`. The browser form parser validates the bounded declarative
+payload, the shared scalar evaluator supplies preview and preparation meaning,
+categorical coverage scans the union of referenced source columns once, and
+the columnar compiler emits native first-match-wins expressions. Captured Odoo
+technical keys remain the only rule outputs; labels are presentation only.
+
 ```mermaid
 sequenceDiagram
     participant Route as "mapping router"

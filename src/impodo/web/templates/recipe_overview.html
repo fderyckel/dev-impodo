@@ -115,13 +115,19 @@
       <div>
         <p class="eyebrow">Authoring status</p>
         <h2 id="recipe-blocked-title">Recipe is not ready to publish</h2>
-        {% if recipe_draft.issues %}
-          <p>{{ recipe_draft.issues[0].message }} {{ recipe_draft.issues[0].recovery_action }}</p>
+        {% if recipe_recovery %}
+          <p>{{ recipe_recovery.message }} {{ recipe_recovery.recovery_action }}</p>
+          {% if recipe_recovery.support_reference %}
+            <details class="technical-details">
+              <summary>Support details</summary>
+              <p><code>{{ recipe_recovery.support_reference }}</code></p>
+            </details>
+          {% endif %}
         {% else %}
           <p>Continue the current authoring data version.</p>
         {% endif %}
       </div>
-      {% if recovery_href %}<a class="button primary" href="{{ recovery_href }}">Continue authoring</a>{% endif %}
+      {% if recipe_recovery %}<a class="button primary" href="{{ recipe_recovery.href }}">{{ recipe_recovery.action_label }}</a>{% endif %}
     </section>
   {% endif %}
 
