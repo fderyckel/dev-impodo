@@ -151,6 +151,18 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         target_schema = context.run_planning.repository.get_run_target_schema(
             migration_run_id
         )
+        plan_binding = context.cutover_plans.repository.get_run_binding(
+            migration_run_id
+        )
+        plan_revision = context.cutover_plans.repository.get_revision(
+            plan_binding.cutover_plan_id,
+            plan_binding.cutover_plan_revision,
+        )
+        qualifications = context.cutover_plans.repository.list_qualifications(
+            plan_binding.cutover_plan_id,
+            plan_binding.cutover_plan_revision,
+        )
+        selection = context.cutover_plans.repository.current_selection(project_id)
         return _render(
             request,
             "project_integrated_run.html",
@@ -161,6 +173,9 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             recipes=recipes,
             issues=issues,
             target_schema=target_schema,
+            plan_revision=plan_revision,
+            qualification=(qualifications[0] if qualifications else None),
+            selection=selection,
         )
 
     return router

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Integrated qualification · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">{{ project.display_name }} · Cutover plan revision {{ review.plan.version }}</p>
+      <h1>Integrated Test qualification</h1>
+      <p>Confirm that every Recipe application used the exact plan, completed successfully, and was verified in the required order. This review does not authorize Production.</p>
+    </div>
+    <span class="status {% if review.state.value in ('QUALIFIED', 'SELECTED') %}registered{% elif review.state.value == 'READY' %}ready{% else %}draft{% endif %}">{{ review.state.value|replace('_', ' ')|title }}</span>
+  </div>
+
+  {% if error %}<div class="notice error"><strong>{{ error }}</strong></div>{% endif %}
+
+  <section class="form-card" aria-labelledby="plan-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Exact candidate</p>
+        <h2 id="plan-title">What this qualification pins</h2>
+        <p>{{ review.applications|length }} Recipe application{% if review.applications|length != 1 %}s{% endif %}, their saved revisions, one Test target, shared controls, and the dependency order.</p>
+      </div>
+    </div>
+    <dl class="summary-list">
+      <div><dt>Plan revision</dt><dd>{{ review.plan.version }}</dd></div>
+      <div><dt>Recipe revisions</dt><dd>{{ review.plan.selected_revisions|length }}</dd></div>
+      <div><dt>Dependencies</dt><dd>{{ review.plan.dependencies|length }}</dd></div>
+      <div><dt>Shared controls</dt><dd>{{ review.plan.shared_control_ids|length }}</dd></div>
+    </dl>
+  </section>
+
+  {% if project_issues %}
+    <section class="notice error" aria-label="Project checks needing attention">
+      {% for issue in project_issues %}
+        <strong>{{ issue.message }}</strong>
+        <p>{{ issue.recovery_action }}</p>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  <section class="overview-stage-list" aria-labelledby="applications-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Required order</p>
+        <h2 id="applications-title">Application evidence</h2>
+      </div>
+    </div>
+    <ol class="overview-stages">
+      {% for application in review.applications %}
+        {% set recipe = recipes[application.recipe_id] %}
+        {% set application_evidence = evidence.get(application.application_id) %}
+        <li class="overview-stage {% if application_evidence or review.qualification %}complete{% else %}current{% endif %}">
+          <div class="overview-stage-number">{{ loop.index }}</div>
+          <div class="overview-stage-copy">
+            <h3>{{ recipe.display_name }} · Recipe v{{ application.recipe_revision }}</h3>
+            {% if application_evidence %}
+              <p>Prepared, compared, loaded, read back, and {{ application_evidence.outcomes.verified_count }} outcome{% if application_evidence.outcomes.verified_count != 1 %}s{% endif %} verified.</p>
+            {% elif review.qualification %}
+              <p>Included in the protected qualified evidence.</p>
+            {% else %}
+              <p>Evidence is not complete.</p>
+            {% endif %}
+            {% for issue in issues[application.workspace_id] %}
+              <div class="notice error">
+                <strong>{{ issue.message }}</strong>
+                <p>{{ issue.recovery_action }}</p>
+              </div>
+            {% endfor %}
+            <a class="button secondary" href="/workspaces/{{ application.workspace_id }}/overview">Open application workspace</a>
+          </div>
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  {% if review.can_qualify %}
+    <section class="form-card" aria-labelledby="confirm-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Explicit confirmation</p>
+          <h2 id="confirm-title">Qualify this exact integrated Test</h2>
+          <p>A change to a selected Recipe revision or dependency creates a new plan revision that must be tested again.</p>
+        </div>
+      </div>
+      <form method="post" action="/projects/{{ project.project_id }}/runs/{{ review.migration_run_id }}/qualification">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="operation_id" value="{{ operation_id }}">
+        <input type="hidden" name="expected_project_revision" value="{{ expected_project_revision }}">
+        <input type="hidden" name="expected_evidence_hash" value="{{ review.integrated_evidence_hash }}">
+        <button class="button" type="submit">Qualify integrated Test</button>
+      </form>
+    </section>
+  {% elif review.can_select %}
+    <section class="form-card" aria-labelledby="select-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Rollout candidate</p>
+          <h2 id="select-title">Select this qualified plan</h2>
+          <p>This records the intended rollout candidate. It does not connect to Production or authorize any Production write.</p>
+        </div>
+      </div>
+      <form method="post" action="/projects/{{ project.project_id }}/runs/{{ review.migration_run_id }}/qualification/select">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="operation_id" value="{{ operation_id }}">
+        <input type="hidden" name="expected_project_revision" value="{{ expected_project_revision }}">
+        <input type="hidden" name="qualification_id" value="{{ review.qualification.qualification_id }}">
+        <button class="button" type="submit">Select rollout candidate</button>
+      </form>
+    </section>
+  {% elif review.state.value == 'SELECTED' %}
+    <div class="notice success">
+      <strong>Selected rollout candidate</strong>
+      <p>The qualified evidence is retained. Production remains a separate future action.</p>
+    </div>
+  {% endif %}
+
+  <div class="actions">
+    <a class="button secondary" href="/projects/{{ project.project_id }}/runs/{{ review.migration_run_id }}">Back to Test run</a>
+  </div>
+{% endblock %}

@@ -105,7 +105,10 @@ def build_specs() -> tuple[ProcessSpec, ...]:
             "High-level current workflow. File-source projects continue through "
             "mapping, preparation, final review, disposable-target loading, and "
             "reconciliation. Odoo-source projects currently stop after bounded "
-            "source capture."
+            "source capture. Project-level integrated Test planning and exact "
+            "qualification are modelled separately because they consume "
+            "published Recipes and a new accepted Test DataVersion rather than "
+            "extending one authoring workspace."
         ),
         nodes=(
             Node("Start_Current", "startEvent", "Migration project needed", 80, 190, 36, 36),
@@ -454,7 +457,97 @@ def build_specs() -> tuple[ProcessSpec, ...]:
         ),
     )
 
-    return master, setup, source, odoo_data, match, prepare, review, load
+    integrated_test = ProcessSpec(
+        slug="07-integrated-test-run",
+        process_id="Process_IntegratedTestRun",
+        name="Integrated multi-Recipe Test run",
+        documentation=(
+            "Current Project-level planning, fresh Recipe application "
+            "materialization, and exact CutoverPlan revision binding."
+        ),
+        nodes=(
+            event("Start_IT", "startEvent", "Accepted Test package and Recipes", 70, 130, "Lane_DataManager"),
+            task("Task_IT_Select", "userTask", "Select Test DataVersion, target evidence, Recipes, and order", 150, 110, "Lane_DataManager"),
+            task("Task_IT_Validate", "serviceTask", "Validate exact revisions, dependencies, and write ownership", 380, 330, "Lane_Impodo"),
+            gateway("Gateway_IT_Valid", "Plan valid?", 600, 340, "Lane_Impodo"),
+            event("End_IT_Invalid", "endEvent", "Correct plan before provisioning", 720, 127, "Lane_DataManager"),
+            task("Task_IT_Union", "serviceTask", "Build one union requirement and target projection", 720, 330, "Lane_Impodo"),
+            task("Task_IT_Provision", "serviceTask", "Create one isolated application workspace per Recipe", 940, 330, "Lane_Impodo"),
+            task("Task_IT_Compile", "serviceTask", "Create fresh mappings and focused current issues", 1160, 330, "Lane_Impodo"),
+            gateway("Gateway_IT_Ready", "All applications Ready?", 1380, 340, "Lane_Impodo"),
+            task("Task_IT_Review", "userTask", "Review the owning application issues", 1500, 110, "Lane_DataManager"),
+            event("End_IT_Blocked", "endEvent", "Blocked; fresh evidence retained", 1710, 127, "Lane_DataManager"),
+            event("End_IT_Ready", "endEvent", "Ready for application work", 1530, 357, "Lane_Impodo"),
+        ),
+        flows=(
+            Flow("Flow_IT_01", "Start_IT", "Task_IT_Select"),
+            Flow("Flow_IT_02", "Task_IT_Select", "Task_IT_Validate"),
+            Flow("Flow_IT_03", "Task_IT_Validate", "Gateway_IT_Valid"),
+            Flow("Flow_IT_04", "Gateway_IT_Valid", "End_IT_Invalid", "No"),
+            Flow("Flow_IT_05", "Gateway_IT_Valid", "Task_IT_Union", "Yes"),
+            Flow("Flow_IT_06", "Task_IT_Union", "Task_IT_Provision"),
+            Flow("Flow_IT_07", "Task_IT_Provision", "Task_IT_Compile"),
+            Flow("Flow_IT_08", "Task_IT_Compile", "Gateway_IT_Ready"),
+            Flow("Flow_IT_09", "Gateway_IT_Ready", "End_IT_Ready", "Yes"),
+            Flow("Flow_IT_10", "Gateway_IT_Ready", "Task_IT_Review", "No"),
+            Flow("Flow_IT_11", "Task_IT_Review", "End_IT_Blocked"),
+        ),
+    )
+
+    integrated_qualification = ProcessSpec(
+        slug="08-integrated-qualification",
+        process_id="Process_IntegratedQualification",
+        name="Integrated Test qualification",
+        documentation=(
+            "Current M5 ordered application execution, exact Test qualification, "
+            "and separate rollout-candidate selection. No Production authority."
+        ),
+        nodes=(
+            event("Start_IQ", "startEvent", "Integrated Test plan ready", 70, 130, "Lane_DataManager"),
+            task("Task_IQ_Complete", "userTask", "Complete and verify each application in required order", 150, 110, "Lane_DataManager"),
+            task("Task_IQ_Guard", "serviceTask", "Block downstream write until predecessors reconcile", 390, 330, "Lane_Impodo"),
+            task("Task_IQ_Review", "userTask", "Review exact integrated evidence", 620, 110, "Lane_DataManager"),
+            task("Task_IQ_Check", "serviceTask", "Check package, application evidence, order, and controls", 840, 330, "Lane_Impodo"),
+            gateway("Gateway_IQ_Ready", "All evidence complete?", 1070, 340, "Lane_Impodo"),
+            task("Task_IQ_Recover", "userTask", "Open named application and complete recovery action", 1190, 110, "Lane_DataManager"),
+            task("Task_IQ_Qualify", "userTask", "Qualify exact integrated Test", 1190, 210, "Lane_DataManager"),
+            task("Task_IQ_Publish", "serviceTask", "Encrypt and publish application and plan qualification", 1410, 330, "Lane_Impodo"),
+            gateway("Gateway_IQ_Select", "Select rollout candidate?", 1630, 120, "Lane_DataManager"),
+            task("Task_IQ_Select", "userTask", "Select qualified plan revision", 1760, 90, "Lane_DataManager"),
+            task("Task_IQ_Record", "serviceTask", "Record Project rollout selection without Production authority", 1970, 330, "Lane_Impodo"),
+            event("End_IQ_Selected", "endEvent", "Rollout candidate selected", 2190, 347, "Lane_Impodo"),
+            event("End_IQ_Qualified", "endEvent", "Qualified; not selected", 1780, 217, "Lane_DataManager"),
+        ),
+        flows=(
+            Flow("Flow_IQ_01", "Start_IQ", "Task_IQ_Complete"),
+            Flow("Flow_IQ_02", "Task_IQ_Complete", "Task_IQ_Guard"),
+            Flow("Flow_IQ_03", "Task_IQ_Guard", "Task_IQ_Review"),
+            Flow("Flow_IQ_04", "Task_IQ_Review", "Task_IQ_Check"),
+            Flow("Flow_IQ_05", "Task_IQ_Check", "Gateway_IQ_Ready"),
+            Flow("Flow_IQ_06", "Gateway_IQ_Ready", "Task_IQ_Recover", "No"),
+            Flow("Flow_IQ_07", "Task_IQ_Recover", "Task_IQ_Complete", "Retry", ((1190, 145), (1130, 145), (1130, 70), (225, 70), (225, 110))),
+            Flow("Flow_IQ_08", "Gateway_IQ_Ready", "Task_IQ_Qualify", "Yes"),
+            Flow("Flow_IQ_09", "Task_IQ_Qualify", "Task_IQ_Publish"),
+            Flow("Flow_IQ_10", "Task_IQ_Publish", "Gateway_IQ_Select"),
+            Flow("Flow_IQ_11", "Gateway_IQ_Select", "Task_IQ_Select", "Yes"),
+            Flow("Flow_IQ_12", "Task_IQ_Select", "Task_IQ_Record"),
+            Flow("Flow_IQ_13", "Task_IQ_Record", "End_IQ_Selected"),
+            Flow("Flow_IQ_14", "Gateway_IQ_Select", "End_IQ_Qualified", "No"),
+        ),
+    )
+
+    return (
+        master,
+        setup,
+        source,
+        odoo_data,
+        match,
+        prepare,
+        review,
+        load,
+        integrated_test,
+        integrated_qualification,
+    )
 
 
 def _node_element(process: ET.Element, node: Node) -> ET.Element:

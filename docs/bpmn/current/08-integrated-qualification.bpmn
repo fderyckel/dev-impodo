@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Process_IntegratedQualification" targetNamespace="https://impodo.dev/bpmn/current" exporter="Impodo documentation generator" exporterVersion="1.0">
+  <bpmn:process id="Process_IntegratedQualification" name="Integrated Test qualification" isExecutable="false">
+    <bpmn:documentation>Current M5 ordered application execution, exact Test qualification, and separate rollout-candidate selection. No Production authority.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_IntegratedQualification">
+      <bpmn:lane id="Lane_DataManager" name="Data manager">
+        <bpmn:flowNodeRef>Start_IQ</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_IQ_Complete</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_IQ_Review</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_IQ_Recover</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_IQ_Qualify</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_IQ_Select</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_IQ_Select</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_IQ_Qualified</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Impodo" name="Impodo">
+        <bpmn:flowNodeRef>Task_IQ_Guard</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_IQ_Check</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_IQ_Ready</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_IQ_Publish</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_IQ_Record</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_IQ_Selected</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="Start_IQ" name="Integrated Test plan ready">
+      <bpmn:outgoing>Flow_IQ_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="Task_IQ_Complete" name="Complete and verify each application in required order">
+      <bpmn:incoming>Flow_IQ_01</bpmn:incoming>
+      <bpmn:outgoing>Flow_IQ_02</bpmn:outgoing>
+      <bpmn:incoming>Flow_IQ_07</bpmn:incoming>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_IQ_Guard" name="Block downstream write until predecessors reconcile">
+      <bpmn:incoming>Flow_IQ_02</bpmn:incoming>
+      <bpmn:outgoing>Flow_IQ_03</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="Task_IQ_Review" name="Review exact integrated evidence">
+      <bpmn:incoming>Flow_IQ_03</bpmn:incoming>
+      <bpmn:outgoing>Flow_IQ_04</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_IQ_Check" name="Check package, application evidence, order, and controls">
+      <bpmn:incoming>Flow_IQ_04</bpmn:incoming>
+      <bpmn:outgoing>Flow_IQ_05</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_IQ_Ready" name="All evidence complete?">
+      <bpmn:incoming>Flow_IQ_05</bpmn:incoming>
+      <bpmn:outgoing>Flow_IQ_06</bpmn:outgoing>
+      <bpmn:outgoing>Flow_IQ_08</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_IQ_Recover" name="Open named application and complete recovery action">
+      <bpmn:incoming>Flow_IQ_06</bpmn:incoming>
+      <bpmn:outgoing>Flow_IQ_07</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="Task_IQ_Qualify" name="Qualify exact integrated Test">
+      <bpmn:incoming>Flow_IQ_08</bpmn:incoming>
+      <bpmn:outgoing>Flow_IQ_09</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_IQ_Publish" name="Encrypt and publish application and plan qualification">
+      <bpmn:incoming>Flow_IQ_09</bpmn:incoming>
+      <bpmn:outgoing>Flow_IQ_10</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_IQ_Select" name="Select rollout candidate?">
+      <bpmn:incoming>Flow_IQ_10</bpmn:incoming>
+      <bpmn:outgoing>Flow_IQ_11</bpmn:outgoing>
+      <bpmn:outgoing>Flow_IQ_14</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_IQ_Select" name="Select qualified plan revision">
+      <bpmn:incoming>Flow_IQ_11</bpmn:incoming>
+      <bpmn:outgoing>Flow_IQ_12</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_IQ_Record" name="Record Project rollout selection without Production authority">
+      <bpmn:incoming>Flow_IQ_12</bpmn:incoming>
+      <bpmn:outgoing>Flow_IQ_13</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_IQ_Selected" name="Rollout candidate selected">
+      <bpmn:incoming>Flow_IQ_13</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_IQ_Qualified" name="Qualified; not selected">
+      <bpmn:incoming>Flow_IQ_14</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_IQ_01" sourceRef="Start_IQ" targetRef="Task_IQ_Complete" />
+    <bpmn:sequenceFlow id="Flow_IQ_02" sourceRef="Task_IQ_Complete" targetRef="Task_IQ_Guard" />
+    <bpmn:sequenceFlow id="Flow_IQ_03" sourceRef="Task_IQ_Guard" targetRef="Task_IQ_Review" />
+    <bpmn:sequenceFlow id="Flow_IQ_04" sourceRef="Task_IQ_Review" targetRef="Task_IQ_Check" />
+    <bpmn:sequenceFlow id="Flow_IQ_05" sourceRef="Task_IQ_Check" targetRef="Gateway_IQ_Ready" />
+    <bpmn:sequenceFlow id="Flow_IQ_06" sourceRef="Gateway_IQ_Ready" targetRef="Task_IQ_Recover" name="No" />
+    <bpmn:sequenceFlow id="Flow_IQ_07" sourceRef="Task_IQ_Recover" targetRef="Task_IQ_Complete" name="Retry" />
+    <bpmn:sequenceFlow id="Flow_IQ_08" sourceRef="Gateway_IQ_Ready" targetRef="Task_IQ_Qualify" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_IQ_09" sourceRef="Task_IQ_Qualify" targetRef="Task_IQ_Publish" />
+    <bpmn:sequenceFlow id="Flow_IQ_10" sourceRef="Task_IQ_Publish" targetRef="Gateway_IQ_Select" />
+    <bpmn:sequenceFlow id="Flow_IQ_11" sourceRef="Gateway_IQ_Select" targetRef="Task_IQ_Select" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_IQ_12" sourceRef="Task_IQ_Select" targetRef="Task_IQ_Record" />
+    <bpmn:sequenceFlow id="Flow_IQ_13" sourceRef="Task_IQ_Record" targetRef="End_IQ_Selected" />
+    <bpmn:sequenceFlow id="Flow_IQ_14" sourceRef="Gateway_IQ_Select" targetRef="End_IQ_Qualified" name="No" />
+  </bpmn:process>
+  <bpmn:collaboration id="Collaboration_Process_IntegratedQualification">
+    <bpmn:participant id="Participant_Process_IntegratedQualification" name="Integrated Test qualification" processRef="Process_IntegratedQualification" />
+  </bpmn:collaboration>
+  <bpmndi:BPMNDiagram id="Diagram_Process_IntegratedQualification">
+    <bpmndi:BPMNPlane id="Plane_Process_IntegratedQualification" bpmnElement="Collaboration_Process_IntegratedQualification">
+      <bpmndi:BPMNShape id="Shape_Participant_Process_IntegratedQualification" bpmnElement="Participant_Process_IntegratedQualification" isHorizontal="true">
+        <dc:Bounds x="30" y="50" width="2396" height="470" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_DataManager" bpmnElement="Lane_DataManager" isHorizontal="true">
+        <dc:Bounds x="60" y="50" width="2366" height="230" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_Impodo" bpmnElement="Lane_Impodo" isHorizontal="true">
+        <dc:Bounds x="60" y="280" width="2366" height="240" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_IQ" bpmnElement="Start_IQ">
+        <dc:Bounds x="140" y="130" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IQ_Complete" bpmnElement="Task_IQ_Complete">
+        <dc:Bounds x="220" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IQ_Guard" bpmnElement="Task_IQ_Guard">
+        <dc:Bounds x="460" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IQ_Review" bpmnElement="Task_IQ_Review">
+        <dc:Bounds x="690" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IQ_Check" bpmnElement="Task_IQ_Check">
+        <dc:Bounds x="910" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_IQ_Ready" bpmnElement="Gateway_IQ_Ready" isMarkerVisible="true">
+        <dc:Bounds x="1140" y="340" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IQ_Recover" bpmnElement="Task_IQ_Recover">
+        <dc:Bounds x="1260" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IQ_Qualify" bpmnElement="Task_IQ_Qualify">
+        <dc:Bounds x="1260" y="210" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IQ_Publish" bpmnElement="Task_IQ_Publish">
+        <dc:Bounds x="1480" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_IQ_Select" bpmnElement="Gateway_IQ_Select" isMarkerVisible="true">
+        <dc:Bounds x="1700" y="120" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IQ_Select" bpmnElement="Task_IQ_Select">
+        <dc:Bounds x="1830" y="90" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IQ_Record" bpmnElement="Task_IQ_Record">
+        <dc:Bounds x="2040" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_IQ_Selected" bpmnElement="End_IQ_Selected">
+        <dc:Bounds x="2260" y="347" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_IQ_Qualified" bpmnElement="End_IQ_Qualified">
+        <dc:Bounds x="1850" y="217" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_01" bpmnElement="Flow_IQ_01">
+        <di:waypoint x="176" y="148" />
+        <di:waypoint x="220" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_02" bpmnElement="Flow_IQ_02">
+        <di:waypoint x="370" y="145" />
+        <di:waypoint x="460" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_03" bpmnElement="Flow_IQ_03">
+        <di:waypoint x="610" y="365" />
+        <di:waypoint x="690" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_04" bpmnElement="Flow_IQ_04">
+        <di:waypoint x="840" y="145" />
+        <di:waypoint x="910" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_05" bpmnElement="Flow_IQ_05">
+        <di:waypoint x="1060" y="365" />
+        <di:waypoint x="1140" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_06" bpmnElement="Flow_IQ_06">
+        <di:waypoint x="1190" y="365" />
+        <di:waypoint x="1260" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_07" bpmnElement="Flow_IQ_07">
+        <di:waypoint x="1260" y="145" />
+        <di:waypoint x="1200" y="145" />
+        <di:waypoint x="1200" y="70" />
+        <di:waypoint x="295" y="70" />
+        <di:waypoint x="295" y="110" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_08" bpmnElement="Flow_IQ_08">
+        <di:waypoint x="1190" y="365" />
+        <di:waypoint x="1260" y="245" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_09" bpmnElement="Flow_IQ_09">
+        <di:waypoint x="1410" y="245" />
+        <di:waypoint x="1480" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_10" bpmnElement="Flow_IQ_10">
+        <di:waypoint x="1630" y="365" />
+        <di:waypoint x="1700" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_11" bpmnElement="Flow_IQ_11">
+        <di:waypoint x="1750" y="145" />
+        <di:waypoint x="1830" y="125" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_12" bpmnElement="Flow_IQ_12">
+        <di:waypoint x="1980" y="125" />
+        <di:waypoint x="2040" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_13" bpmnElement="Flow_IQ_13">
+        <di:waypoint x="2190" y="365" />
+        <di:waypoint x="2260" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IQ_14" bpmnElement="Flow_IQ_14">
+        <di:waypoint x="1750" y="145" />
+        <di:waypoint x="1850" y="235" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

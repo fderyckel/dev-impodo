@@ -24,8 +24,9 @@ overview and reports integrated progress from bounded registry projections.
 
 ## Persistence and recovery
 
-The exact registry generation is `impodo-migration-registry-2026-08-m4`.
-Earlier development generations are rejected rather than upgraded. The M2
+M4 introduced registry generation `impodo-migration-registry-2026-08-m4`.
+M5 superseded it with the exact M5 generation; neither generation is upgraded
+in place. The M2
 DataVersion and workspace-store generations remain current because their
 ownership contracts did not change.
 
@@ -65,7 +66,6 @@ python -m unittest tests.test_migration_project_phase_m4_multi_recipe_runs -v
 ## Deliberate boundary
 
 M4 consumes an already accepted Test DataVersion and reviewed target evidence.
-It does not add browser intake for a new Test package, execute applications,
-qualify Recipes or a CutoverPlan, select a rollout candidate, or create a
-Production run. M5 owns integrated qualification.
-
+It does not add browser intake for a new Test package or execute applications.
+M5 now owns integrated qualification and rollout selection. A fresh Production
+run remains outside both phases.

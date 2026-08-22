@@ -752,6 +752,24 @@ h3 {
   text-decoration: none;
 }
 
+.project-row-unavailable {
+  background: #f8f7f5;
+  border-top: 1px solid var(--line);
+}
+
+.project-row-unavailable .project-identity strong {
+  color: var(--muted);
+}
+
+.project-unavailable-reason {
+  display: block;
+  max-width: 46rem;
+  color: var(--muted);
+  font-size: .86rem;
+  line-height: 1.45;
+  margin-top: .3rem;
+}
+
 .project-row-shell:hover {
   background: #fdf8f7;
 }

@@ -3,7 +3,7 @@
 ## Status and authority
 
 **Status:** Accepted target architecture and active implementation plan from
-2026-08-22. Phases M0 through M4 are complete; Phase M5 is next.
+2026-08-22. Phases M0 through M5 are complete; Phase M6 is next.
 
 [ADR-014](../decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
 governs the target architecture. It supersedes ADR-012 and ADR-013 for
@@ -13,15 +13,16 @@ credential-separation, evidence, and fail-closed execution boundaries where
 this plan does not explicitly replace them.
 
 Current contracts, architecture pages, user documentation, and screenshots
-describe the implemented Project-first browser through M4. This plan must not
-be used to claim that an integrated qualified CutoverPlan or Production run is
-available before its later implementation gate passes.
+describe the implemented Project-first browser through M5. This plan must not
+be used to claim that a Production run is available before its later
+implementation gate passes.
 
 This plan replaces the completed
 [Recipe-first test-to-production plan](reusable-recipes-and-data-versions-implementation-plan.md)
 and its [Phase R0 contracts](reusable-recipes-phase-r0-contracts.md) as
 forward-looking implementation authority. Those documents and their reports
-remain historical evidence for behavior that the current code implements.
+remain historical evidence; only boundaries explicitly retained by ADR-014
+remain current behavior.
 
 ## 1. Product outcome
 
@@ -66,10 +67,10 @@ The first release also excludes cross-Project Recipe sharing, delta or inferred
 delete semantics, mixed-target runs, arbitrary cross-Recipe merge rules,
 unattended execution, and automatic rollback of already committed Odoo writes.
 
-## 2. Current implementation and the required correction
+## 2. Historical baseline corrected by M0-M4
 
-The current browser labels a `Recipe` as a **project**, but the domain and
-registry make Recipe the aggregate root:
+Before this plan started, the browser labelled a `Recipe` as a **project** and
+the domain and registry made Recipe the aggregate root:
 
 - `RecipeAuthoringService.create()` calls `ProjectService.create_project()`.
   That operation creates a `MigrationProject` workspace and generates a
@@ -92,9 +93,10 @@ represent a Project with no Recipe, several Recipes sharing one accepted data
 package, or one integrated cutover plan. The browser rename hid that limitation
 instead of resolving it.
 
-The implementation must correct the ownership model without replacing the
-working mapping, preparation, comparison, execution, or reconciliation
-engines.
+M0 through M4 corrected this ownership and integrated-planning boundary
+without replacing the working mapping, preparation, comparison, execution, or
+reconciliation engines. The bullets above are historical context, not current
+routes, schema, or ownership.
 
 ## 3. Target vocabulary and cardinality
 
@@ -737,7 +739,8 @@ mutable workspace state.
 
 ### Phase M5 - Qualify an integrated CutoverPlan
 
-**Status:** Planned.
+**Status:** Completed on 2026-08-22. See the [Phase M5 implementation
+record](migration-projects-phase-m5-cutover-qualification.md).
 
 - Publish individual Recipe qualification from exact application evidence.
 - Publish integrated CutoverPlan qualification only after ordered execution,
@@ -891,8 +894,8 @@ add Odoo or repository calls per row.
   active forward-looking priority.
 - The completed Recipe-first plan and Phase R0 contracts receive historical
   supersession notices without rewriting their implementation record.
-- `docs/product-vision.md` distinguishes the current Recipe-first code from
-  the accepted Project target.
+- `docs/product-vision.md` distinguished the then-current Recipe-first code
+  from the accepted Project target.
 
 ### 15.2 Update with implemented behavior
 

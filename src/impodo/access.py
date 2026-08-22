@@ -35,6 +35,7 @@ class Capability(StrEnum):
     MIGRATION_WORKSPACE_CREATE = "migration_workspace.create"
     MIGRATION_WORKSPACE_EDIT = "migration_workspace.edit"
     RECIPE_QUALIFY = "recipe.qualify"
+    CUTOVER_PLAN_QUALIFY = "cutover_plan.qualify"
     CUTOVER_SELECT = "cutover.select"
     LOCAL_STACK_INSPECT = "local_stack.inspect"
     LOCAL_STACK_START = "local_stack.start"

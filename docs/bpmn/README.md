@@ -20,6 +20,8 @@ The overview calls the detailed workflow models:
 5. [Prepare data](current/04-prepare-data.bpmn)
 6. [Final review](current/05-final-review.bpmn)
 7. [Load into Odoo](current/06-load-into-odoo.bpmn)
+8. [Integrated multi-Recipe Test run](current/07-integrated-test-run.bpmn)
+9. [Integrated Test qualification](current/08-integrated-qualification.bpmn)
 
 The files use standard BPMN 2.0 XML and BPMN Diagram Interchange coordinates.
 They can be opened in BPMN-compatible tools such as the bpmn.io modeler or
@@ -37,6 +39,13 @@ The overview deliberately shows two source-mode paths:
 
 The load process models only the current approved disposable local or remote
 Odoo 19 target capability. It does not represent production cutover.
+
+The integrated Test models are separate Project-level workflows. Planning
+consumes one already accepted Test DataVersion and published Recipe revisions,
+creates isolated fresh application drafts, and binds an exact CutoverPlan
+revision. Qualification requires ordered execution and verified read-back,
+then records qualification and rollout selection separately. It never models
+Production authority.
 
 ## BPMN conventions
 

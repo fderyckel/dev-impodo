@@ -28,6 +28,7 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
             request,
             "project_list.html",
             projects=context.migration_projects.list(actor=context.actor),
+            unavailable_projects=context.unavailable_projects,
         )
 
     @router.get("/projects/new", response_class=HTMLResponse)

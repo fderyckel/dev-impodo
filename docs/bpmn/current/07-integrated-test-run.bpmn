@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Process_IntegratedTestRun" targetNamespace="https://impodo.dev/bpmn/current" exporter="Impodo documentation generator" exporterVersion="1.0">
+  <bpmn:process id="Process_IntegratedTestRun" name="Integrated multi-Recipe Test run" isExecutable="false">
+    <bpmn:documentation>Current Project-level planning, fresh Recipe application materialization, and exact CutoverPlan revision binding.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_IntegratedTestRun">
+      <bpmn:lane id="Lane_DataManager" name="Data manager">
+        <bpmn:flowNodeRef>Start_IT</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_IT_Select</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_IT_Invalid</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_IT_Review</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_IT_Blocked</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Impodo" name="Impodo">
+        <bpmn:flowNodeRef>Task_IT_Validate</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_IT_Valid</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_IT_Union</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_IT_Provision</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_IT_Compile</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_IT_Ready</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_IT_Ready</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="Start_IT" name="Accepted Test package and Recipes">
+      <bpmn:outgoing>Flow_IT_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="Task_IT_Select" name="Select Test DataVersion, target evidence, Recipes, and order">
+      <bpmn:incoming>Flow_IT_01</bpmn:incoming>
+      <bpmn:outgoing>Flow_IT_02</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_IT_Validate" name="Validate exact revisions, dependencies, and write ownership">
+      <bpmn:incoming>Flow_IT_02</bpmn:incoming>
+      <bpmn:outgoing>Flow_IT_03</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_IT_Valid" name="Plan valid?">
+      <bpmn:incoming>Flow_IT_03</bpmn:incoming>
+      <bpmn:outgoing>Flow_IT_04</bpmn:outgoing>
+      <bpmn:outgoing>Flow_IT_05</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="End_IT_Invalid" name="Correct plan before provisioning">
+      <bpmn:incoming>Flow_IT_04</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_IT_Union" name="Build one union requirement and target projection">
+      <bpmn:incoming>Flow_IT_05</bpmn:incoming>
+      <bpmn:outgoing>Flow_IT_06</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Task_IT_Provision" name="Create one isolated application workspace per Recipe">
+      <bpmn:incoming>Flow_IT_06</bpmn:incoming>
+      <bpmn:outgoing>Flow_IT_07</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Task_IT_Compile" name="Create fresh mappings and focused current issues">
+      <bpmn:incoming>Flow_IT_07</bpmn:incoming>
+      <bpmn:outgoing>Flow_IT_08</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_IT_Ready" name="All applications Ready?">
+      <bpmn:incoming>Flow_IT_08</bpmn:incoming>
+      <bpmn:outgoing>Flow_IT_09</bpmn:outgoing>
+      <bpmn:outgoing>Flow_IT_10</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_IT_Review" name="Review the owning application issues">
+      <bpmn:incoming>Flow_IT_10</bpmn:incoming>
+      <bpmn:outgoing>Flow_IT_11</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="End_IT_Blocked" name="Blocked; fresh evidence retained">
+      <bpmn:incoming>Flow_IT_11</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="End_IT_Ready" name="Ready for application work">
+      <bpmn:incoming>Flow_IT_09</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_IT_01" sourceRef="Start_IT" targetRef="Task_IT_Select" />
+    <bpmn:sequenceFlow id="Flow_IT_02" sourceRef="Task_IT_Select" targetRef="Task_IT_Validate" />
+    <bpmn:sequenceFlow id="Flow_IT_03" sourceRef="Task_IT_Validate" targetRef="Gateway_IT_Valid" />
+    <bpmn:sequenceFlow id="Flow_IT_04" sourceRef="Gateway_IT_Valid" targetRef="End_IT_Invalid" name="No" />
+    <bpmn:sequenceFlow id="Flow_IT_05" sourceRef="Gateway_IT_Valid" targetRef="Task_IT_Union" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_IT_06" sourceRef="Task_IT_Union" targetRef="Task_IT_Provision" />
+    <bpmn:sequenceFlow id="Flow_IT_07" sourceRef="Task_IT_Provision" targetRef="Task_IT_Compile" />
+    <bpmn:sequenceFlow id="Flow_IT_08" sourceRef="Task_IT_Compile" targetRef="Gateway_IT_Ready" />
+    <bpmn:sequenceFlow id="Flow_IT_09" sourceRef="Gateway_IT_Ready" targetRef="End_IT_Ready" name="Yes" />
+    <bpmn:sequenceFlow id="Flow_IT_10" sourceRef="Gateway_IT_Ready" targetRef="Task_IT_Review" name="No" />
+    <bpmn:sequenceFlow id="Flow_IT_11" sourceRef="Task_IT_Review" targetRef="End_IT_Blocked" />
+  </bpmn:process>
+  <bpmn:collaboration id="Collaboration_Process_IntegratedTestRun">
+    <bpmn:participant id="Participant_Process_IntegratedTestRun" name="Integrated multi-Recipe Test run" processRef="Process_IntegratedTestRun" />
+  </bpmn:collaboration>
+  <bpmndi:BPMNDiagram id="Diagram_Process_IntegratedTestRun">
+    <bpmndi:BPMNPlane id="Plane_Process_IntegratedTestRun" bpmnElement="Collaboration_Process_IntegratedTestRun">
+      <bpmndi:BPMNShape id="Shape_Participant_Process_IntegratedTestRun" bpmnElement="Participant_Process_IntegratedTestRun" isHorizontal="true">
+        <dc:Bounds x="30" y="50" width="1916" height="470" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_DataManager" bpmnElement="Lane_DataManager" isHorizontal="true">
+        <dc:Bounds x="60" y="50" width="1886" height="230" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_Impodo" bpmnElement="Lane_Impodo" isHorizontal="true">
+        <dc:Bounds x="60" y="280" width="1886" height="240" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_IT" bpmnElement="Start_IT">
+        <dc:Bounds x="140" y="130" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IT_Select" bpmnElement="Task_IT_Select">
+        <dc:Bounds x="220" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IT_Validate" bpmnElement="Task_IT_Validate">
+        <dc:Bounds x="450" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_IT_Valid" bpmnElement="Gateway_IT_Valid" isMarkerVisible="true">
+        <dc:Bounds x="670" y="340" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_IT_Invalid" bpmnElement="End_IT_Invalid">
+        <dc:Bounds x="790" y="127" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IT_Union" bpmnElement="Task_IT_Union">
+        <dc:Bounds x="790" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IT_Provision" bpmnElement="Task_IT_Provision">
+        <dc:Bounds x="1010" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IT_Compile" bpmnElement="Task_IT_Compile">
+        <dc:Bounds x="1230" y="330" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_IT_Ready" bpmnElement="Gateway_IT_Ready" isMarkerVisible="true">
+        <dc:Bounds x="1450" y="340" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_IT_Review" bpmnElement="Task_IT_Review">
+        <dc:Bounds x="1570" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_IT_Blocked" bpmnElement="End_IT_Blocked">
+        <dc:Bounds x="1780" y="127" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_IT_Ready" bpmnElement="End_IT_Ready">
+        <dc:Bounds x="1600" y="357" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_IT_01" bpmnElement="Flow_IT_01">
+        <di:waypoint x="176" y="148" />
+        <di:waypoint x="220" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IT_02" bpmnElement="Flow_IT_02">
+        <di:waypoint x="370" y="145" />
+        <di:waypoint x="450" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IT_03" bpmnElement="Flow_IT_03">
+        <di:waypoint x="600" y="365" />
+        <di:waypoint x="670" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IT_04" bpmnElement="Flow_IT_04">
+        <di:waypoint x="720" y="365" />
+        <di:waypoint x="790" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IT_05" bpmnElement="Flow_IT_05">
+        <di:waypoint x="720" y="365" />
+        <di:waypoint x="790" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IT_06" bpmnElement="Flow_IT_06">
+        <di:waypoint x="940" y="365" />
+        <di:waypoint x="1010" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IT_07" bpmnElement="Flow_IT_07">
+        <di:waypoint x="1160" y="365" />
+        <di:waypoint x="1230" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IT_08" bpmnElement="Flow_IT_08">
+        <di:waypoint x="1380" y="365" />
+        <di:waypoint x="1450" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IT_09" bpmnElement="Flow_IT_09">
+        <di:waypoint x="1500" y="365" />
+        <di:waypoint x="1600" y="375" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IT_10" bpmnElement="Flow_IT_10">
+        <di:waypoint x="1500" y="365" />
+        <di:waypoint x="1570" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IT_11" bpmnElement="Flow_IT_11">
+        <di:waypoint x="1720" y="145" />
+        <di:waypoint x="1780" y="145" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -35,7 +35,15 @@ class DocumentationQualityTests(unittest.TestCase):
             first,
         )
         self.assertIn("| Load into Odoo | yes | yes |", first)
-        self.assertEqual(first.count("| yes | yes |"), 7)
+        self.assertIn(
+            "| Integrated multi-Recipe Test run | yes | yes |",
+            first,
+        )
+        self.assertIn(
+            "| Integrated Test qualification | yes | yes |",
+            first,
+        )
+        self.assertEqual(first.count("| yes | yes |"), 9)
 
     def test_workflow_registers_documentation_standards_and_skill(self) -> None:
         manifest = load_manifest(ROOT)

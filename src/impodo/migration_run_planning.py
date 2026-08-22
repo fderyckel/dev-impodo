@@ -44,6 +44,7 @@ class RecipeApplicationStatus(StrEnum):
     COMPARED = "COMPARED"
     EXECUTED = "EXECUTED"
     RECONCILED = "RECONCILED"
+    QUALIFIED = "QUALIFIED"
     FAILED = "FAILED"
 
 

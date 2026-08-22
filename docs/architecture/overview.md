@@ -33,6 +33,9 @@ MigrationProject
 |           `-- fresh mapping and current application evidence
 `-- zero, one, or several Recipes
     `-- immutable RecipeRevision lineage
+`-- one versioned CutoverPlan
+    |-- exact Recipe revisions, dependencies, ownership, and controls
+    `-- immutable Test qualifications and Project rollout selections
 ```
 
 The Project, DataVersion, MigrationRun, MigrationWorkspace, and Recipe each
@@ -99,8 +102,10 @@ The authoring workspace retains the six data-manager stages:
 
 Completing these stages does not require Recipe publication. M4 can plan one
 integrated Test run over several exact Recipe revisions and create fresh,
-isolated application drafts. Execution, integrated CutoverPlan qualification,
-rollout selection, and Production application remain later phases. The
+isolated application drafts. M5 binds that run to an immutable CutoverPlan
+revision, requires ordered execution and verified read-back in every
+application, publishes exact integrated qualification, and records rollout
+selection separately. Production application remains a later phase. The
 Project-owned flow does not restore the superseded Recipe-owned lifecycle.
 
 ## Integrated Test run boundary
@@ -116,11 +121,26 @@ mapping services and reject per-application target recapture. Integrated
 status and issues are registry projections, so the run page does not open one
 workspace database or call Odoo per Recipe.
 
+## Integrated qualification boundary
+
+One CutoverPlan revision pins the exact Recipe revisions, dependencies,
+field-level write ownership, unioned requirements, and Project shared
+controls. A downstream application cannot begin an Odoo write until each
+declared predecessor has current verified reconciliation.
+
+Qualification reads each application workspace once and makes no Odoo call.
+Full per-application and integrated payloads are encrypted under a
+Project-scoped key; the registry retains bounded identity and hash
+projections. Changing selected Recipe meaning or dependency order appends a
+new unqualified plan revision. Selecting a qualified revision records only a
+rollout candidate and grants no Production authority.
+
 ## Persistence layout
 
 ```text
 <root>/registry.duckdb
 <root>/.recipes-protected/
+<root>/.project-evidence-protected/
 <root>/artifacts/<data_version_id>/
 <root>/artifacts/<workspace_id>/
 <root>/projects/<project_id>/data_versions/<data_version_id>/data-version.duckdb
@@ -166,7 +186,7 @@ repository call per source row.
 | Optional Recipe publication | `project_recipes.py`, `application/project_recipe_publication_service.py`, `adapters/duckdb/project_recipe_repository.py` |
 | Integrated Test planning | `migration_run_planning.py`, `application/migration_run_planning_service.py`, `adapters/duckdb/migration_run_planning_repository.py` |
 | Fresh Recipe application | `application/project_recipe_application_compiler.py`, `adapters/duckdb/run_aware_schema_repository.py`, `adapters/duckdb/run_aware_advanced_coverage_repository.py` |
-| Browser composition | `web/app.py`, `web/routers/migration_projects.py`, `web/routers/workspace_setup.py` |
+| Browser composition | `web/app.py`, `web/routers/migration_projects.py`, `web/routers/integrated_runs.py`, `web/routers/workspace_setup.py` |
 
 ## Related documentation
 

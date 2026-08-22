@@ -14,9 +14,10 @@ conservative field-level write ownership, stores one run-level target
 projection, and creates one isolated `RecipeApplication` and
 `MigrationWorkspace` per selected Recipe.
 
-M4 creates fresh mapping drafts and focused readiness issues. It does not
-execute applications, publish qualification, create a CutoverPlan, or grant
-Production authority.
+M4 creates fresh mapping drafts and focused readiness issues. M5 now binds the
+run to a CutoverPlan revision immediately after provisioning. Planning does
+not execute applications, publish qualification, or grant Production
+authority.
 
 ## Entry conditions
 
@@ -102,7 +103,8 @@ application `BLOCKED`.
 The browser redirects to the integrated run page after provisioning. `READY`
 means every application has a compatible fresh draft; `BLOCKED` retains the
 owning issues and any safe draft. Neither state implies execution,
-qualification, rollout selection, or Production authority.
+qualification, rollout selection, or Production authority. The run page links
+to the separate M5 qualification review.
 
 ## Invalidation and recovery
 
@@ -114,7 +116,7 @@ rejected.
 
 ## Odoo 19 and performance
 
-The registry generation is `impodo-migration-registry-2026-08-m4`. Older
+The current registry generation is `impodo-migration-registry-2026-08-m5`. Older
 development storage is rejected rather than upgraded. The DataVersion and
 MigrationWorkspace source stores remain on their exact M2 generations because
 their ownership contracts did not change.
@@ -157,3 +159,4 @@ sample is valid Test evidence.
 - [Integrated run lifecycle contract](../contracts/integrated-run-lifecycle.md)
 - [Evidence lifecycle](../contracts/evidence-lifecycle.md)
 - [M4 implementation record](../../plans/migration-projects-phase-m4-multi-recipe-runs.md)
+- [M5 qualification workflow](08-integrated-qualification.md)

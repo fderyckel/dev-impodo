@@ -597,10 +597,11 @@ infrastructure.
 Product ownership has accepted an architecture in which `MigrationProject` is
 the business root, DataVersion owns a complete Project source package, and
 several Project-scoped Recipes can participate in one qualified CutoverPlan.
-Phases M0 through M4 implement the Project root, source ownership, one-off
+Phases M0 through M5 implement the Project root, source ownership, one-off
 authoring, optional Recipe publication, and integrated Test planning with one
-isolated workspace per Recipe application. Execution and qualified
-CutoverPlans are not implemented in that Project-first path yet. The
+isolated workspace per Recipe application. Exact ordered application evidence,
+qualified CutoverPlans, and separate rollout-candidate selection are now
+implemented. Fresh Production data intake and execution are not. The
 [Migration projects and multi-Recipe cutover implementation
 plan](plans/migration-projects-and-multi-recipe-cutover-implementation-plan.md)
 defines the remaining delivery phases.

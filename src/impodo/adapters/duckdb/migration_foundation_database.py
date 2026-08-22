@@ -56,6 +56,7 @@ class MigrationFoundationDatabase:
         if registry_exists:
             allowed.update(
                 {
+                    ".project-evidence-protected",
                     ".recipes-protected",
                     "artifacts",
                     "projects",
@@ -73,6 +74,7 @@ class MigrationFoundationDatabase:
                 (
                     entry.name
                     in {
+                        ".project-evidence-protected",
                         ".recipes-protected",
                         ".impodo-development-reset",
                         "artifacts",

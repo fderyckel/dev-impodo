@@ -9,7 +9,7 @@ import duckdb
 from ....migration_foundation import MigrationStorageCompatibilityError
 
 
-MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-m4"
+MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-m5"
 MIGRATION_REGISTRY_VERSION = 1
 
 
@@ -124,6 +124,13 @@ EXPECTED_REGISTRY_COLUMNS = {
         "bundle_hash",
         "bundle_json",
     ),
+    "migration_run_cutover_plan": (
+        "migration_run_id",
+        "cutover_plan_id",
+        "cutover_plan_revision",
+        "plan_content_hash",
+        "bound_at",
+    ),
     "recipe_identity": ("recipe_id",),
     "recipe": (
         "recipe_id",
@@ -197,8 +204,15 @@ EXPECTED_REGISTRY_COLUMNS = {
         "recipe_id",
         "recipe_revision",
         "application_id",
+        "test_target_binding_hash",
         "status",
+        "expected_outcomes_json",
+        "evidence_storage_key",
+        "artifact_hash",
         "evidence_hash",
+        "qualified_by_issuer",
+        "qualified_by_subject",
+        "qualified_by_display_name",
         "qualified_at",
     ),
     "cutover_plan_identity": ("cutover_plan_id",),
@@ -217,7 +231,12 @@ EXPECTED_REGISTRY_COLUMNS = {
         "version",
         "parent_version",
         "shared_controls_json",
+        "requirement_plan_hash",
+        "meaning_hash",
         "content_hash",
+        "created_by_issuer",
+        "created_by_subject",
+        "created_by_display_name",
         "created_at",
     ),
     "cutover_plan_recipe": (
@@ -247,10 +266,19 @@ EXPECTED_REGISTRY_COLUMNS = {
         "project_id",
         "cutover_plan_id",
         "cutover_plan_revision",
+        "plan_content_hash",
         "test_run_id",
         "application_ids_json",
+        "application_qualification_ids_json",
+        "target_binding_hash",
+        "requirement_plan_hash",
         "integrated_evidence_hash",
+        "evidence_storage_key",
+        "artifact_hash",
         "status",
+        "qualified_by_issuer",
+        "qualified_by_subject",
+        "qualified_by_display_name",
         "qualified_at",
     ),
     "project_cutover_selection": (
@@ -260,6 +288,9 @@ EXPECTED_REGISTRY_COLUMNS = {
         "cutover_plan_revision",
         "qualification_id",
         "content_hash",
+        "selected_by_issuer",
+        "selected_by_subject",
+        "selected_by_display_name",
         "selected_at",
     ),
     "project_operation_intent": (
@@ -301,7 +332,7 @@ def ensure_migration_registry_schema(
     connection: duckdb.DuckDBPyConnection,
     database_path: Path,
 ) -> None:
-    """Create an empty M4 registry or reject every other schema exactly."""
+    """Create an empty M5 registry or reject every other schema exactly."""
 
     tables = _tables(connection)
     if not tables:
@@ -622,10 +653,17 @@ def _initialize_migration_registry(
                     migration_project_identity(project_id),
                 recipe_id VARCHAR NOT NULL,
                 recipe_revision INTEGER NOT NULL,
-                application_id VARCHAR NOT NULL REFERENCES
+                application_id VARCHAR NOT NULL UNIQUE REFERENCES
                     recipe_application_identity(application_id),
-                status VARCHAR NOT NULL,
+                test_target_binding_hash VARCHAR NOT NULL,
+                status VARCHAR NOT NULL CHECK (status = 'TEST_QUALIFIED'),
+                expected_outcomes_json VARCHAR NOT NULL,
+                evidence_storage_key VARCHAR NOT NULL,
+                artifact_hash VARCHAR NOT NULL,
                 evidence_hash VARCHAR NOT NULL,
+                qualified_by_issuer VARCHAR NOT NULL,
+                qualified_by_subject VARCHAR NOT NULL,
+                qualified_by_display_name VARCHAR NOT NULL,
                 qualified_at VARCHAR NOT NULL,
                 FOREIGN KEY (recipe_id, recipe_revision)
                     REFERENCES recipe_revision(recipe_id, version)
@@ -656,9 +694,15 @@ def _initialize_migration_registry(
                 version INTEGER NOT NULL CHECK (version >= 1),
                 parent_version INTEGER,
                 shared_controls_json VARCHAR NOT NULL,
+                requirement_plan_hash VARCHAR NOT NULL,
+                meaning_hash VARCHAR NOT NULL,
                 content_hash VARCHAR NOT NULL,
+                created_by_issuer VARCHAR NOT NULL,
+                created_by_subject VARCHAR NOT NULL,
+                created_by_display_name VARCHAR NOT NULL,
                 created_at VARCHAR NOT NULL,
-                PRIMARY KEY (cutover_plan_id, version)
+                PRIMARY KEY (cutover_plan_id, version),
+                UNIQUE (cutover_plan_id, meaning_hash)
             );
 
             CREATE TABLE cutover_plan_recipe (
@@ -703,17 +747,37 @@ def _initialize_migration_registry(
                     REFERENCES cutover_plan_revision(cutover_plan_id, version)
             );
 
+            CREATE TABLE migration_run_cutover_plan (
+                migration_run_id VARCHAR PRIMARY KEY REFERENCES
+                    migration_run_identity(migration_run_id),
+                cutover_plan_id VARCHAR NOT NULL,
+                cutover_plan_revision INTEGER NOT NULL,
+                plan_content_hash VARCHAR NOT NULL,
+                bound_at VARCHAR NOT NULL,
+                FOREIGN KEY (cutover_plan_id, cutover_plan_revision)
+                    REFERENCES cutover_plan_revision(cutover_plan_id, version)
+            );
+
             CREATE TABLE cutover_plan_qualification (
                 qualification_id VARCHAR PRIMARY KEY,
                 project_id VARCHAR NOT NULL REFERENCES
                     migration_project_identity(project_id),
                 cutover_plan_id VARCHAR NOT NULL,
                 cutover_plan_revision INTEGER NOT NULL,
+                plan_content_hash VARCHAR NOT NULL,
                 test_run_id VARCHAR NOT NULL REFERENCES
                     migration_run_identity(migration_run_id),
                 application_ids_json VARCHAR NOT NULL,
+                application_qualification_ids_json VARCHAR NOT NULL,
+                target_binding_hash VARCHAR NOT NULL,
+                requirement_plan_hash VARCHAR NOT NULL,
                 integrated_evidence_hash VARCHAR NOT NULL,
-                status VARCHAR NOT NULL,
+                evidence_storage_key VARCHAR NOT NULL,
+                artifact_hash VARCHAR NOT NULL,
+                status VARCHAR NOT NULL CHECK (status = 'TEST_QUALIFIED'),
+                qualified_by_issuer VARCHAR NOT NULL,
+                qualified_by_subject VARCHAR NOT NULL,
+                qualified_by_display_name VARCHAR NOT NULL,
                 qualified_at VARCHAR NOT NULL,
                 FOREIGN KEY (cutover_plan_id, cutover_plan_revision)
                     REFERENCES cutover_plan_revision(cutover_plan_id, version)
@@ -728,6 +792,9 @@ def _initialize_migration_registry(
                 qualification_id VARCHAR NOT NULL
                     REFERENCES cutover_plan_qualification(qualification_id),
                 content_hash VARCHAR NOT NULL,
+                selected_by_issuer VARCHAR NOT NULL,
+                selected_by_subject VARCHAR NOT NULL,
+                selected_by_display_name VARCHAR NOT NULL,
                 selected_at VARCHAR NOT NULL,
                 FOREIGN KEY (cutover_plan_id, cutover_plan_revision)
                     REFERENCES cutover_plan_revision(cutover_plan_id, version)

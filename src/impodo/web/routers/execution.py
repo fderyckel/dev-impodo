@@ -21,6 +21,7 @@ from ...connectors import ConnectorError
 from ...odoo_writer import OdooWriteError
 from ...odoo_readback import OdooReadbackError
 from ...models import OdooReadIdentity, OdooWriteIdentity
+from ...migration_foundation import MigrationConflictError
 from ...projects import WorkspaceState, OdooConnectionMode, ProjectError
 from ...secrets import SecretStoreError
 from ...workspace_errors import WorkspaceError
@@ -278,6 +279,17 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 f"/workspaces/{project_id}/load/review",
                 status_code=303,
             )
+        try:
+            context.cutover_plans.assert_application_can_execute(
+                project_id,
+                actor=context.actor,
+            )
+        except MigrationConflictError as error:
+            _flash(request, str(error))
+            return RedirectResponse(
+                f"/workspaces/{project_id}/load/review",
+                status_code=303,
+            )
         return render(request, project_id, step="confirm")
 
     @router.get(
@@ -321,6 +333,10 @@ def build_execution_router(context: WebContext) -> APIRouter:
                 context.actor,
                 Capability.EXPORT_PLAN_EXECUTE,
                 project_id=project_id,
+            )
+            context.cutover_plans.assert_application_can_execute(
+                project_id,
+                actor=context.actor,
             )
             batch_rows = validated_create_batch_rows(_text(form, "batch_rows"))
             preview = context.execution.current_preview(project_id)
@@ -403,6 +419,7 @@ def build_execution_router(context: WebContext) -> APIRouter:
         except (
             AuthorizationError,
             ConnectorError,
+            MigrationConflictError,
             OdooWriteError,
             ProjectError,
             SecretStoreError,

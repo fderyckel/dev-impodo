@@ -41,7 +41,7 @@ the same source package.
 
 **Migration Project**  
 The business and governance root for one migration effort. It owns
-DataVersion, run, workspace, Recipe-membership, and future CutoverPlan
+DataVersion, run, workspace, Recipe-membership, and CutoverPlan
 lineages; it can exist with no Recipe.
 
 **DataVersion**  
@@ -66,6 +66,20 @@ plan, application order, and integrated status.
 An isolated technical working area that references selected DataVersion
 datasets and contains current mapping and operational evidence. It is not the
 Migration Project.
+
+**CutoverPlan**
+A Project-scoped versioned plan that pins exact Recipe revisions, dependency
+order, writable-field ownership, unioned requirements, and shared controls.
+It contains no source rows, credentials, or Production authority.
+
+**Integrated qualification**
+Immutable proof that every application in one exact CutoverPlan revision was
+prepared, compared, loaded, read back, and verified in dependency order on one
+Test run. Qualification is not Production approval.
+
+**Rollout candidate**
+The exact qualified CutoverPlan revision selected by the data manager for a
+future latest-data run. Selection records intent but grants no write authority.
 
 **TargetBinding**  
 Non-secret run evidence identifying one exact Odoo target, purpose, version,

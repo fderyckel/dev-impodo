@@ -10,8 +10,9 @@ status: current
 
 One Project-owned Test `MigrationRun` coordinates several exact
 `RecipeRevision` applications over one accepted Test `DataVersion` and one
-reviewed Odoo 19 target. M4 plans and materializes those applications. It does
-not execute them or qualify a CutoverPlan.
+reviewed Odoo 19 target. M4 plans and materializes those applications. M5
+binds the run to one exact CutoverPlan revision and may qualify only complete
+ordered execution and reconciliation evidence.
 
 ## Run-owned evidence
 
@@ -72,13 +73,18 @@ once per Recipe.
 ## Qualification boundary
 
 `READY` means M4 produced compatible fresh application drafts. It is not
-execution success, Recipe qualification, integrated CutoverPlan
-qualification, rollout selection, or Production authority. Those decisions
-begin in M5 and later phases.
+execution success or qualification. M5 qualification requires exact current
+evidence from every application, passing Project shared controls, and proof
+that each dependency reconciled before its downstream execution began.
+
+One immutable per-application qualification and one integrated CutoverPlan
+qualification publish together. Rollout selection is a separate Project
+operation. Neither Test qualification nor selection is Production authority.
 
 ## Verification
 
 - `tests/test_migration_project_phase_m4_multi_recipe_runs.py`
+- `tests/test_migration_project_phase_m5_cutover_qualification.py`
 - `tests/test_migration_project_phase_m3_project_authoring.py`
 - `tests/test_migration_project_phase_m2_source_packages.py`
 
@@ -88,4 +94,4 @@ begin in M5 and later phases.
 - [Data-manager guide](../../user/guides/integrated-test-runs.md)
 - [Project lifecycle](project-lifecycle.md)
 - [Evidence lifecycle](evidence-lifecycle.md)
-
+- [Cutover plan lifecycle](cutover-plan-lifecycle.md)

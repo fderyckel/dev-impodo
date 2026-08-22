@@ -122,6 +122,30 @@ stages:
       - docs/developer/contracts/project-lifecycle.md
       - docs/developer/contracts/evidence-lifecycle.md
 
+  - id: integrated-qualification
+    order: 8
+    label: Integrated Test qualification
+    navigation: false
+    user_doc: docs/user/guides/qualify-integrated-test.md
+    developer_doc: docs/developer/workflow/08-integrated-qualification.md
+    router_modules:
+      - src/impodo/web/routers/cutover_plans.py
+    templates:
+      - src/impodo/web/templates/project_integrated_qualification.html
+    code_references:
+      - src/impodo/application/cutover_plan_service.py::CutoverPlanService
+      - src/impodo/application/cutover_plan_service.py::WorkspaceIntegratedQualificationEvidenceReader
+      - src/impodo/adapters/duckdb/cutover_plan_repository.py::CutoverPlanRepository
+      - src/impodo/adapters/protected_project_evidence_store.py::ProtectedProjectEvidenceStore
+      - src/impodo/migration_cutover.py::CutoverPlanRevision
+      - src/impodo/web/routers/execution.py::build_execution_router
+    tests:
+      - tests/test_migration_project_phase_m5_cutover_qualification.py
+    contracts:
+      - docs/developer/contracts/cutover-plan-lifecycle.md
+      - docs/developer/contracts/integrated-run-lifecycle.md
+      - docs/developer/contracts/execution-and-reconciliation.md
+
   - id: odoo
     order: 2
     label: Odoo data

@@ -58,8 +58,9 @@ active product-delivery focus.
 The current browser uses `MigrationProject` as the business root, lets a
 Project exist without a Recipe, makes DataVersion the owner of the complete
 source package, and applies several exact Project-scoped Recipe revisions
-through one planned Test MigrationRun. Phase M5 must qualify one exact
-integrated CutoverPlan before rollout work continues.
+through one planned Test MigrationRun. Phase M5 now qualifies one exact
+integrated CutoverPlan and records rollout selection separately. Phase M6 must
+create the fresh Production application before rollout can continue.
 
 The implementation must retain the current portable Recipe compiler, fresh
 Test and Production evidence, credential separation, Odoo 19 boundaries,
@@ -72,7 +73,7 @@ No deferred product track becomes current while this plan is active. Narrow
 maintenance, security, data-loss, regression, and performance fixes required
 to preserve the current workflow remain in scope.
 
-**Phase status, 2026-08-22:** Phases M0 through M4 are complete. The [Phase M0
+**Phase status, 2026-08-22:** Phases M0 through M5 are complete. The [Phase M0
 contracts](migration-projects-phase-m0-contracts.md) freeze the target
 ownership and integrated-plan rules. The [Phase M1 persistence
 foundation](migration-projects-phase-m1-foundation.md) implements the clean
@@ -87,7 +88,11 @@ Project-first browser, one-off authoring, and optional Recipe publication. The
 [Phase M4 implementation](migration-projects-phase-m4-multi-recipe-runs.md)
 adds one run-owned target and union requirement plan, isolated Recipe
 applications, dependency and write-collision validation, fresh mapping drafts,
-and bounded integrated status. Phase M5 is next.
+and bounded integrated status. The [Phase M5
+implementation](migration-projects-phase-m5-cutover-qualification.md) adds
+immutable CutoverPlan revisions, ordered exact Test qualification, dependency
+write guards, protected evidence, and separate rollout selection. Phase M6 is
+next.
 
 ## Completed product priority — Recipe test-to-production reuse
 

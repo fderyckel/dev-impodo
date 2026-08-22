@@ -238,12 +238,31 @@ class MigrationRunPlanningRepository:
         available = {
             item.name: item for item in (run_bundle.datasets if run_bundle else ())
         }
-        datasets = tuple(
-            available[str(requirement["name"])]
-            for requirement in requirements
-            if str(requirement["name"]) in available
+        datasets = []
+        for stored in requirements:
+            requirement = ReferenceRequirement(
+                name=str(stored["name"]),
+                content_hash=str(stored["reference_hash"]),
+            )
+            if content_hash(requirement.to_dict()) != str(stored["content_hash"]):
+                raise MigrationConflictError(
+                    "Recipe application reference requirement is inconsistent"
+                )
+            dataset = available.get(requirement.name)
+            if dataset is None or dataset.content_hash != requirement.content_hash:
+                raise MigrationConflictError(
+                    "MigrationRun reference evidence does not satisfy the application"
+                )
+            datasets.append(dataset)
+        return ReferenceBundle(
+            project_id=workspace_id,
+            datasets=tuple(
+                sorted(
+                    datasets,
+                    key=lambda item: (item.reference_id, item.version),
+                )
+            ),
         )
-        return ReferenceBundle(project_id=workspace_id, datasets=datasets)
 
     def is_application_workspace(self, workspace_id: str) -> bool:
         """Check the registry linkage without opening the workspace store."""
@@ -284,18 +303,35 @@ class MigrationRunPlanningRepository:
                 [str(row[0])],
             )
         schema = self.get_run_target_schema(str(row[1]))
-        required_models = {str(item["model"]) for item in requirements}
+        parsed_requirements = []
+        for stored in requirements:
+            requirement = OdooModelRequirement(
+                model=str(stored["model"]),
+                fields=tuple(json.loads(str(stored["fields_json"]))),
+            )
+            if content_hash(requirement.to_dict()) != str(stored["content_hash"]):
+                raise MigrationConflictError(
+                    "Recipe application Odoo requirement is inconsistent"
+                )
+            parsed_requirements.append(requirement)
+        required_models = {item.model for item in parsed_requirements}
         models = tuple(item for item in schema.models if item.name in required_models)
+        schema_fields = {
+            model.name: {field.name for field in model.fields} for model in models
+        }
+        if len(models) != len(required_models) or any(
+            not set(requirement.fields).issubset(
+                schema_fields.get(requirement.model, set())
+            )
+            for requirement in parsed_requirements
+        ):
+            raise MigrationConflictError(
+                "MigrationRun target evidence does not satisfy the application"
+            )
         projection_hash = content_hash(
             {
                 "application_id": str(row[0]),
-                "requirements": [
-                    {
-                        "fields": json.loads(str(item["fields_json"])),
-                        "model": str(item["model"]),
-                    }
-                    for item in requirements
-                ],
+                "requirements": [item.to_dict() for item in parsed_requirements],
                 "run_schema_hash": schema.content_hash,
                 "workspace_id": workspace_id,
             }
@@ -506,6 +542,7 @@ class MigrationRunPlanningRepository:
                 if by_recipe[recipe_id].status
                 not in {
                     RecipeApplicationStatus.RECONCILED,
+                    RecipeApplicationStatus.QUALIFIED,
                     RecipeApplicationStatus.FAILED,
                 }
             ),

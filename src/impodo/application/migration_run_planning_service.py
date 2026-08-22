@@ -24,6 +24,7 @@ from ..migration_foundation import (
     required_text,
     utc_now,
 )
+from ..migration_cutover import CutoverWriteOwnership
 from ..migration_projects import MigrationProjectService
 from ..migration_run_planning import (
     IntegratedRunBundle,
@@ -97,6 +98,7 @@ class MigrationRunPlanningService:
         source_projections: WorkspaceSourceProjectionService,
         workspace_states: ProjectService,
         compiler: ProjectRecipeApplicationCompiler,
+        cutover_plans,
         authorization: AuthorizationPolicy,
     ) -> None:
         self.projects = projects
@@ -107,6 +109,7 @@ class MigrationRunPlanningService:
         self.source_projections = source_projections
         self.workspace_states = workspace_states
         self.compiler = compiler
+        self.cutover_plans = cutover_plans
         self.authorization = authorization
 
     def review_test_run(
@@ -324,8 +327,8 @@ class MigrationRunPlanningService:
                 f"{first.message} {first.recovery_action}"
             )
         now = utc_now()
-        run_id = str(uuid4())
-        target_binding_id = str(uuid4())
+        run_id = self._child_operation(operation_id, "migration-run")
+        target_binding_id = self._child_operation(operation_id, "target-binding")
         required_reference_names = {
             item.name for item in review.reference_requirements
         }
@@ -515,7 +518,26 @@ class MigrationRunPlanningService:
                     event_type="INTEGRATED_TEST_RUN_READY",
                     actor=actor,
                 )
-        return self.repository.commit_provisioning(operation_id)
+        committed = self.repository.commit_provisioning(operation_id)
+        self.cutover_plans.ensure_for_run(
+            project_id=project_id,
+            migration_run_id=committed.run.migration_run_id,
+            requirement_plan=committed.requirement_plan,
+            write_ownership=tuple(
+                sorted(
+                    CutoverWriteOwnership(
+                        recipe_id=item.selection.recipe_id,
+                        model=model,
+                        field=field,
+                    )
+                    for item in review.applications
+                    for model, field in item.write_claims
+                )
+            ),
+            operation_id=self._child_operation(operation_id, "cutover-plan"),
+            actor=actor,
+        )
+        return committed
 
     def target_schema_from_workspace(
         self,

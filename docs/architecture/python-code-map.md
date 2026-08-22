@@ -27,6 +27,7 @@ the historical `project.duckdb` filename or `WorkspaceState` type name.
 | Publish optional Recipes | `ProjectRecipePublicationService` | `ProjectRecipeRepository`, protected Recipe store |
 | Plan an integrated Test run | `MigrationRunPlanningService` | `MigrationRunPlanningRepository`, Project run routes |
 | Materialize a fresh Recipe application | `ProjectRecipeApplicationCompiler` | one isolated workspace and run-aware target projections |
+| Version and qualify an integrated plan | `CutoverPlanService` | `CutoverPlanRepository`, protected Project evidence, qualification routes |
 
 `web/app.py` composes these boundaries. It does not compose the superseded
 Recipe-root list, creation, deletion, Test-application, Production-application,
@@ -96,6 +97,23 @@ Project identity, workspace identity, run identity, or cutover authority.
    service.
 6. The run page reads status and issues through bounded registry queries and
    does not open every workspace.
+7. `CutoverPlanRepository.ensure_for_run` reuses unchanged plan meaning or
+   appends a new unqualified revision and binds the run exactly.
+
+## Integrated qualification trace
+
+1. The qualification route resolves the run's exact CutoverPlan revision.
+2. `WorkspaceIntegratedQualificationEvidenceReader` reads current mapping,
+   preparation, quality, comparison, execution, and reconciliation evidence
+   from each application without contacting Odoo.
+3. `CutoverPlanService` checks package completeness, full application
+   membership, shared controls, and dependency time order.
+4. `CutoverPlanRepository` encrypts application and integrated evidence, then
+   publishes all qualification rows in one restart-safe registry transaction.
+5. A separate operation selects only a qualification for the current plan
+   revision. It creates no Production authority.
+6. Before any downstream write probe, `execution.py` asks the service to prove
+   current verified reconciliation for every predecessor.
 
 ## Existing workspace workflow
 
@@ -133,5 +151,6 @@ separate from read capability.
 - `tests/test_migration_project_phase_m2_source_packages.py`
 - `tests/test_migration_project_phase_m3_project_authoring.py`
 - `tests/test_migration_project_phase_m4_multi_recipe_runs.py`
+- `tests/test_migration_project_phase_m5_cutover_qualification.py`
 - `tests/test_recipe_representative_shapes.py`
 - `tests/test_preparation_jobs.py`

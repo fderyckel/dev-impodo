@@ -50,6 +50,10 @@ from ..application.migration_project_authoring_service import (
 from ..application.migration_run_planning_service import (
     MigrationRunPlanningService,
 )
+from ..application.cutover_plan_service import (
+    CutoverPlanService,
+    WorkspaceIntegratedQualificationEvidenceReader,
+)
 from ..application.project_recipe_application_compiler import (
     ProjectRecipeApplicationCompiler,
 )
@@ -74,6 +78,7 @@ from ..artifacts import ArtifactStore, LocalArtifactStore
 from ..derived_entities import DerivedEntityWorkspaceService
 from ..intake import SourceIntakeService
 from ..inspection import SourceInspectionService
+from ..incompatible_project_storage import prepare_incompatible_project_storage
 from ..jobs import InlineJobDispatcher, JobDispatcher
 from ..local_odoo_reader import LocalOdooMetadataReader
 from ..local_stack import LocalStackService
@@ -93,6 +98,7 @@ from ..adapters.duckdb.project_recipe_repository import ProjectRecipeRepository
 from ..adapters.duckdb.migration_run_planning_repository import (
     MigrationRunPlanningRepository,
 )
+from ..adapters.duckdb.cutover_plan_repository import CutoverPlanRepository
 from ..adapters.duckdb.run_aware_schema_repository import (
     RunAwareSchemaRepository,
 )
@@ -129,6 +135,9 @@ from ..adapters.duckdb.transformation_impact_repository import (
     TransformationImpactRepository,
 )
 from ..adapters.protected_recipe_store import ProtectedRecipeStore
+from ..adapters.protected_project_evidence_store import (
+    ProtectedProjectEvidenceStore,
+)
 from ..projects import (
     WorkspaceState,
     OdooConnectionMode,
@@ -183,6 +192,7 @@ from .routers.preflight import build_preflight_router
 from .routers.execution import build_execution_router
 from .routers.preparation import build_preparation_router
 from .routers.integrated_runs import build_integrated_runs_router
+from .routers.cutover_plans import build_cutover_plans_router
 from .routers.migration_projects import build_migration_projects_router
 from .routers.workspace_setup import build_workspace_setup_router
 from .routers.quality import build_quality_router
@@ -234,6 +244,7 @@ def create_local_app(
     function opens no project and contacts no Odoo target while composing.
     """
 
+    unavailable_projects = prepare_incompatible_project_storage(project_root)
     foundation_database = MigrationFoundationDatabase(
         project_root,
         lock_wait_timeout_seconds=duckdb_lock_wait_timeout_seconds,
@@ -292,6 +303,10 @@ def create_local_app(
     protected_recipe_store = ProtectedRecipeStore(
         project_root,
         resolved_secret_store,
+    )
+    cutover_plan_repository = CutoverPlanRepository(
+        foundation_repository,
+        ProtectedProjectEvidenceStore(project_root, resolved_secret_store),
     )
     project_recipe_repository = ProjectRecipeRepository(
         foundation_repository,
@@ -426,6 +441,7 @@ def create_local_app(
         ),
         workspace_states=projects,
         compiler=project_recipe_application_compiler,
+        cutover_plans=cutover_plan_repository,
         authorization=resolved_authorization,
     )
     quality = QualityService(
@@ -497,6 +513,21 @@ def create_local_app(
         reconciliation_repository,
         resolved_authorization,
     )
+    cutover_plans = CutoverPlanService(
+        projects=migration_projects,
+        data_versions=data_versions,
+        run_planning=run_planning_repository,
+        repository=cutover_plan_repository,
+        evidence_reader=WorkspaceIntegratedQualificationEvidenceReader(
+            mappings=mapping_repository,
+            staging=staging_repository,
+            quality=quality_repository,
+            preflight=preflight,
+            execution=execution_repository,
+            reconciliation=reconciliation,
+        ),
+        authorization=resolved_authorization,
+    )
     preparation_jobs = (
         PreparationJobManager(project_root) if preparation_jobs_enabled else None
     )
@@ -529,6 +560,7 @@ def create_local_app(
             quality_repository,
             transformation_impact_repository,
         ),
+        unavailable_projects=unavailable_projects,
         migration_projects=migration_projects,
         data_versions=data_versions,
         migration_runs=migration_runs,
@@ -537,6 +569,7 @@ def create_local_app(
         project_recipes=project_recipes,
         recipe_publication=recipe_publication,
         run_planning=run_planning,
+        cutover_plans=cutover_plans,
         data_version_source_projection=data_version_source_projection,
         projects=projects,
         intake=SourceIntakeService(projects, resolved_artifacts),
@@ -671,6 +704,7 @@ def create_local_app(
             request,
             "project_list.html",
             projects=context.migration_projects.list(actor=context.actor),
+            unavailable_projects=context.unavailable_projects,
             error=str(error),
             status_code=409,
         )
@@ -679,6 +713,7 @@ def create_local_app(
         build_lifecycle_router(context),
         build_migration_projects_router(context),
         build_integrated_runs_router(context),
+        build_cutover_plans_router(context),
         build_workspace_setup_router(context),
         build_target_router(context),
         build_sources_router(context),

@@ -81,9 +81,9 @@ fresh draft when the issue can be reviewed in that workspace.
 ## What Complete means
 
 All selected Recipes appear in the validated order, each with a distinct
-application workspace. The run shows one shared Test data version and one
-shared Odoo target review. Qualification and rollout selection are Phase M5,
-so M4 does not call this Test result qualified.
+application workspace. The run shows one shared Test data version, one shared
+Odoo target review, and the exact Cutover plan revision created for the run.
+Planning alone does not call the Test result qualified.
 
 ## What changes and what does not
 
@@ -108,9 +108,9 @@ plan. Earlier Ready status does not transfer.
 
 ## Next stage
 
-Review each application issue and mapping draft. M4 stops at planning and
-fresh materialization; integrated execution and CutoverPlan qualification
-begin in M5.
+Complete matching, preparation, comparison, load, and verified read-back in
+each application workspace. Follow dependency order, then
+[qualify the integrated Test](qualify-integrated-test.md).
 
 ## Related documentation
 

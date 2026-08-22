@@ -25,6 +25,21 @@
     </dl>
   </section>
 
+  <section class="form-card" aria-labelledby="qualification-title">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Cutover plan revision {{ plan_revision.version }}</p>
+        <h2 id="qualification-title">Integrated Test qualification</h2>
+        {% if qualification %}
+          <p>This exact plan revision and Test run are qualified{% if selection and selection.qualification_id == qualification.qualification_id %} and selected as the rollout candidate{% endif %}.</p>
+        {% else %}
+          <p>Review all application outcomes together after every load has been verified in the required order.</p>
+        {% endif %}
+      </div>
+    </div>
+    <a class="button" href="/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/qualification">Review integrated qualification</a>
+  </section>
+
   <section class="overview-stage-list" aria-labelledby="application-order-title">
     <div class="section-heading">
       <div>
@@ -37,7 +52,7 @@
       {% for application in applications %}
         {% set recipe = recipes[application.recipe_id] %}
         {% set application_issues = issues[application.application_id] %}
-        <li class="overview-stage {% if application.status.value == 'READY' %}complete{% else %}current{% endif %}">
+        <li class="overview-stage {% if application.status.value in ('READY', 'RECONCILED', 'QUALIFIED') %}complete{% else %}current{% endif %}">
           <div class="overview-stage-number">{{ loop.index }}</div>
           <div class="overview-stage-copy">
             <h3>{{ recipe.display_name }} · Recipe v{{ application.recipe_revision }}</h3>

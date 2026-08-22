@@ -24,7 +24,8 @@ follow the implemented workspace stages:
 6. [Load into Odoo](workflow/06-load-into-odoo.md)
 
 For Project-level reuse after Recipe publication, read
-[Integrated multi-Recipe Test runs](workflow/07-integrated-test-runs.md).
+[Integrated multi-Recipe Test runs](workflow/07-integrated-test-runs.md), then
+[Integrated Test qualification](workflow/08-integrated-qualification.md).
 
 Each page maps visible behavior to routes, application services, durable
 evidence, invalidation rules, and focused tests. The machine-readable ownership
@@ -38,6 +39,7 @@ routes, services, implementation status, performance risks, and focused tests.
 - [Optional Recipe publication](contracts/recipe-lifecycle.md)
 - [Project and workspace lifecycle](contracts/project-lifecycle.md)
 - [Integrated Test run lifecycle](contracts/integrated-run-lifecycle.md)
+- [Cutover plan lifecycle](contracts/cutover-plan-lifecycle.md)
 - [Workflow evidence lifecycle](contracts/evidence-lifecycle.md)
 - [Canonical staging](contracts/canonical-staging.md)
 - [Preflight](contracts/preflight.md)

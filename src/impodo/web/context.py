@@ -36,6 +36,7 @@ from ..application.migration_project_authoring_service import (
 from ..application.migration_run_planning_service import (
     MigrationRunPlanningService,
 )
+from ..application.cutover_plan_service import CutoverPlanService
 from ..application.project_recipe_publication_service import (
     ProjectRecipePublicationService,
 )
@@ -60,6 +61,7 @@ from ..connectors import (
 from ..derived_entities import DerivedEntityWorkspaceService
 from ..intake import SourceIntakeService
 from ..inspection import SourceInspectionService
+from ..incompatible_project_storage import UnavailableProjectSummary
 from ..jobs import JobDispatcher
 from ..local_odoo_reader import (
     LocalOdooMetadataReader,
@@ -125,6 +127,7 @@ class WebContext:
     """
 
     queries: BrowserQueryService
+    unavailable_projects: tuple[UnavailableProjectSummary, ...]
     migration_projects: MigrationProjectService
     data_versions: DataVersionService
     migration_runs: MigrationRunService
@@ -133,6 +136,7 @@ class WebContext:
     project_recipes: ProjectRecipeService
     recipe_publication: ProjectRecipePublicationService
     run_planning: MigrationRunPlanningService
+    cutover_plans: CutoverPlanService
     data_version_source_projection: WorkspaceDataVersionSourceService
     projects: ProjectService
     intake: SourceIntakeService

@@ -18,6 +18,7 @@ from impodo.adapters.duckdb.migration_foundation_database import (
 from impodo.adapters.duckdb.migration_foundation_repository import (
     MigrationFoundationRepository,
 )
+from impodo.adapters.duckdb.cutover_plan_repository import CutoverPlanRepository
 from impodo.adapters.duckdb.migration_run_planning_repository import (
     MigrationRunPlanningRepository,
 )
@@ -29,6 +30,9 @@ from impodo.adapters.duckdb.migration_workspace_state_repository import (
 )
 from impodo.adapters.duckdb.project_recipe_repository import ProjectRecipeRepository
 from impodo.adapters.protected_recipe_store import ProtectedRecipeStore
+from impodo.adapters.protected_project_evidence_store import (
+    ProtectedProjectEvidenceStore,
+)
 from impodo.application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
 )
@@ -68,7 +72,11 @@ from impodo.domain.coverage import (
 from impodo.domain.recipe_applications import RecipeControlValues
 from impodo.domain.schema.governance import SchemaGovernance
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.migration_foundation import MigrationOperationState, utc_now
+from impodo.migration_foundation import (
+    MigrationConflictError,
+    MigrationOperationState,
+    utc_now,
+)
 from impodo.migration_projects import MigrationProjectService
 from impodo.migration_run_planning import (
     MigrationRunPlanIssue,
@@ -663,7 +671,8 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
             creation_request_id=str(uuid4()),
         )
         self._replace_and_freeze(self.bundle.data_version, expected_package_revision=1)
-        protected = ProtectedRecipeStore(self.root, MemorySecretStore())
+        self.secret_store = MemorySecretStore()
+        protected = ProtectedRecipeStore(self.root, self.secret_store)
         recipe_repository = ProjectRecipeRepository(self.foundation, protected)
         self.recipe_service = ProjectRecipeService(
             recipe_repository,
@@ -704,6 +713,10 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
         )
         self._replace_and_freeze(self.test_data_version)
         self.planning_repository = MigrationRunPlanningRepository(self.foundation)
+        self.cutover_repository = CutoverPlanRepository(
+            self.foundation,
+            ProtectedProjectEvidenceStore(self.root, self.secret_store),
+        )
         self.planning = MigrationRunPlanningService(
             projects=self.projects,
             data_versions=self.data_versions,
@@ -716,6 +729,7 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
             ),
             workspace_states=self.workspace_states,
             compiler=self.compiler,
+            cutover_plans=self.cutover_repository,
             authorization=self.authorization,
         )
         self.schema = self._schema()
@@ -978,6 +992,19 @@ class MigrationProjectPhaseM4Tests(unittest.TestCase):
         )
         self.assertEqual(customer_projection.datasets, (reference,))
         self.assertEqual(product_projection.datasets, ())
+        with self.database.connect(self.foundation.registry_path) as connection:
+            connection.execute(
+                "UPDATE recipe_application_reference_requirement "
+                "SET content_hash = ? WHERE application_id = ?",
+                [
+                    content_hash("tampered requirement"),
+                    customer_application.application_id,
+                ],
+            )
+        with self.assertRaises(MigrationConflictError):
+            self.planning_repository.get_workspace_reference_bundle(
+                customer_application.workspace_id
+            )
 
     def test_write_collision_blocks_before_run_or_workspace_creation(self):
         envelope = self.recipe_service.read_revision(
